@@ -92,108 +92,239 @@ func splitRuntimeBuiltins(specs []toolmeta.ActionTool, newTool func(pkgplugins.T
 	return out
 }
 
+// builtinToolGroup is the one composition-time declaration for a generated
+// family. Metadata is kept separate from runtime construction because some
+// families expose a complete static inventory while only a runtime subset is
+// executable in a runner (for example Skill and Library).
+type builtinToolGroup struct {
+	metadata []toolmeta.ActionTool
+	runtime  func(builtinToolDeps) []agent.BuiltinTool
+}
+
+func settingsToolAvailable(d builtinToolDeps, adminOnly bool) toolAvailable {
+	return settingspolicy.Available(adminOnly, d.SettingsAdmin, d.SettingsAgents)
+}
+
+// builtinToolGroups keeps family membership in one list. The runtime
+// projection intentionally remains explicit in each entry so ordering,
+// availability, wrappers, and nil-service behavior stay visible at the
+// composition seam.
+func builtinToolGroups() []builtinToolGroup {
+	return []builtinToolGroup{
+		{
+			metadata: memory.ActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				// One Recall per deployment, one registered tool per action: the
+				// provider's capabilities are probed once, so they belong to the
+				// deployment rather than to a call. The lane a call takes is still
+				// chosen per turn.
+				recall := memory.NewRecall(d.Memory, d.Recall, d.GroupRecall)
+				return splitBuiltins(memory.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return memory.NewTool(recall, spec)
+				}, agent.BuiltinToolAvailable)
+			},
+		},
+		// Skill's runtime projection is assembled with the active sandbox in
+		// commands.go; keep its complete generated inventory here for metadata.
+		{metadata: skill.SkillActionTools()},
+		{
+			// notify is hand-written, so it has no generated metadata family. Its
+			// position is still part of the builtin runtime ordering.
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				if notifyTool := notify.NewTool(d.Notifier); notifyTool != nil {
+					return []agent.BuiltinTool{{Tool: notifyTool}}
+				}
+				return nil
+			},
+		},
+		{
+			metadata: goal.ActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(goal.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return goal.NewTool(d.Goal, spec)
+				}, agent.BuiltinToolAvailable)
+			},
+		},
+		{
+			metadata: sessionaccess.ActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(sessionaccess.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return sessionaccess.NewTool(d.Session, spec)
+				}, func(ctx context.Context, params agent.RunnerParams) (bool, error) {
+					baseline, err := agent.BuiltinToolAvailable(ctx, params)
+					if err != nil {
+						return false, err
+					}
+					return params.GroupID == "" && baseline, nil
+				})
+			},
+		},
+		{
+			metadata: library.LibraryActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(library.RuntimeActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return library.NewTool(d.Library, spec)
+				}, libraryToolAvailable)
+			},
+		},
+		{
+			metadata: library.SettingsLibraryActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitRuntimeBuiltins(library.SettingsLibraryActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
+					return settingspolicy.Wrap(library.NewRuntimeManagementTool(d.Library, build.Runtime, spec), d.SettingsAgents, d.SettingsAdmin)
+				}, func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return library.NewRuntimeManagementTool(d.Library, nil, spec)
+				}, settingsToolAvailable(d, false))
+			},
+		},
+		{
+			metadata: skill.SettingsSkillActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitRuntimeBuiltins(skill.SettingsSkillActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
+					return settingspolicy.Wrap(skill.NewRuntimeManagementTool(d.SkillManagement, build.Runtime, spec), d.SettingsAgents, d.SettingsAdmin)
+				}, func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return skill.NewRuntimeManagementTool(d.SkillManagement, nil, spec)
+				}, settingsToolAvailable(d, false))
+			},
+		},
+		{
+			metadata: scheduler.ActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(scheduler.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return scheduler.NewTool(d.Scheduler, spec)
+				}, agent.BuiltinToolAvailable)
+			},
+		},
+		{
+			metadata: workflowpkg.ActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(workflowpkg.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return workflowpkg.NewTool(d.Workflow, spec)
+				}, agent.BuiltinToolAvailable)
+			},
+		},
+		{
+			metadata: connections.ActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(connections.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return connections.NewTool(d.Credentials, spec)
+				}, oauthToolAvailable(d.Credentials))
+			},
+		},
+		{
+			metadata: email.ActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				builtins := splitBuiltins(email.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return email.NewTool(d.Email, spec)
+				}, emailToolAvailable(d.Vault))
+				for i := range builtins {
+					// This declaration follows the same EMAIL_CONFIG check as
+					// Available. The Profile only exposes it after that
+					// authoritative check returned false.
+					builtins[i].UnavailableReason = agent.ToolUnavailableReasonEmailConfigRequired
+				}
+				return builtins
+			},
+		},
+		{
+			metadata: sharepkg.ActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(sharepkg.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return sharepkg.NewTool(d.Share, spec)
+				}, agent.BuiltinToolAvailable)
+			},
+		},
+		{
+			metadata: recally.ActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitRuntimeBuiltins(recally.ActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
+					return recally.NewRuntimeTool(d.Recally, build.Runtime, spec)
+				}, func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return recally.NewTool(d.Recally, spec)
+				}, agent.BuiltinToolAvailable)
+			},
+		},
+		{
+			metadata: vault.ActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				if d.Vault == nil {
+					return nil
+				}
+				return splitBuiltins(vault.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return vault.NewTool(d.Vault, d.Credentials, spec)
+				}, agent.BuiltinToolAvailable)
+			},
+		},
+		{
+			metadata: agent.SettingsAgentActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(agent.SettingsAgentActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return settingspolicy.Wrap(agent.NewManagementTool(spec, d.AgentManagement), d.SettingsAgents, d.SettingsAdmin)
+				}, settingsToolAvailable(d, false))
+			},
+		},
+		{
+			metadata: agent.SettingsAgentToolActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(agent.SettingsAgentToolActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return settingspolicy.Wrap(agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta, d.MCPCatalog), d.SettingsAgents, d.SettingsAdmin)
+				}, settingsToolAvailable(d, false))
+			},
+		},
+		{
+			metadata: controlplane.SettingsProviderActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(controlplane.SettingsProviderActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return settingspolicy.Wrap(controlplane.NewProviderManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
+				}, settingsToolAvailable(d, true))
+			},
+		},
+		{
+			metadata: controlplane.SettingsDefaultModelActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(controlplane.SettingsDefaultModelActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return settingspolicy.Wrap(controlplane.NewDefaultModelManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
+				}, settingsToolAvailable(d, true))
+			},
+		},
+		{
+			metadata: controlplane.SettingsEmbeddingSettingActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(controlplane.SettingsEmbeddingSettingActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return settingspolicy.Wrap(controlplane.NewEmbeddingSettingManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
+				}, settingsToolAvailable(d, true))
+			},
+		},
+		{
+			metadata: controlplane.SettingsPluginActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(controlplane.SettingsPluginActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return settingspolicy.Wrap(controlplane.NewPluginManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
+				}, settingsToolAvailable(d, true))
+			},
+		},
+		{
+			metadata: mcp.SettingsMcpActionTools(),
+			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
+				return splitBuiltins(mcp.SettingsMcpActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
+					return settingspolicy.Wrap(mcp.NewManagementTool(spec, d.MCPAccess), d.SettingsAgents, d.SettingsAdmin)
+				}, settingsToolAvailable(d, false))
+			},
+		},
+	}
+}
+
 // newBuiltinTools returns the builtin tools in the order they are offered to the
-// runner. A nil Vault omits the vault tools, the one dependency whose absence
-// removes a tool rather than merely gating it.
+// runner. A nil Notifier omits notify and a nil Vault omits the vault tools;
+// other missing services leave their static definitions in the inventory and
+// report availability or execution errors at their existing boundaries.
 func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
-	settingsAvailable := func(adminOnly bool) toolAvailable {
-		return settingspolicy.Available(adminOnly, d.SettingsAdmin, d.SettingsAgents)
-	}
-	// One Recall per deployment, one registered tool per action: the provider's
-	// capabilities are probed once, so they belong to the deployment rather than
-	// to a call. The lane a call takes is still chosen per turn.
-	memoryRecall := memory.NewRecall(d.Memory, d.Recall, d.GroupRecall)
-	builtins := splitBuiltins(memory.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return memory.NewTool(memoryRecall, spec)
-	}, agent.BuiltinToolAvailable)
-	if notifyTool := notify.NewTool(d.Notifier); notifyTool != nil {
-		builtins = append(builtins, agent.BuiltinTool{Tool: notifyTool})
-	}
-	// A split family is one tool per action: the provider validates each call
-	// against an exact schema instead of a union that accepts every action's
-	// fields.
-	builtins = append(builtins, splitBuiltins(goal.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return goal.NewTool(d.Goal, spec)
-	}, agent.BuiltinToolAvailable)...)
-	// The session tools reach another session's transcript, so they stay out of
-	// group turns where the caller's identity is not one user's.
-	builtins = append(builtins, splitBuiltins(sessionaccess.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return sessionaccess.NewTool(d.Session, spec)
-	}, func(ctx context.Context, params agent.RunnerParams) (bool, error) {
-		baseline, err := agent.BuiltinToolAvailable(ctx, params)
-		if err != nil {
-			return false, err
+	var builtins []agent.BuiltinTool
+	for _, family := range builtinToolGroups() {
+		if family.runtime != nil {
+			builtins = append(builtins, family.runtime(d)...)
 		}
-		return params.GroupID == "" && baseline, nil
-	})...)
-	builtins = append(builtins, splitBuiltins(library.RuntimeActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return library.NewTool(d.Library, spec)
-	}, libraryToolAvailable)...)
-	builtins = append(builtins, splitRuntimeBuiltins(library.SettingsLibraryActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(library.NewRuntimeManagementTool(d.Library, build.Runtime, spec), d.SettingsAgents, d.SettingsAdmin)
-	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return library.NewRuntimeManagementTool(d.Library, nil, spec)
-	}, settingsAvailable(false))...)
-	builtins = append(builtins, splitRuntimeBuiltins(skill.SettingsSkillActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(skill.NewRuntimeManagementTool(d.SkillManagement, build.Runtime, spec), d.SettingsAgents, d.SettingsAdmin)
-	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return skill.NewRuntimeManagementTool(d.SkillManagement, nil, spec)
-	}, settingsAvailable(false))...)
-	builtins = append(builtins, splitBuiltins(scheduler.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return scheduler.NewTool(d.Scheduler, spec)
-	}, agent.BuiltinToolAvailable)...)
-	builtins = append(builtins, splitBuiltins(workflowpkg.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return workflowpkg.NewTool(d.Workflow, spec)
-	}, agent.BuiltinToolAvailable)...)
-	builtins = append(builtins, splitBuiltins(connections.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return connections.NewTool(d.Credentials, spec)
-	}, oauthToolAvailable(d.Credentials))...)
-	emailBuiltins := splitBuiltins(email.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return email.NewTool(d.Email, spec)
-	}, emailToolAvailable(d.Vault))
-	for i := range emailBuiltins {
-		// This declaration follows the same EMAIL_CONFIG check as Available. The
-		// Profile only exposes it after that authoritative check returned false.
-		emailBuiltins[i].UnavailableReason = agent.ToolUnavailableReasonEmailConfigRequired
 	}
-	builtins = append(builtins, emailBuiltins...)
-	builtins = append(builtins, splitBuiltins(sharepkg.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return sharepkg.NewTool(d.Share, spec)
-	}, agent.BuiltinToolAvailable)...)
-	builtins = append(builtins, splitRuntimeBuiltins(recally.ActionTools(), func(build pkgplugins.ToolBuildContext, spec toolmeta.ActionTool) pkgtools.Tool {
-		return recally.NewRuntimeTool(d.Recally, build.Runtime, spec)
-	}, func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return recally.NewTool(d.Recally, spec)
-	}, agent.BuiltinToolAvailable)...)
-	if d.Vault != nil {
-		builtins = append(builtins, splitBuiltins(vault.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-			return vault.NewTool(d.Vault, d.Credentials, spec)
-		}, agent.BuiltinToolAvailable)...)
-	}
-	// Settings tools stay cold behind Code Mode, but are always part of the
-	// production inventory. Missing domain wiring fails on Execute rather than
-	// making a deployment silently advertise a partial family.
-	builtins = append(builtins, splitBuiltins(agent.SettingsAgentActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(agent.NewManagementTool(spec, d.AgentManagement), d.SettingsAgents, d.SettingsAdmin)
-	}, settingsAvailable(false))...)
-	builtins = append(builtins, splitBuiltins(agent.SettingsAgentToolActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta, d.MCPCatalog), d.SettingsAgents, d.SettingsAdmin)
-	}, settingsAvailable(false))...)
-	builtins = append(builtins, splitBuiltins(controlplane.SettingsProviderActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(controlplane.NewProviderManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
-	}, settingsAvailable(true))...)
-	builtins = append(builtins, splitBuiltins(controlplane.SettingsDefaultModelActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(controlplane.NewDefaultModelManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
-	}, settingsAvailable(true))...)
-	builtins = append(builtins, splitBuiltins(controlplane.SettingsEmbeddingSettingActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(controlplane.NewEmbeddingSettingManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
-	}, settingsAvailable(true))...)
-	builtins = append(builtins, splitBuiltins(controlplane.SettingsPluginActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(controlplane.NewPluginManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
-	}, settingsAvailable(true))...)
-	builtins = append(builtins, splitBuiltins(mcp.SettingsMcpActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-		return settingspolicy.Wrap(mcp.NewManagementTool(spec, d.MCPAccess), d.SettingsAgents, d.SettingsAdmin)
-	}, settingsAvailable(false))...)
 	return builtins
 }
 
@@ -201,17 +332,13 @@ func newBuiltinTools(d builtinToolDeps) []agent.BuiltinTool {
 // so that the selector registry and any test that asserts on real tool names
 // read from the same source.
 func generatedFamilies() [][]toolmeta.ActionTool {
-	return [][]toolmeta.ActionTool{
-		goal.ActionTools(), scheduler.ActionTools(), workflowpkg.ActionTools(),
-		connections.ActionTools(), email.ActionTools(), sharepkg.ActionTools(),
-		vault.ActionTools(), recally.ActionTools(),
-		sessionaccess.ActionTools(), skill.SkillActionTools(), skill.SettingsSkillActionTools(),
-		memory.ActionTools(), library.LibraryActionTools(), library.SettingsLibraryActionTools(),
-		agent.SettingsAgentActionTools(), agent.SettingsAgentToolActionTools(),
-		controlplane.SettingsProviderActionTools(), controlplane.SettingsDefaultModelActionTools(),
-		controlplane.SettingsEmbeddingSettingActionTools(), controlplane.SettingsPluginActionTools(),
-		mcp.SettingsMcpActionTools(),
+	var families [][]toolmeta.ActionTool
+	for _, group := range builtinToolGroups() {
+		if len(group.metadata) > 0 {
+			families = append(families, group.metadata)
+		}
 	}
+	return families
 }
 
 // newToolMetaRegistry declares this build's generated tools for the name-only

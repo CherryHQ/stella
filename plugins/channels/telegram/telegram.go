@@ -15,7 +15,6 @@ import (
 
 	tele "gopkg.in/telebot.v4"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -27,14 +26,6 @@ const (
 	groupProvisionFailureTTL    = 30 * time.Second
 	maxProvisionTrackingEntries = 1024
 )
-
-type groupMemberProvisioner interface {
-	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
-}
-
-type threadGroupMemberProvisioner interface {
-	EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, legacyPlatformGroupID, channelID string) error
-}
 
 // logger returns the package logger, always using the current default handler.
 // This must be a function (not a package-level var) because the default handler
@@ -98,9 +89,7 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	if registrar, ok := handler.(channel.BotRegistrar); ok && bot.Me.Username != "" {
 		registrar.RegisterBotIdentity(channel.PlatformTelegram, bot.Me.Username, cfg.InstanceID)
 	}
-	if registrar, ok := handler.(interface {
-		RegisterGroupPublisher(string, internalchannel.GroupPublisher)
-	}); ok {
+	if registrar, ok := handler.(channel.GroupPublisherRegistrar); ok {
 		registrar.RegisterGroupPublisher(b.Name(), b)
 	}
 
@@ -136,12 +125,10 @@ func (b *Bot) Stop() {
 // Finalize removes routing registrations after accepted work has drained.
 func (b *Bot) Finalize() {
 	b.finalizeOnce.Do(func() {
-		if registrar, ok := b.handler.(interface {
-			UnregisterBotIdentity(string, string, string)
-		}); ok && b.bot.Me.Username != "" {
+		if registrar, ok := b.handler.(channel.BotIdentityUnregistrar); ok && b.bot.Me.Username != "" {
 			registrar.UnregisterBotIdentity(channel.PlatformTelegram, b.bot.Me.Username, b.cfg.InstanceID)
 		}
-		if registrar, ok := b.handler.(interface{ UnregisterGroupPublisher(string) }); ok {
+		if registrar, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
 			registrar.UnregisterGroupPublisher(b.Name())
 		}
 	})
@@ -260,7 +247,7 @@ func (b *Bot) ensureGroupMember(chatID, topicID string) bool {
 		defer cancel()
 		var err error
 		if topicID != "" {
-			provisioner, ok := b.handler.(threadGroupMemberProvisioner)
+			provisioner, ok := b.handler.(channel.ThreadGroupMemberProvisioner)
 			if !ok {
 				b.warnGroupRejectionOnce(cacheKey, "thread_provisioner_unavailable", nil)
 				return false, nil
@@ -271,7 +258,7 @@ func (b *Bot) ensureGroupMember(chatID, topicID string) bool {
 			// first topic that receives a message.
 			err = provisioner.EnsurePlatformThreadGroupMember(ctx, channel.PlatformTelegram, chatID, topicID, "", b.Name())
 		} else {
-			provisioner, ok := b.handler.(groupMemberProvisioner)
+			provisioner, ok := b.handler.(channel.GroupMemberProvisioner)
 			if !ok {
 				b.warnGroupRejectionOnce(cacheKey, "provisioner_unavailable", nil)
 				return false, nil

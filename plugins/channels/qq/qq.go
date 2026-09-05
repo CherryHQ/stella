@@ -15,7 +15,6 @@ import (
 	"github.com/tencent-connect/botgo/token"
 	"golang.org/x/oauth2"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -56,9 +55,7 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		handler: handler,
 		cfg:     cfg,
 	}
-	if registrar, ok := handler.(interface {
-		RegisterGroupPublisher(string, internalchannel.GroupPublisher)
-	}); ok {
+	if registrar, ok := handler.(channel.GroupPublisherRegistrar); ok {
 		registrar.RegisterGroupPublisher(b.Name(), b)
 	}
 
@@ -122,7 +119,7 @@ func (b *Bot) Stop() {
 // Finalize removes routing registrations after accepted work has drained.
 func (b *Bot) Finalize() {
 	b.finalizeOnce.Do(func() {
-		if registrar, ok := b.handler.(interface{ UnregisterGroupPublisher(string) }); ok {
+		if registrar, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
 			registrar.UnregisterGroupPublisher(b.Name())
 		}
 	})

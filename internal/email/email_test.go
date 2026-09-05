@@ -1,9 +1,14 @@
 package email_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/email"
 )
@@ -466,4 +471,36 @@ func TestConfigValidate(t *testing.T) {
 			t.Errorf("expected validation to pass with zero ports, got: %v", err)
 		}
 	})
+}
+
+func TestConfigValueBoundaries(t *testing.T) {
+	for _, value := range []string{"not-json", "[]", `"text"`, `{"accounts":[]}`} {
+		if err := email.ValidateConfigValue(value); err == nil || err.Error() != "invalid EMAIL_CONFIG: malformed JSON" {
+			t.Errorf("ValidateConfigValue(%q) = %v, want historical malformed JSON error", value, err)
+		}
+	}
+
+	if err := email.ValidateConfigValue(`{"accounts":{"work":{"imap_host":"imap.example.com","smtp_host":"smtp.example.com","username":"u","from":"u@example.com"}}}`); err != nil {
+		t.Fatalf("valid EMAIL_CONFIG rejected: %v", err)
+	}
+	if err := email.ValidateConfigValue(`{"accounts":{"work":{}}}`); err == nil || !strings.HasPrefix(err.Error(), "invalid email config: ") {
+		t.Fatalf("invalid EMAIL_CONFIG error = %v, want validation envelope", err)
+	}
+}
+
+func TestConfigAvailable(t *testing.T) {
+	ctx := context.Background()
+	available, err := email.ConfigAvailable(ctx, "u1", nil)
+	if err != nil || !available {
+		t.Fatalf("nil metadata reader: available=%v err=%v", available, err)
+	}
+	available, err = email.ConfigAvailable(ctx, "u1", func(context.Context, string) error { return pgx.ErrNoRows })
+	if err != nil || available {
+		t.Fatalf("missing metadata: available=%v err=%v", available, err)
+	}
+	lookupErr := errors.New("db down")
+	available, err = email.ConfigAvailable(ctx, "u1", func(context.Context, string) error { return lookupErr })
+	if available || !errors.Is(err, lookupErr) {
+		t.Fatalf("metadata failure: available=%v err=%v", available, err)
+	}
 }

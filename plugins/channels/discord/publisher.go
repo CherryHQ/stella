@@ -3,11 +3,11 @@ package discord
 import (
 	"context"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
-func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
-	stream, err := internalchannel.ValidateGroupReplay(ctx, req.Stream)
+func (b *Bot) Publish(ctx context.Context, req pkgchannel.GroupPublishRequest) error {
+	stream, err := pkgchannel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
 		return err
 	}

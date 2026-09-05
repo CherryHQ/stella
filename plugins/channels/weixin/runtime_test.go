@@ -161,7 +161,8 @@ func (fakeChannelHandler) SwitchAgent(context.Context, pkgchannel.IncomingMessag
 }
 
 type fakeNotificationRegistry struct {
-	names map[string]struct{}
+	names   map[string]struct{}
+	channel pkgchannel.Channel
 }
 
 func newFakeNotificationRegistry() *fakeNotificationRegistry {
@@ -169,6 +170,7 @@ func newFakeNotificationRegistry() *fakeNotificationRegistry {
 }
 
 func (r *fakeNotificationRegistry) Register(ch pkgchannel.Channel) {
+	r.channel = ch
 	r.names[ch.Name()] = struct{}{}
 }
 

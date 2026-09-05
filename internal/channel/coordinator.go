@@ -349,7 +349,7 @@ func (c *Coordinator) UnregisterBotName(platform, displayName, channelID string)
 	c.botRegistry.UnregisterName(platform, displayName, channelID)
 }
 
-func (c *Coordinator) RegisterGroupPublisher(channelID string, publisher GroupPublisher) {
+func (c *Coordinator) RegisterGroupPublisher(channelID string, publisher pkgchannel.GroupPublisher) {
 	if c.publisherRegistry == nil {
 		return
 	}
@@ -725,13 +725,13 @@ func (c *Coordinator) attachmentWorkspace(ctx context.Context, msg pkgchannel.In
 
 func (c *Coordinator) AdmitAssetSave(ctx context.Context, msg pkgchannel.IncomingMessage) error {
 	_, err := c.attachmentWorkspace(ctx, msg)
-	return err
+	return mapPublicAccessError(err)
 }
 
 func (c *Coordinator) SaveAsset(ctx context.Context, msg pkgchannel.IncomingMessage, fileName string, data []byte) (_ string, resultErr error) {
 	req, err := c.attachmentWorkspace(ctx, msg)
 	if err != nil {
-		return "", err
+		return "", mapPublicAccessError(err)
 	}
 	if len(data) > pkgchannel.MaxInboundAttachmentBytes {
 		return "", fmt.Errorf("attachment exceeds %d bytes", pkgchannel.MaxInboundAttachmentBytes)

@@ -11,7 +11,6 @@ import (
 
 	tele "gopkg.in/telebot.v4"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -55,7 +54,7 @@ func (r *telegramRequestCounter) RoundTrip(req *http.Request) (*http.Response, e
 
 func TestAttachmentResolutionErrorsDoNotFetchTelegramBytes(t *testing.T) {
 	for _, attachment := range []string{"photo", "document"} {
-		for _, resolveErr := range []error{internalchannel.ErrAgentAccessDenied, errors.New("resolver unavailable")} {
+		for _, resolveErr := range []error{pkgchannel.ErrAgentAccessDenied, errors.New("resolver unavailable")} {
 			t.Run(attachment+"/"+resolveErr.Error(), func(t *testing.T) {
 				requests := &telegramRequestCounter{}
 				bot, err := tele.NewBot(tele.Settings{

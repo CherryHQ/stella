@@ -16,7 +16,6 @@ import (
 	"github.com/open-dingtalk/dingtalk-stream-sdk-go/chatbot"
 	streamclient "github.com/open-dingtalk/dingtalk-stream-sdk-go/client"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -99,9 +98,7 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		))}
 	}
 	b.replyToWebhook = sendWebhookText
-	if registrar, ok := handler.(interface {
-		RegisterGroupPublisher(string, internalchannel.GroupPublisher)
-	}); ok {
+	if registrar, ok := handler.(channel.GroupPublisherRegistrar); ok {
 		registrar.RegisterGroupPublisher(b.Name(), b)
 	}
 	return b, nil
@@ -179,13 +176,11 @@ func (b *Bot) Finalize() {
 	clear(b.registeredBots)
 	b.mu.Unlock()
 	for _, botID := range botIDs {
-		if registrar, ok := b.handler.(interface {
-			UnregisterBotIdentity(string, string, string)
-		}); ok {
+		if registrar, ok := b.handler.(channel.BotIdentityUnregistrar); ok {
 			registrar.UnregisterBotIdentity(channel.PlatformDingTalk, botID, b.Name())
 		}
 	}
-	if registrar, ok := b.handler.(interface{ UnregisterGroupPublisher(string) }); ok {
+	if registrar, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
 		registrar.UnregisterGroupPublisher(b.Name())
 	}
 }
@@ -297,9 +292,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, webhook string) {
 }
 
 func (b *Bot) ensureGroupMember(ctx context.Context, groupID string) error {
-	provisioner, ok := b.handler.(interface {
-		EnsurePlatformGroupMember(context.Context, string, string, string) error
-	})
+	provisioner, ok := b.handler.(channel.GroupMemberProvisioner)
 	if !ok {
 		return nil
 	}
@@ -320,8 +313,8 @@ func (b *Bot) ensureGroupMember(ctx context.Context, groupID string) error {
 	return nil
 }
 
-func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
-	stream, err := internalchannel.ValidateGroupReplay(ctx, req.Stream)
+func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) error {
+	stream, err := channel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
 		return err
 	}

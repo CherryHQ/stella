@@ -91,7 +91,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	}
 	dispatcher := notify.NewDispatcher()
 	channelRuntimeServices := host.NewChannelRuntimeServices()
-	channelRuntimeServices.Set(context.Background(), testWeixinHandler{}, dispatcher)
+	channelRuntimeServices.Set(context.Background(), testWeixinHandler{}, dispatcher, nil)
 	t.Cleanup(auth.SetBcryptCostForTesting(bcrypt.MinCost))
 	runtimeCtx, cancelRuntime := context.WithCancel(context.Background())
 	t.Cleanup(cancelRuntime)

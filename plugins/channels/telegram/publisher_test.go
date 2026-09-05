@@ -16,7 +16,6 @@ import (
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
 	tele "gopkg.in/telebot.v4"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -95,7 +94,7 @@ func TestGroupPublisherSendsOneTopicMessage(t *testing.T) {
 		close(events)
 	}()
 
-	err := b.Publish(context.Background(), internalchannel.GroupPublishRequest{
+	err := b.Publish(context.Background(), channel.GroupPublishRequest{
 		PlatformGroupID:  "-100",
 		PlatformThreadID: "42",
 		ReplyTo:          "7",
@@ -130,7 +129,7 @@ func TestGroupPublisherRejectsStreamFailureWithoutPlatformSideEffect(t *testing.
 	events <- channel.Event{Err: errors.New("secret upstream detail")}
 	close(events)
 
-	err := b.Publish(context.Background(), internalchannel.GroupPublishRequest{
+	err := b.Publish(context.Background(), channel.GroupPublishRequest{
 		PlatformGroupID: "-100",
 		Stream:          &channel.ChatStream{Events: events},
 	})
@@ -148,7 +147,7 @@ func TestGroupPublisherReturnsFloodBeyondBound(t *testing.T) {
 	}}
 	b := newPublisherTestBot(t, fake)
 	started := time.Now()
-	err := b.Publish(context.Background(), internalchannel.GroupPublishRequest{PlatformGroupID: "-100"})
+	err := b.Publish(context.Background(), channel.GroupPublishRequest{PlatformGroupID: "-100"})
 	if err == nil {
 		t.Fatal("Publish accepted an exhausted flood error")
 	}

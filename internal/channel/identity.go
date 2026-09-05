@@ -12,9 +12,10 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/platform/config"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
-var ErrAgentAccessDenied = errors.New("you don't have access to this agent, contact an admin")
+var ErrAgentAccessDenied = pkgchannel.ErrAgentAccessDenied
 
 type ChatContext struct {
 	Platform  string

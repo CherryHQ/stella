@@ -22,6 +22,7 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 		Parent:        channelRuntime.ParentContext(),
 		Handler:       channelRuntime.Handler(),
 		Notifications: channelRuntime.Notifications(),
+		WrapHandler:   channelRuntime.WrapHandler(),
 		Log:           platform.Logger(),
 		NewChannel: func(cfg pkgchannel.DingTalkConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{

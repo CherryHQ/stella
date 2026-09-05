@@ -14,7 +14,6 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
-	"github.com/CherryHQ/stella/internal/platform/version"
 	"github.com/CherryHQ/stella/pkg/httpclient"
 )
 
@@ -47,12 +46,13 @@ type Client struct {
 	cdnBaseURL string
 	token      string
 	skRouteTag string
+	version    string
 	httpClient *resty.Client
 }
 
 // NewClient creates a new iLink API client.
 // skRouteTag is an optional routing hint sent via the SKRouteTag header; pass "" to omit it.
-func NewClient(baseURL, cdnBaseURL, token, skRouteTag string) *Client {
+func NewClient(baseURL, cdnBaseURL, token, skRouteTag, version string) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
@@ -64,6 +64,7 @@ func NewClient(baseURL, cdnBaseURL, token, skRouteTag string) *Client {
 		cdnBaseURL: cdnBaseURL,
 		token:      token,
 		skRouteTag: skRouteTag,
+		version:    version,
 		httpClient: httpclient.NewWithTimeout(defaultTimeout),
 	}
 }
@@ -105,7 +106,7 @@ func buildClientVersion(v string) uint32 {
 
 // buildBaseInfo returns a populated BaseInfo for all POST request bodies.
 func (c *Client) buildBaseInfo() BaseInfo {
-	v := version.Version
+	v := c.version
 	// When stella is built without ldflags version injection (dev builds), use the
 	// official plugin's DEFAULT_BOT_AGENT so backend attribution is meaningful.
 	botAgent := "OpenClaw"
@@ -128,7 +129,7 @@ func (c *Client) commonHeaders() map[string]string {
 		"Authorization":           "Bearer " + c.token,
 		"X-WECHAT-UIN":            randomWechatUIN(),
 		"iLink-App-Id":            iLinkAppID,
-		"iLink-App-ClientVersion": strconv.FormatUint(uint64(buildClientVersion(version.Version)), 10),
+		"iLink-App-ClientVersion": strconv.FormatUint(uint64(buildClientVersion(c.version)), 10),
 	}
 	if c.skRouteTag != "" {
 		headers["SKRouteTag"] = c.skRouteTag

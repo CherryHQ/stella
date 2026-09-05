@@ -15,19 +15,19 @@ import (
 // requires adding it here.
 type operationHandlerSurface interface {
 	pkgchannel.Handler
-	RegisterBotIdentity(platform, platformBotID, channelID string)
-	UnregisterBotIdentity(platform, platformBotID, channelID string)
-	RegisterBotName(platform, displayName, channelID string)
-	UnregisterBotName(platform, displayName, channelID string)
-	RegisterGroupPublisher(channelID string, publisher GroupPublisher)
-	UnregisterGroupPublisher(channelID string)
-	ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error
-	AdmitAssetSave(ctx context.Context, msg pkgchannel.IncomingMessage) error
-	SaveAsset(ctx context.Context, msg pkgchannel.IncomingMessage, fileName string, data []byte) (string, error)
-	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
-	EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, legacyPlatformGroupID, channelID string) error
-	ImportGroupHistory(ctx context.Context, messages []pkgchannel.IncomingMessage) error
-	RemovePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
+	pkgchannel.BotRegistrar
+	pkgchannel.BotNameRegistrar
+	pkgchannel.Provisioner
+	pkgchannel.AssetSaveAdmitter
+	pkgchannel.AssetSaver
+	pkgchannel.GroupPublisherRegistrar
+	pkgchannel.GroupPublisherUnregistrar
+	pkgchannel.BotIdentityUnregistrar
+	pkgchannel.BotNameUnregistrar
+	pkgchannel.GroupMemberProvisioner
+	pkgchannel.ThreadGroupMemberProvisioner
+	pkgchannel.GroupHistoryImporter
+	pkgchannel.GroupMemberRemover
 }
 
 // Keep the production wrapper from silently degrading to pass-through if the

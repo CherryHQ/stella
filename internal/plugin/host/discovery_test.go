@@ -169,7 +169,7 @@ func TestChannelRuntimeServicesExtension(t *testing.T) {
 
 	handler := &fakeChannelHandler{}
 	notifications := &fakeNotificationRegistry{}
-	services.Set(context.Background(), handler, notifications)
+	services.Set(context.Background(), handler, notifications, nil)
 
 	resolved := host.ChannelRuntime()
 	if resolved == nil {

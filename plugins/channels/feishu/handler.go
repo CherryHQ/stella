@@ -8,8 +8,6 @@ import (
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
-	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -281,7 +279,7 @@ User report:
 }
 
 func attachmentRejectionText(err error) string {
-	if errors.Is(err, internalchannel.ErrAgentAccessDenied) || errors.Is(err, agentaccess.ErrForbidden) {
+	if errors.Is(err, channel.ErrAgentAccessDenied) || errors.Is(err, channel.ErrAgentAccessForbidden) {
 		return "Guest chat currently supports text messages only."
 	}
 	return "Unable to process this attachment right now."

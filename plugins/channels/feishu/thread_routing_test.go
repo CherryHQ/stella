@@ -10,8 +10,6 @@ import (
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
-	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -479,7 +477,7 @@ func TestBotAuthoredMessageRequiresAuthoritativeSender(t *testing.T) {
 }
 
 func TestAttachmentResolverErrorsFailClosed(t *testing.T) {
-	for _, resolveErr := range []error{errors.New("resolver unavailable"), internalchannel.ErrAgentAccessDenied} {
+	for _, resolveErr := range []error{errors.New("resolver unavailable"), channel.ErrAgentAccessDenied} {
 		t.Run(resolveErr.Error(), func(t *testing.T) {
 			b, h, captured := newThreadRoutingBotWithHandler(t)
 			h.resolveUserRootFn = func(context.Context, channel.IncomingMessage) (string, error) {
@@ -495,7 +493,7 @@ func TestAttachmentResolverErrorsFailClosed(t *testing.T) {
 }
 
 func TestAttachmentRejectionText(t *testing.T) {
-	for _, err := range []error{internalchannel.ErrAgentAccessDenied, agentaccess.ErrForbidden} {
+	for _, err := range []error{channel.ErrAgentAccessDenied, channel.ErrAgentAccessForbidden} {
 		if got := attachmentRejectionText(err); got != "Guest chat currently supports text messages only." {
 			t.Fatalf("attachmentRejectionText(%v) = %q", err, got)
 		}

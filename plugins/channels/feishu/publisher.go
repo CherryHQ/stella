@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"strings"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
-func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
+func (b *Bot) Publish(ctx context.Context, req pkgchannel.GroupPublishRequest) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	stream, err := internalchannel.ValidateGroupReplay(ctx, req.Stream)
+	stream, err := pkgchannel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
 		return err
 	}

@@ -26,12 +26,12 @@ func (h *fullSurfaceHandler) HandleIncoming(ctx context.Context, _ pkgchannel.In
 	return "ok", true, nil, nil
 }
 
-func (h *fullSurfaceHandler) RegisterBotIdentity(string, string, string)    {}
-func (h *fullSurfaceHandler) UnregisterBotIdentity(string, string, string)  {}
-func (h *fullSurfaceHandler) RegisterBotName(string, string, string)        {}
-func (h *fullSurfaceHandler) UnregisterBotName(string, string, string)      {}
-func (h *fullSurfaceHandler) RegisterGroupPublisher(string, GroupPublisher) {}
-func (h *fullSurfaceHandler) UnregisterGroupPublisher(string)               {}
+func (h *fullSurfaceHandler) RegisterBotIdentity(string, string, string)               {}
+func (h *fullSurfaceHandler) UnregisterBotIdentity(string, string, string)             {}
+func (h *fullSurfaceHandler) RegisterBotName(string, string, string)                   {}
+func (h *fullSurfaceHandler) UnregisterBotName(string, string, string)                 {}
+func (h *fullSurfaceHandler) RegisterGroupPublisher(string, pkgchannel.GroupPublisher) {}
+func (h *fullSurfaceHandler) UnregisterGroupPublisher(string)                          {}
 func (h *fullSurfaceHandler) ProvisionUser(context.Context, pkgchannel.ProvisionRequest) error {
 	return nil
 }
@@ -118,7 +118,7 @@ func TestWrapOperationHandlerPreservesOptionalInterfaces(t *testing.T) {
 		t.Fatalf("SaveAsset context value = %q, want call-scoped value", inner.assetCtx)
 	}
 	if _, ok := wrapped.(interface {
-		RegisterGroupPublisher(string, GroupPublisher)
+		RegisterGroupPublisher(string, pkgchannel.GroupPublisher)
 	}); !ok {
 		t.Error("wrapper dropped RegisterGroupPublisher")
 	}

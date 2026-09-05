@@ -30,6 +30,7 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 		Parent:        parent,
 		Handler:       handler,
 		Notifications: channelRuntime.Notifications(),
+		WrapHandler:   channelRuntime.WrapHandler(),
 		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
 				InstanceID:      cfg.InstanceID,

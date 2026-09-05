@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/vault"
 )
 
@@ -43,15 +41,10 @@ func emailToolAvailable(v emailConfigMetaGetter) func(context.Context, agent.Run
 		if v == nil {
 			return true, nil
 		}
-		_, err = v.GetScopedMeta(ctx, vault.ScopeUser, params.UserID, "", "EMAIL_CONFIG")
-		switch {
-		case err == nil:
-			return true, nil
-		case errors.Is(err, pgx.ErrNoRows):
-			return false, nil
-		default:
-			return false, fmt.Errorf("read email config: %w", err)
-		}
+		return email.ConfigAvailable(ctx, params.UserID, func(ctx context.Context, userID string) error {
+			_, err := v.GetScopedMeta(ctx, vault.ScopeUser, userID, "", email.ConfigName)
+			return err
+		})
 	}
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/CherryHQ/stella/internal/platform/version"
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/plugins/channels/weixin"
 )
@@ -20,7 +21,7 @@ func newWeixinRegistrar() server.WeixinRegistrar {
 }
 
 func (r weixinRegistrar) GetQRCode() (server.WeixinQRCode, error) {
-	qr, err := weixin.NewClient(r.baseURL, "", "", "").GetQRCode()
+	qr, err := weixin.NewClient(r.baseURL, "", "", "", version.Version).GetQRCode()
 	if err != nil {
 		return server.WeixinQRCode{}, err
 	}
@@ -31,7 +32,7 @@ func (r weixinRegistrar) GetQRCode() (server.WeixinQRCode, error) {
 }
 
 func (r weixinRegistrar) GetQRCodeStatus(qrcode string) (server.WeixinQRCodeStatus, error) {
-	st, err := weixin.NewClient(r.baseURL, "", "", "").GetQRCodeStatus(qrcode)
+	st, err := weixin.NewClient(r.baseURL, "", "", "", version.Version).GetQRCodeStatus(qrcode)
 	if err != nil {
 		return server.WeixinQRCodeStatus{}, err
 	}

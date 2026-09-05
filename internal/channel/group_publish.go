@@ -67,7 +67,7 @@ type publishJob struct {
 	row       sqlc.CtxGroupDispatch
 	trigger   sqlc.CtxGroupMessage
 	state     sqlc.CtxGroupState
-	publisher GroupPublisher
+	publisher pkgchannel.GroupPublisher
 	response  groupResponse
 	envelope  GroupOutboxEnvelope
 	// acceptedMessageID is the canonical row this publish is rendering. It is
@@ -104,7 +104,7 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 			return row, fmt.Errorf("mark publish started: %w", err)
 		}
 	}
-	err := job.publisher.Publish(ctx, GroupPublishRequest{
+	err := job.publisher.Publish(ctx, pkgchannel.GroupPublishRequest{
 		Platform:        job.state.Platform,
 		PlatformGroupID: job.state.PlatformGroupID, PlatformThreadID: job.state.PlatformThreadID,
 		ReplyTo: nullStringValue(job.trigger.PlatformMessageID), Stream: replayGroupResponse(job.response),
@@ -133,7 +133,7 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 	return row, nil
 }
 
-func (p *groupPublishDriver) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch) (GroupPublisher, error) {
+func (p *groupPublishDriver) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch) (pkgchannel.GroupPublisher, error) {
 	if publisher, ok := p.publishers.Get(row.ReplyChannelID); ok {
 		return publisher, nil
 	}

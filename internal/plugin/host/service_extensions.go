@@ -102,18 +102,21 @@ type ChannelPlatform struct {
 	parent        context.Context
 	handler       pkgchannel.Handler
 	notifications pkgplugins.ChannelRegistry
+	wrapHandler   pkgplugins.HandlerWrapper
+	buildVersion  string
 }
 
 func NewChannelRuntimeServices() *ChannelPlatform {
 	return &ChannelPlatform{}
 }
 
-func (s *ChannelPlatform) Set(parent context.Context, handler pkgchannel.Handler, notifications pkgplugins.ChannelRegistry) {
+func (s *ChannelPlatform) Set(parent context.Context, handler pkgchannel.Handler, notifications pkgplugins.ChannelRegistry, wrapper pkgplugins.HandlerWrapper) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.parent = parent
 	s.handler = handler
 	s.notifications = notifications
+	s.wrapHandler = wrapper
 }
 
 func (s *ChannelPlatform) ParentContext() context.Context {
@@ -132,4 +135,22 @@ func (s *ChannelPlatform) Notifications() pkgplugins.ChannelRegistry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.notifications
+}
+
+func (s *ChannelPlatform) WrapHandler() pkgplugins.HandlerWrapper {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.wrapHandler
+}
+
+func (s *ChannelPlatform) SetBuildVersion(version string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.buildVersion = version
+}
+
+func (s *ChannelPlatform) BuildVersion() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.buildVersion
 }

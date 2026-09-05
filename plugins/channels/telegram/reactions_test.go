@@ -8,7 +8,6 @@ import (
 
 	tele "gopkg.in/telebot.v4"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -65,7 +64,7 @@ func TestPublishAcknowledgesThenClearsGroupTurn(t *testing.T) {
 	events <- channel.Event{Text: "done"}
 	close(events)
 
-	err := b.Publish(context.Background(), internalchannel.GroupPublishRequest{
+	err := b.Publish(context.Background(), channel.GroupPublishRequest{
 		PlatformGroupID: "-100",
 		ReplyTo:         "7",
 		Stream:          &channel.ChatStream{Events: events},
@@ -101,7 +100,7 @@ func TestPublishRejectsGroupStreamErrorWithoutReaction(t *testing.T) {
 	events <- channel.Event{Err: context.DeadlineExceeded}
 	close(events)
 
-	err := b.Publish(context.Background(), internalchannel.GroupPublishRequest{
+	err := b.Publish(context.Background(), channel.GroupPublishRequest{
 		PlatformGroupID: "-100",
 		ReplyTo:         "7",
 		Stream:          &channel.ChatStream{Events: events},
@@ -125,7 +124,7 @@ func TestPublishSkipsReactionsWithoutReplyTarget(t *testing.T) {
 	events <- channel.Event{Text: "done"}
 	close(events)
 
-	err := b.Publish(context.Background(), internalchannel.GroupPublishRequest{
+	err := b.Publish(context.Background(), channel.GroupPublishRequest{
 		PlatformGroupID: "-100",
 		Stream:          &channel.ChatStream{Events: events},
 	})

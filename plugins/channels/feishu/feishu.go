@@ -19,7 +19,6 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -140,9 +139,7 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	b.listChats = func(ctx context.Context, req *larkim.ListChatReq) (*larkim.ListChatResp, error) {
 		return b.client.Im.Chat.List(ctx, req)
 	}
-	if registrar, ok := handler.(interface {
-		RegisterGroupPublisher(string, internalchannel.GroupPublisher)
-	}); ok {
+	if registrar, ok := handler.(channel.GroupPublisherRegistrar); ok {
 		registrar.RegisterGroupPublisher(b.Name(), b)
 	}
 
@@ -298,20 +295,16 @@ func (b *Bot) Finalize() {
 	}
 	b.routingFinalized = true
 	if b.registeredBotID != "" {
-		if registrar, ok := b.handler.(interface {
-			UnregisterBotIdentity(string, string, string)
-		}); ok {
+		if registrar, ok := b.handler.(channel.BotIdentityUnregistrar); ok {
 			registrar.UnregisterBotIdentity(channel.PlatformFeishu, b.registeredBotID, b.cfg.InstanceID)
 		}
 	}
 	if b.registeredBotName != "" {
-		if registrar, ok := b.handler.(interface {
-			UnregisterBotName(string, string, string)
-		}); ok {
+		if registrar, ok := b.handler.(channel.BotNameUnregistrar); ok {
 			registrar.UnregisterBotName(channel.PlatformFeishu, b.registeredBotName, b.cfg.InstanceID)
 		}
 	}
-	if registrar, ok := b.handler.(interface{ UnregisterGroupPublisher(string) }); ok {
+	if registrar, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
 		registrar.UnregisterGroupPublisher(b.Name())
 	}
 }

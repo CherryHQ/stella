@@ -27,7 +27,7 @@ type BotRuntimeDeps[T any] struct {
 	// (a child of Parent that outlives the poll context) rather than the poller's
 	// Start context. This is what lets Quiesce stop polling without cancelling work
 	// already accepted. When nil, the handler is passed through unchanged.
-	WrapHandler func(pkgchannel.Handler, context.Context) pkgchannel.Handler
+	WrapHandler HandlerWrapper
 }
 
 type botManagedRuntime[T any] struct {

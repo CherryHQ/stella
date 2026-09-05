@@ -56,18 +56,15 @@ func (b *Bot) groupSenderAllowed(chatID string, senderIDs []string) bool {
 	return false
 }
 
-// groupMemberProvisioner is the subset of the coordinator needed for group
-// member management. Feishu type-asserts the handler for this.
-type groupMemberProvisioner interface {
-	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
-	RemovePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
-}
-
-type threadGroupMemberProvisioner interface {
-	EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, legacyPlatformGroupID, channelID string) error
-}
-
 const threadProvisionCacheLimit = 512
+
+// groupMemberProvisioner preserves Feishu's historical optional capability:
+// the handler must implement both lifecycle methods before either callback
+// uses it.
+type groupMemberProvisioner interface {
+	channel.GroupMemberProvisioner
+	channel.GroupMemberRemover
+}
 
 // ensureThreadGroupMember creates the thread-specific group row before its
 // first message reaches the dispatcher. Feishu has always used (chat_id,
@@ -76,7 +73,7 @@ func (b *Bot) ensureThreadGroupMember(ctx context.Context, chatID, rootID string
 	if chatID == "" || rootID == "" {
 		return nil
 	}
-	provisioner, ok := b.handler.(threadGroupMemberProvisioner)
+	provisioner, ok := b.handler.(channel.ThreadGroupMemberProvisioner)
 	if !ok {
 		return nil
 	}

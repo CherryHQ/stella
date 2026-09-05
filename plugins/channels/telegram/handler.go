@@ -10,8 +10,6 @@ import (
 
 	tele "gopkg.in/telebot.v4"
 
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
-	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -173,7 +171,7 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 }
 
 func (b *Bot) rejectAttachment(c tele.Context, err error) error {
-	if errors.Is(err, internalchannel.ErrAgentAccessDenied) || errors.Is(err, agentaccess.ErrForbidden) {
+	if errors.Is(err, channel.ErrAgentAccessDenied) || errors.Is(err, channel.ErrAgentAccessForbidden) {
 		return c.Send("Attachments are not supported in guest chat.")
 	}
 	return c.Send("Unable to process this attachment.")
