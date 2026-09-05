@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#MISE description="Run subprocess system journeys with freshly built embedded assets (CI)"
+#MISE depends=["generate:check", "build:embedded"]
+set -euo pipefail
+
+mise run build
+# Use the binary just built instead of compiling another server through go run.
+./dist/bin/stellad postgres download
+go test -tags system -count=1 -timeout 15m ./test/system/...

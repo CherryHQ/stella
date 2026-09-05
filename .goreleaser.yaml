@@ -90,4 +90,4 @@ release:
   prerelease: auto
   footer: |
     ---
-    **Full Changelog**: See [Changelog](https://github.com/CherryHQ/stella/blob/main/docs/content/docs/changelog.mdx) for categorized details.
+    **Full Changelog**: See [Changelog](https://github.com/CherryHQ/stella/blob/main/web/content/docs/changelog.mdx) for categorized details.

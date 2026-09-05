@@ -5,17 +5,15 @@ description: >-
   recompiles the whole Go module, re-downloads 576 npm packages, re-fetches
   dprint's WASM plugins, and re-downloads the PostgreSQL runtime.
 
-  Only the Go *build* cache is scoped per job. Everything else is byte-identical
-  across jobs, and the repository shares a 10 GB cache budget that these entries
-  can exhaust on their own — a duplicate copy is not free, it evicts something
-  another job needed.
+  Go objects are shared by compilation mode, not workflow name. Long-lived
+  branches refresh them after successful checks; PRs only restore them.
+  Download caches remain keyed by their immutable dependency inputs.
 
 inputs:
   scope:
     description: >-
-      Namespace for the Go build cache only. Jobs whose compiled objects differ
-      need different scopes: race-instrumented objects are a separate build
-      graph, so sharing a key would make those jobs evict each other every run.
+      Go compilation mode: plain, race, or windows. Cross builds restore plain
+      host objects and keep target objects local instead of caching every tag.
     required: true
   go:
     description: Cache GOCACHE and GOMODCACHE.
@@ -30,6 +28,14 @@ inputs:
     required: false
     default: "false"
 
+outputs:
+  go-build-path:
+    value: ${{ steps.go-paths.outputs.build }}
+    description: Go build cache directory for the successful branch writer.
+  go-build-key:
+    value: ${{ steps.go-build.outputs.cache-primary-key }}
+    description: Immutable key for this commit and compilation mode.
+
 runs:
   using: composite
   steps:
@@ -42,6 +48,7 @@ runs:
       run: |
         echo "build=$(mise exec -- go env GOCACHE)" >> "$GITHUB_OUTPUT"
         echo "mod=$(mise exec -- go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+        echo "version=$(mise exec -- go env GOVERSION)" >> "$GITHUB_OUTPUT"
 
     # Downloaded module source, identical for every job on a given go.sum.
     # Unscoped on purpose: this is the larger half of a Go cache, and scoping it
@@ -55,18 +62,19 @@ runs:
         restore-keys: |
           gomod-${{ runner.os }}-
 
-    # Compiled objects, which genuinely differ per job. restore-keys fall back
-    # progressively because this cache is content-addressed: a partial hit after
-    # a go.sum change still carries most of the saving.
-    - name: Cache Go build cache
+    # A new commit can add compiled objects even when dependencies are unchanged.
+    # Readers fall back to the newest compatible successful branch snapshot.
+    - name: Restore Go build cache
       if: inputs.go == 'true'
-      uses: actions/cache@v6
+      id: go-build
+      uses: actions/cache/restore@v6
       with:
         path: ${{ steps.go-paths.outputs.build }}
-        key: gobuild-${{ inputs.scope }}-${{ runner.os }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('go.sum') }}
+        key: gobuild-v2-${{ inputs.scope }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
         restore-keys: |
-          gobuild-${{ inputs.scope }}-${{ runner.os }}-${{ hashFiles('mise.toml') }}-
-          gobuild-${{ inputs.scope }}-${{ runner.os }}-
+          gobuild-v2-${{ inputs.scope }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-paths.outputs.version }}-${{ hashFiles('go.sum') }}-
+          gobuild-v2-${{ inputs.scope }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-paths.outputs.version }}-
+          gobuild-${{ inputs.scope == 'plain' && 'format' || inputs.scope }}-${{ runner.os }}-
 
     # Both pnpm store locations are listed because the path depends on the pnpm
     # version vp delegates to. A path that does not exist is skipped, so a wrong

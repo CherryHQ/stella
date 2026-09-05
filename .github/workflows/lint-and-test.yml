@@ -36,21 +36,25 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Restore toolchain caches
+        id: caches
         uses: ./.github/actions/toolchain-caches
         with:
-          scope: format
+          scope: plain
 
       - name: Generate code and check drift
         run: mise run generate:check
 
       - name: Test release source policy
-        run: bash .github/scripts/verify-release-source_test.sh
+        run: |
+          bash .github/scripts/verify-release-source_test.sh
+          bash .github/scripts/verify-ci-policy_test.sh
+          bash .github/scripts/copy-image-tags_test.sh
 
       - name: Run pre-commit hooks
         run: prek run --all-files
 
-  test:
-    name: Test
+  packages:
+    name: Package race and Web tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -64,9 +68,8 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Scoped "race": these objects are built with -race and must not share a
-      # build cache key with the Format job's plain ones.
       - name: Restore toolchain caches
+        id: caches
         uses: ./.github/actions/toolchain-caches
         with:
           scope: race
@@ -84,38 +87,12 @@ jobs:
           # Fail here, with the reason visible, rather than inside a test run.
           bwrap --unshare-pid --unshare-ipc --unshare-uts --dev-bind / / -- true
 
-      - name: Generate code and check drift
-        run: mise run generate:check
-
-      # go:embed snapshots web/static/dist at compile time, so this has to run
-      # before the test binaries are built. Without it the PWA build contract
-      # only gets checked at tag time, and a commit that breaks the Web UI's
-      # installability merges green.
-      - name: Build web assets
-        run: mise run build:web
-
-      # The race/coverage task covers Go and process tests; run frontend tests
-      # separately so a PR cannot merge with failing Web guards.
-      - name: Run frontend tests
-        run: mise run test:web
-
-      - name: Run package race/coverage and subprocess system tests
+      - name: Run package race/coverage and frontend tests
         run: mise run test:coverage:race
         env:
           STELLA_TEST_REQUIRE_BWRAP: "1"
-          # Keep the public Library allowlist tied to the exact Xberg bundle
-          # generated above instead of allowing real extraction tests to skip.
           STELLA_TEST_REQUIRE_PACKAGED_XBERG: "1"
           STELLA_TEST_REQUIRE_SPA: "1"
-
-      - name: Upload system test diagnostics
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: system-test-logs-${{ github.run_id }}-${{ github.run_attempt }}
-          path: dist/logs/testbed/
-          if-no-files-found: ignore
-          retention-days: 7
 
       - name: Prepare coverage report data
         run: |
@@ -158,6 +135,68 @@ jobs:
           path: coverage.out
           retention-days: 7
 
+      - name: Save successful branch Go cache
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.caches.outputs.go-build-path }}
+          key: ${{ steps.caches.outputs.go-build-key }}
+
+  system:
+    name: Linux subprocess system tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
+        with:
+          experimental: true
+          install: true
+          cache: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore toolchain caches
+        id: caches
+        uses: ./.github/actions/toolchain-caches
+        with:
+          scope: plain
+          pg: "true"
+      - name: Enable sandbox namespaces
+        run: |
+          sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --unshare-pid --unshare-ipc --unshare-uts --dev-bind / / -- true
+      - name: Run subprocess journeys
+        run: mise run test:system
+        env:
+          STELLA_TEST_REQUIRE_BWRAP: "1"
+          STELLA_TEST_REQUIRE_PACKAGED_XBERG: "1"
+          STELLA_TEST_REQUIRE_SPA: "1"
+      - name: Upload system diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: system-test-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/logs/testbed/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Save successful branch Go cache
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.caches.outputs.go-build-path }}
+          key: ${{ steps.caches.outputs.go-build-key }}
+
+  test:
+    name: Test
+    if: always()
+    needs: [packages, system]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every test lane
+        env:
+          PACKAGE_RESULT: ${{ needs.packages.result }}
+          SYSTEM_RESULT: ${{ needs.system.result }}
+        run: test "$PACKAGE_RESULT" = success && test "$SYSTEM_RESULT" = success
+
   windows-bundle:
     name: Windows compile-only portability
     runs-on: windows-latest
@@ -176,6 +215,7 @@ jobs:
 
       # No Node or lint work here: this job only compiles Go.
       - name: Restore toolchain caches
+        id: caches
         uses: ./.github/actions/toolchain-caches
         with:
           scope: windows
@@ -193,3 +233,10 @@ jobs:
 
       - name: Compile portable Home and Skill packages without running tests
         run: mise exec -- go test ./internal/platform/home/... ./internal/skill/... ./internal/reflect/... -run '^$'
+
+      - name: Save successful branch Go cache
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.caches.outputs.go-build-path }}
+          key: ${{ steps.caches.outputs.go-build-key }}

@@ -19,9 +19,23 @@ mise run eval:loop                        # Harbor 行为评估
 
 `mise run perf` 一次运行 `test/e2e/perf/render.spec.ts` 和 `load.spec.ts`，使用 testbed 内嵌的假模型。`mise run testbed:start` 和 `mise run testbed:stop` 保留给手工 API/浏览器探索。`test:web`、coverage、race 和 `eval:*` 是专门命令，不是额外的功能测试层。
 
-PR 必须通过的 Test 检查运行 `mise run test:coverage:race`：先构建服务端，运行
-带 race 检测和覆盖率的包测试，再运行不带 race 的真实进程系统测试。前端测试
-单独执行。系统日志在失败时也会上传，Linux 进程回归必须在打 tag 前接受检查。
+PR 必须通过的 `Test` 检查汇总两条并行通道。`test:coverage:race` 运行包内
+race/coverage 和前端测试；`test:system` 构建最新内嵌资源，再运行不带 race 的
+子进程系统测试。任一通道失败、取消或跳过，必需检查都会失败。两条通道都强制
+检查 Linux sandbox namespace 和打包资源，系统日志在失败时也会上传。
+`test:packages` 用于 release 的非 race 包测试和前端通道；本地完整测试入口仍是
+`mise run test`。
+
+Go 编译缓存按普通编译、race、Windows 共享。main 和维护发布分支的成功任务
+保存带提交标识的新快照；PR 和 tag 只恢复兼容快照，不重复保存大体积对象缓存。
+system 任务负责写普通缓存，包测试任务写 race，Windows 写自身缓存。依赖下载
+仍按不可变输入缓存。PR 缓存不能为其他 PR 预热，所以耗时需要区分命中和未命中；
+升级 Go 版本仍需冷编译。
+
+Docker 检查直接从干净 checkout 构建，由 Dockerfile 负责生成代码。main 为 PR
+和 release amd64 构建预热 registry builder 缓存；PR 将中间层导出到自身的 GHA
+缓存，并取消被后续提交替代的镜像运行。Docker 内部 cache mount 仍属于当前
+builder，不能把层缓存命中当成 Go 或 pnpm mount 内容已持久化。
 
 ## 写在哪
 

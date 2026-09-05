@@ -19,11 +19,27 @@ mise run eval:loop                        # Harbor behavior evaluation
 
 `mise run perf` runs both `test/e2e/perf/render.spec.ts` and `load.spec.ts`, with the testbed's embedded fake model. `mise run testbed:start` and `mise run testbed:stop` remain available for manual API and browser exploration. `test:web`, coverage, race, and `eval:*` tasks remain specialized commands rather than additional functional test layers.
 
-The required PR Test check runs `mise run test:coverage:race`: it builds the
-server, runs package tests with race detection and coverage, then runs the
-subprocess system suite without race instrumentation. Frontend tests run in a
-separate step. System logs are uploaded even on failure, so Linux process
-regressions are checked before tagging rather than first discovered by release CI.
+The required PR `Test` check joins two parallel jobs. `test:coverage:race`
+runs package race/coverage and frontend tests; `test:system` builds fresh embedded
+assets and runs the subprocess journeys without race instrumentation. Failure,
+cancellation, or skipping either job fails the required check. Both jobs require
+working Linux sandbox namespaces and packaged resources. System logs are uploaded
+on failure. `test:packages` runs the non-race package/Web lane in release CI;
+`mise run test` remains the complete local suite.
+
+Go build caches are shared by compilation mode (plain, race, Windows). Successful
+main and maintained-release branch jobs save a new commit-keyed snapshot; PR and
+tag jobs restore compatible snapshots without saving duplicate object caches.
+The system job writes the plain cache, the package job writes race, and Windows
+writes its own cache. Dependency downloads retain their immutable keys. PR caches
+cannot warm other PRs, so latency should be compared separately for cache hits and
+misses. A new Go version still requires a cold compilation.
+
+The Docker check builds directly from a clean checkout, with generation owned by
+the Dockerfile. main warms the registry builder cache used by PRs and release
+amd64 builds. PRs export intermediate layers to their GHA cache, and superseded PR
+image runs are cancelled. Cache mounts inside Docker remain local to the builder;
+the layer cache does not promise persistent Go or pnpm mount contents.
 
 ## Where to write tests
 

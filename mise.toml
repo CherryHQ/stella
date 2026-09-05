@@ -201,11 +201,22 @@ depends = ["pg:runtime:download"]
 run = "go test -race ./..."
 
 [tasks."test:coverage:race"]
-description = "Run package race/coverage tests and the subprocess system suite (CI)"
-depends = ["pg:runtime:download", "build"]
+description = "Run package race/coverage and frontend tests (CI)"
+depends = ["generate:check", "build:embedded"]
 run = """
+# go:embed must not race a still-running SPA build.
+go run ./cmd/stellad postgres download
 go test -race -coverprofile=coverage.out ./...
-go test -tags system -count=1 -timeout 15m ./test/system/...
+mise run test:web
+"""
+
+[tasks."test:packages"]
+description = "Run package Go and frontend tests without repeating system journeys (CI)"
+depends = ["generate:check", "build:embedded"]
+run = """
+go run ./cmd/stellad postgres download
+go test ./...
+mise run test:web
 """
 
 [tasks."test:e2e"]

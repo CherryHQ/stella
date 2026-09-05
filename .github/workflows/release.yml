@@ -3,6 +3,24 @@ name: Release
 on:
   push:
     tags: ["v*.*.*"]
+  # Changes to publication mechanics get a full, non-publishing rehearsal.
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - ".github/workflows/sandbox-docker.yml"
+      - ".github/actions/toolchain-caches/**"
+      - ".github/scripts/*image*"
+      - ".github/scripts/*release*"
+      - ".goreleaser.yaml"
+      - "Dockerfile"
+      - "plugins/sandbox/docker/Dockerfile"
+      - ".mise/tasks/release/**"
+      - "mise.toml"
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -30,6 +48,7 @@ jobs:
           fetch-depth: 0
 
       - name: Verify tag identity and release branch
+        if: github.event_name == 'push'
         env:
           EVENT_REF: ${{ github.ref }}
           EVENT_SHA: ${{ github.sha }}
@@ -72,13 +91,16 @@ jobs:
       - name: Restore toolchain caches
         uses: ./.github/actions/toolchain-caches
         with:
-          scope: release-verify
+          scope: plain
 
       - name: Generate code and check drift
         run: mise run generate:check
 
       - name: Test release source policy
-        run: bash .github/scripts/verify-release-source_test.sh
+        run: |
+          bash .github/scripts/verify-release-source_test.sh
+          bash .github/scripts/verify-ci-policy_test.sh
+          bash .github/scripts/copy-image-tags_test.sh
 
       - name: Check formatting and lint
         run: |
@@ -112,7 +134,7 @@ jobs:
       - name: Restore toolchain caches
         uses: ./.github/actions/toolchain-caches
         with:
-          scope: release-tests
+          scope: plain
           pg: "true"
 
       - name: Install bubblewrap
@@ -122,18 +144,11 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --unshare-pid --unshare-ipc --unshare-uts --dev-bind / / -- true
 
-      - name: Generate code and check drift
-        run: mise run generate:check
-
-      # go:embed snapshots web/static/dist at compile time. Build the SPA before
-      # test binaries so the PWA contract cannot silently skip.
-      - name: Build web assets
-        run: mise run build:web
-
-      - name: Run Go and Web tests
-        run: mise run test
+      - name: Run package Go and Web tests
+        run: mise run test:packages
         env:
           STELLA_TEST_REQUIRE_BWRAP: "1"
+          STELLA_TEST_REQUIRE_PACKAGED_XBERG: "1"
           STELLA_TEST_REQUIRE_SPA: "1"
 
   system:
@@ -159,7 +174,7 @@ jobs:
       - name: Restore toolchain caches
         uses: ./.github/actions/toolchain-caches
         with:
-          scope: release-system
+          scope: plain
           pg: "true"
 
       - name: Install bubblewrap
@@ -169,8 +184,12 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --unshare-pid --unshare-ipc --unshare-uts --dev-bind / / -- true
 
-      - name: Run tests (Go, web, system suite)
-        run: mise run test
+      - name: Run subprocess system journeys
+        run: mise run test:system
+        env:
+          STELLA_TEST_REQUIRE_BWRAP: "1"
+          STELLA_TEST_REQUIRE_PACKAGED_XBERG: "1"
+          STELLA_TEST_REQUIRE_SPA: "1"
 
       - name: Upload testbed diagnostics
         if: always()
@@ -181,41 +200,21 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  snapshot:
-    name: Release Snapshot
+  sandbox:
+    name: Sandbox candidate
     needs: source
-    runs-on: ubuntu-24.04
     permissions:
       contents: read
-    steps:
-      - name: Checkout tagged commit
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-
-      - name: Setup mise
-        uses: jdx/mise-action@v4
-        with:
-          experimental: true
-          install: true
-          cache: true
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Restore toolchain caches
-        uses: ./.github/actions/toolchain-caches
-        with:
-          scope: release-snapshot
-
-      - name: Check GoReleaser configuration
-        run: mise run release:check
-
-      - name: Build release snapshot
-        run: mise run release:snapshot
+      packages: write
+      id-token: write
+    uses: ./.github/workflows/sandbox-docker.yml
+    with:
+      candidate: true
+    secrets: inherit
 
   goreleaser:
     name: GoReleaser
-    needs: [quality, tests, system, snapshot]
+    needs: [quality, tests, system, docker, sandbox]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -239,21 +238,27 @@ jobs:
       - name: Restore toolchain caches
         uses: ./.github/actions/toolchain-caches
         with:
-          scope: release-goreleaser
+          scope: plain
 
+      - name: Check release configuration
+        run: mise run release:check
+
+      # Formal releases build all four targets once, after every validation and
+      # image build succeeded. PRs exercise the same configuration without writes.
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
+        if: github.event_name == 'push'
+        run: mise exec -- goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
+      - name: Rehearse four-platform release without publishing
+        if: github.event_name != 'push'
+        run: mise run release:snapshot
+
   docker:
     name: Docker Release
-    needs: [quality, tests, system, snapshot]
+    needs: source
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -284,6 +289,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Log into GitHub Container Registry
+        if: github.event_name == 'push'
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
@@ -295,27 +301,29 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: true
+          push: ${{ github.event_name == 'push' }}
           platforms: ${{ matrix.platform }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ github.ref_name }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-${{ matrix.suffix }}
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-${{ matrix.suffix }},mode=max
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}/{1}:buildcache-{2},mode=max', env.REGISTRY, env.IMAGE_NAME, matrix.suffix) || format('type=gha,scope=release-{0},mode=max', matrix.suffix) }}
           build-args: |
             VERSION=${{ github.ref_name }}
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          outputs: ${{ github.event_name == 'push' && format('type=image,name={0}/{1},push-by-digest=true,name-canonical=true,push=true', env.REGISTRY, env.IMAGE_NAME) || '' }}
 
       - name: Export digest
+        if: github.event_name == 'push'
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v7
         with:
           name: digests-${{ matrix.suffix }}
@@ -326,13 +334,19 @@ jobs:
   merge:
     name: Merge Docker Manifests
     runs-on: ubuntu-latest
-    needs: [goreleaser, docker]
+    needs: [goreleaser, docker, sandbox]
+    if: github.event_name == 'push'
 
     permissions:
       contents: read
       packages: write
 
     steps:
+      - name: Checkout publishing scripts
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
       - name: Download digests
         uses: actions/download-artifact@v8
         with:
@@ -361,10 +375,33 @@ jobs:
             type=semver,pattern={{raw}}
 
       - name: Create manifest list and push
+        env:
+          IMAGE_METADATA: ${{ steps.meta.outputs.json }}
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$IMAGE_METADATA") \
             $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+      - name: Extract sandbox tags
+        id: sandbox-meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/cherryhq/stella-sandbox
+          tags: |
+            type=sha,format=long
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, '-') }}
+            type=semver,pattern={{major}},enable=${{ !contains(github.ref_name, '-') }}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Publish validated sandbox aliases
+        env:
+          SANDBOX_DIGEST: ${{ needs.sandbox.outputs.digest }}
+          SANDBOX_METADATA: ${{ steps.sandbox-meta.outputs.json }}
+        run: |
+          tags=()
+          while IFS= read -r tag; do tags+=("-t" "$tag"); done < <(jq -r '.tags[]' <<< "$SANDBOX_METADATA")
+          docker buildx imagetools create "${tags[@]}" "ghcr.io/cherryhq/stella-sandbox@$SANDBOX_DIGEST"
 
       - name: Inspect stable image
         if: ${{ !contains(github.ref_name, '-') }}
@@ -381,8 +418,9 @@ jobs:
 
       - name: Copy manifest list to mirror registry
         if: env.ACR_REGISTRY != ''
+        env:
+          IMAGE_METADATA: ${{ steps.meta.outputs.json }}
         run: |
-          for source in $(jq -cr '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON"); do
-            target="${ACR_REGISTRY}/${ACR_IMAGE_NAME}:${source##*:}"
-            docker buildx imagetools create -t "$target" "$source"
-          done
+          tags=()
+          while IFS= read -r tag; do tags+=("${tag##*:}"); done < <(jq -r '.tags[]' <<< "$IMAGE_METADATA")
+          bash .github/scripts/copy-image-tags.sh "${REGISTRY}/${IMAGE_NAME}:${GITHUB_REF_NAME}" "${ACR_REGISTRY}/${ACR_IMAGE_NAME}" "${tags[@]}"
