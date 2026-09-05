@@ -7,7 +7,7 @@ before:
     # happened to put on PATH, which is how release binaries ended up embedding
     # an SPA built on a Node version no pull request ever tests. mise.toml pins
     # the toolchain in one place; go through it.
-    - mise run build:embedded
+    - mise run build:embedded:release
 
 builds:
   - id: stellad
