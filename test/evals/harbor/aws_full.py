@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the complete Terminal-Bench 2.1 Luna evaluation on disposable AWS compute.
+"""Run the complete Terminal-Bench 2.1 evaluation on disposable AWS compute.
 
 The command owns the whole lifecycle: local plan preflight, temporary IAM/S3/
 Secrets Manager/EC2 resources, SSM bootstrap, five ordered k=1 passes merged as
