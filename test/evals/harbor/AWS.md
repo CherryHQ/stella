@@ -76,6 +76,30 @@ does not produce a merged benchmark score. Compare throughput with failure and
 timeout counts before recommending a setting. Passing 64 workers establishes
 a tested lower bound on capacity, not the machine's absolute limit.
 
+For a short throughput sample on a larger worker, use:
+
+```bash
+mise run eval:tb21:aws -- --throughput --sample-minutes 10 --warmup environment --concurrency 32 --instance-type c7i.16xlarge --max-topup-rounds 0 --timeout-hours 3 --commit HEAD
+```
+
+This queues the 89 tasks once and stops the measured command after ten minutes,
+allowing up to ten more seconds for graceful termination. Host preparation and
+environment warm-up happen first and do not consume the sample budget. The
+sample records progress and scoreable evidence before cancellation. The
+`capacity-summary.json` status is `sampled` when the time limit ends a partial
+run; `completed` means all queued work finished within the window.
+
+Throughput samples retain the 8 GiB available-memory floor. Unattributed OOM
+counter changes are recorded, not used as a stop condition: a container can hit
+its own limit while host memory remains available. The older capacity staircase
+retains its explicit `--stop-on-oom` guard. Neither mode identifies OOM origin.
+
+Early completions favor short tasks. Do not extrapolate their rate into a full
+445-trial duration without completed-run workload evidence, startup costs, and
+slow-task tails. The current full runner also waits between its five passes;
+raising worker concurrency does not remove those barriers. This mode estimates
+throughput and resource pressure, not model quality or an exact completion time.
+
 The controller writes progress to `dist/evals/aws/<run-id>/journal.ndjson`.
 A closed stdout pipe does not stop evaluation or file logging. Cleanup is
 attempted even if failure reporting raises an exception. If cleanup is

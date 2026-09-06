@@ -10,6 +10,7 @@ export RUN_ID COMMIT REGION BUCKET SECRET_ARN MODEL_ID CONCURRENCY PASSES
 export EXPECTED_TASKS RUN_MODE MAX_TOPUP_ROUNDS INSTANCE_TYPE INSTANCE_ID AMI_ID AVAILABILITY_ZONE
 export CONTROLLER_COMMIT REMOTE_RUNNER_SHA256 MERGE_HELPER_SHA256 SMOKE_TASKSET_SHA256
 export WARMUP_MODE WARMUP_CONCURRENCY TOPUP_CONCURRENCY PREPARE_HELPER_SHA256
+export SAMPLE_MINUTES
 
 ROOT=/opt/stella-tb21
 REPO=$ROOT/stella
@@ -236,7 +237,9 @@ run_eval() {
   before=$(find "$REPO/dist/evals/jobs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort || true)
   local measure_args=()
   if [ "$RUN_MODE" = capacity ]; then
-    measure_args=(--minimum-memory-gib 8)
+    measure_args=(--minimum-memory-gib 8 --stop-on-oom)
+  elif [ "$RUN_MODE" = throughput ]; then
+    measure_args=(--minimum-memory-gib 8 --max-seconds "$((SAMPLE_MINUTES * 60))" --trial-root "$REPO/dist/evals/jobs")
   fi
   set +e
   as_eval python3 "$ROOT/aws_prepare.py" measure \
@@ -246,6 +249,11 @@ run_eval() {
   eval_status=$?
   set -e
   if [ "$eval_status" -ne 0 ]; then
+    if [ "$RUN_MODE" = throughput ] && jq -e '.stop_reason == "sample_time_limit"' "$ROOT/metrics/$group.json" >/dev/null; then
+      journal "$group-sampled"
+      LAST_EVAL_STATUS=$eval_status
+      return 0
+    fi
     # loop.sh promises that its own eval:loop-prefixed errors never contain
     # credential values. Do not upload arbitrary Harbor output: tasks may print
     # synthetic secrets even when the run fails.
@@ -256,7 +264,7 @@ run_eval() {
       [ -z "$testbed_diagnostic" ] || diagnostic="$diagnostic testbed=$testbed_diagnostic"
     fi
     journal "$group-failed" "exit=$eval_status diagnostic=$diagnostic"
-    if [ "$RUN_MODE" = capacity ]; then
+    if [ "$RUN_MODE" = capacity ] || [ "$RUN_MODE" = throughput ]; then
       # Preserve the failed primary instead of retrying away capacity failures.
       LAST_EVAL_STATUS=$eval_status
       return 0
@@ -361,7 +369,13 @@ PY
 fi
 
 # Capacity failures stay in the evidence; never repair a stressed pass with top-ups.
-if [ "$RUN_MODE" = capacity ]; then
+if [ "$RUN_MODE" = capacity ] || [ "$RUN_MODE" = throughput ]; then
+  capacity_workers=(16 32 48 64 16)
+  if [ "$RUN_MODE" = throughput ]; then
+    capacity_workers=("$CONCURRENCY")
+  fi
+  CAPACITY_CONCURRENCIES="${capacity_workers[*]}"
+  export CAPACITY_CONCURRENCIES
   capacity_artifacts() {
     python3 - "$1" <<'PY'
 import datetime, json, os, pathlib, sys
@@ -377,7 +391,10 @@ summary = {
     'controller_commit': os.environ['CONTROLLER_COMMIT'], 'model': os.environ['MODEL_ID'],
     'instance_type': os.environ['INSTANCE_TYPE'], 'instance_id': os.environ['INSTANCE_ID'],
     'region': os.environ['REGION'], 'vcpus': os.cpu_count(),
-    'dataset': os.environ['DATASET_SPEC'], 'planned_concurrencies': [16,32,48,64,16],
+    'dataset': os.environ['DATASET_SPEC'],
+    'run_mode': os.environ['RUN_MODE'],
+    'sample_minutes': int(os.environ.get('SAMPLE_MINUTES', '0')),
+    'planned_concurrencies': [int(value) for value in os.environ['CAPACITY_CONCURRENCIES'].split()],
     'remote_runner_sha256': os.environ['REMOTE_RUNNER_SHA256'],
     'prepare_helper_sha256': os.environ['PREPARE_HELPER_SHA256'],
     'merge_helper_sha256': os.environ['MERGE_HELPER_SHA256'],
@@ -393,7 +410,7 @@ PY
   export DATASET_SPEC
   pass=1
   capacity_status=running
-  for ACTIVE_CONCURRENCY in 16 32 48 64 16; do
+  for ACTIVE_CONCURRENCY in "${capacity_workers[@]}"; do
     pass_name=pass-$(printf '%02d' "$pass")
     LAST_EVAL_STATUS=0
     run_eval "$pass_name/00-main" -d "$DATASET_SPEC" -k 1 -n "$ACTIVE_CONCURRENCY"
@@ -405,7 +422,9 @@ PY
     if [ "$stop_count" -gt 0 ]; then
       capacity_status=stopped
       journal capacity-stopped "pass=$pass concurrency=$ACTIVE_CONCURRENCY"
-    elif [ "$pass" -eq 5 ]; then
+    elif [ "$(jq -r '.incomplete_sample' "$ROOT/metrics/$pass_name/00-main.json")" = true ]; then
+      capacity_status=sampled
+    elif [ "$pass" -eq "$PASSES" ]; then
       capacity_status=completed
     fi
     capacity_artifacts "$capacity_status"

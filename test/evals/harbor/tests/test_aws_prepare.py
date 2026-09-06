@@ -132,6 +132,7 @@ def test_capacity_resource_guard_stops_child(
             output,
             32,
             minimum_memory_bytes=8 * 1024**3,
+            stop_on_oom=True,
         )
         == 125
     )
@@ -139,6 +140,72 @@ def test_capacity_resource_guard_stops_child(
     assert summary["stop_reason"] == reason
     assert summary["oom_kills"] == oom
     assert summary["exit_code"] != 0
+
+
+def test_memory_guard_records_unattributed_oom_without_stopping(tmp_path, monkeypatch):
+    calls = 0
+
+    def sample():
+        nonlocal calls
+        calls += 1
+        return {
+            "available_memory_bytes": 50 * 1024**3,
+            "cpu_ticks": 100,
+            "idle_ticks": 50,
+            "load_1m": 0,
+            "oom_kills": 0 if calls == 1 else 14,
+        }
+
+    monkeypatch.setattr("stella_harbor.aws_prepare.sample_resources", sample)
+    output = tmp_path / "metrics.json"
+    assert (
+        measure(
+            [sys.executable, "-c", "pass"], output, 32, minimum_memory_bytes=8 * 1024**3
+        )
+        == 0
+    )
+    result = json.loads(output.read_text())
+    assert result["oom_kills"] == 14
+    assert result["stop_reason"] is None
+    assert result["stop_on_oom"] is False
+
+
+def test_timebox_snapshots_progress_before_interrupting(tmp_path):
+    job = tmp_path / "jobs/job/run"
+    job.mkdir(parents=True)
+    (job / "result.json").write_text(
+        json.dumps(
+            {
+                "stats": {
+                    "n_completed_trials": 0,
+                    "n_running_trials": 32,
+                    "n_pending_trials": 57,
+                }
+            }
+        )
+    )
+    output = tmp_path / "metrics.json"
+    assert (
+        measure(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            output,
+            32,
+            max_seconds=0.05,
+            trial_root=tmp_path / "jobs",
+        )
+        == 124
+    )
+    result = json.loads(output.read_text())
+    assert result["stop_reason"] == "sample_time_limit"
+    assert result["wall_seconds"] < 5
+    assert result["sample_inventory"]["scoreable"] == 0
+    assert result["job_progress"]["n_running_trials"] == 32
+    assert result["maximum_running_trials"] == 32
+    capacity_metrics(tmp_path / "jobs", output)
+    result = json.loads(output.read_text())
+    assert result["incomplete_sample"] is True
+    assert result["capacity_stop_reasons"] == []
+    assert result["scoreable_per_hour"] == 0
 
 
 @pytest.mark.parametrize("invalid,stopped", [(0, False), (4, False), (5, True)])

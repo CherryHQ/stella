@@ -51,8 +51,11 @@ def measure(
     *,
     env: dict[str, str] | None = None,
     minimum_memory_bytes: int = 0,
+    stop_on_oom: bool = False,
+    max_seconds: float = 0,
+    trial_root: Path | None = None,
 ) -> int:
-    if not command or concurrency < 1:
+    if not command or concurrency < 1 or max_seconds < 0:
         raise ValueError("a command and positive concurrency are required")
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists():
@@ -66,6 +69,11 @@ def measure(
     initial_oom = previous.get("oom_kills", 0)
     oom_kills = 0
     stop_reason = None
+    sample_seconds = None
+    sample_inventory = None
+    job_progress = None
+    maximum_running_trials = 0
+    last_progress_sample = -5.0
     child = subprocess.Popen(command, env=env, start_new_session=True)
 
     def interrupt(signum: int, _frame: object) -> None:
@@ -78,15 +86,38 @@ def measure(
     }
     try:
         while child.poll() is None:
+            elapsed_seconds = time.monotonic() - started
+            if trial_root is not None and elapsed_seconds - last_progress_sample >= 5:
+                job_progress = trial_progress(trial_root) or job_progress
+                maximum_running_trials = max(
+                    maximum_running_trials,
+                    (job_progress or {}).get("n_running_trials", 0),
+                )
+                last_progress_sample = elapsed_seconds
+            if max_seconds and elapsed_seconds >= max_seconds:
+                stop_reason = "sample_time_limit"
+                sample_seconds = round(elapsed_seconds, 3)
+                if trial_root is not None:
+                    # Snapshot before cancellation: cleanup must not turn the
+                    # interrupted trials into measured infrastructure failures.
+                    try:
+                        sample_inventory = trial_inventory(trial_root)
+                    except (FileNotFoundError, json.JSONDecodeError):
+                        # Keep the hard time limit if a result is mid-write.
+                        # An unavailable snapshot cannot back a throughput rate.
+                        sample_inventory = None
+                    job_progress = trial_progress(trial_root) or job_progress
+                break
             current = sample_resources()
             if current and previous:
                 oom_kills = current.get("oom_kills", 0) - initial_oom
-                if minimum_memory_bytes and (
-                    oom_kills > 0
-                    or current["available_memory_bytes"] < minimum_memory_bytes
-                ):
+                if (stop_on_oom and oom_kills > 0) or current[
+                    "available_memory_bytes"
+                ] < minimum_memory_bytes:
                     stop_reason = (
-                        "oom_kill" if oom_kills > 0 else "available_memory_below_floor"
+                        "oom_kill"
+                        if stop_on_oom and oom_kills > 0
+                        else "available_memory_below_floor"
                     )
                     minimum_memory = min(
                         minimum_memory, current["available_memory_bytes"]
@@ -115,14 +146,14 @@ def measure(
                 child.wait()
         for sig, handler in handlers.items():
             signal.signal(sig, handler)
-        if minimum_memory_bytes and not stop_reason:
+        if not stop_reason:
             final_sample = sample_resources()
             if final_sample:
                 oom_kills = final_sample.get("oom_kills", 0) - initial_oom
                 minimum_memory = min(
                     minimum_memory, final_sample["available_memory_bytes"]
                 )
-                if oom_kills > 0:
+                if stop_on_oom and oom_kills > 0:
                     stop_reason = "oom_kill"
         # Commands and environment values can contain credentials. Record only
         # the declared concurrency, timestamps, exit status and host counters.
@@ -138,13 +169,52 @@ def measure(
                     "maximum_load_1m": maximum_load,
                     "maximum_cpu_busy_percent": maximum_cpu,
                     "oom_kills": oom_kills,
+                    "stop_on_oom": stop_on_oom,
                     "stop_reason": stop_reason,
+                    "sample_seconds": sample_seconds,
+                    "sample_inventory": sample_inventory,
+                    "job_progress": job_progress,
+                    "maximum_running_trials": maximum_running_trials
+                    if trial_root is not None
+                    else None,
                 },
                 indent=2,
             )
             + "\n"
         )
+    if stop_reason == "sample_time_limit":
+        return 124
     return 125 if stop_reason else child.returncode
+
+
+def trial_progress(root: Path) -> dict[str, int] | None:
+    for path in sorted(root.glob("*/*/result.json"), reverse=True):
+        try:
+            stats = json.loads(path.read_text()).get("stats")
+        except (FileNotFoundError, json.JSONDecodeError):
+            continue  # Harbor may be replacing a live summary during a sample.
+        if stats:
+            return {
+                key: stats.get(key, 0)
+                for key in (
+                    "n_completed_trials",
+                    "n_errored_trials",
+                    "n_running_trials",
+                    "n_pending_trials",
+                    "n_cancelled_trials",
+                )
+            }
+    return None
+
+
+def trial_inventory(root: Path) -> dict:
+    if __package__:
+        from .aws_merge import inventory
+    else:
+        from aws_merge import inventory
+    state = inventory(root, 1)
+    state.pop("selected")
+    return state
 
 
 def prepare_command(job: Path, concurrency: int, taskset: Path | None) -> list[str]:
@@ -312,20 +382,29 @@ def capacity_metrics(job: Path, output: Path) -> None:
         active += change
         peak = max(peak, active)
     reasons = []
-    if summary.get("stop_reason"):
+    timeboxed = summary.get("stop_reason") == "sample_time_limit"
+    if summary.get("stop_reason") and not timeboxed:
         reasons.append(summary["stop_reason"])
-    if summary["exit_code"] != 0:
+    if summary["exit_code"] != 0 and not timeboxed:
         reasons.append("command_failed")
-    if state["tasks"] != 89 or state["trials"] != 89:
+    if not timeboxed and (state["tasks"] != 89 or state["trials"] != 89):
         reasons.append("incomplete_or_repeated_task_set")
-    if state["invalid"] >= 5:
+    observed = summary.get("sample_inventory") if timeboxed else state
+    if observed is None:
+        reasons.append("sample_inventory_unavailable")
+    elif observed["invalid"] >= 5:
         reasons.append("at_least_five_unscoreable_trials")
     summary.update(
         {
             "inventory": state,
             "trials": rows,
             "resolved": sum(row["reward"] == 1 for row in rows),
-            "scoreable_per_hour": state["scoreable"] * 3600 / summary["wall_seconds"],
+            "scoreable_per_hour": observed["scoreable"]
+            * 3600
+            / (summary.get("sample_seconds") or summary["wall_seconds"])
+            if observed is not None
+            else None,
+            "incomplete_sample": timeboxed,
             "observed_peak_trial_overlap": peak,
             "capacity_stop_reasons": reasons,
         }
@@ -348,6 +427,13 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--concurrency", type=int, required=True)
         if name == "measure":
             command.add_argument("--minimum-memory-gib", type=int, default=0)
+            command.add_argument(
+                "--stop-on-oom",
+                action="store_true",
+                help="legacy capacity guard; counter does not attribute OOM origin",
+            )
+            command.add_argument("--max-seconds", type=int, default=0)
+            command.add_argument("--trial-root", type=Path)
             command.add_argument("command", nargs=argparse.REMAINDER)
         else:
             command.add_argument("--taskset", type=Path)
@@ -368,6 +454,9 @@ def main(argv: list[str] | None = None) -> int:
             args.output,
             args.concurrency,
             minimum_memory_bytes=args.minimum_memory_gib * 1024**3,
+            stop_on_oom=args.stop_on_oom,
+            max_seconds=args.max_seconds,
+            trial_root=args.trial_root,
         )
     job = args.output.parent.parent / "environment-jobs" / "warmup"
     job.parent.mkdir(parents=True, exist_ok=True)

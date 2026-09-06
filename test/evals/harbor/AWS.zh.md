@@ -69,6 +69,26 @@ mise run eval:tb21:aws -- --capacity --warmup environment --concurrency 16 --max
 容量模式不合并 benchmark 成绩。选择推荐并发时，同时检查吞吐、失败数和超时数；
 64 并发通过只说明已测容量至少为 64，不能称为机器的绝对上限。
 
+在更大机器上做短时间吞吐采样：
+
+```bash
+mise run eval:tb21:aws -- --throughput --sample-minutes 10 --warmup environment --concurrency 32 --instance-type c7i.16xlarge --max-topup-rounds 0 --timeout-hours 3 --commit HEAD
+```
+
+该模式将 89 题各入队一次，测量命令运行十分钟后停止，另给最多十秒正常退出时间。
+部署机器和环境预热在采样前完成，不计入十分钟预算。取消前保存进度和可计分证据，
+避免把主动中断算成测得的失败。`capacity-summary.json` 的 `sampled` 表示到时结束的
+不完整采样；`completed` 表示队列在窗口内全部完成。
+
+短测保留 8 GiB 可用内存保护。未归因的 OOM 计数只记录、不触发停机，因为容器可能
+达到自身内存限额，而整机仍有余量。旧的阶梯容量模式保留显式 `--stop-on-oom`
+保护；两个模式都不能确定 OOM 来源。
+
+先完成的通常是短任务。不能直接将局部完成速度线性换算成 445 次尝试的全量耗时，
+还要结合完整轮次的工作量、启动开销和慢任务尾部。当前全量 runner 也会在五轮之间
+等待，增加并发不会消除这些等待。短测用于估算吞吐和资源压力，不给出模型能力结论
+或精确完成时间。
+
 控制器把进度写入 `dist/evals/aws/<run-id>/journal.ndjson`。
 stdout 管道关闭不会中断评估或文件日志。即使失败报告本身抛出异常，
 控制器也会尝试清理资源。如果清理被中断，用以下命令恢复：

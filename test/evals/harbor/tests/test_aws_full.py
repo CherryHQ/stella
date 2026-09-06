@@ -52,12 +52,69 @@ def test_capacity_is_a_separate_full_dataset_mode():
     args = _aws_full.parse_args(["--capacity", "--warmup", "environment", "--max-topup-rounds", "0"])
     assert args.capacity and not args.pilot and not args.smoke
     remote = REMOTE.read_text()
-    assert "for ACTIVE_CONCURRENCY in 16 32 48 64 16" in remote
+    assert "capacity_workers=(16 32 48 64 16)" in remote
     assert "--minimum-memory-gib 8" in remote
-    block = remote.split('if [ "$RUN_MODE" = capacity ]; then\n  capacity_artifacts()', 1)[1].split('\npass=1\n', 1)[0]
+    block = remote.split('# Capacity failures', 1)[1].split('# Each logical pass', 1)[0]
     assert "run_topups" not in block
     assert 'exit 0' in block
     assert "capacity_stop_reasons" in block
+
+
+@pytest.mark.parametrize("mode,workers,tasks,concurrencies,minutes", [
+    ("throughput", 32, 89, [32], 10),
+    ("capacity", 16, 89, [16, 32, 48, 64, 16], 0),
+    ("pilot", 4, 5, [1, 4, 4, 1], 0),
+    ("smoke", 8, 5, [8], 0),
+    ("full", 8, 89, [8] * 5, 0),
+])
+def test_plan_records_actual_queues(tmp_path, monkeypatch, mode, workers, tasks, concurrencies, minutes):
+    monkeypatch.setattr(_aws_full, "repository_root", lambda: tmp_path)
+    monkeypatch.setattr(_aws_full, "require_environment", lambda: ("us-east-1", {"OPENAI_MODEL": "test"}))
+    sources = []
+    monkeypatch.setattr(_aws_full, "local_preflight", lambda root, commit, concurrency, smoke, journal: sources.append(smoke) or "candidate")
+    monkeypatch.setattr(_aws_full, "sha256", lambda *args: "digest")
+    monkeypatch.setattr(_aws_full.subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess([], 0, "controller\n"))
+    mode_flags = [] if mode == "full" else [f"--{mode}"]
+    assert _aws_full.main(["--plan", *mode_flags, "--warmup", "environment", "--max-topup-rounds", "0", "--concurrency", str(workers)]) == 0
+    state = json.loads(next(tmp_path.glob("dist/evals/aws/*/state.json")).read_text())
+    assert sources == [mode in {"smoke", "pilot"}]
+    assert state["expected_tasks"] == tasks
+    assert state["passes"] == len(concurrencies)
+    assert state["pass_concurrencies"] == concurrencies
+    assert state["sample_minutes"] == minutes
+    assert state["run_mode"] == mode
+
+
+@pytest.mark.parametrize("extra", [["--sample-minutes", "0"], ["--sample-minutes", "31"], ["--max-topup-rounds", "1"], ["--warmup", "legacy"]])
+def test_throughput_rejects_unbounded_or_retrying_samples(extra):
+    with pytest.raises(RuntimeError, match="--throughput requires"):
+        _aws_full.main(["--throughput", "--warmup", "environment", "--max-topup-rounds", "0", *extra])
+
+
+@pytest.mark.parametrize("incomplete,reasons,expected", [(True, [], "sampled"), (False, [], "completed"), (False, ["low_memory"], "stopped")])
+def test_performance_worker_runs_only_one_requested_sample(tmp_path, incomplete, reasons, expected):
+    body = REMOTE.read_text().split("  pass=1\n  capacity_status=running", 1)[1].split("\n  FINAL_PHASE=complete", 1)[0]
+    script = r'''
+set -euo pipefail
+ROOT=$1
+REPO=$1
+PASSES=1
+DATASET_SPEC=pinned-dataset
+capacity_workers=(32)
+pass=1
+capacity_status=running
+run_eval() {
+  printf 'run %s\n' "$*"
+  mkdir -p "$ROOT/metrics/$1"
+  printf '%s' "$RESULT" > "$ROOT/metrics/$1.json"
+}
+as_eval() { :; }
+journal() { :; }
+capacity_artifacts() { printf 'status %s\n' "$1"; }
+'''
+    env = os.environ | {"RESULT": json.dumps({"capacity_stop_reasons": reasons, "incomplete_sample": incomplete})}
+    result = subprocess.run(["bash", "-c", script + body, "_", str(tmp_path)], env=env, capture_output=True, text=True, check=True)
+    assert result.stdout.splitlines() == ["run pass-01/00-main -d pinned-dataset -k 1 -n 32", f"status {expected}"]
 
 
 @pytest.mark.parametrize("failure_site", ["download_remote_journal", "run-failed"])
@@ -286,11 +343,8 @@ def test_remote_checkout_uses_normal_umask_and_credentials_stay_private():
 
 
 def test_smoke_gate_is_fixed_to_five_tasks_at_k1():
-    controller = CONTROLLER.read_text()
     remote = REMOTE.read_text()
     taskset = SMOKE_TASKSET.read_text()
-    assert '"expected_tasks": 5 if args.smoke or args.pilot else 89' in controller
-    assert '"passes": 4 if args.pilot else (1 if args.smoke else args.passes)' in controller
     assert 'run_eval "$pass_name/00-main" -c "$ROOT/aws-smoke.yaml"' in remote
     assert taskset.count("      - terminal-bench/") == 5
     assert "n_attempts: 1" in taskset

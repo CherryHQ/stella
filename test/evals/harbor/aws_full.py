@@ -782,6 +782,7 @@ def provision(
             "PASSES": state["passes"],
             "EXPECTED_TASKS": state["expected_tasks"],
             "RUN_MODE": state["run_mode"],
+            "SAMPLE_MINUTES": state.get("sample_minutes", 0),
             "WARMUP_MODE": state["warmup_mode"],
             "WARMUP_CONCURRENCY": state["warmup_concurrency"],
             "TOPUP_CONCURRENCY": state["topup_concurrency"],
@@ -985,7 +986,7 @@ def download_artifacts(aws: Aws, state: dict[str, Any], run_dir: Path, journal: 
         "SHA256SUMS",
         "performance.json",
     }
-    if state.get("run_mode") == "capacity":
+    if state.get("run_mode") in {"capacity", "throughput"}:
         required = {"capacity-summary.json", "performance.json", "remote-journal.ndjson", "SHA256SUMS"}
     missing = sorted(name for name in required if not (artifacts / name).is_file())
     if missing:
@@ -1008,6 +1009,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="performance-only: prepare 89 environments, then five smoke tasks at concurrency 1,N,N,1",
     )
     modes.add_argument("--capacity", action="store_true", help="performance-only: 89 tasks at 16,32,48,64,16 workers; no top-ups")
+    modes.add_argument("--throughput", action="store_true", help="timeboxed performance sample of the 89-task queue; no top-ups")
+    parser.add_argument("--sample-minutes", type=int, default=10, help="throughput sample duration, excluding host preparation (1-30, default 10)")
     parser.add_argument("--warmup", choices=("legacy", "environment"), default="legacy")
     parser.add_argument("--warmup-concurrency", type=int, default=4, help="environment preparation workers (1-4)")
     parser.add_argument("--topup-concurrency", type=int, default=1, help="missing-task batch workers (up to --concurrency)")
@@ -1043,10 +1046,23 @@ def main(argv: list[str] | None = None) -> int:
         raise RuntimeError("--pilot requires --warmup environment and --concurrency between 2 and 5")
     if args.capacity and (args.warmup != "environment" or args.concurrency != 16 or args.max_topup_rounds != 0):
         raise RuntimeError("--capacity requires --warmup environment --concurrency 16 --max-topup-rounds 0")
+    if args.throughput and (args.warmup != "environment" or args.max_topup_rounds != 0 or not 1 <= args.sample_minutes <= 30):
+        raise RuntimeError("--throughput requires --warmup environment --max-topup-rounds 0 and --sample-minutes 1-30")
 
     region, provider = require_environment()
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_mode = "capacity" if args.capacity else ("pilot" if args.pilot else ("smoke" if args.smoke else "full"))
+    run_mode = "full"
+    expected_tasks = 89
+    pass_concurrencies = [args.concurrency] * args.passes
+    if args.smoke:
+        run_mode, expected_tasks, pass_concurrencies = "smoke", 5, [args.concurrency]
+    elif args.pilot:
+        run_mode, expected_tasks = "pilot", 5
+        pass_concurrencies = [1, args.concurrency, args.concurrency, 1]
+    elif args.capacity:
+        run_mode, pass_concurrencies = "capacity", [16, 32, 48, 64, 16]
+    elif args.throughput:
+        run_mode, pass_concurrencies = "throughput", [args.concurrency]
     run_id = f"tb21-experimental-{run_mode}-{now}"
     run_dir = root / "dist" / "evals" / "aws" / run_id
     journal = RunJournal(run_dir)
@@ -1068,10 +1084,11 @@ def main(argv: list[str] | None = None) -> int:
         "model_id": provider["OPENAI_MODEL"],
         "instance_type": args.instance_type,
         "concurrency": args.concurrency,
-        "passes": 4 if args.pilot else (1 if args.smoke else args.passes),
-        "expected_tasks": 5 if args.smoke or args.pilot else 89,
+        "passes": len(pass_concurrencies),
+        "expected_tasks": expected_tasks,
         "run_mode": run_mode,
-        "pass_concurrencies": [16, 32, 48, 64, 16] if args.capacity else ([1, args.concurrency, args.concurrency, 1] if args.pilot else [args.concurrency] * (1 if args.smoke else args.passes)),
+        "pass_concurrencies": pass_concurrencies,
+        "sample_minutes": args.sample_minutes if args.throughput else 0,
         "warmup_mode": args.warmup,
         "warmup_concurrency": args.warmup_concurrency,
         "topup_concurrency": args.topup_concurrency,
@@ -1107,7 +1124,7 @@ def main(argv: list[str] | None = None) -> int:
         except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001  # cleanup is mandatory
             run_error = exc
             download_remote_journal(aws, state, run_dir)
-            if state.get("run_mode") == "capacity" and state.get("bucket_created"):
+            if state.get("run_mode") in {"capacity", "throughput"} and state.get("bucket_created"):
                 try:
                     download_artifacts(aws, state, run_dir, journal)
                 except RuntimeError:
