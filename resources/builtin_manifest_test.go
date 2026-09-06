@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -61,26 +60,6 @@ func TestGenerateBuiltinManifestDerivesOwnerFromTrustedPath(t *testing.T) {
 	metadata := manifest.Skills[0].Metadata["metadata"].(map[string]any)
 	if got := metadata["owner_plugin"]; got != "tool/attacker" {
 		t.Fatalf("frontmatter owner = %#v, want preserved metadata only", got)
-	}
-}
-
-func TestGenerateBuiltinManifestUsesTrustedSkillDependencies(t *testing.T) {
-	root := t.TempDir()
-	writeTestBuiltin(t, root, "core/web/SKILL.md", "---\nname: web\nmetadata:\n  requires_plugin_ids: [tool/attacker]\n---\nbody\n", 0o644)
-	writeTestBuiltin(t, root, "core/python-script/SKILL.md", "---\nname: python-script\n---\nbody\n", 0o644)
-
-	manifest, err := GenerateBuiltinManifest(root)
-	if err != nil {
-		t.Fatalf("GenerateBuiltinManifest: %v", err)
-	}
-	for _, skill := range manifest.Skills {
-		want := map[string][]string{
-			"web":           {"tool/bun"},
-			"python-script": {"tool/uv"},
-		}[skill.Name]
-		if !slices.Equal(skill.RequiresPluginIDs, want) {
-			t.Fatalf("skill %q requirements = %v, want %v", skill.Name, skill.RequiresPluginIDs, want)
-		}
 	}
 }
 

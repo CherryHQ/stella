@@ -43,7 +43,6 @@ func cloneSessionPluginView(view pkgplugins.SessionPluginView) pkgplugins.Sessio
 	for i := range view.BinarySpecs {
 		view.BinarySpecs[i].Options = clonePluginOptions(view.BinarySpecs[i].Options)
 	}
-	view.SkillSpecs = slices.Clone(view.SkillSpecs)
 	return view
 }
 

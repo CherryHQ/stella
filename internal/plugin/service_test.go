@@ -150,13 +150,11 @@ func TestPatchPayloadPreservesOmittedFieldsAndExplicitResets(t *testing.T) {
 func TestApplyCLIWriteOnlyPatchMaterializesOnlyKnownResources(t *testing.T) {
 	definition := Definition{
 		Backend: BackendCLI,
-		Spec:    []byte(`{"binaries":[{"name":"tool","tool":"github:owner/tool","version":"1.0","options":{"channel":"stable"}}],"skills":[{"name":"docs","repo":"owner/docs"}]}`),
+		Spec:    []byte(`{"binaries":[{"name":"tool","tool":"github:owner/tool","version":"1.0","options":{"channel":"stable"}}],"skills":[{"name":"docs"}]}`),
 	}
 	patched, err := applyCLIWriteOnlyPatch(definition, []byte(`{"binaries":[{"name":"tool","version":"1.5"}]}`), ConfigPatch{
 		BinaryVersionsSet: true,
 		BinaryVersions:    map[string]string{"tool": "2.0"},
-		SkillSourcesSet:   true,
-		SkillSources:      map[string]string{"docs": "new/docs"},
 	}, true)
 	if err != nil {
 		t.Fatal(err)
@@ -171,13 +169,13 @@ func TestApplyCLIWriteOnlyPatchMaterializesOnlyKnownResources(t *testing.T) {
 	if got := payload["binaries"][0]["tool"]; got != "github:owner/tool" {
 		t.Fatalf("tool = %#v, want definition locator", got)
 	}
-	if got := payload["skills"][0]["repo"]; got != "new/docs" {
-		t.Fatalf("skill repo = %#v, want requested source", got)
+	if _, ok := payload["skills"]; ok {
+		t.Fatalf("write-only patch unexpectedly materialized mutable skills: %#v", payload["skills"])
 	}
 }
 
 func TestApplyCLIWriteOnlyPatchRejectsUnknownAndUnauthorizedResources(t *testing.T) {
-	definition := Definition{Backend: BackendCLI, Spec: []byte(`{"binaries":[{"name":"tool","tool":"uv","version":"1"}],"skills":[{"name":"docs","repo":"owner/docs"}]}`)}
+	definition := Definition{Backend: BackendCLI, Spec: []byte(`{"binaries":[{"name":"tool","tool":"uv","version":"1"}],"skills":[{"name":"docs"}]}`)}
 	_, err := applyCLIWriteOnlyPatch(definition, nil, ConfigPatch{
 		BinaryVersionsSet: true,
 		BinaryVersions:    map[string]string{"missing": "2"},
@@ -185,11 +183,49 @@ func TestApplyCLIWriteOnlyPatchRejectsUnknownAndUnauthorizedResources(t *testing
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("unknown binary error = %v, want invalid config", err)
 	}
-	_, err = applyCLIWriteOnlyPatch(definition, nil, ConfigPatch{
-		SkillSourcesSet: true,
-		SkillSources:    map[string]string{"docs": "attacker/repo"},
-	}, false)
-	if !errors.Is(err, ErrForbidden) {
-		t.Fatalf("non-admin skill source error = %v, want forbidden", err)
+}
+
+func TestRejectImmutableSkillPatch(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		patch ConfigPatch
+		want  bool
+	}{
+		{name: "null skill", patch: ConfigPatch{PayloadSet: true, Payload: json.RawMessage(`{"skills":null}`)}, want: true},
+		{name: "same skill set", patch: ConfigPatch{PayloadSet: true, Payload: json.RawMessage(`{"skills":[{"name":"docs"}]}`)}, want: true},
+		{name: "reset skill", patch: ConfigPatch{ResetFields: []string{"skills"}}, want: true},
+		{name: "ordinary field", patch: ConfigPatch{PayloadSet: true, Payload: json.RawMessage(`{"version":"2"}`)}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := rejectImmutableSkillPatch(test.patch)
+			if (err != nil) != test.want {
+				t.Fatalf("rejectImmutableSkillPatch() error = %v, want error %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateCustomSpecRejectsClaimedSkills(t *testing.T) {
+	base := Definition{
+		ID: "custom/demo", Namespace: "demo", DisplayName: "Demo",
+		Backend: BackendCLI, Source: SourceCustom, ImplementationKey: "cli", Revision: 1,
+	}
+	for _, test := range []struct {
+		name string
+		spec string
+		want bool
+	}{
+		{name: "nonempty", spec: `{"skills":[{"name":"docs"}]}`, want: true},
+		{name: "empty", spec: `{"skills":[]}`},
+		{name: "null", spec: `{"skills":null}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			definition := base
+			definition.Spec = json.RawMessage(test.spec)
+			err := validateCustomSpec(definition)
+			if (err != nil) != test.want {
+				t.Fatalf("validateCustomSpec() error = %v, want error %v", err, test.want)
+			}
+		})
 	}
 }

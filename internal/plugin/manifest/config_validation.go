@@ -165,17 +165,13 @@ func validateResources(payload cliPayload, name string, complete bool) error {
 
 	seenSkills := make(map[string]struct{}, len(payload.Skills))
 	for i, skill := range payload.Skills {
-		if err := validateString(skill.Repo, "skill repo"); err != nil {
-			return err
-		}
 		if err := validateString(skill.Name, "skill name"); err != nil {
 			return err
 		}
-		key := skill.Repo + "\x00" + skill.Name
-		if _, ok := seenSkills[key]; ok {
+		if _, ok := seenSkills[skill.Name]; ok {
 			return invalidPayload("%s skills[%d] duplicates %q", name, i, skill.Name)
 		}
-		seenSkills[key] = struct{}{}
+		seenSkills[skill.Name] = struct{}{}
 	}
 
 	seenEnv := make(map[string]struct{}, len(payload.SessionEnvs))
@@ -203,6 +199,41 @@ func validateResources(payload cliPayload, name string, complete bool) error {
 	if complete {
 		if err := validateCompleteManifest(payload, name); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// ValidateBundledSkillNames checks the immutable skill membership declared by
+// a plugin against the release descriptor owned by that plugin. Configs may
+// pin mutable CLI fields, but they cannot add, remove, or redirect skills.
+func ValidateBundledSkillNames(declared []ManifestSkill, expected []string) error {
+	declaredSet := make(map[string]struct{}, len(declared))
+	for i, skill := range declared {
+		if err := validateString(skill.Name, "skill name"); err != nil {
+			return err
+		}
+		if _, exists := declaredSet[skill.Name]; exists {
+			return invalidPayload("skills[%d] duplicates %q", i, skill.Name)
+		}
+		declaredSet[skill.Name] = struct{}{}
+	}
+	expectedSet := make(map[string]struct{}, len(expected))
+	for _, name := range expected {
+		if err := validateString(name, "bundled skill name"); err != nil {
+			return err
+		}
+		if _, exists := expectedSet[name]; exists {
+			return invalidPayload("release descriptor duplicates skill %q", name)
+		}
+		expectedSet[name] = struct{}{}
+	}
+	if len(declaredSet) != len(expectedSet) {
+		return invalidPayload("skills must exactly match the release descriptor")
+	}
+	for name := range expectedSet {
+		if _, exists := declaredSet[name]; !exists {
+			return invalidPayload("skills must exactly match the release descriptor: missing %q", name)
 		}
 	}
 	return nil

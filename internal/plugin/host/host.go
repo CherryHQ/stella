@@ -64,7 +64,6 @@ type Host struct {
 	systemPromptRegs   map[string]pkgplugins.SystemPromptSpec
 	manifestPrompts    map[string]pkgplugins.SystemPromptSection
 	sessionEnvRegs     map[string][]pkgplugins.SessionEnvSpec
-	bundledSkillRegs   map[string][]pkgplugins.BundledSkillSpec
 }
 
 func New(store config.Store, opts ...Option) *Host {
@@ -89,7 +88,6 @@ func New(store config.Store, opts ...Option) *Host {
 		systemPromptRegs:   map[string]pkgplugins.SystemPromptSpec{},
 		manifestPrompts:    map[string]pkgplugins.SystemPromptSection{},
 		sessionEnvRegs:     map[string][]pkgplugins.SessionEnvSpec{},
-		bundledSkillRegs:   map[string][]pkgplugins.BundledSkillSpec{},
 	}
 	h.config = &configService{store: store}
 	h.runtimes = NewRuntimeHost(h)
@@ -363,12 +361,6 @@ func (h *Host) AddSessionEnv(spec pkgplugins.SessionEnvSpec) {
 	h.sessionEnvRegs[spec.PluginID] = append(h.sessionEnvRegs[spec.PluginID], spec)
 }
 
-func (h *Host) AddBundledSkill(spec pkgplugins.BundledSkillSpec) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.bundledSkillRegs[spec.PluginID] = append(h.bundledSkillRegs[spec.PluginID], spec)
-}
-
 func (h *Host) SessionEnvSpecs(pluginID string) []pkgplugins.SessionEnvSpec {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -380,22 +372,6 @@ func (h *Host) AllSessionEnvSpecs() []pkgplugins.SessionEnvSpec {
 	defer h.mu.RUnlock()
 	var out []pkgplugins.SessionEnvSpec
 	for _, specs := range h.sessionEnvRegs {
-		out = append(out, specs...)
-	}
-	return out
-}
-
-func (h *Host) BundledSkillSpecs(pluginID string) []pkgplugins.BundledSkillSpec {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return append([]pkgplugins.BundledSkillSpec(nil), h.bundledSkillRegs[pluginID]...)
-}
-
-func (h *Host) AllBundledSkillSpecs() []pkgplugins.BundledSkillSpec {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	var out []pkgplugins.BundledSkillSpec
-	for _, specs := range h.bundledSkillRegs {
 		out = append(out, specs...)
 	}
 	return out

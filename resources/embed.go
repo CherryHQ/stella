@@ -1,5 +1,6 @@
-// Package resources bundles embedded resources (skills, souls, delegates, templates,
-// and builtin plugin manifest) that Stella ships with its binary.
+// Package resources bundles engine-owned souls, delegates, templates, and the
+// builtin plugin manifest that Stella ships with its binary. Plugin-owned
+// skills are embedded by the plugins package and projected through Registry.
 // Runtime code accesses them through Registry, not by walking the filesystem directly.
 package resources
 
@@ -8,7 +9,7 @@ import (
 	"io/fs"
 )
 
-//go:embed all:skills all:souls all:delegates all:templates
+//go:embed all:souls all:delegates all:templates
 var fsys embed.FS
 
 //go:embed oauth.yaml

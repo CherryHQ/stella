@@ -20,15 +20,6 @@ func TestValidateBuiltinSkillOwnersUsesRuntimeCatalog(t *testing.T) {
 	}
 }
 
-func TestValidateBuiltinSkillOwnersRejectsUnknownRequiredPlugin(t *testing.T) {
-	r := &Registry{skills: map[string]BuiltinSkillDescriptor{
-		"web": {Name: "web", Root: "core/web", RequiresPluginIDs: []string{"tool/bun"}},
-	}}
-	if err := r.ValidateBuiltinSkillOwners(nil); err == nil || !strings.Contains(err.Error(), "unknown required plugin") {
-		t.Fatalf("ValidateBuiltinSkillOwners() error = %v, want unknown required plugin", err)
-	}
-}
-
 func TestDefaultLoadsBuiltinResources(t *testing.T) {
 	r, err := Default()
 	if err != nil {
@@ -60,13 +51,15 @@ func TestDefaultLoadsBuiltinResources(t *testing.T) {
 		t.Error("expected builtin template 'stella'")
 	}
 	if err := r.ValidateBuiltinSkillOwners(map[string]struct{}{
-		"system/email":     {},
-		"system/recally":   {},
-		"system/scheduler": {},
-		"tool/bun":         {},
-		"tool/lark-cli":    {},
-		"tool/uv":          {},
-		"tool/xberg":       {},
+		"system/email":        {},
+		"system/recally":      {},
+		"system/scheduler":    {},
+		"tool/bun":            {},
+		"tool/lark-cli":       {},
+		"skill/html-artifact": {},
+		"skill/skill-creator": {},
+		"tool/uv":             {},
+		"tool/xberg":          {},
 	}); err != nil {
 		t.Fatalf("ValidateBuiltinSkillOwners(): %v", err)
 	}

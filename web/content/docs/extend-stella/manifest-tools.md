@@ -17,6 +17,8 @@ The declared ID and namespace identify the plugin. Category folder names do not 
 
 Go plugins retain explicit compiled registration and do not add a second identity declaration in YAML. `plugins/core/` owns required runtimes and source skills; it is not a configurable plugin. Putting a directory under `core` does not grant it that status. Shared OAuth provider declarations remain in `resources/oauth.yaml`.
 
+Bundled skill files live only inside their owning plugin directory and are embedded directly through build-time asset declarations. There is no global resource skill mirror, and category folders do not determine asset identity. `web` belongs to bun and `python-script` to uv. `html-artifact` and `skill-creator` are default-enabled skill-only plugins that can be disabled normally. Project `.agents/skills/` stays independent of plugin packaging.
+
 ## Required builtins
 
 mise, Xberg, fd and rg form Stella's required execution environment. They are available without plugin configuration and have no enable switch. Xberg's skill is a core skill. The existing platform support limits still apply, including the absence of Xberg on Windows.
@@ -71,7 +73,7 @@ stored as `PluginConfig` records in the four scopes `system`, `system_agent`,
 An explicit `false` at system or matching system-agent scope is an upper bound,
 and a disabled winner never falls back to a broader scope. Builtin definitions
 and their resources are release-owned, and optional builtin plugins can be disabled. Required core runtimes do not enter this configuration model.
-CLI version pins and Skill sources remain independent fields.
+CLI versions can be adjusted independently. Bundled skills are release-owned; configurations in all four scopes cannot replace or reset their membership. A `skills` entry accepts only a local `{name}`, never a repository, remote source, or filesystem path.
 
 ```yaml
 plugins:
@@ -226,11 +228,11 @@ Rows with manifest backing show a `manifest` badge and an **Edit definition** ac
 
 The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI from a GitHub release binary. Saving registers the plugin; the next eligible runner lazily materializes its selected binaries. The embedded built-in manifest is never modified.
 
-Editing a built-in stores only the fields you changed, so the rest keep following the definition shipped with the server and still improve when you upgrade. Such a plugin is marked **customized** and offers **Reset to default**, which drops the stored edits and leaves the enable switch as it is. Lists — binaries, skills, session environment variables — are stored whole: edit one binary and you own that list. A customization saved before this behaviour existed holds a whole definition and stays frozen at it; saving that plugin once rewrites the row and it starts following upgrades again.
+Editing a built-in stores only the fields you changed, so the rest keep following the definition shipped with the server and still improve when you upgrade. Such a plugin is marked **customized** and offers **Reset to default**, which drops the stored edits and leaves the enable switch as it is. Editable lists, binaries and session environment variables, are stored whole. Skills remain read-only release resources and are not an override list.
 
 ## Limitations in v1
 
-- System prompts and skill registration are not supported in the manifest. Plugins that need these capabilities still use Go registration.
+- Skills declared in a shipped manifest must refer to assets bundled with that plugin. Custom CLI definitions cannot register skills or download skill sources.
 - The manifest has no standalone runtime or synchronization endpoint. Binary installation is driven by the resolved plugin snapshot.
 - Custom install scripts are not supported.
 - Platform-specific asset patterns (`platforms:` map) are not supported. Use `asset_pattern` instead.

@@ -435,7 +435,7 @@ func TestManifestSessionEnvPropagatesOAuthProvider(t *testing.T) {
 	}
 }
 
-func TestValidateRegistrationsRejectsDuplicateSessionEnvAndBundledSkills(t *testing.T) {
+func TestValidateRegistrationsRejectsDuplicateSessionEnvs(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/gh")
@@ -444,23 +444,6 @@ func TestValidateRegistrationsRejectsDuplicateSessionEnvAndBundledSkills(t *test
 	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: "tool/acme", EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceStatic, Value: "x"})
 	if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), `session env "GH_TOKEN"`) {
 		t.Fatalf("ValidateRegistrations error = %v, want duplicate env", err)
-	}
-
-	host = New(store)
-	host.RegisterPluginID("tool/gh")
-	host.RegisterPluginID("tool/acme")
-	host.AddBundledSkill(pkgplugins.BundledSkillSpec{
-		PluginID: "tool/gh",
-		Name:     "shared-skill",
-		Sync:     func(context.Context, pkgplugins.BundledSkillSyncContext) error { return nil },
-	})
-	host.AddBundledSkill(pkgplugins.BundledSkillSpec{
-		PluginID: "tool/acme",
-		Name:     "shared-skill",
-		Sync:     func(context.Context, pkgplugins.BundledSkillSyncContext) error { return nil },
-	})
-	if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), `bundled skill "shared-skill"`) {
-		t.Fatalf("ValidateRegistrations error = %v, want duplicate bundled skill", err)
 	}
 }
 

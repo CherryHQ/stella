@@ -137,37 +137,26 @@ func TestSkillVisibilityIgnoresMutableOwnerMetadata(t *testing.T) {
 	}
 }
 
-func TestSkillVisibilityRequiresTrustedBuiltinDependencies(t *testing.T) {
+func TestSkillVisibilityRequiresTrustedBuiltinOwner(t *testing.T) {
 	web := ResolvedSkill{
 		Skill: Skill{Scope: "system", Name: "web"},
 		builtin: &resources.BuiltinSkillDescriptor{
-			Name:              "web",
-			RequiresPluginIDs: []string{"tool/bun"},
+			Name:          "web",
+			OwnerPluginID: "tool/bun",
 		},
 	}
 	withoutBun := filterVisibleResolvedSkills([]ResolvedSkill{web}, pkgplugins.SystemPromptContext{
-		EnabledPluginIDs: []string{},
+		RegisteredPluginIDs: []string{"tool/bun"},
+		EnabledPluginIDs:    []string{},
 	})
 	if len(withoutBun) != 0 {
 		t.Fatalf("web skill visible with missing dependency: %#v", withoutBun)
 	}
 	withBun := filterVisibleResolvedSkills([]ResolvedSkill{web}, pkgplugins.SystemPromptContext{
-		EnabledPluginIDs: []string{"tool/bun"},
+		RegisteredPluginIDs: []string{"tool/bun"},
+		EnabledPluginIDs:    []string{"tool/bun"},
 	})
 	if len(withBun) != 1 || withBun[0].Name != "web" {
 		t.Fatalf("web skill hidden with dependency enabled: %#v", withBun)
-	}
-}
-
-func TestSkillVisibilityIgnoresMutableDependencyMetadata(t *testing.T) {
-	visible := filterVisibleResolvedSkills([]ResolvedSkill{{
-		Skill: Skill{
-			Scope:    "system",
-			Name:     "spoofed",
-			Metadata: []byte(`{"requires_plugin_ids":["tool/bun"]}`),
-		},
-	}}, pkgplugins.SystemPromptContext{})
-	if len(visible) != 1 || visible[0].Name != "spoofed" {
-		t.Fatalf("mutable dependency metadata changed visibility: %#v", visible)
 	}
 }

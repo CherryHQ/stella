@@ -14,7 +14,6 @@ import { useI18n } from "@/lib/i18n";
 export type PluginConfigPayload = {
   config?: Record<string, unknown>;
   binary_versions?: Record<string, string>;
-  skill_sources?: Record<string, string>;
 };
 export type PluginConfigCredentials = NonNullable<
   ComponentsPluginConfigInputWritable["credentials"]
@@ -59,7 +58,6 @@ function ConfigEditor({
   const [oauthClientId, setOauthClientId] = useState("");
   const [oauthClientSecret, setOauthClientSecret] = useState("");
   const [versions, setVersions] = useState<Record<string, string>>({});
-  const [skillSources, setSkillSources] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setURL(initialMcpUrl ?? "");
@@ -70,7 +68,6 @@ function ConfigEditor({
     setOauthClientId("");
     setOauthClientSecret("");
     setVersions(Object.fromEntries((cli?.binaries ?? []).map((binary) => [binary.name, ""])));
-    setSkillSources({});
   }, [cli, initialMcpUrl, mcp]);
 
   const save = () => {
@@ -96,10 +93,6 @@ function ConfigEditor({
         Object.entries(versions).filter(([, version]) => version.trim()),
       );
       if (Object.keys(binaryVersions).length > 0) payload.binary_versions = binaryVersions;
-      const sources = Object.fromEntries(
-        Object.entries(skillSources).filter(([, source]) => source.trim()),
-      );
-      if (Object.keys(sources).length > 0) payload.skill_sources = sources;
       onSave(payload, {});
       return;
     }
@@ -167,29 +160,6 @@ function ConfigEditor({
             </Field>
           ))}
         </div>
-        {cli.skills.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground">
-              {t("plugins.skillSources")}
-            </p>
-            {cli.skills.map((skill) => (
-              <Field key={skill.name}>
-                <FieldLabel>{skill.name}</FieldLabel>
-                <Input
-                  value={skillSources[skill.name] ?? ""}
-                  onChange={(event) =>
-                    setSkillSources((current) => ({
-                      ...current,
-                      [skill.name]: event.target.value,
-                    }))
-                  }
-                  placeholder={t("plugins.skillSourcePlaceholder")}
-                  nativeInput
-                />
-              </Field>
-            ))}
-          </div>
-        )}
         <p className="text-sm text-muted-foreground">{t("plugins.blankPreserves")}</p>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>

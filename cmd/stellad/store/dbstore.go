@@ -52,7 +52,7 @@ func (s *DBStore) ReadAgentSkillPolicy(ctx context.Context, agentID string) (ski
 // row lock. The column is the entire concurrency boundary: normal Agent edits
 // deliberately never write it, and two different toggles retain each other.
 func (s *DBStore) SetAgentSkillPolicy(ctx context.Context, agentID, ref string, enabled bool) (skillpolicy.Policy, error) {
-	if err := skillpolicy.ValidateRef(ref); err != nil {
+	if err := skillpolicy.ValidateMutationRef(ref); err != nil {
 		return skillpolicy.Policy{}, err
 	}
 	tx, err := s.pool.Begin(ctx)

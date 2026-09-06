@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -784,16 +785,24 @@ func TestAdjustPolicyUsesMountedNativeSelectionPath(t *testing.T) {
 	hostSH := "/home/user/.stella"
 	sandboxSH := adjustStellaHome(hostSH)
 	selection := hostSH + "/.mise-tools/public/selection"
+	core := hostSH + "/core-runtime"
 	adjusted := (&Factory{cfg: Config{StellaHome: hostSH}}).adjustPolicy(
-		sandboxpkg.Policy{Env: map[string]string{sandboxpkg.EnvNativeSelectionDir: selection}},
+		sandboxpkg.Policy{Env: map[string]string{
+			sandboxpkg.EnvNativeSelectionDir: selection,
+			sandboxpkg.EnvCoreRuntimeDir:     core,
+		}},
 		"/workspace", "/workspace", "", "",
 	)
-	want := sandboxSH + "/bin"
-	if runtime.GOOS == "darwin" {
-		want = selection
+	path := adjusted.Env["PATH"]
+	if !strings.HasPrefix(path, sandboxSH+"/.mise-tools/public/selection"+string(filepath.ListSeparator)) {
+		t.Fatalf("native selection PATH lost optional selection: %q", path)
 	}
-	if !strings.HasPrefix(adjusted.Env["PATH"], want+string(filepath.ListSeparator)) {
-		t.Fatalf("native selection PATH = %q, want mounted path %q", adjusted.Env["PATH"], want)
+	wantCore := sandboxSH + "/bin"
+	if runtime.GOOS == "darwin" {
+		wantCore = core
+	}
+	if !slices.Contains(filepath.SplitList(path), wantCore) {
+		t.Fatalf("native selection PATH lost core runtime: %q", path)
 	}
 }
 
@@ -833,8 +842,11 @@ func TestAdjustPolicyLinuxMapsCoreToBinAndKeepsOptionalSelection(t *testing.T) {
 		t.Fatalf("MISE_YES = %q, want 1", got)
 	}
 	path := adjusted.Env["PATH"]
-	if !strings.HasPrefix(path, sandboxSH+"/bin"+string(filepath.ListSeparator)) {
-		t.Fatalf("Linux PATH must lead with mapped core /bin, got %q", path)
+	if !strings.HasPrefix(path, sandboxSH+"/.mise-tools/public/optional"+string(filepath.ListSeparator)) {
+		t.Fatalf("Linux PATH must lead with optional selection, got %q", path)
+	}
+	if !slices.Contains(filepath.SplitList(path), sandboxSH+"/bin") {
+		t.Fatalf("Linux PATH lost mapped core /bin, got %q", path)
 	}
 	if !strings.Contains(path, sandboxSH+"/.mise-tools/public/optional") {
 		t.Fatalf("Linux PATH lost optional selection, got %q", path)

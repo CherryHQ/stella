@@ -20,7 +20,6 @@ binaries:
     tool: demo
 skills:
   - name: demo-skill
-    repo: github:example/demo-skill
 oauth_provider: demo
 session_env:
   - env_var: DEMO_TOKEN
@@ -153,6 +152,7 @@ func TestGenerateBuiltinPluginsRejectsUnknownFieldsAndMultipleDocuments(t *testi
 		want    string
 	}{
 		{name: "unknown field", content: testBuiltinPluginYAML + "unexpected: true\n", want: "field unexpected not found"},
+		{name: "remote skill source", content: strings.Replace(testBuiltinPluginYAML, "  - name: demo-skill\n", "  - name: demo-skill\n    repo: github:example/demo-skill\n", 1), want: "field repo not found"},
 		{name: "multiple documents", content: testBuiltinPluginYAML + "---\nid: tool/other\n", want: "more than one YAML document"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

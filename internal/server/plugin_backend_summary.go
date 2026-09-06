@@ -68,7 +68,7 @@ func cliBackendSummary(definitionSpec, configPayload json.RawMessage, enabled *b
 	}
 	for _, skill := range payload.Skills {
 		result.Skills = append(result.Skills, apitypes.PluginCLIBackendSkillSummary{
-			Name: skill.Name, SourceConfigured: strings.TrimSpace(skill.Repo) != "",
+			Name: skill.Name,
 		})
 	}
 	for _, env := range payload.SessionEnvs {

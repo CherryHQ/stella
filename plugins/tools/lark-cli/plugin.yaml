@@ -17,3 +17,5 @@ session_env:
     source: oauth.client_id
   - env_var: LARKSUITE_CLI_BRAND
     source: oauth.brand
+skills:
+  - name: lark-cli

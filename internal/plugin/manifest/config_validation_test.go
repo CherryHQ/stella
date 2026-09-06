@@ -19,7 +19,7 @@ func testCLIDefinition(t *testing.T) plugin.Definition {
 			Name: "demo", Tool: "github:owner/demo", Version: "1.0.0",
 			Options: map[string]any{"asset_pattern": "demo_*", "future_option": "published"},
 		}},
-		Skills:        []ManifestSkill{{Repo: "owner/skills", Name: "demo"}},
+		Skills:        []ManifestSkill{{Name: "demo"}},
 		SessionEnvs:   []ManifestSessionEnv{{EnvVar: "DEMO_TOKEN", Source: "oauth.access_token", Required: true}},
 		OAuthProvider: "demo",
 	})
@@ -43,7 +43,7 @@ func testUserPayload(t *testing.T, version string) json.RawMessage {
 			Name: "demo", Tool: "github:owner/demo", Version: version,
 			Options: map[string]any{"asset_pattern": "demo_*", "future_option": "published"},
 		}},
-		Skills:        []ManifestSkill{{Repo: "owner/skills", Name: "demo"}},
+		Skills:        []ManifestSkill{{Name: "demo"}},
 		SessionEnvs:   []ManifestSessionEnv{{EnvVar: "DEMO_TOKEN", Source: "oauth.refresh_token", Required: true}},
 		OAuthProvider: "demo",
 	})

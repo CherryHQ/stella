@@ -88,9 +88,6 @@ func validatePlugins(plugins []ManifestPlugin, providerIDs map[string]struct{}) 
 			}
 		}
 		for j, s := range p.Skills {
-			if s.Repo == "" {
-				errs = append(errs, fmt.Errorf("plugin %q skill[%d]: repo is required", p.ID, j))
-			}
 			if s.Name == "" {
 				errs = append(errs, fmt.Errorf("plugin %q skill[%d]: name is required", p.ID, j))
 			}

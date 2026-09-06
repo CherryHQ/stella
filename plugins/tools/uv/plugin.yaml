@@ -8,3 +8,5 @@ category: system
 binaries:
   - name: uv
     tool: uv
+skills:
+  - name: python-script

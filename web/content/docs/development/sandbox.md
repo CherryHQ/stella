@@ -156,7 +156,7 @@ manifest permission surface. Release `builtin:<name>` core resources are
 immutable; administrator-installed `system:<name>` and Agent-bound
 `system_agent:<name>` standalone Skills are distinct mutable identities.
 
-Resolution selects one winner before policy: `project > user_agent > user > system_agent > system > builtin`. Disabling that winner never exposes a lower same-name Skill. Policy defaults to enabled, is shared per Agent, and is independent of content-edit authorization and `disable_model_invocation`. An admitted turn keeps its snapshot; the next turn sees a successful commit. Dangling disabled references have no execution effect and need explicit cleanup.
+Resolution selects one winner before policy: `project > user_agent > user > system_agent > system > builtin`. Disabling that winner never exposes a lower same-name Skill. Managed `system:*` and `system_agent:*` policy defaults to enabled, is shared per Agent, and is independent of content-edit authorization and `disable_model_invocation`. Shipped plugin assets use only owner-plugin enablement, not `builtin:*` policy. Project `.agents` skills remain independent. An admitted turn keeps its snapshot; the next turn sees a successful commit. Dangling disabled references have no execution effect and need explicit cleanup.
 
 ## Adding a New Backend
 

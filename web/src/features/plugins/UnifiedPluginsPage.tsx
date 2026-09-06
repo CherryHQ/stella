@@ -158,11 +158,8 @@ function BackendSummary({ config, t }: { config: PluginConfig; t: Translate }) {
   if (summary.backend === "cli") {
     const binaries = summary.binaries.map((binary) => `${binary.name} ${binary.version}`.trim());
     const skills = summary.skills.map((skill) => (
-      <Badge key={skill.name} variant={skill.source_configured ? "success" : "warning"} size="sm">
-        {skill.name}:{" "}
-        {t(
-          skill.source_configured ? "plugins.summary.sourceReady" : "plugins.summary.sourceMissing",
-        )}
+      <Badge key={skill.name} variant="outline" size="sm">
+        {skill.name}
       </Badge>
     ));
     return (
@@ -428,7 +425,6 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
       };
       if (input.payload.config) body.config = input.payload.config;
       if (input.payload.binary_versions) body.binary_versions = input.payload.binary_versions;
-      if (input.payload.skill_sources) body.skill_sources = input.payload.skill_sources;
       if (Object.keys(input.credentials).length > 0) body.credentials = input.credentials;
       const { data } = await updatePluginConfig({
         path: { ...selectedPath, config_id: input.config.id },

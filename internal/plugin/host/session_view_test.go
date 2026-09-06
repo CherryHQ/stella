@@ -38,7 +38,7 @@ func TestAppendCLIResourcesCarriesIdentityAndClonesOptions(t *testing.T) {
 	identity := pkgplugins.PluginResourceIdentity{PluginID: "tool/demo", ConfigID: "cfg-1", Scope: "user", Revision: 3}
 	appendCLIResources(&view, identity, manifest.CLIPayload{
 		Binaries: []manifest.ManifestBinary{{Name: "demo", Tool: "github:demo/demo", Version: "1.2.3", Options: options}},
-		Skills:   []manifest.ManifestSkill{{Repo: "owner/repo", Name: "demo"}},
+		Skills:   []manifest.ManifestSkill{{Name: "demo"}},
 		SessionEnvs: []manifest.ManifestSessionEnv{{
 			EnvVar: "DEMO_TOKEN", Source: "oauth", Required: true,
 		}},
@@ -51,9 +51,6 @@ func TestAppendCLIResourcesCarriesIdentityAndClonesOptions(t *testing.T) {
 	}
 	if got := view.BinarySpecs[0].PluginResourceIdentity; got != identity {
 		t.Fatalf("binary identity = %+v, want %+v", got, identity)
-	}
-	if len(view.SkillSpecs) != 1 || view.SkillSpecs[0].PluginResourceIdentity != identity {
-		t.Fatalf("skill projection = %+v, want identity %+v", view.SkillSpecs, identity)
 	}
 	if len(view.SessionEnvSpecs) != 1 {
 		t.Fatalf("session env projection = %+v, want one entry", view.SessionEnvSpecs)

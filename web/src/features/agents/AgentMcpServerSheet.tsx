@@ -73,7 +73,6 @@ export function AgentMcpServerSheet({
           expected_revision: config.revision,
           ...(payload.config ? { config: payload.config } : {}),
           ...(payload.binary_versions ? { binary_versions: payload.binary_versions } : {}),
-          ...(payload.skill_sources ? { skill_sources: payload.skill_sources } : {}),
         },
         throwOnError: true,
       });

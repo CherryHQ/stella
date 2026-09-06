@@ -152,7 +152,7 @@ func (s *Server) updateMCPPluginConfig(ctx context.Context, authority authz.Auth
 	if request.ExpectedRevision != current.Revision {
 		return pluginpkg.Config{}, pluginpkg.ErrConflict
 	}
-	if request.BinaryVersions != nil || request.SkillSources != nil || request.ResetFields != nil {
+	if request.BinaryVersions != nil || request.ResetFields != nil {
 		return pluginpkg.Config{}, pluginpkg.ErrInvalidConfig
 	}
 	if value, exists := raw["config"]; exists && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {

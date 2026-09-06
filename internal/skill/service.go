@@ -45,15 +45,6 @@ func (s ResolvedSkill) OwnerPluginID() string {
 	return s.builtin.OwnerPluginID
 }
 
-// RequiredPluginIDs returns the trusted release dependencies for a builtin
-// skill. Mutable and project skills cannot grant themselves plugin access.
-func (s ResolvedSkill) RequiredPluginIDs() []string {
-	if s.builtin == nil {
-		return nil
-	}
-	return slices.Clone(s.builtin.RequiresPluginIDs)
-}
-
 func (s *ResolvedSkill) LoadBuiltinFile(filePath string) (string, error) {
 	if s.builtin == nil || s.registry == nil {
 		return "", fmt.Errorf("not a builtin skill")
@@ -176,9 +167,6 @@ func isDisabled(rs ResolvedSkill, disabled []string) bool {
 
 // PolicyRef returns the stable policy identity for policy-addressable Skills.
 func PolicyRef(rs ResolvedSkill) (string, bool) {
-	if rs.builtin != nil {
-		return "builtin:" + rs.Name, true
-	}
 	switch rs.Scope {
 	case "system", "system_agent":
 		return rs.Scope + ":" + rs.Name, true

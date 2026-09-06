@@ -112,10 +112,9 @@ components:
     PluginCLIBackendSkillSummary:
       type: object
       additionalProperties: false
-      required: [name, source_configured]
+      required: [name]
       properties:
         name: { type: string }
-        source_configured: { type: boolean }
     PluginCLIBackendSessionEnvSummary:
       type: object
       additionalProperties: false
@@ -258,11 +257,6 @@ components:
           writeOnly: true
           additionalProperties: { type: string, minLength: 1 }
           description: Write-only CLI binary version edits keyed by definition resource name.
-        skill_sources:
-          type: object
-          writeOnly: true
-          additionalProperties: { type: string, minLength: 1 }
-          description: Admin-only write-only CLI skill source edits keyed by definition resource name.
         credentials:
           type: object
           nullable: true

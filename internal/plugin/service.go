@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,13 +30,10 @@ type ConfigPatch struct {
 	Enabled    *bool
 	PayloadSet bool
 	Payload    json.RawMessage
-	// BinaryVersions and SkillSources are typed write-only edits for the CLI
-	// backend. They let callers change the visible part of a resource without
-	// sending locator, options, or repository fields back over HTTP.
+	// BinaryVersions is a typed write-only edit for the CLI backend. It lets
+	// callers change the visible version without sending locator or options back.
 	BinaryVersionsSet bool
 	BinaryVersions    map[string]string
-	SkillSourcesSet   bool
-	SkillSources      map[string]string
 	CredentialRefsSet bool
 	CredentialRefs    json.RawMessage
 	ResetFields       []string
@@ -252,6 +250,9 @@ func (b *Access) CreateConfig(ctx context.Context, config Config) (Config, error
 	if err := config.Validate(); err != nil {
 		return Config{}, err
 	}
+	if err := rejectImmutableSkillPayload(config.Payload); err != nil {
+		return Config{}, err
+	}
 	if err := b.service.validateResolved(ctx, def, config, nil); err != nil {
 		return Config{}, err
 	}
@@ -289,10 +290,10 @@ func (b *Access) UpdateConfig(ctx context.Context, pluginID, id string, expected
 	if err != nil {
 		return Config{}, err
 	}
-	if patch.BinaryVersionsSet || patch.SkillSourcesSet {
-		if patch.SkillSourcesSet && (current.Scope == ScopeUser || current.Scope == ScopeUserAgent) {
-			return Config{}, ErrForbidden
-		}
+	if err := rejectImmutableSkillPatch(patch); err != nil {
+		return Config{}, err
+	}
+	if patch.BinaryVersionsSet {
 		typedPayload, err := applyCLIWriteOnlyPatch(def, current.Payload, patch, b.authority.IsAdmin())
 		if err != nil {
 			return Config{}, err
@@ -362,6 +363,9 @@ func (b *Access) MoveConfig(ctx context.Context, pluginID, id string, expectedRe
 	if err != nil {
 		return Config{}, err
 	}
+	if err := rejectImmutableSkillPatch(patch); err != nil {
+		return Config{}, err
+	}
 	if def.Source == SourceBuiltin && current.Scope == ScopeSystem {
 		return Config{}, ErrBuiltinConfig
 	}
@@ -375,10 +379,7 @@ func (b *Access) MoveConfig(ctx context.Context, pluginID, id string, expectedRe
 	if err != nil {
 		return Config{}, err
 	}
-	if patch.BinaryVersionsSet || patch.SkillSourcesSet {
-		if patch.SkillSourcesSet && (targetScope == ScopeUser || targetScope == ScopeUserAgent) {
-			return Config{}, ErrForbidden
-		}
+	if patch.BinaryVersionsSet {
 		typedPayload, err := applyCLIWriteOnlyPatch(def, current.Payload, patch, b.authority.IsAdmin())
 		if err != nil {
 			return Config{}, err
@@ -567,6 +568,9 @@ func (b *Access) CreateCustom(ctx context.Context, def Definition, config Config
 	if err := config.Validate(); err != nil {
 		return Definition{}, Config{}, err
 	}
+	if err := rejectImmutableSkillPayload(config.Payload); err != nil {
+		return Definition{}, Config{}, err
+	}
 	if config.Enabled == nil || !*config.Enabled {
 		if b.service.policy.Validate == nil {
 			return Definition{}, Config{}, ErrInvalidDefinition
@@ -612,7 +616,13 @@ func validateCustomSpec(def Definition) error {
 		}
 		if def.Backend == BackendCLI {
 			switch field {
-			case "category", "prompt", "binaries", "skills", "session_env", "oauth_provider":
+			case "category", "prompt", "binaries", "session_env", "oauth_provider":
+				continue
+			case "skills":
+				var skills []json.RawMessage
+				if err := json.Unmarshal(value, &skills); err != nil || len(skills) != 0 {
+					return fmt.Errorf("%w: custom CLI definitions cannot claim bundled skills", ErrInvalidDefinition)
+				}
 				continue
 			}
 		}
@@ -631,6 +641,9 @@ func (s *Service) validateResolved(ctx context.Context, def Definition, config C
 	}
 	if len(config.Payload) == 0 {
 		return nil
+	}
+	if err := rejectImmutableSkillPayload(config.Payload); err != nil {
+		return err
 	}
 	// Only fixed upper bounds can suppress validation here: user configs may
 	// later execute on many Agents, so an unrelated Agent cap is irrelevant.
@@ -667,6 +680,32 @@ func (s *Service) validateResolved(ctx context.Context, def Definition, config C
 	resolved := cloneConfig(config)
 	resolved.Payload, resolved.Enabled = merged, &enabled
 	return s.policy.Validate(ctx, def, resolved, resetFields)
+}
+
+func rejectImmutableSkillPayload(raw json.RawMessage) error {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		return nil
+	}
+	if _, exists := fields["skills"]; exists {
+		return fmt.Errorf("%w: bundled skill membership is immutable", ErrInvalidConfig)
+	}
+	return nil
+}
+
+func rejectImmutableSkillPatch(patch ConfigPatch) error {
+	for _, field := range patch.ResetFields {
+		if field == "skills" {
+			return fmt.Errorf("%w: bundled skill membership is immutable", ErrInvalidConfig)
+		}
+	}
+	if !patch.PayloadSet {
+		return nil
+	}
+	return rejectImmutableSkillPayload(patch.Payload)
 }
 
 func (s *Service) transitionConfig(ctx context.Context, authority authz.Authority, kind MutationKind, def Definition, before, after *Config) error {

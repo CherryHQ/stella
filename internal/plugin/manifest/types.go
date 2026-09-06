@@ -60,7 +60,8 @@ type ManifestBinary struct {
 }
 
 type ManifestSkill struct {
-	Repo string `json:"repo" yaml:"repo"`
+	// Name is the local, release-owned skill identity. A manifest cannot point
+	// at a repository or another source; the asset descriptor owns its bytes.
 	Name string `json:"name" yaml:"name"`
 }
 

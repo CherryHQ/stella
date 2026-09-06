@@ -145,7 +145,7 @@ provider preflight 拒绝二进制与镜像 revision 不匹配的组合，从而
 manifest 权限面。发行版的 `builtin:<name>` core 资源不可变；管理员安装的 `system:<name>`
 与绑定 Agent 的 `system_agent:<name>` 独立可变。
 
-解析会先选择唯一的胜出项，再应用策略：`project > user_agent > user > system_agent > system > builtin`。禁用该胜出项不会暴露同名的低优先级 Skill。策略默认启用、按 Agent 共享，且与编辑内容的授权、`disable_model_invocation` 彼此独立。已接纳的 turn 保留其快照，下一次 turn 才会看到成功提交。悬空的禁用引用不影响执行，需显式清理。
+解析会先选择唯一的胜出项，再应用策略：`project > user_agent > user > system_agent > system > builtin`。禁用该胜出项不会暴露同名的低优先级 Skill。托管的 `system:*` 与 `system_agent:*` 策略默认启用、按 Agent 共享，且与编辑内容的授权、`disable_model_invocation` 彼此独立。随插件发布的资源只通过所属插件启停，不再使用 `builtin:*` 策略；`.agents` 项目技能保持独立。已接纳的 turn 保留其快照，下一次 turn 才会看到成功提交。悬空的禁用引用不影响执行，需显式清理。
 
 ## 添加新后端
 

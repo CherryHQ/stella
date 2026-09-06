@@ -105,7 +105,7 @@ func (s *Service) MoveConfigScope(ctx context.Context, authority authz.Authority
 		default:
 			return errors.New("mcp: unsupported auth type for scope move")
 		}
-		if req.Patch.BinaryVersionsSet || req.Patch.SkillSourcesSet {
+		if req.Patch.BinaryVersionsSet {
 			return authz.ErrForbidden
 		}
 

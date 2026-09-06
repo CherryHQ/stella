@@ -1,9 +1,0 @@
-{
-  "name": "stella-web-skill",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "defuddle": "0.19.3",
-    "linkedom": "0.18.12"
-  }
-}

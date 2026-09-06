@@ -8,3 +8,5 @@ category: system
 binaries:
   - name: bun
     tool: bun
+skills:
+  - name: web

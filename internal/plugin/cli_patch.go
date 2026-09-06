@@ -11,14 +11,10 @@ import (
 // applyCLIWriteOnlyPatch turns the small public CLI edit maps into a normal
 // payload overlay. The definition and the target config are the only inputs;
 // resolving another scope here would let a caller edit data it cannot see.
-func applyCLIWriteOnlyPatch(def Definition, current json.RawMessage, patch ConfigPatch, admin bool) (json.RawMessage, error) {
+func applyCLIWriteOnlyPatch(def Definition, current json.RawMessage, patch ConfigPatch, _ bool) (json.RawMessage, error) {
 	if def.Backend != BackendCLI {
 		return nil, fmt.Errorf("%w: CLI write-only fields require a CLI backend", ErrInvalidConfig)
 	}
-	if patch.SkillSourcesSet && !admin {
-		return nil, ErrForbidden
-	}
-
 	var shipped map[string]json.RawMessage
 	if err := decodeJSONObject(def.Spec, &shipped); err != nil {
 		return nil, fmt.Errorf("%w: definition spec must be an object", ErrInvalidConfig)
@@ -66,42 +62,6 @@ func applyCLIWriteOnlyPatch(def Definition, current json.RawMessage, patch Confi
 		}
 		result["binaries"] = encoded
 	}
-	if patch.SkillSourcesSet && len(patch.SkillSources) > 0 {
-		skills, err := materializeSkills(shipped["skills"], owned["skills"])
-		if err != nil {
-			return nil, err
-		}
-		byName := make(map[string]map[string]json.RawMessage, len(skills))
-		for i := range skills {
-			name, err := resourceName(skills[i], "skill", i)
-			if err != nil {
-				return nil, err
-			}
-			if _, exists := byName[name]; exists {
-				return nil, fmt.Errorf("%w: ambiguous skill name %q", ErrInvalidConfig, name)
-			}
-			byName[name] = skills[i]
-		}
-		for name, source := range patch.SkillSources {
-			if strings.TrimSpace(name) == "" || strings.TrimSpace(source) == "" {
-				return nil, fmt.Errorf("%w: skill name and source are required", ErrInvalidConfig)
-			}
-			skill, ok := byName[name]
-			if !ok {
-				return nil, fmt.Errorf("%w: unknown skill %q", ErrInvalidConfig, name)
-			}
-			encoded, err := json.Marshal(source)
-			if err != nil {
-				return nil, fmt.Errorf("%w: skill source %q", ErrInvalidConfig, name)
-			}
-			skill["repo"] = encoded
-		}
-		encoded, err := json.Marshal(skills)
-		if err != nil {
-			return nil, fmt.Errorf("%w: skills", ErrInvalidConfig)
-		}
-		result["skills"] = encoded
-	}
 	return json.Marshal(result)
 }
 
@@ -123,16 +83,6 @@ func materializeBinaries(shipped, owned json.RawMessage) ([]map[string]json.RawM
 	}
 	return overlayResources(base, owned, "binary", func(item map[string]json.RawMessage) (string, error) {
 		return resourceName(item, "binary", 0)
-	})
-}
-
-func materializeSkills(shipped, owned json.RawMessage) ([]map[string]json.RawMessage, error) {
-	base, err := decodeResourceArray(shipped, "definition skills")
-	if err != nil {
-		return nil, err
-	}
-	return overlayResources(base, owned, "skill", func(item map[string]json.RawMessage) (string, error) {
-		return resourceName(item, "skill", 0)
 	})
 }
 

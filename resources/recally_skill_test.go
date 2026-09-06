@@ -1,7 +1,6 @@
 package resources
 
 import (
-	"io/fs"
 	"regexp"
 	"strings"
 	"testing"
@@ -12,7 +11,7 @@ import (
 // The save instruction in SKILL.md is a contract with the recally tool schema.
 // Prose cannot be compiled, so assert every field it names actually exists.
 func TestRecallyCaptureSkillMatchesSaveSchema(t *testing.T) {
-	text := readSkill(t, "skills/plugins/system/recally/recally/SKILL.md")
+	text := readBuiltinSkillPath(t, "skills/plugins/system/recally/recally/SKILL.md")
 
 	for _, want := range []string{
 		"recally__article_save",
@@ -43,15 +42,6 @@ func TestRecallyCaptureSkillMatchesSaveSchema(t *testing.T) {
 	}
 }
 
-func readSkill(t *testing.T, name string) string {
-	t.Helper()
-	content, err := fs.ReadFile(fsys, name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(content)
-}
-
 // saveArticleItemProperties returns the fields one item of the save batch
 // accepts, straight from the generated schema the provider validates against.
 func saveArticleItemProperties(t *testing.T) map[string]any {
@@ -73,21 +63,15 @@ func TestRecallySkillReferencesUseRegisteredTools(t *testing.T) {
 		registered[spec.Name] = true
 	}
 	names := regexp.MustCompile(`\brecally_\w+\b`)
-	err := fs.WalkDir(fsys, "skills/plugins/system/recally/recally", func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	skill := builtinSkillDescriptor(t, "recally")
+	for _, file := range skill.Files {
+		if !strings.HasSuffix(file.Path, ".md") {
+			continue
 		}
-		if entry.IsDir() || !strings.HasSuffix(path, ".md") {
-			return nil
-		}
-		for _, name := range names.FindAllString(readSkill(t, path), -1) {
+		for _, name := range names.FindAllString(readBuiltinSkillPath(t, builtinSkillFilePath(skill, file.Path)), -1) {
 			if !registered[name] {
-				t.Errorf("%s references unregistered tool %q", path, name)
+				t.Errorf("%s references unregistered tool %q", file.Path, name)
 			}
 		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 }

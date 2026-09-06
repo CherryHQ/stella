@@ -286,14 +286,6 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 		patch.BinaryVersionsSet = true
 		patch.BinaryVersions = *request.BinaryVersions
 	}
-	if value, exists := raw["skill_sources"]; exists {
-		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) || request.SkillSources == nil {
-			writeError(w, http.StatusBadRequest, "skill_sources must be an object")
-			return
-		}
-		patch.SkillSourcesSet = true
-		patch.SkillSources = *request.SkillSources
-	}
 	if request.ResetFields != nil {
 		patch.ResetFields = *request.ResetFields
 	}

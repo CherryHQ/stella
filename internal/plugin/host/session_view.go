@@ -83,15 +83,6 @@ func (h *Host) SessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPl
 		}
 		return cmp.Compare(left.ConfigID, right.ConfigID)
 	})
-	slices.SortFunc(view.SkillSpecs, func(left, right pkgplugins.PluginSkillSpec) int {
-		if left.PluginID != right.PluginID {
-			return cmp.Compare(left.PluginID, right.PluginID)
-		}
-		if left.Name != right.Name {
-			return cmp.Compare(left.Name, right.Name)
-		}
-		return cmp.Compare(left.ConfigID, right.ConfigID)
-	})
 	return view, nil
 }
 
@@ -134,13 +125,6 @@ func appendCLIResources(view *pkgplugins.SessionPluginView, identity pkgplugins.
 			Options:                cloneMap(binary.Options),
 		})
 	}
-	for _, skill := range payload.Skills {
-		view.SkillSpecs = append(view.SkillSpecs, pkgplugins.PluginSkillSpec{
-			PluginResourceIdentity: identity,
-			Repo:                   skill.Repo,
-			Name:                   skill.Name,
-		})
-	}
 	for _, env := range payload.SessionEnvs {
 		view.SessionEnvSpecs = append(view.SessionEnvSpecs, pkgplugins.SessionEnvSpec{
 			PluginID:        identity.PluginID,
@@ -163,7 +147,6 @@ func appendGoResources(h *Host, view *pkgplugins.SessionPluginView, identity pkg
 	h.mu.RLock()
 	_, registered := h.pluginIDs[definition.ImplementationKey]
 	envs := append([]pkgplugins.SessionEnvSpec(nil), h.sessionEnvRegs[definition.ID]...)
-	skills := append([]pkgplugins.BundledSkillSpec(nil), h.bundledSkillRegs[definition.ID]...)
 	h.mu.RUnlock()
 	if !registered {
 		return
@@ -174,11 +157,5 @@ func appendGoResources(h *Host, view *pkgplugins.SessionPluginView, identity pkg
 		env.Scope = identity.Scope
 		env.Revision = identity.Revision
 		view.SessionEnvSpecs = append(view.SessionEnvSpecs, env)
-	}
-	for _, skill := range skills {
-		view.SkillSpecs = append(view.SkillSpecs, pkgplugins.PluginSkillSpec{
-			PluginResourceIdentity: identity,
-			Name:                   skill.Name,
-		})
 	}
 }

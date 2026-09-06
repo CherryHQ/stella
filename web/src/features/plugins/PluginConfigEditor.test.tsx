@@ -29,14 +29,14 @@ const config = (backend_summary: PluginConfig["backend_summary"]): PluginConfig 
   }) as PluginConfig;
 
 describe("PluginConfigEditor", () => {
-  it("shows independently editable CLI versions and skill sources", () => {
+  it("shows independently editable CLI versions without skill mutation fields", () => {
     const html = renderToStaticMarkup(
       <PluginConfigEditor
         plugin={plugin("cli")}
         config={config({
           backend: "cli",
           binaries: [{ name: "lark", version: "1.2.3" }],
-          skills: [{ name: "calendar", source_configured: true }],
+          skills: [{ name: "calendar" }],
           session_env: [],
           oauth_provider_configured: false,
         })}
@@ -47,10 +47,9 @@ describe("PluginConfigEditor", () => {
     );
 
     expect(html).toContain("Binary versions");
-    expect(html).toContain("Skill sources");
+    expect(html).not.toContain("Skill sources");
     expect(html).toContain("lark");
-    expect(html).toContain("calendar");
-    expect(html).toContain("Leave blank to keep the current source");
+    expect(html).not.toContain("calendar");
   });
 
   it("does not echo an existing MCP endpoint while preparing its edit form", () => {

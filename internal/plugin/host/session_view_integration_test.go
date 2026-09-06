@@ -91,7 +91,6 @@ func TestSessionPluginViewNamespaceWinnerHidesGoResources(t *testing.T) {
 	host := pluginhost.New(nil)
 	host.RegisterPluginID(goDefinition.ID)
 	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: goDefinition.ID, EnvVar: "EMAIL_TOKEN", Source: pkgplugins.SessionEnvSourceStatic, Value: "trusted"})
-	host.AddBundledSkill(pkgplugins.BundledSkillSpec{PluginID: goDefinition.ID, Name: "email-skill"})
 	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Transition: noopBackendTransition}, inlinePluginMutationFence)
 	authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
 	if err != nil {
@@ -111,7 +110,7 @@ func TestSessionPluginViewNamespaceWinnerHidesGoResources(t *testing.T) {
 	if !slices.Equal(view.ExposedPluginIDs, []string{mcpDefinition.ID}) {
 		t.Fatalf("exposed IDs = %v, want MCP namespace winner only", view.ExposedPluginIDs)
 	}
-	if len(view.SessionEnvSpecs) != 0 || len(view.SkillSpecs) != 0 {
+	if len(view.SessionEnvSpecs) != 0 {
 		t.Fatalf("Go resources leaked through MCP namespace winner: %+v", view)
 	}
 }

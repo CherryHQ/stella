@@ -168,11 +168,13 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 	if dir := env[sandboxpkg.EnvNativeSelectionDir]; dir != "" {
 		// Optional selections retain separate mounts; core owns STELLA_HOME/bin.
 		selectionShims = remapMise(dir)
+		env[sandboxpkg.EnvNativeSelectionDir] = selectionShims
 	} else if dir := env["MISE_SHIMS_DIR"]; dir != "" {
 		selectionShims = remapMise(dir)
 	}
 	if dir := env[sandboxpkg.EnvUserNativeSelectionDir]; dir != "" {
 		userSelectionShims = remapMise(dir)
+		env[sandboxpkg.EnvUserNativeSelectionDir] = userSelectionShims
 	}
 	bundledShims := ""
 	if dir := env[sandboxpkg.EnvCoreRuntimeDir]; dir != "" {

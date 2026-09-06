@@ -150,16 +150,7 @@ func filterVisibleResolvedSkills(skills []ResolvedSkill, build pkgplugins.System
 				continue
 			}
 		}
-		visible := true
-		for _, required := range skill.RequiredPluginIDs() {
-			if _, ok := enabled[required]; !ok {
-				visible = false
-				break
-			}
-		}
-		if visible {
-			out = append(out, skill)
-		}
+		out = append(out, skill)
 	}
 	return out
 }

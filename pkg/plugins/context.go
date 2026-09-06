@@ -89,13 +89,6 @@ type PluginBinarySpec struct {
 	Options map[string]any
 }
 
-// PluginSkillSpec is a selected plugin-owned skill reference.
-type PluginSkillSpec struct {
-	PluginResourceIdentity
-	Repo string
-	Name string
-}
-
 // SessionPluginView is the runner-facing view of selected plugin-owned session
 // setup, resources, and plugin visibility state.
 type SessionPluginView struct {
@@ -106,7 +99,6 @@ type SessionPluginView struct {
 	ExposedPluginIDs []string
 	SessionEnvSpecs  []SessionEnvSpec
 	BinarySpecs      []PluginBinarySpec
-	SkillSpecs       []PluginSkillSpec
 }
 
 // BeforeRunContext is the narrow per-run lifecycle context exposed to plugins.
