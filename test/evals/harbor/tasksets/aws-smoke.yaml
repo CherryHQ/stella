@@ -7,6 +7,7 @@ n_concurrent_trials: 16
 
 datasets:
   - name: terminal-bench/terminal-bench-2-1
+    ref: sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a
     task_names:
       - terminal-bench/build-cython-ext
       - terminal-bench/large-scale-text-editing

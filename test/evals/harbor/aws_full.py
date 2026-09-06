@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the complete Terminal-Bench 2.1 Luna evaluation on disposable AWS compute.
+"""Run the complete Terminal-Bench 2.1 evaluation on disposable AWS compute.
 
 The command owns the whole lifecycle: local plan preflight, temporary IAM/S3/
 Secrets Manager/EC2 resources, SSM bootstrap, five ordered k=1 passes merged as
@@ -53,7 +53,13 @@ class RunJournal:
         with self.path.open("a") as stream:
             stream.write(json.dumps(entry, sort_keys=True) + "\n")
         detail = fields.get("phase") or fields.get("message") or ""
-        print(f"[{entry['at']}] {event}{': ' + str(detail) if detail else ''}", flush=True)
+        try:
+            print(f"[{entry['at']}] {event}{': ' + str(detail) if detail else ''}", flush=True)
+        except BrokenPipeError:
+            # The console may disappear during a long run; the disk journal remains authoritative.
+            # Redirect the descriptor so Python's shutdown flush cannot fail on the same pipe.
+            with open(os.devnull, "w") as sink:
+                os.dup2(sink.fileno(), sys.stdout.fileno())
 
 
 class Aws:
@@ -93,15 +99,26 @@ def atomic_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def require_environment() -> tuple[str, dict[str, str]]:
-    required = ("AWS_REGION", "OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL")
+    required = (
+        "AWS_REGION",
+        "OPENAI_BASE_URL",
+        "OPENAI_API_KEY",
+        "OPENAI_MODEL",
+        "EVAL_COST_INPUT",
+        "EVAL_COST_OUTPUT",
+        "EVAL_COST_CACHE_READ",
+        "EVAL_COST_CACHE_WRITE",
+    )
     missing = [name for name in required if not os.environ.get(name)]
     if missing:
         raise RuntimeError("missing environment variables: " + ", ".join(missing))
     if os.environ.get("OTEL_STELLA_RECORD_TOOL_IO"):
         raise RuntimeError("OTEL_STELLA_RECORD_TOOL_IO must be unset for Terminal-Bench")
-    provider = {name: os.environ[name] for name in required if name.startswith("OPENAI_")}
-    if provider["OPENAI_MODEL"] != "gpt-5.6-luna":
-        raise RuntimeError("full historical comparison is locked to OPENAI_MODEL=gpt-5.6-luna")
+    provider = {
+        name: os.environ[name]
+        for name in required
+        if name.startswith(("OPENAI_", "EVAL_COST_"))
+    }
     return os.environ["AWS_REGION"], provider
 
 
@@ -440,6 +457,7 @@ def provision(
         (root / "test/evals/harbor/aws_runner.sh", "input/aws_runner.sh"),
         (root / "test/evals/harbor/stella_harbor/aws_merge.py", "input/aws_merge.py"),
         (root / "test/evals/harbor/tasksets/aws-smoke.yaml", "input/aws-smoke.yaml"),
+        (root / "test/evals/harbor/stella_harbor/aws_prepare.py", "input/aws_prepare.py"),
     ):
         aws.run("s3", "cp", str(local), f"s3://{bucket}/{remote}", "--only-show-errors")
 
@@ -764,6 +782,11 @@ def provision(
             "PASSES": state["passes"],
             "EXPECTED_TASKS": state["expected_tasks"],
             "RUN_MODE": state["run_mode"],
+            "SAMPLE_MINUTES": state.get("sample_minutes", 0),
+            "TRIAL_LIMIT": state.get("trial_limit", 0),
+            "WARMUP_MODE": state["warmup_mode"],
+            "WARMUP_CONCURRENCY": state["warmup_concurrency"],
+            "TOPUP_CONCURRENCY": state["topup_concurrency"],
             "MAX_TOPUP_ROUNDS": state["max_topup_rounds"],
             "INSTANCE_TYPE": state["instance_type"],
             "INSTANCE_ID": instance,
@@ -773,6 +796,7 @@ def provision(
             "REMOTE_RUNNER_SHA256": state["remote_runner_sha256"],
             "MERGE_HELPER_SHA256": state["merge_helper_sha256"],
             "SMOKE_TASKSET_SHA256": state["smoke_taskset_sha256"],
+            "PREPARE_HELPER_SHA256": state["prepare_helper_sha256"],
         },
     )
     aws.run("s3", "cp", str(config), f"s3://{bucket}/input/remote-config.env", "--only-show-errors")
@@ -819,11 +843,13 @@ mkdir -p /opt/stella-tb21/stella_harbor
 aws s3 cp s3://{bucket}/input/aws_runner.sh /opt/stella-tb21/aws_runner.sh --only-show-errors
 aws s3 cp s3://{bucket}/input/aws_merge.py /opt/stella-tb21/aws_merge.py --only-show-errors
 aws s3 cp s3://{bucket}/input/aws-smoke.yaml /opt/stella-tb21/aws-smoke.yaml --only-show-errors
+aws s3 cp s3://{bucket}/input/aws_prepare.py /opt/stella-tb21/aws_prepare.py --only-show-errors
 aws s3 cp s3://{bucket}/input/remote-config.env /opt/stella-tb21/remote-config.env --only-show-errors
 printf '%s  %s\n' '{state["remote_runner_sha256"]}' /opt/stella-tb21/aws_runner.sh | sha256sum -c -
 printf '%s  %s\n' '{state["merge_helper_sha256"]}' /opt/stella-tb21/aws_merge.py | sha256sum -c -
 printf '%s  %s\n' '{state["smoke_taskset_sha256"]}' /opt/stella-tb21/aws-smoke.yaml | sha256sum -c -
 chmod 700 /opt/stella-tb21/aws_runner.sh
+printf '%s  %s\n' '{state["prepare_helper_sha256"]}' /opt/stella-tb21/aws_prepare.py | sha256sum -c -
 shutdown -h +{timeout_minutes} >/dev/null 2>&1
 cat >/etc/systemd/system/stella-tb21.service <<'UNIT'
 [Unit]
@@ -959,7 +985,12 @@ def download_artifacts(aws: Aws, state: dict[str, Any], run_dir: Path, journal: 
         "archive-summary.txt",
         "remote-journal.ndjson",
         "SHA256SUMS",
+        "performance.json",
     }
+    if state.get("run_mode") in {"capacity", "throughput", "queued"}:
+        required = {"capacity-summary.json", "performance.json", "remote-journal.ndjson", "SHA256SUMS"}
+        if state.get("run_mode") == "queued":
+            required.add("queue-plan.json")
     missing = sorted(name for name in required if not (artifacts / name).is_file())
     if missing:
         raise RuntimeError("downloaded artifacts are incomplete: " + ", ".join(missing))
@@ -970,11 +1001,24 @@ def download_artifacts(aws: Aws, state: dict[str, Any], run_dir: Path, journal: 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", action="store_true", help="validate locally and print the cloud plan")
-    parser.add_argument(
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
         "--smoke",
         action="store_true",
         help="run five representative tasks at k=1 through the complete AWS path",
     )
+    modes.add_argument(
+        "--pilot", action="store_true",
+        help="performance-only: prepare 89 environments, then five smoke tasks at concurrency 1,N,N,1",
+    )
+    modes.add_argument("--capacity", action="store_true", help="performance-only: 89 tasks at 16,32,48,64,16 workers; no top-ups")
+    modes.add_argument("--throughput", action="store_true", help="timeboxed performance sample of the 89-task queue; no top-ups")
+    modes.add_argument("--queued", action="store_true", help="performance-only: one cross-pass queue, bounded by --trial-limit; no retries")
+    parser.add_argument("--sample-minutes", type=int, default=10, help="throughput sample duration, excluding host preparation (1-30, default 10)")
+    parser.add_argument("--trial-limit", type=int, default=445, help="queued attempt count (89-445, default 445); always covers all 89 tasks")
+    parser.add_argument("--warmup", choices=("legacy", "environment"), default="legacy")
+    parser.add_argument("--warmup-concurrency", type=int, default=4, help="environment preparation workers (1-4)")
+    parser.add_argument("--topup-concurrency", type=int, default=1, help="missing-task batch workers (up to --concurrency)")
     parser.add_argument("--cleanup", type=Path, metavar="RUN_DIR", help="delete resources recorded in RUN_DIR/state.json")
     parser.add_argument("--commit", default="origin/main", help="commit/ref to evaluate (default: origin/main)")
     parser.add_argument("--instance-type", default=DEFAULT_INSTANCE)
@@ -999,14 +1043,41 @@ def main(argv: list[str] | None = None) -> int:
         raise RuntimeError("reportable Terminal-Bench 2.1 comparison requires --passes 5")
     if args.concurrency < 1 or args.max_topup_rounds < 0 or args.timeout_hours < 1:
         raise RuntimeError("concurrency and timeout must be positive; top-up rounds cannot be negative")
+    if not 1 <= args.warmup_concurrency <= 4:
+        raise RuntimeError("warm-up concurrency must be between 1 and 4")
+    if not 1 <= args.topup_concurrency <= args.concurrency:
+        raise RuntimeError("top-up concurrency must be between 1 and --concurrency")
+    if args.pilot and (args.warmup != "environment" or not 2 <= args.concurrency <= 5):
+        raise RuntimeError("--pilot requires --warmup environment and --concurrency between 2 and 5")
+    if args.capacity and (args.warmup != "environment" or args.concurrency != 16 or args.max_topup_rounds != 0):
+        raise RuntimeError("--capacity requires --warmup environment --concurrency 16 --max-topup-rounds 0")
+    if args.throughput and (args.warmup != "environment" or args.max_topup_rounds != 0 or not 1 <= args.sample_minutes <= 30):
+        raise RuntimeError("--throughput requires --warmup environment --max-topup-rounds 0 and --sample-minutes 1-30")
+    if args.queued and (args.warmup != "environment" or args.max_topup_rounds != 0 or not 89 <= args.trial_limit <= 445):
+        raise RuntimeError("--queued requires --warmup environment --max-topup-rounds 0 and --trial-limit 89-445")
+    if not args.queued and args.trial_limit != 445:
+        raise RuntimeError("--trial-limit requires --queued")
 
     region, provider = require_environment()
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_mode = "smoke" if args.smoke else "full"
-    run_id = f"tb21-luna-{run_mode}-{now}"
+    run_mode = "full"
+    expected_tasks = 89
+    pass_concurrencies = [args.concurrency] * args.passes
+    if args.smoke:
+        run_mode, expected_tasks, pass_concurrencies = "smoke", 5, [args.concurrency]
+    elif args.pilot:
+        run_mode, expected_tasks = "pilot", 5
+        pass_concurrencies = [1, args.concurrency, args.concurrency, 1]
+    elif args.capacity:
+        run_mode, pass_concurrencies = "capacity", [16, 32, 48, 64, 16]
+    elif args.throughput:
+        run_mode, pass_concurrencies = "throughput", [args.concurrency]
+    elif args.queued:
+        run_mode, pass_concurrencies = "queued", [args.concurrency]
+    run_id = f"tb21-experimental-{run_mode}-{now}"
     run_dir = root / "dist" / "evals" / "aws" / run_id
     journal = RunJournal(run_dir)
-    commit = local_preflight(root, args.commit, args.concurrency, args.smoke, journal)
+    commit = local_preflight(root, args.commit, args.concurrency, args.smoke or args.pilot, journal)
     state_path = run_dir / "state.json"
     controller_commit = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=True
@@ -1020,12 +1091,19 @@ def main(argv: list[str] | None = None) -> int:
         "remote_runner_sha256": sha256(root / "test/evals/harbor/aws_runner.sh"),
         "merge_helper_sha256": sha256(root / "test/evals/harbor/stella_harbor/aws_merge.py"),
         "smoke_taskset_sha256": sha256(root / "test/evals/harbor/tasksets/aws-smoke.yaml"),
+        "prepare_helper_sha256": sha256(root / "test/evals/harbor/stella_harbor/aws_prepare.py"),
         "model_id": provider["OPENAI_MODEL"],
         "instance_type": args.instance_type,
         "concurrency": args.concurrency,
-        "passes": 1 if args.smoke else args.passes,
-        "expected_tasks": 5 if args.smoke else 89,
+        "passes": len(pass_concurrencies),
+        "expected_tasks": expected_tasks,
         "run_mode": run_mode,
+        "pass_concurrencies": pass_concurrencies,
+        "sample_minutes": args.sample_minutes if args.throughput else 0,
+        "trial_limit": args.trial_limit if args.queued else 0,
+        "warmup_mode": args.warmup,
+        "warmup_concurrency": args.warmup_concurrency,
+        "topup_concurrency": args.topup_concurrency,
         "max_topup_rounds": args.max_topup_rounds,
         "timeout_hours": args.timeout_hours,
         "dataset": DATASET,
@@ -1038,7 +1116,7 @@ def main(argv: list[str] | None = None) -> int:
         commit=commit,
         model=provider["OPENAI_MODEL"],
         instance_type=args.instance_type,
-        trials=state["expected_tasks"] * state["passes"],
+        trials=args.trial_limit if args.queued else state["expected_tasks"] * state["passes"],
         run_mode=run_mode,
     )
     if args.plan:
@@ -1047,21 +1125,28 @@ def main(argv: list[str] | None = None) -> int:
 
     aws = Aws(region, journal)
     run_error: Exception | None = None
-    try:
-        provision(aws, root, run_dir, state_path, state, provider, args.commit, journal)
-        wait_for_ssm(aws, state["instance_id"], 900, journal)
-        start_remote(aws, state, state_path, journal)
-        monitor(aws, state, journal)
-        download_artifacts(aws, state, run_dir, journal)
-    except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001  # cleanup is mandatory
-        run_error = exc
-        download_remote_journal(aws, state, run_dir)
-        journal.record("run-failed", message=str(exc))
     cleanup_error: Exception | None = None
     try:
-        cleanup(aws, state_path, state, journal)
-    except Exception as exc:  # noqa: BLE001  # preserve the original run error
-        cleanup_error = exc
+        try:
+            provision(aws, root, run_dir, state_path, state, provider, args.commit, journal)
+            wait_for_ssm(aws, state["instance_id"], 900, journal)
+            start_remote(aws, state, state_path, journal)
+            monitor(aws, state, journal)
+            download_artifacts(aws, state, run_dir, journal)
+        except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001  # cleanup is mandatory
+            run_error = exc
+            download_remote_journal(aws, state, run_dir)
+            if state.get("run_mode") in {"capacity", "throughput", "queued"} and state.get("bucket_created"):
+                try:
+                    download_artifacts(aws, state, run_dir, journal)
+                except RuntimeError:
+                    journal.record("capacity-checkpoint-unavailable")
+            journal.record("run-failed", message=str(exc))
+    finally:
+        try:
+            cleanup(aws, state_path, state, journal)
+        except Exception as exc:  # noqa: BLE001  # preserve the original run error
+            cleanup_error = exc
     if run_error and cleanup_error:
         raise RuntimeError(f"run failed: {run_error}; cleanup also failed: {cleanup_error}")
     if run_error:
