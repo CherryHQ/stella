@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -758,6 +759,86 @@ func TestAdjustPolicy_rewritesMiseEnvPaths(t *testing.T) {
 
 	if adjusted.Env["OTHER_VAR"] != "keep-as-is" {
 		t.Errorf("OTHER_VAR was unexpectedly modified: %q", adjusted.Env["OTHER_VAR"])
+	}
+}
+
+func TestAdjustPolicyUsesSelectionLocalShims(t *testing.T) {
+	hostSH := "/home/user/.stella"
+	sandboxSH := adjustStellaHome(hostSH)
+	selectionShims := hostSH + "/.mise-tools/contexts/system-a/shims"
+	policy := sandboxpkg.Policy{Env: map[string]string{"MISE_SHIMS_DIR": selectionShims}}
+
+	adjusted := (&Factory{cfg: Config{StellaHome: hostSH}}).adjustPolicy(
+		policy, "/workspace", "/workspace", "", "",
+	)
+	wantSelection := sandboxSH + "/.mise-tools/contexts/system-a/shims"
+	if !strings.HasPrefix(adjusted.Env["PATH"], wantSelection+string(filepath.ListSeparator)) {
+		t.Fatalf("selection-local shims must lead PATH, got %q", adjusted.Env["PATH"])
+	}
+	if strings.Contains(adjusted.Env["PATH"], sandboxSH+"/bin") || strings.Contains(adjusted.Env["PATH"], sandboxSH+"/.mise-tools/shims") {
+		t.Fatalf("PATH leaked shared Stella paths: %q", adjusted.Env["PATH"])
+	}
+}
+
+func TestAdjustPolicyUsesMountedNativeSelectionPath(t *testing.T) {
+	hostSH := "/home/user/.stella"
+	sandboxSH := adjustStellaHome(hostSH)
+	selection := hostSH + "/.mise-tools/public/selection"
+	adjusted := (&Factory{cfg: Config{StellaHome: hostSH}}).adjustPolicy(
+		sandboxpkg.Policy{Env: map[string]string{sandboxpkg.EnvNativeSelectionDir: selection}},
+		"/workspace", "/workspace", "", "",
+	)
+	want := sandboxSH + "/bin"
+	if runtime.GOOS == "darwin" {
+		want = selection
+	}
+	if !strings.HasPrefix(adjusted.Env["PATH"], want+string(filepath.ListSeparator)) {
+		t.Fatalf("native selection PATH = %q, want mounted path %q", adjusted.Env["PATH"], want)
+	}
+}
+
+func TestNativeSelectionPathRunsSelectedCommand(t *testing.T) {
+	if !seatbeltFunctional() {
+		t.Skip("macOS Seatbelt is unavailable in this environment")
+	}
+	stellaHome := t.TempDir()
+	selection := filepath.Join(stellaHome, ".mise-tools", "public", "selection")
+	if err := os.MkdirAll(selection, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := filepath.Join(selection, "selected-tool")
+	if err := os.WriteFile(command, []byte("#!/bin/sh\nprintf 'selected\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	policy := sandboxpkg.Policy{
+		Env: map[string]string{
+			sandboxpkg.EnvNativeSelectionDir: selection,
+			"PATH":                           selection,
+		},
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkingDir: sandboxpkg.MountWorkspace,
+			Mounts: []sandboxpkg.Mount{
+				{SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite},
+				{SandboxPath: sandboxpkg.MountStellaHome + "/bin", Access: sandboxpkg.MountReadOnly},
+			},
+		},
+	}
+	f := NewFactoryWithMountSources(map[string]string{
+		sandboxpkg.MountWorkspace:           t.TempDir(),
+		sandboxpkg.MountStellaHome + "/bin": selection,
+	}, Config{StellaHome: stellaHome})
+	sess, err := f.CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	defer sess.Close() //nolint:errcheck
+	result, err := sess.Exec(context.Background(), "selected-tool", sandboxpkg.ExecOptions{})
+	if err != nil || result.ExitCode != 0 || result.Stdout != "selected\n" {
+		t.Fatalf("selected command result = %+v, err=%v", result, err)
+	}
+	result, err = sess.Exec(context.Background(), "command -v selected-tool", sandboxpkg.ExecOptions{})
+	if err != nil || result.ExitCode != 0 || strings.TrimSpace(result.Stdout) != command {
+		t.Fatalf("command -v selected-tool = %q, err=%v", result.Stdout, err)
 	}
 }
 

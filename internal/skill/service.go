@@ -36,6 +36,24 @@ type ResolvedSkill struct {
 	registry *resources.Registry
 }
 
+// OwnerPluginID returns the trusted owner for a builtin skill. Mutable skill
+// metadata and project frontmatter never participate in ownership decisions.
+func (s ResolvedSkill) OwnerPluginID() string {
+	if s.builtin == nil {
+		return ""
+	}
+	return s.builtin.OwnerPluginID
+}
+
+// RequiredPluginIDs returns the trusted release dependencies for a builtin
+// skill. Mutable and project skills cannot grant themselves plugin access.
+func (s ResolvedSkill) RequiredPluginIDs() []string {
+	if s.builtin == nil {
+		return nil
+	}
+	return slices.Clone(s.builtin.RequiresPluginIDs)
+}
+
 func (s *ResolvedSkill) LoadBuiltinFile(filePath string) (string, error) {
 	if s.builtin == nil || s.registry == nil {
 		return "", fmt.Errorf("not a builtin skill")

@@ -1,79 +1,214 @@
 package host
 
 import (
+	"cmp"
 	"context"
-	"sort"
+	"fmt"
+	"slices"
 
+	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// SessionPluginView returns the enabled plugin-owned session env setup used by
-// runner sessions plus the registered/enabled plugin IDs prompt builders may
-// need for visibility-aware output.
-func (h *Host) SessionPluginView(ctx context.Context) (pkgplugins.SessionPluginView, error) {
-	metas := h.ListRegisteredPlugins()
-	view := pkgplugins.SessionPluginView{
-		RegisteredPluginIDs: make([]string, 0, len(metas)),
+// SessionPluginView projects one already-authorized plugin snapshot for a
+// runner. The snapshot is the only source of selected config and enabled state;
+// immutable bundled binary names come from the embedded authored manifest.
+func (h *Host) SessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPluginView, error) {
+	definitions := snapshot.Definitions()
+	authored, err := manifest.LoadBuiltin()
+	if err != nil {
+		return pkgplugins.SessionPluginView{}, fmt.Errorf("load builtin bundled binary metadata: %w", err)
 	}
-	registeredSet := make(map[string]struct{}, len(metas))
-	for _, meta := range metas {
-		view.RegisteredPluginIDs = append(view.RegisteredPluginIDs, meta.ID)
-		registeredSet[meta.ID] = struct{}{}
-	}
-
-	// Add every manifest-only plugin to RegisteredPluginIDs (they are not in
-	// metadataRegs). Disabled IDs remain registered so owner_plugin visibility
-	// can distinguish a disabled plugin from an unrelated standalone skill.
-	h.mu.RLock()
-	for id := range h.manifestIDs {
-		if _, exists := registeredSet[id]; !exists {
-			view.RegisteredPluginIDs = append(view.RegisteredPluginIDs, id)
-			registeredSet[id] = struct{}{}
+	bundledNames := make(map[string][]string, len(authored.Plugins))
+	for _, p := range authored.Plugins {
+		if len(p.BundledBinaries) != 0 {
+			bundledNames[p.ID] = slices.Clone(p.BundledBinaries)
 		}
 	}
-	h.mu.RUnlock()
-
-	sort.Strings(view.RegisteredPluginIDs)
-	if h.store == nil {
-		return view, nil
+	view := pkgplugins.SessionPluginView{
+		RegisteredPluginIDs: make([]string, 0, len(definitions)),
 	}
+	for _, definition := range definitions {
+		view.RegisteredPluginIDs = append(view.RegisteredPluginIDs, definition.ID)
 
-	enabledPlugins, err := h.store.ListEnabledPlugins(ctx)
-	if err != nil {
-		return pkgplugins.SessionPluginView{}, err
-	}
-	enabledSet := make(map[string]struct{}, len(enabledPlugins))
-	for _, plugin := range enabledPlugins {
-		if !plugin.Enabled {
+		resolved, ok := snapshot.Get(definition.ID)
+		if !ok {
+			return pkgplugins.SessionPluginView{}, fmt.Errorf("resolve plugin %q", definition.ID)
+		}
+		if !resolved.Effective.IsEffectivelyEnabled {
 			continue
 		}
-		enabledSet[plugin.ID] = struct{}{}
-		view.EnabledPluginIDs = append(view.EnabledPluginIDs, plugin.ID)
-	}
 
-	// Add manifest-enabled plugins to the enabled set.
-	h.mu.RLock()
-	for id := range h.manifestEnabledIDs {
-		if _, exists := enabledSet[id]; !exists {
-			enabledSet[id] = struct{}{}
-			view.EnabledPluginIDs = append(view.EnabledPluginIDs, id)
+		// A namespace winner is the only definition allowed to advertise its
+		// exported resources. ID resolution remains independent for callers such
+		// as channel/background integrations.
+		winner, err := snapshot.ResolveNamespace(definition.Namespace)
+		if err != nil {
+			return pkgplugins.SessionPluginView{}, fmt.Errorf("resolve namespace %q: %w", definition.Namespace, err)
+		}
+		if winner.PluginID != definition.ID || !winner.IsEffectivelyEnabled {
+			continue
+		}
+		identity, err := selectedResourceIdentity(definition, resolved)
+		if err != nil {
+			return pkgplugins.SessionPluginView{}, err
+		}
+		view.ExposedPluginIDs = append(view.ExposedPluginIDs, definition.ID)
+		for _, name := range bundledNames[definition.ID] {
+			view.BundledBinarySpecs = append(view.BundledBinarySpecs, pkgplugins.PluginBundledBinarySpec{
+				PluginResourceIdentity: identity,
+				Name:                   name,
+			})
+		}
+		if resource, ok := bundledRuntimeResource(definition.ID); ok {
+			appendBundledRuntimeResources(&view, identity, resource)
+			continue
+		}
+
+		switch definition.Backend {
+		case plugin.BackendCLI:
+			if err := validateResolvedCLIPayload(definition, resolved); err != nil {
+				return pkgplugins.SessionPluginView{}, err
+			}
+			payload, err := manifest.DecodeCLIPayload(resolved.Effective.Payload, "selected CLI payload")
+			if err != nil {
+				return pkgplugins.SessionPluginView{}, fmt.Errorf("plugin %q: %w", definition.ID, err)
+			}
+			appendCLIResources(&view, identity, payload)
+		case plugin.BackendGo:
+			appendGoResources(h, &view, identity, definition)
+		case plugin.BackendMCP:
+			// MCP resources are discovered by its provider, not from a CLI
+			// payload. Its enabled identity is still in the view above.
 		}
 	}
-	h.mu.RUnlock()
 
-	sort.Strings(view.EnabledPluginIDs)
-
-	for _, spec := range h.AllSessionEnvSpecs() {
-		if _, ok := enabledSet[spec.PluginID]; ok {
-			view.SessionEnvSpecs = append(view.SessionEnvSpecs, spec)
+	slices.Sort(view.RegisteredPluginIDs)
+	slices.Sort(view.ExposedPluginIDs)
+	slices.SortFunc(view.SessionEnvSpecs, func(left, right pkgplugins.SessionEnvSpec) int {
+		if left.EnvVar != right.EnvVar {
+			return cmp.Compare(left.EnvVar, right.EnvVar)
 		}
-	}
-	sort.Slice(view.SessionEnvSpecs, func(i, j int) bool {
-		if view.SessionEnvSpecs[i].EnvVar != view.SessionEnvSpecs[j].EnvVar {
-			return view.SessionEnvSpecs[i].EnvVar < view.SessionEnvSpecs[j].EnvVar
+		if left.PluginID != right.PluginID {
+			return cmp.Compare(left.PluginID, right.PluginID)
 		}
-		return view.SessionEnvSpecs[i].PluginID < view.SessionEnvSpecs[j].PluginID
+		return cmp.Compare(left.ConfigID, right.ConfigID)
 	})
-
+	slices.SortFunc(view.BinarySpecs, func(left, right pkgplugins.PluginBinarySpec) int {
+		if left.PluginID != right.PluginID {
+			return cmp.Compare(left.PluginID, right.PluginID)
+		}
+		if left.Name != right.Name {
+			return cmp.Compare(left.Name, right.Name)
+		}
+		return cmp.Compare(left.ConfigID, right.ConfigID)
+	})
+	slices.SortFunc(view.BundledBinarySpecs, func(left, right pkgplugins.PluginBundledBinarySpec) int {
+		if left.PluginID != right.PluginID {
+			return cmp.Compare(left.PluginID, right.PluginID)
+		}
+		if left.Name != right.Name {
+			return cmp.Compare(left.Name, right.Name)
+		}
+		return cmp.Compare(left.ConfigID, right.ConfigID)
+	})
+	slices.SortFunc(view.SkillSpecs, func(left, right pkgplugins.PluginSkillSpec) int {
+		if left.PluginID != right.PluginID {
+			return cmp.Compare(left.PluginID, right.PluginID)
+		}
+		if left.Name != right.Name {
+			return cmp.Compare(left.Name, right.Name)
+		}
+		return cmp.Compare(left.ConfigID, right.ConfigID)
+	})
 	return view, nil
+}
+
+// validateResolvedCLIPayload re-runs the backend boundary after resolution.
+// A config saved while disabled may be structurally valid but incomplete; a
+// capability lift must not turn that dormant payload into an executable one.
+func validateResolvedCLIPayload(definition plugin.Definition, resolved plugin.ResolvedPlugin) error {
+	if resolved.Config == nil {
+		return fmt.Errorf("plugin %q is enabled without a selected config", definition.ID)
+	}
+	config := *resolved.Config
+	enabled := true
+	config.Enabled = &enabled
+	config.Payload = resolved.Effective.Payload
+	if err := manifest.ValidatePayload(context.Background(), definition, config, nil); err != nil {
+		return fmt.Errorf("validate selected CLI payload for plugin %q: %w", definition.ID, err)
+	}
+	return nil
+}
+
+func selectedResourceIdentity(definition plugin.Definition, resolved plugin.ResolvedPlugin) (pkgplugins.PluginResourceIdentity, error) {
+	if resolved.Config == nil {
+		return pkgplugins.PluginResourceIdentity{}, fmt.Errorf("plugin %q is enabled without a selected config", definition.ID)
+	}
+	return pkgplugins.PluginResourceIdentity{
+		PluginID: definition.ID,
+		ConfigID: resolved.Config.ID,
+		Scope:    string(resolved.Config.Scope),
+		Revision: resolved.Config.Revision,
+	}, nil
+}
+
+func appendCLIResources(view *pkgplugins.SessionPluginView, identity pkgplugins.PluginResourceIdentity, payload manifest.CLIPayload) {
+	for _, binary := range payload.Binaries {
+		view.BinarySpecs = append(view.BinarySpecs, pkgplugins.PluginBinarySpec{
+			PluginResourceIdentity: identity,
+			Name:                   binary.Name,
+			Tool:                   binary.Tool,
+			Version:                binary.Version,
+			Options:                cloneMap(binary.Options),
+		})
+	}
+	for _, skill := range payload.Skills {
+		view.SkillSpecs = append(view.SkillSpecs, pkgplugins.PluginSkillSpec{
+			PluginResourceIdentity: identity,
+			Repo:                   skill.Repo,
+			Name:                   skill.Name,
+		})
+	}
+	for _, env := range payload.SessionEnvs {
+		view.SessionEnvSpecs = append(view.SessionEnvSpecs, pkgplugins.SessionEnvSpec{
+			PluginID:        identity.PluginID,
+			ConfigID:        identity.ConfigID,
+			Scope:           identity.Scope,
+			Revision:        identity.Revision,
+			EnvVar:          env.EnvVar,
+			Source:          pkgplugins.SessionEnvSource(env.Source),
+			Value:           env.Value,
+			Required:        env.Required,
+			OAuthProviderID: payload.OAuthProvider,
+		})
+	}
+}
+
+func appendGoResources(h *Host, view *pkgplugins.SessionPluginView, identity pkgplugins.PluginResourceIdentity, definition plugin.Definition) {
+	if definition.Source != plugin.SourceBuiltin || definition.ImplementationKey != definition.ID {
+		return
+	}
+	h.mu.RLock()
+	_, registered := h.pluginIDs[definition.ImplementationKey]
+	envs := append([]pkgplugins.SessionEnvSpec(nil), h.sessionEnvRegs[definition.ID]...)
+	skills := append([]pkgplugins.BundledSkillSpec(nil), h.bundledSkillRegs[definition.ID]...)
+	h.mu.RUnlock()
+	if !registered {
+		return
+	}
+	for _, env := range envs {
+		env.PluginID = identity.PluginID
+		env.ConfigID = identity.ConfigID
+		env.Scope = identity.Scope
+		env.Revision = identity.Revision
+		view.SessionEnvSpecs = append(view.SessionEnvSpecs, env)
+	}
+	for _, skill := range skills {
+		view.SkillSpecs = append(view.SkillSpecs, pkgplugins.PluginSkillSpec{
+			PluginResourceIdentity: identity,
+			Name:                   skill.Name,
+		})
+	}
 }

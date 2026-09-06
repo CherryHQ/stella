@@ -698,6 +698,19 @@ type LibraryFile struct {
 	UpdatedAt        time.Time          `json:"updated_at"`
 }
 
+type McpConnectionState struct {
+	ID               string             `json:"id"`
+	ConfigID         string             `json:"config_id"`
+	CredentialUserID pgtype.Text        `json:"credential_user_id"`
+	Tools            json.RawMessage    `json:"tools"`
+	Status           string             `json:"status"`
+	StatusError      string             `json:"status_error"`
+	ProbedAt         pgtype.Timestamptz `json:"probed_at"`
+	ConfigRevision   int64              `json:"config_revision"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+}
+
 type McpOauthFlow struct {
 	ID                string             `json:"id"`
 	ServerID          string             `json:"server_id"`

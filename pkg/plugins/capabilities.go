@@ -138,6 +138,9 @@ const (
 // depending on runner-owned services such as TokenManager.
 type SessionEnvSpec struct {
 	PluginID        string
+	ConfigID        string
+	Scope           string
+	Revision        int64
 	EnvVar          string
 	Source          SessionEnvSource
 	Value           string // used only when Source == SessionEnvSourceStatic

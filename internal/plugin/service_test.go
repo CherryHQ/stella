@@ -146,3 +146,50 @@ func TestPatchPayloadPreservesOmittedFieldsAndExplicitResets(t *testing.T) {
 		t.Fatalf("explicit null ownership was lost: %s", updated)
 	}
 }
+
+func TestApplyCLIWriteOnlyPatchMaterializesOnlyKnownResources(t *testing.T) {
+	definition := Definition{
+		Backend: BackendCLI,
+		Spec:    []byte(`{"binaries":[{"name":"tool","tool":"github:owner/tool","version":"1.0","options":{"channel":"stable"}}],"skills":[{"name":"docs","repo":"owner/docs"}]}`),
+	}
+	patched, err := applyCLIWriteOnlyPatch(definition, []byte(`{"binaries":[{"name":"tool","version":"1.5"}]}`), ConfigPatch{
+		BinaryVersionsSet: true,
+		BinaryVersions:    map[string]string{"tool": "2.0"},
+		SkillSourcesSet:   true,
+		SkillSources:      map[string]string{"docs": "new/docs"},
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string][]map[string]any
+	if err := json.Unmarshal(patched, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if got := payload["binaries"][0]["version"]; got != "2.0" {
+		t.Fatalf("version = %#v, want 2.0", got)
+	}
+	if got := payload["binaries"][0]["tool"]; got != "github:owner/tool" {
+		t.Fatalf("tool = %#v, want definition locator", got)
+	}
+	if got := payload["skills"][0]["repo"]; got != "new/docs" {
+		t.Fatalf("skill repo = %#v, want requested source", got)
+	}
+}
+
+func TestApplyCLIWriteOnlyPatchRejectsUnknownAndUnauthorizedResources(t *testing.T) {
+	definition := Definition{Backend: BackendCLI, Spec: []byte(`{"binaries":[{"name":"tool","tool":"uv","version":"1"}],"skills":[{"name":"docs","repo":"owner/docs"}]}`)}
+	_, err := applyCLIWriteOnlyPatch(definition, nil, ConfigPatch{
+		BinaryVersionsSet: true,
+		BinaryVersions:    map[string]string{"missing": "2"},
+	}, false)
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("unknown binary error = %v, want invalid config", err)
+	}
+	_, err = applyCLIWriteOnlyPatch(definition, nil, ConfigPatch{
+		SkillSourcesSet: true,
+		SkillSources:    map[string]string{"docs": "attacker/repo"},
+	}, false)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("non-admin skill source error = %v, want forbidden", err)
+	}
+}

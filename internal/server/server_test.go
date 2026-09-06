@@ -25,10 +25,12 @@ import (
 	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -47,6 +49,7 @@ import (
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
+	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/server"
@@ -375,7 +378,12 @@ func setupAdmin(t *testing.T) *testEnv {
 		Agents:    sessionaccess.ConfigAgentSystemPrompt(store),
 		Projects:  projectStore.Resolve,
 		Workspace: externalServerTestWorkspace{root: config.StellaHome()},
-		Plugins:   phost,
+		PluginContextBuilder: func(context.Context, authz.Authority, string) (agentruntime.PluginContext, error) {
+			return agentruntime.PluginContext{}, nil
+		},
+		PromptSectionsBuilder: func(context.Context, pkgplugins.SystemPromptContext, plugin.Snapshot) ([]pkgplugins.SystemPromptSection, error) {
+			return nil, nil
+		},
 		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
 			return skill.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
 		},
@@ -1096,10 +1104,10 @@ func TestChannelCreateGeneratesIDAndName(t *testing.T) {
 		}
 	})
 
-	t.Run("weixin without an id gets the singleton id", func(t *testing.T) {
+	t.Run("weixin without an id gets an instance id", func(t *testing.T) {
 		saved := createChannel(t, map[string]any{"type": "weixin"})
-		if saved.ID != pkgchannel.PlatformWeixin {
-			t.Fatalf("weixin id = %q, want %q", saved.ID, pkgchannel.PlatformWeixin)
+		if saved.ID == "" || saved.ID == pkgchannel.PlatformWeixin {
+			t.Fatalf("weixin id = %q, want a generated instance id", saved.ID)
 		}
 	})
 
@@ -1538,9 +1546,8 @@ func TestUpdateChannelEnabledState(t *testing.T) {
 	}
 }
 
-// A channel's platform is fixed at creation. Retyping one is how an ordinary
-// owner could otherwise mint a second Weixin channel and, through the Weixin
-// credential mirror, take over the deployment-wide Weixin plugin row.
+// A channel's platform is fixed at creation so an update cannot reinterpret
+// stored credentials under a different platform.
 func TestUpdateChannelRejectsRetyping(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()

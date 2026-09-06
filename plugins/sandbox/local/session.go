@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -29,8 +30,8 @@ var sandboxEnvDenyList = []string{"STELLA_VAULT_KEY"}
 
 // Config configures the local sandbox factory.
 type Config struct {
-	// StellaHome is the host path to the stella home directory, used for
-	// building a sandboxed PATH that includes $STELLA_HOME/bin.
+	// StellaHome is the host path to the Stella home directory, used to resolve
+	// per-user paths and runner-owned environment values.
 	StellaHome string
 }
 
@@ -162,7 +163,27 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 	if dir := sandboxpkg.PerUserMiseDataDir(env, hostSH); dir != "" {
 		userShims = sandboxpkg.MiseUserShimsDir(remapMise(dir))
 	}
-	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH, userShims)
+	selectionShims := ""
+	userSelectionShims := ""
+	if dir := env[sandboxpkg.EnvNativeSelectionDir]; dir != "" {
+		// Linux remaps the exact selection onto the STELLA_HOME/bin mount. macOS
+		// has no bind mount, so the physical selection path must remain on PATH;
+		// pointing at shared bin here would bypass the Seatbelt read deny.
+		selectionShims = dir
+		if runtime.GOOS != "darwin" {
+			selectionShims = filepath.Join(sandboxSH, "bin")
+		}
+	} else if dir := env["MISE_SHIMS_DIR"]; dir != "" {
+		selectionShims = remapMise(dir)
+	}
+	if dir := env[sandboxpkg.EnvUserNativeSelectionDir]; dir != "" {
+		userSelectionShims = remapMise(dir)
+	}
+	bundledShims := ""
+	if dir := env[sandboxpkg.EnvBundledShimsDir]; dir != "" {
+		bundledShims = remapMise(dir)
+	}
+	env["PATH"] = sandboxpkg.HostEnvBuildPath(hostSH, userShims, userSelectionShims, selectionShims, bundledShims)
 	env[sandboxpkg.EnvRunnerPath] = env["PATH"]
 	env["STELLA_HOME"] = sandboxSH
 	if shellEnv := env["BASH_ENV"]; shellEnv != "" {

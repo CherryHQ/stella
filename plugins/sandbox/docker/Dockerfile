@@ -56,20 +56,18 @@ USER stella
 # bwrap sandbox exposes (STELLA_HOME → /opt/stella) — so an agent sees identical
 # mise paths whichever backend runs it, and switching backends has no effect. At
 # runtime RuntimeMiseEnv overrides MISE_DATA_DIR to the per-user writable tree
-# (/opt/stella/users/{id}/.mise-tools) mounted from the host; the builtin tools
-# baked here under /opt/stella/.mise-tools remain the shared read-only base that
-# per-user relative symlinks resolve against. MISE_SYSTEM_CONFIG_FILE points at
-# the release-owned _builtin config; runtime may add a principal-global config
-# above it without making the system file writable. HOME stays /home/stella for
-# the build, then flips to /workspace.
+# (/opt/stella/users/{id}/.mise-tools) mounted from the host; the baked mise
+# assets remain immutable runtime internals that per-user relative symlinks can
+# resolve against. Snapshot-selected config is injected at session creation;
+# there is no shared config fallback. HOME stays /home/stella for the build,
+# then flips to /workspace.
 ENV HOME=/home/stella
 ENV BASH_ENV=/opt/stella/bin/.stella-shell-env
 ENV MISE_DATA_DIR=/opt/stella/.mise-tools
 ENV MISE_CONFIG_DIR=/opt/stella/.mise-tools/config
 ENV MISE_STATE_DIR=/opt/stella/.mise-tools/state
 ENV MISE_CACHE_DIR=/opt/stella/.mise-tools/cache
-ENV MISE_SYSTEM_CONFIG_FILE=/opt/stella/.mise-tools/configs/_builtin.toml
-ENV PATH=/opt/stella/bin:/opt/stella/.mise-tools/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # `system-bundle install` extracts the exact release-owned mise, Xberg, and
 # shell environment before the reconciler invokes mise. This avoids a second,
@@ -84,20 +82,20 @@ RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/
 	REVISION="$(STELLA_HOME=/opt/stella stellad system-bundle revision)" && \
 	test "$REVISION" = "$BUILTIN_BUNDLE_REVISION" && \
 	mkdir -p /opt/stella/skills && ln -s "../bundles/$REVISION" /opt/stella/skills/builtin && \
-    xberg --version && \
+    /opt/stella/bin/xberg --version && \
     rm -rf /opt/stella/.mise-tools/cache
 
 # The install above runs as the owning UID, so an owner-only permission bit on a
 # bundled runtime cannot fail it — that is how a 0700 Xberg bundle directory once
 # shipped while `xberg --version` passed here. USER_UID is a build arg and the
 # image is routinely run under a different UID, so re-run every bundled runtime
-# as an unrelated one (nobody), plus one mise shim: reconcile-builtins writes the
-# shim tree as the same installing UID, onto the same PATH, with the same
-# exposure. This is the only check that distinguishes "installed" from "reachable
-# by the process that will actually use it".
+# as an unrelated one (nobody), plus the explicit release-owned paths. Runtime
+# sessions expose these binaries only through selection-local shims. This is
+# the only check that distinguishes "installed" from "reachable by the process
+# that will actually use it".
 USER root
-RUN HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups mise --version && \
-    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups xberg --version && \
+RUN HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/bin/mise --version && \
+    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/bin/xberg --version && \
     HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups rg --version
 USER stella
 

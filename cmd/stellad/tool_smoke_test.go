@@ -67,7 +67,6 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/plugins/email"
 )
 
@@ -1857,16 +1856,14 @@ func (h *smokeHarness) readCodeCatalog(t *testing.T) []string {
 
 // smokeToolUniverse is every tool this build can put in front of a model:
 // the production builtin surface (defaultToolNames, itself pinned to
-// newBuiltinTools by TestDefaultToolNamesMatchGolden), plus the three names that
-// are registered at runtime rather than by the builtin constructor. toolmeta
-// must agree that those three are hand-written exceptions — if one of them ever
-// becomes a generated family, this list is wrong and the assertion says so.
+// newBuiltinTools by TestDefaultToolNamesMatchGolden), plus the three protocol
+// names that are covered by protocolExceptions rather than a generated case.
 func smokeToolUniverse(t *testing.T) []string {
 	t.Helper()
 	runtimeRegistered := []string{"code", "goal_control", smokeMCPPrefixTool}
 	for _, name := range runtimeRegistered {
-		if !toolmeta.HandWritten(name) {
-			t.Errorf("tool smoke: %q is listed as runtime-registered, but toolmeta says it is generated", name)
+		if _, ok := protocolExceptions[name]; !ok {
+			t.Errorf("tool smoke: %q is listed as runtime-registered, but has no protocol exception", name)
 		}
 	}
 	return append(defaultToolNames(t), runtimeRegistered...)

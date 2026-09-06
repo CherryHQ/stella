@@ -6,7 +6,7 @@ import {
   disconnectOAuth as disconnectOAuthRequest,
   getScopedVaultEntry,
   listAgents,
-  listManifestPlugins,
+  listOAuthProviders,
   listScopedVaultEntries,
   pollOAuthFlow,
   setOAuthProviderConfig,
@@ -20,7 +20,6 @@ import {
 } from "@/lib/queries/oauth";
 import { formatTime } from "@/lib/time";
 import type { Agent, OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
-import type { ManifestPluginsResponse } from "@/lib/api-client/types.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
@@ -37,7 +36,10 @@ import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast } from "@/hooks/use-toast";
 import { EmailAccountsPanel } from "@/features/credentials/EmailAccountsPanel";
-import { buildOAuthScopeDraft, ScopeEditor } from "@/features/credentials/ScopeEditor";
+import {
+  buildOAuthScopeDraft,
+  ScopeEditor,
+} from "@/features/credentials/ScopeEditor";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import {
   SettingsDetailSheet,
@@ -47,7 +49,10 @@ import {
   SettingsSection,
 } from "@/features/settings/SettingsCardGrid";
 import type { RowAction } from "@/features/settings/SettingsCardGrid";
-import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
+import {
+  DetailPanel,
+  DetailPanelHeader,
+} from "@/features/settings/SettingsDetailPanel";
 import { KeyRound, Lock, Plug, Plus } from "lucide-react";
 import { siGithub, siX } from "simple-icons";
 import {
@@ -88,7 +93,9 @@ function isAgentVaultScope(scope: VaultScope) {
 function sameScopeSet(a: string[], b: string[]) {
   const left = new Set(a);
   const right = new Set(b);
-  return left.size === right.size && [...left].every((scope) => right.has(scope));
+  return (
+    left.size === right.size && [...left].every((scope) => right.has(scope))
+  );
 }
 
 // One hue per scope, drawn from the chart palette tokens: a scope is a category,
@@ -107,11 +114,21 @@ const SCOPE_COLOR = {
 } satisfies Record<VaultScope, { dot: string; soft: string }>;
 
 // Render order for the grouped vault list.
-const SCOPE_ORDER: VaultScope[] = ["user", "user_agent", "system", "system_agent"];
+const SCOPE_ORDER: VaultScope[] = [
+  "user",
+  "user_agent",
+  "system",
+  "system_agent",
+];
 
 // Resolution precedence, highest first: a higher scope's value overrides a lower
 // one at runtime. Drives the precedence ladder so the override chain is visible.
-const SCOPE_PRIORITY: VaultScope[] = ["user_agent", "user", "system_agent", "system"];
+const SCOPE_PRIORITY: VaultScope[] = [
+  "user_agent",
+  "user",
+  "system_agent",
+  "system",
+];
 
 const SCOPE_LABEL_KEY = {
   user: "credentials.scope.user.label",
@@ -133,10 +150,16 @@ function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
   const [family, name] = (icon ?? "").split(":");
   if (family === "simpleicons") {
     // SAFETY: unknown provider slugs intentionally fall through to the generic glyph.
-    const brand = SIMPLE_ICONS[name?.toLowerCase() as keyof typeof SIMPLE_ICONS];
+    const brand =
+      SIMPLE_ICONS[name?.toLowerCase() as keyof typeof SIMPLE_ICONS];
     if (brand) {
       return (
-        <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-label={label}>
+        <svg
+          viewBox="0 0 24 24"
+          className="size-4"
+          fill="currentColor"
+          aria-label={label}
+        >
           <path d={brand.path} />
         </svg>
       );
@@ -191,33 +214,39 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
     enabled: personalSurface,
   });
   const { data: systemOAuthProviders = [] } = useQuery({
-    queryKey: ["manifest-oauth-providers"],
+    queryKey: ["system-oauth-providers"],
     queryFn: async () => {
-      const { data } = await listManifestPlugins({ throwOnError: true });
-      // SAFETY: listManifestPlugins returns the full plugin manifest response under data.
-      const manifest = data as ManifestPluginsResponse;
-      return (manifest.oauth_providers ?? [])
-        .filter((provider) => !!provider.id)
-        .map((provider) => ({
-          // SAFETY: the filter above kept only providers with an id; the field is a string.
-          provider: provider.id as string,
-          configured: !!provider.client_id,
-        }));
+      const { data } = await listOAuthProviders({ throwOnError: true });
+      return (data?.providers ?? []).map(({ provider, configured }) => ({
+        provider,
+        configured,
+      }));
     },
     enabled: !personalSurface,
   });
   // Flow progress and the last failure reason are ephemeral connect-flow UI,
   // not server cache, so they stay local.
-  const [oauthFlow, setOauthFlow] = useState<Record<string, OAuthFlow | null>>({});
-  const [oauthFlowActive, setOauthFlowActive] = useState<Record<string, boolean>>({});
-  const [oauthFlowError, setOauthFlowError] = useState<Record<string, string | null>>({});
+  const [oauthFlow, setOauthFlow] = useState<Record<string, OAuthFlow | null>>(
+    {},
+  );
+  const [oauthFlowActive, setOauthFlowActive] = useState<
+    Record<string, boolean>
+  >({});
+  const [oauthFlowError, setOauthFlowError] = useState<
+    Record<string, string | null>
+  >({});
 
   const [sheetProvider, setSheetProvider] = useState<string | null>(null);
   const [configValues, setConfigValues] = useState<
-    Record<string, { clientId: string; clientSecret: string; redirectUrl: string }>
+    Record<
+      string,
+      { clientId: string; clientSecret: string; redirectUrl: string }
+    >
   >({});
   const [configSaving, setConfigSaving] = useState<Record<string, boolean>>({});
-  const [hasExistingSecret, setHasExistingSecret] = useState<Record<string, boolean>>({});
+  const [hasExistingSecret, setHasExistingSecret] = useState<
+    Record<string, boolean>
+  >({});
   // Scope editing stays separate from credential inputs. The saved and default
   // lists seed one checklist without another config fetch.
   const [scopeDraft, setScopeDraft] = useState<Record<string, string[]>>({});
@@ -275,24 +304,33 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   // Refetch a single scope (plus agent, for agent-keyed scopes) and splice it
   // back into the flat list. A mutation only changes one slice, so this avoids
   // the full 2N+2 fan-out of loadVaultEntries on every add/delete.
-  const reloadScope = useCallback(async (scope: VaultScope, agentID?: string) => {
-    let fetched: VaultEntry[] = [];
-    try {
-      const { data } = await listScopedVaultEntries({
-        query: { scope, agent_id: agentID },
-        throwOnError: true,
-      });
-      // SAFETY: listVaultEntries returns VaultEntry items under data.entries.
-      fetched = (data?.entries as VaultEntry[]) ?? [];
-    } catch {
-      fetched = [];
-    }
-    setVaultEntries((prev) => [
-      ...prev.filter((e) => !(e.scope === scope && (agentID ? e.agent_id === agentID : true))),
-      ...fetched,
-    ]);
-  }, []);
-  const reloadEmailConfigMetadata = useCallback(() => reloadScope("user"), [reloadScope]);
+  const reloadScope = useCallback(
+    async (scope: VaultScope, agentID?: string) => {
+      let fetched: VaultEntry[] = [];
+      try {
+        const { data } = await listScopedVaultEntries({
+          query: { scope, agent_id: agentID },
+          throwOnError: true,
+        });
+        // SAFETY: listVaultEntries returns VaultEntry items under data.entries.
+        fetched = (data?.entries as VaultEntry[]) ?? [];
+      } catch {
+        fetched = [];
+      }
+      setVaultEntries((prev) => [
+        ...prev.filter(
+          (e) =>
+            !(e.scope === scope && (agentID ? e.agent_id === agentID : true)),
+        ),
+        ...fetched,
+      ]);
+    },
+    [],
+  );
+  const reloadEmailConfigMetadata = useCallback(
+    () => reloadScope("user"),
+    [reloadScope],
+  );
 
   const loadAgents = useCallback(async () => {
     try {
@@ -319,7 +357,10 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   // live in local state (configValues/scopeDraft), seeded from this query when
   // it loads; the query stays the source of truth for the saved baseline.
   const { data: providerConfig } = useQuery(
-    oauthProviderConfigOptions(sheetProvider, !personalSurface && !!sheetProvider),
+    oauthProviderConfigOptions(
+      sheetProvider,
+      !personalSurface && !!sheetProvider,
+    ),
   );
 
   useEffect(() => {
@@ -341,7 +382,10 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
     const defaults = providerConfig.default_scopes ?? [];
     // Show every built-in scope, using the saved override as the checked state.
     // Without an override, the built-in defaults start selected.
-    setScopeDraft((prev) => ({ ...prev, [provider]: buildOAuthScopeDraft(saved, defaults) }));
+    setScopeDraft((prev) => ({
+      ...prev,
+      [provider]: buildOAuthScopeDraft(saved, defaults),
+    }));
     setScopeMeta((prev) => ({ ...prev, [provider]: { saved, defaults } }));
   }, [sheetProvider, providerConfig]);
 
@@ -372,7 +416,9 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         path: { name: entry.name },
         query: {
           scope: entry.scope,
-          agent_id: isAgentVaultScope(entry.scope) ? (entry.agent_id ?? undefined) : undefined,
+          agent_id: isAgentVaultScope(entry.scope)
+            ? (entry.agent_id ?? undefined)
+            : undefined,
         },
         throwOnError: true,
       });
@@ -397,7 +443,10 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       return;
     }
     // SAFETY: scopeForRange returns ManagedScope, the same literal union as VaultScope.
-    const scope = scopeForRange(scopeBand, formRange === "specific") as VaultScope;
+    const scope = scopeForRange(
+      scopeBand,
+      formRange === "specific",
+    ) as VaultScope;
     const agentScoped = isAgentVaultScope(scope);
     if (agentScoped && !formAgentID) {
       showToast(t("credentials.scope.agentMissing"), "error");
@@ -418,14 +467,22 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       setAddSheetOpen(false);
       resetVaultForm();
       await reloadScope(scope, agentScoped ? formAgentID : undefined);
-      if (editingEntry && (editingEntry.scope !== scope || editingEntry.agent_id !== formAgentID)) {
+      if (
+        editingEntry &&
+        (editingEntry.scope !== scope || editingEntry.agent_id !== formAgentID)
+      ) {
         await reloadScope(
           editingEntry.scope,
-          isAgentVaultScope(editingEntry.scope) ? (editingEntry.agent_id ?? undefined) : undefined,
+          isAgentVaultScope(editingEntry.scope)
+            ? (editingEntry.agent_id ?? undefined)
+            : undefined,
         );
       }
     } catch (e) {
-      showToast(e instanceof Error ? e.message : t("credentials.secretSaveFailed"), "error");
+      showToast(
+        e instanceof Error ? e.message : t("credentials.secretSaveFailed"),
+        "error",
+      );
     } finally {
       setVaultSaving(false);
     }
@@ -450,17 +507,24 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
           path: { name: entry.name },
           query: {
             scope: entry.scope,
-            agent_id: isAgentVaultScope(entry.scope) ? (entry.agent_id ?? undefined) : undefined,
+            agent_id: isAgentVaultScope(entry.scope)
+              ? (entry.agent_id ?? undefined)
+              : undefined,
           },
           throwOnError: true,
         });
         showToast(t("credentials.secretDeleted"));
         await reloadScope(
           entry.scope,
-          isAgentVaultScope(entry.scope) ? (entry.agent_id ?? undefined) : undefined,
+          isAgentVaultScope(entry.scope)
+            ? (entry.agent_id ?? undefined)
+            : undefined,
         );
       } catch (e) {
-        showToast(e instanceof Error ? e.message : t("credentials.secretDeleteFailed"), "error");
+        showToast(
+          e instanceof Error ? e.message : t("credentials.secretDeleteFailed"),
+          "error",
+        );
       }
     },
     [showToast, reloadScope, t],
@@ -468,7 +532,9 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
 
   const invalidateProviderConfig = useCallback(
     (provider: string) =>
-      queryClient.invalidateQueries({ queryKey: ["oauth-provider-config", provider] }),
+      queryClient.invalidateQueries({
+        queryKey: ["oauth-provider-config", provider],
+      }),
     [queryClient],
   );
 
@@ -498,7 +564,10 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
               ...prev,
               [provider]:
                 status.error ||
-                t("credentials.oauth.authorizationState", { provider, state: status.state }),
+                t("credentials.oauth.authorizationState", {
+                  provider,
+                  state: status.state,
+                }),
             }));
             showToast(
               status.error ||
@@ -532,7 +601,8 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         setOauthFlow((prev) => ({ ...prev, [provider]: flow }));
         await pollUntilDone(provider, flow.flow_id);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : t("credentials.oauth.error");
+        const msg =
+          e instanceof Error ? e.message : t("credentials.oauth.error");
         setOauthFlowError((prev) => ({ ...prev, [provider]: msg }));
         showToast(msg, "error");
       } finally {
@@ -555,7 +625,9 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         await invalidateProviders();
       } catch (e) {
         showToast(
-          e instanceof Error ? e.message : t("credentials.oauth.disconnectFailed"),
+          e instanceof Error
+            ? e.message
+            : t("credentials.oauth.disconnectFailed"),
           "error",
         );
       }
@@ -572,7 +644,8 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       }
       const saved = scopeMeta[provider]?.saved ?? [];
       const defaults = scopeMeta[provider]?.defaults ?? [];
-      const draft = scopeDraft[provider] ?? buildOAuthScopeDraft(saved, defaults);
+      const draft =
+        scopeDraft[provider] ?? buildOAuthScopeDraft(saved, defaults);
       if (draft.length === 0 && defaults.length > 0) {
         showToast(t("credentials.oauth.scopes.emptyOverride"), "error");
         return;
@@ -593,10 +666,15 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
           throwOnError: true,
         });
         showToast(t("credentials.oauth.configSaved", { provider }));
-        await Promise.all([invalidateProviders(), invalidateProviderConfig(provider)]);
+        await Promise.all([
+          invalidateProviders(),
+          invalidateProviderConfig(provider),
+        ]);
       } catch (e) {
         showToast(
-          e instanceof Error ? e.message : t("credentials.oauth.configSaveFailed"),
+          e instanceof Error
+            ? e.message
+            : t("credentials.oauth.configSaveFailed"),
           "error",
         );
       } finally {
@@ -622,10 +700,15 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
           throwOnError: true,
         });
         showToast(t("credentials.oauth.configReset", { provider }));
-        await Promise.all([invalidateProviders(), invalidateProviderConfig(provider)]);
+        await Promise.all([
+          invalidateProviders(),
+          invalidateProviderConfig(provider),
+        ]);
       } catch (e) {
         showToast(
-          e instanceof Error ? e.message : t("credentials.oauth.configResetFailed"),
+          e instanceof Error
+            ? e.message
+            : t("credentials.oauth.configResetFailed"),
           "error",
         );
       }
@@ -668,17 +751,24 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const hasStoredEmailConfig = vaultEntries.some(
     (entry) => entry.scope === "user" && entry.name === "EMAIL_CONFIG",
   );
-  const filteredVaultEntries = vaultEntries.filter((entry) => entry.name !== "EMAIL_CONFIG");
+  const filteredVaultEntries = vaultEntries.filter(
+    (entry) => entry.name !== "EMAIL_CONFIG",
+  );
   const agentName = (id?: string | null) =>
     (id && agents.find((a) => a.id === id)?.name) || id || "";
-  const vaultGroups = SCOPE_ORDER.filter((scope) => managedScopes.includes(scope))
+  const vaultGroups = SCOPE_ORDER.filter((scope) =>
+    managedScopes.includes(scope),
+  )
     .map((scope) => ({
       scope,
       entries: filteredVaultEntries.filter((e) => e.scope === scope),
     }))
     .filter((g) => g.entries.length > 0);
   // SAFETY: scopeForRange returns ManagedScope, the same literal union as VaultScope.
-  const formScope = scopeForRange(scopeBand, formRange === "specific") as VaultScope;
+  const formScope = scopeForRange(
+    scopeBand,
+    formRange === "specific",
+  ) as VaultScope;
   const editingVault = !!editingEntry;
 
   const selectScope = (scope: VaultScope) => {
@@ -705,34 +795,46 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
           {t("credentials.scope.priorityTitle")}
         </p>
         <ul className="space-y-1">
-          {SCOPE_PRIORITY.filter((scope) => managedScopes.includes(scope)).map((scope) => {
-            const active = scope === formScope;
-            return (
-              <li key={scope}>
-                <button
-                  type="button"
-                  disabled={editingVault}
-                  onClick={() => selectScope(scope)}
-                  className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-64 ${
-                    active ? SCOPE_COLOR[scope].soft : "hover:bg-muted/60"
-                  }`}
-                >
-                  <span className={`size-2.5 shrink-0 rounded-full ${SCOPE_COLOR[scope].dot}`} />
-                  <span className={active ? "font-semibold text-foreground" : "text-foreground"}>
-                    {t(SCOPE_LABEL_KEY[scope])}
-                  </span>
-                  {active && (
-                    <span className="ml-auto text-xs font-medium text-muted-foreground">
-                      {t("credentials.scope.current")}
+          {SCOPE_PRIORITY.filter((scope) => managedScopes.includes(scope)).map(
+            (scope) => {
+              const active = scope === formScope;
+              return (
+                <li key={scope}>
+                  <button
+                    type="button"
+                    disabled={editingVault}
+                    onClick={() => selectScope(scope)}
+                    className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-64 ${
+                      active ? SCOPE_COLOR[scope].soft : "hover:bg-muted/60"
+                    }`}
+                  >
+                    <span
+                      className={`size-2.5 shrink-0 rounded-full ${SCOPE_COLOR[scope].dot}`}
+                    />
+                    <span
+                      className={
+                        active
+                          ? "font-semibold text-foreground"
+                          : "text-foreground"
+                      }
+                    >
+                      {t(SCOPE_LABEL_KEY[scope])}
                     </span>
-                  )}
-                </button>
-              </li>
-            );
-          })}
+                    {active && (
+                      <span className="ml-auto text-xs font-medium text-muted-foreground">
+                        {t("credentials.scope.current")}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            },
+          )}
         </ul>
 
-        <p className="px-1 text-xs text-muted-foreground">{t(SCOPE_DESC_KEY[formScope])}</p>
+        <p className="px-1 text-xs text-muted-foreground">
+          {t(SCOPE_DESC_KEY[formScope])}
+        </p>
 
         {formRange === "specific" && (
           <Select
@@ -743,7 +845,9 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
             <SelectTrigger>
               <SelectValue placeholder={t("credentials.scope.selectAgent")}>
                 {(value) =>
-                  value ? agents.find((agent) => agent.id === value)?.name || value : null
+                  value
+                    ? agents.find((agent) => agent.id === value)?.name || value
+                    : null
                 }
               </SelectValue>
             </SelectTrigger>
@@ -881,7 +985,8 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       {spConnected && sp.needs_reconnect && (
         <div className="space-y-2 rounded-lg border border-warning/36 bg-warning/8 p-3 text-xs">
           <p className="font-medium text-foreground">
-            {sp.reconnect_reason === "missing_scopes" && spMissingScopes.length > 0
+            {sp.reconnect_reason === "missing_scopes" &&
+            spMissingScopes.length > 0
               ? t("credentials.oauth.reconnectMissingScopes", {
                   count: spMissingScopes.length,
                 })
@@ -889,17 +994,18 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
                 ? t("credentials.oauth.reconnectRotated")
                 : t("credentials.oauth.reconnectGeneric")}
           </p>
-          {sp.reconnect_reason === "missing_scopes" && spMissingScopes.length > 0 && (
-            <ul className="flex flex-wrap gap-1">
-              {spMissingScopes.map((s) => (
-                <li key={s}>
-                  <Badge variant="warning" size="sm" className="font-mono">
-                    {s}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          )}
+          {sp.reconnect_reason === "missing_scopes" &&
+            spMissingScopes.length > 0 && (
+              <ul className="flex flex-wrap gap-1">
+                {spMissingScopes.map((s) => (
+                  <li key={s}>
+                    <Badge variant="warning" size="sm" className="font-mono">
+                      {s}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
         </div>
       )}
 
@@ -907,14 +1013,22 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         <dl className="space-y-1 rounded-lg border border-border bg-muted/40 p-3 text-xs">
           {sp.access_expires_at && (
             <div className="flex items-center justify-between gap-3">
-              <dt className="text-muted-foreground">{t("credentials.oauth.accessExpires")}</dt>
-              <dd className="font-mono text-foreground">{formatTime(sp.access_expires_at)}</dd>
+              <dt className="text-muted-foreground">
+                {t("credentials.oauth.accessExpires")}
+              </dt>
+              <dd className="font-mono text-foreground">
+                {formatTime(sp.access_expires_at)}
+              </dd>
             </div>
           )}
           {sp.refresh_expires_at && (
             <div className="flex items-center justify-between gap-3">
-              <dt className="text-muted-foreground">{t("credentials.oauth.refreshExpires")}</dt>
-              <dd className="font-mono text-foreground">{formatTime(sp.refresh_expires_at)}</dd>
+              <dt className="text-muted-foreground">
+                {t("credentials.oauth.refreshExpires")}
+              </dt>
+              <dd className="font-mono text-foreground">
+                {formatTime(sp.refresh_expires_at)}
+              </dd>
             </div>
           )}
         </dl>
@@ -956,13 +1070,17 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
           <p className="font-medium text-destructive-foreground">
             {t("credentials.oauth.flowFailed")}
           </p>
-          <p className="mt-1 break-words text-muted-foreground">{spFlowError}</p>
+          <p className="mt-1 break-words text-muted-foreground">
+            {spFlowError}
+          </p>
         </div>
       )}
 
       {spFlow && (
         <div className="rounded-lg border border-info/36 bg-info/8 p-3 text-xs">
-          <p className="font-semibold">{t("credentials.oauth.authorizeStella")}</p>
+          <p className="font-semibold">
+            {t("credentials.oauth.authorizeStella")}
+          </p>
           <a
             href={spFlow.verification_uri}
             target="_blank"
@@ -974,7 +1092,9 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
           {spFlow.user_code && (
             <p className="mt-1 font-medium">
               {t("credentials.oauth.code")}{" "}
-              <span className="font-mono font-semibold text-foreground">{spFlow.user_code}</span>
+              <span className="font-mono font-semibold text-foreground">
+                {spFlow.user_code}
+              </span>
             </p>
           )}
           <p className="mt-1 text-xs text-muted-foreground">
@@ -986,9 +1106,13 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   ) : null;
 
   const selectedSystemProvider = sheetProvider
-    ? systemOAuthProviders.find((provider) => provider.provider === sheetProvider)
+    ? systemOAuthProviders.find(
+        (provider) => provider.provider === sheetProvider,
+      )
     : undefined;
-  const systemProviderMeta = sheetProvider ? scopeMeta[sheetProvider] : undefined;
+  const systemProviderMeta = sheetProvider
+    ? scopeMeta[sheetProvider]
+    : undefined;
   const systemProviderSheet =
     sheetProvider && !personalSurface ? (
       <DetailPanel
@@ -1060,9 +1184,13 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
                 )
               }
               defaults={systemProviderMeta?.defaults ?? []}
-              onChange={(next) => setScopeDraft((prev) => ({ ...prev, [sheetProvider]: next }))}
+              onChange={(next) =>
+                setScopeDraft((prev) => ({ ...prev, [sheetProvider]: next }))
+              }
             />
-            <FieldDescription>{t("credentials.oauth.scopes.saveHint")}</FieldDescription>
+            <FieldDescription>
+              {t("credentials.oauth.scopes.saveHint")}
+            </FieldDescription>
           </Field>
         </Fieldset>
       </DetailPanel>
@@ -1072,7 +1200,9 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
     <>
       <SettingsGridPage
         title={t(
-          personalSurface ? "settings.nav.connections" : "admin.resources.credentials.title",
+          personalSurface
+            ? "settings.nav.connections"
+            : "admin.resources.credentials.title",
         )}
       >
         {personalSurface && (
@@ -1082,7 +1212,9 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
             count={oauthProviders.length}
           >
             {oauthProviders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t("credentials.oauth.noProviders")}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("credentials.oauth.noProviders")}
+              </p>
             ) : (
               <SettingsList>
                 {oauthProviders.map((p) => {
@@ -1148,7 +1280,9 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
             count={systemOAuthProviders.length}
           >
             {systemOAuthProviders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t("credentials.oauth.noProviders")}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("credentials.oauth.noProviders")}
+              </p>
             ) : (
               <SettingsList>
                 {systemOAuthProviders.map((provider) => (
@@ -1193,16 +1327,29 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
 
         <SettingsSection
           icon={<KeyRound className="size-4" />}
-          title={t(personalSurface ? "credentials.tab.vault" : "admin.resources.credentials.vault")}
+          title={t(
+            personalSurface
+              ? "credentials.tab.vault"
+              : "admin.resources.credentials.vault",
+          )}
           count={filteredVaultEntries.length}
           action={
-            <Button variant="ghost" size="xs" onClick={openAddSheet} className="cursor-pointer">
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={openAddSheet}
+              className="cursor-pointer"
+            >
               <Plus className="size-3.5" />
               {t("credentials.addSecret")}
             </Button>
           }
         >
-          {vaultLoading && <p className="text-sm text-muted-foreground">{t("common.loading")}</p>}
+          {vaultLoading && (
+            <p className="text-sm text-muted-foreground">
+              {t("common.loading")}
+            </p>
+          )}
 
           <div className="space-y-5">
             {vaultGroups.map((group) => {
@@ -1210,11 +1357,15 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
               return (
                 <div key={group.scope} className="space-y-2">
                   <div className="flex items-center gap-2 px-1">
-                    <span className={`size-2 shrink-0 rounded-full ${color.dot}`} />
+                    <span
+                      className={`size-2 shrink-0 rounded-full ${color.dot}`}
+                    />
                     <span className="text-xs font-semibold text-foreground">
                       {t(SCOPE_LABEL_KEY[group.scope])}
                     </span>
-                    <span className="text-xs text-muted-foreground">{group.entries.length}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {group.entries.length}
+                    </span>
                   </div>
                   <SettingsList>
                     {group.entries.map((entry) => {
@@ -1223,9 +1374,15 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
                         <SettingsRow
                           key={`${entry.scope}:${entry.agent_id ?? ""}:${entry.name}`}
                           icon={
-                            reserved ? <Lock className="size-4" /> : <KeyRound className="size-4" />
+                            reserved ? (
+                              <Lock className="size-4" />
+                            ) : (
+                              <KeyRound className="size-4" />
+                            )
                           }
-                          title={<span className="font-mono">{entry.name}</span>}
+                          title={
+                            <span className="font-mono">{entry.name}</span>
+                          }
                           chip={
                             entry.agent_id ? (
                               <Badge variant="outline" size="sm">
@@ -1252,11 +1409,16 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
                                   {
                                     label: t("common.delete"),
                                     destructive: true,
-                                    onClick: () => confirmDeleteVaultEntry(entry),
+                                    onClick: () =>
+                                      confirmDeleteVaultEntry(entry),
                                   },
                                 ]
                           }
-                          onClick={reserved ? undefined : () => void openEditSheet(entry)}
+                          onClick={
+                            reserved
+                              ? undefined
+                              : () => void openEditSheet(entry)
+                          }
                         />
                       );
                     })}
@@ -1274,7 +1436,10 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
         </SettingsSection>
       </SettingsGridPage>
 
-      <SettingsDetailSheet open={!!sheetProvider} onClose={() => setSheetProvider(null)}>
+      <SettingsDetailSheet
+        open={!!sheetProvider}
+        onClose={() => setSheetProvider(null)}
+      >
         {personalSurface ? providerSheet : systemProviderSheet}
       </SettingsDetailSheet>
 

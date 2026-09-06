@@ -8,6 +8,7 @@ import (
 	"maps"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -24,10 +25,17 @@ var (
 // ConfigPatch distinguishes omitted fields from explicit null ownership. The
 // persistence port always receives the resulting complete row.
 type ConfigPatch struct {
-	EnabledSet        bool
-	Enabled           *bool
-	PayloadSet        bool
-	Payload           json.RawMessage
+	EnabledSet bool
+	Enabled    *bool
+	PayloadSet bool
+	Payload    json.RawMessage
+	// BinaryVersions and SkillSources are typed write-only edits for the CLI
+	// backend. They let callers change the visible part of a resource without
+	// sending locator, options, or repository fields back over HTTP.
+	BinaryVersionsSet bool
+	BinaryVersions    map[string]string
+	SkillSourcesSet   bool
+	SkillSources      map[string]string
 	CredentialRefsSet bool
 	CredentialRefs    json.RawMessage
 	ResetFields       []string
@@ -50,16 +58,18 @@ type Service struct {
 	agents          *agentaccess.Service
 	catalog         *Catalog
 	validatePayload PayloadValidator
+	mutationFence   MutationFence
+	txBound         bool
 }
 
-func NewService(db *pgxpool.Pool, agents *agentaccess.Service, catalog *Catalog, validate PayloadValidator) *Service {
+func NewService(db *pgxpool.Pool, agents *agentaccess.Service, catalog *Catalog, validate PayloadValidator, mutationFence MutationFence) *Service {
 	shipped := NewCatalog()
 	if catalog != nil {
 		for _, def := range catalog.Definitions() {
 			shipped.byID[def.ID] = cloneDefinition(def)
 		}
 	}
-	return &Service{db: db, q: sqlc.New(db), agents: agents, catalog: shipped, validatePayload: validate}
+	return &Service{db: db, q: sqlc.New(db), agents: agents, catalog: shipped, validatePayload: validate, mutationFence: mutationFence}
 }
 
 func (s *Service) Begin(authority authz.Authority) (*Access, error) {
@@ -70,6 +80,9 @@ func (s *Service) Begin(authority authz.Authority) (*Access, error) {
 }
 
 func (b *Access) GetDefinition(ctx context.Context, id string) (Definition, error) {
+	if err := b.ensureActive(); err != nil {
+		return Definition{}, err
+	}
 	def, err := b.service.getDefinition(ctx, id)
 	if err != nil {
 		return Definition{}, err
@@ -117,6 +130,9 @@ func (b *Access) definitionVisible(ctx context.Context, def Definition) (bool, e
 }
 
 func (b *Access) ListDefinitions(ctx context.Context) ([]Definition, error) {
+	if err := b.ensureActive(); err != nil {
+		return nil, err
+	}
 	defs, err := b.service.listDefinitions(ctx)
 	if err != nil {
 		return nil, err
@@ -140,6 +156,9 @@ func (b *Access) ListDefinitions(ctx context.Context) ([]Definition, error) {
 }
 
 func (b *Access) ListConfigs(ctx context.Context, pluginID string, scope Scope, agentID string) ([]Config, error) {
+	if err := b.ensureActive(); err != nil {
+		return nil, err
+	}
 	def, err := b.GetDefinition(ctx, pluginID)
 	if err != nil {
 		return nil, err
@@ -152,6 +171,9 @@ func (b *Access) ListConfigs(ctx context.Context, pluginID string, scope Scope, 
 }
 
 func (b *Access) GetConfig(ctx context.Context, pluginID, id string) (Config, error) {
+	if err := b.ensureActive(); err != nil {
+		return Config{}, err
+	}
 	row, err := b.service.q.GetPluginConfigForOwner(ctx, sqlc.GetPluginConfigForOwnerParams{
 		ID: id, PluginID: pluginID, IsAdmin: b.authority.IsAdmin(), ViewerUserID: string(b.authority.UserID()),
 	})
@@ -179,6 +201,18 @@ func (b *Access) GetConfig(ctx context.Context, pluginID, id string) (Config, er
 }
 
 func (b *Access) CreateConfig(ctx context.Context, config Config) (Config, error) {
+	if err := b.ensureActive(); err != nil {
+		return Config{}, err
+	}
+	if !b.service.txBound {
+		var created Config
+		err := b.service.WithMutationTx(ctx, b.authority, func(mutationCtx context.Context, bound *Access, _ pgx.Tx) error {
+			var err error
+			created, err = bound.CreateConfig(mutationCtx, config)
+			return err
+		})
+		return created, err
+	}
 	def, err := b.GetDefinition(ctx, config.PluginID)
 	if err != nil {
 		return Config{}, err
@@ -205,6 +239,18 @@ func (b *Access) CreateConfig(ctx context.Context, config Config) (Config, error
 }
 
 func (b *Access) UpdateConfig(ctx context.Context, pluginID, id string, expectedRevision int64, patch ConfigPatch) (Config, error) {
+	if err := b.ensureActive(); err != nil {
+		return Config{}, err
+	}
+	if !b.service.txBound {
+		var updated Config
+		err := b.service.WithMutationTx(ctx, b.authority, func(mutationCtx context.Context, bound *Access, _ pgx.Tx) error {
+			var err error
+			updated, err = bound.UpdateConfig(mutationCtx, pluginID, id, expectedRevision, patch)
+			return err
+		})
+		return updated, err
+	}
 	current, err := b.GetConfig(ctx, pluginID, id)
 	if err != nil {
 		return Config{}, err
@@ -215,6 +261,17 @@ func (b *Access) UpdateConfig(ctx context.Context, pluginID, id string, expected
 	def, err := b.GetDefinition(ctx, current.PluginID)
 	if err != nil {
 		return Config{}, err
+	}
+	if patch.BinaryVersionsSet || patch.SkillSourcesSet {
+		if patch.SkillSourcesSet && (current.Scope == ScopeUser || current.Scope == ScopeUserAgent) {
+			return Config{}, ErrForbidden
+		}
+		typedPayload, err := applyCLIWriteOnlyPatch(def, current.Payload, patch, b.authority.IsAdmin())
+		if err != nil {
+			return Config{}, err
+		}
+		patch.PayloadSet = true
+		patch.Payload = typedPayload
 	}
 	updated := current
 	if patch.EnabledSet {
@@ -242,7 +299,91 @@ func (b *Access) UpdateConfig(ctx context.Context, pluginID, id string, expected
 	return b.service.updateConfigCAS(ctx, current.ID, expectedRevision, updated.Enabled, updated.Payload, updated.CredentialRefs)
 }
 
+// MoveConfig changes a config's scope while preserving its config ID. Both the
+// source tuple and the target tuple are authorized through the same owner/PEP
+// boundary; target user identity is always derived from the bound authority.
+// The complete resulting config is validated before one CAS update changes the
+// ownership tuple and payload atomically.
+func (b *Access) MoveConfig(ctx context.Context, pluginID, id string, expectedRevision int64, targetScope Scope, targetAgentID string, patch ConfigPatch) (Config, error) {
+	if err := b.ensureActive(); err != nil {
+		return Config{}, err
+	}
+	if !b.service.txBound {
+		var moved Config
+		err := b.service.WithMutationTx(ctx, b.authority, func(mutationCtx context.Context, bound *Access, _ pgx.Tx) error {
+			var err error
+			moved, err = bound.MoveConfig(mutationCtx, pluginID, id, expectedRevision, targetScope, targetAgentID, patch)
+			return err
+		})
+		return moved, err
+	}
+	if expectedRevision < 1 {
+		return Config{}, ErrConflict
+	}
+	current, err := b.GetConfig(ctx, pluginID, id)
+	if err != nil {
+		return Config{}, err
+	}
+	def, err := b.GetDefinition(ctx, current.PluginID)
+	if err != nil {
+		return Config{}, err
+	}
+	if def.Source == SourceBuiltin && current.Scope == ScopeSystem {
+		return Config{}, ErrBuiltinConfig
+	}
+	// Re-check both tuples at the mutation boundary. GetConfig authorizes the
+	// source tuple; owner derives and checks the destination tuple, including
+	// AgentPEP access for agent scopes.
+	if _, _, err := b.owner(ctx, current.Scope, current.AgentID); err != nil {
+		return Config{}, err
+	}
+	targetUserID, resolvedTargetAgentID, err := b.owner(ctx, targetScope, targetAgentID)
+	if err != nil {
+		return Config{}, err
+	}
+	if patch.BinaryVersionsSet || patch.SkillSourcesSet {
+		if patch.SkillSourcesSet && (targetScope == ScopeUser || targetScope == ScopeUserAgent) {
+			return Config{}, ErrForbidden
+		}
+		typedPayload, err := applyCLIWriteOnlyPatch(def, current.Payload, patch, b.authority.IsAdmin())
+		if err != nil {
+			return Config{}, err
+		}
+		patch.PayloadSet = true
+		patch.Payload = typedPayload
+	}
+	updated := current
+	updated.Scope = targetScope
+	updated.UserID = targetUserID
+	updated.AgentID = resolvedTargetAgentID
+	if patch.EnabledSet {
+		updated.Enabled = patch.Enabled
+	}
+	updated.Payload, err = patchPayload(current.Payload, patch)
+	if err != nil {
+		return Config{}, err
+	}
+	if patch.CredentialRefsSet {
+		updated.CredentialRefs = patch.CredentialRefs
+	}
+	if err := updated.Validate(); err != nil {
+		return Config{}, err
+	}
+	if err := b.service.validateResolved(ctx, def, updated, patch.ResetFields); err != nil {
+		return Config{}, err
+	}
+	return b.service.moveConfigCAS(ctx, current.ID, expectedRevision, updated.Scope, updated.UserID, updated.AgentID, updated.Enabled, updated.Payload, updated.CredentialRefs)
+}
+
 func (b *Access) DeleteConfig(ctx context.Context, pluginID, id string, expectedRevision int64) error {
+	if err := b.ensureActive(); err != nil {
+		return err
+	}
+	if !b.service.txBound {
+		return b.service.WithMutationTx(ctx, b.authority, func(mutationCtx context.Context, bound *Access, _ pgx.Tx) error {
+			return bound.DeleteConfig(mutationCtx, pluginID, id, expectedRevision)
+		})
+	}
 	current, err := b.GetConfig(ctx, pluginID, id)
 	if err != nil {
 		return err
@@ -265,6 +406,18 @@ func (b *Access) DeleteConfig(ctx context.Context, pluginID, id string, expected
 }
 
 func (b *Access) ResetBuiltinConfig(ctx context.Context, pluginID, id string, expectedRevision int64) (Config, error) {
+	if err := b.ensureActive(); err != nil {
+		return Config{}, err
+	}
+	if !b.service.txBound {
+		var reset Config
+		err := b.service.WithMutationTx(ctx, b.authority, func(mutationCtx context.Context, bound *Access, _ pgx.Tx) error {
+			var err error
+			reset, err = bound.ResetBuiltinConfig(mutationCtx, pluginID, id, expectedRevision)
+			return err
+		})
+		return reset, err
+	}
 	current, err := b.GetConfig(ctx, pluginID, id)
 	if err != nil {
 		return Config{}, err
@@ -282,9 +435,16 @@ func (b *Access) ResetBuiltinConfig(ctx context.Context, pluginID, id string, ex
 // SyncBuiltinDefaults is one startup transaction. Existing config identities,
 // explicit decisions, pins and timestamps are never rewritten by a release.
 func (s *Service) SyncBuiltinDefaults(ctx context.Context) error {
-	if s == nil || s.db == nil {
+	if s == nil || s.db == nil || s.mutationFence == nil || ctx == nil {
 		return ErrForbidden
 	}
+	if mutationInProgress(ctx) || s.txBound {
+		return ErrNestedMutation
+	}
+	return s.mutationFence(ctx, func() error { return s.syncBuiltinDefaultsTx(ctx) })
+}
+
+func (s *Service) syncBuiltinDefaultsTx(ctx context.Context) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -313,10 +473,23 @@ func (s *Service) SyncBuiltinDefaults(ctx context.Context) error {
 			return fmt.Errorf("sync config %s: %w", def.ID, err)
 		}
 	}
-	return tx.Commit(ctx)
+	return classifyCommitError(tx.Commit(ctx))
 }
 
 func (b *Access) CreateCustom(ctx context.Context, def Definition, config Config) (Definition, Config, error) {
+	if err := b.ensureActive(); err != nil {
+		return Definition{}, Config{}, err
+	}
+	if !b.service.txBound {
+		var createdDef Definition
+		var createdConfig Config
+		err := b.service.WithMutationTx(ctx, b.authority, func(mutationCtx context.Context, bound *Access, _ pgx.Tx) error {
+			var err error
+			createdDef, createdConfig, err = bound.CreateCustom(mutationCtx, def, config)
+			return err
+		})
+		return createdDef, createdConfig, err
+	}
 	if def.Backend == BackendCLI && !b.authority.IsAdmin() {
 		return Definition{}, Config{}, ErrForbidden
 	}
@@ -517,6 +690,18 @@ func (b *Access) managedDefinition(ctx context.Context, id string) (Definition, 
 }
 
 func (b *Access) UpdateDefinition(ctx context.Context, id string, revision int64, patch DefinitionPatch) (Definition, error) {
+	if err := b.ensureActive(); err != nil {
+		return Definition{}, err
+	}
+	if !b.service.txBound {
+		var updated Definition
+		err := b.service.WithMutationTx(ctx, b.authority, func(mutationCtx context.Context, bound *Access, _ pgx.Tx) error {
+			var err error
+			updated, err = bound.UpdateDefinition(mutationCtx, id, revision, patch)
+			return err
+		})
+		return updated, err
+	}
 	def, err := b.managedDefinition(ctx, id)
 	if err != nil {
 		return Definition{}, err
@@ -551,26 +736,39 @@ func (b *Access) UpdateDefinition(ctx context.Context, id string, revision int64
 }
 
 func (b *Access) DeleteDefinition(ctx context.Context, id string, revision int64) error {
+	if err := b.ensureActive(); err != nil {
+		return err
+	}
+	if !b.service.txBound {
+		return b.service.WithMutationTx(ctx, b.authority, func(mutationCtx context.Context, bound *Access, _ pgx.Tx) error {
+			return bound.DeleteDefinition(mutationCtx, id, revision)
+		})
+	}
 	if _, err := b.managedDefinition(ctx, id); err != nil {
 		return err
 	}
-	tx, err := b.service.db.Begin(ctx)
+	return b.service.deleteDefinition(ctx, id, revision)
+}
+
+func (s *Service) deleteDefinition(ctx context.Context, id string, revision int64) error {
+	def, err := s.getDefinition(ctx, id)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := sqlc.New(tx)
-	if err := q.DeletePluginToolPolicies(ctx, nullableText(id)); err != nil {
+	if def.Source == SourceBuiltin {
+		return ErrForbidden
+	}
+	if err := s.q.DeletePluginToolPolicies(ctx, nullableText(id)); err != nil {
 		return err
 	}
 	// The definition FK makes concurrent config creation atomic with deletion.
 	// A remaining config aborts this transaction, including policy cleanup.
-	deleted, err := q.DeletePluginDefinitionCAS(ctx, sqlc.DeletePluginDefinitionCASParams{ID: id, Revision: revision})
+	deleted, err := s.q.DeletePluginDefinitionCAS(ctx, sqlc.DeletePluginDefinitionCASParams{ID: id, Revision: revision})
 	if err != nil {
 		return mapConflict(err)
 	}
 	if deleted != 1 {
 		return ErrConflict
 	}
-	return tx.Commit(ctx)
+	return nil
 }

@@ -78,6 +78,19 @@ SET enabled = $2,
 WHERE id = $1 AND revision = $5
 RETURNING *;
 
+-- name: MovePluginConfigCAS :one
+UPDATE plugin_config
+SET scope = $2,
+    user_id = $3,
+    agent_id = $4,
+    enabled = $5,
+    config = $6,
+    credential_refs = $7,
+    revision = revision + 1,
+    updated_at = now()
+WHERE id = $1 AND revision = $8
+RETURNING *;
+
 -- name: DeletePluginConfigCAS :execrows
 DELETE FROM plugin_config
 USING plugin_definition

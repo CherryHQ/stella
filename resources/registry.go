@@ -99,6 +99,35 @@ func LoadBuiltin(sourceFS fs.FS, manifest BuiltinManifest) (*Registry, error) {
 	return r, nil
 }
 
+// ValidateBuiltinSkillOwners checks the immutable owner projection against the
+// runtime plugin catalog. The map is supplied by the composition root, so this
+// package does not maintain a second ownership registry.
+func (r *Registry) ValidateBuiltinSkillOwners(knownOwners map[string]struct{}) error {
+	if r == nil {
+		return fmt.Errorf("builtin registry is nil")
+	}
+	for _, skill := range r.BuiltinSkills() {
+		if err := validateSkillOwner(skill.Root, skill.OwnerPluginID); err != nil {
+			return err
+		}
+		if err := validateBuiltinSkillRequirements(skill); err != nil {
+			return err
+		}
+		for _, required := range skill.RequiresPluginIDs {
+			if _, ok := knownOwners[required]; !ok {
+				return fmt.Errorf("builtin skill %q has unknown required plugin %q", skill.Name, required)
+			}
+		}
+		if skill.OwnerPluginID == "" {
+			continue
+		}
+		if _, ok := knownOwners[skill.OwnerPluginID]; !ok {
+			return fmt.Errorf("builtin skill %q has unknown plugin owner %q", skill.Name, skill.OwnerPluginID)
+		}
+	}
+	return nil
+}
+
 // loadKind discovers resources of a single kind under subFS.
 // Skills are multi-file directories (id = dir name, main = SKILL.md).
 // Souls/delegates/templates are single files (id = basename without .md).
@@ -231,6 +260,7 @@ func cloneBuiltinSkillDescriptor(skill BuiltinSkillDescriptor) BuiltinSkillDescr
 	cloned := skill
 	cloned.Files = append([]BuiltinSkillFile(nil), skill.Files...)
 	cloned.Tags = append([]string(nil), skill.Tags...)
+	cloned.RequiresPluginIDs = append([]string(nil), skill.RequiresPluginIDs...)
 	cloned.Metadata = cloneBuiltinMetadata(skill.Metadata)
 	return cloned
 }

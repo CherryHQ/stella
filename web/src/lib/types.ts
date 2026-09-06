@@ -7,13 +7,9 @@ import type {
   ComponentsChannel,
   ComponentsIdentity,
   ComponentsJob,
-  ComponentsManifestPlugin,
-  ComponentsManifestPluginDefinition,
-  ComponentsManifestPluginDefinitionField,
   ComponentsOAuthFlowStatus,
   ComponentsOAuthProviderConfig,
   ComponentsOAuthProviderStatus,
-  ComponentsPluginView,
   ComponentsProvider,
   ComponentsProviderModelItem,
   ComponentsProviderType,
@@ -23,9 +19,6 @@ import type {
   ComponentsUserMemory,
   ComponentsVaultEntry,
   JobRun,
-  ManifestBinary as SdkManifestBinary,
-  ManifestOAuthProvider as SdkManifestOAuthProvider,
-  ManifestSessionEnv as SdkManifestSessionEnv,
   Project as SdkProject,
   SessionWorkspace,
 } from "@/lib/api-client/types.gen";
@@ -36,7 +29,8 @@ import type {
 
 export type Agent = ComponentsAgent & { id: string; name: string };
 export type Session = import("@/lib/api-client/types.gen").ComponentsSession;
-export type SessionDetail = import("@/lib/api-client/types.gen").ComponentsSessionDetail;
+export type SessionDetail =
+  import("@/lib/api-client/types.gen").ComponentsSessionDetail;
 export type Identity = ComponentsIdentity & { id: string };
 export type ChannelIdentity = SdkChannelIdentity & { id: string };
 export type Skill = ComponentsSkill & {
@@ -92,21 +86,13 @@ export type OAuthProvider = ComponentsOAuthProviderStatus & {
   icon?: string;
 };
 
-export type Plugin = ComponentsPluginView & {
-  id: string;
-  kind: string;
-  name: string;
-  enabled: boolean;
-  capabilities: Array<string>;
-  has_config: boolean;
-  has_status: boolean;
-  supports_notifications?: boolean;
-};
-
 // ── Local types (no SDK equivalent) ───────────────────────────────────────────
 
 export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+export type JsonValue =
+  | JsonPrimitive
+  | JsonValue[]
+  | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
 export interface ToolBlock {
@@ -203,32 +189,4 @@ export interface Personalisation {
   profile: string;
   profileDraft: string;
   loaded: boolean;
-}
-
-export type ManifestBinary = SdkManifestBinary;
-export type ManifestSessionEnv = SdkManifestSessionEnv;
-export type ManifestPluginDefinition = ComponentsManifestPluginDefinition;
-export type ManifestPluginDefinitionField = ComponentsManifestPluginDefinitionField;
-export type ManifestPlugin = ComponentsManifestPlugin;
-export type ManifestOAuthProvider = SdkManifestOAuthProvider;
-
-export interface PluginSchema {
-  properties?: Record<string, PluginSchemaProperty>;
-}
-
-export interface PluginSchemaProperty {
-  type?: string | string[];
-  description?: string;
-  default?: JsonValue;
-  enum?: JsonValue[];
-}
-
-export interface PluginSchemaField {
-  name: string;
-  schema: PluginSchemaProperty;
-}
-
-export interface PluginWithMeta extends Plugin {
-  _manifest: boolean;
-  _manifestPlugin?: ManifestPlugin | null;
 }

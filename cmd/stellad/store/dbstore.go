@@ -562,6 +562,9 @@ func (s *DBStore) ListChannelsByType(ctx context.Context, channelType string) ([
 func (s *DBStore) GetChannel(ctx context.Context, id string) (config.Channel, error) {
 	r, err := s.q.GetChannel(ctx, id)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return config.Channel{}, config.ErrChannelNotFound
+		}
 		return config.Channel{}, fmt.Errorf("get channel %q: %w", id, err)
 	}
 	return channelFromDB(r), nil

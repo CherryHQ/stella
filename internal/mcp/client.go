@@ -156,8 +156,11 @@ func buildBearerTransport(reg Registration, bearer string, policy EndpointPolicy
 // buildTransport is the Service-level choke point: OAuth rides the streamable
 // transport's OAuthHandler (SSE has no handler hook, so oauth + sse is
 // refused); everything else delegates to the bearer transport.
-func (s *Service) buildTransport(reg Registration, owner CredentialOwner) (mcpsdk.Transport, error) {
+func (s *Service) buildTransport(ctx context.Context, reg Registration, owner CredentialOwner) (mcpsdk.Transport, error) {
 	if reg.AuthType == AuthTypeOAuth {
+		if _, err := s.loadCredentialSnapshot(ctx, reg, owner); err != nil {
+			return nil, err
+		}
 		if reg.Transport != TransportStreamableHTTP {
 			return nil, fmt.Errorf("mcp: auth_type %q requires the streamable_http transport", AuthTypeOAuth)
 		}
@@ -169,11 +172,11 @@ func (s *Service) buildTransport(reg Registration, owner CredentialOwner) (mcpsd
 			OAuthHandler: &oauthSession{svc: s, reg: reg, owner: owner},
 		}, nil
 	}
-	bearer, err := s.BearerToken(context.Background(), reg)
+	snapshot, err := s.loadCredentialSnapshot(ctx, reg, owner)
 	if err != nil {
 		return nil, err
 	}
-	return buildBearerTransport(reg, bearer, s.endpoints)
+	return buildBearerTransport(reg, snapshot.BearerToken, s.endpoints)
 }
 
 // ListTools returns the tools the server currently advertises.

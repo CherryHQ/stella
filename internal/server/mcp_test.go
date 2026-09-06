@@ -385,21 +385,22 @@ func TestAgentToolsListIncludesMCPCatalogEntries(t *testing.T) {
 	}
 }
 
-func TestAgentToolOverrideOnMCPTool(t *testing.T) {
+func TestAgentToolOverrideRejectsUntrustedMCPIdentity(t *testing.T) {
 	env, _ := setupMCPCatalogEnv(t)
 	agentID := findStellaID(t, env)
 	const toolName = "mcp__gh__create_issue"
 
-	// Admin disables at the system_agent layer; a user_agent enable must lose.
+	// The legacy registration has only a display name. A name-only PATCH must
+	// fail closed until the MCP catalog supplies a trusted plugin/local pair.
 	rr := doRequest(t, env, http.MethodPatch, "/api/agents/"+agentID+"/tools/"+toolName,
 		map[string]any{"enabled": false, "scope": "system_agent"})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("system_agent patch status = %d (body: %s)", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("untrusted system_agent patch status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
 	rr = doRequest(t, env, http.MethodPatch, "/api/agents/"+agentID+"/tools/"+toolName,
 		map[string]any{"enabled": true, "scope": "user_agent"})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("user_agent patch status = %d (body: %s)", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("untrusted user_agent patch status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	rr = doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/tools", nil)
@@ -429,18 +430,18 @@ func TestAgentToolOverrideOnMCPTool(t *testing.T) {
 	if tool.Name == "" || tool.Enabled == nil {
 		t.Fatalf("tool %q missing from list", toolName)
 	}
-	if *tool.Enabled || tool.Origin != agent.ToolOverrideScopeSystemAgent {
-		t.Fatalf("override decision = enabled %v origin %q, want false/system_agent (admin disable wins)", *tool.Enabled, tool.Origin)
+	if !*tool.Enabled || tool.Origin != agent.ToolOverrideOriginDefault {
+		t.Fatalf("untrusted MCP decision = enabled %v origin %q, want true/default", *tool.Enabled, tool.Origin)
 	}
 
-	// Runner level: the same override rows the fetcher returns must hide the
-	// tool from registration, not just from the profile list.
+	// Even a stale legacy row cannot be interpreted as a core identity by the
+	// runtime MCP path, which has no trusted identity to match.
 	overrides := []agent.ToolOverride{
-		{ToolName: toolName, Scope: agent.ToolOverrideScopeSystemAgent, Enabled: false},
-		{ToolName: toolName, Scope: agent.ToolOverrideScopeUserAgent, Enabled: true},
+		{Identity: agent.ToolIdentity{}, Scope: agent.ToolOverrideScopeSystemAgent, Enabled: false},
+		{Identity: agent.ToolIdentity{}, Scope: agent.ToolOverrideScopeUserAgent, Enabled: true},
 	}
-	if agent.FilterToolEnabled(true, toolName, overrides) {
-		t.Fatal("FilterToolEnabled registered an admin-disabled MCP tool")
+	if !agent.FilterToolEnabled(true, agent.ToolIdentity{}, overrides) {
+		t.Fatal("FilterToolEnabled applied a name-only legacy MCP override")
 	}
 }
 

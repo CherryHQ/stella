@@ -129,6 +129,9 @@ type CatalogTool struct {
 // Registration is one MCP server registration (metadata only, no secret).
 type Registration struct {
 	ID             string
+	PluginID       string
+	Namespace      string
+	ConfigRevision int64
 	Scope          string
 	UserID         string
 	AgentID        string
@@ -144,54 +147,19 @@ type Registration struct {
 	Tools          []CatalogTool
 	CredentialMode string
 	Metadata       map[string]any
+	Description    string
 	// OAuthClientID is the public pre-registered client id from
 	// metadata.oauth.client_id; the client secret never leaves the vault.
-	OAuthClientID string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	OAuthClientID        string
+	OAuthClientSecretRef string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
-
-// ToolNamespaceSep separates the MCP prefix, server name, and tool name in the
-// namespaced tool id exposed to the model (e.g. mcp__github__create_issue).
-const ToolNamespaceSep = "__"
-
-// mcpToolPrefix is the reserved first segment of every MCP tool name.
-const mcpToolPrefix = "mcp" + ToolNamespaceSep
 
 // SanitizeIdent normalizes a server or tool name to the [A-Za-z0-9_] charset
 // used inside namespaced MCP tool names.
 func SanitizeIdent(s, fallback string) string {
 	return sanitizeIdent(s, fallback)
-}
-
-// SplitToolName splits a namespaced MCP tool name (mcp__<server>__<tool>) into
-// its server and tool segments. It splits on the first separator after the
-// prefix: a server name containing "__" makes its tools ambiguous, and the
-// first split matches how NamespacedToolName composes. ok is false for
-// anything that is not a well-formed MCP tool name (missing prefix, missing or
-// empty segments, trailing separator).
-func SplitToolName(name string) (server, tool string, ok bool) {
-	if !strings.HasPrefix(name, mcpToolPrefix) {
-		return "", "", false
-	}
-	rest := strings.TrimPrefix(name, mcpToolPrefix)
-	sep := strings.Index(rest, ToolNamespaceSep)
-	if sep <= 0 || sep == len(rest)-len(ToolNamespaceSep) {
-		return "", "", false
-	}
-	server, tool = rest[:sep], rest[sep+len(ToolNamespaceSep):]
-	if server == "" || tool == "" {
-		return "", "", false
-	}
-	return server, tool, true
-}
-
-// NamespacedToolName returns the agent-facing tool name for a remote MCP tool,
-// namespaced by server so tools from different servers do not collide with core,
-// plugin, or skill tools. Both server and remote tool segments are normalized to
-// [A-Za-z0-9_]; callers still detect collisions between normalized names.
-func NamespacedToolName(serverName, toolName string) string {
-	return "mcp" + ToolNamespaceSep + sanitizeIdent(serverName, "server") + ToolNamespaceSep + sanitizeIdent(toolName, "tool")
 }
 
 func sanitizeIdent(s, fallback string) string {

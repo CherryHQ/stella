@@ -45,16 +45,9 @@ func miseBaseEnv(stellaHome string) map[string]string {
 	return env
 }
 
-// runtimeScopeConfigPath returns the system mise config the sandbox resolves
-// beneath a principal's global config and any workspace config.
-func runtimeScopeConfigPath(stellaHome string) string {
-	return ScopeConfigPath(stellaHome, builtinScope)
-}
-
-// RuntimeMiseEnv returns the mise environment for a sandbox session using
-// mise's native system < global < workspace precedence. The shared system
-// installs and _builtin config supply release-owned tools. A principal gets a
-// writable tools tree plus a global config under its shared XDG config root;
+// RuntimeMiseEnv returns the mise environment for a sandbox session. A
+// principal gets a writable tools tree plus a global config under its shared
+// XDG config root;
 // workspace mise.toml files remain the most specific layer. HOME and the XDG
 // roots themselves are rendered by the selected sandbox backend.
 //
@@ -90,10 +83,10 @@ func RuntimeMiseEnv(stellaHome, userToolsDir, userConfigDir, workspaceDir string
 	// into an ambient PATH injection channel.
 	env[pkgsandbox.EnvRunnerPath] = ""
 
-	systemConfigPath := runtimeScopeConfigPath(stellaHome)
-	env["MISE_SYSTEM_CONFIG_FILE"] = systemConfigPath
-
-	trusted := []string{systemConfigPath}
+	// The system config is supplied only by a non-empty snapshot selection via
+	// OverlayBinaryInstallPlan. Keeping it unset here prevents disabled or
+	// userless sessions from falling back to the shared _builtin.toml layer.
+	trusted := []string{}
 	if userToolsDir != "" && userConfigDir != "" {
 		env["MISE_CONFIG_DIR"] = userConfigDir
 		env["MISE_GLOBAL_CONFIG_FILE"] = filepath.Join(userConfigDir, "config.toml")
@@ -140,10 +133,11 @@ func enabledBuiltinTools(m *Manifest) []miseTool {
 
 // miseTool is a single entry rendered into a mise config.
 type miseTool struct {
-	Key     string         // mise tool key, e.g. "github:cli/cli", "npm:serve", "uv"
-	Version string         // version spec; empty means "latest"
-	Options map[string]any // extra mise tool options (mise.toml option names)
-	Lookup  string         // binary name passed to `mise which` for verification
+	Key        string         // mise tool key, e.g. "github:cli/cli", "npm:serve", "uv"
+	Version    string         // version spec; empty means "latest"
+	Options    map[string]any // extra mise tool options (mise.toml option names)
+	Lookup     string         // binary name passed to `mise which` for verification
+	PublicName string         // manifest name published in a native selection bin
 }
 
 // miseConfigsDir holds the persisted per-scope mise configs. Runtime points
@@ -318,9 +312,10 @@ func binaryLookupName(b ManifestBinary) string {
 // miseToolFromBinary maps a manifest binary to a renderable mise tool entry.
 func miseToolFromBinary(b ManifestBinary) miseTool {
 	return miseTool{
-		Key:     b.Tool,
-		Version: b.Version,
-		Options: b.Options,
-		Lookup:  binaryLookupName(b),
+		Key:        b.Tool,
+		Version:    b.Version,
+		Options:    b.Options,
+		Lookup:     binaryLookupName(b),
+		PublicName: b.Name,
 	}
 }

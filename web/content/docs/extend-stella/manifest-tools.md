@@ -5,7 +5,7 @@ description: Declarative CLI tool integrations, shipped with the server and cust
 
 ## Overview
 
-Manifest tool plugins are a lightweight alternative to full Go-compiled plugins for simple CLI tool integrations. Instead of writing a Go package, the tool is declared as data, and Stella reconciles the binary download automatically.
+Manifest tool plugins are a lightweight alternative to full Go-compiled plugins for simple CLI tool integrations. Instead of writing a Go package, the tool is declared as data. Stella normalizes that declaration into the same plugin definition and four-scope configuration model used by every backend.
 
 Stella ships with a built-in manifest that declares the default manifest-managed CLI integrations (`gh`, `lark-cli`, `lightpanda`). They appear in their semantic tabs, such as **Tools** or **Hooks**, with a `manifest` badge. You override or extend them from the Plugins admin UI; your changes are stored in the database, and the manifest compiled into the server is never modified.
 
@@ -15,34 +15,42 @@ At startup, Stella:
 
 1. Loads the embedded built-in manifests (`resources/oauth.yaml` and `resources/tools.yaml`)
 2. Loads your stored customizations from the database and lays them over the built-in definitions, adding any plugin you created that has no built-in behind it
-3. Registers enabled manifest plugins into the plugin host
-4. Starts binary reconciliation in the background: downloads missing binaries into `$STELLA_HOME/bin`
+3. Normalizes the definitions and scope configurations into the common plugin catalog
+4. Registers enabled manifest plugins into the plugin host
 
-Startup is not blocked by binary downloads. A newly added or updated manifest binary becomes available on `PATH` inside agent sandbox sessions after the background sync completes. For local sandbox sessions the binary is available from `$STELLA_HOME/bin`. Docker sandbox sessions need separate handling because host binaries may target the host OS/architecture rather than Linux.
+Startup does not download binaries. A runner lazily materializes the binaries selected by its captured plugin snapshot when a session needs them. Native managed sessions use the managed tree; user and user-agent selections use their own sandbox trees. Docker uses Linux-native preparation inside its sandbox boundary.
 
 ## Docker sandbox CLI availability
 
-Do not treat host `$STELLA_HOME/bin` as the source of Docker sandbox executables. On macOS and Windows, manifest sync can install host-platform binaries, which cannot run in a Linux container. Binding that directory into Docker also blurs the boundary between host-side tool management and the container runtime.
+Do not treat host `$STELLA_HOME/bin` as the source of Docker sandbox executables. On macOS and Windows, native managed installation produces host-platform binaries, which cannot run in a Linux container. Binding that directory into Docker also blurs the boundary between host-side tool management and the container runtime.
 
 For Docker:
 
-- Built-in CLI plugins that must work out of the box are pre-installed in the versioned sandbox image. The sandbox image tag is tied to the Stella release, so one release image can contain the built-in tool set for that Stella version. The image build runs `stellad mise reconcile-builtins` — the same reconcile path the daemon uses — so it installs the exact identifiers and versions declared in `resources/tools.yaml`. There is no separate Docker tool list to keep in sync.
+- Built-in CLI plugins that must work out of the box are pre-installed in the versioned sandbox image. The sandbox image tag is tied to the Stella release, so one release image can contain the built-in tool set for that Stella version. The image is built from the exact release declarations; runtime does not maintain a second Docker manifest or daemon-side builtin installer.
 - The resolved manifest — built-in definitions plus your stored customizations — remains the source of plugin metadata, enablement, session environment, OAuth injection, and local-sandbox binary installation.
 - User-configured CLI binaries need a container-native provisioning path. They should be installed for Linux inside the Docker environment, not copied from the host's `$STELLA_HOME/bin`.
 
 A safe Docker loading design for user-configured CLIs is:
 
-1. Build a container tool manifest from enabled manifest plugins' `binaries` entries, excluding built-in tools already present in the release image.
-2. Use a short-lived helper container based on the same sandbox image to run `mise install` in a Linux context.
-3. Store the resulting tools in a Docker-managed tool cache or volume keyed by the sandbox image tag plus a hash of the resolved manifest.
-4. Mount that cache into sandbox sessions at a container-only path and prepend it to the in-container `PATH`.
-5. Rebuild or refresh the cache when the enabled plugin set or binary versions change.
+1. Resolve the complete four-scope plugin selection for the runner's trusted user and Agent.
+2. Pass that selection to the existing container preparation helper, which installs only the selected Linux artifacts.
+3. Store the resulting tools in the Docker-managed tool cache or volume keyed by one resolved image ID plus the complete selection identity.
+4. Mount the selected entries into the sandbox session at a container-only path and prepend them to the in-container `PATH`.
+5. Prepare a new selection when the captured snapshot or image ID changes.
 
-This keeps the release sandbox image stable while still allowing user-added CLIs. The installed user binaries are Linux container binaries, and the host `$STELLA_HOME/bin` is not part of Docker executable resolution.
+This keeps the release sandbox image stable while still allowing user-added CLIs. The installed user binaries are Linux container binaries, and the host `$STELLA_HOME/bin` is not part of Docker executable resolution. The `none` backend remains trusted-host execution and provides no filesystem isolation.
 
 ## The plugin definition
 
 A manifest plugin is the same set of fields whether it ships in `resources/tools.yaml` or you fill it in from the admin UI. The YAML form below is the clearest way to read that shape; the admin UI edits the same fields as form rows.
+
+The manifest supplies a `PluginDefinition`; enablement and configuration are
+stored as `PluginConfig` records in the four scopes `system`, `system_agent`,
+`user`, and `user_agent`. The selected scope owns the complete backend decision.
+An explicit `false` at system or matching system-agent scope is an upper bound,
+and a disabled winner never falls back to a broader scope. Builtin definitions
+and their resources are release-owned, but every builtin plugin can be disabled.
+CLI version pins and Skill sources remain independent fields.
 
 ```yaml
 plugins:
@@ -72,8 +80,8 @@ plugins:
 | `name`           | Yes      | Short machine-readable name                                                        |
 | `display_name`   | No       | Human-readable label shown in the admin UI                                         |
 | `description`    | No       | Short description shown in the admin UI                                            |
-| `enabled`        | No       | Whether the plugin is active. Defaults to false. Built-in plugins default to true. |
-| `binaries`       | No       | CLI binaries to download and place in `$STELLA_HOME/bin`                           |
+| `enabled`        | No       | Manifest input shorthand normalized into the selected `PluginConfig`; it is not a second permission system. |
+| `binaries`       | No       | CLI binary specifications; native managed installs use the managed tree, while user scopes use their sandbox tree |
 | `session_env`    | No       | Environment variables to inject into sandbox sessions                              |
 | `oauth_provider` | No       | Static OAuth provider ID used by `oauth.*` session env sources, such as `github`   |
 
@@ -85,7 +93,7 @@ Each binary requires a `name` and a `tool` field. The `tool` field uses mise's t
 
 | Field              | Required | Description                                                                                   |
 | ------------------ | -------- | --------------------------------------------------------------------------------------------- |
-| `name`             | Yes      | Binary filename placed in `$STELLA_HOME/bin` (without extension)                              |
+| `name`             | Yes      | Binary filename exposed in the selected runtime tree (without extension)                              |
 | `tool`             | Yes      | Mise tool key in `backend:identifier` format (e.g. `github:cli/cli`)                          |
 | `version`          | No       | Version to install. Defaults to `latest` for all backends.                                    |
 | `strip_components` | No       | Leading directory levels to strip when extracting an archive. Auto-detected for most layouts. |
@@ -185,7 +193,7 @@ Platform-specific asset patterns (`platforms:` map) are not supported in the man
 
 ## State and caching
 
-Stella tracks installed binary versions in `$STELLA_HOME/plugin-manifest-state.json`. On subsequent startups, binaries at the correct version are skipped. Change a binary's `version` to trigger a re-download. Startup reconciliation runs in the background and is cancelled on shutdown; Stella also terminates any child processes spawned by the installer.
+Stella tracks installed binary versions in `$STELLA_HOME/plugin-manifest-state.json`. A selected snapshot reuses an installed version when possible; changing a binary's `version` triggers a new lazy installation. Preparation is cancelled with the session and Stella terminates installer child processes.
 
 ## Admin UI
 
@@ -195,13 +203,14 @@ Manifest-backed plugins are shown once, in the tab that matches their kind:
 
 Rows with manifest backing show a `manifest` badge and an **Edit definition** action for the plugin definition. Binaries and session environment variables are edited as form rows. If the same plugin also exposes runtime config, the row also shows **Configure**. The enable switch is stored separately from the definition, so disabling a built-in does not count as customizing it, and pinning a binary to a specific version is an ordinary definition edit.
 
-The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI from a GitHub release binary. Saving registers the plugin and syncs binaries automatically without a restart. The embedded built-in manifest is never modified.
+The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI from a GitHub release binary. Saving registers the plugin; the next eligible runner lazily materializes its selected binaries. The embedded built-in manifest is never modified.
 
 Editing a built-in stores only the fields you changed, so the rest keep following the definition shipped with the server and still improve when you upgrade. Such a plugin is marked **customized** and offers **Reset to default**, which drops the stored edits and leaves the enable switch as it is. Lists — binaries, skills, session environment variables — are stored whole: edit one binary and you own that list. A customization saved before this behaviour existed holds a whole definition and stays frozen at it; saving that plugin once rewrites the row and it starts following upgrades again.
 
 ## Limitations in v1
 
 - System prompts and skill registration are not supported in the manifest. Plugins that need these capabilities still use Go registration.
+- The manifest has no standalone runtime or synchronization endpoint. Binary installation is driven by the resolved plugin snapshot.
 - Custom install scripts are not supported.
 - Platform-specific asset patterns (`platforms:` map) are not supported. Use `asset_pattern` instead.
 - Supported binary sources: GitHub releases (`github`), direct HTTP download (`http`), pipx (`pipx`), npm (`npm`).

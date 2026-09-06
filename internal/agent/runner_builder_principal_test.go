@@ -10,8 +10,10 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
+	"github.com/CherryHQ/stella/internal/plugin"
 	skillstool "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -202,7 +204,13 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 			build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
 				Snap: snap,
 				Home: testWorkspaceViewer{root: stellaHome},
-				PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
+				PluginContextBuilder: func(context.Context, authz.Authority, string) (PluginContext, error) {
+					return PluginContext{}, nil
+				},
+				PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext, _ plugin.Snapshot) ([]plugins.SystemPromptSection, error) {
+					if tt.name == "user-less" {
+						t.Fatal("user-less runner must skip plugin prompt sections")
+					}
 					promptBuild = build
 					return nil, nil
 				},

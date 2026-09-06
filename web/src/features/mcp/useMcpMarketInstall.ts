@@ -1,17 +1,16 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  createScopedMcpServer,
-  startMcpoAuth,
-  updateScopedMcpServer,
+  createPlugin,
+  startPluginConfigOAuth,
 } from "@/lib/api-client/sdk.gen";
-import type { McpRegistryServer, McpServer } from "@/lib/api-client/types.gen";
+import type { McpRegistryServer, PluginConfig } from "@/lib/api-client/types.gen";
 import type { InstallRequest, WritableScope } from "@/features/marketplace/InstallScopeStep";
 import { apiErrorMessage } from "@/lib/api-error";
 
-// One marketplace install: create the registration with registry provenance
-// (and the bearer secret when the entry's header template asks for one), then
-// report how the automatic probe landed so the UI can offer Connect.
+// One marketplace install creates a first-party MCP plugin and its initial
+// config. Secret-bearing registry entries fail explicitly until the secure
+// mutation seam is available; no plaintext credential is sent here.
 export type InstallArgs = {
   server: McpRegistryServer;
   scope: WritableScope;
@@ -28,60 +27,52 @@ export function useMcpMarketInstall(
   t: ReturnType<typeof useI18n>["t"],
 ) {
   const queryClient = useQueryClient();
-  const [created, setCreated] = useState<McpServer | null>(null);
+  const [created, setCreated] = useState<PluginConfig | null>(null);
 
   const mutation = useMutation({
     mutationFn: async ({ server, scope, agentId, bearerSecret }: InstallArgs) => {
-      const { data } = await createScopedMcpServer({
+      if (server.auth === "bearer" && bearerSecret?.trim()) {
+        // The unified write contract has no plaintext credential field. Keep
+        // this explicit failure instead of claiming an install succeeded.
+        throw new Error("secure credential writes are unavailable");
+      }
+      const { data } = await createPlugin({
         body: {
-          scope,
-          agent_id: agentId,
-          name: server.name,
-          url: server.url,
-          transport: "streamable_http",
-          auth_type: server.auth === "bearer" ? "bearer" : "none",
-          token: server.auth === "bearer" ? bearerSecret : undefined,
-          source: "official",
-          source_id: server.id,
-          source_version: server.version ?? undefined,
+          display_name: server.name,
+          namespace: server.id,
+          backend: "mcp",
+          definition_spec: {},
+          initial_config: {
+            scope,
+            ...(agentId ? { agent_id: agentId } : {}),
+            config: {
+              url: server.url,
+              transport: "streamable_http",
+              auth_type: server.auth === "bearer" ? "bearer" : "none",
+              credential_mode: "shared",
+            },
+          },
         },
         throwOnError: true,
       });
-      return data;
+      return data?.config;
     },
     onSuccess: (data) => {
-      setCreated(data);
+      setCreated(data ?? null);
       void queryClient.invalidateQueries({ queryKey: ["agent-mcp-servers"] });
       void queryClient.invalidateQueries({ queryKey: ["mcp-servers"] });
     },
     onError: (e) => notify(apiErrorMessage(e, t("mcp.saveFailed")), "error"),
   });
 
-  // Connect: an OAuth-protected install lands as needs_auth with auth_type
-  // none; switch it to oauth and jump straight into the authorization flow.
+  // Nested OAuth is the only connection action. It is intentionally separate
+  // from config writes so the callback can enforce common plugin visibility.
   const connect = useMutation({
-    mutationFn: async (server: McpServer) => {
-      await updateScopedMcpServer({
-        path: { id: server.id },
-        query: {
-          scope: server.scope,
-          agent_id:
-            server.scope === "user_agent" || server.scope === "system_agent"
-              ? server.agent_id
-              : undefined,
-        },
-        body: { auth_type: "oauth" },
-        throwOnError: true,
-      });
-      const { data } = await startMcpoAuth({
-        path: { id: server.id },
-        query: {
-          scope: server.scope,
-          agent_id:
-            server.scope === "user_agent" || server.scope === "system_agent"
-              ? server.agent_id
-              : undefined,
-        },
+    mutationFn: async (config: PluginConfig) => {
+      const [kind, ...nameParts] = config.plugin_id.split("/");
+      if (!kind || nameParts.length === 0) throw new Error("invalid plugin id");
+      const { data } = await startPluginConfigOAuth({
+        path: { kind, name: nameParts.join("/"), config_id: config.id },
         throwOnError: true,
       });
       return data?.authorization_url ?? "";

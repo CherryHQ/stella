@@ -36,6 +36,9 @@ func newTestService(t *testing.T, db *pgxpool.Pool) *Service {
 	svc.authorizeFire = func(context.Context, Job) (authz.Authority, error) {
 		return agentaccess.SystemAgentAuthority("scheduler")
 	}
+	// These mechanics tests predate the public plugin gate and exercise River
+	// dispatch itself. C2-specific tests cover the fail-closed missing-gate path.
+	svc.capabilityGate = func(context.Context, authz.Authority, string, ...string) error { return nil }
 	return svc
 }
 

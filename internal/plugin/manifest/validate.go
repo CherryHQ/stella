@@ -73,6 +73,11 @@ func Validate(m *Manifest) error {
 				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: tool is required (e.g. uv or github:owner/repo)", p.ID, j))
 			}
 		}
+		for j, name := range p.BundledBinaries {
+			if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\\`) {
+				errs = append(errs, fmt.Errorf("plugin %q bundled binary[%d]: unsafe name %q", p.ID, j, name))
+			}
+		}
 		for j, s := range p.Skills {
 			if s.Repo == "" {
 				errs = append(errs, fmt.Errorf("plugin %q skill[%d]: repo is required", p.ID, j))

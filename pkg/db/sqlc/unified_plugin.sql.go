@@ -428,6 +428,60 @@ func (q *Queries) LockPluginCatalog(ctx context.Context) error {
 	return err
 }
 
+const movePluginConfigCAS = `-- name: MovePluginConfigCAS :one
+UPDATE plugin_config
+SET scope = $2,
+    user_id = $3,
+    agent_id = $4,
+    enabled = $5,
+    config = $6,
+    credential_refs = $7,
+    revision = revision + 1,
+    updated_at = now()
+WHERE id = $1 AND revision = $8
+RETURNING id, plugin_id, namespace, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at
+`
+
+type MovePluginConfigCASParams struct {
+	ID             string          `json:"id"`
+	Scope          string          `json:"scope"`
+	UserID         pgtype.Text     `json:"user_id"`
+	AgentID        pgtype.Text     `json:"agent_id"`
+	Enabled        pgtype.Bool     `json:"enabled"`
+	Config         []byte          `json:"config"`
+	CredentialRefs json.RawMessage `json:"credential_refs"`
+	Revision       int64           `json:"revision"`
+}
+
+func (q *Queries) MovePluginConfigCAS(ctx context.Context, arg MovePluginConfigCASParams) (PluginConfig, error) {
+	row := q.db.QueryRow(ctx, movePluginConfigCAS,
+		arg.ID,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+		arg.Enabled,
+		arg.Config,
+		arg.CredentialRefs,
+		arg.Revision,
+	)
+	var i PluginConfig
+	err := row.Scan(
+		&i.ID,
+		&i.PluginID,
+		&i.Namespace,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Enabled,
+		&i.Config,
+		&i.CredentialRefs,
+		&i.Revision,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const resetBuiltinPluginConfig = `-- name: ResetBuiltinPluginConfig :one
 UPDATE plugin_config
 SET enabled = NULL,

@@ -15,11 +15,15 @@ import (
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/version"
+	"github.com/CherryHQ/stella/internal/plugin"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/resources"
 )
 
 type pluginSetup struct {
+	catalog                *plugin.Catalog
 	host                   *pluginhost.Host
 	channelRuntimeServices *pluginhost.ChannelPlatform
 	oauthRegistry          *oauth.ProviderRegistry
@@ -40,8 +44,50 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 	)
 
-	if err := phost.LoadDefaultCatalog(); err != nil {
+	code := pkgplugins.NewCatalog()
+	for _, id := range pkgplugins.Names() {
+		implementation, ok := pkgplugins.Get(id)
+		if !ok {
+			return nil, fmt.Errorf("missing shipped plugin %q", id)
+		}
+		code.Register(id, implementation)
+	}
+	if err := phost.LoadCatalog(code); err != nil {
 		return nil, fmt.Errorf("load plugin catalog: %w", err)
+	}
+
+	catalog := plugin.NewCatalog()
+	codeDefinitions, err := phost.BuiltinDefinitions(code)
+	if err != nil {
+		return nil, err
+	}
+	cliDefinitions, err := manifest.BuiltinDefinitions()
+	if err != nil {
+		return nil, err
+	}
+	toolDefinitions, err := pluginhost.BuiltinToolDefinitions(newToolMetaRegistry(generatedFamilies()...))
+	if err != nil {
+		return nil, err
+	}
+	bundledRuntimeDefinitions, err := pluginhost.BuiltinBundledRuntimeDefinitions()
+	if err != nil {
+		return nil, err
+	}
+	owners := make(map[string]struct{})
+	for _, definitions := range [][]plugin.Definition{codeDefinitions, cliDefinitions, toolDefinitions, bundledRuntimeDefinitions} {
+		for _, definition := range definitions {
+			if err := catalog.Register(definition); err != nil {
+				return nil, err
+			}
+			owners[definition.ID] = struct{}{}
+		}
+	}
+	bundled, err := resources.Default()
+	if err != nil {
+		return nil, err
+	}
+	if err := bundled.ValidateBuiltinSkillOwners(owners); err != nil {
+		return nil, err
 	}
 
 	var (
@@ -59,6 +105,7 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 	}
 
 	return &pluginSetup{
+		catalog:                catalog,
 		host:                   phost,
 		channelRuntimeServices: channelRuntimeServices,
 		oauthRegistry:          oauthRegistry,

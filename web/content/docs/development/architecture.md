@@ -241,7 +241,7 @@ Agent sends first persist an input row, then enter a process-local per-Session F
 | `memory`          | Always                            | Unified search and read across conversation and durable memory                     |
 | `session_*`       | One-to-one agent sessions         | Session listing, bounded inspection, creation, and synchronous sends               |
 | `skill_*`         | Always                            | Search installed Skills and load one exact selected revision                       |
-| `scheduler_job_*` | Always                            | Schedule tasks: one tool per action (`scheduler_job_create`, `_list`, `_pause`, …) |
+| `scheduler__job_*` | Scheduler plugin enabled                            | Schedule tasks: one tool per action (`scheduler__job_create`, `_list`, `_pause`, …) |
 | `notify`          | Gateway mode + channel configured | Send notifications via dispatcher                                                  |
 
 Memory is two tools over one shared `memory.Recall`: `memory_search` federates snapshot-visible LCM messages/summaries with durable facts, profile, soul, and constraints; `memory_read` resolves an opaque result ref or a well-known identity/constraint/history ref. Dynamic reads reauthorize through Session access, and summary reads preserve LCM describe/expand through bounded child refs. Transcript statistics, whole-message reads, and durable profile, soul, or constraint management are not tools at all — they belong to the internal, Reflect, or manual surfaces that own their authorization.

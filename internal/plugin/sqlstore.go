@@ -80,6 +80,20 @@ func (s *Service) updateConfigCAS(ctx context.Context, id string, revision int64
 	return fromSQLConfig(row), nil
 }
 
+func (s *Service) moveConfigCAS(ctx context.Context, id string, revision int64, scope Scope, userID, agentID string, enabled *bool, payload, refs json.RawMessage) (Config, error) {
+	row, err := s.q.MovePluginConfigCAS(ctx, sqlc.MovePluginConfigCASParams{
+		ID: id, Scope: string(scope), UserID: nullableText(userID), AgentID: nullableText(agentID),
+		Enabled: nullableBool(enabled), Config: payload, CredentialRefs: nonEmptyJSON(refs), Revision: revision,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Config{}, ErrConflict
+		}
+		return Config{}, mapConflict(err)
+	}
+	return fromSQLConfig(row), nil
+}
+
 func (s *Service) deleteConfigCAS(ctx context.Context, id string, revision int64, pluginID string) (bool, error) {
 	rows, err := s.q.DeletePluginConfigCAS(ctx, sqlc.DeletePluginConfigCASParams{ID: id, Revision: revision, PluginID: pluginID})
 	return rows == 1, err
@@ -97,28 +111,19 @@ func (s *Service) resetBuiltinConfig(ctx context.Context, id string, revision in
 }
 
 func (s *Service) createCustom(ctx context.Context, def Definition, config Config) (Definition, Config, error) {
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return Definition{}, Config{}, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := sqlc.New(tx)
-	defRow, err := q.CreatePluginDefinition(ctx, sqlc.CreatePluginDefinitionParams{
+	defRow, err := s.q.CreatePluginDefinition(ctx, sqlc.CreatePluginDefinitionParams{
 		ID: def.ID, Namespace: def.Namespace, DisplayName: def.DisplayName, Backend: string(def.Backend), Source: string(def.Source),
 		ImplementationKey: def.ImplementationKey, Spec: def.Spec, DefaultEnabled: def.DefaultEnabled, Revision: def.Revision, CreatorUserID: nullableText(def.CreatorUserID),
 	})
 	if err != nil {
 		return Definition{}, Config{}, err
 	}
-	configRow, err := q.CreatePluginConfig(ctx, sqlc.CreatePluginConfigParams{
+	configRow, err := s.q.CreatePluginConfig(ctx, sqlc.CreatePluginConfigParams{
 		ID: config.ID, PluginID: config.PluginID, Namespace: config.Namespace, Scope: string(config.Scope), UserID: nullableText(config.UserID), AgentID: nullableText(config.AgentID),
 		Enabled: nullableBool(config.Enabled), Config: config.Payload, CredentialRefs: nonEmptyJSON(config.CredentialRefs), Revision: config.Revision,
 	})
 	if err != nil {
 		return Definition{}, Config{}, mapConflict(err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Definition{}, Config{}, err
 	}
 	return fromSQLDefinition(defRow), fromSQLConfig(configRow), nil
 }

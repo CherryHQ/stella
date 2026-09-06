@@ -12,15 +12,44 @@ import (
 	"github.com/google/uuid"
 
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
+	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
+
+func TestRunnerPluginAuthorityUsesOnlyNamedSessionIdentity(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		params RunnerParams
+		kind   authz.ActorKind
+		valid  bool
+	}{
+		{name: "direct worker", params: RunnerParams{UserID: "user", AgentID: "agent"}, kind: authz.ActorAgent, valid: true},
+		{name: "group worker", params: RunnerParams{UserID: "group", GroupID: "group", AgentID: "agent"}, kind: authz.ActorGroupAgent, valid: true},
+		{name: "user without agent", params: RunnerParams{UserID: "user"}, valid: false},
+		{name: "userless", params: RunnerParams{AgentID: "agent"}, valid: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			authority, err := runnerPluginAuthority(tt.params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if authority.Valid() != tt.valid {
+				t.Fatalf("authority valid = %t, want %t", authority.Valid(), tt.valid)
+			}
+			if tt.valid && authority.Kind() != tt.kind {
+				t.Fatalf("authority kind = %s, want %s", authority.Kind(), tt.kind)
+			}
+		})
+	}
+}
 
 type panicSnapshotOpener struct {
 	root string
@@ -119,10 +148,18 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 
 	var promptBuild plugins.SystemPromptContext
 	resolveCalls := 0
+	pluginContextCalls := 0
 	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
 		Snap: snap,
 		Home: testWorkspaceViewer{root: stellaHome},
-		PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
+		PluginContextBuilder: func(_ context.Context, authority authz.Authority, agentID string) (PluginContext, error) {
+			pluginContextCalls++
+			if authority.Kind() != authz.ActorAgent || string(authority.UserID()) != "user-1" || string(authority.AgentID()) != agentID {
+				t.Fatalf("plugin context authority = %#v, agentID = %q", authority, agentID)
+			}
+			return PluginContext{}, nil
+		},
+		PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext, _ plugin.Snapshot) ([]plugins.SystemPromptSection, error) {
 			promptBuild = build
 			return nil, nil
 		},
@@ -161,6 +198,9 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	}
 	if resolveCalls != 1 {
 		t.Fatalf("project resolved %d times, want exactly once", resolveCalls)
+	}
+	if pluginContextCalls != 1 {
+		t.Fatalf("plugin context builder called %d times, want exactly once", pluginContextCalls)
 	}
 }
 
@@ -204,7 +244,7 @@ func TestNewRunnerFuncGuestHasMinimalPromptAndNoTools(t *testing.T) {
 		},
 		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
 		SandboxBackends:  testSandboxBackends(t),
-		PromptSectionsBuilder: func(context.Context, plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
+		PromptSectionsBuilder: func(context.Context, plugins.SystemPromptContext, plugin.Snapshot) ([]plugins.SystemPromptSection, error) {
 			t.Fatal("guest must not build prompt sections")
 			return nil, nil
 		},

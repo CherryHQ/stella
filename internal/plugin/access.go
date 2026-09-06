@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/CherryHQ/stella/internal/authz"
 )
@@ -13,10 +14,21 @@ var ErrForbidden = authz.ErrForbidden
 type Access struct {
 	service   *Service
 	authority authz.Authority
+	active    *atomic.Bool
+}
+
+func (a *Access) ensureActive() error {
+	if a == nil || a.service == nil || !a.authority.Valid() {
+		return ErrForbidden
+	}
+	if a.active != nil && !a.active.Load() {
+		return ErrForbidden
+	}
+	return nil
 }
 
 func (a *Access) owner(ctx context.Context, scope Scope, agentID string) (string, string, error) {
-	if a == nil || a.authority.Kind() != authz.ActorUser {
+	if err := a.ensureActive(); err != nil || a.authority.Kind() != authz.ActorUser {
 		return "", "", ErrForbidden
 	}
 	userID := string(a.authority.UserID())

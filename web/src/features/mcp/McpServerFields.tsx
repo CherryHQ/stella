@@ -42,6 +42,7 @@ export function McpServerFields({
   credentialMode,
   onCredentialModeChange,
   showCredentialMode = false,
+  showName = true,
 }: {
   name: string;
   onNameChange: (value: string) => void;
@@ -63,6 +64,8 @@ export function McpServerFields({
   onCredentialModeChange?: (value: "shared" | "per_user") => void;
   /** Only system/system_agent scopes can share one connection across users. */
   showCredentialMode?: boolean;
+  /** Definition name is fixed when editing a common plugin configuration. */
+  showName?: boolean;
 }) {
   const { t } = useI18n();
   // SAFETY: the transport Select's options are the two McpTransport values (below).
@@ -79,16 +82,18 @@ export function McpServerFields({
     value && onCredentialModeChange?.(value as "shared" | "per_user");
   return (
     <>
-      <Field>
-        <FieldLabel>{t("mcp.name")}</FieldLabel>
-        <Input
-          value={name}
-          onChange={(e) => onNameChange(e.target.value)}
-          placeholder="github"
-          nativeInput
-        />
-        <FieldDescription>{t("mcp.name.description")}</FieldDescription>
-      </Field>
+      {showName && (
+        <Field>
+          <FieldLabel>{t("mcp.name")}</FieldLabel>
+          <Input
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
+            placeholder="github"
+            nativeInput
+          />
+          <FieldDescription>{t("mcp.name.description")}</FieldDescription>
+        </Field>
+      )}
 
       <Field>
         <FieldLabel>{t("mcp.url")}</FieldLabel>
@@ -118,7 +123,9 @@ export function McpServerFields({
         <Select value={authType} onValueChange={onAuthTypeChangeLocal}>
           <SelectTrigger>
             <SelectValue>
-              {(value) => (value === "bearer" ? t("mcp.auth.bearer") : t("mcp.auth.none"))}
+              {(value) =>
+                value === "bearer" ? t("mcp.auth.bearer") : t("mcp.auth.none")
+              }
             </SelectValue>
           </SelectTrigger>
           <SelectPopup>
@@ -139,7 +146,9 @@ export function McpServerFields({
               autoComplete="off"
               nativeInput
             />
-            <FieldDescription>{t("mcp.oauth.clientId.description")}</FieldDescription>
+            <FieldDescription>
+              {t("mcp.oauth.clientId.description")}
+            </FieldDescription>
           </Field>
           <Field>
             <FieldLabel>{t("mcp.oauth.clientSecret")}</FieldLabel>
@@ -173,11 +182,17 @@ export function McpServerFields({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectPopup>
-                  <SelectItem value="shared">{t("mcp.credentialMode.shared")}</SelectItem>
-                  <SelectItem value="per_user">{t("mcp.credentialMode.perUser")}</SelectItem>
+                  <SelectItem value="shared">
+                    {t("mcp.credentialMode.shared")}
+                  </SelectItem>
+                  <SelectItem value="per_user">
+                    {t("mcp.credentialMode.perUser")}
+                  </SelectItem>
                 </SelectPopup>
               </Select>
-              <FieldDescription>{t("mcp.credentialMode.description")}</FieldDescription>
+              <FieldDescription>
+                {t("mcp.credentialMode.description")}
+              </FieldDescription>
             </Field>
           )}
         </>
@@ -194,7 +209,9 @@ export function McpServerFields({
             nativeInput
           />
           <FieldDescription>
-            {editing ? t("mcp.token.editDescription") : t("mcp.token.description")}
+            {editing
+              ? t("mcp.token.editDescription")
+              : t("mcp.token.description")}
           </FieldDescription>
         </Field>
       )}

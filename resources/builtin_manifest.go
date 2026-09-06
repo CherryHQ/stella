@@ -45,6 +45,12 @@ type BuiltinSkillDescriptor struct {
 	Root                   string             `json:"root"`
 	Files                  []BuiltinSkillFile `json:"files"`
 	Digest                 string             `json:"digest"`
+	// OwnerPluginID is derived from the trusted bundle layout. It is empty for
+	// core skills and never comes from skill frontmatter.
+	OwnerPluginID string `json:"owner_plugin_id,omitempty"`
+	// RequiresPluginIDs is a release-owned one-hop all-of dependency list. It
+	// never comes from skill frontmatter or mutable skill metadata.
+	RequiresPluginIDs []string `json:"requires_plugin_ids,omitempty"`
 }
 
 // BuiltinManifest is the generated, deterministic description of every
@@ -111,10 +117,16 @@ func discoverBuiltinSkills(sourceRoot, relative string, skills *[]BuiltinSkillDe
 		}
 	}
 	if hasSkill {
+		owner, err := skillOwner(relative)
+		if err != nil {
+			return err
+		}
 		skill, files, bytes, err := scanBuiltinSkill(sourceRoot, relative)
 		if err != nil {
 			return err
 		}
+		skill.OwnerPluginID = owner
+		skill.RequiresPluginIDs = builtinSkillRequiresPluginIDs(skill.Name)
 		*skills = append(*skills, skill)
 		*totalFiles += files
 		*totalBytes += bytes
@@ -135,6 +147,28 @@ func discoverBuiltinSkills(sourceRoot, relative string, skills *[]BuiltinSkillDe
 		if err := discoverBuiltinSkills(sourceRoot, child, skills, totalFiles, totalBytes); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func skillOwner(root string) (string, error) {
+	parts := strings.Split(root, "/")
+	if len(parts) == 2 && parts[0] == "core" && parts[1] != "" {
+		return "", nil
+	}
+	if len(parts) != 4 || parts[0] != "plugins" || parts[1] == "" || parts[2] == "" || parts[3] == "" {
+		return "", fmt.Errorf("builtin skill %q must be rooted at core/<skill> or plugins/<kind>/<plugin>/<skill>", root)
+	}
+	return parts[1] + "/" + parts[2], nil
+}
+
+func validateSkillOwner(root, owner string) error {
+	derived, err := skillOwner(root)
+	if err != nil {
+		return err
+	}
+	if derived != owner {
+		return fmt.Errorf("builtin skill %q owner %q does not match layout owner %q", root, owner, derived)
 	}
 	return nil
 }
@@ -317,6 +351,12 @@ func validateBuiltinManifest(manifest BuiltinManifest) error {
 	for _, skill := range manifest.Skills {
 		if skill.Ref != "builtin:"+skill.Name || skill.APIID != "builtin-"+skill.Name || !canonicalBuiltinPath(skill.Name) || strings.Contains(skill.Name, "/") || !canonicalBuiltinPath(skill.Root) || path.Base(skill.Root) != skill.Name || len(skill.Files) == 0 || len(skill.Files) > maxBuiltinFilesPerKey || len(skill.Digest) != sha256.Size*2 {
 			return fmt.Errorf("invalid builtin skill descriptor %q", skill.Name)
+		}
+		if err := validateSkillOwner(skill.Root, skill.OwnerPluginID); err != nil {
+			return err
+		}
+		if err := validateBuiltinSkillRequirements(skill); err != nil {
+			return err
 		}
 		if _, err := hex.DecodeString(skill.Digest); err != nil {
 			return fmt.Errorf("invalid builtin skill descriptor %q: %w", skill.Name, err)

@@ -73,6 +73,22 @@ func TestSearchInstalledRanksExactManagedSnapshotsAndHonorsAuthorization(t *test
 	}
 }
 
+func TestPluginSkillVisibilityAppliesToSearchAndLoad(t *testing.T) {
+	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).
+		WithPluginVisibility([]string{"tool/lark-cli"}, nil)
+
+	out, err := skillAction(tool, "search").Execute(t.Context(), map[string]any{"q": "lark cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != noInstalledSkills {
+		t.Fatalf("disabled plugin skill leaked into search: %s", out)
+	}
+	if out, err := loadSkill(t, tool, "lark-cli"); !errors.Is(err, errSkillNotFound) || out != "" {
+		t.Fatalf("disabled plugin skill load = %q, %v; want hidden", out, err)
+	}
+}
+
 func TestLoadProjectsImmutableProjectSnapshotThroughSessionFiles(t *testing.T) {
 	snapshot, err := SnapshotProjectSkills(t.Context(), snapshotRoot{fstest.MapFS{
 		".agents/skills/deploy/SKILL.md":       {Data: []byte("---\nname: deploy\ndescription: deploy app\n---\n# Deploy")},

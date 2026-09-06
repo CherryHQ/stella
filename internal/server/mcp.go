@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -388,37 +387,55 @@ func (s *Server) ListAgentMcpServers(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	resolved, err := s.mcpSvc.ResolveForContextWithShadowed(ctx, info.UserID, id)
+	snapshot, err := s.toolSnapshot(ctx, info, id)
 	if err != nil {
 		writeMCPError(w, err)
 		return
 	}
-	out := make([]apitypes.AgentMCPServer, len(resolved))
-	for i, resolvedReg := range resolved {
-		// The generated AgentMCPServer flattens the allOf, so reuse the shared
-		// MCPServer projection through its identical JSON shape.
-		raw, err := json.Marshal(mcpServerResponse(resolvedReg.Registration))
-		if err != nil {
-			s.writeInternalError(w, err)
-			return
-		}
-		var item apitypes.AgentMCPServer
-		if err := json.Unmarshal(raw, &item); err != nil {
-			s.writeInternalError(w, err)
-			return
-		}
-		item.Oauth = mcpOAuthProjection(s.mcpSvc.OAuthState(ctx, resolvedReg.Registration, info.UserID))
-		item.Readable = access.CanRead(ctx, resolvedReg.Registration)
-		if len(resolvedReg.ShadowedScopes) > 0 {
-			shadows := make([]apitypes.AgentMCPServerShadowedScopes, len(resolvedReg.ShadowedScopes))
-			for j, scope := range resolvedReg.ShadowedScopes {
-				shadows[j] = apitypes.AgentMCPServerShadowedScopes(scope)
-			}
-			item.ShadowedScopes = &shadows
-		}
-		out[i] = item
+	registrations, err := s.mcpSvc.RegistrationsForSnapshot(ctx, snapshot)
+	if err != nil {
+		writeMCPError(w, err)
+		return
+	}
+	out := make([]apitypes.AgentMCPServer, len(registrations))
+	for i, registration := range registrations {
+		out[i] = agentMCPServerResponse(registration, access.CanRead(ctx, registration))
 	}
 	writeData(w, http.StatusOK, apitypes.AgentMCPServerList{Servers: out})
+}
+
+// agentMCPServerResponse is the only effective-agent projection boundary. It
+// intentionally does not share fields with MCPServer, whose endpoint and
+// credential locators are appropriate only for an owner-scoped response.
+func agentMCPServerResponse(registration mcp.Registration, readable bool) apitypes.AgentMCPServer {
+	tools := make([]apitypes.MCPTool, len(registration.Tools))
+	for i, tool := range registration.Tools {
+		tools[i] = apitypes.MCPTool{Name: tool.Name}
+		if tool.Description != "" {
+			description := tool.Description
+			tools[i].Description = &description
+		}
+		if tool.InputSchema != nil {
+			inputSchema := tool.InputSchema
+			tools[i].InputSchema = &inputSchema
+		}
+		if tool.Annotations != nil {
+			annotations := tool.Annotations
+			tools[i].Annotations = &annotations
+		}
+	}
+	return apitypes.AgentMCPServer{
+		PluginId:       registration.PluginID,
+		ConfigId:       registration.ID,
+		Namespace:      registration.Namespace,
+		Scope:          apitypes.AgentMCPServerScope(registration.Scope),
+		Enabled:        registration.Enabled,
+		CredentialMode: apitypes.AgentMCPServerCredentialMode(registration.CredentialMode),
+		NeedsAuth:      registration.Status == mcp.StatusNeedsAuth,
+		Status:         apitypes.AgentMCPServerStatus(registration.Status),
+		Tools:          tools,
+		Readable:       readable,
+	}
 }
 
 // mcpOAuthCallbackPath is the redirect URI path registered with authorization

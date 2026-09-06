@@ -1,0 +1,283 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/tools"
+)
+
+// TestMigratedMCPOverrideReachesRunnerDeny exercises the cutover at the
+// runtime boundary. The policy starts as a legacy exported name, is converted
+// in the importer, read through the real ToolOverrideStore, and finally hides
+// the MCP proxy in the runner registry.
+func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := t.Context()
+	prepareRunnerImportSchema(t, db)
+
+	userID := uuid.NewString()
+	agentID := "mcp-import-runner-agent"
+	registrationID := uuid.NewString()
+	seedRunnerIdentity(t, db, userID, agentID)
+	if _, err := db.Exec(ctx, `
+		INSERT INTO mcp_server (id, scope, name, url, transport, auth_type,
+			enabled, metadata, tools, status, status_error, credential_mode, probed_at)
+		VALUES ($1, 'system', 'remote', 'https://mcp.example.test', 'sse', 'none',
+			true, '{}'::jsonb,
+			'[{"name":"list","description":"list","inputSchema":{"type":"object"}}]'::jsonb,
+			'ok', '', 'shared', now())
+	`, registrationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO tool_override (id, tool_name, scope, user_id, agent_id, enabled)
+		VALUES ($1, 'mcp__remote__list', 'user_agent', $2, $3, false)
+	`, uuid.NewString(), userID, agentID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); err != nil {
+		t.Fatalf("import legacy MCP state: %v", err)
+	}
+	// Import preserves the catalog and status but intentionally leaves the
+	// observation timestamp cold. Mark this fixture as freshly probed so the
+	// provider exercises the cached catalog and never dials the test endpoint.
+	if _, err := db.Exec(ctx, `UPDATE mcp_connection_state SET probed_at = now() WHERE config_id = $1::uuid`, registrationID); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewToolOverrideStore(db)
+	overrides, err := store.Fetch(ctx, userID, agentID)
+	if err != nil {
+		t.Fatalf("fetch migrated tool override: %v", err)
+	}
+	wantIdentity := ToolIdentity{PluginID: "custom/" + registrationID, LocalToolName: "list"}
+	if len(overrides) != 1 || overrides[0].Identity != wantIdentity || overrides[0].Scope != ToolOverrideScopeUserAgent || overrides[0].Enabled {
+		t.Fatalf("migrated overrides = %+v, want disabled %v in user_agent", overrides, wantIdentity)
+	}
+
+	authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugins := plugin.NewService(db, nil, plugin.NewCatalog(), nil, noOpMutationFence)
+	snapshot, err := plugins.ResolveSnapshot(ctx, authority, "")
+	if err != nil {
+		t.Fatalf("resolve plugin snapshot: %v", err)
+	}
+	home := t.TempDir()
+	view := pkgplugins.SessionPluginView{
+		RegisteredPluginIDs: []string{"custom/" + registrationID},
+		ExposedPluginIDs:    []string{"custom/" + registrationID},
+	}
+	runnerPlugins := agentruntime.NewPluginContext(snapshot, view)
+	registry, _, _, err := buildToolRegistry(ctx, runnerConfig{
+		Sandbox: sandbox.Config{Paths: sandbox.Paths{
+			StellaHome: home,
+			AgentRoot:  filepath.Join(home, "agents", agentID),
+			UserRoot:   filepath.Join(home, "users", userID),
+		}},
+		BuiltinParams:       RunnerParams{UserID: userID, AgentID: agentID},
+		PluginContext:       runnerPlugins,
+		MCPToolProvider:     migratedMCPToolProvider{pluginID: "custom/" + registrationID},
+		ToolOverrideFetcher: store.Fetch,
+		SkillRevisionReader: emptySkillRuntime{},
+		SkillReadAuthorizer: allowSkillReads{},
+	}, &fakeSession{alive: true}, nil, ai.Model{}, "")
+	if err != nil {
+		t.Fatalf("build runner tool registry: %v", err)
+	}
+	defer func() { _ = registry.Close() }()
+	if registry.Has("remote__list") {
+		t.Fatal("migrated user_agent deny did not hide the MCP tool")
+	}
+}
+
+// TestMigratedMCPNamespaceDenyDoesNotFallThrough proves that a more-specific
+// disabled definition wins its namespace over an enabled system definition.
+// The system definition is the imported registration; the user definition is
+// an additional target row, so this remains a post-import runtime test.
+func TestMigratedMCPNamespaceDenyDoesNotFallThrough(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := t.Context()
+	prepareRunnerImportSchema(t, db)
+
+	userID := uuid.NewString()
+	registrationID := uuid.NewString()
+	seedRunnerIdentity(t, db, userID, "namespace-agent")
+	if _, err := db.Exec(ctx, `
+		INSERT INTO mcp_server (id, scope, name, url, transport, auth_type,
+			enabled, metadata, tools, status, status_error, credential_mode)
+		VALUES ($1, 'system', 'remote', 'https://mcp.example.test', 'sse', 'none',
+			true, '{}'::jsonb, '[{"name":"list"}]'::jsonb, 'ok', '', 'shared')
+	`, registrationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); err != nil {
+		t.Fatalf("import legacy MCP state: %v", err)
+	}
+
+	deniedID := uuid.NewString()
+	deniedPluginID := "custom/" + deniedID
+	if _, err := db.Exec(ctx, `
+		INSERT INTO plugin_definition (id, namespace, display_name, backend, source,
+			implementation_key, spec, default_enabled, revision, creator_user_id)
+		VALUES ($1, 'remote', 'user deny', 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1, $2)
+	`, deniedPluginID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO plugin_config (id, plugin_id, namespace, scope, user_id, enabled,
+			config, credential_refs, revision)
+		VALUES ($1, $2, 'remote', 'user', $3, false,
+			'{"url":"https://mcp.example.test","transport":"sse","auth_type":"none","credential_mode":"shared","metadata":{}}'::jsonb,
+			'{}'::jsonb, 1)
+	`, deniedID, deniedPluginID, userID); err != nil {
+		t.Fatal(err)
+	}
+
+	authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugins := plugin.NewService(db, nil, plugin.NewCatalog(), nil, noOpMutationFence)
+	snapshot, err := plugins.ResolveSnapshot(ctx, authority, "")
+	if err != nil {
+		t.Fatalf("resolve plugin snapshot: %v", err)
+	}
+	winner, err := snapshot.ResolveNamespace("remote")
+	if err != nil {
+		t.Fatalf("resolve remote namespace: %v", err)
+	}
+	if winner.PluginID != deniedPluginID || winner.IsEffectivelyEnabled {
+		t.Fatalf("namespace winner = %+v, want disabled user definition %s", winner, deniedPluginID)
+	}
+
+	home := t.TempDir()
+	view := pkgplugins.SessionPluginView{
+		RegisteredPluginIDs: []string{"custom/" + registrationID, deniedPluginID},
+		ExposedPluginIDs:    []string{"custom/" + registrationID, deniedPluginID},
+	}
+	_, _, _, err = buildToolRegistry(ctx, runnerConfig{
+		Sandbox: sandbox.Config{Paths: sandbox.Paths{
+			StellaHome: home,
+			AgentRoot:  filepath.Join(home, "agents", "namespace-agent"),
+			UserRoot:   filepath.Join(home, "users", userID),
+		}},
+		BuiltinParams:       RunnerParams{UserID: userID, AgentID: "namespace-agent"},
+		PluginContext:       agentruntime.NewPluginContext(snapshot, view),
+		MCPToolProvider:     migratedMCPToolProvider{pluginID: "custom/" + registrationID},
+		SkillRevisionReader: emptySkillRuntime{},
+		SkillReadAuthorizer: allowSkillReads{},
+	}, &fakeSession{alive: true}, nil, ai.Model{}, "")
+	if err == nil {
+		t.Fatal("runner accepted a tool from the shadowed enabled definition")
+	}
+	if !strings.Contains(err.Error(), "not owned by the enabled namespace winner") {
+		t.Fatalf("shadowed namespace error = %v", err)
+	}
+}
+
+func noOpMutationFence(_ context.Context, fn func() error) error { return fn() }
+
+type migratedMCPToolProvider struct{ pluginID string }
+
+func (p migratedMCPToolProvider) ToolsForSnapshot(context.Context, plugin.Snapshot) ([]tools.Tool, error) {
+	return []tools.Tool{migratedMCPTool{staticTool{name: "remote__list"}, p.pluginID, "list"}}, nil
+}
+
+type migratedMCPTool struct {
+	staticTool
+	pluginID string
+	local    string
+}
+
+func (t migratedMCPTool) PluginToolIdentity() (string, string, bool) {
+	return t.pluginID, t.local, true
+}
+
+func seedRunnerIdentity(t *testing.T, db *pgxpool.Pool, userID, agentID string) {
+	t.Helper()
+	ctx := t.Context()
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@test.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlc.New(db).CreateAgent(ctx, sqlc.CreateAgentParams{
+		ID: agentID, Name: agentID, Workspace: "/tmp/" + agentID,
+		Sandbox: json.RawMessage(`{}`), Scope: "system", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func prepareRunnerImportSchema(t *testing.T, db *pgxpool.Pool) {
+	t.Helper()
+	ctx := t.Context()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO goose_db_version (version_id, is_applied)
+		SELECT 90000000000041, true
+		WHERE NOT EXISTS (SELECT 1 FROM goose_db_version WHERE version_id = 90000000000041)
+		`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE goose_db_version SET is_applied = true WHERE version_id = 90000000000041`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `ALTER TABLE tool_override ALTER COLUMN tool_name DROP NOT NULL`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		ALTER TABLE tool_override DROP CONSTRAINT IF EXISTS tool_override_tool_name_scope_user_id_agent_id_key;
+		ALTER TABLE tool_override DROP CONSTRAINT IF EXISTS tool_override_plugin_identity_pair;
+		ALTER TABLE tool_override DROP CONSTRAINT IF EXISTS tool_override_identity_check;
+		ALTER TABLE tool_override
+			ADD CONSTRAINT tool_override_identity_check CHECK (
+				(plugin_id IS NULL AND local_tool_name IS NULL AND tool_name IS NOT NULL AND tool_name <> '')
+				OR (plugin_id IS NOT NULL AND local_tool_name IS NOT NULL AND plugin_id <> '' AND local_tool_name <> '' AND tool_name IS NULL)
+			);
+		DROP INDEX IF EXISTS uniq_tool_override_core_identity;
+		DROP INDEX IF EXISTS uniq_tool_override_plugin_identity;
+		CREATE UNIQUE INDEX uniq_tool_override_core_identity
+			ON tool_override (tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
+			WHERE tool_name IS NOT NULL AND plugin_id IS NULL AND local_tool_name IS NULL;
+		CREATE UNIQUE INDEX uniq_tool_override_plugin_identity
+			ON tool_override (plugin_id, local_tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
+			WHERE tool_name IS NULL;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		ALTER TABLE mcp_oauth_flow DROP CONSTRAINT IF EXISTS mcp_oauth_flow_server_id_fkey;
+		ALTER TABLE mcp_oauth_flow DROP CONSTRAINT IF EXISTS mcp_oauth_flow_server_id_plugin_config_fkey;
+		ALTER TABLE mcp_oauth_flow
+			ADD CONSTRAINT mcp_oauth_flow_server_id_plugin_config_fkey
+			FOREIGN KEY (server_id) REFERENCES plugin_config(id) ON DELETE CASCADE NOT VALID;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	// The importer expects the observation table from migration 41. This
+	// assertion keeps a stale test template from silently turning the provider
+	// check into a vacuous no-row result.
+	var table string
+	if err := db.QueryRow(ctx, `SELECT to_regclass('public.mcp_connection_state')`).Scan(&table); err != nil {
+		t.Fatal(err)
+	}
+	if table == "" {
+		t.Fatal("mcp_connection_state table is missing from the migrated fixture")
+	}
+}

@@ -15,6 +15,23 @@ func TestLoadBuiltin(t *testing.T) {
 	}
 }
 
+func TestLoadBuiltinKeepsBundledBinaryMetadataOutsideEditablePayload(t *testing.T) {
+	m, err := LoadBuiltin()
+	if err != nil {
+		t.Fatalf("LoadBuiltin() error: %v", err)
+	}
+	for _, p := range m.Plugins {
+		if p.ID != "tool/mise" {
+			continue
+		}
+		if len(p.BundledBinaries) != 1 || p.BundledBinaries[0] != "mise" {
+			t.Fatalf("mise bundled binaries = %v", p.BundledBinaries)
+		}
+		return
+	}
+	t.Fatal("tool/mise missing from builtin manifest")
+}
+
 func TestLoadBuiltinLarkCLIUsesManagedFeishuOAuth(t *testing.T) {
 	m, err := LoadBuiltin()
 	if err != nil {

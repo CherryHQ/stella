@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { ChevronLeft, Blocks, PackagePlus, Store, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -95,14 +95,7 @@ export function McpInstallSheet({
     [market.data?.pages],
   );
   const detail = detailId ? rows.find((r) => r.id === detailId) : undefined;
-  const { mutation, created, setCreated, connect, connectPending } = useMcpMarketInstall(notify, t);
-  // The scope step's confirm callback closes over the render before the
-  // mutation resolved, so it reads the created server through a ref.
-  const createdRef = useRef(created);
-  useEffect(() => {
-    createdRef.current = created;
-  }, [created]);
-
+  const { mutation, created, setCreated } = useMcpMarketInstall(notify, t);
   function requestInstall() {
     if (!detail) return;
     if (detail.auth === "unsupported") {
@@ -135,22 +128,13 @@ export function McpInstallSheet({
         className="w-full sm:w-[560px] sm:max-w-[560px]"
       >
         <div className="relative flex h-full min-h-0 flex-col">
-          {created && created.status === "needs_auth" ? (
+          {created ? (
             <div className="flex h-full flex-col items-start gap-4 p-6">
-              <h2 className="text-base font-semibold">{t("mcp.market.needsAuthTitle")}</h2>
-              <p className="text-sm text-muted-foreground">{t("mcp.market.needsAuthDesc")}</p>
+              <h2 className="text-base font-semibold">{t("mcp.market.installed")}</h2>
+              <p className="text-sm text-muted-foreground">{created.backend_summary.backend === "mcp" ? created.backend_summary.auth_type : ""}</p>
               <div className="mt-auto flex w-full items-center justify-end gap-2">
                 <Button variant="ghost" onClick={close}>
                   {t("common.cancel")}
-                </Button>
-                <Button
-                  loading={connectPending}
-                  onClick={() => {
-                    connect.mutate(created);
-                    close();
-                  }}
-                >
-                  {t("mcp.connect")}
                 </Button>
               </div>
             </div>
@@ -294,9 +278,6 @@ export function McpInstallSheet({
               scopes={scopes}
               onConfirmed={() => {
                 setPending(null);
-                // An OAuth-protected server lands as needs_auth: keep the sheet
-                // open so the Connect offer is the next thing the user sees.
-                if (createdRef.current?.status === "needs_auth") return;
                 setCreated(null);
                 onOpenChange(false);
               }}

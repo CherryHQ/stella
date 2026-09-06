@@ -8,6 +8,7 @@ import (
 
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -24,16 +25,27 @@ type VaultEnvLoader interface {
 // Config is passed to sandbox operations.
 // It is constructed from the runner config in the parent agent package.
 type Config struct {
-	SandboxConfig       config.SandboxConfig
-	SandboxBackendFn    func(ctx context.Context) string
-	Backends            *BackendRegistry
-	Paths               Paths
-	UserID              string
-	GroupID             string // non-empty for group sessions; vault/env use group principal
-	AgentID             string
-	SessionID           string
-	ProjectID           string
-	SessionEnvSpecs     []pkgplugins.SessionEnvSpec
+	SandboxConfig    config.SandboxConfig
+	SandboxBackendFn func(ctx context.Context) string
+	Backends         *BackendRegistry
+	Paths            Paths
+	UserID           string
+	GroupID          string // non-empty for group sessions; vault/env use group principal
+	AgentID          string
+	SessionID        string
+	ProjectID        string
+	SessionEnvSpecs  []pkgplugins.SessionEnvSpec
+	// ExposedPluginIDs is the snapshot's namespace-winner set. Native setup
+	// uses it only to decide whether the internal mise engine may be public.
+	ExposedPluginIDs   []string
+	BinarySpecs        []pkgplugins.PluginBinarySpec
+	BundledBinarySpecs []pkgplugins.PluginBundledBinarySpec
+	ContextBinaryPlan  *manifest.BinaryInstallPlan
+	UserBinaryPlan     *manifest.BinaryInstallPlan
+	BundledBinaryPlan  *manifest.BundledBinaryInstallPlan
+	// ManagedBinaryRoot is used only by the short preparation session. The final
+	// session receives UserBinaryPlan and never mounts this private tree.
+	ManagedBinaryRoot   string
 	VaultEnvLoader      VaultEnvLoader
 	SessionSecretValues *SessionSecretValues
 	TokenManager        *oauth.TokenManager

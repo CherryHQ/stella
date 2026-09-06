@@ -712,7 +712,10 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// Helm enforces one replica with a Recreate rollout, so managed channel
 	// pollers start unconditionally after their dependencies are wired. Drain-time
 	// Quiesce stops new polling; the final Stop remains after River drains.
-	applyManagedChannelPlugins(ingressCtx, s.pluginHost)
+	if _, err := applyManagedChannelPlugins(ingressCtx, s.pluginHost); err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("start managed channel runtimes: %w", err)
+	}
 	// HTTP serve — the final ingress source to come up.
 	g.Go(func() error { return normalizeServeErr(httpSrv.Serve(ln)) })
 
