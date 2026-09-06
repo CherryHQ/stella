@@ -457,6 +457,7 @@ def provision(
         (root / "test/evals/harbor/aws_runner.sh", "input/aws_runner.sh"),
         (root / "test/evals/harbor/stella_harbor/aws_merge.py", "input/aws_merge.py"),
         (root / "test/evals/harbor/tasksets/aws-smoke.yaml", "input/aws-smoke.yaml"),
+        (root / "test/evals/harbor/stella_harbor/aws_prepare.py", "input/aws_prepare.py"),
     ):
         aws.run("s3", "cp", str(local), f"s3://{bucket}/{remote}", "--only-show-errors")
 
@@ -781,6 +782,9 @@ def provision(
             "PASSES": state["passes"],
             "EXPECTED_TASKS": state["expected_tasks"],
             "RUN_MODE": state["run_mode"],
+            "WARMUP_MODE": state["warmup_mode"],
+            "WARMUP_CONCURRENCY": state["warmup_concurrency"],
+            "TOPUP_CONCURRENCY": state["topup_concurrency"],
             "MAX_TOPUP_ROUNDS": state["max_topup_rounds"],
             "INSTANCE_TYPE": state["instance_type"],
             "INSTANCE_ID": instance,
@@ -790,6 +794,7 @@ def provision(
             "REMOTE_RUNNER_SHA256": state["remote_runner_sha256"],
             "MERGE_HELPER_SHA256": state["merge_helper_sha256"],
             "SMOKE_TASKSET_SHA256": state["smoke_taskset_sha256"],
+            "PREPARE_HELPER_SHA256": state["prepare_helper_sha256"],
         },
     )
     aws.run("s3", "cp", str(config), f"s3://{bucket}/input/remote-config.env", "--only-show-errors")
@@ -836,11 +841,13 @@ mkdir -p /opt/stella-tb21/stella_harbor
 aws s3 cp s3://{bucket}/input/aws_runner.sh /opt/stella-tb21/aws_runner.sh --only-show-errors
 aws s3 cp s3://{bucket}/input/aws_merge.py /opt/stella-tb21/aws_merge.py --only-show-errors
 aws s3 cp s3://{bucket}/input/aws-smoke.yaml /opt/stella-tb21/aws-smoke.yaml --only-show-errors
+aws s3 cp s3://{bucket}/input/aws_prepare.py /opt/stella-tb21/aws_prepare.py --only-show-errors
 aws s3 cp s3://{bucket}/input/remote-config.env /opt/stella-tb21/remote-config.env --only-show-errors
 printf '%s  %s\n' '{state["remote_runner_sha256"]}' /opt/stella-tb21/aws_runner.sh | sha256sum -c -
 printf '%s  %s\n' '{state["merge_helper_sha256"]}' /opt/stella-tb21/aws_merge.py | sha256sum -c -
 printf '%s  %s\n' '{state["smoke_taskset_sha256"]}' /opt/stella-tb21/aws-smoke.yaml | sha256sum -c -
 chmod 700 /opt/stella-tb21/aws_runner.sh
+printf '%s  %s\n' '{state["prepare_helper_sha256"]}' /opt/stella-tb21/aws_prepare.py | sha256sum -c -
 shutdown -h +{timeout_minutes} >/dev/null 2>&1
 cat >/etc/systemd/system/stella-tb21.service <<'UNIT'
 [Unit]
@@ -976,6 +983,7 @@ def download_artifacts(aws: Aws, state: dict[str, Any], run_dir: Path, journal: 
         "archive-summary.txt",
         "remote-journal.ndjson",
         "SHA256SUMS",
+        "performance.json",
     }
     missing = sorted(name for name in required if not (artifacts / name).is_file())
     if missing:
@@ -987,11 +995,19 @@ def download_artifacts(aws: Aws, state: dict[str, Any], run_dir: Path, journal: 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", action="store_true", help="validate locally and print the cloud plan")
-    parser.add_argument(
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
         "--smoke",
         action="store_true",
         help="run five representative tasks at k=1 through the complete AWS path",
     )
+    modes.add_argument(
+        "--pilot", action="store_true",
+        help="performance-only: prepare 89 environments, then five smoke tasks at concurrency 1,N,N,1",
+    )
+    parser.add_argument("--warmup", choices=("legacy", "environment"), default="legacy")
+    parser.add_argument("--warmup-concurrency", type=int, default=4, help="environment preparation workers (1-4)")
+    parser.add_argument("--topup-concurrency", type=int, default=1, help="missing-task batch workers (up to --concurrency)")
     parser.add_argument("--cleanup", type=Path, metavar="RUN_DIR", help="delete resources recorded in RUN_DIR/state.json")
     parser.add_argument("--commit", default="origin/main", help="commit/ref to evaluate (default: origin/main)")
     parser.add_argument("--instance-type", default=DEFAULT_INSTANCE)
@@ -1016,14 +1032,20 @@ def main(argv: list[str] | None = None) -> int:
         raise RuntimeError("reportable Terminal-Bench 2.1 comparison requires --passes 5")
     if args.concurrency < 1 or args.max_topup_rounds < 0 or args.timeout_hours < 1:
         raise RuntimeError("concurrency and timeout must be positive; top-up rounds cannot be negative")
+    if not 1 <= args.warmup_concurrency <= 4:
+        raise RuntimeError("warm-up concurrency must be between 1 and 4")
+    if not 1 <= args.topup_concurrency <= args.concurrency:
+        raise RuntimeError("top-up concurrency must be between 1 and --concurrency")
+    if args.pilot and (args.warmup != "environment" or not 2 <= args.concurrency <= 5):
+        raise RuntimeError("--pilot requires --warmup environment and --concurrency between 2 and 5")
 
     region, provider = require_environment()
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_mode = "smoke" if args.smoke else "full"
+    run_mode = "pilot" if args.pilot else ("smoke" if args.smoke else "full")
     run_id = f"tb21-experimental-{run_mode}-{now}"
     run_dir = root / "dist" / "evals" / "aws" / run_id
     journal = RunJournal(run_dir)
-    commit = local_preflight(root, args.commit, args.concurrency, args.smoke, journal)
+    commit = local_preflight(root, args.commit, args.concurrency, args.smoke or args.pilot, journal)
     state_path = run_dir / "state.json"
     controller_commit = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=True
@@ -1037,12 +1059,16 @@ def main(argv: list[str] | None = None) -> int:
         "remote_runner_sha256": sha256(root / "test/evals/harbor/aws_runner.sh"),
         "merge_helper_sha256": sha256(root / "test/evals/harbor/stella_harbor/aws_merge.py"),
         "smoke_taskset_sha256": sha256(root / "test/evals/harbor/tasksets/aws-smoke.yaml"),
+        "prepare_helper_sha256": sha256(root / "test/evals/harbor/stella_harbor/aws_prepare.py"),
         "model_id": provider["OPENAI_MODEL"],
         "instance_type": args.instance_type,
         "concurrency": args.concurrency,
-        "passes": 1 if args.smoke else args.passes,
-        "expected_tasks": 5 if args.smoke else 89,
+        "passes": 4 if args.pilot else (1 if args.smoke else args.passes),
+        "expected_tasks": 5 if args.smoke or args.pilot else 89,
         "run_mode": run_mode,
+        "warmup_mode": args.warmup,
+        "warmup_concurrency": args.warmup_concurrency,
+        "topup_concurrency": args.topup_concurrency,
         "max_topup_rounds": args.max_topup_rounds,
         "timeout_hours": args.timeout_hours,
         "dataset": DATASET,

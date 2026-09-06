@@ -9,12 +9,14 @@ source "$1"
 export RUN_ID COMMIT REGION BUCKET SECRET_ARN MODEL_ID CONCURRENCY PASSES
 export EXPECTED_TASKS RUN_MODE MAX_TOPUP_ROUNDS INSTANCE_TYPE INSTANCE_ID AMI_ID AVAILABILITY_ZONE
 export CONTROLLER_COMMIT REMOTE_RUNNER_SHA256 MERGE_HELPER_SHA256 SMOKE_TASKSET_SHA256
+export WARMUP_MODE WARMUP_CONCURRENCY TOPUP_CONCURRENCY PREPARE_HELPER_SHA256
 
 ROOT=/opt/stella-tb21
 REPO=$ROOT/stella
 JOURNAL=$ROOT/remote-journal.ndjson
 STATUS=$ROOT/status.json
 FINAL_PHASE=""
+DATASET_SPEC=terminal-bench/terminal-bench-2-1@sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a
 export HOME=/root
 export AWS_DEFAULT_REGION=$REGION
 export PATH="/root/.local/bin:/usr/local/bin:$PATH"
@@ -60,7 +62,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-mkdir -p "$ROOT" "$ROOT/logs" "$ROOT/jobs"
+mkdir -p "$ROOT" "$ROOT/logs" "$ROOT/jobs" "$ROOT/metrics" "$ROOT/environment-jobs"
 journal preparing-host
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
@@ -113,7 +115,7 @@ if missing:
 pathlib.Path(sys.argv[2]).write_text("".join(f"{name}={shlex.quote(values[name])}\n" for name in required))
 PY
 chmod 600 "$REPO/.env"
-chown -R stella-eval:stella-eval "$REPO" "$ROOT/logs" "$ROOT/jobs"
+chown -R stella-eval:stella-eval "$REPO" "$ROOT/logs" "$ROOT/jobs" "$ROOT/metrics" "$ROOT/environment-jobs"
 
 as_eval() {
   # shellcheck disable=SC2016 # expanded by the child bash after positional args are installed
@@ -154,10 +156,10 @@ until docker info >/dev/null 2>&1; do sleep 1; done
 [ "$(df --output=avail -B1 / | tail -1)" -ge 107374182400 ] || { echo "less than 100 GiB free before evaluation" >&2; exit 1; }
 
 journal remote-preflight
-if [ "$RUN_MODE" = smoke ]; then
+if [ "$RUN_MODE" != full ]; then
   as_eval mise run eval:loop -- --plan -c "$ROOT/aws-smoke.yaml" -n "$CONCURRENCY" > "$ROOT/logs/plan.log"
 else
-  as_eval mise run eval:loop -- --plan -d terminal-bench/terminal-bench-2-1 -k 1 -n "$CONCURRENCY" > "$ROOT/logs/plan.log"
+  as_eval mise run eval:loop -- --plan -d "$DATASET_SPEC" -k 1 -n "$CONCURRENCY" > "$ROOT/logs/plan.log"
 fi
 grep -q 'plan only, nothing is executed' "$ROOT/logs/plan.log"
 grep -q 'OPENAI_BASE_URL (set' "$ROOT/logs/plan.log"
@@ -215,8 +217,9 @@ print(f"types={','.join(error_types) or 'none'} categories={','.join(categories)
 PY
 }
 
+ACTIVE_CONCURRENCY=$CONCURRENCY
 run_eval() {
-  group=$1
+  local group=$1
   shift
   log=$ROOT/logs/$group.log
   mkdir -p "$(dirname "$log")"
@@ -232,7 +235,9 @@ run_eval() {
   journal "$group-running"
   before=$(find "$REPO/dist/evals/jobs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort || true)
   set +e
-  as_eval mise run eval:loop -- "$@" >"$log" 2>&1
+  as_eval python3 "$ROOT/aws_prepare.py" measure \
+    --output "$ROOT/metrics/$group.json" --concurrency "$ACTIVE_CONCURRENCY" \
+    -- mise run eval:loop -- "$@" >"$log" 2>&1
   eval_status=$?
   set -e
   if [ "$eval_status" -ne 0 ]; then
@@ -253,6 +258,7 @@ run_eval() {
   [ -z "$(pgrep -x postgres || true)" ] || { echo "eval left PostgreSQL running after $group" >&2; exit 1; }
   job=$(sed -n 's/^[[:space:]]*job: //p' "$log" | tail -1)
   [ -n "$job" ] && [ -d "$job" ]
+  python3 "$ROOT/aws_prepare.py" phases --job "$job" --output "$ROOT/metrics/$group.json"
   if [ -n "$before" ] && printf '%s\n' "$before" | grep -Fqx "$job"; then
     echo "eval resolved to a pre-existing job: $job" >&2
     exit 1
@@ -263,11 +269,49 @@ run_eval() {
   journal "$group-complete"
 }
 
-# The full run warms all 89 images and proves scoreable evidence before buying
-# 445 reportable attempts. Smoke mode is itself the preflight and skips this
-# additional full-dataset expense.
-if [ "$RUN_MODE" = full ]; then
-  run_eval warmup/00-main -d terminal-bench/terminal-bench-2-1 -k 1 -n "$CONCURRENCY"
+run_topups() {
+  local source=$1
+  local group=$2
+  local topup_workers=$TOPUP_CONCURRENCY
+  [ "$topup_workers" -le "$ACTIVE_CONCURRENCY" ] || topup_workers=$ACTIVE_CONCURRENCY
+  local ACTIVE_CONCURRENCY=$topup_workers
+  if [ "$topup_workers" -eq 1 ]; then
+    local task count
+    while IFS=$'\t' read -r task count; do
+      [ -n "$task" ] || continue
+      run_eval "$group-$task" -i "terminal-bench/$task" -d "$DATASET_SPEC" -k "$count" -n 1
+    done <<< "$MISSING"
+    return
+  fi
+  python3 "$ROOT/aws_merge.py" "$source" --k 1 --concurrency "$topup_workers" \
+    --topup-config "$ROOT/topup.yaml" >/dev/null
+  # One Harbor queue avoids competing testbeds and unbounded memory growth.
+  run_eval "$group" -c "$ROOT/topup.yaml" -n "$topup_workers"
+}
+
+if [ "$WARMUP_MODE" = environment ]; then
+  journal environment-warmup-running
+  prepare_args=(--expected-tasks 89)
+  if [ "$RUN_MODE" = smoke ]; then
+    prepare_args=(--taskset "$ROOT/aws-smoke.yaml" --expected-tasks 5)
+  fi
+  set +e
+  as_eval mise exec -- uv run --project test/evals/harbor python "$ROOT/aws_prepare.py" prepare \
+    --concurrency "$WARMUP_CONCURRENCY" --output "$ROOT/metrics/environment-warmup.json" \
+    "${prepare_args[@]}" >"$ROOT/logs/environment-warmup.log" 2>&1
+  prepare_status=$?
+  set -e
+  if [ "$prepare_status" -ne 0 ]; then
+    journal environment-warmup-failed "exit=$prepare_status $(safe_process_error "$ROOT/logs/environment-warmup.log")"
+    exit "$prepare_status"
+  fi
+  [ -z "$(docker ps -q)" ] || { echo "environment warm-up left a running container" >&2; exit 1; }
+  journal environment-warmup-complete
+fi
+
+# Keep the historical model warm-up available for reproducing existing runs.
+if [ "$RUN_MODE" = full ] && [ "$WARMUP_MODE" = legacy ]; then
+  run_eval warmup/00-main -d "$DATASET_SPEC" -k 1 -n "$CONCURRENCY"
   warmup_round=1
   while :; do
     WARMUP=$(python3 "$ROOT/aws_merge.py" "$ROOT/jobs/warmup" --k 1)
@@ -299,11 +343,7 @@ PY
       exit 1
     }
     journal "warmup-topup-$warmup_round" "missing=$(printf '%s\n' "$MISSING" | wc -l | tr -d ' ')"
-    while IFS=$'\t' read -r task count; do
-      [ -n "$task" ] || continue
-      run_eval "warmup/topup-$(printf '%02d' "$warmup_round")-$task" \
-        -i "terminal-bench/$task" -k "$count" -n "$count"
-    done <<< "$MISSING"
+    run_topups "$ROOT/jobs/warmup" "warmup/topup-$(printf '%02d' "$warmup_round")"
     warmup_round=$((warmup_round + 1))
   done
   rm -rf "$ROOT/jobs/warmup"
@@ -316,10 +356,14 @@ fi
 pass=1
 while [ "$pass" -le "$PASSES" ]; do
   pass_name=pass-$(printf '%02d' "$pass")
-  if [ "$RUN_MODE" = smoke ]; then
-    run_eval "$pass_name/00-main" -c "$ROOT/aws-smoke.yaml" -n "$CONCURRENCY"
+  ACTIVE_CONCURRENCY=$CONCURRENCY
+  if [ "$RUN_MODE" = pilot ] && { [ "$pass" -eq 1 ] || [ "$pass" -eq 4 ]; }; then
+    ACTIVE_CONCURRENCY=1
+  fi
+  if [ "$RUN_MODE" != full ]; then
+    run_eval "$pass_name/00-main" -c "$ROOT/aws-smoke.yaml" -n "$ACTIVE_CONCURRENCY"
   else
-    run_eval "$pass_name/00-main" -d terminal-bench/terminal-bench-2-1 -k 1 -n "$CONCURRENCY"
+    run_eval "$pass_name/00-main" -d "$DATASET_SPEC" -k 1 -n "$CONCURRENCY"
   fi
   round=1
   while :; do
@@ -345,7 +389,7 @@ PY
       echo "$pass_name observed $observed_tasks tasks, expected $EXPECTED_TASKS" >&2
       exit 1
     }
-    if [ "$RUN_MODE" = smoke ]; then
+    if [ "$RUN_MODE" != full ]; then
       systematic_failure=$(python3 - "$INVENTORY" <<'PY'
 import json, sys
 state = json.loads(sys.argv[1])
@@ -377,11 +421,7 @@ PY
       exit 1
     }
     journal "$pass_name-topup-$round" "missing=$(printf '%s\n' "$MISSING" | wc -l | tr -d ' ')"
-    while IFS=$'\t' read -r task count; do
-      [ -n "$task" ] || continue
-      run_eval "$pass_name/topup-$(printf '%02d' "$round")-$task" \
-        -i "terminal-bench/$task" -k "$count" -n "$count"
-    done <<< "$MISSING"
+    run_topups "$ROOT/jobs/$pass_name" "$pass_name/topup-$(printf '%02d' "$round")"
     round=$((round + 1))
   done
   journal "$pass_name-scoreable"
@@ -392,6 +432,18 @@ journal selecting-evidence
 python3 "$ROOT/aws_merge.py" "$ROOT/jobs" --k "$PASSES" \
   --expected-tasks "$EXPECTED_TASKS" --concurrency "$CONCURRENCY" \
   --output "$ROOT/merged" > "$ROOT/selection.json"
+if [ "$RUN_MODE" = pilot ]; then
+  # A performance pilot must not look like a homogeneous k=4 baseline.
+  python3 - "$ROOT/merged/config.json" "$CONCURRENCY" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+config = json.loads(path.read_text())
+config.pop("n_concurrent_trials", None)
+config["performance_pilot"] = True
+config["pass_concurrencies"] = [1, int(sys.argv[2]), int(sys.argv[2]), 1]
+path.write_text(json.dumps(config, indent=2) + "\n")
+PY
+fi
 # copytree preserves restrictive trial modes while root owns the copies.
 # Return the selected evidence to the unprivileged reporter before reading it.
 chown -R stella-eval:stella-eval "$ROOT/merged"
@@ -431,13 +483,19 @@ metadata = {
     "remote_runner_sha256": os.environ["REMOTE_RUNNER_SHA256"],
     "merge_helper_sha256": os.environ["MERGE_HELPER_SHA256"],
     "smoke_taskset_sha256": os.environ["SMOKE_TASKSET_SHA256"],
+    "prepare_helper_sha256": os.environ["PREPARE_HELPER_SHA256"],
     "dataset": "terminal-bench/terminal-bench-2-1",
     "dataset_sha256": "7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
     "model": "gateway/" + os.environ["MODEL_ID"],
     "run_mode": os.environ["RUN_MODE"],
     "tasks": int(os.environ["EXPECTED_TASKS"]),
     "attempts_per_task": int(os.environ["PASSES"]),
-    "concurrency": int(os.environ["CONCURRENCY"]),
+    "concurrency": None if os.environ["RUN_MODE"] == "pilot" else int(os.environ["CONCURRENCY"]),
+    "pass_concurrencies": [1, int(os.environ["CONCURRENCY"]), int(os.environ["CONCURRENCY"]), 1]
+        if os.environ["RUN_MODE"] == "pilot" else [int(os.environ["CONCURRENCY"])] * int(os.environ["PASSES"]),
+    "warmup_mode": os.environ["WARMUP_MODE"],
+    "warmup_concurrency": int(os.environ["WARMUP_CONCURRENCY"]),
+    "topup_concurrency": int(os.environ["TOPUP_CONCURRENCY"]),
     "agent_timeout_multiplier": 1.0,
     "tool_treatment": "Code Mode all registered Stella capabilities; view_image,vllm excluded; bridge-attributable bash execution",
     "otel_tool_io_recording": False,
@@ -455,17 +513,22 @@ metadata = {
     "completed_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
 }
 pathlib.Path("/opt/stella-tb21/run-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+metrics = {
+    str(path.relative_to("/opt/stella-tb21/metrics")).removesuffix(".json"): json.loads(path.read_text())
+    for path in sorted(pathlib.Path("/opt/stella-tb21/metrics").rglob("*.json"))
+}
+pathlib.Path("/opt/stella-tb21/performance.json").write_text(json.dumps(metrics, indent=2) + "\n")
 PY
 journal metadata-complete
 
 mkdir -p "$ROOT/artifacts"
 tar -C "$ROOT/redacted" -czf "$ROOT/artifacts/results-redacted.tgz" .
 cp "$ROOT/report.txt" "$ROOT/report.html" "$ROOT/run-metadata.json" \
-  "$ROOT/selection.json" "$ROOT/archive-summary.txt" "$JOURNAL" "$ROOT/artifacts/"
+  "$ROOT/selection.json" "$ROOT/archive-summary.txt" "$ROOT/performance.json" "$JOURNAL" "$ROOT/artifacts/"
 (
   cd "$ROOT/artifacts"
   sha256sum results-redacted.tgz report.txt report.html run-metadata.json \
-    selection.json archive-summary.txt remote-journal.ndjson > SHA256SUMS
+    selection.json archive-summary.txt remote-journal.ndjson performance.json > SHA256SUMS
 )
 aws s3 sync "$ROOT/artifacts" "s3://$BUCKET/artifacts" --only-show-errors
 journal artifacts-uploaded

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from stella_harbor.aws_merge import EXPECTED_TASKS, inventory, merge
+from stella_harbor.aws_merge import EXPECTED_TASKS, inventory, merge, topup_config
 
 ROOT = Path(__file__).parents[4]
 REMOTE = ROOT / "test/evals/harbor/aws_runner.sh"
@@ -267,7 +267,7 @@ def test_remote_checkout_uses_normal_umask_and_credentials_stay_private():
     assert "warmup-discarded" in source
     assert "warmup-inventory" in source
     assert "warmup-topup-$warmup_round" in source
-    assert 'run_eval "warmup/topup-' in source
+    assert 'run_topups "$ROOT/jobs/warmup"' in source
     assert "modes=$(stat -c" in source
     assert "systemctl start --no-block stella-tb21.service" in CONTROLLER.read_text()
     assert "shutdown -h" in source
@@ -277,8 +277,8 @@ def test_smoke_gate_is_fixed_to_five_tasks_at_k1():
     controller = CONTROLLER.read_text()
     remote = REMOTE.read_text()
     taskset = SMOKE_TASKSET.read_text()
-    assert '"expected_tasks": 5 if args.smoke else 89' in controller
-    assert '"passes": 1 if args.smoke else args.passes' in controller
+    assert '"expected_tasks": 5 if args.smoke or args.pilot else 89' in controller
+    assert '"passes": 4 if args.pilot else (1 if args.smoke else args.passes)' in controller
     assert 'run_eval "$pass_name/00-main" -c "$ROOT/aws-smoke.yaml"' in remote
     assert taskset.count("      - terminal-bench/") == 5
     assert "n_attempts: 1" in taskset
@@ -288,3 +288,51 @@ def test_mise_task_is_the_single_entrypoint():
     source = TASK.read_text()
     assert "source ./.env" in source
     assert 'exec python3 test/evals/harbor/aws_full.py "$@"' in source
+
+
+def test_topup_batch_excludes_scoreable_failures_and_pins_dataset(tmp_path):
+    source = tmp_path / "jobs"
+    trial(source, "pass-01", "task-a", "failed", valid=True, reward=0.0)
+    trial(source, "pass-01", "task-b", "invalid", valid=False, reward=1.0)
+    trial(source, "pass-01", "task-c", "missing", valid=True, reward=None)
+    config = topup_config(inventory(source, 1), 2)
+    assert "terminal-bench/task-a" not in config
+    assert "terminal-bench/task-b" in config
+    assert "terminal-bench/task-c" in config
+    assert "n_attempts: 1" in config
+    assert "n_concurrent_trials: 2" in config
+    assert "ref: sha256:7d7bdc" in config
+
+
+@pytest.mark.parametrize("missing", [{}, {"task-a": 2}, {"task-a\nmalformed": 1}])
+def test_topup_batch_rejects_ambiguous_or_unsafe_selection(missing):
+    with pytest.raises(ValueError):
+        topup_config({"missing": missing}, 4)
+
+
+@pytest.mark.parametrize("args", [
+    ["--pilot"],
+    ["--pilot", "--warmup", "environment", "--concurrency", "16"],
+    ["--warmup-concurrency", "5"],
+    ["--concurrency", "4", "--topup-concurrency", "5"],
+])
+def test_invalid_pilot_configuration_fails_before_cloud_calls(monkeypatch, args):
+    monkeypatch.setattr(_aws_full, "repository_root", lambda: ROOT)
+    monkeypatch.setattr(_aws_full, "require_environment", lambda: pytest.fail("must fail before accessing credentials"))
+    with pytest.raises(RuntimeError):
+        _aws_full.main(args)
+
+
+def test_pilot_preserves_legacy_defaults_and_is_explicit():
+    defaults = _aws_full.parse_args([])
+    assert defaults.warmup == "legacy"
+    assert defaults.topup_concurrency == 1
+    assert not defaults.pilot
+    args = _aws_full.parse_args(["--pilot", "--warmup", "environment", "--concurrency", "4"])
+    assert args.pilot and not args.smoke
+    source = REMOTE.read_text()
+    assert 'ACTIVE_CONCURRENCY=1' in source
+    assert 'config.pop("n_concurrent_trials", None)' in source
+    assert '"pass_concurrencies"' in source
+    assert '"performance_pilot"' in source
+    assert '"$ROOT/performance.json"' in source

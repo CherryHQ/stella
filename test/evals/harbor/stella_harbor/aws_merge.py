@@ -219,6 +219,28 @@ def inventory(source: Path, k: int) -> dict[str, Any]:
     }
 
 
+def topup_config(state: dict[str, Any], concurrency: int) -> str:
+    """Batch only missing k=1 evidence; never retry a scoreable failure."""
+    missing = state["missing"]
+    if not missing or any(count != 1 for count in missing.values()):
+        raise ValueError("a top-up batch requires exactly one missing attempt per task")
+    if concurrency < 1:
+        raise ValueError("top-up concurrency must be positive")
+    if any(not re.fullmatch(r"[a-z0-9][a-z0-9-]*", task) for task in missing):
+        raise ValueError("invalid task identifier in top-up inventory")
+    # Emit the narrow YAML subset loop.sh reads, without adding a YAML dependency.
+    lines = [
+        "n_attempts: 1",
+        f"n_concurrent_trials: {concurrency}",
+        "datasets:",
+        "  - name: terminal-bench/terminal-bench-2-1",
+        "    ref: sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
+        "    task_names:",
+        *[f"      - terminal-bench/{task}" for task in sorted(missing)],
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def merge(
     source: Path, output: Path, k: int, expected_tasks: int = EXPECTED_TASKS, concurrency: int = 16
 ) -> dict[str, Any]:
@@ -275,7 +297,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--expected-tasks", type=int, default=EXPECTED_TASKS)
     parser.add_argument("--concurrency", type=int, default=16)
+    parser.add_argument("--topup-config", type=Path, help="write a k=1 missing-task batch config")
     args = parser.parse_args(argv)
+    if args.topup_config and (args.output or args.k != 1):
+        parser.error("--topup-config requires --k 1 and cannot be combined with --output")
     if args.k < 1 or args.expected_tasks < 1 or args.concurrency < 1:
         parser.error("--k, --expected-tasks, and --concurrency must be positive")
     try:
@@ -284,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.output
             else inventory(args.source, args.k)
         )
+        if args.topup_config:
+            args.topup_config.write_text(topup_config(state, args.concurrency))
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     print(json.dumps({key: value for key, value in state.items() if key != "selected"}, sort_keys=True))
