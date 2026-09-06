@@ -470,6 +470,13 @@ func runContextInstall(ctx context.Context, stellaHome string, plan BinaryInstal
 	if err := os.Chmod(tempConfig, 0o600); err != nil {
 		return fmt.Errorf("manifest: chmod native mise config: %w", err)
 	}
+	systemConfig := filepath.Join(tempDir, "system.toml")
+	if err := os.WriteFile(systemConfig, nil, 0o600); err != nil {
+		return fmt.Errorf("manifest: write native system mise config: %w", err)
+	}
+	if err := os.Chmod(systemConfig, 0o600); err != nil {
+		return fmt.Errorf("manifest: chmod native system mise config: %w", err)
+	}
 	defer func() {
 		if err := removeNativeMiseConfig(tempConfig); err != nil && !errors.Is(err, os.ErrNotExist) {
 			retErr = errors.Join(retErr, fmt.Errorf("manifest: remove native mise config: %w", err))
@@ -478,14 +485,10 @@ func runContextInstall(ctx context.Context, stellaHome string, plan BinaryInstal
 	}()
 
 	shimsDir := filepath.Join(tempDir, "shims")
-	env, err := isolatedMiseEnvAt(stellaHome, plan.DataDir, shimsDir)
+	env, err := nativeMiseInstallEnv(stellaHome, plan.DataDir, shimsDir, tempDir, tempConfig, systemConfig)
 	if err != nil {
 		return err
 	}
-	env = append(env,
-		"MISE_GLOBAL_CONFIG_FILE="+tempConfig,
-		"MISE_TRUSTED_CONFIG_PATHS="+tempConfig,
-	)
 	for _, args := range [][]string{{"trust", tempConfig}, {"install"}} {
 		if err := runMise(ctx, miseBin, env, tempDir, args...); err != nil {
 			return fmt.Errorf("manifest: mise %s: %w", args[0], err)
@@ -495,6 +498,32 @@ func runContextInstall(ctx context.Context, stellaHome string, plan BinaryInstal
 		return err
 	}
 	return nil
+}
+
+// nativeMiseInstallEnv gives a context install its own config files and
+// project ceiling. The ceiling stops mise's upward search before any parent
+// mise.toml/.tool-versions file can contribute tools to the selection.
+func nativeMiseInstallEnv(stellaHome, dataDir, shimsDir, configRoot, globalConfig, systemConfig string) ([]string, error) {
+	env, err := isolatedMiseEnvAt(stellaHome, dataDir, shimsDir)
+	if err != nil {
+		return nil, err
+	}
+	ceiling, err := canonicalNativePath(configRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolve native mise config ceiling: %w", err)
+	}
+	configDir := filepath.Join(filepath.Dir(globalConfig), "config")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create native mise config dir: %w", err)
+	}
+	return append(env,
+		"MISE_CONFIG_DIR="+configDir,
+		"MISE_GLOBAL_CONFIG_FILE="+globalConfig,
+		"MISE_SYSTEM_CONFIG_FILE="+systemConfig,
+		"MISE_TRUSTED_CONFIG_PATHS="+strings.Join([]string{globalConfig, systemConfig}, string(filepath.ListSeparator)),
+		"MISE_PROJECT_ROOT="+ceiling,
+		"MISE_CEILING_PATHS="+ceiling,
+	), nil
 }
 
 func ensureNativePrivateRoot(root string) error {
@@ -517,14 +546,14 @@ func ensureNativePrivateRoot(root string) error {
 func removeNativeMiseConfig(path string) error { return os.Remove(path) }
 
 func runMiseOutput(ctx context.Context, miseBin string, env []string, dir string, args ...string) (string, error) {
-	var stdout, stderr bytes.Buffer
+	var stdout bytes.Buffer
 	cmd := managedCommandContext(ctx, miseBin, args...)
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("mise %s: %w\nstderr: %s", args[0], err, strings.TrimSpace(stderr.String()))
+		return "", closedMiseError(ctx, args[0], err)
 	}
 	output := strings.TrimSpace(stdout.String())
 	if output == "" {
@@ -558,29 +587,33 @@ func materializeNativeSelectionAt(ctx context.Context, stellaHome string, plan B
 		return err
 	}
 	for _, tool := range tools {
+		publicName := tool.PublicName
+		if publicName == "" {
+			publicName = tool.Lookup
+		}
 		installDir, err := runMiseOutput(ctx, miseBin, env, dir, "where", tool.Key)
 		if err != nil {
-			return fmt.Errorf("manifest: locate native install %q: %w", tool.Key, err)
+			return fmt.Errorf("manifest: locate native install %q: %w", publicName, err)
 		}
 		binaryPath, err := runMiseOutput(ctx, miseBin, env, dir, "which", tool.Lookup)
 		if err != nil {
-			return fmt.Errorf("manifest: locate native binary %q: %w", tool.Lookup, err)
+			return fmt.Errorf("manifest: locate native binary %q: %w", publicName, err)
 		}
 		installDir, err = canonicalNativePath(installDir)
 		if err != nil {
-			return fmt.Errorf("manifest: resolve native install %q: %w", tool.Key, err)
+			return fmt.Errorf("manifest: resolve native install %q: %w", publicName, err)
 		}
 		binaryPath, err = canonicalNativePath(binaryPath)
 		if err != nil {
-			return fmt.Errorf("manifest: resolve native binary %q: %w", tool.Lookup, err)
+			return fmt.Errorf("manifest: resolve native binary %q: %w", publicName, err)
 		}
 		rel, err := filepath.Rel(installDir, binaryPath)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-			return fmt.Errorf("manifest: native binary %q escapes install %q", tool.Lookup, installDir)
+			return fmt.Errorf("manifest: native binary %q escapes selected install", publicName)
 		}
 		targetRoot := filepath.Join(plan.PublicDir, "installs", nativeInstallKey(tool))
 		if err := copyNativeTree(installDir, targetRoot); err != nil {
-			return fmt.Errorf("manifest: copy native install %q: %w", tool.Key, err)
+			return fmt.Errorf("manifest: copy native install %q: %w", publicName, err)
 		}
 		aliasName := tool.PublicName
 		if aliasName == "" {
@@ -603,6 +636,17 @@ func canonicalNativePath(path string) (string, error) {
 		return "", err
 	}
 	return filepath.Clean(resolved), nil
+}
+
+func closedMiseError(ctx context.Context, stage string, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("mise %s: %w", stage, ctxErr)
+	}
+	var exitErr interface{ ExitCode() int }
+	if errors.As(err, &exitErr) {
+		return fmt.Errorf("mise %s failed with exit code %d", stage, exitErr.ExitCode())
+	}
+	return fmt.Errorf("mise %s failed", stage)
 }
 
 func materializeNativeCoreSelection(stellaHome string, plan BinaryInstallPlan) error {

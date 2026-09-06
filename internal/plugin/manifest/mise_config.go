@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -272,27 +273,27 @@ func scopeMiseEnv(stellaHome, scope string) ([]string, error) {
 // resolveToolVersion returns the concrete installed version mise resolves for
 // the given lookup name under the provided env, running in a neutral cwd.
 func resolveToolVersion(ctx context.Context, miseBin string, env []string, dir, lookup string) (string, error) {
-	var stdout, stderr bytes.Buffer
+	var stdout bytes.Buffer
 	cmd := managedCommandContext(ctx, miseBin, "which", lookup, "--version")
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("mise which --version %s: %w\nstderr: %s", lookup, err, stderr.String())
+		return "", closedMiseError(ctx, "which --version", err)
 	}
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// runMise runs a mise subcommand in dir with the given env, capturing stderr.
+// runMise runs a mise subcommand in dir with the given env. Stderr is discarded
+// so installer diagnostics cannot cross the agent boundary.
 func runMise(ctx context.Context, miseBin string, env []string, dir string, args ...string) error {
-	var stderr bytes.Buffer
 	cmd := managedCommandContext(ctx, miseBin, args...)
 	cmd.Dir = dir
 	cmd.Env = env
-	cmd.Stderr = &stderr
+	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%w\nstderr: %s", err, stderr.String())
+		return closedMiseError(ctx, args[0], err)
 	}
 	return nil
 }

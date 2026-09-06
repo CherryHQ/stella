@@ -615,6 +615,114 @@ func TestMaterializeNativeSelectionCanonicalizesMisePaths(t *testing.T) {
 	}
 }
 
+func TestNativeMiseInstallEnvIgnoresAmbientToolVersions(t *testing.T) {
+	miseBin, err := exec.LookPath("mise")
+	if err != nil {
+		t.Skip("real mise is not installed")
+	}
+	stellaHome := t.TempDir()
+	dataDir := filepath.Join(stellaHome, ".mise-tools")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stellaHome, ".tool-versions"), []byte("rust 1.80.0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stellaHome, "mise.toml"), []byte("[tools]\ntailspin = '0.1.0'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hostHome := t.TempDir()
+	hostXDG := filepath.Join(t.TempDir(), "config")
+	if err := os.MkdirAll(filepath.Join(hostXDG, "mise"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		filepath.Join(hostHome, ".config", "mise", "config.toml"),
+		filepath.Join(hostXDG, "mise", "config.toml"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("[tools]\nzellij = '0.1.0'\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hostSystem := filepath.Join(t.TempDir(), "system.toml")
+	if err := os.WriteFile(hostSystem, []byte("[tools]\nherd = '0.1.0'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", hostHome)
+	t.Setenv("XDG_CONFIG_HOME", hostXDG)
+	t.Setenv("MISE_GLOBAL_CONFIG_FILE", filepath.Join(hostHome, ".config", "mise", "config.toml"))
+	t.Setenv("MISE_SYSTEM_CONFIG_FILE", hostSystem)
+	private := filepath.Join(stellaHome, ".mise-private", "install-ambient")
+	if err := os.MkdirAll(private, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	globalConfig := filepath.Join(private, "selection.toml")
+	systemConfig := filepath.Join(private, "system.toml")
+	if err := os.WriteFile(globalConfig, []byte("[tools]\nbun = '1.3.14'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(systemConfig, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env, err := nativeMiseInstallEnv(stellaHome, dataDir, filepath.Join(private, "shims"), private, globalConfig, systemConfig)
+	if err != nil {
+		t.Fatalf("nativeMiseInstallEnv: %v", err)
+	}
+	output, err := runMiseOutput(context.Background(), miseBin, env, private, "ls", "--json")
+	if err != nil {
+		t.Fatalf("real mise ls: %v", err)
+	}
+	for _, ambient := range []string{"rust", "tailspin", "zellij", "herd"} {
+		if strings.Contains(strings.ToLower(output), ambient) {
+			t.Fatalf("ambient %s config leaked into native selection: %q", ambient, output)
+		}
+	}
+	if !strings.Contains(strings.ToLower(output), "bun") {
+		t.Fatalf("selection config was not used by real mise: %q", output)
+	}
+}
+
+func TestNativeMiseErrorsHideStderr(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake mise script uses POSIX shell")
+	}
+	mise := filepath.Join(t.TempDir(), "mise")
+	if err := os.WriteFile(mise, []byte("#!/bin/sh\necho secret-install-output >&2\nexit 23\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := runMise(context.Background(), mise, nil, t.TempDir(), "install")
+	if err == nil || strings.Contains(err.Error(), "secret-install-output") || len(err.Error()) > 128 {
+		t.Fatalf("runMise error = %v, want closed error", err)
+	}
+	_, err = runMiseOutput(context.Background(), mise, nil, t.TempDir(), "where", "bun")
+	if err == nil || strings.Contains(err.Error(), "secret-install-output") || len(err.Error()) > 128 {
+		t.Fatalf("runMiseOutput error = %v, want closed error", err)
+	}
+
+	stellaHome := t.TempDir()
+	binDir := filepath.Join(stellaHome, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fake := "#!/bin/sh\nset -eu\ncase \"$1\" in\ntrust|install) printf 'secret-install-output-%0100d\\n' 0 >&2; printf 'secret-install-stdout-%0100d\\n' 0; exit 0;;\nwhere) printf 'secret-where-output-%0100d\\n' 0 >&2; exit 23;;\n*) exit 9;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(binDir, "mise"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	spec := pkgplugins.PluginBinarySpec{
+		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
+			PluginID: "tool/secret", ConfigID: "cfg-secret", Scope: string(plugin.ScopeSystem), Revision: 1,
+		},
+		Name: "secret-tool", Tool: "github:owner/secret-tool", Version: "1.0.0",
+	}
+	_, err = InstallContextBinaries(context.Background(), stellaHome, []pkgplugins.PluginBinarySpec{spec})
+	if err == nil || strings.Contains(err.Error(), "secret-install-output") || strings.Contains(err.Error(), "secret-install-stdout") || strings.Contains(err.Error(), "secret-where-output") || strings.Contains(err.Error(), spec.Tool) || len(err.Error()) > 256 {
+		t.Fatalf("InstallContextBinaries error = %v, want bounded closed error", err)
+	}
+}
+
 func TestInstallSandboxBinariesUsesSessionOnly(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake mise script uses POSIX shell")
