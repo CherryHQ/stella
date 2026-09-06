@@ -78,10 +78,6 @@ type Config struct {
 	// from the resolved image, never from the host filesystem. Writable per-user
 	// trees remain ordered ahead of this immutable selection in PATH.
 	SelectionToolBinaries []ToolBinary
-	// BundledBinarySpecs are release-owned binaries selected for this snapshot.
-	// Their resource identity participates in the cache key, while Name resolves
-	// to the image's release asset.
-	BundledBinarySpecs []ToolBinary
 }
 
 // TranslateToDaemonPath rewrites a stella-process-view absolute path into the

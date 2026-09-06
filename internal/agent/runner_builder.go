@@ -23,7 +23,6 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	skillstool "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -34,6 +33,7 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
+	"github.com/CherryHQ/stella/plugins/core"
 )
 
 type (
@@ -185,6 +185,7 @@ type runnerBuilderConfig struct {
 	ToolOverrideFetcher   ToolOverrideFetcher
 	ToolLifecycle         *coreagent.ToolLifecycle
 	SandboxBackendFn      func(ctx context.Context) string
+	CoreRuntimePlan       *core.RuntimePlan
 	VaultEnvLoader        sandbox.VaultEnvLoader
 	TokenManager          *oauth.TokenManager
 	ProjectResolver       ProjectResolverFunc
@@ -397,16 +398,16 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				backendName = selected
 			}
 		}
-		if hasPluginAuthority && backendName != config.SandboxBackendDocker {
-			pluginView = manifest.FilterUnavailableBundledSkills(config.StellaHome(), pluginView)
-			pluginContext = agentruntime.NewPluginContext(pluginContext.Snapshot(), pluginView)
+		disabledSkillRefs := slices.Clone(cfg.Snap.DisabledSkillRefs)
+		if backendName != config.SandboxBackendDocker {
+			disabledSkillRefs = append(disabledSkillRefs, core.UnavailableSkillRefs()...)
 		}
 		promptBuild := pkgplugins.SystemPromptContext{
 			UserID:              params.UserID,
 			AgentID:             params.AgentID,
 			RegisteredPluginIDs: slices.Clone(pluginView.RegisteredPluginIDs),
 			EnabledPluginIDs:    slices.Clone(pluginView.ExposedPluginIDs),
-			DisabledSkillRefs:   slices.Clone(cfg.Snap.DisabledSkillRefs),
+			DisabledSkillRefs:   slices.Clone(disabledSkillRefs),
 		}
 		var sections []pkgplugins.SystemPromptSection
 		if hasPluginAuthority && cfg.PromptSectionsBuilder != nil {
@@ -498,6 +499,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		sandboxCfg := sandbox.Config{
 			SandboxConfig:    cfg.Snap.Sandbox,
 			SandboxBackendFn: cfg.SandboxBackendFn,
+			CoreRuntimePlan:  cfg.CoreRuntimePlan,
 			Backends:         cfg.SandboxBackends,
 			Paths: sandbox.Paths{
 				StellaHome:    config.StellaHome(),
@@ -513,9 +515,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			SessionID:           params.SessionID,
 			ProjectID:           params.ProjectID,
 			SessionEnvSpecs:     slices.Clone(pluginView.SessionEnvSpecs),
-			ExposedPluginIDs:    slices.Clone(pluginView.ExposedPluginIDs),
 			BinarySpecs:         slices.Clone(pluginView.BinarySpecs),
-			BundledBinarySpecs:  slices.Clone(pluginView.BundledBinarySpecs),
 			VaultEnvLoader:      cfg.VaultEnvLoader,
 			SessionSecretValues: sessionSecretValues,
 			TokenManager:        cfg.TokenManager,
@@ -548,7 +548,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			Sections:             sections,
 			BuiltinTools:         builtinTools,
 			BuiltinParams:        params,
-			DisabledSkillRefs:    slices.Clone(cfg.Snap.DisabledSkillRefs),
+			DisabledSkillRefs:    slices.Clone(disabledSkillRefs),
 			PerRunTools:          perRunTools,
 			SkillRevisionReader:  cfg.SkillRevisionReader,
 			ProjectSkillSnapshot: projectSkillSnapshot,

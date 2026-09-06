@@ -125,6 +125,15 @@ func newTestDBAtMigration(t *testing.T, version int64) (*pgxpool.Pool, *goose.Pr
 	return db, provider
 }
 
+// newTestDBAtMigrationOnly is the historical equivalent of newTestDB for
+// tests that exercise the import boundary. The importer is intentionally
+// authoritative only at migration 41, before the post-import retirement pass.
+func newTestDBAtMigrationOnly(t *testing.T, version int64) *pgxpool.Pool {
+	t.Helper()
+	db, _ := newTestDBAtMigration(t, version)
+	return db
+}
+
 func TestMain(m *testing.M) {
 	code := m.Run()
 	if pkgTestServer != nil {

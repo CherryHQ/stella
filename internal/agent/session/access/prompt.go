@@ -15,9 +15,9 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/skill"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/plugins/core"
 )
 
 // SystemPromptInput is the transport-owned identity and route tuple for the
@@ -168,15 +168,16 @@ func (b *SystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Context, in S
 			backendName = selected
 		}
 	}
-	if hasPluginAuthority && backendName != config.SandboxBackendDocker {
-		pluginView = manifest.FilterUnavailableBundledSkills(config.StellaHome(), pluginView)
-		pluginContext = agentruntime.NewPluginContext(pluginContext.Snapshot(), pluginView)
+	var disabledSkillRefs []string
+	if backendName != config.SandboxBackendDocker {
+		disabledSkillRefs = core.UnavailableSkillRefs()
 	}
 	promptBuild := pkgplugins.SystemPromptContext{
 		UserID:              info.UserID,
 		AgentID:             info.AgentID,
 		RegisteredPluginIDs: slices.Clone(pluginView.RegisteredPluginIDs),
 		EnabledPluginIDs:    slices.Clone(pluginView.ExposedPluginIDs),
+		DisabledSkillRefs:   disabledSkillRefs,
 	}
 	var promptSections []pkgplugins.SystemPromptSection
 	if hasPluginAuthority {

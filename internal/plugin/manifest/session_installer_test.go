@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -66,179 +65,6 @@ func TestContextBinaryInstallPlanRejectsPathTraversal(t *testing.T) {
 	data, err := os.ReadFile(victim)
 	if err != nil || string(data) != "keep" {
 		t.Fatalf("path traversal touched external victim: data=%q err=%v", data, err)
-	}
-}
-
-func TestInstallBundledBinariesUsesTrustedSelectionLocalShim(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("selection shim uses a POSIX executable in this test")
-	}
-	stellaHome := t.TempDir()
-	binDir := filepath.Join(stellaHome, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	source := filepath.Join(binDir, "xberg")
-	if err := os.WriteFile(source, []byte("#!/bin/sh\nprintf '%s\\n' xberg-enabled\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	spec := pkgplugins.PluginBundledBinarySpec{PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
-		PluginID: "tool/xberg", ConfigID: "cfg-xberg", Scope: string(plugin.ScopeSystem), Revision: 3,
-	}, Name: "xberg"}
-
-	plan, err := InstallBundledBinaries(stellaHome, []pkgplugins.PluginBundledBinarySpec{spec})
-	if err != nil {
-		t.Fatalf("InstallBundledBinaries: %v", err)
-	}
-	if plan.PublicBinDir == "" {
-		t.Fatal("enabled bundled binary did not receive a public selection directory")
-	}
-	link := filepath.Join(plan.PublicBinDir, "xberg")
-	target, err := os.Readlink(link)
-	if err != nil {
-		t.Fatalf("read bundled shim: %v", err)
-	}
-	resolved, err := filepath.EvalSymlinks(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want, err := filepath.Rel(plan.PublicBinDir, filepath.Join(plan.PublicDir, "bundled", "xberg", filepath.Base(resolved)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if target != want {
-		t.Fatalf("bundled alias target = %q, want relative %q", target, want)
-	}
-	if filepath.Dir(plan.PublicDir) != filepath.Join(stellaHome, ".mise-tools", "public") {
-		t.Fatalf("bundled selection escaped public directory: %q", plan.PublicDir)
-	}
-	env := OverlayBundledBinaryPlan(map[string]string{"PATH": "/usr/bin"}, plan)
-	command := exec.Command("/bin/sh", "-c", "xberg")
-	command.Env = append(os.Environ(), "PATH="+env["PATH"])
-	output, err := command.Output()
-	if err != nil {
-		t.Fatalf("enabled bundled binary was not callable through its selection PATH: %v", err)
-	}
-	if string(output) != "xberg-enabled\n" {
-		t.Fatalf("bundled binary output = %q, want xberg-enabled", output)
-	}
-}
-
-func TestInstallBundledBinariesCopiesSelectedBundleWithSidecars(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("bundle symlink uses a POSIX executable in this test")
-	}
-	stellaHome := t.TempDir()
-	binDir := filepath.Join(stellaHome, "bin")
-	bundleDir := filepath.Join(binDir, "xberg-v1")
-	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bundleDir, "xberg"), []byte("#!/bin/sh\nprintf selected\\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bundleDir, "runtime.dylib"), []byte("runtime"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join("xberg-v1", "xberg"), filepath.Join(binDir, "xberg")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(binDir, "other-v1"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(binDir, "other-v1", "other"), []byte("other"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	_, err := InstallBundledBinaries(stellaHome, []pkgplugins.PluginBundledBinarySpec{{
-		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{PluginID: "tool/xberg", ConfigID: "cfg", Scope: string(plugin.ScopeSystem), Revision: 1},
-		Name:                   "xberg",
-	}})
-	if err != nil {
-		t.Fatalf("InstallBundledBinaries: %v", err)
-	}
-	entries, err := filepath.Glob(filepath.Join(stellaHome, ".mise-tools", "public", "*", "bundled", "xberg", "*"))
-	if err != nil || len(entries) != 2 {
-		t.Fatalf("selected bundle files = %v, err=%v; want binary and sidecar", entries, err)
-	}
-	if matches, _ := filepath.Glob(filepath.Join(stellaHome, ".mise-tools", "public", "*", "bundled", "other")); len(matches) != 0 {
-		t.Fatalf("unselected bundled runtime was materialized: %v", matches)
-	}
-}
-
-func TestOverlayBundledBinaryPlanDoesNotExposeDisabledSelection(t *testing.T) {
-	base := map[string]string{"PATH": "/usr/bin", pkgsandbox.EnvBundledShimsDir: "/stale/shims"}
-	got := OverlayBundledBinaryPlan(base, BundledBinaryInstallPlan{Identity: "disabled"})
-	if got["PATH"] != base["PATH"] {
-		t.Fatalf("disabled bundled selection changed PATH: %q", got["PATH"])
-	}
-	if _, ok := got[pkgsandbox.EnvBundledShimsDir]; ok {
-		t.Fatalf("disabled bundled selection exposed a shim directory: %#v", got)
-	}
-}
-
-func TestFilterUnavailableBundledSkillsFollowsTrustedBinaryAvailability(t *testing.T) {
-	stellaHome := t.TempDir()
-	identity := pkgplugins.PluginResourceIdentity{PluginID: "tool/xberg", ConfigID: "cfg-xberg", Scope: string(plugin.ScopeSystem), Revision: 1}
-	view := pkgplugins.SessionPluginView{
-		ExposedPluginIDs:   []string{"tool/xberg", "tool/other"},
-		SessionEnvSpecs:    []pkgplugins.SessionEnvSpec{{PluginID: "tool/xberg", EnvVar: "XBERG_TOKEN"}},
-		BinarySpecs:        []pkgplugins.PluginBinarySpec{{PluginResourceIdentity: identity, Name: "xberg-cli"}},
-		BundledBinarySpecs: []pkgplugins.PluginBundledBinarySpec{{PluginResourceIdentity: identity, Name: "xberg"}},
-		SkillSpecs: []pkgplugins.PluginSkillSpec{
-			{PluginResourceIdentity: identity, Name: "xberg"},
-			{PluginResourceIdentity: pkgplugins.PluginResourceIdentity{PluginID: "tool/other", ConfigID: "cfg-other", Scope: string(plugin.ScopeSystem), Revision: 1}, Name: "other"},
-		},
-	}
-	got := FilterUnavailableBundledSkills(stellaHome, view)
-	if !slices.Equal(got.ExposedPluginIDs, []string{"tool/other"}) || len(got.SessionEnvSpecs) != 0 || len(got.BinarySpecs) != 0 || len(got.BundledBinarySpecs) != 0 || len(got.SkillSpecs) != 1 || got.SkillSpecs[0].Name != "other" {
-		t.Fatalf("missing bundled asset must hide the entire plugin surface, got %+v", got)
-	}
-	if err := os.MkdirAll(filepath.Join(stellaHome, "bin"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(stellaHome, "bin", "xberg"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	got = FilterUnavailableBundledSkills(stellaHome, view)
-	if !slices.Contains(got.ExposedPluginIDs, "tool/xberg") || len(got.SkillSpecs) != 2 || got.SkillSpecs[0].Name != "xberg" {
-		t.Fatalf("available bundled asset must retain its skill, got %+v", got.SkillSpecs)
-	}
-}
-
-func TestInstallBundledBinariesSeparatesScopeAndRevision(t *testing.T) {
-	stellaHome := t.TempDir()
-	base := pkgplugins.PluginBundledBinarySpec{PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
-		PluginID: "tool/xberg", ConfigID: "cfg-xberg", Scope: string(plugin.ScopeSystem), Revision: 1,
-	}, Name: "xberg"}
-	other := base
-	other.Scope = string(plugin.ScopeUser)
-	other.Revision = 2
-
-	first, err := InstallBundledBinaries(stellaHome, []pkgplugins.PluginBundledBinarySpec{base})
-	if err != nil {
-		t.Fatalf("first selection: %v", err)
-	}
-	second, err := InstallBundledBinaries(stellaHome, []pkgplugins.PluginBundledBinarySpec{other})
-	if err != nil {
-		t.Fatalf("second selection: %v", err)
-	}
-	if first.Identity == second.Identity {
-		t.Fatalf("scope/revision changes must isolate bundled selection identities: %q", first.Identity)
-	}
-}
-
-func TestInstallBundledBinariesSkipsUnavailablePlatformAsset(t *testing.T) {
-	plan, err := InstallBundledBinaries(t.TempDir(), []pkgplugins.PluginBundledBinarySpec{{
-		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
-			PluginID: "tool/xberg", ConfigID: "cfg-xberg", Scope: string(plugin.ScopeSystem), Revision: 1,
-		},
-		Name: "xberg",
-	}})
-	if err != nil {
-		t.Fatalf("InstallBundledBinaries: %v", err)
-	}
-	if plan.PublicBinDir != "" {
-		t.Fatalf("missing platform asset must not create a public selection directory: %q", plan.PublicBinDir)
 	}
 }
 
@@ -590,6 +416,9 @@ func TestMaterializeNativeSelectionCanonicalizesMisePaths(t *testing.T) {
 	if err := os.WriteFile(binary, []byte("bun-real\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(install, "runtime.dat"), []byte("sidecar\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	installAlias := filepath.Join(root, "install-alias")
 	if err := os.Symlink(install, installAlias); err != nil {
 		t.Fatal(err)
@@ -612,6 +441,47 @@ func TestMaterializeNativeSelectionCanonicalizesMisePaths(t *testing.T) {
 	}
 	if string(data) != "bun-real\n" {
 		t.Fatalf("selected bun = %q, want real install content", data)
+	}
+	sidecar, err := os.ReadFile(filepath.Join(public, "installs", nativeInstallKey(tool), "runtime.dat"))
+	if err != nil {
+		t.Fatalf("read selected sidecar: %v", err)
+	}
+	if string(sidecar) != "sidecar\n" {
+		t.Fatalf("selected sidecar = %q, want source sidecar", sidecar)
+	}
+}
+
+func TestInstallNativeMiseSelectionReturnsBeforeMiseWhenPublicationIsComplete(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake mise script uses POSIX shell")
+	}
+	stellaHome := t.TempDir()
+	binDir := filepath.Join(stellaHome, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	called := filepath.Join(stellaHome, "mise-called")
+	fake := "#!/bin/sh\nprintf called > " + shellQuote(called) + "\nexit 99\n"
+	if err := os.WriteFile(filepath.Join(binDir, "mise"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	public := filepath.Join(stellaHome, ".mise-tools", "public", "core-ready")
+	if err := os.MkdirAll(public, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"mise", "fd"} {
+		if err := os.WriteFile(filepath.Join(public, name), []byte(name+"-ready\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := InstallNativeMiseSelection(context.Background(), stellaHome, NativeSelectionPlan{
+		DataDir: filepath.Join(stellaHome, ".mise-tools"), PublicDir: public, PublicBinDir: public, EmbeddedNames: []string{"mise"},
+	}, []NativeMiseTool{{Key: "github:sharkdp/fd", Lookup: "fd", PublicName: "fd", Version: "10.4.2"}})
+	if err != nil {
+		t.Fatalf("InstallNativeMiseSelection: %v", err)
+	}
+	if _, err := os.Stat(called); !os.IsNotExist(err) {
+		t.Fatalf("complete publication invoked mise, stat err=%v", err)
 	}
 }
 

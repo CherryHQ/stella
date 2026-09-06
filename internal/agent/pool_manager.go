@@ -32,6 +32,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
+	core "github.com/CherryHQ/stella/plugins/core"
 )
 
 // PromptSectionsBuilder builds prompt sections from the runner's authority-bound
@@ -68,6 +69,13 @@ func WithCodeToolSurface(surface coreagent.CodeToolSurface) PoolManagerOption {
 		}
 		pm.codeToolSurface = surface
 	}
+}
+
+// WithCoreRuntimePlan supplies the startup-prepared release runtime selection
+// to every runner factory. Docker leaves this unset because its Linux runtime
+// artifacts are owned by the container preparation path.
+func WithCoreRuntimePlan(plan *core.RuntimePlan) PoolManagerOption {
+	return func(pm *PoolManager) { pm.coreRuntimePlan = plan }
 }
 
 // WithSnapshotLoader overrides the loader used for per-agent Snapshots. The
@@ -236,6 +244,7 @@ type PoolManager struct {
 	sessionInbox          SessionInbox
 	groupRosterLoader     func(context.Context, string, string) prompt.GroupRoster
 	codeToolSurface       coreagent.CodeToolSurface
+	coreRuntimePlan       *core.RuntimePlan
 	homeWorkspace         home.Workspace
 	log                   *slog.Logger
 }
@@ -890,6 +899,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		GroupRosterLoader:     pm.groupRosterLoader,
 		Home:                  pm.homeWorkspace,
 		CodeToolSurface:       pm.codeToolSurface,
+		CoreRuntimePlan:       pm.coreRuntimePlan,
 	})
 }
 

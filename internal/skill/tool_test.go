@@ -81,8 +81,17 @@ func TestPluginSkillVisibilityAppliesToSearchAndLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Core skills may match "cli" independently; only the disabled owner is hidden.
 	if out != noInstalledSkills {
-		t.Fatalf("disabled plugin skill leaked into search: %s", out)
+		var results []installedSkillSearchResult
+		if err := json.Unmarshal([]byte(out), &results); err != nil {
+			t.Fatal(err)
+		}
+		for _, result := range results {
+			if result.Name == "lark-cli" {
+				t.Fatalf("disabled plugin skill leaked into search: %s", out)
+			}
+		}
 	}
 	if out, err := loadSkill(t, tool, "lark-cli"); !errors.Is(err, errSkillNotFound) || out != "" {
 		t.Fatalf("disabled plugin skill load = %q, %v; want hidden", out, err)

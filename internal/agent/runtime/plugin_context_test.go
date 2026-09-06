@@ -11,7 +11,6 @@ func TestPluginContextCopiesViewSlicesAndMaps(t *testing.T) {
 	view := pkgplugins.SessionPluginView{
 		RegisteredPluginIDs: []string{"plugin/a"},
 		ExposedPluginIDs:    []string{"plugin/a"},
-		BundledBinarySpecs:  []pkgplugins.PluginBundledBinarySpec{{Name: "xberg"}},
 		BinarySpecs: []pkgplugins.PluginBinarySpec{{Options: map[string]any{
 			"token":  "secret",
 			"nested": map[string]any{"scope": "private"},
@@ -23,19 +22,17 @@ func TestPluginContextCopiesViewSlicesAndMaps(t *testing.T) {
 	view.BinarySpecs[0].Options["token"] = "changed"
 	view.BinarySpecs[0].Options["nested"].(map[string]any)["scope"] = "changed"
 	view.BinarySpecs[0].Options["items"].([]any)[0].(map[string]any)["value"] = "changed"
-	view.BundledBinarySpecs[0].Name = "changed"
 
 	got := ctx.SessionPluginView()
 	got.RegisteredPluginIDs[0] = "plugin/mutated"
 	got.BinarySpecs[0].Options["token"] = "mutated"
 	got.BinarySpecs[0].Options["nested"].(map[string]any)["scope"] = "mutated"
 	got.BinarySpecs[0].Options["items"].([]any)[0].(map[string]any)["value"] = "mutated"
-	got.BundledBinarySpecs[0].Name = "mutated"
 	want := ctx.SessionPluginView()
 	nested := want.BinarySpecs[0].Options["nested"].(map[string]any)
 	items := want.BinarySpecs[0].Options["items"].([]any)
 	item := items[0].(map[string]any)
-	if want.RegisteredPluginIDs[0] != "plugin/a" || want.BundledBinarySpecs[0].Name != "xberg" || want.BinarySpecs[0].Options["token"] != "secret" || nested["scope"] != "private" || item["value"] != "original" {
+	if want.RegisteredPluginIDs[0] != "plugin/a" || want.BinarySpecs[0].Options["token"] != "secret" || nested["scope"] != "private" || item["value"] != "original" {
 		t.Fatalf("plugin context view was mutable: %#v", want)
 	}
 }

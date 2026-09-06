@@ -9,16 +9,34 @@ Manifest tool plugins are a lightweight alternative to full Go-compiled plugins 
 
 Stella ships with a built-in manifest that declares the default manifest-managed CLI integrations (`gh`, `lark-cli`, `lightpanda`). They appear in their semantic tabs, such as **Tools** or **Hooks**, with a `manifest` badge. You override or extend them from the Plugins admin UI; your changes are stored in the database, and the manifest compiled into the server is never modified.
 
+## Plugin source directories
+
+Source plugins can be grouped under any number of category folders in `plugins/`. A manifest-only CLI plugin has one `plugin.yaml` containing its existing plugin declaration, without an enclosing `plugins:` list. Build generation recursively discovers these files and produces the embedded catalog. Runtime startup does not scan the source tree.
+
+The declared ID and namespace identify the plugin. Category folder names do not affect tool names, configuration keys or permissions, so moving a plugin between categories preserves its identity. Empty category folders do not create plugins. Duplicate IDs or namespaces, unknown YAML fields, extra YAML documents and symlink declarations fail generation before the generated catalog is replaced.
+
+Go plugins retain explicit compiled registration and do not add a second identity declaration in YAML. `plugins/core/` owns required runtimes and source skills; it is not a configurable plugin. Putting a directory under `core` does not grant it that status. Shared OAuth provider declarations remain in `resources/oauth.yaml`.
+
+## Required builtins
+
+mise, Xberg, fd and rg form Stella's required execution environment. They are available without plugin configuration and have no enable switch. Xberg's skill is a core skill. The existing platform support limits still apply, including the absence of Xberg on Windows.
+
+These runtimes follow the Stella release. Docker images install them during the image build; native startup prepares them before accepting conversations and reuses complete local artifacts without running the installer again. Optional CLI plugins continue to use the four-scope configuration model below. Their binary names cannot replace a required runtime.
+
+The Docker build uses `stellad system-bundle install --core-path /opt/stella/core-runtime` to publish the exact prepared runtime tree at a stable image path, including executable sidecars.
+
+Upgrading retires the former `tool/mise`, `tool/xberg`, `tool/fd` and `tool/rg` plugin settings, including disabled values. The required builtins remain available after this migration; other plugin settings are preserved.
+
 ## How It Works
 
 At startup, Stella:
 
-1. Loads the embedded built-in manifests (`resources/oauth.yaml` and `resources/tools.yaml`)
+1. Loads the generated builtin CLI catalog and shared OAuth declarations
 2. Loads your stored customizations from the database and lays them over the built-in definitions, adding any plugin you created that has no built-in behind it
 3. Normalizes the definitions and scope configurations into the common plugin catalog
 4. Registers enabled manifest plugins into the plugin host
 
-Startup does not download binaries. A runner lazily materializes the binaries selected by its captured plugin snapshot when a session needs them. Native managed sessions use the managed tree; user and user-agent selections use their own sandbox trees. Docker uses Linux-native preparation inside its sandbox boundary.
+Optional plugin binaries are installed when a runner needs the selection captured in its plugin snapshot. Required builtins are prepared independently of that snapshot. Native managed sessions use the managed tree; user and user-agent selections use their own sandbox trees. Docker uses Linux-native preparation inside its sandbox boundary.
 
 ## Docker sandbox CLI availability
 
@@ -26,7 +44,7 @@ Do not treat host `$STELLA_HOME/bin` as the source of Docker sandbox executables
 
 For Docker:
 
-- Built-in CLI plugins that must work out of the box are pre-installed in the versioned sandbox image. The sandbox image tag is tied to the Stella release, so one release image can contain the built-in tool set for that Stella version. The image is built from the exact release declarations; runtime does not maintain a second Docker manifest or daemon-side builtin installer.
+- Required builtins are pre-installed in the versioned sandbox image from the shared release declarations. They remain available when no optional plugin is selected.
 - The resolved manifest — built-in definitions plus your stored customizations — remains the source of plugin metadata, enablement, session environment, OAuth injection, and local-sandbox binary installation.
 - User-configured CLI binaries need a container-native provisioning path. They should be installed for Linux inside the Docker environment, not copied from the host's `$STELLA_HOME/bin`.
 
@@ -42,14 +60,14 @@ This keeps the release sandbox image stable while still allowing user-added CLIs
 
 ## The plugin definition
 
-A manifest plugin is the same set of fields whether it ships in `resources/tools.yaml` or you fill it in from the admin UI. The YAML form below is the clearest way to read that shape; the admin UI edits the same fields as form rows.
+A manifest plugin is the same set of fields whether it ships in a source `plugin.yaml` or you fill it in from the admin UI. The YAML form below is the clearest way to read that shape; the admin UI edits the same fields as form rows.
 
 The manifest supplies a `PluginDefinition`; enablement and configuration are
 stored as `PluginConfig` records in the four scopes `system`, `system_agent`,
 `user`, and `user_agent`. The selected scope owns the complete backend decision.
 An explicit `false` at system or matching system-agent scope is an upper bound,
 and a disabled winner never falls back to a broader scope. Builtin definitions
-and their resources are release-owned, but every builtin plugin can be disabled.
+and their resources are release-owned, and optional builtin plugins can be disabled. Required core runtimes do not enter this configuration model.
 CLI version pins and Skill sources remain independent fields.
 
 ```yaml

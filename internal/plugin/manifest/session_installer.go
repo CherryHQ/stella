@@ -23,7 +23,6 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
-	"github.com/CherryHQ/stella/resources/binaries"
 )
 
 // BinaryInstallPlan identifies one complete CLI selection. The identity is
@@ -39,18 +38,64 @@ type BinaryInstallPlan struct {
 	// PublicDir and PublicBinDir are native-only, exact selection paths. The
 	// installer copies selected complete installs here and publishes direct
 	// aliases, so a sandbox never needs the shared mise tree or its config.
-	PublicDir    string
-	PublicBinDir string
+	PublicDir     string
+	PublicBinDir  string
+	embeddedNames []string
 }
 
-// BundledBinaryInstallPlan identifies the exact public selection for release
-// bundled executables. The binary is copied with its adjacent runtime files;
-// only a direct alias is published on the selection PATH.
-type BundledBinaryInstallPlan struct {
-	Identity     string
-	ShimsDir     string // retained for the user-sandbox shape; native uses PublicBinDir
-	PublicDir    string
-	PublicBinDir string
+// NativeMiseTool is the identity-free input accepted by release-owned runtime
+// installers. Plugin configuration and snapshot identities do not belong in
+// this primitive.
+type NativeMiseTool struct {
+	Key        string
+	Version    string
+	Options    map[string]any
+	Lookup     string
+	PublicName string
+}
+
+// NativeSelectionPlan names the immutable public directory for one native
+// selection. It intentionally has no plugin or configuration identity.
+type NativeSelectionPlan struct {
+	DataDir       string
+	PublicDir     string
+	PublicBinDir  string
+	EmbeddedNames []string
+}
+
+// InstallNativeMiseSelection installs fixed, release-owned mise tools into an
+// exact public selection. The caller must have extracted embedded runtimes
+// before invoking this primitive, so core and plugin packages share the same
+// lower-level install and atomic publication behavior without importing each
+// other's ownership model.
+func InstallNativeMiseSelection(ctx context.Context, stellaHome string, selection NativeSelectionPlan, tools []NativeMiseTool) error {
+	if stellaHome == "" || selection.DataDir == "" || selection.PublicDir == "" {
+		return errors.New("manifest: native selection paths are required")
+	}
+	publicBinDir := selection.PublicBinDir
+	if publicBinDir == "" {
+		publicBinDir = selection.PublicDir
+	}
+	plan := BinaryInstallPlan{
+		DataDir:       selection.DataDir,
+		PublicDir:     selection.PublicDir,
+		PublicBinDir:  publicBinDir,
+		embeddedNames: slices.Clone(selection.EmbeddedNames),
+	}
+	nativeTools := make([]miseTool, 0, len(tools))
+	for _, tool := range tools {
+		nativeTools = append(nativeTools, miseTool{
+			Key:        tool.Key,
+			Version:    tool.Version,
+			Options:    maps.Clone(tool.Options),
+			Lookup:     tool.Lookup,
+			PublicName: tool.PublicName,
+		})
+	}
+	if len(nativeTools) == 0 {
+		return materializeNativeRuntimeSelection(stellaHome, plan)
+	}
+	return runContextInstallWithCore(ctx, stellaHome, plan, nativeTools, true)
 }
 
 // BinaryConfigLayer selects which mise precedence layer a plan represents.
@@ -71,7 +116,11 @@ var nativePublicationMu sync.Mutex
 func OverlayBinaryInstallPlan(base map[string]string, plan BinaryInstallPlan, layer BinaryConfigLayer) map[string]string {
 	env := maps.Clone(base)
 	if plan.PublicBinDir != "" {
-		clearNativeMisePaths(env)
+		// The system layer removes ambient state once. The user layer is
+		// applied afterwards and must retain the selected system configuration.
+		if layer == BinarySystemLayer {
+			clearNativeMisePaths(env)
+		}
 		if layer == BinaryUserLayer {
 			env[pkgsandbox.EnvUserNativeSelectionDir] = plan.PublicBinDir
 		} else {
@@ -99,172 +148,6 @@ func OverlayBinaryInstallPlan(base map[string]string, plan BinaryInstallPlan, la
 	env["PATH"] = prependPath(env["PATH"], plan.ShimsDir)
 	env[pkgsandbox.EnvRunnerPath] = env["PATH"]
 	return env
-}
-
-// OverlayBundledBinaryPlan adds the exact bundled selection directory to a
-// runner environment. It does not expose the shared Stella bin directory.
-func OverlayBundledBinaryPlan(base map[string]string, plan BundledBinaryInstallPlan) map[string]string {
-	env := maps.Clone(base)
-	publicBin := plan.PublicBinDir
-	if publicBin == "" {
-		publicBin = plan.ShimsDir
-	}
-	if publicBin == "" {
-		delete(env, pkgsandbox.EnvBundledShimsDir)
-		return env
-	}
-	clearNativeMisePaths(env)
-	if env[pkgsandbox.EnvNativeSelectionDir] == "" {
-		env[pkgsandbox.EnvNativeSelectionDir] = publicBin
-	}
-	env[pkgsandbox.EnvBundledShimsDir] = publicBin
-	env["PATH"] = prependPath(env["PATH"], publicBin)
-	env[pkgsandbox.EnvRunnerPath] = env["PATH"]
-	return env
-}
-
-// FilterUnavailableBundledSkills removes bundled runtime skills whose trusted
-// executable is absent for this platform or installation. Plugin owned skills
-// keep their normal projection; only a skill with the exact bundled resource
-// identity is coupled to that release binary.
-func FilterUnavailableBundledSkills(stellaHome string, view pkgplugins.SessionPluginView) pkgplugins.SessionPluginView {
-	if len(view.BundledBinarySpecs) == 0 {
-		return view
-	}
-	unavailablePlugins := make(map[string]struct{}, len(view.BundledBinarySpecs))
-	for _, spec := range view.BundledBinarySpecs {
-		if binaries.ToolPath(stellaHome, spec.Name) == "" {
-			unavailablePlugins[spec.PluginID] = struct{}{}
-		}
-	}
-	if len(unavailablePlugins) == 0 {
-		return view
-	}
-	view.ExposedPluginIDs = slices.DeleteFunc(slices.Clone(view.ExposedPluginIDs), func(id string) bool {
-		_, unavailable := unavailablePlugins[id]
-		return unavailable
-	})
-	view.SessionEnvSpecs = slices.DeleteFunc(slices.Clone(view.SessionEnvSpecs), func(spec pkgplugins.SessionEnvSpec) bool {
-		_, unavailable := unavailablePlugins[spec.PluginID]
-		return unavailable
-	})
-	view.BinarySpecs = slices.DeleteFunc(slices.Clone(view.BinarySpecs), func(spec pkgplugins.PluginBinarySpec) bool {
-		_, unavailable := unavailablePlugins[spec.PluginID]
-		return unavailable
-	})
-	view.BundledBinarySpecs = slices.DeleteFunc(slices.Clone(view.BundledBinarySpecs), func(spec pkgplugins.PluginBundledBinarySpec) bool {
-		_, unavailable := unavailablePlugins[spec.PluginID]
-		return unavailable
-	})
-	filtered := make([]pkgplugins.PluginSkillSpec, 0, len(view.SkillSpecs))
-	for _, skill := range view.SkillSpecs {
-		if _, unavailable := unavailablePlugins[skill.PluginID]; unavailable {
-			continue
-		}
-		filtered = append(filtered, skill)
-	}
-	view.SkillSpecs = filtered
-	return view
-}
-
-// InstallBundledBinaries materializes platform-available release binaries into
-// an exact selection directory. Snapshot identity and config revision are part
-// of the directory identity, so a changed or cross-scope selection cannot reuse
-// an older publication. Missing platform assets are omitted.
-func InstallBundledBinaries(stellaHome string, specs []pkgplugins.PluginBundledBinarySpec) (BundledBinaryInstallPlan, error) {
-	identity, err := bundledBinarySelectionIdentity(specs)
-	if err != nil {
-		return BundledBinaryInstallPlan{}, err
-	}
-	plan := BundledBinaryInstallPlan{Identity: identity}
-	if len(specs) == 0 {
-		return plan, nil
-	}
-
-	root := filepath.Join(stellaHome, ".mise-tools", "public", identity)
-	available := make([]struct {
-		name   string
-		source string
-	}, 0, len(specs))
-	for _, spec := range specs {
-		source := binaries.ToolPath(stellaHome, spec.Name)
-		if source == "" {
-			continue
-		}
-		available = append(available, struct {
-			name   string
-			source string
-		}{name: spec.Name, source: source})
-	}
-	if len(available) == 0 {
-		return plan, nil
-	}
-	aliases := make([]string, 0, len(available))
-	for _, binary := range available {
-		aliases = appendUniqueNativeAlias(aliases, binary.name)
-	}
-	if err := publishNativeSelection(root, aliases, func(publicBin string) error {
-		for _, binary := range available {
-			if err := materializeBundledBinary(publicBin, binary.name, binary.source); err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		return BundledBinaryInstallPlan{}, err
-	}
-	plan.PublicDir = root
-	plan.PublicBinDir = root
-	return plan, nil
-}
-
-func bundledBinarySelectionIdentity(specs []pkgplugins.PluginBundledBinarySpec) (string, error) {
-	canonical := slices.Clone(specs)
-	slices.SortFunc(canonical, func(left, right pkgplugins.PluginBundledBinarySpec) int {
-		for _, pair := range [][2]string{{left.PluginID, right.PluginID}, {left.Name, right.Name}, {left.ConfigID, right.ConfigID}, {left.Scope, right.Scope}} {
-			if pair[0] != pair[1] {
-				return strings.Compare(pair[0], pair[1])
-			}
-		}
-		return cmpRevision(left.Revision, right.Revision)
-	})
-	seenNames := make(map[string]struct{}, len(canonical))
-	for _, spec := range canonical {
-		if spec.PluginID == "" || spec.ConfigID == "" || spec.Scope == "" || spec.Name == "" {
-			return "", fmt.Errorf("manifest: bundled binary %q is missing resource identity", spec.Name)
-		}
-		if err := validateNativeBinaryName(spec.Name); err != nil {
-			return "", fmt.Errorf("manifest: bundled binary %q: %w", spec.Name, err)
-		}
-		switch spec.Scope {
-		case string(plugin.ScopeSystem), string(plugin.ScopeSystemAgent), string(plugin.ScopeUser), string(plugin.ScopeUserAgent):
-		default:
-			return "", fmt.Errorf("manifest: bundled binary %q has unknown resource scope %q", spec.Name, spec.Scope)
-		}
-		if spec.Revision <= 0 {
-			return "", fmt.Errorf("manifest: bundled binary %q has non-positive config revision", spec.Name)
-		}
-		if _, exists := seenNames[spec.Name]; exists {
-			return "", fmt.Errorf("manifest: duplicate bundled binary name %q", spec.Name)
-		}
-		seenNames[spec.Name] = struct{}{}
-	}
-	payload, err := json.Marshal(canonical)
-	if err != nil {
-		return "", fmt.Errorf("manifest: encode bundled binary selection identity: %w", err)
-	}
-	digest := sha256.Sum256(payload)
-	return hex.EncodeToString(digest[:16]), nil
-}
-
-func cmpRevision(left, right int64) int {
-	if left < right {
-		return -1
-	}
-	if left > right {
-		return 1
-	}
-	return 0
 }
 
 // ContextBinaryInstallPlan returns the host-visible paths for one selected
@@ -443,8 +326,15 @@ func sandboxMiseInstallCommand() string {
 }
 
 func runContextInstall(ctx context.Context, stellaHome string, plan BinaryInstallPlan, tools []miseTool) (retErr error) {
+	return runContextInstallWithCore(ctx, stellaHome, plan, tools, false)
+}
+
+func runContextInstallWithCore(ctx context.Context, stellaHome string, plan BinaryInstallPlan, tools []miseTool, includeCore bool) (retErr error) {
 	miseInstallMu.Lock()
 	defer miseInstallMu.Unlock()
+	if nativePublicationComplete(plan.PublicDir, nativeSelectionAliases(stellaHome, plan, tools, includeCore)) {
+		return nil
+	}
 
 	miseBin, err := findMiseBin(stellaHome)
 	if err != nil {
@@ -494,7 +384,7 @@ func runContextInstall(ctx context.Context, stellaHome string, plan BinaryInstal
 			return fmt.Errorf("manifest: mise %s: %w", args[0], err)
 		}
 	}
-	if err := materializeNativeSelection(ctx, stellaHome, plan, tools, miseBin, env, tempDir); err != nil {
+	if err := materializeNativeSelectionWithCore(ctx, stellaHome, plan, tools, miseBin, env, tempDir, includeCore); err != nil {
 		return err
 	}
 	return nil
@@ -563,7 +453,24 @@ func runMiseOutput(ctx context.Context, miseBin string, env []string, dir string
 }
 
 func materializeNativeSelection(ctx context.Context, stellaHome string, plan BinaryInstallPlan, tools []miseTool, miseBin string, env []string, dir string) error {
+	return materializeNativeSelectionWithCore(ctx, stellaHome, plan, tools, miseBin, env, dir, false)
+}
+
+func materializeNativeSelectionWithCore(ctx context.Context, stellaHome string, plan BinaryInstallPlan, tools []miseTool, miseBin string, env []string, dir string, includeCore bool) error {
+	aliases := nativeSelectionAliases(stellaHome, plan, tools, includeCore)
+	return publishNativeSelection(plan.PublicDir, aliases, func(publicDir string) error {
+		selectionPlan := plan
+		selectionPlan.PublicDir = publicDir
+		selectionPlan.PublicBinDir = publicDir
+		return materializeNativeSelectionAtWithCore(ctx, stellaHome, selectionPlan, tools, miseBin, env, dir, includeCore)
+	})
+}
+
+func nativeSelectionAliases(stellaHome string, plan BinaryInstallPlan, tools []miseTool, includeCore bool) []string {
 	aliases := nativeCoreAliases(stellaHome)
+	if includeCore {
+		aliases = nativeRuntimeAliases(stellaHome, plan.embeddedNames)
+	}
 	for _, tool := range tools {
 		aliasName := tool.PublicName
 		if aliasName == "" {
@@ -571,19 +478,20 @@ func materializeNativeSelection(ctx context.Context, stellaHome string, plan Bin
 		}
 		aliases = appendUniqueNativeAlias(aliases, aliasName)
 	}
-	return publishNativeSelection(plan.PublicDir, aliases, func(publicDir string) error {
-		selectionPlan := plan
-		selectionPlan.PublicDir = publicDir
-		selectionPlan.PublicBinDir = publicDir
-		return materializeNativeSelectionAt(ctx, stellaHome, selectionPlan, tools, miseBin, env, dir)
-	})
+	return aliases
 }
 
-func materializeNativeSelectionAt(ctx context.Context, stellaHome string, plan BinaryInstallPlan, tools []miseTool, miseBin string, env []string, dir string) error {
+func materializeNativeSelectionAtWithCore(ctx context.Context, stellaHome string, plan BinaryInstallPlan, tools []miseTool, miseBin string, env []string, dir string, includeCore bool) error {
 	if err := os.MkdirAll(plan.PublicBinDir, 0o755); err != nil {
 		return fmt.Errorf("manifest: create native public bin: %w", err)
 	}
-	if err := copyNativeCoreBinaries(stellaHome, plan.PublicBinDir); err != nil {
+	copyCore := copyNativeCoreBinaries
+	if includeCore {
+		copyCore = func(home, dir string) error {
+			return copyNativeRuntimeBinaries(home, dir, plan.embeddedNames)
+		}
+	}
+	if err := copyCore(stellaHome, plan.PublicBinDir); err != nil {
 		return err
 	}
 	for _, tool := range tools {
@@ -655,12 +563,29 @@ func materializeNativeCoreSelection(stellaHome string, plan BinaryInstallPlan) e
 	})
 }
 
+func materializeNativeRuntimeSelection(stellaHome string, plan BinaryInstallPlan) error {
+	return publishNativeSelection(plan.PublicDir, nativeRuntimeAliases(stellaHome, plan.embeddedNames), func(publicDir string) error {
+		return copyNativeRuntimeBinaries(stellaHome, publicDir, plan.embeddedNames)
+	})
+}
+
 func nativeCoreAliases(stellaHome string) []string {
 	aliases := make([]string, 0, 1)
 	names := []string{".stella-shell-env"}
 	for _, name := range names {
 		if _, err := os.Stat(filepath.Join(stellaHome, "bin", name)); err == nil {
 			aliases = append(aliases, name)
+		}
+	}
+	return aliases
+}
+
+func nativeRuntimeAliases(stellaHome string, names []string) []string {
+	aliases := nativeCoreAliases(stellaHome)
+	for _, name := range names {
+		publicName := runtimeBinaryName(name)
+		if _, err := os.Stat(filepath.Join(stellaHome, "bin", publicName)); err == nil {
+			aliases = appendUniqueNativeAlias(aliases, publicName)
 		}
 	}
 	return aliases
@@ -746,6 +671,31 @@ func copyNativeCoreBinaries(stellaHome, publicBin string) error {
 			return fmt.Errorf("manifest: inspect core runtime %q: %w", name, err)
 		}
 		if err := copyNativeFile(source, filepath.Join(publicBin, name)); err != nil {
+			return fmt.Errorf("manifest: publish core runtime %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func copyNativeRuntimeBinaries(stellaHome, publicBin string, names []string) error {
+	if err := copyNativeCoreBinaries(stellaHome, publicBin); err != nil {
+		return err
+	}
+	for _, name := range names {
+		source := filepath.Join(stellaHome, "bin", runtimeBinaryName(name))
+		if _, err := os.Stat(source); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("manifest: inspect core runtime %q: %w", name, err)
+		}
+		publicName := runtimeBinaryName(name)
+		if name == "xberg" {
+			if err := materializeBundledBinary(publicBin, name, source); err != nil {
+				return fmt.Errorf("manifest: publish core runtime %q: %w", name, err)
+			}
+			continue
+		}
+		if err := copyNativeFile(source, filepath.Join(publicBin, publicName)); err != nil {
 			return fmt.Errorf("manifest: publish core runtime %q: %w", name, err)
 		}
 	}

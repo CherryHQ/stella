@@ -166,13 +166,8 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 	selectionShims := ""
 	userSelectionShims := ""
 	if dir := env[sandboxpkg.EnvNativeSelectionDir]; dir != "" {
-		// Linux remaps the exact selection onto the STELLA_HOME/bin mount. macOS
-		// has no bind mount, so the physical selection path must remain on PATH;
-		// pointing at shared bin here would bypass the Seatbelt read deny.
-		selectionShims = dir
-		if runtime.GOOS != "darwin" {
-			selectionShims = filepath.Join(sandboxSH, "bin")
-		}
+		// Optional selections retain separate mounts; core owns STELLA_HOME/bin.
+		selectionShims = remapMise(dir)
 	} else if dir := env["MISE_SHIMS_DIR"]; dir != "" {
 		selectionShims = remapMise(dir)
 	}
@@ -180,8 +175,11 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 		userSelectionShims = remapMise(dir)
 	}
 	bundledShims := ""
-	if dir := env[sandboxpkg.EnvBundledShimsDir]; dir != "" {
-		bundledShims = remapMise(dir)
+	if dir := env[sandboxpkg.EnvCoreRuntimeDir]; dir != "" {
+		bundledShims = dir
+		if runtime.GOOS != "darwin" {
+			bundledShims = filepath.Join(sandboxSH, "bin")
+		}
 	}
 	env["PATH"] = sandboxpkg.HostEnvBuildPath(hostSH, userShims, userSelectionShims, selectionShims, bundledShims)
 	env[sandboxpkg.EnvRunnerPath] = env["PATH"]

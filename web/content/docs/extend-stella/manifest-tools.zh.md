@@ -9,16 +9,34 @@ description: 随服务端一同发布、并可在管理界面中自定义的声�
 
 Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集成（`gh`、`lark-cli`、`lightpanda`）。它们会显示在对应语义标签页中，例如 **Tools** 或 **Hooks**，并带有 `manifest` 标记。你在 Plugins 管理界面中覆盖或扩展这些配置，改动存入数据库，编译进服务端的清单本身不会被修改。
 
+## 插件源码目录
+
+`plugins/` 支持任意层级的分类目录。纯声明式 CLI 插件在自己的目录中放置一份 `plugin.yaml`，内容复用现有插件声明，不需要外层 `plugins:` 列表。构建生成器递归发现这些文件，生成内嵌目录；运行时不扫描源码目录。
+
+插件由声明中的 ID 和 namespace 标识。分类目录名不影响工具名、配置键或权限，因此移动分类不会改变插件身份。空分类目录不产生插件。重复 ID 或 namespace、未知 YAML 字段、额外 YAML 文档和符号链接声明都会使生成失败，且不会替换已有生成物。
+
+Go 插件继续显式编译注册，不另加一份 YAML 身份声明。`plugins/core/` 管理必备 runtime 和 skill 源文件，它不属于可配置插件；把目录放进 `core` 不会自动取得该属性。共享 OAuth provider 声明仍位于 `resources/oauth.yaml`。
+
+## 必备 builtin
+
+mise、Xberg、fd 和 rg 构成 Stella 必备的执行环境，无需插件配置，也没有启用开关。Xberg 的 skill 属于 core skill。既有的平台支持限制仍然适用，包括 Windows 不提供 Xberg。
+
+这些 runtime 随 Stella 版本提供。Docker 在构建镜像时安装；Native 在开始接收对话前准备，已有完整本地文件时不会再次调用安装器。可选 CLI 插件仍使用下面的四层范围配置，其 binary 名称不能覆盖必备 runtime。
+
+Docker 构建通过 `stellad system-bundle install --core-path /opt/stella/core-runtime` 将本次准备好的完整 runtime 目录发布到固定镜像路径，保留可执行文件依赖的附属文件。
+
+升级会清理原有 `tool/mise`、`tool/xberg`、`tool/fd` 和 `tool/rg` 插件设置，包括禁用状态。迁移后，这些必备 builtin 保持可用，其他插件设置不变。
+
 ## 工作原理
 
 启动时，Stella 会：
 
-1. 加载内嵌的内置清单（`resources/oauth.yaml` 和 `resources/tools.yaml`）
+1. 加载生成的内置 CLI 目录和共享 OAuth 声明
 2. 从数据库读取已存储的自定义并覆盖到内置定义之上，同时追加没有内置定义支撑的、由你创建的插件
 3. 将定义和范围配置规范化到公共插件 catalog
 4. 将已启用的清单插件注册到插件主机
 
-启动不会下载二进制。Runner 在会话需要时，按捕获的插件 snapshot 惰性物化选中的二进制。Native managed 会话使用 managed tree；user 和 user-agent 选择使用各自的沙箱目录。Docker 在自己的边界内准备 Linux 原生文件。
+可选插件二进制在 Runner 需要时，按捕获的插件 snapshot 安装。必备 builtin 的准备独立于该 snapshot。Native managed 会话使用 managed tree；user 和 user-agent 选择使用各自的沙箱目录。Docker 在自己的边界内准备 Linux 原生文件。
 
 ## Docker 沙箱中的 CLI 可用性
 
@@ -28,7 +46,7 @@ Native managed 安装会产生宿主机平台的二进制文件，它们无法�
 
 对于 Docker：
 
-- 必须开箱即用的内置 CLI 插件会预装到带版本的沙箱镜像中。沙箱镜像标签与 Stella release 绑定，因此一个 release 镜像可以包含该 Stella 版本对应的内置工具集合。镜像从精确的 release 声明构建；运行时不维护第二份 Docker manifest，也不执行守护进程级 builtin installer。
+- 必备 builtin 按统一的 release 声明预装到带版本的沙箱镜像中。即使没有选择任何可选插件，它们也保持可用。
 - 解析后的清单（内置定义加上已存储的自定义）仍然是插件元数据、启用状态、会话环境变量、OAuth 注入以及本地沙箱二进制安装的来源。
 - 用户配置的 CLI 二进制需要一条容器原生的加载路径。它们应在 Docker 环境内按 Linux 目标安装，而不是从宿主机 `$STELLA_HOME/bin` 复制。
 
@@ -44,12 +62,12 @@ Native managed 安装会产生宿主机平台的二进制文件，它们无法�
 
 ## 插件定义
 
-无论是随 `resources/tools.yaml` 发布，还是在管理界面里填写，清单插件都是同一组字段。下面的 YAML 形式是阅读这个结构最清楚的方式；管理界面编辑的是同样这些字段，只是呈现为表单行。
+无论是随源码中的 `plugin.yaml` 发布，还是在管理界面里填写，清单插件都是同一组字段。下面的 YAML 形式是阅读这个结构最清楚的方式；管理界面编辑的是同样这些字段，只是呈现为表单行。
 
 Manifest 提供 `PluginDefinition`；启用状态和配置以四种范围 `system`、
 `system_agent`、`user`、`user_agent` 的 `PluginConfig` 保存。选中的范围拥有完整
 后端决策。System 或匹配 system-agent 的显式 `false` 是上限，禁用的胜出项不会
-回退到更宽范围。Builtin 定义和资源由发行版拥有，但任何 builtin 插件都可以禁用。
+回退到更宽范围。Builtin 定义和资源由发行版拥有，可选的 builtin 插件可以禁用。必备 core runtime 不进入这套配置模型。
 CLI 版本 pin 与 Skill 来源保持独立。
 
 ```yaml

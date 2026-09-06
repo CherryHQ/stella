@@ -145,6 +145,43 @@ func TestAdjustPolicyUsesSelectionLocalShims(t *testing.T) {
 	}
 }
 
+func TestAdjustPolicyPreservesCoreAndOptionalSelectionMarkers(t *testing.T) {
+	stellaHome := t.TempDir()
+	optional := filepath.Join(stellaHome, ".mise-tools", "public", "optional")
+	core := filepath.Join(stellaHome, "core-runtime")
+	base := map[string]string{
+		"PATH":                           "/usr/bin",
+		"MISE_DATA_DIR":                  filepath.Join(stellaHome, ".mise-tools"),
+		"MISE_CONFIG_DIR":                filepath.Join(stellaHome, ".mise-tools", "config"),
+		"MISE_YES":                       "1",
+		"MISE_NOT_FOUND_AUTO_INSTALL":    "false",
+		sandboxpkg.EnvNativeSelectionDir: optional,
+		sandboxpkg.EnvCoreRuntimeDir:     core,
+	}
+	adjusted, err := (&Factory{cfg: Config{StellaHome: stellaHome}}).adjustPolicy(
+		sandboxpkg.Policy{Env: base}, t.TempDir(), "", t.TempDir(),
+	)
+	if err != nil {
+		t.Fatalf("adjustPolicy: %v", err)
+	}
+	if adjusted.Env[sandboxpkg.EnvNativeSelectionDir] != optional {
+		t.Fatalf("optional selection marker = %q, want %q", adjusted.Env[sandboxpkg.EnvNativeSelectionDir], optional)
+	}
+	if adjusted.Env[sandboxpkg.EnvCoreRuntimeDir] != core {
+		t.Fatalf("core selection marker = %q, want %q", adjusted.Env[sandboxpkg.EnvCoreRuntimeDir], core)
+	}
+	if adjusted.Env["MISE_DATA_DIR"] != filepath.Join(stellaHome, ".mise-tools") {
+		t.Fatalf("MISE_DATA_DIR was not preserved: %q", adjusted.Env["MISE_DATA_DIR"])
+	}
+	if adjusted.Env["MISE_CONFIG_DIR"] != filepath.Join(stellaHome, ".mise-tools", "config") || adjusted.Env["MISE_YES"] != "1" {
+		t.Fatalf("MISE_* overlay was not preserved: config=%q yes=%q", adjusted.Env["MISE_CONFIG_DIR"], adjusted.Env["MISE_YES"])
+	}
+	path := adjusted.Env["PATH"]
+	if !strings.HasPrefix(path, optional+string(filepath.ListSeparator)) || !strings.Contains(path, core) {
+		t.Fatalf("PATH lost optional/core selections: %q", path)
+	}
+}
+
 func TestNativeSelectionPathRunsSelectedCommand(t *testing.T) {
 	stellaHome := t.TempDir()
 	selection := filepath.Join(stellaHome, ".mise-tools", "public", "selection")

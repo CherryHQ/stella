@@ -41,7 +41,7 @@ const (
 	// webfetch override cleanup, retired tap-web plugin cleanup, and the dropped
 	// plugin scheduler columns are checked explicitly.
 	currentMigrationVersion = sequentialAnchor + 40
-	latestMigrationVersion  = sequentialAnchor + 41
+	latestMigrationVersion  = sequentialAnchor + 42
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CherryHQ/stella/plugins/core"
 )
 
 func TestSelectionMiseTOMLRegistryTool(t *testing.T) {
@@ -29,10 +31,10 @@ func TestSelectionMiseTOMLRejectsConflictingScopes(t *testing.T) {
 	}
 }
 
-func TestSelectionToolCacheScriptPublishesOnlySelectedBundledAlias(t *testing.T) {
-	bundled := []ToolBinary{{PluginID: "tool/xberg", ConfigID: "cfg", Scope: "system", Revision: 1, Name: "xberg"}}
-	script := selectionToolInstallScript("hash", nil, bundled)
-	if !strings.Contains(script, "test -x /opt/stella/bin/xberg") || !strings.Contains(script, "/opt/stella/selection-tools/artifacts/bundled-xberg/xberg") {
+func TestSelectionToolCacheScriptPublishesCoreAlias(t *testing.T) {
+	coreRuntimes := []core.RuntimeResource{{Name: "xberg", Version: "core-1", Embedded: true}}
+	script := selectionToolInstallScript("hash", nil, coreRuntimes)
+	if !strings.Contains(script, "test -x \"$ROOT/core/xberg\"") || !strings.Contains(script, "/opt/stella/selection-tools/core/xberg") {
 		t.Fatalf("selection helper did not publish trusted xberg alias:\n%s", script)
 	}
 	if strings.Contains(script, "ln -s /opt/stella/bin/mise") {
@@ -41,35 +43,52 @@ func TestSelectionToolCacheScriptPublishesOnlySelectedBundledAlias(t *testing.T)
 }
 
 func TestSelectionToolInstallScriptCoreOnlyDoesNotExposeMise(t *testing.T) {
-	script := selectionToolInstallScript("hash", nil, nil)
-	if strings.Contains(script, `cp -a /opt/stella/bin/mise "$ROOT/bin/mise"`) {
-		t.Fatal("core-only selection must not expose the image mise binary")
+	coreRuntimes := []core.RuntimeResource{
+		{Name: "fd", Version: "core-1"},
+		{Name: "mise", Version: "core-1", Embedded: true},
+		{Name: "rg", Version: "core-1"},
+		{Name: "xberg", Version: "core-1", Embedded: true},
+	}
+	script := selectionToolInstallScript("hash", nil, coreRuntimes)
+	for _, name := range []string{"fd", "mise", "rg", "xberg"} {
+		if !strings.Contains(script, "test -x \"$ROOT/core/"+name+"\"") || !strings.Contains(script, "/opt/stella/selection-tools/core/"+name) {
+			t.Fatalf("core-only selection must publish %s from the image:\n%s", name, script)
+		}
 	}
 	if strings.Contains(script, "/opt/stella/bin/mise install") || strings.Contains(script, "STELLA_SELECTION_MISE_TOML") {
 		t.Fatal("core-only selection must not create or run a private mise install")
 	}
 }
 
+func TestSelectionToolInstallScriptRejectsOptionalCoreCollision(t *testing.T) {
+	script := selectionToolInstallScript("hash", []ToolBinary{{Name: "rg", Tool: "github:BurntSushi/ripgrep"}}, core.RuntimeResources())
+	if !strings.Contains(script, "selection binary conflicts with mandatory core runtime rg") {
+		t.Fatalf("optional core collision must fail closed:\n%s", script)
+	}
+}
+
 func TestSelectionToolCacheHashIncludesIdentityAndRevision(t *testing.T) {
 	base := []ToolBinary{{PluginID: "tool/one", ConfigID: "cfg", Scope: "system", Revision: 1, Name: "one", Tool: "github:owner/one", Version: "1"}}
 	other := []ToolBinary{{PluginID: "tool/one", ConfigID: "cfg", Scope: "system", Revision: 2, Name: "one", Tool: "github:owner/one", Version: "1"}}
-	bundled := []ToolBinary{{PluginID: "tool/xberg", ConfigID: "cfg", Scope: "system", Revision: 1, Name: "xberg"}}
-	if selectionToolCacheHash("sha256:image-a", base, bundled) == selectionToolCacheHash("sha256:image-a", other, bundled) {
+	if selectionToolCacheHash("sha256:image-a", base, nil) == selectionToolCacheHash("sha256:image-a", other, nil) {
 		t.Fatal("selection cache identity must include config revision")
 	}
-	if selectionToolCacheHash("sha256:image-a", base, bundled) == selectionToolCacheHash("sha256:image-b", base, bundled) {
+	if selectionToolCacheHash("sha256:image-a", base, nil) == selectionToolCacheHash("sha256:image-b", base, nil) {
 		t.Fatal("selection cache identity must include resolved image ID")
 	}
 	second := ToolBinary{PluginID: "tool/two", ConfigID: "cfg", Scope: "system", Revision: 1, Name: "two", Tool: "uv", Version: "2"}
 	if selectionToolCacheHash("sha256:image-a", []ToolBinary{base[0], second}, nil) != selectionToolCacheHash("sha256:image-a", []ToolBinary{second, base[0]}, nil) {
 		t.Fatal("selection cache hash must be independent of input order")
 	}
+	coreRuntimes := []core.RuntimeResource{{Name: "mise", Version: "core-1", Embedded: true}}
+	if selectionToolCacheHash("sha256:image-a", nil, coreRuntimes) == selectionToolCacheHash("sha256:image-a", nil, []core.RuntimeResource{{Name: "mise", Version: "core-2", Embedded: true}}) {
+		t.Fatal("selection cache identity must include core runtime revision")
+	}
 }
 
 func TestSelectionToolInstallScriptRemovesPrivateInstallerState(t *testing.T) {
-	bundled := []ToolBinary{{PluginID: "tool/xberg", ConfigID: "cfg", Scope: "system", Revision: 1, Name: "xberg"}}
-	script := selectionToolInstallScript("hash", []ToolBinary{{Name: "uv", Tool: "uv"}}, bundled)
-	for _, required := range []string{"PRIVATE=/tmp/stella-selection-private", "trap 'rm -rf \"$PRIVATE\"'", "cp -R \"$install_dir/.\"", "readlink -f /opt/stella/bin/xberg"} {
+	script := selectionToolInstallScript("hash", []ToolBinary{{Name: "uv", Tool: "uv"}}, []core.RuntimeResource{{Name: "xberg", Embedded: true}})
+	for _, required := range []string{"PRIVATE=/tmp/stella-selection-private", "trap 'rm -rf \"$PRIVATE\"'", "cp -R \"$install_dir/.\"", "cp -R /opt/stella/core-runtime/. \"$ROOT/core/\""} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("selection script missing %q:\n%s", required, script)
 		}
@@ -85,7 +104,6 @@ func TestSelectionToolInstallScriptRemovesPrivateInstallerState(t *testing.T) {
 }
 
 func TestSelectionToolInstallScriptPublishesRunnableArtifactsAndNoPrivateState(t *testing.T) {
-	bundled := []ToolBinary{{PluginID: "tool/xberg", ConfigID: "cfg", Scope: "system", Revision: 1, Name: "xberg"}}
 	imageBin := filepath.Join(t.TempDir(), "image-bin")
 	selectionRoot := filepath.Join(t.TempDir(), "selection")
 	if err := os.MkdirAll(imageBin, 0o755); err != nil {
@@ -112,13 +130,14 @@ esac
 	if err := os.WriteFile(filepath.Join(bundleDir, "libxberg.so"), []byte("sidecar"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(bundleDir, "xberg"), filepath.Join(imageBin, "xberg")); err != nil {
+	if err := os.Symlink(filepath.Join("xberg-v1", "xberg"), filepath.Join(imageBin, "xberg")); err != nil {
 		t.Fatal(err)
 	}
 
-	script := selectionToolInstallScript("hash", []ToolBinary{{Name: "uv", Tool: "uv", Version: "1"}}, bundled)
+	script := selectionToolInstallScript("hash", []ToolBinary{{Name: "uv", Tool: "uv", Version: "1"}}, []core.RuntimeResource{{Name: "xberg", Embedded: true}})
 	script = strings.ReplaceAll(script, "/opt/stella/selection-tools", selectionRoot)
 	script = strings.ReplaceAll(script, "/opt/stella/bin", imageBin)
+	script = strings.ReplaceAll(script, "/opt/stella/core-runtime", imageBin)
 	cmd := exec.Command("/bin/sh", "-c", script)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("selection installer: %v\n%s\nscript:\n%s", err, output, script)
@@ -131,11 +150,11 @@ esac
 	if _, err := os.Stat(filepath.Join(selectionRoot, "artifacts", "artifact-uv", "bin", "uv")); err != nil {
 		t.Fatalf("selected runtime artifact missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(selectionRoot, "artifacts", "bundled-xberg", "libxberg.so")); err != nil {
-		t.Fatalf("bundled sidecar missing: %v", err)
+	if _, err := os.Stat(filepath.Join(selectionRoot, "core", "xberg-v1", "libxberg.so")); err != nil {
+		t.Fatalf("core sidecar missing: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(selectionRoot, "bin", "mise")); !os.IsNotExist(err) {
-		t.Fatalf("core mise must stay hidden unless selected, err=%v", err)
+		t.Fatalf("core mise is absent from this test image, err=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(selectionRoot, "bin", "unselected")); !os.IsNotExist(err) {
 		t.Fatalf("unselected image binary was published, err=%v", err)

@@ -66,12 +66,8 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 	if err != nil {
 		return nil, err
 	}
-	bundledRuntimeDefinitions, err := pluginhost.BuiltinBundledRuntimeDefinitions()
-	if err != nil {
-		return nil, err
-	}
 	owners := make(map[string]struct{})
-	for _, definitions := range [][]plugin.Definition{codeDefinitions, cliDefinitions, toolDefinitions, bundledRuntimeDefinitions} {
+	for _, definitions := range [][]plugin.Definition{codeDefinitions, cliDefinitions, toolDefinitions} {
 		for _, definition := range definitions {
 			if err := catalog.Register(definition); err != nil {
 				return nil, err

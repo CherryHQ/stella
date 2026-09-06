@@ -13,7 +13,6 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/plugin"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -114,92 +113,6 @@ func TestSessionPluginViewNamespaceWinnerHidesGoResources(t *testing.T) {
 	}
 	if len(view.SessionEnvSpecs) != 0 || len(view.SkillSpecs) != 0 {
 		t.Fatalf("Go resources leaked through MCP namespace winner: %+v", view)
-	}
-}
-
-func TestSessionPluginViewProjectsBundledRuntimeResources(t *testing.T) {
-	ctx := context.Background()
-	db := dbtest.New(t)
-	definitions, err := pluginhost.BuiltinBundledRuntimeDefinitions()
-	if err != nil {
-		t.Fatalf("BuiltinBundledRuntimeDefinitions: %v", err)
-	}
-	if len(definitions) != 1 {
-		t.Fatalf("bundled runtime definitions = %d", len(definitions))
-	}
-	definition := definitions[0]
-	catalog := plugin.NewCatalog()
-	if err := catalog.Register(definition); err != nil {
-		t.Fatal(err)
-	}
-	insertDefinition(t, db, definition)
-	if _, err := db.Exec(ctx, `INSERT INTO plugin_config (id, plugin_id, namespace, scope, enabled, config, credential_refs, revision) VALUES ($1, $2, $3, 'system', TRUE, '{}'::jsonb, '{}'::jsonb, 1)`, "20000000-0000-0000-0000-000000000003", definition.ID, definition.Namespace); err != nil {
-		t.Fatal(err)
-	}
-	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Transition: noopBackendTransition}, inlinePluginMutationFence)
-	authority, err := authz.NewUserAuthority(authz.UserID("10000000-0000-0000-0000-000000000003"), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := service.ResolveSnapshot(ctx, authority, "")
-	if err != nil {
-		t.Fatalf("ResolveSnapshot: %v", err)
-	}
-	view, err := pluginhost.New(nil).SessionPluginView(snapshot)
-	if err != nil {
-		t.Fatalf("SessionPluginView: %v", err)
-	}
-	if !slices.Equal(view.ExposedPluginIDs, []string{definition.ID}) {
-		t.Fatalf("exposed IDs = %v", view.ExposedPluginIDs)
-	}
-	if len(view.BundledBinarySpecs) != 1 || view.BundledBinarySpecs[0].Name != "xberg" {
-		t.Fatalf("bundled binary view = %+v", view.BundledBinarySpecs)
-	}
-	if len(view.SkillSpecs) != 1 || view.SkillSpecs[0].Name != "xberg" {
-		t.Fatalf("bundled skill view = %+v", view.SkillSpecs)
-	}
-}
-
-func TestSessionPluginViewProjectsAuthoredMiseBundle(t *testing.T) {
-	ctx := context.Background()
-	db := dbtest.New(t)
-	definitions, err := manifest.BuiltinDefinitions()
-	if err != nil {
-		t.Fatalf("BuiltinDefinitions: %v", err)
-	}
-	var definition plugin.Definition
-	for _, candidate := range definitions {
-		if candidate.ID == "tool/mise" {
-			definition = candidate
-			break
-		}
-	}
-	if definition.ID == "" {
-		t.Fatal("tool/mise definition missing")
-	}
-	catalog := plugin.NewCatalog()
-	if err := catalog.Register(definition); err != nil {
-		t.Fatal(err)
-	}
-	insertDefinition(t, db, definition)
-	if _, err := db.Exec(ctx, `INSERT INTO plugin_config (id, plugin_id, namespace, scope, enabled, config, credential_refs, revision) VALUES ($1, $2, $3, 'system', TRUE, '{}'::jsonb, '{}'::jsonb, 1)`, "20000000-0000-0000-0000-000000000004", definition.ID, definition.Namespace); err != nil {
-		t.Fatal(err)
-	}
-	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Transition: noopBackendTransition}, inlinePluginMutationFence)
-	authority, err := authz.NewUserAuthority(authz.UserID("10000000-0000-0000-0000-000000000004"), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := service.ResolveSnapshot(ctx, authority, "")
-	if err != nil {
-		t.Fatalf("ResolveSnapshot: %v", err)
-	}
-	view, err := pluginhost.New(nil).SessionPluginView(snapshot)
-	if err != nil {
-		t.Fatalf("SessionPluginView: %v", err)
-	}
-	if len(view.BundledBinarySpecs) != 1 || view.BundledBinarySpecs[0].PluginID != definition.ID || view.BundledBinarySpecs[0].Name != "mise" {
-		t.Fatalf("authored mise bundle = %+v", view.BundledBinarySpecs)
 	}
 }
 

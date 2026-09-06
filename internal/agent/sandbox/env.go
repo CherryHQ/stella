@@ -51,8 +51,8 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) (pkgsandbox.FilesystemPolic
 	if cfg.ContextBinaryPlan != nil {
 		appendNativeSecondarySelectionMount(&mounts, sources, paths.StellaHome, cfg.ContextBinaryPlan.PublicDir, coreSelection)
 	}
-	if cfg.BundledBinaryPlan != nil {
-		appendNativeSecondarySelectionMount(&mounts, sources, paths.StellaHome, cfg.BundledBinaryPlan.PublicDir, coreSelection)
+	if cfg.CoreRuntimePlan != nil {
+		appendNativeSecondarySelectionMount(&mounts, sources, paths.StellaHome, cfg.CoreRuntimePlan.PublicDir, coreSelection)
 	}
 	if cfg.UserBinaryPlan != nil {
 		appendNativeSecondarySelectionMount(&mounts, sources, paths.StellaHome, cfg.UserBinaryPlan.PublicDir, coreSelection)
@@ -78,11 +78,8 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) (pkgsandbox.FilesystemPolic
 }
 
 func nativeCoreSelection(cfg Config) string {
-	if cfg.ContextBinaryPlan != nil && cfg.ContextBinaryPlan.PublicDir != "" {
-		return cfg.ContextBinaryPlan.PublicDir
-	}
-	if cfg.BundledBinaryPlan != nil && cfg.BundledBinaryPlan.PublicDir != "" {
-		return cfg.BundledBinaryPlan.PublicDir
+	if cfg.CoreRuntimePlan != nil && cfg.CoreRuntimePlan.PublicDir != "" {
+		return cfg.CoreRuntimePlan.PublicDir
 	}
 	return ""
 }

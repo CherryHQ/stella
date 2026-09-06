@@ -15,21 +15,16 @@ func TestLoadBuiltin(t *testing.T) {
 	}
 }
 
-func TestLoadBuiltinKeepsBundledBinaryMetadataOutsideEditablePayload(t *testing.T) {
+func TestLoadBuiltinExcludesCoreRuntimePlugins(t *testing.T) {
 	m, err := LoadBuiltin()
 	if err != nil {
-		t.Fatalf("LoadBuiltin() error: %v", err)
+		t.Fatal(err)
 	}
 	for _, p := range m.Plugins {
-		if p.ID != "tool/mise" {
-			continue
+		if slices.Contains([]string{"tool/mise", "tool/xberg", "tool/fd", "tool/rg"}, p.ID) {
+			t.Fatalf("mandatory core runtime leaked into configurable plugins: %s", p.ID)
 		}
-		if len(p.BundledBinaries) != 1 || p.BundledBinaries[0] != "mise" {
-			t.Fatalf("mise bundled binaries = %v", p.BundledBinaries)
-		}
-		return
 	}
-	t.Fatal("tool/mise missing from builtin manifest")
 }
 
 func TestLoadBuiltinLarkCLIUsesManagedFeishuOAuth(t *testing.T) {

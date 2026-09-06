@@ -44,11 +44,7 @@ func setupSandboxBackends() (*agentsandbox.BackendRegistry, error) {
 					Name: spec.Name, Tool: spec.Tool, Version: spec.Version, Options: maps.Clone(spec.Options),
 				})
 			}
-			for _, spec := range request.BundledBinarySpecs {
-				backendConfig.BundledBinarySpecs = append(backendConfig.BundledBinarySpecs, dockerbackend.ToolBinary{
-					PluginID: spec.PluginID, ConfigID: spec.ConfigID, Scope: spec.Scope, Revision: spec.Revision, Name: spec.Name,
-				})
-			}
+
 			factory, err := dockerbackend.NewFactoryWithMountSources(backendConfig, request.MountSources)
 			if err != nil {
 				return nil, err

@@ -15,35 +15,39 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-func TestRunnerFilesystemPolicyMountsOnlySelectedMiseContext(t *testing.T) {
+func TestRunnerFilesystemPolicyMountsCoreAndSelectedMiseContext(t *testing.T) {
 	stellaHome := t.TempDir()
 	publicRoot := filepath.Join(stellaHome, ".mise-tools", "public", "selected")
-	for _, dir := range []string{filepath.Join(stellaHome, "bin"), publicRoot, filepath.Join(stellaHome, ".mise-tools", "installs"), filepath.Join(stellaHome, ".mise-tools", "contexts", "other")} {
+	for _, dir := range []string{publicRoot, filepath.Join(stellaHome, ".mise-tools", "installs"), filepath.Join(stellaHome, ".mise-tools", "contexts", "other")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
+	corePlan := fixtureCoreRuntimePlan(t, stellaHome)
 	plan := &manifest.BinaryInstallPlan{
 		Identity:     "selected",
 		PublicDir:    publicRoot,
 		PublicBinDir: publicRoot,
 	}
-	policy, sources := runnerFilesystemPolicy(Paths{StellaHome: stellaHome, WorkspaceRoot: t.TempDir()}, Config{ContextBinaryPlan: plan})
-	for _, mount := range []string{
-		pkgsandbox.MountStellaHome + "/bin",
-		pkgsandbox.MountStellaHome + "/bin",
-	} {
-		if _, ok := sources[mount]; !ok {
-			t.Fatalf("selected mount %q missing from sources: %#v", mount, sources)
-		}
+	policy, sources := runnerFilesystemPolicy(Paths{StellaHome: stellaHome, WorkspaceRoot: t.TempDir()}, Config{
+		CoreRuntimePlan:   corePlan,
+		ContextBinaryPlan: plan,
+	})
+	coreMount := pkgsandbox.MountStellaHome + "/bin"
+	if got := sources[coreMount]; got != corePlan.PublicDir {
+		t.Fatalf("core mount source = %q, want %q", got, corePlan.PublicDir)
+	}
+	optionalMount := pkgsandbox.MountStellaHome + "/.mise-tools/public/selected"
+	if got := sources[optionalMount]; got != publicRoot {
+		t.Fatalf("optional mount source = %q, want %q", got, publicRoot)
 	}
 	for _, mount := range policy.Mounts {
 		if mount.SandboxPath == pkgsandbox.MountStellaHome+"/.mise-tools" || mount.SandboxPath == pkgsandbox.MountStellaHome+"/.mise-tools/contexts" || mount.SandboxPath == pkgsandbox.MountStellaHome+"/.mise-tools/contexts/other" || mount.SandboxPath == pkgsandbox.MountStellaHome+"/.mise-tools/installs" {
 			t.Fatalf("policy exposed broad or foreign mise mount: %#v", policy.Mounts)
 		}
 	}
-	if got := sources[pkgsandbox.MountStellaHome+"/bin"]; got != publicRoot {
-		t.Fatalf("native core mount = %q, want exact public selection %q", got, publicRoot)
+	if sources[coreMount] == sources[optionalMount] {
+		t.Fatal("core and optional selection mounts must remain independent")
 	}
 }
 

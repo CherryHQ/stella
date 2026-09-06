@@ -7,7 +7,7 @@ import (
 )
 
 func TestPluginImportPreservesIndependentChannelCredentialsAndDisable(t *testing.T) {
-	database := newTestDB(t)
+	database := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
 	ctx := t.Context()
 	preparePluginPolicyCutoverSchema(t, database)
 	if _, err := database.Exec(ctx, `INSERT INTO agent(id,name,workspace) VALUES('account-agent-a','A',''),('account-agent-b','B','')`); err != nil {

@@ -14,14 +14,11 @@ var fsys embed.FS
 //go:embed oauth.yaml
 var builtinOAuthYAML []byte
 
-//go:embed tools.yaml
-var builtinToolsYAML []byte
-
 // BuiltinOAuthYAML returns the raw bytes of the builtin OAuth provider manifest.
 func BuiltinOAuthYAML() []byte { return builtinOAuthYAML }
 
 // BuiltinToolsYAML returns the raw bytes of the builtin tool plugin manifest.
-func BuiltinToolsYAML() []byte { return builtinToolsYAML }
+func BuiltinToolsYAML() []byte { return []byte(builtinPluginsYAML) }
 
 // FS returns the full embedded filesystem rooted at the package directory.
 // Prefer SubFS for kind-scoped access.

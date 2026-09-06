@@ -23,9 +23,9 @@ const EnvNativeSelectionDir = "STELLA_NATIVE_SELECTION_DIR"
 // onto /opt/stella/bin while user selections remain secondary mounts.
 const EnvUserNativeSelectionDir = "STELLA_USER_NATIVE_SELECTION_DIR"
 
-// EnvBundledShimsDir carries the runner's selection-local shims for bundled
-// executables such as Xberg. It is runtime-owned and never copied from Vault.
-const EnvBundledShimsDir = "STELLA_BUNDLED_SHIMS_DIR"
+// EnvCoreRuntimeDir carries the mandatory release command selection.
+// It is runtime-owned and never copied from Vault.
+const EnvCoreRuntimeDir = "STELLA_CORE_RUNTIME_DIR"
 
 // StellaHomeSandboxDirs returns the core runtime directories (relative to
 // STELLA_HOME) that sandbox backends may expose. Selection-owned mise contexts

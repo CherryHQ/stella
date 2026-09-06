@@ -43,6 +43,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -52,6 +53,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/agent"
@@ -63,8 +65,10 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/plugins/core"
 	"github.com/CherryHQ/stella/plugins/email"
 )
 
@@ -1470,14 +1474,17 @@ func TestToolSmoke(t *testing.T) {
 // planning turns concurrently and consume a case's scripted response.
 func newSmokeHarness(t *testing.T) *smokeHarness {
 	t.Helper()
-	db := dbtest.New(t)
+	db := dbtest.NewAtMigration(t, toolSmokeImportMigration41)
+	prepareToolSmokeCutover(t, db)
 	runID := strings.ToLower(uuid.Must(uuid.NewV7()).String()[24:])
 
 	vaultKey, err := vault.GenerateMasterIdentity()
 	if err != nil {
 		t.Fatalf("tool smoke: generate vault key: %v", err)
 	}
-	t.Setenv("STELLA_HOME", t.TempDir())
+	stellaHome := t.TempDir()
+	prepareToolSmokeCoreCache(t, stellaHome)
+	t.Setenv("STELLA_HOME", stellaHome)
 	t.Setenv("STELLA_DATABASE_URL", db.Config().ConnString())
 	t.Setenv("STELLA_VAULT_KEY", vaultKey)
 	config.ResetStellaHome()
@@ -1569,10 +1576,86 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 	if err != nil {
 		t.Fatalf("tool smoke: build authority: %v", err)
 	}
+	if err := disableSmokeCLIPlugins(ctx, result.pluginService, authority); err != nil {
+		t.Fatalf("tool smoke: disable optional CLI plugins: %v", err)
+	}
 
 	return &smokeHarness{
 		setup: result, fake: fake, userID: user.ID, agentID: agentID,
 		authority: authority, runID: runID, ctx: ctx,
+	}
+}
+
+// disableSmokeCLIPlugins closes optional CLI definitions through the common
+// plugin mutation boundary before the first runner is built. The smoke suite
+// exercises Go and core tools, while CLI installation is a separate production
+// path that would require network access and a host-managed toolchain.
+func disableSmokeCLIPlugins(ctx context.Context, service *plugin.Service, authority authz.Authority) error {
+	access, err := service.Begin(authority)
+	if err != nil {
+		return err
+	}
+	definitions, err := access.ListDefinitions(ctx)
+	if err != nil {
+		return err
+	}
+	disabled := false
+	for _, definition := range definitions {
+		if definition.Backend != plugin.BackendCLI {
+			continue
+		}
+		configs, err := access.ListConfigs(ctx, definition.ID, plugin.ScopeSystem, "")
+		if err != nil {
+			return fmt.Errorf("list %s configs: %w", definition.ID, err)
+		}
+		for _, config := range configs {
+			if _, err := access.UpdateConfig(ctx, definition.ID, config.ID, config.Revision, plugin.ConfigPatch{EnabledSet: true, Enabled: &disabled}); err != nil {
+				return fmt.Errorf("disable %s config %s: %w", definition.ID, config.ID, err)
+			}
+		}
+	}
+	return nil
+}
+
+const toolSmokeImportMigration41 = int64(90000000000041)
+
+// prepareToolSmokeCutover exercises the supported startup ordering in a
+// hermetic fixture: import at the migration-41 boundary, then advance the
+// database to the current schema before setup opens it. This keeps startup's
+// import call from incorrectly treating migration 42 as the import boundary.
+func prepareToolSmokeCutover(t *testing.T, db *pgxpool.Pool) {
+	t.Helper()
+	ctx := t.Context()
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); err != nil {
+		t.Fatalf("tool smoke: import migration-41 fixture: %v", err)
+	}
+	upgraded, err := appdb.OpenDB(db.Config().ConnString())
+	if err != nil {
+		t.Fatalf("tool smoke: advance fixture after import: %v", err)
+	}
+	upgraded.Close()
+}
+
+// prepareToolSmokeCoreCache seeds the exact content-addressed selection that
+// core.Prepare accepts as complete. The smoke suite exercises plugin/tool
+// wiring, so fixed network-backed fd/rg installation is outside its boundary.
+func prepareToolSmokeCoreCache(t *testing.T, stellaHome string) {
+	t.Helper()
+	identity, err := core.RuntimeIdentity()
+	if err != nil {
+		t.Fatalf("tool smoke: resolve core runtime identity: %v", err)
+	}
+	publicDir := filepath.Join(stellaHome, ".mise-tools", "public", identity)
+	if err := os.MkdirAll(publicDir, 0o755); err != nil {
+		t.Fatalf("tool smoke: create core runtime cache: %v", err)
+	}
+	for _, resource := range core.RuntimeResources() {
+		if err := os.WriteFile(filepath.Join(publicDir, resource.Name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatalf("tool smoke: seed core runtime %s: %v", resource.Name, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(publicDir, ".stella-shell-env"), nil, 0o644); err != nil {
+		t.Fatalf("tool smoke: seed core shell environment: %v", err)
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/CherryHQ/stella/plugins/core"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
@@ -38,6 +39,7 @@ const (
 	// constructing a volume that contains only this snapshot's selection.
 	containerSelectionRoot        = "/opt/stella/selection-tools"
 	containerSelectionBin         = "/opt/stella/bin"
+	containerCoreRuntimeRoot      = "/opt/stella/core-runtime"
 	containerSelectionReadyMarker = containerSelectionRoot + "/.stella-selection-ready"
 )
 
@@ -85,7 +87,8 @@ func ensureSelectionToolCache(ctx context.Context, client *dockerclient.Client, 
 	if imageID == "" {
 		return nil, fmt.Errorf("docker selection tool cache: resolved image ID is required")
 	}
-	hash := selectionToolCacheHash(imageID, cfg.SelectionToolBinaries, cfg.BundledBinarySpecs)
+	core := core.RuntimeResources()
+	hash := selectionToolCacheHash(imageID, cfg.SelectionToolBinaries, core)
 	volumeName := "stella-selection-" + hash[:16]
 	installerName := "stella-selection-cache-" + hash[:16]
 	cache := &selectionToolCache{VolumeName: volumeName, BinPath: containerSelectionBin, MaskVolumeName: "stella-selection-mask-" + hash[:16]}
@@ -103,6 +106,7 @@ func ensureSelectionToolCache(ctx context.Context, client *dockerclient.Client, 
 }
 
 func installSelectionToolCache(ctx context.Context, client *dockerclient.Client, cfg Config, imageID, hash, installerName string, cache *selectionToolCache) (*selectionToolCache, error) {
+	core := core.RuntimeResources()
 	if _, err := client.VolumeCreate(ctx, mobyclient.VolumeCreateOptions{
 		Name: cache.VolumeName,
 		Labels: map[string]string{
@@ -166,7 +170,7 @@ func installSelectionToolCache(ctx context.Context, client *dockerclient.Client,
 		ContainerID: containerID,
 		Command:     []string{"/bin/sh", "-s"},
 		Cwd:         containerSelectionRoot,
-		Stdin:       strings.NewReader(selectionToolInstallScript(hash, cfg.SelectionToolBinaries, cfg.BundledBinarySpecs)),
+		Stdin:       strings.NewReader(selectionToolInstallScript(hash, cfg.SelectionToolBinaries, core)),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("docker selection tool cache: run installer: %w", err)
@@ -178,6 +182,7 @@ func installSelectionToolCache(ctx context.Context, client *dockerclient.Client,
 }
 
 func verifySelectionToolCache(ctx context.Context, client *dockerclient.Client, cfg Config, imageID, hash string, cache *selectionToolCache) error {
+	core := core.RuntimeResources()
 	containerID, err := client.CreateAndStart(ctx, dockerclient.CreateOptions{
 		Image: imageID, Runtime: cfg.Runtime, NetworkMode: dockerclient.NetworkDisabled, User: "root",
 		ExtraMounts: []dockerclient.Mount{{
@@ -200,7 +205,7 @@ func verifySelectionToolCache(ctx context.Context, client *dockerclient.Client, 
 	}()
 	result, err := client.Exec(ctx, dockerclient.ExecOptions{
 		ContainerID: containerID, Command: []string{"/bin/sh", "-s"}, Cwd: containerSelectionRoot,
-		Stdin: strings.NewReader(selectionToolVerifyScript(hash, cfg.SelectionToolBinaries, cfg.BundledBinarySpecs)),
+		Stdin: strings.NewReader(selectionToolVerifyScript(hash, cfg.SelectionToolBinaries, core)),
 	})
 	if err != nil {
 		return fmt.Errorf("run selection verifier: %w", err)
@@ -259,11 +264,11 @@ func resetToolCacheStateForTest() {
 	installSelectionToolCacheFn = installSelectionToolCache
 }
 
-func selectionToolCacheHash(imageID string, binaries, bundled []ToolBinary) string {
-	return "selection-" + toolCacheHash(imageID, binaries, bundled)
+func selectionToolCacheHash(imageID string, binaries []ToolBinary, core []core.RuntimeResource) string {
+	return "selection-" + toolCacheHash(imageID, binaries, core)
 }
 
-func toolCacheHash(image string, binaries, bundled []ToolBinary) string {
+func toolCacheHash(image string, binaries []ToolBinary, core []core.RuntimeResource) string {
 	var buf bytes.Buffer
 	buf.WriteString("image=")
 	buf.WriteString(image)
@@ -276,8 +281,8 @@ func toolCacheHash(image string, binaries, bundled []ToolBinary) string {
 		buf.Write(options)
 		buf.WriteByte('\n')
 	}
-	for _, b := range canonicalToolBinaries(bundled) {
-		fmt.Fprintf(&buf, "bundled\t%v\t%v\t%v\t%v\t%v\n", b.PluginID, b.ConfigID, b.Scope, b.Revision, b.Name)
+	for _, b := range canonicalCoreRuntimeBinaries(core) {
+		fmt.Fprintf(&buf, "core\t%v\t%v\t%v\t%t\t%v\n", b.Name, b.MiseTool, b.Version, b.Embedded, b.SkillRef)
 	}
 	sum := sha256.Sum256(buf.Bytes())
 	return hex.EncodeToString(sum[:])
@@ -303,6 +308,20 @@ func canonicalToolBinaries(binaries []ToolBinary) []ToolBinary {
 			}
 		}
 		return 0
+	})
+	return canonical
+}
+
+func canonicalCoreRuntimeBinaries(binaries []core.RuntimeResource) []core.RuntimeResource {
+	canonical := slices.Clone(binaries)
+	slices.SortFunc(canonical, func(left, right core.RuntimeResource) int {
+		if left.Name < right.Name {
+			return -1
+		}
+		if left.Name > right.Name {
+			return 1
+		}
+		return strings.Compare(left.Version, right.Version)
 	})
 	return canonical
 }
@@ -356,7 +375,11 @@ func selectionMiseTOML(binaries []ToolBinary) (string, error) {
 // the public volume ready. Published tools are copied as complete install
 // directories so launchers can resolve adjacent libraries and other sidecars
 // without consulting mise at runner time.
-func selectionToolInstallScript(hash string, binaries, bundled []ToolBinary) string {
+func selectionToolInstallScript(hash string, binaries []ToolBinary, core []core.RuntimeResource) string {
+	coreNames := make(map[string]struct{}, len(core))
+	for _, binary := range core {
+		coreNames[binary.Name] = struct{}{}
+	}
 	var miseTOML string
 	if len(binaries) > 0 {
 		var err error
@@ -372,9 +395,12 @@ func selectionToolInstallScript(hash string, binaries, bundled []ToolBinary) str
 	script.WriteString("HASH=" + shellQuote(hash) + "\n")
 	script.WriteString("trap 'rm -rf \"$PRIVATE\"' EXIT HUP INT TERM\n")
 	script.WriteString("if [ -f \"$ROOT/.stella-selection-ready\" ] && [ \"$(cat \"$ROOT/.stella-selection-ready\")\" = \"$HASH\" ]; then exit 0; fi\n")
-	script.WriteString("rm -rf \"$ROOT/bin\" \"$ROOT/artifacts\" \"$ROOT/.stella-selection-ready\" \"$PRIVATE\"\n")
-	script.WriteString("mkdir -p \"$ROOT/bin\" \"$ROOT/artifacts\"\n")
-	script.WriteString("if [ -f /opt/stella/bin/.stella-shell-env ]; then cp /opt/stella/bin/.stella-shell-env \"$ROOT/bin/.stella-shell-env\"; fi\n")
+	script.WriteString("rm -rf \"$ROOT/bin\" \"$ROOT/core\" \"$ROOT/artifacts\" \"$ROOT/.stella-selection-ready\" \"$PRIVATE\"\n")
+	script.WriteString("mkdir -p \"$ROOT/bin\" \"$ROOT/core\" \"$ROOT/artifacts\"\n")
+	// Copy the complete core plan once. Keeping its relative symlinks and
+	// install sidecars intact avoids copying the same mise tree once per alias.
+	script.WriteString("cp -R " + containerCoreRuntimeRoot + "/. \"$ROOT/core/\"\n")
+	script.WriteString("if [ -f \"$ROOT/core/.stella-shell-env\" ]; then cp \"$ROOT/core/.stella-shell-env\" \"$ROOT/bin/.stella-shell-env\"; fi\n")
 	if len(binaries) > 0 {
 		script.WriteString("mkdir -p \"$PRIVATE/mise-data\" \"$PRIVATE/mise-cache\" \"$PRIVATE/mise-state\" \"$PRIVATE/mise-config\"\n")
 		script.WriteString("cat > \"$PRIVATE/mise.toml\" <<'STELLA_SELECTION_MISE_TOML'\n")
@@ -385,10 +411,14 @@ func selectionToolInstallScript(hash string, binaries, bundled []ToolBinary) str
 		script.WriteString("STELLA_SELECTION_MISE_TOML\n")
 		script.WriteString("cd \"$PRIVATE\"\n")
 		miseEnv := "MISE_DATA_DIR=\"$PRIVATE/mise-data\" MISE_CACHE_DIR=\"$PRIVATE/mise-cache\" MISE_STATE_DIR=\"$PRIVATE/mise-state\" MISE_CONFIG_DIR=\"$PRIVATE/mise-config\" MISE_SYSTEM_CONFIG_FILE=\"$PRIVATE/mise.toml\" MISE_GLOBAL_CONFIG_FILE=\"$PRIVATE/mise.toml\" MISE_TRUSTED_CONFIG_PATHS=\"$PRIVATE\" "
-		script.WriteString(miseEnv + "/opt/stella/bin/mise trust -y \"$PRIVATE/mise.toml\" >/dev/null 2>&1 || true\n")
-		script.WriteString(miseEnv + "/opt/stella/bin/mise install\n")
+		script.WriteString(miseEnv + containerCoreRuntimeRoot + "/mise trust -y \"$PRIVATE/mise.toml\" >/dev/null 2>&1 || true\n")
+		script.WriteString(miseEnv + containerCoreRuntimeRoot + "/mise install\n")
 	}
 	for _, b := range binaries {
+		if _, ok := coreNames[b.Name]; ok {
+			script.WriteString("echo " + shellQuote("selection binary conflicts with mandatory core runtime "+b.Name) + " >&2\nexit 1\n")
+			continue
+		}
 		if !safeSelectionName(b.Name) {
 			script.WriteString("echo " + shellQuote("invalid selection binary name "+b.Name) + " >&2\nexit 1\n")
 			continue
@@ -407,39 +437,32 @@ func selectionToolInstallScript(hash string, binaries, bundled []ToolBinary) str
 		lookupPath := shellQuoteForDoubleQuotedPath(lookup)
 		artifact := shellQuoteForDoubleQuotedPath("artifact-" + b.Name)
 		miseEnv := "MISE_DATA_DIR=\"$PRIVATE/mise-data\" MISE_CACHE_DIR=\"$PRIVATE/mise-cache\" MISE_STATE_DIR=\"$PRIVATE/mise-state\" MISE_CONFIG_DIR=\"$PRIVATE/mise-config\" MISE_SYSTEM_CONFIG_FILE=\"$PRIVATE/mise.toml\" MISE_GLOBAL_CONFIG_FILE=\"$PRIVATE/mise.toml\" MISE_TRUSTED_CONFIG_PATHS=\"$PRIVATE\" "
-		script.WriteString("install_dir=$(" + miseEnv + "/opt/stella/bin/mise where " + shellQuote(b.miseToolKey()) + ")\n")
+		script.WriteString("install_dir=$(" + miseEnv + containerCoreRuntimeRoot + "/mise where " + shellQuote(b.miseToolKey()) + ")\n")
 		script.WriteString("test -d \"$install_dir\"\n")
 		script.WriteString("rm -rf \"$ROOT/artifacts/" + artifact + "\"\nmkdir -p \"$ROOT/artifacts/" + artifact + "\"\ncp -R \"$install_dir/.\" \"$ROOT/artifacts/" + artifact + "/\"\n")
 		script.WriteString("src=\"\"\nsrc_rel=\"\"\nif [ -f \"$ROOT/artifacts/" + artifact + "/bin/" + lookupPath + "\" ]; then src=\"$ROOT/artifacts/" + artifact + "/bin/" + lookupPath + "\"; src_rel=\"/opt/stella/selection-tools/artifacts/" + artifact + "/bin/" + lookupPath + "\"; fi\n")
 		script.WriteString("if [ -z \"$src\" ] && [ -f \"$ROOT/artifacts/" + artifact + "/" + lookupPath + "\" ]; then src=\"$ROOT/artifacts/" + artifact + "/" + lookupPath + "\"; src_rel=\"/opt/stella/selection-tools/artifacts/" + artifact + "/" + lookupPath + "\"; fi\n")
 		script.WriteString("test -n \"$src\" && test -x \"$src\"\nln -s \"$src_rel\" \"$ROOT/bin/" + name + "\"\n")
 	}
-	for _, bundledBinary := range canonicalToolBinaries(bundled) {
-		name := bundledBinary.Name
+	for _, coreBinary := range canonicalCoreRuntimeBinaries(core) {
+		name := coreBinary.Name
 		if !safeSelectionName(name) {
-			script.WriteString("echo " + shellQuote("invalid bundled binary name "+name) + " >&2\nexit 1\n")
+			script.WriteString("echo " + shellQuote("invalid core runtime binary name "+name) + " >&2\nexit 1\n")
 			continue
 		}
 		quoted := shellQuoteForDoubleQuotedPath(name)
-		artifact := shellQuoteForDoubleQuotedPath("bundled-" + name)
-		script.WriteString("test -x /opt/stella/bin/" + quoted + "\n")
-		script.WriteString("source=$(readlink -f /opt/stella/bin/" + quoted + ")\n")
-		script.WriteString("test -n \"$source\"\nrm -rf \"$ROOT/artifacts/" + artifact + "\"\nmkdir -p \"$ROOT/artifacts/" + artifact + "\"\n")
-		// Xberg is a launcher symlink into a versioned directory. Copy that
-		// directory, while a single-file bundled asset stays single-file and
-		// cannot accidentally copy the whole image bin directory.
-		script.WriteString("source_dir=$(dirname \"$source\")\nif [ \"$source_dir\" = /opt/stella/bin ]; then cp \"$source\" \"$ROOT/artifacts/" + artifact + "/" + quoted + "\"; else cp -R \"$source_dir/.\" \"$ROOT/artifacts/" + artifact + "/\"; fi\n")
-		script.WriteString("test -x \"$ROOT/artifacts/" + artifact + "/" + quoted + "\"\nln -s \"/opt/stella/selection-tools/artifacts/" + artifact + "/" + quoted + "\" \"$ROOT/bin/" + quoted + "\"\n")
+		script.WriteString("test -x \"$ROOT/core/" + quoted + "\"\n")
+		script.WriteString("ln -s \"/opt/stella/selection-tools/core/" + quoted + "\" \"$ROOT/bin/" + quoted + "\"\n")
 	}
 	// The trap removes the private installer layer even when any command above fails.
 	script.WriteString("printf '%s' \"$HASH\" > \"$ROOT/.stella-selection-ready\"\nchmod 0444 \"$ROOT/.stella-selection-ready\"\n")
 	return script.String()
 }
 
-func selectionToolVerifyScript(hash string, binaries, bundled []ToolBinary) string {
+func selectionToolVerifyScript(hash string, binaries []ToolBinary, core []core.RuntimeResource) string {
 	var script strings.Builder
 	script.WriteString("set -eu\nROOT=" + shellQuote(containerSelectionRoot) + "\nHASH=" + shellQuote(hash) + "\ntest -f \"$ROOT/.stella-selection-ready\"\ntest \"$(cat \"$ROOT/.stella-selection-ready\")\" = \"$HASH\"\n")
-	if selectionRequestsMise(binaries, bundled) {
+	if selectionRequestsMise(binaries, core) {
 		script.WriteString("test -x \"$ROOT/bin/mise\"\n")
 	}
 	for _, b := range binaries {
@@ -447,10 +470,10 @@ func selectionToolVerifyScript(hash string, binaries, bundled []ToolBinary) stri
 			script.WriteString("test -x \"$ROOT/bin/" + shellQuoteForDoubleQuotedPath(b.Name) + "\"\n")
 		}
 	}
-	for _, bundledBinary := range canonicalToolBinaries(bundled) {
-		name := bundledBinary.Name
-		if safeSelectionName(name) {
-			script.WriteString("test -x \"$ROOT/bin/" + shellQuoteForDoubleQuotedPath(name) + "\"\n")
+	for _, coreBinary := range canonicalCoreRuntimeBinaries(core) {
+		if safeSelectionName(coreBinary.Name) {
+			script.WriteString("test -x \"$ROOT/core/" + shellQuoteForDoubleQuotedPath(coreBinary.Name) + "\"\n")
+			script.WriteString("test -x \"$ROOT/bin/" + shellQuoteForDoubleQuotedPath(coreBinary.Name) + "\"\n")
 		}
 	}
 	return script.String()
@@ -460,9 +483,14 @@ func safeSelectionName(name string) bool {
 	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, `/\\`)
 }
 
-func selectionRequestsMise(binaries, bundled []ToolBinary) bool {
-	for _, b := range append(slices.Clone(binaries), bundled...) {
+func selectionRequestsMise(binaries []ToolBinary, core []core.RuntimeResource) bool {
+	for _, b := range binaries {
 		if b.Name == "mise" || b.Name == "mise.exe" || b.Tool == "mise" {
+			return true
+		}
+	}
+	for _, b := range core {
+		if b.Name == "mise" || b.Name == "mise.exe" {
 			return true
 		}
 	}

@@ -27,9 +27,8 @@ import (
 // in the importer, read through the real ToolOverrideStore, and finally hides
 // the MCP proxy in the runner registry.
 func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
-	db := dbtest.New(t)
+	db := dbtest.NewAtMigration(t, runnerImportMigration41)
 	ctx := t.Context()
-	prepareRunnerImportSchema(t, db)
 
 	userID := uuid.NewString()
 	agentID := "mcp-import-runner-agent"
@@ -114,9 +113,8 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 // The system definition is the imported registration; the user definition is
 // an additional target row, so this remains a post-import runtime test.
 func TestMigratedMCPNamespaceDenyDoesNotFallThrough(t *testing.T) {
-	db := dbtest.New(t)
+	db := dbtest.NewAtMigration(t, runnerImportMigration41)
 	ctx := t.Context()
-	prepareRunnerImportSchema(t, db)
 
 	userID := uuid.NewString()
 	registrationID := uuid.NewString()
@@ -194,6 +192,8 @@ func TestMigratedMCPNamespaceDenyDoesNotFallThrough(t *testing.T) {
 	}
 }
 
+const runnerImportMigration41 = int64(90000000000041)
+
 func noOpMutationFence(_ context.Context, fn func() error) error { return fn() }
 
 func noopBackendTransition(context.Context, pgx.Tx, authz.Authority, plugin.MutationKind, plugin.Definition, *plugin.Config, *plugin.Config) error {
@@ -227,62 +227,5 @@ func seedRunnerIdentity(t *testing.T, db *pgxpool.Pool, userID, agentID string) 
 		Sandbox: json.RawMessage(`{}`), Scope: "system", Enabled: true,
 	}); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func prepareRunnerImportSchema(t *testing.T, db *pgxpool.Pool) {
-	t.Helper()
-	ctx := t.Context()
-	if _, err := db.Exec(ctx, `
-		INSERT INTO goose_db_version (version_id, is_applied)
-		SELECT 90000000000041, true
-		WHERE NOT EXISTS (SELECT 1 FROM goose_db_version WHERE version_id = 90000000000041)
-		`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(ctx, `UPDATE goose_db_version SET is_applied = true WHERE version_id = 90000000000041`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(ctx, `ALTER TABLE tool_override ALTER COLUMN tool_name DROP NOT NULL`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(ctx, `
-		ALTER TABLE tool_override DROP CONSTRAINT IF EXISTS tool_override_tool_name_scope_user_id_agent_id_key;
-		ALTER TABLE tool_override DROP CONSTRAINT IF EXISTS tool_override_plugin_identity_pair;
-		ALTER TABLE tool_override DROP CONSTRAINT IF EXISTS tool_override_identity_check;
-		ALTER TABLE tool_override
-			ADD CONSTRAINT tool_override_identity_check CHECK (
-				(plugin_id IS NULL AND local_tool_name IS NULL AND tool_name IS NOT NULL AND tool_name <> '')
-				OR (plugin_id IS NOT NULL AND local_tool_name IS NOT NULL AND plugin_id <> '' AND local_tool_name <> '' AND tool_name IS NULL)
-			);
-		DROP INDEX IF EXISTS uniq_tool_override_core_identity;
-		DROP INDEX IF EXISTS uniq_tool_override_plugin_identity;
-		CREATE UNIQUE INDEX uniq_tool_override_core_identity
-			ON tool_override (tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
-			WHERE tool_name IS NOT NULL AND plugin_id IS NULL AND local_tool_name IS NULL;
-		CREATE UNIQUE INDEX uniq_tool_override_plugin_identity
-			ON tool_override (plugin_id, local_tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
-			WHERE tool_name IS NULL;
-	`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(ctx, `
-		ALTER TABLE mcp_oauth_flow DROP CONSTRAINT IF EXISTS mcp_oauth_flow_server_id_fkey;
-		ALTER TABLE mcp_oauth_flow DROP CONSTRAINT IF EXISTS mcp_oauth_flow_server_id_plugin_config_fkey;
-		ALTER TABLE mcp_oauth_flow
-			ADD CONSTRAINT mcp_oauth_flow_server_id_plugin_config_fkey
-			FOREIGN KEY (server_id) REFERENCES plugin_config(id) ON DELETE CASCADE NOT VALID;
-	`); err != nil {
-		t.Fatal(err)
-	}
-	// The importer expects the observation table from migration 41. This
-	// assertion keeps a stale test template from silently turning the provider
-	// check into a vacuous no-row result.
-	var table string
-	if err := db.QueryRow(ctx, `SELECT to_regclass('public.mcp_connection_state')`).Scan(&table); err != nil {
-		t.Fatal(err)
-	}
-	if table == "" {
-		t.Fatal("mcp_connection_state table is missing from the migrated fixture")
 	}
 }

@@ -59,7 +59,7 @@ var dockerEnvKinds = map[string]dockerEnvKind{
 	"MISE_SYSTEM_CONFIG_FILE":     dockerEnvHostPath,
 	"MISE_GLOBAL_CONFIG_FILE":     dockerEnvHostPath,
 	"MISE_TRUSTED_CONFIG_PATHS":   dockerEnvHostPathList,
-	sandboxpkg.EnvBundledShimsDir: dockerEnvHostPath,
+	sandboxpkg.EnvCoreRuntimeDir:  dockerEnvHostPath,
 	// Host PATH may contain host-platform binaries and must never override the
 	// image PATH. injectToolPaths adds container-native tool directories later.
 	"PATH":            dockerEnvDrop,

@@ -12,20 +12,9 @@ import (
 )
 
 // SessionPluginView projects one already-authorized plugin snapshot for a
-// runner. The snapshot is the only source of selected config and enabled state;
-// immutable bundled binary names come from the embedded authored manifest.
+// runner. The snapshot is the only source of selected config and enabled state.
 func (h *Host) SessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPluginView, error) {
 	definitions := snapshot.Definitions()
-	authored, err := manifest.LoadBuiltin()
-	if err != nil {
-		return pkgplugins.SessionPluginView{}, fmt.Errorf("load builtin bundled binary metadata: %w", err)
-	}
-	bundledNames := make(map[string][]string, len(authored.Plugins))
-	for _, p := range authored.Plugins {
-		if len(p.BundledBinaries) != 0 {
-			bundledNames[p.ID] = slices.Clone(p.BundledBinaries)
-		}
-	}
 	view := pkgplugins.SessionPluginView{
 		RegisteredPluginIDs: make([]string, 0, len(definitions)),
 	}
@@ -55,16 +44,6 @@ func (h *Host) SessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPl
 			return pkgplugins.SessionPluginView{}, err
 		}
 		view.ExposedPluginIDs = append(view.ExposedPluginIDs, definition.ID)
-		for _, name := range bundledNames[definition.ID] {
-			view.BundledBinarySpecs = append(view.BundledBinarySpecs, pkgplugins.PluginBundledBinarySpec{
-				PluginResourceIdentity: identity,
-				Name:                   name,
-			})
-		}
-		if resource, ok := bundledRuntimeResource(definition.ID); ok {
-			appendBundledRuntimeResources(&view, identity, resource)
-			continue
-		}
 
 		switch definition.Backend {
 		case plugin.BackendCLI:
@@ -96,15 +75,6 @@ func (h *Host) SessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPl
 		return cmp.Compare(left.ConfigID, right.ConfigID)
 	})
 	slices.SortFunc(view.BinarySpecs, func(left, right pkgplugins.PluginBinarySpec) int {
-		if left.PluginID != right.PluginID {
-			return cmp.Compare(left.PluginID, right.PluginID)
-		}
-		if left.Name != right.Name {
-			return cmp.Compare(left.Name, right.Name)
-		}
-		return cmp.Compare(left.ConfigID, right.ConfigID)
-	})
-	slices.SortFunc(view.BundledBinarySpecs, func(left, right pkgplugins.PluginBundledBinarySpec) int {
 		if left.PluginID != right.PluginID {
 			return cmp.Compare(left.PluginID, right.PluginID)
 		}

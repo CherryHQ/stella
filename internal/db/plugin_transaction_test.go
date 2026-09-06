@@ -71,8 +71,8 @@ func TestUnifiedPluginWithMutationTxRollbackRestoresConfigAndPolicies(t *testing
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		INSERT INTO tool_override (tool_name, scope, user_id, enabled, plugin_id, local_tool_name)
-		VALUES ('tx_delete__tool', 'user', $1, true, $2, 'tool')
+		INSERT INTO tool_override (scope, user_id, enabled, plugin_id, local_tool_name)
+		VALUES ('user', $1, true, $2, 'tool')
 	`, user.UserID(), definition.ID); err != nil {
 		t.Fatal(err)
 	}

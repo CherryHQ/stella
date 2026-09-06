@@ -62,24 +62,29 @@ USER stella
 # there is no shared config fallback. HOME stays /home/stella for the build,
 # then flips to /workspace.
 ENV HOME=/home/stella
-ENV BASH_ENV=/opt/stella/bin/.stella-shell-env
+ENV BASH_ENV=/opt/stella/core-runtime/.stella-shell-env
 ENV MISE_DATA_DIR=/opt/stella/.mise-tools
 ENV MISE_CONFIG_DIR=/opt/stella/.mise-tools/config
 ENV MISE_STATE_DIR=/opt/stella/.mise-tools/state
 ENV MISE_CACHE_DIR=/opt/stella/.mise-tools/cache
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# `system-bundle install` extracts the exact release-owned mise, Xberg, and
-# shell environment. The stellad is bind-mounted only for this build step; it is
-# not shipped in the runtime image. Snapshot selection later decides which
-# release-owned binaries are visible to each runner.
+# `system-bundle install` extracts the exact release-owned core runtimes
+# (mise, Xberg, fd, and ripgrep) and shell environment. stellad is
+# bind-mounted only for this build step; it is not shipped in the runtime
+# image. Snapshot selection later decides which optional plugin binaries are
+# visible to each runner, while trusted core runtimes are republished into
+# every selection volume.
 RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/bin/stellad \
     --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
-	STELLA_HOME=/opt/stella stellad system-bundle install && \
+	STELLA_HOME=/opt/stella stellad system-bundle install --core-path /opt/stella/core-runtime && \
 	REVISION="$(STELLA_HOME=/opt/stella stellad system-bundle revision)" && \
 	test "$REVISION" = "$BUILTIN_BUNDLE_REVISION" && \
 	mkdir -p /opt/stella/skills && ln -s "../bundles/$REVISION" /opt/stella/skills/builtin && \
-    /opt/stella/bin/xberg --version && \
+    /opt/stella/core-runtime/mise --version && \
+    /opt/stella/core-runtime/xberg --version && \
+    /opt/stella/core-runtime/fd --version && \
+    /opt/stella/core-runtime/rg --version && \
     rm -rf /opt/stella/.mise-tools/cache
 
 # The install above runs as the owning UID, so an owner-only permission bit on a
@@ -90,8 +95,10 @@ RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/
 # only through selection-local aliases. This check distinguishes "installed"
 # from "reachable by the process that will actually use it".
 USER root
-RUN HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/bin/mise --version && \
-    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/bin/xberg --version
+RUN HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/core-runtime/mise --version && \
+    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/core-runtime/xberg --version && \
+    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/core-runtime/fd --version && \
+    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/core-runtime/rg --version
 USER stella
 
 ENV HOME=/workspace

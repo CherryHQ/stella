@@ -350,7 +350,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	// A verified release Docker runtime always gets a core-only selection volume,
 	// even when the snapshot selects no plugin binaries. Lightweight callers
 	// using arbitrary images without a bundle revision retain the client seam.
-	if f.cfg.ExpectedBundleRevision != "" || len(f.cfg.SelectionToolBinaries) > 0 || len(f.cfg.BundledBinarySpecs) > 0 {
+	if f.cfg.ExpectedBundleRevision != "" || len(f.cfg.SelectionToolBinaries) > 0 {
 		if err := client.EnsureImageReady(ctx, f.cfg.Image, opts.Name); err != nil {
 			recordError(span, err)
 			span.End()

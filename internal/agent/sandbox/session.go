@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/core"
 )
 
 // BackendRequest is the host-prepared input to one sandbox backend.
@@ -26,14 +27,12 @@ type BackendRequest struct {
 	MountSources map[string]string
 	UserID       string
 	GroupID      string
-	// ContextBinaryPlan and BundledBinaryPlan are authority-bound selection
-	// outputs. Docker uses them to prepare a container-native cache; native
-	// backends use the exact selection mount paths already rendered in Policy.
-	ContextBinaryPlan  *manifest.BinaryInstallPlan
-	UserBinaryPlan     *manifest.BinaryInstallPlan
-	BundledBinaryPlan  *manifest.BundledBinaryInstallPlan
-	BinarySpecs        []pkgplugins.PluginBinarySpec
-	BundledBinarySpecs []pkgplugins.PluginBundledBinarySpec
+	// Plugin plans capture authorized optional tools; CoreRuntimePlan contains
+	// required release runtimes independently of plugin configuration.
+	ContextBinaryPlan *manifest.BinaryInstallPlan
+	UserBinaryPlan    *manifest.BinaryInstallPlan
+	CoreRuntimePlan   *core.RuntimePlan
+	BinarySpecs       []pkgplugins.PluginBinarySpec
 }
 
 // Backend creates one raw sandbox session from host-prepared input.
@@ -164,9 +163,24 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 	)
 	defer span.End()
 
+	for _, spec := range cfg.BinarySpecs {
+		for _, runtime := range core.RuntimeResources() {
+			if spec.Name == runtime.Name {
+				return nil, fmt.Errorf("sandbox: plugin binary %q conflicts with mandatory core runtime", spec.Name)
+			}
+		}
+	}
+
 	// Docker prepares S/SA and bundled resources in its Linux helper cache. Host
 	// installation would bake the host OS/architecture into a container runner.
 	if name != config.SandboxBackendDocker {
+		if cfg.CoreRuntimePlan == nil {
+			return nil, errors.New("sandbox: core runtimes were not prepared at startup")
+		}
+		if err := core.Verify(*cfg.CoreRuntimePlan); err != nil {
+			recordSandboxError(span, err)
+			return nil, fmt.Errorf("verify core runtimes: %w", err)
+		}
 		plan, err := manifest.InstallContextBinaries(ctx, cfg.Paths.StellaHome, cfg.BinarySpecs)
 		if err != nil {
 			recordSandboxError(span, err)
@@ -174,24 +188,15 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 		}
 		cfg.ContextBinaryPlan = &plan
 	}
-	if name != config.SandboxBackendDocker && len(cfg.BundledBinarySpecs) > 0 {
-		plan, err := manifest.InstallBundledBinaries(cfg.Paths.StellaHome, cfg.BundledBinarySpecs)
-		if err != nil {
-			recordSandboxError(span, err)
-			return nil, fmt.Errorf("install bundled binaries: %w", err)
-		}
-		cfg.BundledBinaryPlan = &plan
-	}
 
 	create := func(ctx context.Context) (pkgsandbox.Session, error) {
 		// User and user-agent installs need the internal mise engine during a
 		// short preparation session. The final session is recreated from the
-		// exact public selection, so disabled mise never enters its PATH.
+		// exact optional selection alongside the mandatory core runtimes.
 		if name != config.SandboxBackendDocker && hasUserBinarySpecs(cfg.BinarySpecs) {
 			prepCfg := cfg
 			prepCfg.ContextBinaryPlan = nil
 			prepCfg.UserBinaryPlan = nil
-			prepCfg.BundledBinaryPlan = nil
 			principalDir, principalID := misePrincipal(cfg)
 			if principalDir == "" || principalID == "" {
 				return nil, fmt.Errorf("sandbox: user binary install requires a principal")
@@ -273,12 +278,20 @@ func createSessionForBackend(ctx context.Context, cfg Config, name string) (pkgs
 	if cfg.ContextBinaryPlan != nil {
 		policy.Env = manifest.OverlayBinaryInstallPlan(policy.Env, *cfg.ContextBinaryPlan, manifest.BinarySystemLayer)
 	}
-	if cfg.BundledBinaryPlan != nil {
-		policy.Env = manifest.OverlayBundledBinaryPlan(policy.Env, *cfg.BundledBinaryPlan)
-	}
 	if cfg.UserBinaryPlan != nil {
 		policy.Env = manifest.OverlayBinaryInstallPlan(policy.Env, *cfg.UserBinaryPlan, manifest.BinaryUserLayer)
 	}
+	if cfg.CoreRuntimePlan != nil {
+		// Core adds executable paths without replacing optional selection or mise state.
+		policy.Env[pkgsandbox.EnvCoreRuntimeDir] = cfg.CoreRuntimePlan.PublicBinDir
+		if policy.Env["PATH"] == "" {
+			policy.Env["PATH"] = cfg.CoreRuntimePlan.PublicBinDir
+		} else {
+			policy.Env["PATH"] += string(os.PathListSeparator) + cfg.CoreRuntimePlan.PublicBinDir
+		}
+		policy.Env[pkgsandbox.EnvRunnerPath] = policy.Env["PATH"]
+	}
+
 	slog.Info("creating sandbox session",
 		"component", "runner_sandbox",
 		"backend", name,
@@ -287,15 +300,14 @@ func createSessionForBackend(ctx context.Context, cfg Config, name string) (pkgs
 		"network_mode", cfg.SandboxConfig.Network.Mode,
 	)
 	return backend(ctx, BackendRequest{
-		Paths:              paths,
-		Policy:             policy,
-		MountSources:       mountSources,
-		UserID:             cfg.UserID,
-		GroupID:            cfg.GroupID,
-		ContextBinaryPlan:  cfg.ContextBinaryPlan,
-		UserBinaryPlan:     cfg.UserBinaryPlan,
-		BundledBinaryPlan:  cfg.BundledBinaryPlan,
-		BinarySpecs:        slices.Clone(cfg.BinarySpecs),
-		BundledBinarySpecs: slices.Clone(cfg.BundledBinarySpecs),
+		Paths:             paths,
+		Policy:            policy,
+		MountSources:      mountSources,
+		UserID:            cfg.UserID,
+		GroupID:           cfg.GroupID,
+		ContextBinaryPlan: cfg.ContextBinaryPlan,
+		UserBinaryPlan:    cfg.UserBinaryPlan,
+		CoreRuntimePlan:   cfg.CoreRuntimePlan,
+		BinarySpecs:       slices.Clone(cfg.BinarySpecs),
 	})
 }

@@ -797,6 +797,50 @@ func TestAdjustPolicyUsesMountedNativeSelectionPath(t *testing.T) {
 	}
 }
 
+func TestAdjustPolicyLinuxMapsCoreToBinAndKeepsOptionalSelection(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux core runtime mapping only")
+	}
+	hostSH := "/home/user/.stella"
+	sandboxSH := adjustStellaHome(hostSH)
+	optional := hostSH + "/.mise-tools/public/optional"
+	core := hostSH + "/core-runtime"
+	adjusted := (&Factory{cfg: Config{StellaHome: hostSH}}).adjustPolicy(
+		sandboxpkg.Policy{Env: map[string]string{
+			"PATH":                           "/usr/bin",
+			"MISE_DATA_DIR":                  hostSH + "/.mise-tools",
+			"MISE_CONFIG_DIR":                hostSH + "/.mise-tools/config",
+			"MISE_YES":                       "1",
+			"MISE_NOT_FOUND_AUTO_INSTALL":    "false",
+			sandboxpkg.EnvNativeSelectionDir: optional,
+			sandboxpkg.EnvCoreRuntimeDir:     core,
+		}},
+		"/workspace", "/workspace", "", "",
+	)
+	if got, want := adjusted.Env[sandboxpkg.EnvNativeSelectionDir], sandboxSH+"/.mise-tools/public/optional"; got != want {
+		t.Fatalf("optional selection marker = %q, want %q", got, want)
+	}
+	if got := adjusted.Env[sandboxpkg.EnvCoreRuntimeDir]; got != core {
+		t.Fatalf("core marker = %q, want original marker %q", got, core)
+	}
+	if got := adjusted.Env["MISE_NOT_FOUND_AUTO_INSTALL"]; got != "false" {
+		t.Fatalf("MISE_NOT_FOUND_AUTO_INSTALL = %q, want false", got)
+	}
+	if got, want := adjusted.Env["MISE_CONFIG_DIR"], sandboxSH+"/.mise-tools/config"; got != want {
+		t.Fatalf("MISE_CONFIG_DIR = %q, want %q", got, want)
+	}
+	if got := adjusted.Env["MISE_YES"]; got != "1" {
+		t.Fatalf("MISE_YES = %q, want 1", got)
+	}
+	path := adjusted.Env["PATH"]
+	if !strings.HasPrefix(path, sandboxSH+"/bin"+string(filepath.ListSeparator)) {
+		t.Fatalf("Linux PATH must lead with mapped core /bin, got %q", path)
+	}
+	if !strings.Contains(path, sandboxSH+"/.mise-tools/public/optional") {
+		t.Fatalf("Linux PATH lost optional selection, got %q", path)
+	}
+}
+
 func TestNativeSelectionPathRunsSelectedCommand(t *testing.T) {
 	if !seatbeltFunctional() {
 		t.Skip("macOS Seatbelt is unavailable in this environment")

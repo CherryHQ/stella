@@ -118,7 +118,7 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, workspace, userData, tm
 		if selectionShims == "" {
 			selectionShims = env["MISE_SHIMS_DIR"]
 		}
-		bundledShims := env[sandboxpkg.EnvBundledShimsDir]
+		bundledShims := env[sandboxpkg.EnvCoreRuntimeDir]
 		userSelectionShims := env[sandboxpkg.EnvUserNativeSelectionDir]
 		env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome, userShims, userSelectionShims, selectionShims, bundledShims)
 		env[sandboxpkg.EnvRunnerPath] = env["PATH"]

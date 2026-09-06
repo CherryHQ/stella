@@ -89,14 +89,6 @@ type PluginBinarySpec struct {
 	Options map[string]any
 }
 
-// PluginBundledBinarySpec identifies a release bundled executable. Its path is
-// resolved by the runner under the managed STELLA_HOME/bin root; host paths do
-// not cross the plugin view boundary.
-type PluginBundledBinarySpec struct {
-	PluginResourceIdentity
-	Name string
-}
-
 // PluginSkillSpec is a selected plugin-owned skill reference.
 type PluginSkillSpec struct {
 	PluginResourceIdentity
@@ -111,11 +103,10 @@ type SessionPluginView struct {
 	// ExposedPluginIDs are the enabled namespace winners whose resources may
 	// contribute to this public session view. ID-based callers retain their own
 	// snapshot resolution for enabled losers.
-	ExposedPluginIDs   []string
-	SessionEnvSpecs    []SessionEnvSpec
-	BinarySpecs        []PluginBinarySpec
-	BundledBinarySpecs []PluginBundledBinarySpec
-	SkillSpecs         []PluginSkillSpec
+	ExposedPluginIDs []string
+	SessionEnvSpecs  []SessionEnvSpec
+	BinarySpecs      []PluginBinarySpec
+	SkillSpecs       []PluginSkillSpec
 }
 
 // BeforeRunContext is the narrow per-run lifecycle context exposed to plugins.
