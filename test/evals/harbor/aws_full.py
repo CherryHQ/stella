@@ -985,6 +985,8 @@ def download_artifacts(aws: Aws, state: dict[str, Any], run_dir: Path, journal: 
         "SHA256SUMS",
         "performance.json",
     }
+    if state.get("run_mode") == "capacity":
+        required = {"capacity-summary.json", "performance.json", "remote-journal.ndjson", "SHA256SUMS"}
     missing = sorted(name for name in required if not (artifacts / name).is_file())
     if missing:
         raise RuntimeError("downloaded artifacts are incomplete: " + ", ".join(missing))
@@ -1005,6 +1007,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--pilot", action="store_true",
         help="performance-only: prepare 89 environments, then five smoke tasks at concurrency 1,N,N,1",
     )
+    modes.add_argument("--capacity", action="store_true", help="performance-only: 89 tasks at 16,32,48,64,16 workers; no top-ups")
     parser.add_argument("--warmup", choices=("legacy", "environment"), default="legacy")
     parser.add_argument("--warmup-concurrency", type=int, default=4, help="environment preparation workers (1-4)")
     parser.add_argument("--topup-concurrency", type=int, default=1, help="missing-task batch workers (up to --concurrency)")
@@ -1038,10 +1041,12 @@ def main(argv: list[str] | None = None) -> int:
         raise RuntimeError("top-up concurrency must be between 1 and --concurrency")
     if args.pilot and (args.warmup != "environment" or not 2 <= args.concurrency <= 5):
         raise RuntimeError("--pilot requires --warmup environment and --concurrency between 2 and 5")
+    if args.capacity and (args.warmup != "environment" or args.concurrency != 16 or args.max_topup_rounds != 0):
+        raise RuntimeError("--capacity requires --warmup environment --concurrency 16 --max-topup-rounds 0")
 
     region, provider = require_environment()
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_mode = "pilot" if args.pilot else ("smoke" if args.smoke else "full")
+    run_mode = "capacity" if args.capacity else ("pilot" if args.pilot else ("smoke" if args.smoke else "full"))
     run_id = f"tb21-experimental-{run_mode}-{now}"
     run_dir = root / "dist" / "evals" / "aws" / run_id
     journal = RunJournal(run_dir)
@@ -1066,6 +1071,7 @@ def main(argv: list[str] | None = None) -> int:
         "passes": 4 if args.pilot else (1 if args.smoke else args.passes),
         "expected_tasks": 5 if args.smoke or args.pilot else 89,
         "run_mode": run_mode,
+        "pass_concurrencies": [16, 32, 48, 64, 16] if args.capacity else ([1, args.concurrency, args.concurrency, 1] if args.pilot else [args.concurrency] * (1 if args.smoke else args.passes)),
         "warmup_mode": args.warmup,
         "warmup_concurrency": args.warmup_concurrency,
         "topup_concurrency": args.topup_concurrency,
@@ -1101,6 +1107,11 @@ def main(argv: list[str] | None = None) -> int:
         except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001  # cleanup is mandatory
             run_error = exc
             download_remote_journal(aws, state, run_dir)
+            if state.get("run_mode") == "capacity" and state.get("bucket_created"):
+                try:
+                    download_artifacts(aws, state, run_dir, journal)
+                except RuntimeError:
+                    journal.record("capacity-checkpoint-unavailable")
             journal.record("run-failed", message=str(exc))
     finally:
         try:

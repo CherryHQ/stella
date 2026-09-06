@@ -5,6 +5,7 @@ import sys
 import pytest
 from stella_harbor.aws_prepare import (
     DATASET_REF,
+    capacity_metrics,
     measure,
     preparation_inventory,
     prepare_command,
@@ -103,3 +104,85 @@ def test_real_harbor_print_config_disables_model_and_verifier(tmp_path):
     assert config["environment"]["delete"] is False
     assert config["datasets"][0]["ref"] == DATASET_REF
     assert not (tmp_path / "job").exists()
+
+
+@pytest.mark.parametrize(
+    "oom,memory,reason", [(1, 16, "oom_kill"), (0, 7, "available_memory_below_floor")]
+)
+def test_capacity_resource_guard_stops_child(
+    tmp_path, monkeypatch, oom, memory, reason
+):
+    def sample(gib, kills):
+        return {
+            "available_memory_bytes": gib * 1024**3,
+            "cpu_ticks": 100,
+            "idle_ticks": 50,
+            "load_1m": 0,
+            "oom_kills": kills,
+        }
+
+    samples = iter([sample(16, 3), sample(memory, 3 + oom)])
+    monkeypatch.setattr(
+        "stella_harbor.aws_prepare.sample_resources", lambda: next(samples)
+    )
+    output = tmp_path / "measurement.json"
+    assert (
+        measure(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            output,
+            32,
+            minimum_memory_bytes=8 * 1024**3,
+        )
+        == 125
+    )
+    summary = json.loads(output.read_text())
+    assert summary["stop_reason"] == reason
+    assert summary["oom_kills"] == oom
+    assert summary["exit_code"] != 0
+
+
+@pytest.mark.parametrize("invalid,stopped", [(0, False), (4, False), (5, True)])
+def test_capacity_keeps_failed_primaries_and_reports_real_overlap(
+    tmp_path, invalid, stopped
+):
+    job = tmp_path / "jobs"
+    for index in range(89):
+        trial = job / f"task-{index}__a"
+        (trial / "agent/stella").mkdir(parents=True)
+        (trial / "config.json").write_text(json.dumps({"trial_name": trial.name}))
+        (trial / "result.json").write_text(
+            json.dumps(
+                {
+                    "started_at": "2026-09-06T00:00:00+00:00",
+                    "finished_at": "2026-09-06T00:00:01+00:00",
+                    "verifier_result": {"rewards": {"reward": 1}},
+                }
+            )
+        )
+        (trial / "agent/stella/result.json").write_text(
+            json.dumps(
+                {
+                    "valid": index >= invalid,
+                    "bridge_nonce": "nonce",
+                    "metrics": {},
+                }
+            )
+        )
+    output = tmp_path / "metrics.json"
+    output.write_text(
+        json.dumps(
+            {
+                "completed_at": "2026-09-06T00:00:02+00:00",
+                "wall_seconds": 2,
+                "exit_code": 0,
+            }
+        )
+    )
+    capacity_metrics(job, output)
+    result = json.loads(output.read_text())
+    assert result["inventory"]["trials"] == 89
+    assert result["resolved"] == 89 - invalid
+    assert result["observed_peak_trial_overlap"] == 89
+    assert bool(result["capacity_stop_reasons"]) == stopped
+    assert result["scoreable_per_hour"] == (89 - invalid) * 1800
+    assert "bridge_nonce" not in output.read_text()

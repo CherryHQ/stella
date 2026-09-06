@@ -52,6 +52,23 @@ mise run eval:tb21:aws -- --pilot --warmup environment --concurrency 4 --topup-c
 预热方式或并发改变后，评估条件也改变。不能把实验成绩与历史基线当作
 条件相同的结果比较。
 
+完整数据集的容量测试使用：
+
+```bash
+mise run eval:tb21:aws -- --capacity --warmup environment --concurrency 16 --max-topup-rounds 0 --timeout-hours 4 --commit HEAD
+```
+
+在同一台机器上按 `16,32,48,64,16` 并发各跑一轮 89 题，最多 445 次尝试，
+不补跑。最后一轮 16 并发用于检查时间漂移。采样发现可用内存低于 8 GiB，
+或主机新增 OOM kill，立即停止当前命令。命令失败、题目集合不完整，
+或一轮至少 5 次尝试不可计分时，不再继续后面的轮次。任务 deadline 不变。
+
+每轮结束上传带校验和的检查点，记录逐题结果、超时类别、实测任务重叠峰值、
+阶段耗时及每小时可计分次数。`capacity-summary.json` 区分 `running`、
+`stopped`、`completed`；中断的运行可能只保留较早的检查点。
+容量模式不合并 benchmark 成绩。选择推荐并发时，同时检查吞吐、失败数和超时数；
+64 并发通过只说明已测容量至少为 64，不能称为机器的绝对上限。
+
 控制器把进度写入 `dist/evals/aws/<run-id>/journal.ndjson`。
 stdout 管道关闭不会中断评估或文件日志。即使失败报告本身抛出异常，
 控制器也会尝试清理资源。如果清理被中断，用以下命令恢复：

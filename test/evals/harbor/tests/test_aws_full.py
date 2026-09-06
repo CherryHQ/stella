@@ -48,6 +48,18 @@ journal.record('run-complete')
     assert [entry["event"] for entry in entries] == ["remote-progress", "run-complete"]
 
 
+def test_capacity_is_a_separate_full_dataset_mode():
+    args = _aws_full.parse_args(["--capacity", "--warmup", "environment", "--max-topup-rounds", "0"])
+    assert args.capacity and not args.pilot and not args.smoke
+    remote = REMOTE.read_text()
+    assert "for ACTIVE_CONCURRENCY in 16 32 48 64 16" in remote
+    assert "--minimum-memory-gib 8" in remote
+    block = remote.split('if [ "$RUN_MODE" = capacity ]; then\n  capacity_artifacts()', 1)[1].split('\npass=1\n', 1)[0]
+    assert "run_topups" not in block
+    assert 'exit 0' in block
+    assert "capacity_stop_reasons" in block
+
+
 @pytest.mark.parametrize("failure_site", ["download_remote_journal", "run-failed"])
 def test_cleanup_runs_when_failure_reporting_raises(tmp_path: Path, monkeypatch, failure_site):
     monkeypatch.setattr(_aws_full, "repository_root", lambda: tmp_path)

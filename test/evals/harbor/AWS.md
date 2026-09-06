@@ -56,6 +56,26 @@ time is separate from primary runs. Existing cleanup and shutdown backstops appl
 Changing warm-up or concurrency changes the run conditions. Do not compare an
 experimental score against an archived baseline as if those conditions matched.
 
+For full-dataset capacity testing, use:
+
+```bash
+mise run eval:tb21:aws -- --capacity --warmup environment --concurrency 16 --max-topup-rounds 0 --timeout-hours 4 --commit HEAD
+```
+
+This runs 89 tasks once at each of `16,32,48,64,16` workers on the same host,
+up to 445 attempts. The final 16-worker pass checks time-of-day drift. There
+are no top-ups. A sample below 8 GiB available memory or a new host OOM kill
+stops the current command. A failed command, incomplete task set, or at least
+five unscoreable trials stops further passes. Task deadlines remain unchanged.
+
+Each completed pass uploads a checksummed checkpoint with per-task outcomes,
+timeout classes, observed trial overlap, phase timing, and scoreable trials per
+hour. `capacity-summary.json` distinguishes `running`, `stopped`, and `completed`;
+an interrupted run may contain only an earlier checkpoint. The capacity mode
+does not produce a merged benchmark score. Compare throughput with failure and
+timeout counts before recommending a setting. Passing 64 workers establishes
+a tested lower bound on capacity, not the machine's absolute limit.
+
 The controller writes progress to `dist/evals/aws/<run-id>/journal.ndjson`.
 A closed stdout pipe does not stop evaluation or file logging. Cleanup is
 attempted even if failure reporting raises an exception. If cleanup is

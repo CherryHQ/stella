@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import os
 import signal
 import subprocess
@@ -35,6 +36,11 @@ def sample_resources() -> dict[str, float | int]:
         "cpu_ticks": sum(cpu),
         "idle_ticks": cpu[3] + cpu[4],
         "load_1m": float(Path("/proc/loadavg").read_text().split()[0]),
+        "oom_kills": int(
+            dict(
+                line.split() for line in Path("/proc/vmstat").read_text().splitlines()
+            ).get("oom_kill", 0)
+        ),
     }
 
 
@@ -44,6 +50,7 @@ def measure(
     concurrency: int,
     *,
     env: dict[str, str] | None = None,
+    minimum_memory_bytes: int = 0,
 ) -> int:
     if not command or concurrency < 1:
         raise ValueError("a command and positive concurrency are required")
@@ -56,6 +63,9 @@ def measure(
     minimum_memory = previous.get("available_memory_bytes")
     maximum_load = previous.get("load_1m")
     maximum_cpu = None
+    initial_oom = previous.get("oom_kills", 0)
+    oom_kills = 0
+    stop_reason = None
     child = subprocess.Popen(command, env=env, start_new_session=True)
 
     def interrupt(signum: int, _frame: object) -> None:
@@ -70,6 +80,18 @@ def measure(
         while child.poll() is None:
             current = sample_resources()
             if current and previous:
+                oom_kills = current.get("oom_kills", 0) - initial_oom
+                if minimum_memory_bytes and (
+                    oom_kills > 0
+                    or current["available_memory_bytes"] < minimum_memory_bytes
+                ):
+                    stop_reason = (
+                        "oom_kill" if oom_kills > 0 else "available_memory_below_floor"
+                    )
+                    minimum_memory = min(
+                        minimum_memory, current["available_memory_bytes"]
+                    )
+                    break
                 minimum_memory = min(minimum_memory, current["available_memory_bytes"])
                 maximum_load = max(maximum_load, current["load_1m"])
                 elapsed = current["cpu_ticks"] - previous["cpu_ticks"]
@@ -93,6 +115,15 @@ def measure(
                 child.wait()
         for sig, handler in handlers.items():
             signal.signal(sig, handler)
+        if minimum_memory_bytes and not stop_reason:
+            final_sample = sample_resources()
+            if final_sample:
+                oom_kills = final_sample.get("oom_kills", 0) - initial_oom
+                minimum_memory = min(
+                    minimum_memory, final_sample["available_memory_bytes"]
+                )
+                if oom_kills > 0:
+                    stop_reason = "oom_kill"
         # Commands and environment values can contain credentials. Record only
         # the declared concurrency, timestamps, exit status and host counters.
         output.write_text(
@@ -106,12 +137,14 @@ def measure(
                     "minimum_available_memory_bytes": minimum_memory,
                     "maximum_load_1m": maximum_load,
                     "maximum_cpu_busy_percent": maximum_cpu,
+                    "oom_kills": oom_kills,
+                    "stop_reason": stop_reason,
                 },
                 indent=2,
             )
             + "\n"
         )
-    return child.returncode
+    return 125 if stop_reason else child.returncode
 
 
 def prepare_command(job: Path, concurrency: int, taskset: Path | None) -> list[str]:
@@ -220,9 +253,83 @@ def add_phase_metrics(job: Path, output: Path) -> None:
         name: {
             "measured_trials": len(durations),
             "total_seconds": round(sum(durations), 3),
+            "p95_seconds": round(
+                sorted(durations)[math.ceil(len(durations) * 0.95) - 1], 3
+            )
+            if durations
+            else None,
         }
         for name, durations in phases.items()
     }
+    output.write_text(json.dumps(summary, indent=2) + "\n")
+
+
+def capacity_metrics(job: Path, output: Path) -> None:
+    # Use the same validity and timeout definitions as normal eval evidence.
+    if __package__:
+        from .aws_merge import inventory, ordered_trials, scoreability_reason
+    else:
+        from aws_merge import inventory, ordered_trials, scoreability_reason
+    from stella_harbor.compare import _timeout_class
+
+    add_phase_metrics(job, output)
+    summary = json.loads(output.read_text())
+    state = inventory(job, 1)
+    state.pop("selected")
+    rows = []
+    events = []
+    for path in ordered_trials(job):
+        result = json.loads((path / "result.json").read_text())
+        adapter_path = path / "agent/stella/result.json"
+        adapter = json.loads(adapter_path.read_text()) if adapter_path.is_file() else {}
+        reason = scoreability_reason(path)
+        started, finished = result.get("started_at"), result.get("finished_at")
+        if started:
+            events.append((dt.datetime.fromisoformat(started), 1))
+            events.append(
+                (dt.datetime.fromisoformat(finished or summary["completed_at"]), -1)
+            )
+        rows.append(
+            {
+                "task": path.name.split("__", 1)[0],
+                "scoreability_reason": reason,
+                "reward": (
+                    (result.get("verifier_result") or {}).get("rewards") or {}
+                ).get("reward")
+                if reason is None
+                else None,
+                "timeout_class": _timeout_class(result, adapter),
+                "wall_seconds": (
+                    dt.datetime.fromisoformat(finished)
+                    - dt.datetime.fromisoformat(started)
+                ).total_seconds()
+                if started and finished
+                else None,
+            }
+        )
+    active = peak = 0
+    for _, change in sorted(events):
+        active += change
+        peak = max(peak, active)
+    reasons = []
+    if summary.get("stop_reason"):
+        reasons.append(summary["stop_reason"])
+    if summary["exit_code"] != 0:
+        reasons.append("command_failed")
+    if state["tasks"] != 89 or state["trials"] != 89:
+        reasons.append("incomplete_or_repeated_task_set")
+    if state["invalid"] >= 5:
+        reasons.append("at_least_five_unscoreable_trials")
+    summary.update(
+        {
+            "inventory": state,
+            "trials": rows,
+            "resolved": sum(row["reward"] == 1 for row in rows),
+            "scoreable_per_hour": state["scoreable"] * 3600 / summary["wall_seconds"],
+            "observed_peak_trial_overlap": peak,
+            "capacity_stop_reasons": reasons,
+        }
+    )
     output.write_text(json.dumps(summary, indent=2) + "\n")
 
 
@@ -232,22 +339,36 @@ def main(argv: list[str] | None = None) -> int:
     phases = commands.add_parser("phases")
     phases.add_argument("--job", type=Path, required=True)
     phases.add_argument("--output", type=Path, required=True)
+    capacity = commands.add_parser("capacity")
+    capacity.add_argument("--job", type=Path, required=True)
+    capacity.add_argument("--output", type=Path, required=True)
     for name in ("measure", "prepare"):
         command = commands.add_parser(name)
         command.add_argument("--output", type=Path, required=True)
         command.add_argument("--concurrency", type=int, required=True)
         if name == "measure":
+            command.add_argument("--minimum-memory-gib", type=int, default=0)
             command.add_argument("command", nargs=argparse.REMAINDER)
         else:
             command.add_argument("--taskset", type=Path)
             command.add_argument("--expected-tasks", type=int, required=True)
     args = parser.parse_args(argv)
+    if args.action == "capacity":
+        capacity_metrics(args.job, args.output)
+        return 0
     if args.action == "phases":
         add_phase_metrics(args.job, args.output)
         return 0
     if args.action == "measure":
         command = args.command[1:] if args.command[:1] == ["--"] else args.command
-        return measure(command, args.output, args.concurrency)
+        if args.minimum_memory_gib < 0:
+            parser.error("memory floor must not be negative")
+        return measure(
+            command,
+            args.output,
+            args.concurrency,
+            minimum_memory_bytes=args.minimum_memory_gib * 1024**3,
+        )
     job = args.output.parent.parent / "environment-jobs" / "warmup"
     job.parent.mkdir(parents=True, exist_ok=True)
     if job.exists():

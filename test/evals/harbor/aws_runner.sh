@@ -156,7 +156,7 @@ until docker info >/dev/null 2>&1; do sleep 1; done
 [ "$(df --output=avail -B1 / | tail -1)" -ge 107374182400 ] || { echo "less than 100 GiB free before evaluation" >&2; exit 1; }
 
 journal remote-preflight
-if [ "$RUN_MODE" != full ]; then
+if [ "$RUN_MODE" = smoke ] || [ "$RUN_MODE" = pilot ]; then
   as_eval mise run eval:loop -- --plan -c "$ROOT/aws-smoke.yaml" -n "$CONCURRENCY" > "$ROOT/logs/plan.log"
 else
   as_eval mise run eval:loop -- --plan -d "$DATASET_SPEC" -k 1 -n "$CONCURRENCY" > "$ROOT/logs/plan.log"
@@ -234,9 +234,14 @@ run_eval() {
   [ -z "$(docker ps -q)" ] || { echo "container from an earlier pass is still running" >&2; exit 1; }
   journal "$group-running"
   before=$(find "$REPO/dist/evals/jobs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort || true)
+  local measure_args=()
+  if [ "$RUN_MODE" = capacity ]; then
+    measure_args=(--minimum-memory-gib 8)
+  fi
   set +e
   as_eval python3 "$ROOT/aws_prepare.py" measure \
     --output "$ROOT/metrics/$group.json" --concurrency "$ACTIVE_CONCURRENCY" \
+    "${measure_args[@]}" \
     -- mise run eval:loop -- "$@" >"$log" 2>&1
   eval_status=$?
   set -e
@@ -251,6 +256,11 @@ run_eval() {
       [ -z "$testbed_diagnostic" ] || diagnostic="$diagnostic testbed=$testbed_diagnostic"
     fi
     journal "$group-failed" "exit=$eval_status diagnostic=$diagnostic"
+    if [ "$RUN_MODE" = capacity ]; then
+      # Preserve the failed primary instead of retrying away capacity failures.
+      LAST_EVAL_STATUS=$eval_status
+      return 0
+    fi
     return "$eval_status"
   fi
   [ -z "$(docker ps -q)" ] || { echo "eval left a task container running after $group" >&2; exit 1; }
@@ -350,9 +360,65 @@ PY
   journal warmup-discarded
 fi
 
-# Each logical pass reaches one scoreable trial per task before the next pass
-# begins. This fixes the evidence order up front: main pass, then its top-ups,
-# then the next pass. Reward values never participate in the decision.
+# Capacity failures stay in the evidence; never repair a stressed pass with top-ups.
+if [ "$RUN_MODE" = capacity ]; then
+  capacity_artifacts() {
+    python3 - "$1" <<'PY'
+import datetime, json, os, pathlib, sys
+root = pathlib.Path('/opt/stella-tb21')
+metrics = {str(p.relative_to(root / 'metrics')).removesuffix('.json'): json.loads(p.read_text())
+           for p in sorted((root / 'metrics').rglob('*.json'))}
+artifact = root / 'artifacts'
+artifact.mkdir(exist_ok=True)
+(artifact / 'performance.json').write_text(json.dumps(metrics, indent=2) + '\n')
+summary = {
+    'performance_only': True, 'status': sys.argv[1],
+    'run_id': os.environ['RUN_ID'], 'candidate_commit': os.environ['COMMIT'],
+    'controller_commit': os.environ['CONTROLLER_COMMIT'], 'model': os.environ['MODEL_ID'],
+    'instance_type': os.environ['INSTANCE_TYPE'], 'instance_id': os.environ['INSTANCE_ID'],
+    'region': os.environ['REGION'], 'vcpus': os.cpu_count(),
+    'dataset': os.environ['DATASET_SPEC'], 'planned_concurrencies': [16,32,48,64,16],
+    'remote_runner_sha256': os.environ['REMOTE_RUNNER_SHA256'],
+    'prepare_helper_sha256': os.environ['PREPARE_HELPER_SHA256'],
+    'merge_helper_sha256': os.environ['MERGE_HELPER_SHA256'],
+    'tasks_per_pass': 89, 'topups': 0,
+    'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+}
+(artifact / 'capacity-summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+PY
+    cp "$JOURNAL" "$ROOT/artifacts/remote-journal.ndjson"
+    (cd "$ROOT/artifacts" && sha256sum capacity-summary.json performance.json remote-journal.ndjson > SHA256SUMS)
+    aws s3 sync "$ROOT/artifacts" "s3://$BUCKET/artifacts" --only-show-errors
+  }
+  export DATASET_SPEC
+  pass=1
+  capacity_status=running
+  for ACTIVE_CONCURRENCY in 16 32 48 64 16; do
+    pass_name=pass-$(printf '%02d' "$pass")
+    LAST_EVAL_STATUS=0
+    run_eval "$pass_name/00-main" -d "$DATASET_SPEC" -k 1 -n "$ACTIVE_CONCURRENCY"
+    capacity_job="$ROOT/jobs/$pass_name"
+    [ "$LAST_EVAL_STATUS" -eq 0 ] || capacity_job="$REPO/dist/evals/jobs"
+    as_eval mise exec -- uv run --project test/evals/harbor python "$ROOT/aws_prepare.py" capacity \
+      --job "$capacity_job" --output "$ROOT/metrics/$pass_name/00-main.json"
+    stop_count=$(jq '.capacity_stop_reasons | length' "$ROOT/metrics/$pass_name/00-main.json")
+    if [ "$stop_count" -gt 0 ]; then
+      capacity_status=stopped
+      journal capacity-stopped "pass=$pass concurrency=$ACTIVE_CONCURRENCY"
+    elif [ "$pass" -eq 5 ]; then
+      capacity_status=completed
+    fi
+    capacity_artifacts "$capacity_status"
+    [ "$capacity_status" != stopped ] || break
+    pass=$((pass + 1))
+  done
+  FINAL_PHASE=complete
+  journal complete "capacity=$capacity_status; performance-only"
+  exit 0
+fi
+
+# Each logical pass reaches one scoreable trial per task before the next pass.
+# Evidence order is main, its top-ups, then the next pass; never select on reward.
 pass=1
 while [ "$pass" -le "$PASSES" ]; do
   pass_name=pass-$(printf '%02d' "$pass")
