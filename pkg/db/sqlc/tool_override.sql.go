@@ -44,7 +44,7 @@ WHERE tool_name = $1
   AND coalesce(user_id::text, '') = coalesce($3::text, '')
   AND coalesce(agent_id, '') = coalesce($4, '')
   AND updated_at = $5
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type DeleteToolOverrideIfVersionParams struct {
@@ -73,6 +73,8 @@ func (q *Queries) DeleteToolOverrideIfVersion(ctx context.Context, arg DeleteToo
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PluginID,
+		&i.LocalToolName,
 	)
 	return i, err
 }
@@ -91,7 +93,7 @@ func (q *Queries) DeleteToolOverridesByPrefix(ctx context.Context, prefix string
 }
 
 const getToolOverride = `-- name: GetToolOverride :one
-SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at FROM tool_override
+SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name FROM tool_override
 WHERE tool_name = $1
   AND scope = $2
   AND coalesce(user_id::text, '') = coalesce($3::text, '')
@@ -123,6 +125,8 @@ func (q *Queries) GetToolOverride(ctx context.Context, arg GetToolOverrideParams
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PluginID,
+		&i.LocalToolName,
 	)
 	return i, err
 }
@@ -131,7 +135,7 @@ const insertToolOverrideIfAbsent = `-- name: InsertToolOverrideIfAbsent :one
 INSERT INTO tool_override (tool_name, scope, user_id, agent_id, enabled)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (tool_name, scope, user_id, agent_id) DO NOTHING
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type InsertToolOverrideIfAbsentParams struct {
@@ -160,12 +164,14 @@ func (q *Queries) InsertToolOverrideIfAbsent(ctx context.Context, arg InsertTool
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PluginID,
+		&i.LocalToolName,
 	)
 	return i, err
 }
 
 const listToolOverridesForAgentContext = `-- name: ListToolOverridesForAgentContext :many
-SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at FROM tool_override
+SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name FROM tool_override
 WHERE scope = 'system'
    OR (scope = 'system_agent' AND agent_id = $1)
    OR (scope = 'user'         AND user_id = $2)
@@ -202,6 +208,8 @@ func (q *Queries) ListToolOverridesForAgentContext(ctx context.Context, arg List
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PluginID,
+			&i.LocalToolName,
 		); err != nil {
 			return nil, err
 		}
@@ -242,7 +250,7 @@ WHERE tool_name = $2
   AND coalesce(user_id::text, '') = coalesce($4::text, '')
   AND coalesce(agent_id, '') = coalesce($5, '')
   AND updated_at = $6
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type UpdateToolOverrideIfVersionParams struct {
@@ -273,6 +281,8 @@ func (q *Queries) UpdateToolOverrideIfVersion(ctx context.Context, arg UpdateToo
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PluginID,
+		&i.LocalToolName,
 	)
 	return i, err
 }
@@ -282,7 +292,7 @@ INSERT INTO tool_override (tool_name, scope, user_id, agent_id, enabled)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (tool_name, scope, user_id, agent_id)
 DO UPDATE SET enabled = excluded.enabled, updated_at = now()
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type UpsertToolOverrideParams struct {
@@ -311,6 +321,8 @@ func (q *Queries) UpsertToolOverride(ctx context.Context, arg UpsertToolOverride
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PluginID,
+		&i.LocalToolName,
 	)
 	return i, err
 }
