@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -688,7 +689,7 @@ func rejectImmutableSkillPayload(raw json.RawMessage) error {
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return nil
+		return fmt.Errorf("%w: payload must be a JSON object", ErrInvalidConfig)
 	}
 	if _, exists := fields["skills"]; exists {
 		return fmt.Errorf("%w: bundled skill membership is immutable", ErrInvalidConfig)
@@ -697,10 +698,8 @@ func rejectImmutableSkillPayload(raw json.RawMessage) error {
 }
 
 func rejectImmutableSkillPatch(patch ConfigPatch) error {
-	for _, field := range patch.ResetFields {
-		if field == "skills" {
-			return fmt.Errorf("%w: bundled skill membership is immutable", ErrInvalidConfig)
-		}
+	if slices.Contains(patch.ResetFields, "skills") {
+		return fmt.Errorf("%w: bundled skill membership is immutable", ErrInvalidConfig)
 	}
 	if !patch.PayloadSet {
 		return nil

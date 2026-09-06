@@ -191,6 +191,9 @@ func TestRejectImmutableSkillPatch(t *testing.T) {
 		patch ConfigPatch
 		want  bool
 	}{
+		{name: "malformed payload", patch: ConfigPatch{PayloadSet: true, Payload: json.RawMessage(`{"skills":`)}, want: true},
+		{name: "non-object payload", patch: ConfigPatch{PayloadSet: true, Payload: json.RawMessage(`[]`)}, want: true},
+		{name: "null payload", patch: ConfigPatch{PayloadSet: true, Payload: json.RawMessage(`null`)}, want: true},
 		{name: "null skill", patch: ConfigPatch{PayloadSet: true, Payload: json.RawMessage(`{"skills":null}`)}, want: true},
 		{name: "same skill set", patch: ConfigPatch{PayloadSet: true, Payload: json.RawMessage(`{"skills":[{"name":"docs"}]}`)}, want: true},
 		{name: "reset skill", patch: ConfigPatch{ResetFields: []string{"skills"}}, want: true},
