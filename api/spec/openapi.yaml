@@ -142,16 +142,6 @@ paths:
   /api/library-files/{id}:
     $ref: "./domain/library/paths.yaml#/paths/~1api~1library-files~1{id}"
   # ── MCP ────────────────────────────────────────────────────────────────────
-  /api/mcp/servers:
-    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers"
-  /api/mcp/servers/{id}:
-    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}"
-  /api/mcp/servers/{id}/probe:
-    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1probe"
-  /api/mcp/servers/{id}/oauth-start:
-    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1oauth-start"
-  /api/mcp/servers/{id}/oauth-disconnect:
-    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1oauth-disconnect"
   /api/mcp/oauth/callback:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1oauth~1callback"
   /api/mcp/registry/servers:

@@ -749,6 +749,22 @@ func TestImportLegacyStateRejectsUnappliedLatestMigration41Ledger(t *testing.T) 
 	}
 }
 
+func TestImportLegacyStateAcceptsAppliedMigration41WithLaterMigrations(t *testing.T) {
+	db := newTestDB(t)
+	ctx := t.Context()
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); err != nil {
+		t.Fatalf("fresh database import: %v", err)
+	}
+
+	var marker string
+	if err := db.QueryRow(ctx, `SELECT value FROM app_setting WHERE key = 'plugin_cutover_v1'`).Scan(&marker); err != nil {
+		t.Fatal(err)
+	}
+	if marker != "v1" {
+		t.Fatalf("cutover marker = %q, want v1", marker)
+	}
+}
+
 func TestImportLegacyStateRefusesPreparationSchema(t *testing.T) {
 	db, _ := newTestDBAtMigration(t, pluginCutoverMigration40)
 	ctx := t.Context()

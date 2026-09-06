@@ -298,9 +298,9 @@ func runMise(ctx context.Context, miseBin string, env []string, dir string, args
 	return nil
 }
 
-// binaryLookupName returns the name used to verify a manifest binary via
+// BinaryLookupName returns the name used to verify a manifest binary via
 // `mise which`. rename_exe wins (archive rename), then bin, then the tool name.
-func binaryLookupName(b ManifestBinary) string {
+func BinaryLookupName(b ManifestBinary) string {
 	if renameExe, ok := stringOption(b.Options, "rename_exe"); ok {
 		return renameExe
 	}
@@ -316,7 +316,7 @@ func miseToolFromBinary(b ManifestBinary) miseTool {
 		Key:        b.Tool,
 		Version:    b.Version,
 		Options:    b.Options,
-		Lookup:     binaryLookupName(b),
+		Lookup:     BinaryLookupName(b),
 		PublicName: b.Name,
 	}
 }

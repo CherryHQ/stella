@@ -740,6 +740,10 @@ func materializeBundledBinary(publicBin, name, source string) error {
 }
 
 func copyNativeTree(source, destination string) error {
+	lexicalRoot, err := filepath.Abs(source)
+	if err != nil {
+		return fmt.Errorf("resolve source root: %w", err)
+	}
 	root, err := filepath.EvalSymlinks(source)
 	if err != nil {
 		return err
@@ -769,13 +773,14 @@ func copyNativeTree(source, destination string) error {
 			if err != nil {
 				return err
 			}
-			if err := validateNativeSymlinkTarget(sourceRoot.FS(), name, target); err != nil {
+			portableTarget, err := validateNativeSymlinkTarget(sourceRoot.FS(), root, lexicalRoot, name, target)
+			if err != nil {
 				return fmt.Errorf("symlink %q: %w", name, err)
 			}
 			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 				return err
 			}
-			return os.Symlink(target, dest)
+			return os.Symlink(portableTarget, dest)
 		}
 		if entry.IsDir() {
 			return os.MkdirAll(dest, 0o755)
@@ -784,40 +789,69 @@ func copyNativeTree(source, destination string) error {
 	})
 }
 
-func validateNativeSymlinkTarget(root fs.FS, name, target string) error {
-	if target == "" || filepath.IsAbs(target) || strings.HasPrefix(target, "/") || strings.ContainsRune(target, '\\') {
-		return fmt.Errorf("absolute or unsafe target %q is not portable", target)
-	}
+func validateNativeSymlinkTarget(root fs.FS, canonicalRoot, lexicalRoot, name, target string) (string, error) {
 	links, ok := root.(fs.ReadLinkFS)
 	if !ok {
-		return errors.New("source root does not support symlink inspection")
+		return "", errors.New("source root does not support symlink inspection")
+	}
+	target, err := portableNativeSymlinkTarget(canonicalRoot, lexicalRoot, name, target)
+	if err != nil {
+		return "", err
 	}
 	current := pathpkg.Clean(pathpkg.Join(pathpkg.Dir(name), target))
 	seen := make(map[string]struct{})
 	for {
 		if current == ".." || strings.HasPrefix(current, "../") || !fs.ValidPath(current) {
-			return errors.New("target escapes install")
+			return "", errors.New("target escapes install")
 		}
 		if _, exists := seen[current]; exists {
-			return errors.New("target contains a symlink cycle")
+			return "", errors.New("target contains a symlink cycle")
 		}
 		seen[current] = struct{}{}
 		info, err := fs.Lstat(root, current)
 		if err != nil {
-			return fmt.Errorf("resolve target: %w", err)
+			return "", fmt.Errorf("resolve target: %w", err)
 		}
 		if info.Mode()&fs.ModeSymlink == 0 {
-			return nil
+			return target, nil
 		}
 		next, err := links.ReadLink(current)
 		if err != nil {
-			return fmt.Errorf("read target: %w", err)
+			return "", fmt.Errorf("read target: %w", err)
 		}
-		if next == "" || filepath.IsAbs(next) || strings.HasPrefix(next, "/") || strings.ContainsRune(next, '\\') {
-			return fmt.Errorf("absolute or unsafe target %q is not portable", next)
+		next, err = portableNativeSymlinkTarget(canonicalRoot, lexicalRoot, current, next)
+		if err != nil {
+			return "", err
 		}
 		current = pathpkg.Clean(pathpkg.Join(pathpkg.Dir(current), next))
 	}
+}
+
+func portableNativeSymlinkTarget(canonicalRoot, lexicalRoot, name, target string) (string, error) {
+	if target == "" || strings.ContainsRune(target, '\\') {
+		return "", fmt.Errorf("absolute or unsafe target %q is not portable", target)
+	}
+	if !filepath.IsAbs(target) && !strings.HasPrefix(target, "/") {
+		return target, nil
+	}
+	if canonicalRoot == "" || lexicalRoot == "" {
+		return "", fmt.Errorf("absolute or unsafe target %q is not portable", target)
+	}
+	targetAbs := filepath.Clean(target)
+	rel, err := filepath.Rel(canonicalRoot, targetAbs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		rel, err = filepath.Rel(lexicalRoot, targetAbs)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			return "", fmt.Errorf("absolute or unsafe target %q is not portable", target)
+		}
+		targetAbs = filepath.Join(canonicalRoot, rel)
+	}
+	linkAbs := filepath.Join(canonicalRoot, filepath.FromSlash(name))
+	portable, err := filepath.Rel(filepath.Dir(linkAbs), targetAbs)
+	if err != nil || portable == "" {
+		return "", fmt.Errorf("absolute or unsafe target %q is not portable", target)
+	}
+	return filepath.ToSlash(portable), nil
 }
 
 func copyNativeRootFile(root *os.Root, name, destination string) error {

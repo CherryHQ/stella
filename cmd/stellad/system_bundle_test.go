@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	ucli "github.com/urfave/cli/v2"
+
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/plugins/core"
 	"github.com/CherryHQ/stella/resources/binaries"
@@ -95,6 +97,14 @@ func TestSystemBundleCommandsPropagateWriterErrors(t *testing.T) {
 		if !errors.Is(err, errSystemBundleWriter) {
 			t.Fatalf("%s error = %v, want writer error", strings.Join(args[1:], " "), err)
 		}
+	}
+}
+
+func TestSystemBundleInstallExposesBuiltinArtifactPreparationFlag(t *testing.T) {
+	command := systemBundleInstallCommand()
+	flag := command.Flags[1].(*ucli.BoolFlag)
+	if flag.Name != "prepare-builtin-artifacts" {
+		t.Fatalf("artifact flag name = %q, want prepare-builtin-artifacts", flag.Name)
 	}
 }
 

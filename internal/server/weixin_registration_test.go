@@ -13,6 +13,15 @@ import (
 	"github.com/CherryHQ/stella/internal/server"
 )
 
+func seedWeixinRegistrationChannel(t *testing.T, env *testEnv, id, agentID string) {
+	t.Helper()
+	if err := env.store.CreateChannel(context.Background(), config.Channel{
+		ID: id, Type: "weixin", AgentID: agentID, Config: `{}`,
+	}); err != nil {
+		t.Fatalf("CreateChannel(%s): %v", id, err)
+	}
+}
+
 func TestBeginWeixinRegistrationProxiesQRCode(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/ilink/bot/get_bot_qrcode" {
@@ -31,7 +40,8 @@ func TestBeginWeixinRegistrationProxiesQRCode(t *testing.T) {
 	defer server.SetWeixinRegistrationEndpointForTesting(upstream.URL)()
 
 	env := setupAdmin(t)
-	rr := doRequest(t, env, "POST", "/api/channels/weixin/register/qr", map[string]any{})
+	seedWeixinRegistrationChannel(t, env, "weixin-register", "")
+	rr := doRequest(t, env, "POST", "/api/channels/weixin/register/qr", map[string]any{"channel_id": "weixin-register"})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -44,7 +54,7 @@ func TestBeginWeixinRegistrationProxiesQRCode(t *testing.T) {
 	if err := json.Unmarshal(parseResponse(t, rr).Data, &got); err != nil {
 		t.Fatalf("unmarshal begin: %v", err)
 	}
-	if got.ChannelID == "" || got.QRCode != "qr-1" || got.QRImageURL != "https://wx.example/qr-1" || got.PollInterval != 2 {
+	if got.ChannelID != "weixin-register" || got.QRCode != "qr-1" || got.QRImageURL != "https://wx.example/qr-1" || got.PollInterval != 2 {
 		t.Fatalf("begin response = %#v", got)
 	}
 }
@@ -74,6 +84,7 @@ func TestPollWeixinRegistrationCreatesChannel(t *testing.T) {
 
 	env := setupAdmin(t)
 	agentID := findStellaID(t, env)
+	seedWeixinRegistrationChannel(t, env, "weixin-a", "")
 	rr := doRequest(t, env, "POST", "/api/channels/weixin/register/poll", map[string]any{
 		"qrcode":     "qr-1",
 		"channel_id": "weixin-a",
@@ -139,6 +150,7 @@ func TestPollWeixinRegistrationKeepsCredentialsPerInstance(t *testing.T) {
 		{qr: "qr-a", id: "weixin-a", agent: agentA, token: "token-a"},
 		{qr: "qr-b", id: "weixin-b", agent: agentB, token: "token-b"},
 	} {
+		seedWeixinRegistrationChannel(t, env, tc.id, "")
 		rr := doRequest(t, env, "POST", "/api/channels/weixin/register/poll", map[string]any{
 			"qrcode": tc.qr, "channel_id": tc.id, "agent_id": tc.agent,
 		})
@@ -284,6 +296,7 @@ func TestPollWeixinRegistrationRejectsDifferentPlatformTarget(t *testing.T) {
 func TestPollWeixinRegistrationRejectsSamePlatformAgentBinding(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := findStellaID(t, env)
+	seedWeixinRegistrationChannel(t, env, "weixin-new", "")
 	if err := env.store.CreateChannel(context.Background(), config.Channel{
 		ID:      "weixin-existing",
 		Name:    "Existing WeChat",
@@ -314,6 +327,7 @@ func TestPollWeixinRegistrationPendingDoesNotCreateChannel(t *testing.T) {
 	defer server.SetWeixinRegistrationEndpointForTesting(upstream.URL)()
 
 	env := setupAdmin(t)
+	seedWeixinRegistrationChannel(t, env, "weixin-pending", "")
 	rr := doRequest(t, env, "POST", "/api/channels/weixin/register/poll", map[string]any{
 		"qrcode": "qr-1", "channel_id": "weixin-pending", "agent_id": findStellaID(t, env),
 	})
@@ -330,7 +344,11 @@ func TestPollWeixinRegistrationPendingDoesNotCreateChannel(t *testing.T) {
 	if got.Status != "wait" || got.PollInterval != 2 {
 		t.Fatalf("pending response = %#v", got)
 	}
-	if _, err := env.store.GetChannel(context.Background(), "weixin-pending"); err == nil {
-		t.Fatalf("channel was created while registration was pending")
+	ch, err := env.store.GetChannel(context.Background(), "weixin-pending")
+	if err != nil {
+		t.Fatalf("GetChannel pending: %v", err)
+	}
+	if ch.Config != `{}` {
+		t.Fatalf("channel config changed while registration was pending: %s", ch.Config)
 	}
 }

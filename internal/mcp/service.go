@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,6 @@ import (
 	vaultpkg "github.com/CherryHQ/stella/internal/vault"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/platform/diagnostic"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -1288,7 +1286,7 @@ func (s *Service) probeCommon(ctx context.Context, reg Registration, owner Crede
 	defer cancel()
 	client, err := s.connect(probeCtx, reg, owner)
 	if err != nil {
-		status, reason := StatusError, redactProbeError(reg.URL, err)
+		status, reason := StatusError, probeFailedHint
 		if isCredentialRejection(err) {
 			status, reason = StatusNeedsAuth, credentialRejectedHint
 		}
@@ -1297,7 +1295,7 @@ func (s *Service) probeCommon(ctx context.Context, reg Registration, owner Crede
 	defer func() { _ = client.Close() }()
 	remote, err := client.ListTools(probeCtx)
 	if err != nil {
-		status, reason := StatusError, redactProbeError(reg.URL, err)
+		status, reason := StatusError, probeFailedHint
 		if isCredentialRejection(err) {
 			status, reason = StatusNeedsAuth, credentialRejectedHint
 		}
@@ -1469,17 +1467,10 @@ func (s *Service) SetStatus(ctx context.Context, id, status, msg string) error {
 	return fmt.Errorf("mcp: status update requires resolved common registration and credential owner")
 }
 
-// persistProbeFailure keeps the last known catalog (still the best snapshot
-// available) and records the redacted reason.
-// urlPattern matches any URL in an error message so probe failures can never
-// carry userinfo, query secrets, or fragments, wherever the URL came from.
-var urlPattern = regexp.MustCompile(`https?://[^\s]+`)
-
-// redactProbeError scrubs every URL from a probe failure message down to its
-// scheme/host/path via diagnostic.Endpoint.
-func redactProbeError(rawURL string, err error) string {
-	return urlPattern.ReplaceAllStringFunc(err.Error(), diagnostic.Endpoint)
-}
+// Probe errors never cross the persistence or API boundary because endpoint
+// paths are write-only input and may carry secrets. Credential rejection has
+// its own stable status and hint in probeCommon.
+const probeFailedHint = "MCP probe failed"
 
 // BearerToken returns the decrypted bearer token for a registration, or an empty
 // string when the server needs no auth.

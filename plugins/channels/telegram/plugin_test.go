@@ -127,8 +127,13 @@ func (s *stubStore) ListChannelsByType(context.Context, string) ([]config.Channe
 	return s.channels, nil
 }
 
-func (s *stubStore) GetChannel(context.Context, string) (config.Channel, error) {
-	return config.Channel{}, nil
+func (s *stubStore) GetChannel(_ context.Context, id string) (config.Channel, error) {
+	for _, channel := range s.channels {
+		if channel.ID == id {
+			return channel, nil
+		}
+	}
+	return config.Channel{}, config.ErrChannelNotFound
 }
 func (s *stubStore) CreateChannel(context.Context, config.Channel) error { return nil }
 func (s *stubStore) UpdateChannel(context.Context, config.Channel) error { return nil }

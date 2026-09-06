@@ -77,7 +77,7 @@ ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # every selection volume.
 RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/bin/stellad \
     --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
-	STELLA_HOME=/opt/stella stellad system-bundle install --core-path /opt/stella/core-runtime && \
+	STELLA_HOME=/opt/stella stellad system-bundle install --core-path /opt/stella/core-runtime --prepare-builtin-artifacts && \
 	REVISION="$(STELLA_HOME=/opt/stella stellad system-bundle revision)" && \
 	test "$REVISION" = "$BUILTIN_BUNDLE_REVISION" && \
 	mkdir -p /opt/stella/skills && ln -s "../bundles/$REVISION" /opt/stella/skills/builtin && \
@@ -85,7 +85,12 @@ RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/
     /opt/stella/core-runtime/xberg --version && \
     /opt/stella/core-runtime/fd --version && \
     /opt/stella/core-runtime/rg --version && \
-    rm -rf /opt/stella/.mise-tools/cache
+    rm -rf /opt/stella/.mise-tools/cache \
+           /opt/stella/.mise-tools/config \
+           /opt/stella/.mise-tools/state \
+           /opt/stella/.mise-tools/home \
+           /opt/stella/.mise-tools/xdg \
+           /opt/stella/.mise-private
 
 # The install above runs as the owning UID, so an owner-only permission bit on a
 # bundled runtime cannot fail it — that is how a 0700 Xberg bundle directory once

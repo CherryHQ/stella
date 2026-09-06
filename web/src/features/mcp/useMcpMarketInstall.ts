@@ -1,19 +1,30 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createPlugin, startPluginConfigOAuth } from "@/lib/api-client/sdk.gen";
-import type { McpRegistryServer, PluginConfig } from "@/lib/api-client/types.gen";
+import { createPlugin, probePluginConfig, startPluginConfigOAuth } from "@/lib/api-client/sdk.gen";
+import type {
+  ComponentsPluginConfigInputWritable,
+  McpRegistryServer,
+  PluginConfig,
+} from "@/lib/api-client/types.gen";
 import type { InstallRequest, WritableScope } from "@/features/marketplace/InstallScopeStep";
 import { apiErrorMessage } from "@/lib/api-error";
 
 // One marketplace install creates a first-party MCP plugin and its initial
-// config. Secret-bearing registry entries fail explicitly until the secure
-// mutation seam is available; no plaintext credential is sent here.
+// config. Credentials remain write-only and are handed to the common backend
+// mutation seam, never echoed through the returned config summary.
 export type InstallArgs = {
   server: McpRegistryServer;
   scope: WritableScope;
   agentId?: string;
   bearerSecret?: string;
 };
+
+/** Registry IDs can contain vendor path punctuation; plugin namespaces cannot. */
+export function registryPluginNamespace(id: string): string {
+  const namespace = id.replace(/[^A-Za-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!namespace) throw new Error("registry server id cannot produce a valid plugin namespace");
+  return namespace;
+}
 
 // The notify/t callbacks come from the host sheet; call sites only pass
 // MessageKey literals, so the translator type is imported rather than re-derived.
@@ -28,34 +39,54 @@ export function useMcpMarketInstall(
 
   const mutation = useMutation({
     mutationFn: async ({ server, scope, agentId, bearerSecret }: InstallArgs) => {
-      if (server.auth === "bearer" && bearerSecret?.trim()) {
-        // The unified write contract has no plaintext credential field. Keep
-        // this explicit failure instead of claiming an install succeeded.
-        throw new Error("secure credential writes are unavailable");
+      const authType = server.auth === "bearer" ? "bearer" : "none";
+      const registry = server.version
+        ? { source: server.source, id: server.id, version: server.version }
+        : { source: server.source, id: server.id };
+      const config = {
+        url: server.url,
+        transport: server.transport,
+        auth_type: authType,
+        credential_mode: "shared" as const,
+        metadata: { registry },
+      };
+      const initialConfig: ComponentsPluginConfigInputWritable = {
+        scope,
+        is_enabled: true,
+        config,
+      };
+      if (agentId) initialConfig.agent_id = agentId;
+      if (authType === "bearer") {
+        const token = bearerSecret?.trim();
+        if (!token) throw new Error("bearer credential is required");
+        initialConfig.credentials = { token };
       }
       const { data } = await createPlugin({
         body: {
           display_name: server.name,
-          namespace: server.id,
+          namespace: registryPluginNamespace(server.id),
           backend: "mcp",
           definition_spec: {},
           initial_config: {
-            scope,
-            ...(agentId ? { agent_id: agentId } : {}),
-            config: {
-              url: server.url,
-              transport: "streamable_http",
-              auth_type: server.auth === "bearer" ? "bearer" : "none",
-              credential_mode: "shared",
-            },
+            ...initialConfig,
           },
         },
         throwOnError: true,
       });
-      return data?.config;
+      const createdConfig = data?.config;
+      if (!createdConfig) throw new Error("plugin configuration was not returned");
+      const [kind, ...nameParts] = createdConfig.plugin_id.split("/");
+      if (!kind || nameParts.length === 0) throw new Error("invalid plugin id");
+      await probePluginConfig({
+        path: { kind, name: nameParts.join("/"), config_id: createdConfig.id },
+        throwOnError: true,
+      });
+      return createdConfig;
     },
     onSuccess: (data) => {
       setCreated(data ?? null);
+      void queryClient.invalidateQueries({ queryKey: ["plugins"] });
+      void queryClient.invalidateQueries({ queryKey: ["plugin-configs"] });
       void queryClient.invalidateQueries({ queryKey: ["agent-mcp-servers"] });
       void queryClient.invalidateQueries({ queryKey: ["mcp-servers"] });
     },
@@ -86,7 +117,7 @@ export function useMcpMarketInstall(
 /** Builds the deferred install request handed to the shared scope step. */
 export function buildInstallRequest(
   server: McpRegistryServer,
-  run: (args: InstallArgs) => Promise<unknown>,
+  run: (args: InstallArgs) => Promise<PluginConfig>,
   confirmLabel: string,
   agentId?: string,
   bearerSecret?: string,

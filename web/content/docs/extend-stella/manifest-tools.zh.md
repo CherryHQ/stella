@@ -23,7 +23,7 @@ mise、Xberg、fd 和 rg 构成 Stella 必备的执行环境，无需插件配�
 
 这些 runtime 随 Stella 版本提供。Docker 在构建镜像时安装；Native 在开始接收对话前准备，已有完整本地文件时不会再次调用安装器。可选 CLI 插件仍使用下面的四层范围配置，其 binary 名称不能覆盖必备 runtime。
 
-Docker 构建通过 `stellad system-bundle install --core-path /opt/stella/core-runtime` 将本次准备好的完整 runtime 目录发布到固定镜像路径，保留可执行文件依赖的附属文件。
+Docker 构建将本次准备好的完整 runtime 目录发布到固定镜像路径，保留可执行文件依赖的附属文件。构建发布参数见 `stellad system-bundle install --help`。
 
 升级会清理原有 `tool/mise`、`tool/xberg`、`tool/fd` 和 `tool/rg` 插件设置，包括禁用状态。迁移后，这些必备 builtin 保持可用，其他插件设置不变。
 
@@ -36,7 +36,7 @@ Docker 构建通过 `stellad system-bundle install --core-path /opt/stella/core-
 3. 将定义和范围配置规范化到公共插件 catalog
 4. 将已启用的清单插件注册到插件主机
 
-可选插件二进制在 Runner 需要时，按捕获的插件 snapshot 安装。必备 builtin 的准备独立于该 snapshot。Native managed 会话使用 managed tree；user 和 user-agent 选择使用各自的沙箱目录。Docker 在自己的边界内准备 Linux 原生文件。
+Runner 按捕获的插件 snapshot 暴露可选插件二进制。Docker 从镜像复制匹配的预装文件；自定义声明没有匹配文件时才执行隔离安装。必备 builtin 的准备独立于该 snapshot。Native managed 会话使用 managed tree；user 和 user-agent 选择使用各自的沙箱目录。Docker 在自己的边界内准备 Linux 原生文件。
 
 ## Docker 沙箱中的 CLI 可用性
 
@@ -48,15 +48,18 @@ Native managed 安装会产生宿主机平台的二进制文件，它们无法�
 
 - 必备 builtin 按统一的 release 声明预装到带版本的沙箱镜像中。即使没有选择任何可选插件，它们也保持可用。
 - 解析后的清单（内置定义加上已存储的自定义）仍然是插件元数据、启用状态、会话环境变量、OAuth 注入以及本地沙箱二进制安装的来源。
-- 用户配置的 CLI 二进制需要一条容器原生的加载路径。它们应在 Docker 环境内按 Linux 目标安装，而不是从宿主机 `$STELLA_HOME/bin` 复制。
+- 随版本提供的可选 CLI 在构建镜像时准备。四层权限选择决定它们是否可见，预装不代表启用。
+- 自定义 CLI 声明没有精确匹配的镜像文件时，在隔离 helper 中按 Linux 目标安装，不从宿主机复制。
 
-一种用于用户配置 CLI 的安全 Docker 加载设计是：
+Docker 按以下步骤准备每次选择：
 
 1. 按 runner 可信的 user 和 Agent 解析完整四层插件选择。
-2. 把该选择交给现有容器 preparation helper，只安装选中的 Linux 文件。
+2. 按 binary 名称、mise tool key、声明版本（空值为 `latest`）和全部安装选项精确匹配镜像缓存。命中时复制完整安装目录及附属文件，未命中才在隔离 helper 中安装。
 3. 将结果保存到 Docker 工具缓存或 volume，缓存键由一个解析后的 image ID 加完整选择身份组成。
 4. 将选中的条目挂载到沙箱会话中的容器专用路径，并前置到容器内 `PATH`。
-5. 捕获的 snapshot 或 image ID 变化时准备新的选择。
+5. 捕获的 snapshot 或 image ID 变化时准备新的选择。匹配的镜像文件直接复制，不重新下载。默认内置选择可断网启动，自定义版本仍可能需要下载。
+
+运行中的会话无法访问镜像安装缓存。禁用插件既没有命令别名，也无法通过绝对路径访问缓存中的安装目录或附属文件。版本或选项不匹配时，不会回退使用镜像中的同名工具。
 
 这样可以保持 release 沙箱镜像稳定，同时仍支持用户新增 CLI。安装得到的用户二进制是 Linux 容器二进制，宿主机 `$STELLA_HOME/bin` 不参与 Docker 可执行文件解析。`none` backend 仍是在可信宿主机上执行，不提供文件系统隔离。
 
@@ -211,7 +214,7 @@ binaries:
 
 ## 状态与缓存
 
-Stella 在 `$STELLA_HOME/plugin-manifest-state.json` 中跟踪已安装的二进制版本。选中的 snapshot 尽可能复用正确版本；修改二进制的 `version` 会触发新的惰性安装。Preparation 会随会话取消，Stella 也会终止安装器派生出的子进程。
+已准备的选择按捕获的插件配置缓存，Docker 还绑定解析后的镜像 ID。修改 binary 声明会创建新的选择：匹配的镜像文件直接复用，缺失的版本需要安装。Preparation 会随会话取消，Stella 也会终止安装器派生出的子进程。
 
 ## 管理界面
 

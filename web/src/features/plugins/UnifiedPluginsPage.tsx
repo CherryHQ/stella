@@ -11,7 +11,13 @@ import {
   startPluginConfigOAuth,
   updatePluginConfig,
 } from "@/lib/api-client/sdk.gen";
-import type { PluginConfig, PluginDefinition } from "@/lib/api-client";
+import type {
+  ComponentsCreatePluginRequestWritable,
+  ComponentsPluginConfigInputWritable,
+  ComponentsUpdatePluginConfigRequestWritable,
+  PluginConfig,
+  PluginDefinition,
+} from "@/lib/api-client";
 import {
   pluginConfigsQueryOptions,
   pluginsQueryOptions,
@@ -46,6 +52,7 @@ import { useI18n } from "@/lib/i18n";
 import { apiErrorCode, apiErrorMessage } from "@/lib/api-error";
 import {
   PluginConfigEditor,
+  type PluginConfigCredentials,
   type PluginConfigPayload,
 } from "@/features/plugins/PluginConfigEditor";
 import { McpInstallSheet } from "@/features/mcp/McpInstallSheet";
@@ -321,10 +328,15 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
   const [newMcpOpen, setNewMcpOpen] = useState(false);
   const [registryOpen, setRegistryOpen] = useState(false);
   const [newMcpName, setNewMcpName] = useState("");
+  const [newMcpURL, setNewMcpURL] = useState("");
   const [newMcpNamespace, setNewMcpNamespace] = useState("");
   const [newMcpDescription, setNewMcpDescription] = useState("");
   const [newMcpScope, setNewMcpScope] = useState<PluginScope>(visibleScopes[0]);
   const [newScope, setNewScope] = useState<PluginScope>(visibleScopes[0]);
+  const closeNewMcp = () => {
+    setNewMcpOpen(false);
+    setNewMcpURL("");
+  };
   const invalidate = () => {
     if (selectedPath)
       void queryClient.invalidateQueries({
@@ -405,18 +417,22 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
   });
   const editMutation = useMutation({
-    mutationFn: async (input: { config: PluginConfig; payload: PluginConfigPayload }) => {
+    mutationFn: async (input: {
+      config: PluginConfig;
+      payload: PluginConfigPayload;
+      credentials: PluginConfigCredentials;
+    }) => {
       if (!selectedPath) throw new Error(t("plugins.noSelection"));
+      const body: ComponentsUpdatePluginConfigRequestWritable = {
+        expected_revision: input.config.revision,
+      };
+      if (input.payload.config) body.config = input.payload.config;
+      if (input.payload.binary_versions) body.binary_versions = input.payload.binary_versions;
+      if (input.payload.skill_sources) body.skill_sources = input.payload.skill_sources;
+      if (Object.keys(input.credentials).length > 0) body.credentials = input.credentials;
       const { data } = await updatePluginConfig({
         path: { ...selectedPath, config_id: input.config.id },
-        body: {
-          expected_revision: input.config.revision,
-          ...(input.payload.config ? { config: input.payload.config } : {}),
-          ...(input.payload.binary_versions
-            ? { binary_versions: input.payload.binary_versions }
-            : {}),
-          ...(input.payload.skill_sources ? { skill_sources: input.payload.skill_sources } : {}),
-        },
+        body,
         throwOnError: true,
       });
       return data;
@@ -457,34 +473,40 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
   });
   const createMcpMutation = useMutation({
-    mutationFn: async (input: { payload: PluginConfigPayload }) => {
+    mutationFn: async (input: {
+      payload: PluginConfigPayload;
+      credentials: PluginConfigCredentials;
+    }) => {
       const displayName = newMcpName.trim();
       const namespace = newMcpNamespace.trim();
       if (!displayName || !namespace) throw new Error(t("plugins.mcpIdentityRequired"));
+      const initialConfig: ComponentsPluginConfigInputWritable = {
+        scope: newMcpScope,
+        is_enabled: false,
+        config: input.payload.config,
+      };
+      if (isAgentManagedScope(newMcpScope) && selectedAgentID) {
+        initialConfig.agent_id = selectedAgentID;
+      }
+      if (Object.keys(input.credentials).length > 0) {
+        initialConfig.credentials = input.credentials;
+      }
+      const body: ComponentsCreatePluginRequestWritable = {
+        display_name: displayName,
+        namespace,
+        backend: "mcp",
+        definition_spec: newMcpDescription.trim() ? { description: newMcpDescription.trim() } : {},
+        initial_config: initialConfig,
+      };
       const { data } = await createPlugin({
-        body: {
-          display_name: displayName,
-          namespace,
-          backend: "mcp",
-          definition_spec: newMcpDescription.trim()
-            ? { description: newMcpDescription.trim() }
-            : {},
-          initial_config: {
-            scope: newMcpScope,
-            ...(isAgentManagedScope(newMcpScope) && selectedAgentID
-              ? { agent_id: selectedAgentID }
-              : {}),
-            is_enabled: false,
-            config: input.payload.config,
-          },
-        },
+        body,
         throwOnError: true,
       });
       return data;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["plugins"] });
-      setNewMcpOpen(false);
+      closeNewMcp();
       setNewMcpName("");
       setNewMcpNamespace("");
       setNewMcpDescription("");
@@ -699,7 +721,6 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
         >
           {t("plugins.addScopeConfig")}
         </Button>
-        <p className="text-xs text-muted-foreground">{t("plugins.secretWriteUnavailable")}</p>
       </div>
       {!selectedPlugin.is_builtin && (
         <div className="border-t border-border pt-4">
@@ -798,11 +819,17 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
         defaultScope={scopeBand === "system" ? "system" : "user"}
         isAdmin={scopeBand === "system"}
         agentId={selectedAgentID || undefined}
+        onRequestManual={({ name, namespace, url }) => {
+          setNewMcpName(name);
+          setNewMcpNamespace(namespace);
+          setNewMcpURL(url);
+          setNewMcpOpen(true);
+        }}
       />
       <SettingsDetailSheet open={detail !== null} onClose={closeDetail}>
         {detail}
       </SettingsDetailSheet>
-      <SettingsDetailSheet open={newMcpOpen} onClose={() => setNewMcpOpen(false)}>
+      <SettingsDetailSheet open={newMcpOpen} onClose={closeNewMcp}>
         <DetailPanel>
           <DetailPanelHeader title={t("plugins.addMcp")} />
           <div className="space-y-4">
@@ -876,19 +903,16 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
             )}
             <PluginConfigEditor
               plugin={newMcpPlugin}
+              initialMcpUrl={newMcpURL}
               onSave={(payload, credentials) => {
-                if (Object.keys(credentials).length > 0) {
-                  showToast(t("plugins.secretWriteUnavailable"), "error");
-                  return;
-                }
                 const url = payload.config?.url;
                 if (typeof url !== "string" || !url.trim()) {
                   showToast(t("plugins.mcpEndpointRequired"), "error");
                   return;
                 }
-                createMcpMutation.mutate({ payload });
+                createMcpMutation.mutate({ payload, credentials });
               }}
-              onCancel={() => setNewMcpOpen(false)}
+              onCancel={closeNewMcp}
               busy={createMcpMutation.isPending}
             />
           </div>
@@ -905,11 +929,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
               plugin={selectedPlugin}
               config={editingConfig}
               onSave={(payload, credentials) => {
-                if (Object.keys(credentials).length > 0) {
-                  showToast(t("plugins.secretWriteUnavailable"), "error");
-                  return;
-                }
-                editMutation.mutate({ config: editingConfig, payload });
+                editMutation.mutate({ config: editingConfig, payload, credentials });
               }}
               onCancel={() => setEditingConfig(null)}
               busy={editMutation.isPending}

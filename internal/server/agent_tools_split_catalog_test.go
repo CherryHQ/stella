@@ -32,9 +32,9 @@ import (
 // (rules/agent-tools.md §10).
 var splitCatalog = []string{
 	"goal_cancel", "goal_create", "goal_get", "goal_list",
-	"scheduler_job_create", "scheduler_job_delete", "scheduler_job_get",
-	"scheduler_job_list", "scheduler_job_pause", "scheduler_job_resume",
-	"scheduler_job_update",
+	"scheduler__job_create", "scheduler__job_delete", "scheduler__job_get",
+	"scheduler__job_list", "scheduler__job_pause", "scheduler__job_resume",
+	"scheduler__job_update",
 	"workflow_get", "workflow_list", "workflow_run", "workflow_save",
 	"oauth_connect", "oauth_disconnect", "oauth_flow_status", "oauth_list",
 	"email__account_list", "email__message_list", "email__message_read", "email__message_send",

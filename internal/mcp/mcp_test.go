@@ -1005,8 +1005,8 @@ func TestProbeFailurePersistsRedactedError(t *testing.T) {
 			t.Fatalf("probe error leaked %q: %s", secret, msg)
 		}
 	}
-	if !strings.Contains(msg, "example.com/mcp") {
-		t.Fatalf("probe error lost its redacted endpoint: %s", msg)
+	if msg != "MCP probe failed" {
+		t.Fatalf("probe error = %q, want bounded error", msg)
 	}
 }
 
@@ -1306,5 +1306,8 @@ func TestIsCredentialRejectionSeesThroughConnectionFailure(t *testing.T) {
 	}
 	if isCredentialRejection(connectionError(reg, errors.New("dial tcp: connection refused"))) {
 		t.Fatal("a wrapped dial failure must not classify as a credential rejection")
+	}
+	if !isCredentialRejection(connectionError(reg, errors.New(`oauth2: cannot fetch token: 400 Bad Request {"error":"invalid_grant"}`))) {
+		t.Fatal("an OAuth invalid_grant refresh failure must classify as a credential rejection")
 	}
 }

@@ -16,7 +16,11 @@ import {
   RegistryDetailBody,
   RegistryRepositoryLink,
 } from "@/features/mcp/McpRegistryCard";
-import { buildInstallRequest, useMcpMarketInstall } from "./useMcpMarketInstall";
+import {
+  buildInstallRequest,
+  registryPluginNamespace,
+  useMcpMarketInstall,
+} from "./useMcpMarketInstall";
 import { mcpRegistryInfiniteQueryOptions } from "@/lib/queries/mcp";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -42,7 +46,7 @@ const tabPillCls = (active: boolean) =>
  * install with bearer secret capture, Connect offer for OAuth-protected
  * servers) and a Manual tab rendered from the `manual` slot so the host page
  * keeps its own scope-band form logic. `onRequestManual` hands an
- * `unsupported` entry to the host's manual form prefilled with name and URL.
+ * `unsupported` entry to the host's manual form prefilled with its identity.
  */
 export function McpInstallSheet({
   open,
@@ -62,7 +66,7 @@ export function McpInstallSheet({
   agentId?: string;
   isAdmin?: boolean;
   manual?: React.ReactNode;
-  onRequestManual?: (prefill: { name: string; url: string }) => void;
+  onRequestManual?: (prefill: { name: string; namespace: string; url: string }) => void;
 }) {
   const { t } = useI18n();
   const [mode, setMode] = useState<Mode>("market");
@@ -99,7 +103,11 @@ export function McpInstallSheet({
   function requestInstall() {
     if (!detail) return;
     if (detail.auth === "unsupported") {
-      onRequestManual?.({ name: detail.name, url: detail.url });
+      onRequestManual?.({
+        name: detail.name,
+        namespace: registryPluginNamespace(detail.id),
+        url: detail.url,
+      });
       onOpenChange(false);
       return;
     }

@@ -988,8 +988,31 @@ func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/telegram/config", map[string]any{
 		"config": map[string]any{"token": "telegram-secret"},
 	})
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("legacy PATCH status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("legacy PATCH status = %d, want %d (body: %s)", rr.Code, http.StatusMethodNotAllowed, rr.Body.String())
+	}
+}
+
+func assertChannelRuntime(t *testing.T, env *testEnv, channelID string, want pkgplugins.RuntimeState, metadata map[string]any) {
+	t.Helper()
+	handle, ok := env.pluginHost.Runtime().Get(t.Context(), channelID, "bot")
+	if !ok {
+		if want != pkgplugins.RuntimeStateStopped {
+			t.Fatalf("runtime %q is absent, want %q", channelID, want)
+		}
+		return
+	}
+	status, err := handle.Status(t.Context())
+	if err != nil {
+		t.Fatalf("runtime %q status: %v", channelID, err)
+	}
+	if status.State != want {
+		t.Fatalf("runtime %q state = %q, want %q", channelID, status.State, want)
+	}
+	for key, value := range metadata {
+		if status.Metadata[key] != value {
+			t.Fatalf("runtime %q metadata[%q] = %#v, want %#v", channelID, key, status.Metadata[key], value)
+		}
 	}
 }
 
@@ -1105,28 +1128,27 @@ func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugins/channel/telegram/status", nil)
+	rr = doRequest(t, env, http.MethodGet, "/api/channels/telegram", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 	resp := parseResponse(t, rr)
 	var payload struct {
-		State    string         `json:"state"`
-		Message  string         `json:"message"`
-		Metadata map[string]any `json:"metadata"`
+		Enabled bool `json:"enabled"`
 	}
 	if err := json.Unmarshal(resp.Data, &payload); err != nil {
 		t.Fatalf("unmarshal telegram status: %v", err)
 	}
-	if payload.State != "running" {
-		t.Fatalf("telegram state = %q, want running", payload.State)
+	if !payload.Enabled {
+		t.Fatal("telegram channel should be enabled")
 	}
-	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/telegram", map[string]any{"enabled": false})
+	assertChannelRuntime(t, env, "telegram", pkgplugins.RuntimeStateRunning, nil)
+	rr = doRequest(t, env, http.MethodPatch, "/api/channels/telegram", map[string]any{"enabled": false})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugins/channel/telegram/status", nil)
+	rr = doRequest(t, env, http.MethodGet, "/api/channels/telegram", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -1134,9 +1156,10 @@ func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &payload); err != nil {
 		t.Fatalf("unmarshal telegram status after disable: %v", err)
 	}
-	if payload.State != "stopped" {
-		t.Fatalf("telegram state after disable = %q, want stopped", payload.State)
+	if payload.Enabled {
+		t.Fatal("telegram channel should be disabled")
 	}
+	assertChannelRuntime(t, env, "telegram", pkgplugins.RuntimeStateStopped, nil)
 }
 
 func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
@@ -1157,28 +1180,27 @@ func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugins/channel/qq/status", nil)
+	rr = doRequest(t, env, http.MethodGet, "/api/channels/qq", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 	resp := parseResponse(t, rr)
 	var payload struct {
-		State    string         `json:"state"`
-		Message  string         `json:"message"`
-		Metadata map[string]any `json:"metadata"`
+		Enabled bool `json:"enabled"`
 	}
 	if err := json.Unmarshal(resp.Data, &payload); err != nil {
 		t.Fatalf("unmarshal qq status: %v", err)
 	}
-	if payload.State != "running" {
-		t.Fatalf("qq state = %q, want running", payload.State)
+	if !payload.Enabled {
+		t.Fatal("qq channel should be enabled")
 	}
-	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/qq", map[string]any{"enabled": false})
+	assertChannelRuntime(t, env, "qq", pkgplugins.RuntimeStateRunning, nil)
+	rr = doRequest(t, env, http.MethodPatch, "/api/channels/qq", map[string]any{"enabled": false})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugins/channel/qq/status", nil)
+	rr = doRequest(t, env, http.MethodGet, "/api/channels/qq", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -1186,9 +1208,10 @@ func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &payload); err != nil {
 		t.Fatalf("unmarshal qq status after disable: %v", err)
 	}
-	if payload.State != "stopped" {
-		t.Fatalf("qq state after disable = %q, want stopped", payload.State)
+	if payload.Enabled {
+		t.Fatal("qq channel should be disabled")
 	}
+	assertChannelRuntime(t, env, "qq", pkgplugins.RuntimeStateStopped, nil)
 }
 
 func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
@@ -1210,32 +1233,28 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugins/channel/feishu/status", nil)
+	rr = doRequest(t, env, http.MethodGet, "/api/channels/feishu", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 	resp := parseResponse(t, rr)
 	var payload struct {
-		State    string         `json:"state"`
-		Message  string         `json:"message"`
-		Metadata map[string]any `json:"metadata"`
+		Enabled bool `json:"enabled"`
 	}
 	if err := json.Unmarshal(resp.Data, &payload); err != nil {
 		t.Fatalf("unmarshal feishu status: %v", err)
 	}
-	if payload.State != "running" {
-		t.Fatalf("feishu state = %q, want running", payload.State)
+	if !payload.Enabled {
+		t.Fatal("feishu channel should be enabled")
 	}
-	if payload.Metadata["group_count"] != float64(1) {
-		t.Fatalf("group_count = %#v, want 1", payload.Metadata["group_count"])
-	}
+	assertChannelRuntime(t, env, "feishu", pkgplugins.RuntimeStateRunning, map[string]any{"group_count": 1})
 
-	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/feishu", map[string]any{"enabled": false})
+	rr = doRequest(t, env, http.MethodPatch, "/api/channels/feishu", map[string]any{"enabled": false})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugins/channel/feishu/status", nil)
+	rr = doRequest(t, env, http.MethodGet, "/api/channels/feishu", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -1243,9 +1262,10 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &payload); err != nil {
 		t.Fatalf("unmarshal feishu status after disable: %v", err)
 	}
-	if payload.State != "stopped" {
-		t.Fatalf("feishu state after disable = %q, want stopped", payload.State)
+	if payload.Enabled {
+		t.Fatal("feishu channel should be disabled")
 	}
+	assertChannelRuntime(t, env, "feishu", pkgplugins.RuntimeStateStopped, nil)
 }
 
 func TestListFeishuChannelChatsReadsRunningBot(t *testing.T) {
@@ -1304,32 +1324,28 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugins/channel/weixin/status", nil)
+	rr = doRequest(t, env, http.MethodGet, "/api/channels/weixin", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 	resp := parseResponse(t, rr)
 	var payload struct {
-		State    string         `json:"state"`
-		Message  string         `json:"message"`
-		Metadata map[string]any `json:"metadata"`
+		Enabled bool `json:"enabled"`
 	}
 	if err := json.Unmarshal(resp.Data, &payload); err != nil {
 		t.Fatalf("unmarshal weixin status: %v", err)
 	}
-	if payload.State != "running" {
-		t.Fatalf("weixin state = %q, want running", payload.State)
+	if !payload.Enabled {
+		t.Fatal("weixin channel should be enabled")
 	}
-	if payload.Metadata["has_bot_identity"] != true {
-		t.Fatalf("has_bot_identity = %#v, want true", payload.Metadata["has_bot_identity"])
-	}
+	assertChannelRuntime(t, env, "weixin", pkgplugins.RuntimeStateRunning, map[string]any{"has_bot_identity": true})
 
-	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/weixin", map[string]any{"enabled": false})
+	rr = doRequest(t, env, http.MethodPatch, "/api/channels/weixin", map[string]any{"enabled": false})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "GET", "/api/plugins/channel/weixin/status", nil)
+	rr = doRequest(t, env, http.MethodGet, "/api/channels/weixin", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
@@ -1337,9 +1353,10 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &payload); err != nil {
 		t.Fatalf("unmarshal weixin status after disable: %v", err)
 	}
-	if payload.State != "stopped" {
-		t.Fatalf("weixin state after disable = %q, want stopped", payload.State)
+	if payload.Enabled {
+		t.Fatal("weixin channel should be disabled")
 	}
+	assertChannelRuntime(t, env, "weixin", pkgplugins.RuntimeStateStopped, nil)
 }
 
 func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
@@ -1802,514 +1819,6 @@ func TestSkillsSearch_Authenticated(t *testing.T) {
 	rr = doUnauthRequest(t, env.srv, "GET", "/api/skills/search?q=react", nil)
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("unauth: status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
-	}
-}
-
-// toggleManifestPlugin flips one plugin's enable switch. The route addresses a
-// single plugin on purpose: a request that carried the whole list made every
-// toggle a deployment-wide write.
-func toggleManifestPlugin(t *testing.T, env *testEnv, id string, enabled bool) *httptest.ResponseRecorder {
-	t.Helper()
-	return doRequest(t, env, "PUT", "/api/manifest-plugins/"+id+"/enabled", map[string]any{"enabled": enabled})
-}
-
-// saveManifestDefinition writes one plugin's definition, naming the fields the
-// request takes ownership of.
-func saveManifestDefinition(t *testing.T, env *testEnv, id string, plugin map[string]any, fields []string) *httptest.ResponseRecorder {
-	t.Helper()
-	body := map[string]any{"plugin": plugin}
-	if fields != nil {
-		body["fields"] = fields
-	}
-	return doRequest(t, env, "PATCH", "/api/manifest-plugins/"+id, body)
-}
-
-// TestToggleManifestPluginPreservesSessionEnvVaultKey guards against the enable
-// toggle clobbering the session_env_vault_key. The toggle payload only carries
-// the enable flag, so the handler must read the existing override row and
-// preserve any session env binding instead of overwriting it with "".
-func TestToggleManifestPluginPreservesSessionEnvVaultKey(t *testing.T) {
-	env := setupAdmin(t)
-	octx := context.Background()
-
-	// tool/lark-cli defaults to enabled=true in the builtin manifest (and is not
-	// essential, so it can be toggled). Pre-seed an override row that binds a
-	// session env vault key.
-	const pluginID = "tool/lark-cli"
-	const vaultKey = "vault/session/larkcli"
-	if err := env.store.UpsertManifestPluginOverride(octx, config.ManifestPluginOverride{
-		PluginID:           pluginID,
-		SessionEnvVaultKey: vaultKey,
-	}); err != nil {
-		t.Fatalf("seed override: %v", err)
-	}
-
-	// Disable the plugin (enabled diverges from default).
-	if rr := toggleManifestPlugin(t, env, pluginID, false); rr.Code != http.StatusOK {
-		t.Fatalf("toggle: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	ov, ok, err := env.store.GetManifestPluginOverride(octx, pluginID)
-	if err != nil {
-		t.Fatalf("get override: %v", err)
-	}
-	if !ok {
-		t.Fatal("override row missing after save")
-	}
-	if ov.SessionEnvVaultKey != vaultKey {
-		t.Fatalf("session_env_vault_key clobbered: got %q, want %q", ov.SessionEnvVaultKey, vaultKey)
-	}
-	if ov.Enabled == nil || *ov.Enabled != false {
-		t.Fatalf("enabled override not persisted: got %v, want explicit false", ov.Enabled)
-	}
-	if ov.Config != "" {
-		t.Fatalf("a toggle must not store a config override: got %q", ov.Config)
-	}
-
-	// Toggle back to the default (enabled=true). The row must survive because a
-	// session env binding still exists; only the enable override clears to nil.
-	if rr := toggleManifestPlugin(t, env, pluginID, true); rr.Code != http.StatusOK {
-		t.Fatalf("toggle back: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	ov, ok, err = env.store.GetManifestPluginOverride(octx, pluginID)
-	if err != nil {
-		t.Fatalf("get override after reset: %v", err)
-	}
-	if !ok {
-		t.Fatal("override row deleted despite session env binding")
-	}
-	if ov.SessionEnvVaultKey != vaultKey {
-		t.Fatalf("session_env_vault_key lost on reset: got %q, want %q", ov.SessionEnvVaultKey, vaultKey)
-	}
-	if ov.Enabled != nil {
-		t.Fatalf("enabled should fall back to default (nil), got %v", *ov.Enabled)
-	}
-}
-
-// TestToggleManifestPluginPreservesConfig guards against a toggle clobbering a
-// previously-stored config definition override.
-func TestToggleManifestPluginPreservesConfig(t *testing.T) {
-	env := setupAdmin(t)
-	octx := context.Background()
-
-	const pluginID = "tool/lark-cli"
-	const configJSON = `{"kind":"tool","name":"lark-cli","display_name":"Custom Lark","description":"custom"}`
-
-	// Pre-seed a config override row.
-	if err := env.store.UpsertManifestPluginOverride(octx, config.ManifestPluginOverride{
-		PluginID: pluginID,
-		Config:   configJSON,
-	}); err != nil {
-		t.Fatalf("seed override: %v", err)
-	}
-
-	if rr := toggleManifestPlugin(t, env, pluginID, false); rr.Code != http.StatusOK {
-		t.Fatalf("toggle: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	ov, ok, err := env.store.GetManifestPluginOverride(octx, pluginID)
-	if err != nil {
-		t.Fatalf("get override: %v", err)
-	}
-	if !ok {
-		t.Fatal("override row deleted by a toggle")
-	}
-	if ov.Config != configJSON {
-		t.Fatalf("config clobbered by a toggle: got %q, want %q", ov.Config, configJSON)
-	}
-	if ov.Enabled == nil || *ov.Enabled != false {
-		t.Fatalf("enabled not persisted: got %v, want explicit false", ov.Enabled)
-	}
-}
-
-// A mutation addresses one plugin. When one request carried the whole list, the
-// server rewrote every row from it — so toggling A rewrote B, and a row written
-// before overrides went sparse was converted by an admin who never touched that
-// plugin. The stored bytes of the bystander are the assertion.
-func TestMutatingOnePluginLeavesAnotherRowByteIdentical(t *testing.T) {
-	env := setupAdmin(t)
-	octx := context.Background()
-
-	const bystander = "tool/gh"
-	const legacyJSON = `{"kind":"tool","name":"gh","display_name":"Our gh","description":"pinned long ago"}`
-	if err := env.store.UpsertManifestPluginOverride(octx, config.ManifestPluginOverride{
-		PluginID: bystander,
-		Config:   legacyJSON,
-	}); err != nil {
-		t.Fatalf("seed override: %v", err)
-	}
-
-	if rr := toggleManifestPlugin(t, env, "tool/lark-cli", false); rr.Code != http.StatusOK {
-		t.Fatalf("toggle: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-	edited := manifestPluginByID(t, env, "tool/lark-cli")
-	edited["display_name"] = "Lark (ours)"
-	if rr := saveManifestDefinition(t, env, "tool/lark-cli", edited, []string{"display_name"}); rr.Code != http.StatusOK {
-		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	ov, ok, err := env.store.GetManifestPluginOverride(octx, bystander)
-	if err != nil || !ok {
-		t.Fatalf("get bystander override: ok=%v err=%v", ok, err)
-	}
-	if ov.Config != legacyJSON {
-		t.Fatalf("a bystander's row was rewritten: got %q, want %q", ov.Config, legacyJSON)
-	}
-}
-
-// TestToggleManifestPluginRejectsDisablingEssential guards the harness: an
-// essential builtin (rg/fd/mise back Grep/Glob/install) must not be disabled.
-func TestToggleManifestPluginRejectsDisablingEssential(t *testing.T) {
-	env := setupAdmin(t)
-	octx := context.Background()
-
-	const pluginID = "tool/rg" // essential: true in the builtin manifest
-
-	rr := toggleManifestPlugin(t, env, pluginID, false)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("disable essential: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
-	}
-	// The rejection has to come from Essential, not from a blanket "builtins are
-	// untouchable" rule: that distinction is the whole point of the guard.
-	if body := rr.Body.String(); !strings.Contains(body, "essential") {
-		t.Fatalf("rejection reason = %s, want it to name essential", body)
-	}
-	if _, ok, err := env.store.GetManifestPluginOverride(octx, pluginID); err != nil {
-		t.Fatalf("get override: %v", err)
-	} else if ok {
-		t.Fatal("a rejected toggle must not write an override row")
-	}
-
-	// ...and a non-essential builtin stays an admin's call.
-	const optionalID = "tool/lark-cli"
-	if rr := toggleManifestPlugin(t, env, optionalID, false); rr.Code != http.StatusOK {
-		t.Fatalf("disable non-essential builtin: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-	if ov, ok, err := env.store.GetManifestPluginOverride(octx, optionalID); err != nil || !ok {
-		t.Fatalf("non-essential toggle not persisted: ok=%v err=%v", ok, err)
-	} else if ov.Enabled == nil || *ov.Enabled {
-		t.Fatalf("override enabled = %v, want a recorded false", ov.Enabled)
-	}
-}
-
-// TestDeleteManifestPluginRemovesCustomOnly covers the delete an added CLI tool
-// needs: an admin-added plugin lives entirely in its override row and goes away
-// with it, while a builtin is refused because the next resolve would bring it
-// back anyway.
-func TestDeleteManifestPluginRemovesCustomOnly(t *testing.T) {
-	env := setupAdmin(t)
-	octx := context.Background()
-
-	const customID = "tool/my-cli"
-	if rr := saveManifestDefinition(t, env, customID, map[string]any{
-		"display_name": "My CLI",
-		"description":  "",
-		"enabled":      true,
-		"binaries":     []map[string]any{{"name": "my-cli", "tool": "github:owner/repo"}},
-	}, nil); rr.Code != http.StatusOK {
-		t.Fatalf("create: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-	if _, ok, err := env.store.GetManifestPluginOverride(octx, customID); err != nil || !ok {
-		t.Fatalf("custom plugin not persisted: ok=%v err=%v", ok, err)
-	}
-
-	if rr := doRequest(t, env, "DELETE", "/api/manifest-plugins/tool/my-cli", nil); rr.Code != http.StatusNoContent {
-		t.Fatalf("delete custom: status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
-	}
-	if _, ok, err := env.store.GetManifestPluginOverride(octx, customID); err != nil {
-		t.Fatalf("get override: %v", err)
-	} else if ok {
-		t.Fatal("override row survived the delete")
-	}
-
-	// A second delete has nothing to remove.
-	if rr := doRequest(t, env, "DELETE", "/api/manifest-plugins/tool/my-cli", nil); rr.Code != http.StatusNotFound {
-		t.Fatalf("delete missing: status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	// A builtin ships with the server: disable it, don't delete it.
-	if rr := doRequest(t, env, "DELETE", "/api/manifest-plugins/tool/lark-cli", nil); rr.Code != http.StatusBadRequest {
-		t.Fatalf("delete builtin: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
-	}
-}
-
-// TestListManifestPluginsMarksBuiltin covers the flag the settings UI uses to
-// decide whether a plugin may be removed at all.
-func TestListManifestPluginsMarksBuiltin(t *testing.T) {
-	env := setupAdmin(t)
-
-	if rr := saveManifestDefinition(t, env, "tool/my-cli", map[string]any{
-		"display_name": "My CLI", "description": "", "enabled": true,
-		"binaries": []map[string]any{{"name": "my-cli", "tool": "github:owner/repo"}},
-	}, nil); rr.Code != http.StatusOK {
-		t.Fatalf("create: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	rr := doRequest(t, env, "GET", "/api/manifest-plugins", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("list: status = %d, want 200", rr.Code)
-	}
-	var resp struct {
-		Plugins []struct {
-			ID      string `json:"id"`
-			Builtin bool   `json:"builtin"`
-		} `json:"plugins"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	seen := map[string]bool{}
-	for _, p := range resp.Plugins {
-		seen[p.ID] = p.Builtin
-	}
-	if builtin, ok := seen["tool/lark-cli"]; !ok || !builtin {
-		t.Fatalf("tool/lark-cli builtin = %v (present=%v), want true", builtin, ok)
-	}
-	if builtin, ok := seen["tool/my-cli"]; !ok || builtin {
-		t.Fatalf("tool/my-cli builtin = %v (present=%v), want false", builtin, ok)
-	}
-}
-
-// manifestPluginByID reads one plugin out of the merged manifest as a raw JSON
-// object, which is what the settings UI edits and sends back.
-func manifestPluginByID(t *testing.T, env *testEnv, id string) map[string]any {
-	t.Helper()
-	rr := doRequest(t, env, "GET", "/api/manifest-plugins", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("list: status = %d, want 200", rr.Code)
-	}
-	var resp struct {
-		Plugins []map[string]any `json:"plugins"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	for _, p := range resp.Plugins {
-		if p["id"] == id {
-			return p
-		}
-	}
-	t.Fatalf("plugin %q not in the merged manifest", id)
-	return nil
-}
-
-// Editing one field of a builtin must store that field and nothing else. A row
-// holding the whole definition would freeze the plugin at the version that was
-// running when someone edited it: every later release's improvement to the other
-// fields would arrive in the binary and be discarded by the row.
-func TestSaveManifestPluginStoresOnlyTheNamedField(t *testing.T) {
-	env := setupAdmin(t)
-	octx := context.Background()
-
-	const pluginID = "tool/lark-cli"
-	plugin := manifestPluginByID(t, env, pluginID)
-	plugin["display_name"] = "Lark (ours)"
-
-	if rr := saveManifestDefinition(t, env, pluginID, plugin, []string{"display_name"}); rr.Code != http.StatusOK {
-		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	ov, ok, err := env.store.GetManifestPluginOverride(octx, pluginID)
-	if err != nil || !ok {
-		t.Fatalf("get override: ok=%v err=%v", ok, err)
-	}
-	var stored map[string]any
-	if err := json.Unmarshal([]byte(ov.Config), &stored); err != nil {
-		t.Fatalf("decode stored override %q: %v", ov.Config, err)
-	}
-	if stored["$sparse"] != true {
-		t.Fatalf("stored override = %s, want the sparse-format marker", ov.Config)
-	}
-	delete(stored, "$sparse")
-	if len(stored) != 1 || stored["display_name"] != "Lark (ours)" {
-		t.Fatalf("stored override = %s, want display_name alone", ov.Config)
-	}
-
-	// And the merged view names the owned field, so the editor can mark it and
-	// offer to hand that one back.
-	merged := manifestPluginByID(t, env, pluginID)
-	if merged["display_name"] != "Lark (ours)" {
-		t.Fatalf("merged plugin = %v, want the edit", merged)
-	}
-	owned, _ := merged["overridden_fields"].([]any)
-	if len(owned) != 1 || owned[0] != "display_name" {
-		t.Fatalf("overridden_fields = %v, want display_name alone", merged["overridden_fields"])
-	}
-}
-
-// Issue #963's second acceptance criterion: an admin who pinned two fields can
-// hand back one of them and keep the other.
-func TestResetManifestPluginFieldReleasesOneFieldOnly(t *testing.T) {
-	env := setupAdmin(t)
-
-	const pluginID = "tool/lark-cli"
-	shipped := manifestPluginByID(t, env, pluginID)
-
-	edited := manifestPluginByID(t, env, pluginID)
-	edited["display_name"] = "Lark (ours)"
-	edited["description"] = "ours too"
-	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"display_name", "description"}); rr.Code != http.StatusOK {
-		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/lark-cli/reset",
-		map[string]any{"field": "description"}); rr.Code != http.StatusOK {
-		t.Fatalf("reset field: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	after := manifestPluginByID(t, env, pluginID)
-	if after["description"] != shipped["description"] {
-		t.Errorf("description = %v, want the shipped %v", after["description"], shipped["description"])
-	}
-	if after["display_name"] != "Lark (ours)" {
-		t.Errorf("display_name = %v, want the other pin to hold", after["display_name"])
-	}
-	owned, _ := after["overridden_fields"].([]any)
-	if len(owned) != 1 || owned[0] != "display_name" {
-		t.Fatalf("overridden_fields = %v, want display_name alone", after["overridden_fields"])
-	}
-
-	// A field nobody owns has nothing to hand back, and neither does a field that
-	// is not part of a definition at all.
-	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/lark-cli/reset",
-		map[string]any{"field": "description"}); rr.Code != http.StatusNotFound {
-		t.Fatalf("reset an unowned field: status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
-	}
-	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/lark-cli/reset",
-		map[string]any{"field": "enabled"}); rr.Code != http.StatusBadRequest {
-		t.Fatalf("reset a non-definition field: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
-	}
-}
-
-// A plugin's stable ID and editable name are different things. Every write must
-// address the row by ID; routing by name would miss it and create a second row.
-func TestWritesAddressAPluginWhoseNameIsNotItsID(t *testing.T) {
-	env := setupAdmin(t)
-	octx := context.Background()
-
-	const pluginID = "tool/historical-id"
-	if rr := saveManifestDefinition(t, env, pluginID, map[string]any{
-		"name":         "current-name",
-		"display_name": "Current name",
-		"description":  "",
-		"enabled":      true,
-		"binaries":     []map[string]any{{"name": "current-name", "tool": "github:owner/repo"}},
-	}, nil); rr.Code != http.StatusOK {
-		t.Fatalf("create: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	if rr := toggleManifestPlugin(t, env, pluginID, false); rr.Code != http.StatusOK {
-		t.Fatalf("disable: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-	after := manifestPluginByID(t, env, pluginID)
-	if after["name"] != "current-name" || after["enabled"] != false {
-		t.Fatalf("plugin = %v, want stable ID with edited name and disabled state", after)
-	}
-	if _, _, err := env.store.GetManifestPluginOverride(octx, pluginID); err != nil {
-		t.Fatalf("get override: %v", err)
-	}
-
-	rr := doRequest(t, env, "GET", "/api/manifest-plugins", nil)
-	var resp struct {
-		Plugins []map[string]any `json:"plugins"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	for _, p := range resp.Plugins {
-		if p["id"] == "tool/current-name" {
-			t.Fatalf("a second plugin appeared at %v; the write addressed the name instead of the ID", p["id"])
-		}
-	}
-}
-
-// kind and essential belong to the server. kind is part of the plugin's identity
-// — the ID is prefixed with it and the runtime reloads by it — and essential is
-// the server's statement that disabling this plugin breaks a core tool, which the
-// disable check reads from the shipped definition regardless. An override that
-// claimed either would only produce a UI disagreeing with the API.
-func TestKindAndEssentialCannotBeOverridden(t *testing.T) {
-	env := setupAdmin(t)
-
-	const pluginID = "tool/lark-cli"
-	shipped := manifestPluginByID(t, env, pluginID)
-
-	// essential is omitempty, so a plugin that is not essential simply has no key.
-	wasEssential, _ := shipped["essential"].(bool)
-	edited := manifestPluginByID(t, env, pluginID)
-	edited["essential"] = !wasEssential
-	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"essential"}); rr.Code != http.StatusBadRequest {
-		t.Fatalf("own essential: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
-	}
-	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"kind"}); rr.Code != http.StatusBadRequest {
-		t.Fatalf("own kind: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	// A body that addresses a different kind than the URL is addressing something
-	// other than what it asked for.
-	mismatched := manifestPluginByID(t, env, pluginID)
-	mismatched["kind"] = "hook"
-	if rr := saveManifestDefinition(t, env, pluginID, mismatched, []string{"display_name"}); rr.Code != http.StatusBadRequest {
-		t.Fatalf("kind that disagrees with the URL: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	after := manifestPluginByID(t, env, pluginID)
-	if stillEssential, _ := after["essential"].(bool); stillEssential != wasEssential || after["kind"] != shipped["kind"] {
-		t.Fatalf("plugin = %v, want kind and essential still the server's", after)
-	}
-}
-
-// Reset is the way back from a customization. It drops the definition override
-// and leaves the enable switch alone — "stop diverging" is not "turn off".
-func TestResetManifestPluginRestoresTheShippedDefinition(t *testing.T) {
-	env := setupAdmin(t)
-	octx := context.Background()
-
-	const pluginID = "tool/lark-cli"
-	shipped := manifestPluginByID(t, env, pluginID)
-	shippedName := shipped["display_name"]
-
-	edited := manifestPluginByID(t, env, pluginID)
-	edited["display_name"] = "Lark (ours)"
-	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"display_name"}); rr.Code != http.StatusOK {
-		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-	if rr := toggleManifestPlugin(t, env, pluginID, false); rr.Code != http.StatusOK {
-		t.Fatalf("disable: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/lark-cli/reset", nil); rr.Code != http.StatusOK {
-		t.Fatalf("reset: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	after := manifestPluginByID(t, env, pluginID)
-	if after["display_name"] != shippedName {
-		t.Errorf("display_name = %v, want the shipped %v", after["display_name"], shippedName)
-	}
-	if owned, _ := after["overridden_fields"].([]any); len(owned) != 0 {
-		t.Errorf("overridden_fields = %v, want none after the reset", owned)
-	}
-	if after["enabled"] != false {
-		t.Errorf("enabled = %v, want the reset to leave it disabled", after["enabled"])
-	}
-	ov, ok, err := env.store.GetManifestPluginOverride(octx, pluginID)
-	if err != nil {
-		t.Fatalf("get override: %v", err)
-	}
-	if !ok || ov.Enabled == nil || *ov.Enabled {
-		t.Fatalf("the enable override did not survive the reset: ok=%v enabled=%v", ok, ov.Enabled)
-	}
-	if ov.Config != "" {
-		t.Errorf("config override survived the reset: %q", ov.Config)
-	}
-
-	// Nothing to reset, and nothing to reset *to*.
-	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/lark-cli/reset", nil); rr.Code != http.StatusNotFound {
-		t.Fatalf("reset an unedited builtin: status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
-	}
-	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/my-cli/reset", nil); rr.Code != http.StatusBadRequest {
-		t.Fatalf("reset a non-builtin: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
 }
 

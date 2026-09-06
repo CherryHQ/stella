@@ -484,12 +484,14 @@ func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, 
 // runtime authoritative. This keeps preparation migrations from being
 // mistaken for a complete cutover.
 func legacyImportSchemaReady(ctx context.Context, tx pgx.Tx) error {
-	var migrationReady, pluginIdentity, localToolIdentity, observationTable, oauthConfigFK, toolNameNullable, identityCheck, coreIndex, pluginIndex bool
+	var migration41Applied, pluginIdentity, localToolIdentity, observationTable, oauthConfigFK, toolNameNullable, identityCheck, coreIndex, pluginIndex bool
 	err := tx.QueryRow(ctx, `
 		SELECT
 			COALESCE((
-				SELECT version_id = 90000000000041 AND is_applied
-				FROM goose_db_version ORDER BY id DESC LIMIT 1
+				SELECT is_applied
+				FROM goose_db_version
+				WHERE version_id = 90000000000041
+				ORDER BY id DESC LIMIT 1
 			), false),
 			to_regclass('public.mcp_connection_state') IS NOT NULL,
 			EXISTS (
@@ -556,11 +558,11 @@ func legacyImportSchemaReady(ctx context.Context, tx pgx.Tx) error {
 				  AND index_ref.indexrelid = to_regclass('public.uniq_tool_override_plugin_identity')
 				  AND index_ref.indisunique
 			)
-	`).Scan(&migrationReady, &observationTable, &pluginIdentity, &localToolIdentity, &oauthConfigFK, &toolNameNullable, &identityCheck, &coreIndex, &pluginIndex)
+	`).Scan(&migration41Applied, &observationTable, &pluginIdentity, &localToolIdentity, &oauthConfigFK, &toolNameNullable, &identityCheck, &coreIndex, &pluginIndex)
 	if err != nil {
 		return fmt.Errorf("check plugin cutover schema: %w", err)
 	}
-	if !migrationReady || !pluginIdentity || !localToolIdentity {
+	if !migration41Applied || !pluginIdentity || !localToolIdentity {
 		return ErrToolOverrideSchema
 	}
 	if !toolNameNullable || !identityCheck || !coreIndex || !pluginIndex {

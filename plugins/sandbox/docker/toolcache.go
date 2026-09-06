@@ -21,6 +21,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/sync/singleflight"
 
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/plugins/core"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
@@ -40,6 +41,7 @@ const (
 	containerSelectionRoot        = "/opt/stella/selection-tools"
 	containerSelectionBin         = "/opt/stella/bin"
 	containerCoreRuntimeRoot      = "/opt/stella/core-runtime"
+	containerBuiltinArtifactRoot  = "/opt/stella/.mise-tools/builtin-artifacts"
 	containerSelectionReadyMarker = containerSelectionRoot + "/.stella-selection-ready"
 )
 
@@ -67,6 +69,12 @@ type ToolBinary struct {
 
 func (b ToolBinary) miseToolKey() string {
 	return b.Tool
+}
+
+func binaryArtifactIdentity(binary ToolBinary) (string, error) {
+	return pkgplugins.BinaryArtifactIdentity(pkgplugins.PluginBinarySpec{
+		Name: binary.Name, Tool: binary.Tool, Version: binary.Version, Options: binary.Options,
+	})
 }
 
 type selectionToolCache struct {
@@ -380,12 +388,25 @@ func selectionToolInstallScript(hash string, binaries []ToolBinary, core []core.
 	for _, binary := range core {
 		coreNames[binary.Name] = struct{}{}
 	}
-	var miseTOML string
-	if len(binaries) > 0 {
-		var err error
-		miseTOML, err = selectionMiseTOML(binaries)
+	artifactIdentities := make([]string, len(binaries))
+	for i, binary := range binaries {
+		identity, err := binaryArtifactIdentity(binary)
 		if err != nil {
+			return "echo " + shellQuote("binary artifact identity: "+err.Error()) + " >&2\nexit 1\n"
+		}
+		artifactIdentities[i] = identity
+	}
+	miseTOMLs := make([]string, len(binaries))
+	if len(binaries) > 0 {
+		if _, err := selectionMiseTOML(binaries); err != nil {
 			return "echo " + shellQuote(err.Error()) + " >&2\nexit 1\n"
+		}
+		var err error
+		for i, binary := range binaries {
+			miseTOMLs[i], err = selectionMiseTOML([]ToolBinary{binary})
+			if err != nil {
+				return "echo " + shellQuote(err.Error()) + " >&2\nexit 1\n"
+			}
 		}
 	}
 	var script strings.Builder
@@ -402,19 +423,24 @@ func selectionToolInstallScript(hash string, binaries []ToolBinary, core []core.
 	script.WriteString("cp -R " + containerCoreRuntimeRoot + "/. \"$ROOT/core/\"\n")
 	script.WriteString("if [ -f \"$ROOT/core/.stella-shell-env\" ]; then cp \"$ROOT/core/.stella-shell-env\" \"$ROOT/bin/.stella-shell-env\"; fi\n")
 	if len(binaries) > 0 {
-		script.WriteString("mkdir -p \"$PRIVATE/mise-data\" \"$PRIVATE/mise-cache\" \"$PRIVATE/mise-state\" \"$PRIVATE/mise-config\"\n")
-		script.WriteString("cat > \"$PRIVATE/mise.toml\" <<'STELLA_SELECTION_MISE_TOML'\n")
-		script.WriteString(miseTOML)
-		if !strings.HasSuffix(miseTOML, "\n") {
-			script.WriteByte('\n')
+		// Image-built artifacts are immutable release output. Probe each exact
+		// content identity before invoking mise so an offline image hit never
+		// falls back to a network install.
+		for i, b := range binaries {
+			if !safeSelectionName(b.Name) {
+				continue
+			}
+			name := shellQuoteForDoubleQuotedPath(b.Name)
+			identity := shellQuoteForDoubleQuotedPath(artifactIdentities[i])
+			script.WriteString("if [ -x \"" + containerBuiltinArtifactRoot + "/" + identity + "/" + name + "\" ]; then\n")
+			script.WriteString("  mkdir -p \"$ROOT/artifacts/" + identity + "\"\n")
+			script.WriteString("  cp -R \"" + containerBuiltinArtifactRoot + "/" + identity + "/.\" \"$ROOT/artifacts/" + identity + "/\"\n")
+			script.WriteString("  test -x \"$ROOT/artifacts/" + identity + "/" + name + "\"\n")
+			script.WriteString("  ln -s \"/opt/stella/selection-tools/artifacts/" + identity + "/" + name + "\" \"$ROOT/bin/" + name + "\"\n")
+			script.WriteString("fi\n")
 		}
-		script.WriteString("STELLA_SELECTION_MISE_TOML\n")
-		script.WriteString("cd \"$PRIVATE\"\n")
-		miseEnv := "MISE_DATA_DIR=\"$PRIVATE/mise-data\" MISE_CACHE_DIR=\"$PRIVATE/mise-cache\" MISE_STATE_DIR=\"$PRIVATE/mise-state\" MISE_CONFIG_DIR=\"$PRIVATE/mise-config\" MISE_SYSTEM_CONFIG_FILE=\"$PRIVATE/mise.toml\" MISE_GLOBAL_CONFIG_FILE=\"$PRIVATE/mise.toml\" MISE_TRUSTED_CONFIG_PATHS=\"$PRIVATE\" "
-		script.WriteString(miseEnv + containerCoreRuntimeRoot + "/mise trust -y \"$PRIVATE/mise.toml\" >/dev/null 2>&1 || true\n")
-		script.WriteString(miseEnv + containerCoreRuntimeRoot + "/mise install\n")
 	}
-	for _, b := range binaries {
+	for i, b := range binaries {
 		if _, ok := coreNames[b.Name]; ok {
 			script.WriteString("echo " + shellQuote("selection binary conflicts with mandatory core runtime "+b.Name) + " >&2\nexit 1\n")
 			continue
@@ -435,14 +461,25 @@ func selectionToolInstallScript(hash string, binaries []ToolBinary, core []core.
 		}
 		name := shellQuoteForDoubleQuotedPath(b.Name)
 		lookupPath := shellQuoteForDoubleQuotedPath(lookup)
-		artifact := shellQuoteForDoubleQuotedPath("artifact-" + b.Name)
-		miseEnv := "MISE_DATA_DIR=\"$PRIVATE/mise-data\" MISE_CACHE_DIR=\"$PRIVATE/mise-cache\" MISE_STATE_DIR=\"$PRIVATE/mise-state\" MISE_CONFIG_DIR=\"$PRIVATE/mise-config\" MISE_SYSTEM_CONFIG_FILE=\"$PRIVATE/mise.toml\" MISE_GLOBAL_CONFIG_FILE=\"$PRIVATE/mise.toml\" MISE_TRUSTED_CONFIG_PATHS=\"$PRIVATE\" "
-		script.WriteString("install_dir=$(" + miseEnv + containerCoreRuntimeRoot + "/mise where " + shellQuote(b.miseToolKey()) + ")\n")
-		script.WriteString("test -d \"$install_dir\"\n")
-		script.WriteString("rm -rf \"$ROOT/artifacts/" + artifact + "\"\nmkdir -p \"$ROOT/artifacts/" + artifact + "\"\ncp -R \"$install_dir/.\" \"$ROOT/artifacts/" + artifact + "/\"\n")
-		script.WriteString("src=\"\"\nsrc_rel=\"\"\nif [ -f \"$ROOT/artifacts/" + artifact + "/bin/" + lookupPath + "\" ]; then src=\"$ROOT/artifacts/" + artifact + "/bin/" + lookupPath + "\"; src_rel=\"/opt/stella/selection-tools/artifacts/" + artifact + "/bin/" + lookupPath + "\"; fi\n")
-		script.WriteString("if [ -z \"$src\" ] && [ -f \"$ROOT/artifacts/" + artifact + "/" + lookupPath + "\" ]; then src=\"$ROOT/artifacts/" + artifact + "/" + lookupPath + "\"; src_rel=\"/opt/stella/selection-tools/artifacts/" + artifact + "/" + lookupPath + "\"; fi\n")
-		script.WriteString("test -n \"$src\" && test -x \"$src\"\nln -s \"$src_rel\" \"$ROOT/bin/" + name + "\"\n")
+		artifact := shellQuoteForDoubleQuotedPath(artifactIdentities[i])
+		miseEnv := "MISE_DATA_DIR=\"$PRIVATE/mise-data\" MISE_CACHE_DIR=\"$PRIVATE/mise-cache\" MISE_STATE_DIR=\"$PRIVATE/mise-state\" MISE_CONFIG_DIR=\"$PRIVATE/mise-config\" MISE_SYSTEM_CONFIG_FILE=\"$PRIVATE/mise.toml\" MISE_GLOBAL_CONFIG_FILE=\"$PRIVATE/mise.toml\" MISE_TRUSTED_CONFIG_PATHS=\"$PRIVATE\" XDG_CACHE_HOME=\"$PRIVATE/xdg-cache\" XDG_CONFIG_HOME=\"$PRIVATE/xdg-config\" XDG_DATA_HOME=\"$PRIVATE/xdg-data\" XDG_STATE_HOME=\"$PRIVATE/xdg-state\" "
+		script.WriteString("if [ ! -x \"$ROOT/bin/" + name + "\" ]; then\n")
+		script.WriteString("  mkdir -p \"$PRIVATE/mise-data\" \"$PRIVATE/mise-cache\" \"$PRIVATE/mise-state\" \"$PRIVATE/mise-config\" \"$PRIVATE/xdg-cache\" \"$PRIVATE/xdg-config\" \"$PRIVATE/xdg-data\" \"$PRIVATE/xdg-state\"\n")
+		script.WriteString("  cat > \"$PRIVATE/mise.toml\" <<'STELLA_SELECTION_MISE_TOML_" + fmt.Sprint(i) + "'\n")
+		script.WriteString(miseTOMLs[i])
+		if !strings.HasSuffix(miseTOMLs[i], "\n") {
+			script.WriteByte('\n')
+		}
+		script.WriteString("STELLA_SELECTION_MISE_TOML_" + fmt.Sprint(i) + "\n")
+		script.WriteString("  cd \"$PRIVATE\"\n")
+		script.WriteString("  " + miseEnv + containerCoreRuntimeRoot + "/mise trust -y \"$PRIVATE/mise.toml\" >/dev/null 2>&1 || true\n")
+		script.WriteString("  " + miseEnv + containerCoreRuntimeRoot + "/mise install\n")
+		script.WriteString("  install_dir=$(" + miseEnv + containerCoreRuntimeRoot + "/mise where " + shellQuote(b.miseToolKey()) + ")\n")
+		script.WriteString("  test -d \"$install_dir\"\n")
+		script.WriteString("  rm -rf \"$ROOT/artifacts/" + artifact + "\"\n  mkdir -p \"$ROOT/artifacts/" + artifact + "\"\n  cp -R \"$install_dir/.\" \"$ROOT/artifacts/" + artifact + "/\"\n")
+		script.WriteString("  src=\"\"\nsrc_rel=\"\"\nif [ -f \"$ROOT/artifacts/" + artifact + "/bin/" + lookupPath + "\" ]; then src=\"$ROOT/artifacts/" + artifact + "/bin/" + lookupPath + "\"; src_rel=\"/opt/stella/selection-tools/artifacts/" + artifact + "/bin/" + lookupPath + "\"; fi\n")
+		script.WriteString("  if [ -z \"$src\" ] && [ -f \"$ROOT/artifacts/" + artifact + "/" + lookupPath + "\" ]; then src=\"$ROOT/artifacts/" + artifact + "/" + lookupPath + "\"; src_rel=\"/opt/stella/selection-tools/artifacts/" + artifact + "/" + lookupPath + "\"; fi\n")
+		script.WriteString("  test -n \"$src\" && test -x \"$src\"\n  ln -s \"$src_rel\" \"$ROOT/bin/" + name + "\"\nfi\n")
 	}
 	for _, coreBinary := range canonicalCoreRuntimeBinaries(core) {
 		name := coreBinary.Name

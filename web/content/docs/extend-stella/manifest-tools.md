@@ -23,7 +23,7 @@ mise, Xberg, fd and rg form Stella's required execution environment. They are av
 
 These runtimes follow the Stella release. Docker images install them during the image build; native startup prepares them before accepting conversations and reuses complete local artifacts without running the installer again. Optional CLI plugins continue to use the four-scope configuration model below. Their binary names cannot replace a required runtime.
 
-The Docker build uses `stellad system-bundle install --core-path /opt/stella/core-runtime` to publish the exact prepared runtime tree at a stable image path, including executable sidecars.
+The Docker build publishes the exact prepared runtime tree at a stable image path, including executable sidecars. See `stellad system-bundle install --help` for build-time publication options.
 
 Upgrading retires the former `tool/mise`, `tool/xberg`, `tool/fd` and `tool/rg` plugin settings, including disabled values. The required builtins remain available after this migration; other plugin settings are preserved.
 
@@ -36,7 +36,7 @@ At startup, Stella:
 3. Normalizes the definitions and scope configurations into the common plugin catalog
 4. Registers enabled manifest plugins into the plugin host
 
-Optional plugin binaries are installed when a runner needs the selection captured in its plugin snapshot. Required builtins are prepared independently of that snapshot. Native managed sessions use the managed tree; user and user-agent selections use their own sandbox trees. Docker uses Linux-native preparation inside its sandbox boundary.
+A runner exposes optional plugin binaries from its captured plugin snapshot. Docker copies matching shipped artifacts from the image; a custom declaration without a matching artifact requires isolated installation. Required builtins are prepared independently of that snapshot. Native managed sessions use the managed tree; user and user-agent selections use their own sandbox trees. Docker uses Linux-native preparation inside its sandbox boundary.
 
 ## Docker sandbox CLI availability
 
@@ -46,15 +46,18 @@ For Docker:
 
 - Required builtins are pre-installed in the versioned sandbox image from the shared release declarations. They remain available when no optional plugin is selected.
 - The resolved manifest — built-in definitions plus your stored customizations — remains the source of plugin metadata, enablement, session environment, OAuth injection, and local-sandbox binary installation.
-- User-configured CLI binaries need a container-native provisioning path. They should be installed for Linux inside the Docker environment, not copied from the host's `$STELLA_HOME/bin`.
+- Shipped optional CLI artifacts are prepared during image build. They remain hidden until selected by the four-scope authorization policy; preinstallation does not enable a plugin.
+- Custom CLI declarations without an exact image artifact are installed for Linux in the isolated helper, never copied from the host.
 
-A safe Docker loading design for user-configured CLIs is:
+Docker prepares each selection as follows:
 
 1. Resolve the complete four-scope plugin selection for the runner's trusted user and Agent.
-2. Pass that selection to the existing container preparation helper, which installs only the selected Linux artifacts.
+2. Match each selected binary against the image cache by name, mise tool key, declared version (empty means `latest`), and all installation options. Copy matching complete artifacts and sidecars; install only misses in the isolated helper.
 3. Store the resulting tools in the Docker-managed tool cache or volume keyed by one resolved image ID plus the complete selection identity.
 4. Mount the selected entries into the sandbox session at a container-only path and prepend them to the in-container `PATH`.
-5. Prepare a new selection when the captured snapshot or image ID changes.
+5. Prepare a new selection when the captured snapshot or image ID changes. Matching image artifacts are copied without downloading them again. The default shipped selection can start without network access; custom versions may still need downloads.
+
+The image artifact cache is masked from running sessions. A denied plugin has neither an executable alias nor an accessible cached install or sidecar directory. Version and option mismatches never fall back to a similarly named image tool.
 
 This keeps the release sandbox image stable while still allowing user-added CLIs. The installed user binaries are Linux container binaries, and the host `$STELLA_HOME/bin` is not part of Docker executable resolution. The `none` backend remains trusted-host execution and provides no filesystem isolation.
 
@@ -211,7 +214,7 @@ Platform-specific asset patterns (`platforms:` map) are not supported in the man
 
 ## State and caching
 
-Stella tracks installed binary versions in `$STELLA_HOME/plugin-manifest-state.json`. A selected snapshot reuses an installed version when possible; changing a binary's `version` triggers a new lazy installation. Preparation is cancelled with the session and Stella terminates installer child processes.
+Prepared selections are cached by their captured plugin configuration. Docker also pins the resolved image ID. Changing a binary declaration creates a new selection; matching image artifacts are reused, while missing versions require installation. Preparation is cancelled with the session and Stella terminates installer child processes.
 
 ## Admin UI
 

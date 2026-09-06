@@ -403,6 +403,89 @@ func TestCopyNativeTreeRejectsEscapingSymlink(t *testing.T) {
 	}
 }
 
+func TestCopyNativeTreePortableAbsoluteSymlinkAndChain(t *testing.T) {
+	source := t.TempDir()
+	target := filepath.Join(source, "installs", "uv", "bin", "uv")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("uv-ready"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	links := filepath.Join(source, ".mise-bins")
+	if err := os.MkdirAll(links, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chain := filepath.Join(links, "uv-chain")
+	if err := os.Symlink(target, chain); err != nil {
+		t.Fatal(err)
+	}
+	canonicalTarget, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(canonicalTarget, filepath.Join(links, "uv-canonical")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(chain, filepath.Join(links, "uv")); err != nil {
+		t.Fatal(err)
+	}
+
+	destination := filepath.Join(t.TempDir(), "copy")
+	if err := copyNativeTree(source, destination); err != nil {
+		t.Fatalf("copyNativeTree: %v", err)
+	}
+	for _, name := range []string{"uv", "uv-chain", "uv-canonical"} {
+		link := filepath.Join(destination, ".mise-bins", name)
+		gotTarget, err := os.Readlink(link)
+		if err != nil {
+			t.Fatalf("read copied %s link: %v", name, err)
+		}
+		if filepath.IsAbs(gotTarget) {
+			t.Fatalf("copied %s link retained absolute target %q", name, gotTarget)
+		}
+		got, err := os.ReadFile(link)
+		if err != nil || string(got) != "uv-ready" {
+			t.Fatalf("read copied %s target = %q, err=%v", name, got, err)
+		}
+	}
+	if err := os.RemoveAll(source); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(destination, ".mise-bins", "uv")); err != nil || string(got) != "uv-ready" {
+		t.Fatalf("copied selection depends on source after publication: %q, err=%v", got, err)
+	}
+}
+
+func TestCopyNativeTreeRejectsAbsoluteSiblingAndSymlinkCycle(t *testing.T) {
+	root := t.TempDir()
+	sibling := root + "-sibling"
+	if err := os.MkdirAll(sibling, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	external := filepath.Join(sibling, "secret")
+	if err := os.WriteFile(external, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, "absolute-escape")); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyNativeTree(root, filepath.Join(t.TempDir(), "absolute-copy")); err == nil || !strings.Contains(err.Error(), "absolute or unsafe target") {
+		t.Fatalf("absolute sibling link error = %v, want rejection", err)
+	}
+
+	cycleRoot := t.TempDir()
+	if err := os.Symlink("b", filepath.Join(cycleRoot, "a")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("a", filepath.Join(cycleRoot, "b")); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyNativeTree(cycleRoot, filepath.Join(t.TempDir(), "cycle-copy")); err == nil || !strings.Contains(err.Error(), "symlink cycle") {
+		t.Fatalf("symlink cycle error = %v, want rejection", err)
+	}
+}
+
 func TestMaterializeNativeSelectionCanonicalizesMisePaths(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake mise script uses POSIX shell")

@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import type { PluginConfig, PluginDefinition } from "@/lib/api-client";
+import type {
+  ComponentsPluginConfigInputWritable,
+  PluginConfig,
+  PluginDefinition,
+} from "@/lib/api-client";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,7 +16,9 @@ export type PluginConfigPayload = {
   binary_versions?: Record<string, string>;
   skill_sources?: Record<string, string>;
 };
-export type PluginConfigCredentials = Record<string, unknown>;
+export type PluginConfigCredentials = NonNullable<
+  ComponentsPluginConfigInputWritable["credentials"]
+>;
 
 type Translate = ReturnType<typeof useI18n>["t"];
 
@@ -29,6 +35,7 @@ function cliSummary(config?: PluginConfig) {
 function ConfigEditor({
   plugin,
   config,
+  initialMcpUrl,
   onSave,
   onCancel,
   busy,
@@ -36,6 +43,7 @@ function ConfigEditor({
 }: {
   plugin: Pick<PluginDefinition, "backend" | "display_name">;
   config?: PluginConfig;
+  initialMcpUrl?: string;
   onSave: SaveConfig;
   onCancel: () => void;
   busy: boolean;
@@ -54,7 +62,7 @@ function ConfigEditor({
   const [skillSources, setSkillSources] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    setURL("");
+    setURL(initialMcpUrl ?? "");
     setTransport(mcp?.transport ?? "streamable_http");
     setAuthType(mcp?.auth_type ?? "none");
     setCredentialMode(mcp?.credential_mode ?? "shared");
@@ -63,7 +71,7 @@ function ConfigEditor({
     setOauthClientSecret("");
     setVersions(Object.fromEntries((cli?.binaries ?? []).map((binary) => [binary.name, ""])));
     setSkillSources({});
-  }, [cli, mcp]);
+  }, [cli, initialMcpUrl, mcp]);
 
   const save = () => {
     if (plugin.backend === "mcp") {

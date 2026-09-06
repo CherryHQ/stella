@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -200,5 +201,104 @@ func TestPluginMCPHTTPInvalidBackendInput(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPluginHTTPDefinitionLifecycleAndConfigIsolation(t *testing.T) {
+	env, secrets := setupPluginMutationHTTP(t)
+	create := func(namespace, displayName, endpoint string) apitypes.CreatePluginResponse {
+		t.Helper()
+		rr := doRequest(t, env, http.MethodPost, "/api/plugins", map[string]any{
+			"namespace": namespace, "display_name": displayName, "backend": "mcp",
+			"definition_spec": map[string]any{},
+			"initial_config": map[string]any{
+				"scope": "user", "is_enabled": true,
+				"config":      map[string]any{"url": endpoint, "auth_type": "bearer", "transport": "streamable_http"},
+				"credentials": map[string]any{"token": namespace + "-token"},
+			},
+		})
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("create %s = %d: %s", namespace, rr.Code, rr.Body.String())
+		}
+		var created apitypes.CreatePluginResponse
+		if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+			t.Fatalf("decode create %s: %v", namespace, err)
+		}
+		if created.Plugin.Namespace != namespace || created.Plugin.DisplayName != displayName {
+			t.Fatalf("created plugin = %#v", created.Plugin)
+		}
+		return created
+	}
+
+	first := create("lifecycle_a", "Lifecycle A", "https://a.example.test/mcp")
+	second := create("lifecycle_b", "Lifecycle B", "https://b.example.test/mcp")
+	var before []byte
+	if err := env.db.QueryRow(t.Context(), `SELECT config FROM plugin_config WHERE id = $1`, second.Config.Id.String()).Scan(&before); err != nil {
+		t.Fatalf("read second config: %v", err)
+	}
+	updatePath := "/api/plugins/" + first.Plugin.Id + "/configs/" + first.Config.Id.String()
+	update := map[string]any{
+		"expected_revision": first.Config.Revision,
+		"config":            map[string]any{"url": "https://a-updated.example.test/mcp", "auth_type": "bearer", "transport": "streamable_http"},
+		"credentials":       map[string]any{"token": "lifecycle_a-replacement"},
+	}
+	rr := doRequest(t, env, http.MethodPatch, updatePath, update)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update first = %d: %s", rr.Code, rr.Body.String())
+	}
+	var after []byte
+	if err := env.db.QueryRow(t.Context(), `SELECT config FROM plugin_config WHERE id = $1`, second.Config.Id.String()).Scan(&after); err != nil {
+		t.Fatalf("read second config after first update: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("updating one plugin changed another config: before=%s after=%s", before, after)
+	}
+
+	catalog := pluginpkg.NewCatalog()
+	if err := catalog.Register(pluginpkg.Definition{
+		ID: "builtin/lifecycle", Namespace: "lifecycle_builtin", DisplayName: "Builtin lifecycle",
+		Backend: pluginpkg.BackendMCP, Source: pluginpkg.SourceBuiltin, ImplementationKey: "lifecycle",
+		Spec: json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1,
+	}); err != nil {
+		t.Fatalf("register builtin: %v", err)
+	}
+	plugins := pluginpkg.NewService(env.db, env.deps.AgentAccess, catalog, mcp.NewMCPBackendPolicy(mcp.EndpointPolicy{}), func(_ context.Context, fn func() error) error { return fn() })
+	backend := mcp.NewServiceForPool(env.db, secrets, func(tx pgx.Tx) mcp.Vault { return secrets.WithTx(tx) })
+	backend.SetPluginService(plugins)
+	env.rebuild(t, func(d *server.Deps) {
+		d.PluginService = plugins
+		d.MCP = backend
+		d.MCPAccess = mcp.NewAccess(backend, d.AgentAccess, nil)
+	})
+	if err := plugins.SyncBuiltinDefaults(t.Context()); err != nil {
+		t.Fatalf("sync builtin: %v", err)
+	}
+	builtinDelete := doRequest(t, env, http.MethodDelete, "/api/plugins/builtin/lifecycle?expected_revision=1", nil)
+	if builtinDelete.Code != http.StatusForbidden {
+		t.Fatalf("builtin delete = %d, want 403: %s", builtinDelete.Code, builtinDelete.Body.String())
+	}
+	var builtinCount int
+	if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM plugin_definition WHERE id = 'builtin/lifecycle'`).Scan(&builtinCount); err != nil {
+		t.Fatal(err)
+	}
+	if builtinCount != 1 {
+		t.Fatal("builtin definition was deleted")
+	}
+
+	var secondRevision int64
+	if err := env.db.QueryRow(t.Context(), `SELECT revision FROM plugin_config WHERE id = $1`, second.Config.Id.String()).Scan(&secondRevision); err != nil {
+		t.Fatalf("read second revision: %v", err)
+	}
+	staleDelete := doRequest(t, env, http.MethodDelete, "/api/plugins/"+second.Plugin.Id+"?expected_revision=2", nil)
+	if staleDelete.Code != http.StatusConflict {
+		t.Fatalf("stale custom delete = %d, want 409: %s", staleDelete.Code, staleDelete.Body.String())
+	}
+	deleteConfig := doRequest(t, env, http.MethodDelete, "/api/plugins/"+second.Plugin.Id+"/configs/"+second.Config.Id.String()+"?expected_revision="+strconv.FormatInt(secondRevision, 10), nil)
+	if deleteConfig.Code != http.StatusNoContent {
+		t.Fatalf("custom config delete = %d, want 204: %s", deleteConfig.Code, deleteConfig.Body.String())
+	}
+	deleteSecond := doRequest(t, env, http.MethodDelete, "/api/plugins/"+second.Plugin.Id+"?expected_revision=1", nil)
+	if deleteSecond.Code != http.StatusNoContent {
+		t.Fatalf("custom delete = %d, want 204: %s", deleteSecond.Code, deleteSecond.Body.String())
 	}
 }

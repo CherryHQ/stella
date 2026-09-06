@@ -7,11 +7,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { McpServer } from "@/lib/api-client/types.gen";
+import type { PluginMcpBackendSummary } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 
-export type McpTransport = McpServer["transport"];
-export type McpAuthType = McpServer["auth_type"];
+export type McpTransport = PluginMcpBackendSummary["transport"];
+export type McpAuthType = PluginMcpBackendSummary["auth_type"];
 
 export function transportLabel(transport: McpTransport) {
   return transport === "streamable_http" ? "Streamable HTTP" : "SSE";
