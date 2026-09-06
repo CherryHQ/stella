@@ -61,6 +61,7 @@ def test_capacity_is_a_separate_full_dataset_mode():
 
 
 @pytest.mark.parametrize("mode,workers,tasks,concurrencies,minutes", [
+    ("queued", 32, 89, [32], 0),
     ("throughput", 32, 89, [32], 10),
     ("capacity", 16, 89, [16, 32, 48, 64, 16], 0),
     ("pilot", 4, 5, [1, 4, 4, 1], 0),
@@ -75,6 +76,8 @@ def test_plan_records_actual_queues(tmp_path, monkeypatch, mode, workers, tasks,
     monkeypatch.setattr(_aws_full, "sha256", lambda *args: "digest")
     monkeypatch.setattr(_aws_full.subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess([], 0, "controller\n"))
     mode_flags = [] if mode == "full" else [f"--{mode}"]
+    if mode == "queued":
+        mode_flags.extend(["--trial-limit", "128"])
     assert _aws_full.main(["--plan", *mode_flags, "--warmup", "environment", "--max-topup-rounds", "0", "--concurrency", str(workers)]) == 0
     state = json.loads(next(tmp_path.glob("dist/evals/aws/*/state.json")).read_text())
     assert sources == [mode in {"smoke", "pilot"}]
@@ -83,6 +86,7 @@ def test_plan_records_actual_queues(tmp_path, monkeypatch, mode, workers, tasks,
     assert state["pass_concurrencies"] == concurrencies
     assert state["sample_minutes"] == minutes
     assert state["run_mode"] == mode
+    assert state["trial_limit"] == (128 if mode == "queued" else 0)
 
 
 @pytest.mark.parametrize("extra", [["--sample-minutes", "0"], ["--sample-minutes", "31"], ["--max-topup-rounds", "1"], ["--warmup", "legacy"]])
@@ -91,8 +95,20 @@ def test_throughput_rejects_unbounded_or_retrying_samples(extra):
         _aws_full.main(["--throughput", "--warmup", "environment", "--max-topup-rounds", "0", *extra])
 
 
+@pytest.mark.parametrize("extra", [["--trial-limit", "88"], ["--trial-limit", "446"], ["--max-topup-rounds", "1"], ["--warmup", "legacy"]])
+def test_queued_rejects_missing_coverage_or_extra_paid_work(extra):
+    with pytest.raises(RuntimeError, match="--queued requires"):
+        _aws_full.main(["--queued", "--warmup", "environment", "--max-topup-rounds", "0", *extra])
+
+
+def test_trial_limit_cannot_silently_apply_to_another_mode():
+    with pytest.raises(RuntimeError, match="--trial-limit requires --queued"):
+        _aws_full.main(["--trial-limit", "128"])
+
+
+@pytest.mark.parametrize("mode", ["throughput", "queued"])
 @pytest.mark.parametrize("incomplete,reasons,expected", [(True, [], "sampled"), (False, [], "completed"), (False, ["low_memory"], "stopped")])
-def test_performance_worker_runs_only_one_requested_sample(tmp_path, incomplete, reasons, expected):
+def test_performance_worker_runs_only_one_requested_sample(tmp_path, incomplete, reasons, expected, mode):
     body = REMOTE.read_text().split("  pass=1\n  capacity_status=running", 1)[1].split("\n  FINAL_PHASE=complete", 1)[0]
     script = r'''
 set -euo pipefail
@@ -112,9 +128,10 @@ as_eval() { :; }
 journal() { :; }
 capacity_artifacts() { printf 'status %s\n' "$1"; }
 '''
-    env = os.environ | {"RESULT": json.dumps({"capacity_stop_reasons": reasons, "incomplete_sample": incomplete})}
+    env = os.environ | {"RUN_MODE": mode, "RESULT": json.dumps({"capacity_stop_reasons": reasons, "incomplete_sample": incomplete})}
     result = subprocess.run(["bash", "-c", script + body, "_", str(tmp_path)], env=env, capture_output=True, text=True, check=True)
-    assert result.stdout.splitlines() == ["run pass-01/00-main -d pinned-dataset -k 1 -n 32", f"status {expected}"]
+    source = f"-c {tmp_path}/metrics/queue.yaml" if mode == "queued" else "-d pinned-dataset -k 1"
+    assert result.stdout.splitlines() == [f"run pass-01/00-main {source} -n 32", f"status {expected}"]
 
 
 @pytest.mark.parametrize("failure_site", ["download_remote_journal", "run-failed"])

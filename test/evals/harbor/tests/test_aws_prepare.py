@@ -1,14 +1,18 @@
 import json
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
+
 from stella_harbor.aws_prepare import (
     DATASET_REF,
     capacity_metrics,
     measure,
     preparation_inventory,
     prepare_command,
+    queue_config,
+    write_queue,
 )
 
 
@@ -104,6 +108,127 @@ def test_real_harbor_print_config_disables_model_and_verifier(tmp_path):
     assert config["environment"]["delete"] is False
     assert config["datasets"][0]["ref"] == DATASET_REF
     assert not (tmp_path / "job").exists()
+
+
+@pytest.mark.parametrize("limit", [89, 128, 178, 200, 444, 445])
+def test_queue_declares_exact_counts_before_any_results(limit, tmp_path):
+    names = [f"task-{index:02d}" for index in range(89)]
+    names[0] = "install-windows-3.11"
+    text, plan = queue_config(names, limit, 32)
+    assert queue_config(list(reversed(names)), limit, 32) == (text, plan)
+    assert len(plan["task_attempts"]) == 89
+    assert sum(plan["task_attempts"].values()) == limit
+    assert max(plan["task_attempts"].values()) <= 5
+    assert min(plan["task_attempts"].values()) >= 1
+    assert plan["full_plan_trials"] == 445
+    if limit == 128:
+        assert list(plan["task_attempts"].values()).count(2) == 39
+        assert list(plan["task_attempts"].values()).count(1) == 50
+    if limit == 445:
+        assert plan["harbor_n_attempts"] == 5
+    config_path = tmp_path / "queue.yaml"
+    config_path.write_text(text)
+    printed = subprocess.run(
+        ["harbor", "run", "-c", str(config_path), "-n", "32", "--print-config"],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    config = json.loads(printed.stdout)
+    assert "retry:\n  max_retries: 0" in text
+    assert config.get("retry", {}).get("max_retries", 0) == 0
+    assert all(dataset["ref"] == DATASET_REF for dataset in config["datasets"])
+    assert (
+        sum(len(dataset["task_names"]) for dataset in config["datasets"])
+        * config.get("n_attempts", 1)
+        == limit
+    )
+
+
+@pytest.mark.parametrize("limit", [0, 88, 446])
+def test_queue_cannot_exceed_budget_or_omit_task_coverage(limit):
+    with pytest.raises(ValueError, match="89-445"):
+        queue_config([f"task-{index}" for index in range(89)], limit, 32)
+
+
+def test_queue_rejects_duplicate_or_unsafe_task_names():
+    with pytest.raises(ValueError, match="distinct task"):
+        queue_config(["task"] * 89, 128, 32)
+    with pytest.raises(ValueError, match="distinct task"):
+        queue_config([f"task-{index}" for index in range(88)] + ["bad: task"], 128, 32)
+
+
+@pytest.mark.parametrize("mismatch", [False, True])
+def test_queue_preflight_checks_native_resolution_before_writing(
+    tmp_path, monkeypatch, mismatch
+):
+    from harbor import JobPlan
+
+    job = tmp_path / "warmup/run"
+    completed = {
+        "started_at": "2026-09-06T00:00:00+00:00",
+        "finished_at": "2026-09-06T00:00:01+00:00",
+    }
+    for index in range(89):
+        trial = job / f"task-{index:02d}__warmup"
+        trial.mkdir(parents=True)
+        (trial / "config.json").write_text(json.dumps({"trial_name": trial.name}))
+        (trial / "result.json").write_text(
+            json.dumps(
+                {
+                    **completed,
+                    "task_name": f"terminal-bench/task-{index:02d}",
+                    "agent_info": {"name": "nop"},
+                    "environment_setup": completed,
+                    "agent_setup": completed,
+                }
+            )
+        )
+    (job / "config.json").write_text("{}")
+    (job / "result.json").write_text(
+        json.dumps(
+            {
+                "finished_at": completed["finished_at"],
+                "n_total_trials": 89,
+                "stats": {"n_completed_trials": 89},
+            }
+        )
+    )
+
+    async def resolve(config):
+        assert config.retry.max_retries == 0
+        assert config.n_concurrent_trials == 32
+        assert config.agents[0].name == "nop"
+        names = [
+            name.split("/")[-1]
+            for dataset in config.datasets
+            for name in dataset.task_names
+        ]
+        if mismatch:
+            names = names[:-1]
+        return SimpleNamespace(
+            trial_configs=[
+                SimpleNamespace(
+                    task=SimpleNamespace(name=f"terminal-bench/{name}", path=None)
+                )
+                for name in names
+            ]
+        )
+
+    monkeypatch.setattr(JobPlan, "from_config", resolve)
+    output, config = tmp_path / "plan.json", tmp_path / "queue.yaml"
+    if mismatch:
+        with pytest.raises(ValueError, match="resolution differs"):
+            write_queue(job, output, config, 128, 32)
+        assert not output.exists() and not config.exists()
+    else:
+        write_queue(job, output, config, 128, 32)
+        plan = json.loads(output.read_text())
+        assert plan["resolved_trials"] == 128
+        assert len(plan["trial_order"]) == 128
+        assert plan["harbor_version"]
+        with pytest.raises(ValueError, match="overwrite"):
+            write_queue(job, output, config, 128, 32)
 
 
 @pytest.mark.parametrize(
@@ -253,3 +378,48 @@ def test_capacity_keeps_failed_primaries_and_reports_real_overlap(
     assert bool(result["capacity_stop_reasons"]) == stopped
     assert result["scoreable_per_hour"] == (89 - invalid) * 1800
     assert "bridge_nonce" not in output.read_text()
+
+
+@pytest.mark.parametrize("mismatch", [False, True])
+def test_queued_metrics_validate_per_task_counts_not_only_total(tmp_path, mismatch):
+    names = [f"task-{index:02d}" for index in range(89)]
+    _, plan = queue_config(names, 128, 32)
+    queue_plan = tmp_path / "queue-plan.json"
+    queue_plan.write_text(json.dumps(plan))
+    observed = dict(plan["task_attempts"])
+    if mismatch:
+        # Keep the total at 128, but repeat one task instead of the declared one.
+        repeated = next(name for name, count in observed.items() if count == 2)
+        single = next(name for name, count in observed.items() if count == 1)
+        observed[repeated] -= 1
+        observed[single] += 1
+    for name, count in observed.items():
+        for attempt in range(count):
+            trial = tmp_path / "jobs" / f"{name}__{attempt}"
+            (trial / "agent/stella").mkdir(parents=True)
+            (trial / "config.json").write_text(json.dumps({"trial_name": trial.name}))
+            (trial / "result.json").write_text(
+                json.dumps({"verifier_result": {"rewards": {"reward": 0}}})
+            )
+            (trial / "agent/stella/result.json").write_text(
+                json.dumps({"valid": True, "bridge_nonce": "nonce"})
+            )
+    output = tmp_path / "metrics.json"
+    output.write_text(
+        json.dumps(
+            {
+                "completed_at": "2026-09-06T00:01:00+00:00",
+                "wall_seconds": 60,
+                "exit_code": 0,
+            }
+        )
+    )
+    capacity_metrics(tmp_path / "jobs", output, queue_plan)
+    result = json.loads(output.read_text())
+    assert result["inventory"]["trials"] == 128
+    assert result["planned_trials"] == 128
+    assert result["resolved"] == 0
+    assert result["scoreable_per_hour"] == 128 * 60
+    assert result["capacity_stop_reasons"] == (
+        ["queue_attempt_counts_mismatch"] if mismatch else []
+    )

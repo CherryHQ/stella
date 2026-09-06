@@ -10,7 +10,7 @@ export RUN_ID COMMIT REGION BUCKET SECRET_ARN MODEL_ID CONCURRENCY PASSES
 export EXPECTED_TASKS RUN_MODE MAX_TOPUP_ROUNDS INSTANCE_TYPE INSTANCE_ID AMI_ID AVAILABILITY_ZONE
 export CONTROLLER_COMMIT REMOTE_RUNNER_SHA256 MERGE_HELPER_SHA256 SMOKE_TASKSET_SHA256
 export WARMUP_MODE WARMUP_CONCURRENCY TOPUP_CONCURRENCY PREPARE_HELPER_SHA256
-export SAMPLE_MINUTES
+export SAMPLE_MINUTES TRIAL_LIMIT
 
 ROOT=/opt/stella-tb21
 REPO=$ROOT/stella
@@ -240,6 +240,8 @@ run_eval() {
     measure_args=(--minimum-memory-gib 8 --stop-on-oom)
   elif [ "$RUN_MODE" = throughput ]; then
     measure_args=(--minimum-memory-gib 8 --max-seconds "$((SAMPLE_MINUTES * 60))" --trial-root "$REPO/dist/evals/jobs")
+  elif [ "$RUN_MODE" = queued ]; then
+    measure_args=(--minimum-memory-gib 8 --trial-root "$REPO/dist/evals/jobs")
   fi
   set +e
   as_eval python3 "$ROOT/aws_prepare.py" measure \
@@ -264,7 +266,7 @@ run_eval() {
       [ -z "$testbed_diagnostic" ] || diagnostic="$diagnostic testbed=$testbed_diagnostic"
     fi
     journal "$group-failed" "exit=$eval_status diagnostic=$diagnostic"
-    if [ "$RUN_MODE" = capacity ] || [ "$RUN_MODE" = throughput ]; then
+    if [ "$RUN_MODE" = capacity ] || [ "$RUN_MODE" = throughput ] || [ "$RUN_MODE" = queued ]; then
       # Preserve the failed primary instead of retrying away capacity failures.
       LAST_EVAL_STATUS=$eval_status
       return 0
@@ -369,10 +371,16 @@ PY
 fi
 
 # Capacity failures stay in the evidence; never repair a stressed pass with top-ups.
-if [ "$RUN_MODE" = capacity ] || [ "$RUN_MODE" = throughput ]; then
+if [ "$RUN_MODE" = capacity ] || [ "$RUN_MODE" = throughput ] || [ "$RUN_MODE" = queued ]; then
   capacity_workers=(16 32 48 64 16)
-  if [ "$RUN_MODE" = throughput ]; then
+  if [ "$RUN_MODE" = throughput ] || [ "$RUN_MODE" = queued ]; then
     capacity_workers=("$CONCURRENCY")
+  fi
+  if [ "$RUN_MODE" = queued ]; then
+    as_eval mise exec -- uv run --project test/evals/harbor python "$ROOT/aws_prepare.py" queue \
+      --job "$ROOT/environment-jobs/warmup" --trial-limit "$TRIAL_LIMIT" --concurrency "$CONCURRENCY" \
+      --output "$ROOT/metrics/queue-plan.json" --config "$ROOT/metrics/queue.yaml"
+    journal queue-prepared "trials=$TRIAL_LIMIT concurrency=$CONCURRENCY"
   fi
   CAPACITY_CONCURRENCIES="${capacity_workers[*]}"
   export CAPACITY_CONCURRENCIES
@@ -381,7 +389,7 @@ if [ "$RUN_MODE" = capacity ] || [ "$RUN_MODE" = throughput ]; then
 import datetime, json, os, pathlib, sys
 root = pathlib.Path('/opt/stella-tb21')
 metrics = {str(p.relative_to(root / 'metrics')).removesuffix('.json'): json.loads(p.read_text())
-           for p in sorted((root / 'metrics').rglob('*.json'))}
+           for p in sorted((root / 'metrics').rglob('*.json')) if p.name != 'queue-plan.json'}
 artifact = root / 'artifacts'
 artifact.mkdir(exist_ok=True)
 (artifact / 'performance.json').write_text(json.dumps(metrics, indent=2) + '\n')
@@ -394,6 +402,7 @@ summary = {
     'dataset': os.environ['DATASET_SPEC'],
     'run_mode': os.environ['RUN_MODE'],
     'sample_minutes': int(os.environ.get('SAMPLE_MINUTES', '0')),
+    'planned_trials': int(os.environ.get('TRIAL_LIMIT', '0')) if os.environ['RUN_MODE'] == 'queued' else 89 * len(os.environ['CAPACITY_CONCURRENCIES'].split()),
     'planned_concurrencies': [int(value) for value in os.environ['CAPACITY_CONCURRENCIES'].split()],
     'remote_runner_sha256': os.environ['REMOTE_RUNNER_SHA256'],
     'prepare_helper_sha256': os.environ['PREPARE_HELPER_SHA256'],
@@ -405,6 +414,10 @@ summary = {
 PY
     cp "$JOURNAL" "$ROOT/artifacts/remote-journal.ndjson"
     (cd "$ROOT/artifacts" && sha256sum capacity-summary.json performance.json remote-journal.ndjson > SHA256SUMS)
+    if [ "$RUN_MODE" = queued ]; then
+      cp "$ROOT/metrics/queue-plan.json" "$ROOT/artifacts/queue-plan.json"
+      (cd "$ROOT/artifacts" && sha256sum queue-plan.json >> SHA256SUMS)
+    fi
     aws s3 sync "$ROOT/artifacts" "s3://$BUCKET/artifacts" --only-show-errors
   }
   export DATASET_SPEC
@@ -413,11 +426,17 @@ PY
   for ACTIVE_CONCURRENCY in "${capacity_workers[@]}"; do
     pass_name=pass-$(printf '%02d' "$pass")
     LAST_EVAL_STATUS=0
-    run_eval "$pass_name/00-main" -d "$DATASET_SPEC" -k 1 -n "$ACTIVE_CONCURRENCY"
+    metric_args=()
+    if [ "$RUN_MODE" = queued ]; then
+      run_eval "$pass_name/00-main" -c "$ROOT/metrics/queue.yaml" -n "$ACTIVE_CONCURRENCY"
+      metric_args=(--queue-plan "$ROOT/metrics/queue-plan.json")
+    else
+      run_eval "$pass_name/00-main" -d "$DATASET_SPEC" -k 1 -n "$ACTIVE_CONCURRENCY"
+    fi
     capacity_job="$ROOT/jobs/$pass_name"
     [ "$LAST_EVAL_STATUS" -eq 0 ] || capacity_job="$REPO/dist/evals/jobs"
     as_eval mise exec -- uv run --project test/evals/harbor python "$ROOT/aws_prepare.py" capacity \
-      --job "$capacity_job" --output "$ROOT/metrics/$pass_name/00-main.json"
+      --job "$capacity_job" --output "$ROOT/metrics/$pass_name/00-main.json" ${metric_args[@]+"${metric_args[@]}"}
     stop_count=$(jq '.capacity_stop_reasons | length' "$ROOT/metrics/$pass_name/00-main.json")
     if [ "$stop_count" -gt 0 ]; then
       capacity_status=stopped

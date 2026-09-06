@@ -3,21 +3,27 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import datetime as dt
+import hashlib
 import json
 import math
 import os
+import re
 import signal
 import subprocess
 import time
+from collections import Counter
 from pathlib import Path
 
 DATASET = "terminal-bench/terminal-bench-2-1"
 DATASET_REF = "sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a"
+QUEUE_TASKS = 89
+QUEUE_ATTEMPTS = 5
 
 
 def utc_now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat()
+    return dt.datetime.now(dt.UTC).isoformat()
 
 
 def sample_resources() -> dict[str, float | int]:
@@ -147,6 +153,8 @@ def measure(
         for sig, handler in handlers.items():
             signal.signal(sig, handler)
         if not stop_reason:
+            if trial_root is not None:
+                job_progress = trial_progress(trial_root) or job_progress
             final_sample = sample_resources()
             if final_sample:
                 oom_kills = final_sample.get("oom_kills", 0) - initial_oom
@@ -297,6 +305,124 @@ def preparation_inventory(job: Path, expected_tasks: int) -> dict[str, int]:
     return {"environments": len(trials), "failed": failed, "model_calls": 0}
 
 
+def queue_config(
+    task_names: list[str], trial_limit: int, concurrency: int
+) -> tuple[str, dict]:
+    """Declare attempt counts before execution, never using rewards or durations."""
+    if (
+        len(task_names) != QUEUE_TASKS
+        or len(set(task_names)) != QUEUE_TASKS
+        or any(not re.fullmatch(r"[a-z0-9][a-z0-9.-]*", task) for task in task_names)
+    ):
+        raise ValueError(
+            "queued evaluation requires exactly 89 distinct task identifiers"
+        )
+    if (
+        not QUEUE_TASKS <= trial_limit <= QUEUE_TASKS * QUEUE_ATTEMPTS
+        or concurrency < 1
+    ):
+        raise ValueError(
+            "queued evaluation requires 89-445 trials and positive concurrency"
+        )
+    names = sorted(task_names)
+    rounds, extra = divmod(trial_limit, QUEUE_TASKS)
+    # Hash ordering avoids taking an alphabetical prefix and is independent of
+    # runtime/reward. Every task is represented before extra attempts are added.
+    extra_names = sorted(
+        names, key=lambda name: hashlib.sha256(name.encode()).digest()
+    )[:extra]
+    counts = {name: rounds + (name in extra_names) for name in names}
+    groups = [names] if not extra else [names] * rounds + [sorted(extra_names)]
+    attempts = rounds if not extra else 1
+    lines = [
+        f"n_attempts: {attempts}",
+        f"n_concurrent_trials: {concurrency}",
+        "retry:",
+        "  max_retries: 0",
+        "datasets:",
+    ]
+    for group in groups:
+        lines.extend(
+            [
+                f"  - name: {DATASET}",
+                f"    ref: {DATASET_REF}",
+                "    task_names:",
+                *[f"      - terminal-bench/{name}" for name in group],
+            ]
+        )
+    config = "\n".join(lines) + "\n"
+    plan = {
+        "dataset": f"{DATASET}@{DATASET_REF}",
+        "full_plan_trials": QUEUE_TASKS * QUEUE_ATTEMPTS,
+        "trial_limit": trial_limit,
+        "distinct_tasks": QUEUE_TASKS,
+        "concurrency": concurrency,
+        "selection": "all-tasks-then-sha256-name-prefix-v1",
+        "harbor_n_attempts": attempts,
+        "task_attempts": counts,
+        "config_sha256": hashlib.sha256(config.encode()).hexdigest(),
+        "max_retries": 0,
+        "performance_only": True,
+    }
+    return config, plan
+
+
+def write_queue(
+    job: Path, output: Path, config_path: Path, trial_limit: int, concurrency: int
+) -> None:
+    # The native planner resolves duplicate dataset entries concurrently.
+    # Populate its task cache with the completed install-only job first.
+    preparation_inventory(job, QUEUE_TASKS)
+    if output.exists() or config_path.exists():
+        raise ValueError("refusing to overwrite a queue plan")
+    names = []
+    for result_path in job.rglob("result.json"):
+        trial_config = result_path.with_name("config.json")
+        if trial_config.is_file() and json.loads(trial_config.read_text()).get(
+            "trial_name"
+        ):
+            name = json.loads(result_path.read_text())["task_name"]
+            if not name.startswith("terminal-bench/"):
+                raise ValueError(
+                    "environment task lacks Terminal-Bench package identity"
+                )
+            names.append(name.removeprefix("terminal-bench/"))
+    config, plan = queue_config(names, trial_limit, concurrency)
+
+    # JobPlan resolves the exact runnable count without starting containers,
+    # provisioning Stella or invoking a model. print-config alone cannot do this.
+    from importlib.metadata import version
+
+    import yaml
+    from harbor import JobConfig, JobPlan
+
+    resolved = asyncio.run(
+        JobPlan.from_config(
+            JobConfig.model_validate(
+                yaml.safe_load(config) | {"agents": [{"name": "nop"}]}
+            )
+        )
+    )
+    # Package tasks have a qualified name and no local path in TrialConfig.
+    # Their cache directory basename is a digest, not a task identity.
+    qualified_names = [trial.task.name for trial in resolved.trial_configs]
+    if any(
+        not name or not name.startswith("terminal-bench/") for name in qualified_names
+    ):
+        raise ValueError("Harbor queue resolved a non-Terminal-Bench task identity")
+    resolved_names = [name.removeprefix("terminal-bench/") for name in qualified_names]
+    counts = Counter(resolved_names)
+    if dict(counts) != plan["task_attempts"]:
+        raise ValueError("Harbor queue resolution differs from declared task attempts")
+    plan["harbor_version"] = version("harbor")
+    plan["resolved_trials"] = len(resolved.trial_configs)
+    plan["trial_order"] = resolved_names
+    with config_path.open("x") as stream:
+        stream.write(config)
+    with output.open("x") as stream:
+        stream.write(json.dumps(plan, indent=2) + "\n")
+
+
 def add_phase_metrics(job: Path, output: Path) -> None:
     """Keep environment startup separate from the model's variable runtime."""
     phases: dict[str, list[float]] = {
@@ -334,7 +460,7 @@ def add_phase_metrics(job: Path, output: Path) -> None:
     output.write_text(json.dumps(summary, indent=2) + "\n")
 
 
-def capacity_metrics(job: Path, output: Path) -> None:
+def capacity_metrics(job: Path, output: Path, queue_plan: Path | None = None) -> None:
     # Use the same validity and timeout definitions as normal eval evidence.
     if __package__:
         from .aws_merge import inventory, ordered_trials, scoreability_reason
@@ -387,7 +513,16 @@ def capacity_metrics(job: Path, output: Path) -> None:
         reasons.append(summary["stop_reason"])
     if summary["exit_code"] != 0 and not timeboxed:
         reasons.append("command_failed")
-    if not timeboxed and (state["tasks"] != 89 or state["trials"] != 89):
+    if queue_plan is not None:
+        planned = json.loads(queue_plan.read_text())["task_attempts"]
+        observed_counts = Counter(row["task"] for row in rows)
+        if dict(observed_counts) != planned:
+            reasons.append("queue_attempt_counts_mismatch")
+        if timeboxed:
+            reasons.append("queued_run_must_not_be_timeboxed")
+        summary["planned_trials"] = sum(planned.values())
+        summary["observed_task_attempts"] = dict(sorted(observed_counts.items()))
+    elif not timeboxed and (state["tasks"] != 89 or state["trials"] != 89):
         reasons.append("incomplete_or_repeated_task_set")
     observed = summary.get("sample_inventory") if timeboxed else state
     if observed is None:
@@ -421,6 +556,13 @@ def main(argv: list[str] | None = None) -> int:
     capacity = commands.add_parser("capacity")
     capacity.add_argument("--job", type=Path, required=True)
     capacity.add_argument("--output", type=Path, required=True)
+    capacity.add_argument("--queue-plan", type=Path)
+    queue = commands.add_parser("queue")
+    queue.add_argument("--job", type=Path, required=True)
+    queue.add_argument("--output", type=Path, required=True)
+    queue.add_argument("--config", type=Path, required=True)
+    queue.add_argument("--trial-limit", type=int, required=True)
+    queue.add_argument("--concurrency", type=int, required=True)
     for name in ("measure", "prepare"):
         command = commands.add_parser(name)
         command.add_argument("--output", type=Path, required=True)
@@ -439,8 +581,13 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--taskset", type=Path)
             command.add_argument("--expected-tasks", type=int, required=True)
     args = parser.parse_args(argv)
+    if args.action == "queue":
+        write_queue(
+            args.job, args.output, args.config, args.trial_limit, args.concurrency
+        )
+        return 0
     if args.action == "capacity":
-        capacity_metrics(args.job, args.output)
+        capacity_metrics(args.job, args.output, args.queue_plan)
         return 0
     if args.action == "phases":
         add_phase_metrics(args.job, args.output)

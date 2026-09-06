@@ -100,6 +100,42 @@ slow-task tails. The current full runner also waits between its five passes;
 raising worker concurrency does not remove those barriers. This mode estimates
 throughput and resource pressure, not model quality or an exact completion time.
 
+To measure a completed attempt budget without the five pass barriers, use:
+
+```bash
+mise run eval:tb21:aws -- --queued --trial-limit 128 --warmup environment --concurrency 32 --instance-type c7i.16xlarge --max-topup-rounds 0 --timeout-hours 3 --commit HEAD
+```
+
+This is one native Harbor queue, not five sequential jobs and not a ten-minute
+sample. `--trial-limit` accepts 89-445 attempts and defaults to 445. Every task
+runs at least once. At 128, all 89 tasks run once and 39 tasks receive a second
+attempt, selected by ascending SHA-256 of the task name before execution.
+No reward or measured duration influences selection. Exact multiples of 89 use
+Harbor's native `n_attempts`; partial rounds use repeated pinned dataset entries.
+Workers take the next attempt without waiting for the previous round to finish.
+
+Preparation must complete before planning, so repeated task entries find an
+already populated task cache. Harbor's public `JobPlan` resolves and checks the
+per-task counts before any model call. Native retries and controller top-ups are
+both disabled: the requested budget counts attempts, not successful or scoreable
+results. The run waits for those attempts to finish, subject to unchanged task
+deadlines, the 8 GiB available-memory floor, and the cloud lease. It does not
+launch 445 attempts and cancel after 128 completions.
+
+`queue-plan.json` records the task counts, native trial order, configuration hash,
+Harbor version and full 445-attempt target. It is checksummed alongside the
+performance artifacts. Completion validation checks each task's attempt count,
+not only the total. Failures remain visible and are never repaired in this mode.
+Like the other performance modes, it does not publish a merged benchmark score,
+even with a 445-attempt budget.
+
+The historical single-job memory-growth warning still applies: a 445-trial job
+previously exhausted a 64 GiB host. Start with 128 on the 128 GiB host and inspect
+memory growth before requesting 445. A completed 128-attempt sample measures its
+own elapsed time, not the exact duration or model quality of the full workload.
+The default full benchmark runner remains sequential until this experiment is
+validated; `--queued` is the explicit cross-pass alternative.
+
 The controller writes progress to `dist/evals/aws/<run-id>/journal.ndjson`.
 A closed stdout pipe does not stop evaluation or file logging. Cleanup is
 attempted even if failure reporting raises an exception. If cleanup is
