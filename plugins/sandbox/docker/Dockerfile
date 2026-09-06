@@ -70,11 +70,9 @@ ENV MISE_CACHE_DIR=/opt/stella/.mise-tools/cache
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # `system-bundle install` extracts the exact release-owned mise, Xberg, and
-# shell environment before the reconciler invokes mise. This avoids a second,
-# image-provided mise version and lets relative system/user shims resolve at the
-# same /opt/stella/bin path bwrap exposes. The stellad is bind-mounted only for
-# this build step; it is not shipped in the runtime image. Reconcile then writes
-# the builtin config, installs enabled plugin binaries, and relinks shims.
+# shell environment. The stellad is bind-mounted only for this build step; it is
+# not shipped in the runtime image. Snapshot selection later decides which
+# release-owned binaries are visible to each runner.
 RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/bin/stellad \
     --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
 	STELLA_HOME=/opt/stella stellad system-bundle install && \
@@ -87,15 +85,13 @@ RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/
 # The install above runs as the owning UID, so an owner-only permission bit on a
 # bundled runtime cannot fail it — that is how a 0700 Xberg bundle directory once
 # shipped while `xberg --version` passed here. USER_UID is a build arg and the
-# image is routinely run under a different UID, so re-run every bundled runtime
-# as an unrelated one (nobody), plus the explicit release-owned paths. Runtime
-# sessions expose these binaries only through selection-local shims. This is
-# the only check that distinguishes "installed" from "reachable by the process
-# that will actually use it".
+# image is routinely run under a different UID, so re-run the release-owned
+# runtimes as an unrelated user (nobody). Runtime sessions expose these binaries
+# only through selection-local aliases. This check distinguishes "installed"
+# from "reachable by the process that will actually use it".
 USER root
 RUN HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/bin/mise --version && \
-    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/bin/xberg --version && \
-    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups rg --version
+    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/bin/xberg --version
 USER stella
 
 ENV HOME=/workspace
