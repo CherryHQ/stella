@@ -64,34 +64,17 @@ func RuntimeResources() []RuntimeResource {
 // RuntimeIdentity returns the content identity of the core declaration and
 // embedded release assets for this platform. Embedded digests prevent a
 // changed release asset from reusing an older public selection directory.
-func RuntimeIdentity() (string, error) {
-	runtimeIdentityOnce.Do(func() {
-		assets, err := embeddedRuntimeAssets()
-		if err != nil {
-			runtimeIdentityErr = err
-			return
-		}
-		runtimeIdentityValue, runtimeIdentityErr = runtimeIdentity(RuntimeResources(), assets)
-	})
-	return runtimeIdentityValue, runtimeIdentityErr
-}
+func RuntimeIdentity() (string, error) { return cachedRuntimeIdentity() }
 
-var (
-	runtimeAssetsOnce  sync.Once
-	runtimeAssetsValue []binaries.EmbeddedRuntimeAsset
-	runtimeAssetsErr   error
+var embeddedRuntimeAssets = sync.OnceValues(binaries.EmbeddedRuntimeAssets)
 
-	runtimeIdentityOnce  sync.Once
-	runtimeIdentityValue string
-	runtimeIdentityErr   error
-)
-
-func embeddedRuntimeAssets() ([]binaries.EmbeddedRuntimeAsset, error) {
-	runtimeAssetsOnce.Do(func() {
-		runtimeAssetsValue, runtimeAssetsErr = binaries.EmbeddedRuntimeAssets()
-	})
-	return runtimeAssetsValue, runtimeAssetsErr
-}
+var cachedRuntimeIdentity = sync.OnceValues(func() (string, error) {
+	assets, err := embeddedRuntimeAssets()
+	if err != nil {
+		return "", err
+	}
+	return runtimeIdentity(RuntimeResources(), assets)
+})
 
 type runtimeIdentityInput struct {
 	OS        string                          `json:"os"`
