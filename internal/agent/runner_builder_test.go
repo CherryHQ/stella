@@ -145,15 +145,15 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectRoot, "AGENTS.md"), []byte("project instructions from runner builder"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	corePlan := fixtureRunnerCoreRuntimePlan(t, stellaHome)
+	corePlan := fixtureRunnerSystemRuntimePlan(t, stellaHome)
 
 	var promptBuild plugins.SystemPromptContext
 	resolveCalls := 0
 	pluginContextCalls := 0
 	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
-		Snap:            snap,
-		Home:            testWorkspaceViewer{root: stellaHome},
-		CoreRuntimePlan: corePlan,
+		Snap:              snap,
+		Home:              testWorkspaceViewer{root: stellaHome},
+		SystemRuntimePlan: corePlan,
 		PluginContextBuilder: func(_ context.Context, authority authz.Authority, agentID string) (PluginContext, error) {
 			pluginContextCalls++
 			if authority.Kind() != authz.ActorAgent || string(authority.UserID()) != "user-1" || string(authority.AgentID()) != agentID {
@@ -297,12 +297,12 @@ func TestNewRunnerFuncCarriesDeclaredModelInput(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(stellaHome, "users", "user-1", "data"), 0o700); err != nil {
 		t.Fatalf("MkdirAll user data: %v", err)
 	}
-	corePlan := fixtureRunnerCoreRuntimePlan(t, stellaHome)
+	corePlan := fixtureRunnerSystemRuntimePlan(t, stellaHome)
 
 	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
-		Snap:            snap,
-		Home:            testWorkspaceViewer{root: stellaHome},
-		CoreRuntimePlan: corePlan,
+		Snap:              snap,
+		Home:              testWorkspaceViewer{root: stellaHome},
+		SystemRuntimePlan: corePlan,
 		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
@@ -350,14 +350,14 @@ func TestNewRunnerFuncManagedSessionsPreserveQualifiedModelRef(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(stellaHome, "users", "user-1", "data"), 0o700); err != nil {
 		t.Fatalf("MkdirAll user data: %v", err)
 	}
-	corePlan := fixtureRunnerCoreRuntimePlan(t, stellaHome)
+	corePlan := fixtureRunnerSystemRuntimePlan(t, stellaHome)
 
 	var adapterBuilds int
 	bridge := &rebuildingDelegateRunner{}
 	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
-		Snap:            snap,
-		Home:            testWorkspaceViewer{root: stellaHome},
-		CoreRuntimePlan: corePlan,
+		Snap:              snap,
+		Home:              testWorkspaceViewer{root: stellaHome},
+		SystemRuntimePlan: corePlan,
 		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			if api != providerAPI {
 				return nil, providers.ErrProviderNotFound

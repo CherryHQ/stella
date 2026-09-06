@@ -23,14 +23,14 @@ func TestRunnerFilesystemPolicyMountsCoreAndSelectedMiseContext(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	corePlan := fixtureCoreRuntimePlan(t, stellaHome)
+	corePlan := fixtureSystemRuntimePlan(t, stellaHome)
 	plan := &manifest.BinaryInstallPlan{
 		Identity:     "selected",
 		PublicDir:    publicRoot,
 		PublicBinDir: publicRoot,
 	}
 	policy, sources := runnerFilesystemPolicy(Paths{StellaHome: stellaHome, WorkspaceRoot: t.TempDir()}, Config{
-		CoreRuntimePlan:   corePlan,
+		SystemRuntimePlan: corePlan,
 		ContextBinaryPlan: plan,
 	})
 	coreMount := pkgsandbox.MountStellaHome + "/bin"

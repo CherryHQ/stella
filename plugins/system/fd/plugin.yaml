@@ -1,0 +1,11 @@
+id: system/fd
+kind: system
+name: fd
+display_name: fd
+description: Required file discovery CLI.
+enabled: true
+category: system
+binaries:
+  - name: fd
+    tool: github:sharkdp/fd
+    version: 10.4.2

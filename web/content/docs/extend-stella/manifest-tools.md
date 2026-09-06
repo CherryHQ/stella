@@ -15,15 +15,19 @@ Source plugins can be grouped under any number of category folders in `plugins/`
 
 The declared ID and namespace identify the plugin. Category folder names do not affect tool names, configuration keys or permissions, so moving a plugin between categories preserves its identity. Empty category folders do not create plugins. Duplicate IDs or namespaces, unknown YAML fields, extra YAML documents and symlink declarations fail generation before the generated catalog is replaced.
 
-Go plugins retain explicit compiled registration and do not add a second identity declaration in YAML. `plugins/core/` owns required runtimes and source skills; it is not a configurable plugin. Putting a directory under `core` does not grant it that status. Shared OAuth provider declarations remain in `resources/oauth.yaml`.
+Go plugins retain explicit compiled registration and do not add a second identity declaration in YAML. `plugins/system/` groups system plugins: each CLI declaration and its skills live together, and Stella's own guide belongs to `system/stella`. Shared OAuth provider declarations remain in `resources/oauth.yaml`.
 
 Bundled skill files live only inside their owning plugin directory and are embedded directly through build-time asset declarations. There is no global resource skill mirror, and category folders do not determine asset identity. `web` belongs to bun and `python-script` to uv. `html-artifact` and `skill-creator` are default-enabled skill-only plugins that can be disabled normally. Project `.agents/skills/` stays independent of plugin packaging.
 
 ## Required builtins
 
-mise, Xberg, fd and rg form Stella's required execution environment. They are available without plugin configuration and have no enable switch. Xberg's skill is a core skill. The existing platform support limits still apply, including the absence of Xberg on Windows.
+Every CLI declared by a release-owned `kind: system` plugin is required. The runtime catalog is generated from those plugin declarations, not a separate tool allowlist. `system/mise` and `system/xberg` declare embedded executables with `bundled_binaries`; `system/fd` and `system/rg` declare pinned mise installations with `binaries`. Adding a system CLI automatically includes it in startup preparation.
+
+Required commands are installed and available regardless of plugin configuration or enablement. Their versions and installation options are release-owned. Skills and other configurable capabilities still follow the owning plugin's enablement and authorization: Stella's guide belongs to `system/stella`, and Xberg's guide belongs to `system/xberg`. The existing platform support limits still apply, including the absence of Xberg on Windows.
 
 These runtimes follow the Stella release. Docker images install them during the image build; native startup prepares them before accepting conversations and reuses complete local artifacts without running the installer again. Optional CLI plugins continue to use the four-scope configuration model below. Their binary names cannot replace a required runtime.
+
+`tool/lark-cli` remains a configurable CLI plugin. Its bundled guide delegates domain documentation to `lark-cli skills read`, so the commands and documentation share a version. Stella supplies authentication through the plugin environment, using configured credentials or managed OAuth; the CLI does not initialize its own login or token store.
 
 The Docker build publishes the exact prepared runtime tree at a stable image path, including executable sidecars. See `stellad system-bundle install --help` for build-time publication options.
 

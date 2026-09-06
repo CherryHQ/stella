@@ -33,7 +33,7 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
-	"github.com/CherryHQ/stella/plugins/core"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
 
 type (
@@ -185,7 +185,7 @@ type runnerBuilderConfig struct {
 	ToolOverrideFetcher   ToolOverrideFetcher
 	ToolLifecycle         *coreagent.ToolLifecycle
 	SandboxBackendFn      func(ctx context.Context) string
-	CoreRuntimePlan       *core.RuntimePlan
+	SystemRuntimePlan     *systemplugins.RuntimePlan
 	VaultEnvLoader        sandbox.VaultEnvLoader
 	TokenManager          *oauth.TokenManager
 	ProjectResolver       ProjectResolverFunc
@@ -400,7 +400,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		}
 		disabledSkillRefs := slices.Clone(cfg.Snap.DisabledSkillRefs)
 		if backendName != config.SandboxBackendDocker {
-			disabledSkillRefs = append(disabledSkillRefs, core.UnavailableSkillRefs()...)
+			disabledSkillRefs = append(disabledSkillRefs, systemplugins.UnavailableSkillRefs()...)
 		}
 		promptBuild := pkgplugins.SystemPromptContext{
 			UserID:              params.UserID,
@@ -497,10 +497,10 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		sessionSecretValues := sandbox.NewSessionSecretValues()
 		sandboxCfg := sandbox.Config{
-			SandboxConfig:    cfg.Snap.Sandbox,
-			SandboxBackendFn: cfg.SandboxBackendFn,
-			CoreRuntimePlan:  cfg.CoreRuntimePlan,
-			Backends:         cfg.SandboxBackends,
+			SandboxConfig:     cfg.Snap.Sandbox,
+			SandboxBackendFn:  cfg.SandboxBackendFn,
+			SystemRuntimePlan: cfg.SystemRuntimePlan,
+			Backends:          cfg.SandboxBackends,
 			Paths: sandbox.Paths{
 				StellaHome:    config.StellaHome(),
 				AgentRoot:     cfg.Snap.Workspace,

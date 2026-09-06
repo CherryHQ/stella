@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	"github.com/CherryHQ/stella/plugins/core"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
 
 func TestSelectionMiseTOMLRegistryTool(t *testing.T) {
@@ -33,7 +33,7 @@ func TestSelectionMiseTOMLRejectsConflictingScopes(t *testing.T) {
 }
 
 func TestSelectionToolCacheScriptPublishesCoreAlias(t *testing.T) {
-	coreRuntimes := []core.RuntimeResource{{Name: "xberg", Version: "core-1", Embedded: true}}
+	coreRuntimes := []systemplugins.RuntimeResource{{Name: "xberg", Version: "core-1", Embedded: true}}
 	script := selectionToolInstallScript("hash", nil, coreRuntimes)
 	if !strings.Contains(script, "test -x \"$ROOT/core/xberg\"") || !strings.Contains(script, "/opt/stella/selection-tools/core/xberg") {
 		t.Fatalf("selection helper did not publish trusted xberg alias:\n%s", script)
@@ -44,7 +44,7 @@ func TestSelectionToolCacheScriptPublishesCoreAlias(t *testing.T) {
 }
 
 func TestSelectionToolInstallScriptCoreOnlyDoesNotExposeMise(t *testing.T) {
-	coreRuntimes := []core.RuntimeResource{
+	coreRuntimes := []systemplugins.RuntimeResource{
 		{Name: "fd", Version: "core-1"},
 		{Name: "mise", Version: "core-1", Embedded: true},
 		{Name: "rg", Version: "core-1"},
@@ -62,7 +62,7 @@ func TestSelectionToolInstallScriptCoreOnlyDoesNotExposeMise(t *testing.T) {
 }
 
 func TestSelectionToolInstallScriptRejectsOptionalCoreCollision(t *testing.T) {
-	script := selectionToolInstallScript("hash", []ToolBinary{{Name: "rg", Tool: "github:BurntSushi/ripgrep"}}, core.RuntimeResources())
+	script := selectionToolInstallScript("hash", []ToolBinary{{Name: "rg", Tool: "github:BurntSushi/ripgrep"}}, systemplugins.RuntimeResources())
 	if !strings.Contains(script, "selection binary conflicts with mandatory core runtime rg") {
 		t.Fatalf("optional core collision must fail closed:\n%s", script)
 	}
@@ -81,14 +81,14 @@ func TestSelectionToolCacheHashIncludesIdentityAndRevision(t *testing.T) {
 	if selectionToolCacheHash("sha256:image-a", []ToolBinary{base[0], second}, nil) != selectionToolCacheHash("sha256:image-a", []ToolBinary{second, base[0]}, nil) {
 		t.Fatal("selection cache hash must be independent of input order")
 	}
-	coreRuntimes := []core.RuntimeResource{{Name: "mise", Version: "core-1", Embedded: true}}
-	if selectionToolCacheHash("sha256:image-a", nil, coreRuntimes) == selectionToolCacheHash("sha256:image-a", nil, []core.RuntimeResource{{Name: "mise", Version: "core-2", Embedded: true}}) {
+	coreRuntimes := []systemplugins.RuntimeResource{{Name: "mise", Version: "core-1", Embedded: true}}
+	if selectionToolCacheHash("sha256:image-a", nil, coreRuntimes) == selectionToolCacheHash("sha256:image-a", nil, []systemplugins.RuntimeResource{{Name: "mise", Version: "core-2", Embedded: true}}) {
 		t.Fatal("selection cache identity must include core runtime revision")
 	}
 }
 
 func TestSelectionToolInstallScriptRemovesPrivateInstallerState(t *testing.T) {
-	script := selectionToolInstallScript("hash", []ToolBinary{{Name: "uv", Tool: "uv"}}, []core.RuntimeResource{{Name: "xberg", Embedded: true}})
+	script := selectionToolInstallScript("hash", []ToolBinary{{Name: "uv", Tool: "uv"}}, []systemplugins.RuntimeResource{{Name: "xberg", Embedded: true}})
 	for _, required := range []string{"PRIVATE=/tmp/stella-selection-private", "trap 'rm -rf \"$PRIVATE\"'", "cp -R \"$install_dir/.\"", "cp -R /opt/stella/core-runtime/. \"$ROOT/core/\""} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("selection script missing %q:\n%s", required, script)
@@ -136,7 +136,7 @@ esac
 		t.Fatal(err)
 	}
 
-	script := selectionToolInstallScript("hash", []ToolBinary{{Name: "uv", Tool: "uv", Version: "1"}}, []core.RuntimeResource{{Name: "xberg", Embedded: true}})
+	script := selectionToolInstallScript("hash", []ToolBinary{{Name: "uv", Tool: "uv", Version: "1"}}, []systemplugins.RuntimeResource{{Name: "xberg", Embedded: true}})
 	script = strings.ReplaceAll(script, "/opt/stella/selection-tools", selectionRoot)
 	script = strings.ReplaceAll(script, "/opt/stella/bin", imageBin)
 	script = strings.ReplaceAll(script, "/opt/stella/core-runtime", imageBin)

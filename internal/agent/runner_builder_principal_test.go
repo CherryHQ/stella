@@ -184,7 +184,7 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 
 	snap := &config.Snapshot{AgentID: "a1", Provider: "anthropic", Model: "test-model", APIKey: "test-key"}
 	snap.Workspace = t.TempDir()
-	corePlan := fixtureRunnerCoreRuntimePlan(t, stellaHome)
+	corePlan := fixtureRunnerSystemRuntimePlan(t, stellaHome)
 	for _, tt := range []struct {
 		name     string
 		params   RunnerParams
@@ -203,9 +203,9 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 			}
 			var promptBuild plugins.SystemPromptContext
 			build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
-				Snap:            snap,
-				Home:            testWorkspaceViewer{root: stellaHome},
-				CoreRuntimePlan: corePlan,
+				Snap:              snap,
+				Home:              testWorkspaceViewer{root: stellaHome},
+				SystemRuntimePlan: corePlan,
 				PluginContextBuilder: func(context.Context, authz.Authority, string) (PluginContext, error) {
 					return PluginContext{}, nil
 				},

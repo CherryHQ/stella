@@ -182,7 +182,7 @@ func TestPluginMCPBackendSummaryProjectsOnlyConfigurationFlags(t *testing.T) {
 
 func TestPluginCLIBackendSummaryOmitsResourceSecrets(t *testing.T) {
 	definition := pluginpkg.Definition{Backend: pluginpkg.BackendCLI}
-	config := pluginpkg.Config{Payload: json.RawMessage(`{"prompt":"static secret","binaries":[{"name":"tool","tool":"private/repo","version":"1.2.3","options":{"token":"secret"}}],"skills":[{"repo":"private/repo","name":"skill"}],"session_env":[{"env_var":"TOKEN","source":"literal","value":"secret","required":true}],"oauth_provider":"github"}`)}
+	config := pluginpkg.Config{Payload: json.RawMessage(`{"prompt":"static secret","binaries":[{"name":"tool","tool":"private/repo","version":"1.2.3","options":{"token":"secret"}}],"skills":[{"name":"skill"}],"session_env":[{"env_var":"TOKEN","source":"literal","value":"secret","required":true}],"oauth_provider":"github"}`)}
 	summary, err := pluginBackendSummary(definition, config)
 	if err != nil {
 		t.Fatalf("pluginBackendSummary: %v", err)
@@ -201,7 +201,7 @@ func TestPluginCLIBackendSummaryOmitsResourceSecrets(t *testing.T) {
 func TestPluginCLIBackendSummaryUsesDefinitionForDefaultConfig(t *testing.T) {
 	definition := pluginpkg.Definition{
 		Backend: pluginpkg.BackendCLI,
-		Spec:    json.RawMessage(`{"binaries":[{"name":"tool","tool":"uv","version":"1.0"}],"skills":[{"name":"docs","repo":"owner/docs"}],"session_env":[{"env_var":"STELLA_TOKEN","source":"oauth.token","required":true}]}`),
+		Spec:    json.RawMessage(`{"binaries":[{"name":"tool","tool":"uv","version":"1.0"}],"skills":[{"name":"docs"}],"session_env":[{"env_var":"STELLA_TOKEN","source":"oauth.token","required":true}]}`),
 	}
 	summary, err := pluginBackendSummary(definition, pluginpkg.Config{Enabled: nil, Payload: json.RawMessage(`{}`)})
 	if err != nil {
@@ -219,7 +219,7 @@ func TestPluginCLIBackendSummaryUsesDefinitionForDefaultConfig(t *testing.T) {
 func TestPluginCLIBackendSummaryHonorsScopeOverlayAndNegativeConfig(t *testing.T) {
 	definition := pluginpkg.Definition{
 		Backend: pluginpkg.BackendCLI,
-		Spec:    json.RawMessage(`{"binaries":[{"name":"tool","tool":"uv","version":"1.0"},{"name":"other","tool":"bun","version":"1.0"}],"skills":[{"name":"docs","repo":"owner/docs"}]}`),
+		Spec:    json.RawMessage(`{"binaries":[{"name":"tool","tool":"uv","version":"1.0"},{"name":"other","tool":"bun","version":"1.0"}],"skills":[{"name":"docs"}]}`),
 	}
 	enabled := true
 	summary, err := pluginBackendSummary(definition, pluginpkg.Config{Enabled: &enabled, Payload: json.RawMessage(`{"binaries":[{"name":"tool","version":"2.0"}]}`)})

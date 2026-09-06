@@ -15,15 +15,19 @@ Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集�
 
 插件由声明中的 ID 和 namespace 标识。分类目录名不影响工具名、配置键或权限，因此移动分类不会改变插件身份。空分类目录不产生插件。重复 ID 或 namespace、未知 YAML 字段、额外 YAML 文档和符号链接声明都会使生成失败，且不会替换已有生成物。
 
-Go 插件继续显式编译注册，不另加一份 YAML 身份声明。`plugins/core/` 管理必备 runtime 和 skill 源文件，它不属于可配置插件；把目录放进 `core` 不会自动取得该属性。共享 OAuth provider 声明仍位于 `resources/oauth.yaml`。
+Go 插件继续显式编译注册，不另加一份 YAML 身份声明。`plugins/system/` 统一组织系统插件：每个 CLI 声明与自己的 skill 放在一起，Stella 自身的指南归 `system/stella`。共享 OAuth provider 声明仍位于 `resources/oauth.yaml`。
 
 插件自带的技能文件只保存在所属插件目录，通过构建时的资源声明直接嵌入，不再镜像到全局 resources skills 目录。分类目录不决定资产身份。`web` 归 bun，`python-script` 归 uv；`html-artifact` 和 `skill-creator` 是默认启用的纯 skills 插件，可使用正常插件开关禁用。项目 `.agents/skills/` 不参与这套插件发布机制。
 
 ## 必备 builtin
 
-mise、Xberg、fd 和 rg 构成 Stella 必备的执行环境，无需插件配置，也没有启用开关。Xberg 的 skill 属于 core skill。既有的平台支持限制仍然适用，包括 Windows 不提供 Xberg。
+随版本发布的 `kind: system` 插件只要声明 CLI，就必须安装。Runtime 清单从这些插件声明生成，不再维护另一份工具白名单。`system/mise` 和 `system/xberg` 用 `bundled_binaries` 声明内嵌可执行文件；`system/fd` 和 `system/rg` 用 `binaries` 声明固定版本的 mise 安装。新增 system CLI 会自动进入启动准备流程。
+
+必备命令的安装与可用性不受插件配置或启停影响，版本和安装选项随 Stella 发布。Skill 等可配置能力仍受所属插件的启停与权限控制：Stella 指南归 `system/stella`，Xberg 指南归 `system/xberg`。既有的平台支持限制仍然适用，包括 Windows 不提供 Xberg。
 
 这些 runtime 随 Stella 版本提供。Docker 在构建镜像时安装；Native 在开始接收对话前准备，已有完整本地文件时不会再次调用安装器。可选 CLI 插件仍使用下面的四层范围配置，其 binary 名称不能覆盖必备 runtime。
+
+`tool/lark-cli` 仍是可配置的 CLI 插件。随插件提供的指南通过 `lark-cli skills read` 读取各领域文档，让命令与文档保持同一版本。Stella 通过插件环境注入已配置的凭据或托管 OAuth 凭据；CLI 不再自行初始化登录或 token 存储。
 
 Docker 构建将本次准备好的完整 runtime 目录发布到固定镜像路径，保留可执行文件依赖的附属文件。构建发布参数见 `stellad system-bundle install --help`。
 

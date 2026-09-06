@@ -18,8 +18,8 @@ import (
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
-	"github.com/CherryHQ/stella/plugins/core"
 	localbackend "github.com/CherryHQ/stella/plugins/sandbox/local"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
 
 // stubVaultLoader is a test-only VaultEnvLoader that returns a fixed map.
@@ -211,7 +211,7 @@ func TestResolveSessionNativeSelectionSurvivesPrepClose(t *testing.T) {
 	// session must prove discovery comes only from the authorized selections.
 	t.Setenv("PATH", "/usr/bin:/bin")
 	stellaHome := canonicalTempDir(t)
-	corePlan := fixtureCoreRuntimePlan(t, stellaHome)
+	corePlan := fixtureSystemRuntimePlan(t, stellaHome)
 	userRoot := canonicalTempDir(t)
 	workspace := filepath.Join(userRoot, "agents", "agent")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
@@ -311,13 +311,13 @@ esac
 	for _, userSpec := range []pkgplugins.PluginBinarySpec{user, userTwo} {
 		go func(userSpec pkgplugins.PluginBinarySpec) {
 			session, err := ResolveSession(context.Background(), Config{
-				SandboxBackendFn: func(context.Context) string { return config.SandboxBackendLocal },
-				Backends:         backends,
-				Paths:            Paths{StellaHome: stellaHome, UserRoot: userRoot, AgentRoot: workspace},
-				UserID:           "user",
-				AgentID:          "agent",
-				CoreRuntimePlan:  corePlan,
-				BinarySpecs:      []pkgplugins.PluginBinarySpec{system, userSpec},
+				SandboxBackendFn:  func(context.Context) string { return config.SandboxBackendLocal },
+				Backends:          backends,
+				Paths:             Paths{StellaHome: stellaHome, UserRoot: userRoot, AgentRoot: workspace},
+				UserID:            "user",
+				AgentID:           "agent",
+				SystemRuntimePlan: corePlan,
+				BinarySpecs:       []pkgplugins.PluginBinarySpec{system, userSpec},
 			})
 			results <- sessionResult{session: session, err: err, name: userSpec.Name}
 		}(userSpec)
@@ -391,26 +391,26 @@ esac
 	}
 }
 
-// fixtureCoreRuntimePlan creates the same complete shape startup publishes,
+// fixtureSystemRuntimePlan creates the same complete shape startup publishes,
 // while using temporary executable files so tests never invoke the installer
 // or download a release runtime.
-func fixtureCoreRuntimePlan(t *testing.T, root string) *core.RuntimePlan {
+func fixtureSystemRuntimePlan(t *testing.T, root string) *systemplugins.RuntimePlan {
 	t.Helper()
-	identity, err := core.RuntimeIdentity()
+	identity, err := systemplugins.RuntimeIdentity()
 	if err != nil {
-		t.Fatalf("core.RuntimeIdentity: %v", err)
+		t.Fatalf("systemplugins.RuntimeIdentity: %v", err)
 	}
 	publicDir := filepath.Join(root, "core-runtime")
 	if err := os.MkdirAll(publicDir, 0o755); err != nil {
 		t.Fatalf("create core fixture directory: %v", err)
 	}
-	plan := &core.RuntimePlan{
+	plan := &systemplugins.RuntimePlan{
 		Identity:     identity,
 		PublicDir:    publicDir,
 		PublicBinDir: publicDir,
-		Runtimes:     make([]core.Runtime, 0, len(core.RuntimeResources())),
+		Runtimes:     make([]systemplugins.Runtime, 0, len(systemplugins.RuntimeResources())),
 	}
-	for _, resource := range core.RuntimeResources() {
+	for _, resource := range systemplugins.RuntimeResources() {
 		name := resource.Name
 		if runtime.GOOS == "windows" {
 			name += ".exe"
@@ -419,19 +419,19 @@ func fixtureCoreRuntimePlan(t *testing.T, root string) *core.RuntimePlan {
 		if err := os.WriteFile(path, []byte("fixture runtime\n"), 0o755); err != nil {
 			t.Fatalf("write core fixture %s: %v", resource.Name, err)
 		}
-		plan.Runtimes = append(plan.Runtimes, core.Runtime{
+		plan.Runtimes = append(plan.Runtimes, systemplugins.Runtime{
 			Name: resource.Name, Version: resource.Version, Path: path, Available: true,
 		})
 	}
-	if err := core.Verify(*plan); err != nil {
-		t.Fatalf("core.Verify fixture: %v", err)
+	if err := systemplugins.Verify(*plan); err != nil {
+		t.Fatalf("systemplugins.Verify fixture: %v", err)
 	}
 	return plan
 }
 
 func TestRunnerFilesystemPolicyKeepsCoreAndOptionalSelectionsSeparate(t *testing.T) {
 	stellaHome := t.TempDir()
-	corePlan := fixtureCoreRuntimePlan(t, stellaHome)
+	corePlan := fixtureSystemRuntimePlan(t, stellaHome)
 	optionalDir := filepath.Join(stellaHome, "optional-selection")
 	if err := os.MkdirAll(optionalDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -441,7 +441,7 @@ func TestRunnerFilesystemPolicyKeepsCoreAndOptionalSelectionsSeparate(t *testing
 		WorkDir: filepath.Join(stellaHome, "workspace"),
 	}
 	cfg := Config{
-		CoreRuntimePlan: corePlan,
+		SystemRuntimePlan: corePlan,
 		ContextBinaryPlan: &manifest.BinaryInstallPlan{
 			PublicDir: optionalDir, PublicBinDir: optionalDir,
 		},
@@ -462,7 +462,7 @@ func TestRunnerFilesystemPolicyKeepsCoreAndOptionalSelectionsSeparate(t *testing
 
 func TestCreateSessionForBackendOverlaysCoreWithoutClobberingOptionalState(t *testing.T) {
 	stellaHome := canonicalTempDir(t)
-	corePlan := fixtureCoreRuntimePlan(t, stellaHome)
+	corePlan := fixtureSystemRuntimePlan(t, stellaHome)
 	optionalDir := filepath.Join(stellaHome, "optional-selection")
 	userDir := filepath.Join(stellaHome, "user-selection")
 	for _, dir := range []string{optionalDir, userDir} {
@@ -499,7 +499,7 @@ func TestCreateSessionForBackendOverlaysCoreWithoutClobberingOptionalState(t *te
 		AgentID:           "agent-1",
 		ContextBinaryPlan: contextPlan,
 		UserBinaryPlan:    userPlan,
-		CoreRuntimePlan:   corePlan,
+		SystemRuntimePlan: corePlan,
 	}, "capture")
 	if err != nil {
 		t.Fatalf("createSessionForBackend: %v", err)

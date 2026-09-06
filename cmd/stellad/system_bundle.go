@@ -11,7 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/config"
 	pluginmanifest "github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	"github.com/CherryHQ/stella/plugins/core"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -54,7 +54,7 @@ func systemBundleInstallCommand() *ucli.Command {
 			&ucli.BoolFlag{Name: "prepare-builtin-artifacts", Usage: "prepare shipped plugin binaries for image-local reuse"},
 		},
 		Action: func(c *ucli.Context) error {
-			plan, err := core.Prepare(c.Context, config.StellaHome())
+			plan, err := systemplugins.Prepare(c.Context, config.StellaHome())
 			if err != nil {
 				return fmt.Errorf("prepare core runtimes: %w", err)
 			}
@@ -97,6 +97,9 @@ func prepareBuiltinArtifacts(ctx context.Context, stellaHome string) error {
 		return fmt.Errorf("create builtin artifact directory: %w", err)
 	}
 	for _, plugin := range builtin.Plugins {
+		if plugin.Kind == "system" {
+			continue
+		}
 		for _, binary := range plugin.Binaries {
 			spec := pkgplugins.PluginBinarySpec{
 				Name: binary.Name, Tool: binary.Tool, Version: binary.Version, Options: binary.Options,
@@ -120,7 +123,7 @@ func prepareBuiltinArtifacts(ctx context.Context, stellaHome string) error {
 	return nil
 }
 
-func publishCoreRuntimePath(plan core.RuntimePlan, target string) error {
+func publishCoreRuntimePath(plan systemplugins.RuntimePlan, target string) error {
 	if !filepath.IsAbs(target) {
 		return fmt.Errorf("path %q must be absolute", target)
 	}

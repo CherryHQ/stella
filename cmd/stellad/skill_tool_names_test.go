@@ -361,10 +361,10 @@ func TestProseGuardRejectsStaleToolNames(t *testing.T) {
 // settingsDefaultDocs are the surfaces that must agree on the exceptional
 // default for the reserved built-in Stella Agent.
 var settingsDefaultDocs = map[string]string{
-	filepath.Join("..", "..", "plugins", "core", "skills", "stella", "SKILL.md"):                       "Built-in `stella` starts with them enabled; every other Agent starts disabled",
-	filepath.Join("..", "..", "plugins", "core", "skills", "stella", "references", "configuration.md"): "Stella starts enabled, including after an upgrade",
-	filepath.Join("..", "..", "web", "content", "docs", "start-here", "configuration.md"):              "Built-in **Stella** starts with System settings tools enabled. Every other Agent",
-	filepath.Join("..", "..", "web", "content", "docs", "start-here", "configuration.zh.md"):           "内置 **Stella** 初始开启系统设置工具；其他 Agent 初始关闭",
+	filepath.Join("..", "..", "plugins", "system", "stella", "skills", "stella", "SKILL.md"):                       "Built-in `stella` starts with them enabled; every other Agent starts disabled",
+	filepath.Join("..", "..", "plugins", "system", "stella", "skills", "stella", "references", "configuration.md"): "Stella starts enabled, including after an upgrade",
+	filepath.Join("..", "..", "web", "content", "docs", "start-here", "configuration.md"):                          "Built-in **Stella** starts with System settings tools enabled. Every other Agent",
+	filepath.Join("..", "..", "web", "content", "docs", "start-here", "configuration.zh.md"):                       "内置 **Stella** 初始开启系统设置工具；其他 Agent 初始关闭",
 }
 
 func TestSettingsDefaultPolicyProseMatchesBuiltInStella(t *testing.T) {
@@ -385,7 +385,7 @@ func TestSettingsDefaultPolicyProseMatchesBuiltInStella(t *testing.T) {
 // that disagrees with the code teaches a call the runtime will not honour.
 var hotSetDocs = []string{
 	filepath.Join("..", "..", "internal", "agent", "prompt", "template", "system_prompt.tmpl"),
-	filepath.Join("..", "..", "plugins", "core", "skills", "stella", "references", "configuration.md"),
+	filepath.Join("..", "..", "plugins", "system", "stella", "skills", "stella", "references", "configuration.md"),
 	filepath.Join("..", "..", "web", "content", "docs", "start-here", "configuration.md"),
 	filepath.Join("..", "..", "web", "content", "docs", "start-here", "configuration.zh.md"),
 }

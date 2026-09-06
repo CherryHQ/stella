@@ -12,7 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/scheduler"
-	coreplugins "github.com/CherryHQ/stella/plugins/core"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
 
 func pluginBackendPolicy(allowPrivate bool) plugin.BackendPolicy {
@@ -51,8 +51,11 @@ func validateCLIBackendPayload(ctx context.Context, def plugin.Definition, cfg p
 	if err := manifest.ValidatePayload(ctx, def, cfg, resets); err != nil {
 		return err
 	}
-	reserved := make(map[string]struct{}, len(coreplugins.RuntimeResources()))
-	for _, resource := range coreplugins.RuntimeResources() {
+	if manifest.IsSystemPlugin(def) {
+		return nil
+	}
+	reserved := make(map[string]struct{}, len(systemplugins.RuntimeResources()))
+	for _, resource := range systemplugins.RuntimeResources() {
 		reserved[resource.Name] = struct{}{}
 	}
 	check := func(raw []byte, label string) error {

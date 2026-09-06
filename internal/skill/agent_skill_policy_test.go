@@ -1,15 +1,15 @@
 package skill
 
 import (
-	"context"
 	"strings"
 	"testing"
 )
 
 func TestSkillsToolIgnoresLegacyBuiltinPolicy(t *testing.T) {
 	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).
+		WithPluginVisibility([]string{"system/stella"}, []string{"system/stella"}).
 		WithAgentSkillPolicy([]string{"builtin:stella"})
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Legacy builtin policy bytes remain readable but no longer affect immutable
 	// builtin resources. The owning plugin visibility gate remains authoritative.

@@ -13,8 +13,63 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/plugin"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
+
+func TestSystemCLIResourcesStayOutsideScopedSelections(t *testing.T) {
+	db := dbtest.New(t)
+	definitions, err := manifest.BuiltinDefinitions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const userID = "10000000-0000-0000-0000-000000000092"
+	insertUser(t, db, userID)
+	catalog := plugin.NewCatalog()
+	var systemIDs []string
+	for _, definition := range definitions {
+		if !manifest.IsSystemPlugin(definition) {
+			continue
+		}
+		if err := catalog.Register(definition); err != nil {
+			t.Fatal(err)
+		}
+		insertDefinition(t, db, definition)
+		if _, err := db.Exec(t.Context(), `INSERT INTO plugin_config (plugin_id, namespace, scope, enabled, config, credential_refs, revision) VALUES ($1, $2, 'system', TRUE, '{}'::jsonb, '{}'::jsonb, 1)`, definition.ID, definition.Namespace); err != nil {
+			t.Fatal(err)
+		}
+		systemIDs = append(systemIDs, definition.ID)
+	}
+	if !slices.Contains(systemIDs, "system/stella") || !slices.Contains(systemIDs, "system/xberg") {
+		t.Fatal("system skill owners are missing from the catalog")
+	}
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Transition: noopBackendTransition}, inlinePluginMutationFence)
+	authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, enabled := range []bool{true, false} {
+		if _, err := db.Exec(t.Context(), `UPDATE plugin_config SET enabled = $1, revision = revision + 1`, enabled); err != nil {
+			t.Fatal(err)
+		}
+		snapshot, err := service.ResolveSnapshot(t.Context(), authority, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		view, err := pluginhost.New(nil).SessionPluginView(snapshot)
+		if err != nil {
+			t.Fatalf("enabled=%v: %v", enabled, err)
+		}
+		if len(view.BinarySpecs) != 0 {
+			t.Fatalf("system CLIs leaked into scoped installer: %+v", view.BinarySpecs)
+		}
+		for _, id := range systemIDs {
+			if slices.Contains(view.ExposedPluginIDs, id) != enabled {
+				t.Fatalf("owner %s exposure does not follow enabled=%v: %v", id, enabled, view.ExposedPluginIDs)
+			}
+		}
+	}
+}
 
 func TestSessionPluginViewRejectsIncompletePayloadAfterCapabilityLift(t *testing.T) {
 	ctx := context.Background()

@@ -17,7 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/skill"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	"github.com/CherryHQ/stella/plugins/core"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
 
 // SystemPromptInput is the transport-owned identity and route tuple for the
@@ -170,7 +170,7 @@ func (b *SystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Context, in S
 	}
 	var disabledSkillRefs []string
 	if backendName != config.SandboxBackendDocker {
-		disabledSkillRefs = core.UnavailableSkillRefs()
+		disabledSkillRefs = systemplugins.UnavailableSkillRefs()
 	}
 	promptBuild := pkgplugins.SystemPromptContext{
 		UserID:              info.UserID,

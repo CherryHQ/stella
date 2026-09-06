@@ -69,8 +69,8 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
-	"github.com/CherryHQ/stella/plugins/core"
 	"github.com/CherryHQ/stella/plugins/email"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 	"github.com/CherryHQ/stella/resources"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
@@ -265,13 +265,13 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err := ensureEmbeddedAssets(); err != nil {
 		return nil, err
 	}
-	var coreRuntimePlan *core.RuntimePlan
+	var systemRuntimePlan *systemplugins.RuntimePlan
 	if config.ActiveSandboxBackend() != config.SandboxBackendDocker {
-		plan, err := core.Prepare(parent, config.StellaHome())
+		plan, err := systemplugins.Prepare(parent, config.StellaHome())
 		if err != nil {
 			return nil, fmt.Errorf("prepare core runtimes: %w", err)
 		}
-		coreRuntimePlan = &plan
+		systemRuntimePlan = &plan
 	}
 	blobStore, err := blob.NewStoreFromConfig(cfg.Blob)
 	if err != nil {
@@ -646,7 +646,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithSkillReadAuthorizer(skillAccess),
 		agent.WithProjectResolver(projectStore.Resolve),
 		agent.WithHomeWorkspace(homeRegistry),
-		agent.WithCoreRuntimePlan(coreRuntimePlan),
+		agent.WithSystemRuntimePlan(systemRuntimePlan),
 	)
 
 	// Bind the static Vault/MCP/OAuth capabilities into the pool BEFORE StartAll,

@@ -12,7 +12,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
-	"github.com/CherryHQ/stella/plugins/core"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
 
@@ -28,7 +28,7 @@ func systemBundleTestHome(t *testing.T) string {
 	if err := binaries.EnsureTools(home); err != nil {
 		t.Fatalf("ensure embedded test runtimes: %v", err)
 	}
-	identity, err := core.RuntimeIdentity()
+	identity, err := systemplugins.RuntimeIdentity()
 	if err != nil {
 		t.Fatalf("runtime identity: %v", err)
 	}
@@ -39,7 +39,7 @@ func systemBundleTestHome(t *testing.T) string {
 	if err := os.Symlink(filepath.Join(home, "bin", ".stella-shell-env"), filepath.Join(publicDir, ".stella-shell-env")); err != nil {
 		t.Fatalf("prepare shell environment fixture: %v", err)
 	}
-	for _, resource := range core.RuntimeResources() {
+	for _, resource := range systemplugins.RuntimeResources() {
 		path := filepath.Join(publicDir, resource.Name)
 		source := filepath.Join(home, "bin", resource.Name)
 		if _, err := os.Stat(source); err != nil {
@@ -111,7 +111,7 @@ func TestSystemBundleInstallExposesBuiltinArtifactPreparationFlag(t *testing.T) 
 func TestPublishCoreRuntimePathUsesExactPlan(t *testing.T) {
 	publicDir := t.TempDir()
 	target := filepath.Join(t.TempDir(), "core-runtime")
-	plan := core.RuntimePlan{PublicDir: publicDir}
+	plan := systemplugins.RuntimePlan{PublicDir: publicDir}
 	if err := publishCoreRuntimePath(plan, target); err != nil {
 		t.Fatalf("publishCoreRuntimePath: %v", err)
 	}

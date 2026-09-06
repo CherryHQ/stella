@@ -158,7 +158,7 @@ func TestNewRunnerClosesRegistryWhenCoreRunnerBuildFails(t *testing.T) {
 		},
 		CodeToolSurface: coreagent.CodeToolSurface("invalid"),
 	})
-	cfg.Sandbox.CoreRuntimePlan = fixtureRunnerCoreRuntimePlan(t, cfg.Sandbox.Paths.StellaHome)
+	cfg.Sandbox.SystemRuntimePlan = fixtureRunnerSystemRuntimePlan(t, cfg.Sandbox.Paths.StellaHome)
 
 	if _, err := newRunner(context.Background(), cfg); err == nil {
 		t.Fatal("expected invalid code tool surface error")

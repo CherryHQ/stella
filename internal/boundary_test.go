@@ -1,6 +1,6 @@
 // Package-direction guards for the repo's layered trees. The rule text lives
 // in each guarded package or tree (pkg is the extension contract;
-// non-channel plugins are replaceable adapters; plugins/core owns fixed release
+// non-channel plugins are replaceable adapters; plugins/system owns fixed release
 // runtimes; internal/core is the leaf
 // kernel; internal/platform is infrastructure) and in
 // web/content/docs/development/rules/go-patterns.md; this file only enforces it.
@@ -32,8 +32,8 @@ type boundary struct {
 
 var boundaries = []boundary{
 	{root: "pkg", allowed: []string{"pkg/"}},
-	{root: "plugins", allowed: []string{"pkg/", "plugins/"}, testOnly: []string{"internal/agent/prompt"}, skipDirs: []string{"channels", "core"}},
-	{root: "plugins/core", allowed: []string{"internal/plugin/manifest", "resources/binaries"}, testOnly: []string{"resources"}},
+	{root: "plugins", allowed: []string{"pkg/", "plugins/"}, testOnly: []string{"internal/agent/prompt"}, skipDirs: []string{"channels", "system"}},
+	{root: "plugins/system", allowed: []string{"internal/plugin/manifest", "resources/binaries"}, testOnly: []string{"resources"}},
 	// Channel tests use the host and notifier fixtures to exercise registration;
 	// production channel adapters remain under the same pkg-only guard.
 	{root: "plugins/channels", allowed: []string{"pkg/", "plugins/"}, testOnly: []string{"internal/notify", "internal/platform/config", "internal/plugin/host"}},
@@ -196,18 +196,18 @@ func TestPackageBoundariesTripwire(t *testing.T) {
 // The fixed release runtime is the only non-channel plugin package that
 // internal code may consume directly. Its subpackages gain no exception.
 func isReplaceablePluginImport(name string) bool {
-	return strings.HasPrefix(name, "plugins/") && !strings.HasPrefix(name, "plugins/channels/") && name != "plugins/core"
+	return strings.HasPrefix(name, "plugins/") && !strings.HasPrefix(name, "plugins/channels/") && name != "plugins/system"
 }
 
 func TestCoreRuntimeBoundaryIsExact(t *testing.T) {
-	for name, rejected := range map[string]bool{"plugins/core": false, "plugins/core/other": true, "plugins/core-extra": true, "plugins/tools": true} {
+	for name, rejected := range map[string]bool{"plugins/system": false, "plugins/system/other": true, "plugins/system-extra": true, "plugins/tools": true} {
 		if got := isReplaceablePluginImport(name); got != rejected {
 			t.Errorf("%s rejected=%v, want %v", name, got, rejected)
 		}
 	}
 	var coreBoundary boundary
 	for _, b := range boundaries {
-		if b.root == "plugins/core" {
+		if b.root == "plugins/system" {
 			coreBoundary = b
 		}
 	}

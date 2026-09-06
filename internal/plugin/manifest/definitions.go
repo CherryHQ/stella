@@ -44,3 +44,11 @@ func BuiltinDefinitions() ([]plugin.Definition, error) {
 	}
 	return definitions, nil
 }
+
+// IsSystemPlugin identifies a release-owned system CLI definition. The source
+// generator validates kind/name against this immutable implementation key;
+// neither the configuration scope nor an editable category grants this status.
+func IsSystemPlugin(definition plugin.Definition) bool {
+	return definition.Source == plugin.SourceBuiltin && definition.Backend == plugin.BackendCLI &&
+		definition.ImplementationKey == definition.ID && definition.ID == "system/"+definition.Namespace
+}

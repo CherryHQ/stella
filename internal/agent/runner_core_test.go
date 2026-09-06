@@ -6,30 +6,30 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/CherryHQ/stella/plugins/core"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
 
-// fixtureRunnerCoreRuntimePlan creates the complete startup-shaped core plan
+// fixtureRunnerSystemRuntimePlan creates the complete startup-shaped core plan
 // without running the installer or downloading tools. Runner tests use this
 // same fixture so the none backend exercises the same plan validation as the
 // native startup path.
-func fixtureRunnerCoreRuntimePlan(t *testing.T, root string) *core.RuntimePlan {
+func fixtureRunnerSystemRuntimePlan(t *testing.T, root string) *systemplugins.RuntimePlan {
 	t.Helper()
-	identity, err := core.RuntimeIdentity()
+	identity, err := systemplugins.RuntimeIdentity()
 	if err != nil {
-		t.Fatalf("core.RuntimeIdentity: %v", err)
+		t.Fatalf("systemplugins.RuntimeIdentity: %v", err)
 	}
 	publicDir := filepath.Join(root, "core-runtime")
 	if err := os.MkdirAll(publicDir, 0o755); err != nil {
 		t.Fatalf("create core fixture directory: %v", err)
 	}
-	plan := &core.RuntimePlan{
+	plan := &systemplugins.RuntimePlan{
 		Identity:     identity,
 		PublicDir:    publicDir,
 		PublicBinDir: publicDir,
-		Runtimes:     make([]core.Runtime, 0, len(core.RuntimeResources())),
+		Runtimes:     make([]systemplugins.Runtime, 0, len(systemplugins.RuntimeResources())),
 	}
-	for _, resource := range core.RuntimeResources() {
+	for _, resource := range systemplugins.RuntimeResources() {
 		name := resource.Name
 		if runtime.GOOS == "windows" {
 			name += ".exe"
@@ -38,12 +38,12 @@ func fixtureRunnerCoreRuntimePlan(t *testing.T, root string) *core.RuntimePlan {
 		if err := os.WriteFile(path, []byte("fixture runtime\n"), 0o755); err != nil {
 			t.Fatalf("write core fixture %s: %v", resource.Name, err)
 		}
-		plan.Runtimes = append(plan.Runtimes, core.Runtime{
+		plan.Runtimes = append(plan.Runtimes, systemplugins.Runtime{
 			Name: resource.Name, Version: resource.Version, Path: path, Available: true,
 		})
 	}
-	if err := core.Verify(*plan); err != nil {
-		t.Fatalf("core.Verify fixture: %v", err)
+	if err := systemplugins.Verify(*plan); err != nil {
+		t.Fatalf("systemplugins.Verify fixture: %v", err)
 	}
 	return plan
 }

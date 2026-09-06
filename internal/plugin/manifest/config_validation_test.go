@@ -33,6 +33,69 @@ func testCLIDefinition(t *testing.T) plugin.Definition {
 	}
 }
 
+func TestSystemPluginRuntimeOwnership(t *testing.T) {
+	definitions, err := BuiltinDefinitions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, definition := range definitions {
+		if !IsSystemPlugin(definition) {
+			continue
+		}
+		t.Run(definition.ID, func(t *testing.T) {
+			for _, scope := range []plugin.Scope{plugin.ScopeSystem, plugin.ScopeUser} {
+				config := plugin.Config{ID: "config", PluginID: definition.ID, Namespace: definition.Namespace, Scope: scope, Revision: 1, Payload: definition.Spec}
+				if scope == plugin.ScopeUser {
+					config.UserID = "user-1"
+				}
+				for _, enabled := range []bool{true, false} {
+					config.Enabled = &enabled
+					if err := ValidatePayload(t.Context(), definition, config, nil); err != nil {
+						t.Fatalf("scope=%s enabled=%v: %v", scope, enabled, err)
+					}
+					payload, err := DecodeCLIPayload(definition.Spec, "test spec")
+					if err != nil {
+						t.Fatal(err)
+					}
+					payload.Binaries = []ManifestBinary{{Name: "replacement", Tool: "github:owner/replacement", Version: "1.0.0"}}
+					changed := config
+					changed.Payload, err = json.Marshal(payload)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := ValidatePayload(t.Context(), definition, changed, nil); !errors.Is(err, plugin.ErrInvalidConfig) {
+						t.Fatalf("scope=%s enabled=%v override accepted: %v", scope, enabled, err)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestSystemPluginIdentityCannotBeSpoofed(t *testing.T) {
+	definition := testCLIDefinition(t)
+	if IsSystemPlugin(definition) {
+		t.Fatal("editable category granted system runtime ownership")
+	}
+	definition.ID = "system/demo"
+	definition.ImplementationKey = definition.ID
+	if !IsSystemPlugin(definition) {
+		t.Fatal("canonical builtin system CLI was not recognized")
+	}
+	for _, mutate := range []func(*plugin.Definition){
+		func(d *plugin.Definition) { d.Source = plugin.SourceCustom },
+		func(d *plugin.Definition) { d.Backend = plugin.BackendGo },
+		func(d *plugin.Definition) { d.Namespace = "other" },
+		func(d *plugin.Definition) { d.ImplementationKey = "tool/demo" },
+	} {
+		spoof := definition
+		mutate(&spoof)
+		if IsSystemPlugin(spoof) {
+			t.Fatalf("spoofed definition granted system runtime ownership: %+v", spoof)
+		}
+	}
+}
+
 func testUserPayload(t *testing.T, version string) json.RawMessage {
 	t.Helper()
 	payload, err := json.Marshal(cliPayload{

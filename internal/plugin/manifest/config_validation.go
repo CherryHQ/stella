@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -47,7 +48,8 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 	}
 	// A nil config payload is still checked against the release resource
 	// contract. Only the selected config's completeness is suppressed by false.
-	if err := validateResources(shipped, "definition spec", true); err != nil {
+	system := IsSystemPlugin(definition)
+	if err := validateResources(shipped, "definition spec", true, system); err != nil {
 		return err
 	}
 	if len(config.Payload) == 0 {
@@ -60,11 +62,14 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 	if err != nil {
 		return err
 	}
+	if system && !slices.EqualFunc(resolved.Binaries, shipped.Binaries, func(a, b ManifestBinary) bool { return reflect.DeepEqual(a, b) }) {
+		return invalidPayload("system CLI binaries are release-owned and cannot be overridden")
+	}
 	complete := definition.DefaultEnabled
 	if config.Enabled != nil {
 		complete = *config.Enabled
 	}
-	if err := validateResources(resolved, "config payload", complete); err != nil {
+	if err := validateResources(resolved, "config payload", complete, system); err != nil {
 		return err
 	}
 	if err := validateConfigEnvValues(resolved); err != nil {
@@ -134,7 +139,7 @@ func decodeStrictJSON(raw json.RawMessage, dst any) error {
 	return nil
 }
 
-func validateResources(payload cliPayload, name string, complete bool) error {
+func validateResources(payload cliPayload, name string, complete, allowEmpty bool) error {
 	seenBinaries := make(map[string]struct{}, len(payload.Binaries))
 	for i, binary := range payload.Binaries {
 		if _, ok := seenBinaries[binary.Name]; ok {
@@ -196,7 +201,10 @@ func validateResources(payload cliPayload, name string, complete bool) error {
 			}
 		}
 	}
-	if complete {
+	// An embedded-only system plugin can have no configurable capabilities.
+	// Its executable is still installed from the immutable release manifest.
+	empty := len(payload.Binaries) == 0 && len(payload.Skills) == 0 && len(payload.SessionEnvs) == 0 && payload.Prompt == ""
+	if complete && (!allowEmpty || !empty) {
 		if err := validateCompleteManifest(payload, name); err != nil {
 			return err
 		}

@@ -54,6 +54,11 @@ func (h *Host) SessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPl
 			if err != nil {
 				return pkgplugins.SessionPluginView{}, fmt.Errorf("plugin %q: %w", definition.ID, err)
 			}
+			if manifest.IsSystemPlugin(definition) {
+				// System CLI installation belongs to startup, not a scoped
+				// selection. Skills and environment still follow this winner.
+				payload.Binaries = nil
+			}
 			appendCLIResources(&view, identity, payload)
 		case plugin.BackendGo:
 			appendGoResources(h, &view, identity, definition)

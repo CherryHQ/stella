@@ -171,9 +171,9 @@ func TestGenerateBuiltinPluginsRejectsCoreIDsAndReleaseFields(t *testing.T) {
 		content string
 		want    string
 	}{
-		{name: "reserved core ID", content: strings.Replace(testBuiltinPluginYAML, "id: tool/demo", "id: tool/rg", 1), want: "reserved core ID"},
-		{name: "essential", content: testBuiltinPluginYAML + "essential: false\n", want: "essential or bundled_binaries"},
-		{name: "empty bundled binaries", content: testBuiltinPluginYAML + "bundled_binaries: []\n", want: "essential or bundled_binaries"},
+		{name: "reserved core ID", content: strings.Replace(strings.Replace(testBuiltinPluginYAML, "id: tool/demo", "id: tool/rg", 1), "name: demo\n", "name: rg\n", 1), want: "reserved core ID"},
+		{name: "essential", content: testBuiltinPluginYAML + "essential: false\n", want: "cannot declare essential"},
+		{name: "empty bundled binaries", content: testBuiltinPluginYAML + "bundled_binaries: []\n", want: "bundled_binaries require kind system"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()

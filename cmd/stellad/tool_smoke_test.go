@@ -66,10 +66,11 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-	"github.com/CherryHQ/stella/plugins/core"
 	"github.com/CherryHQ/stella/plugins/email"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
 
 // smokeState carries values one case discovers into the cases that need them,
@@ -1601,7 +1602,7 @@ func disableSmokeCLIPlugins(ctx context.Context, service *plugin.Service, author
 	}
 	disabled := false
 	for _, definition := range definitions {
-		if definition.Backend != plugin.BackendCLI {
+		if definition.Backend != plugin.BackendCLI || manifest.IsSystemPlugin(definition) {
 			continue
 		}
 		configs, err := access.ListConfigs(ctx, definition.ID, plugin.ScopeSystem, "")
@@ -1637,11 +1638,11 @@ func prepareToolSmokeCutover(t *testing.T, db *pgxpool.Pool) {
 }
 
 // prepareToolSmokeCoreCache seeds the exact content-addressed selection that
-// core.Prepare accepts as complete. The smoke suite exercises plugin/tool
+// systemplugins.Prepare accepts as complete. The smoke suite exercises plugin/tool
 // wiring, so fixed network-backed fd/rg installation is outside its boundary.
 func prepareToolSmokeCoreCache(t *testing.T, stellaHome string) {
 	t.Helper()
-	identity, err := core.RuntimeIdentity()
+	identity, err := systemplugins.RuntimeIdentity()
 	if err != nil {
 		t.Fatalf("tool smoke: resolve core runtime identity: %v", err)
 	}
@@ -1649,7 +1650,7 @@ func prepareToolSmokeCoreCache(t *testing.T, stellaHome string) {
 	if err := os.MkdirAll(publicDir, 0o755); err != nil {
 		t.Fatalf("tool smoke: create core runtime cache: %v", err)
 	}
-	for _, resource := range core.RuntimeResources() {
+	for _, resource := range systemplugins.RuntimeResources() {
 		if err := os.WriteFile(filepath.Join(publicDir, resource.Name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 			t.Fatalf("tool smoke: seed core runtime %s: %v", resource.Name, err)
 		}

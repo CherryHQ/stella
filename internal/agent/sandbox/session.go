@@ -17,7 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
-	"github.com/CherryHQ/stella/plugins/core"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
 
 // BackendRequest is the host-prepared input to one sandbox backend.
@@ -27,11 +27,11 @@ type BackendRequest struct {
 	MountSources map[string]string
 	UserID       string
 	GroupID      string
-	// Plugin plans capture authorized optional tools; CoreRuntimePlan contains
+	// Plugin plans capture authorized optional tools; SystemRuntimePlan contains
 	// required release runtimes independently of plugin configuration.
 	ContextBinaryPlan *manifest.BinaryInstallPlan
 	UserBinaryPlan    *manifest.BinaryInstallPlan
-	CoreRuntimePlan   *core.RuntimePlan
+	SystemRuntimePlan *systemplugins.RuntimePlan
 	BinarySpecs       []pkgplugins.PluginBinarySpec
 }
 
@@ -164,7 +164,7 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 	defer span.End()
 
 	for _, spec := range cfg.BinarySpecs {
-		for _, runtime := range core.RuntimeResources() {
+		for _, runtime := range systemplugins.RuntimeResources() {
 			if spec.Name == runtime.Name {
 				return nil, fmt.Errorf("sandbox: plugin binary %q conflicts with mandatory core runtime", spec.Name)
 			}
@@ -174,10 +174,10 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 	// Docker prepares S/SA and bundled resources in its Linux helper cache. Host
 	// installation would bake the host OS/architecture into a container runner.
 	if name != config.SandboxBackendDocker {
-		if cfg.CoreRuntimePlan == nil {
+		if cfg.SystemRuntimePlan == nil {
 			return nil, errors.New("sandbox: core runtimes were not prepared at startup")
 		}
-		if err := core.Verify(*cfg.CoreRuntimePlan); err != nil {
+		if err := systemplugins.Verify(*cfg.SystemRuntimePlan); err != nil {
 			recordSandboxError(span, err)
 			return nil, fmt.Errorf("verify core runtimes: %w", err)
 		}
@@ -281,13 +281,13 @@ func createSessionForBackend(ctx context.Context, cfg Config, name string) (pkgs
 	if cfg.UserBinaryPlan != nil {
 		policy.Env = manifest.OverlayBinaryInstallPlan(policy.Env, *cfg.UserBinaryPlan, manifest.BinaryUserLayer)
 	}
-	if cfg.CoreRuntimePlan != nil {
+	if cfg.SystemRuntimePlan != nil {
 		// Core adds executable paths without replacing optional selection or mise state.
-		policy.Env[pkgsandbox.EnvCoreRuntimeDir] = cfg.CoreRuntimePlan.PublicBinDir
+		policy.Env[pkgsandbox.EnvCoreRuntimeDir] = cfg.SystemRuntimePlan.PublicBinDir
 		if policy.Env["PATH"] == "" {
-			policy.Env["PATH"] = cfg.CoreRuntimePlan.PublicBinDir
+			policy.Env["PATH"] = cfg.SystemRuntimePlan.PublicBinDir
 		} else {
-			policy.Env["PATH"] += string(os.PathListSeparator) + cfg.CoreRuntimePlan.PublicBinDir
+			policy.Env["PATH"] += string(os.PathListSeparator) + cfg.SystemRuntimePlan.PublicBinDir
 		}
 		policy.Env[pkgsandbox.EnvRunnerPath] = policy.Env["PATH"]
 	}
@@ -307,7 +307,7 @@ func createSessionForBackend(ctx context.Context, cfg Config, name string) (pkgs
 		GroupID:           cfg.GroupID,
 		ContextBinaryPlan: cfg.ContextBinaryPlan,
 		UserBinaryPlan:    cfg.UserBinaryPlan,
-		CoreRuntimePlan:   cfg.CoreRuntimePlan,
+		SystemRuntimePlan: cfg.SystemRuntimePlan,
 		BinarySpecs:       slices.Clone(cfg.BinarySpecs),
 	})
 }

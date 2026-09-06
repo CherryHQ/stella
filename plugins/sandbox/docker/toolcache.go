@@ -22,8 +22,8 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	"github.com/CherryHQ/stella/plugins/core"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
 
 const (
@@ -95,7 +95,7 @@ func ensureSelectionToolCache(ctx context.Context, client *dockerclient.Client, 
 	if imageID == "" {
 		return nil, fmt.Errorf("docker selection tool cache: resolved image ID is required")
 	}
-	core := core.RuntimeResources()
+	core := systemplugins.RuntimeResources()
 	hash := selectionToolCacheHash(imageID, cfg.SelectionToolBinaries, core)
 	volumeName := "stella-selection-" + hash[:16]
 	installerName := "stella-selection-cache-" + hash[:16]
@@ -114,7 +114,7 @@ func ensureSelectionToolCache(ctx context.Context, client *dockerclient.Client, 
 }
 
 func installSelectionToolCache(ctx context.Context, client *dockerclient.Client, cfg Config, imageID, hash, installerName string, cache *selectionToolCache) (*selectionToolCache, error) {
-	core := core.RuntimeResources()
+	core := systemplugins.RuntimeResources()
 	if _, err := client.VolumeCreate(ctx, mobyclient.VolumeCreateOptions{
 		Name: cache.VolumeName,
 		Labels: map[string]string{
@@ -190,7 +190,7 @@ func installSelectionToolCache(ctx context.Context, client *dockerclient.Client,
 }
 
 func verifySelectionToolCache(ctx context.Context, client *dockerclient.Client, cfg Config, imageID, hash string, cache *selectionToolCache) error {
-	core := core.RuntimeResources()
+	core := systemplugins.RuntimeResources()
 	containerID, err := client.CreateAndStart(ctx, dockerclient.CreateOptions{
 		Image: imageID, Runtime: cfg.Runtime, NetworkMode: dockerclient.NetworkDisabled, User: "root",
 		ExtraMounts: []dockerclient.Mount{{
@@ -272,11 +272,11 @@ func resetToolCacheStateForTest() {
 	installSelectionToolCacheFn = installSelectionToolCache
 }
 
-func selectionToolCacheHash(imageID string, binaries []ToolBinary, core []core.RuntimeResource) string {
+func selectionToolCacheHash(imageID string, binaries []ToolBinary, core []systemplugins.RuntimeResource) string {
 	return "selection-" + toolCacheHash(imageID, binaries, core)
 }
 
-func toolCacheHash(image string, binaries []ToolBinary, core []core.RuntimeResource) string {
+func toolCacheHash(image string, binaries []ToolBinary, core []systemplugins.RuntimeResource) string {
 	var buf bytes.Buffer
 	buf.WriteString("image=")
 	buf.WriteString(image)
@@ -290,7 +290,7 @@ func toolCacheHash(image string, binaries []ToolBinary, core []core.RuntimeResou
 		buf.WriteByte('\n')
 	}
 	for _, b := range canonicalCoreRuntimeBinaries(core) {
-		fmt.Fprintf(&buf, "core\t%v\t%v\t%v\t%t\t%v\n", b.Name, b.MiseTool, b.Version, b.Embedded, b.SkillRef)
+		fmt.Fprintf(&buf, "system\t%v\t%v\t%v\t%t\t%v\t%v\n", b.Name, b.MiseTool, b.Version, b.Embedded, b.SkillRefs, b.Options)
 	}
 	sum := sha256.Sum256(buf.Bytes())
 	return hex.EncodeToString(sum[:])
@@ -320,9 +320,9 @@ func canonicalToolBinaries(binaries []ToolBinary) []ToolBinary {
 	return canonical
 }
 
-func canonicalCoreRuntimeBinaries(binaries []core.RuntimeResource) []core.RuntimeResource {
+func canonicalCoreRuntimeBinaries(binaries []systemplugins.RuntimeResource) []systemplugins.RuntimeResource {
 	canonical := slices.Clone(binaries)
-	slices.SortFunc(canonical, func(left, right core.RuntimeResource) int {
+	slices.SortFunc(canonical, func(left, right systemplugins.RuntimeResource) int {
 		if left.Name < right.Name {
 			return -1
 		}
@@ -383,7 +383,7 @@ func selectionMiseTOML(binaries []ToolBinary) (string, error) {
 // the public volume ready. Published tools are copied as complete install
 // directories so launchers can resolve adjacent libraries and other sidecars
 // without consulting mise at runner time.
-func selectionToolInstallScript(hash string, binaries []ToolBinary, core []core.RuntimeResource) string {
+func selectionToolInstallScript(hash string, binaries []ToolBinary, core []systemplugins.RuntimeResource) string {
 	coreNames := make(map[string]struct{}, len(core))
 	for _, binary := range core {
 		coreNames[binary.Name] = struct{}{}
@@ -496,7 +496,7 @@ func selectionToolInstallScript(hash string, binaries []ToolBinary, core []core.
 	return script.String()
 }
 
-func selectionToolVerifyScript(hash string, binaries []ToolBinary, core []core.RuntimeResource) string {
+func selectionToolVerifyScript(hash string, binaries []ToolBinary, core []systemplugins.RuntimeResource) string {
 	var script strings.Builder
 	script.WriteString("set -eu\nROOT=" + shellQuote(containerSelectionRoot) + "\nHASH=" + shellQuote(hash) + "\ntest -f \"$ROOT/.stella-selection-ready\"\ntest \"$(cat \"$ROOT/.stella-selection-ready\")\" = \"$HASH\"\n")
 	if selectionRequestsMise(binaries, core) {
@@ -520,7 +520,7 @@ func safeSelectionName(name string) bool {
 	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, `/\\`)
 }
 
-func selectionRequestsMise(binaries []ToolBinary, core []core.RuntimeResource) bool {
+func selectionRequestsMise(binaries []ToolBinary, core []systemplugins.RuntimeResource) bool {
 	for _, b := range binaries {
 		if b.Name == "mise" || b.Name == "mise.exe" || b.Tool == "mise" {
 			return true

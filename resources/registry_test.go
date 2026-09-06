@@ -54,6 +54,8 @@ func TestDefaultLoadsBuiltinResources(t *testing.T) {
 		"system/email":        {},
 		"system/recally":      {},
 		"system/scheduler":    {},
+		"system/stella":       {},
+		"system/xberg":        {},
 		"tool/bun":            {},
 		"tool/lark-cli":       {},
 		"skill/html-artifact": {},
@@ -64,8 +66,8 @@ func TestDefaultLoadsBuiltinResources(t *testing.T) {
 		t.Fatalf("ValidateBuiltinSkillOwners(): %v", err)
 	}
 	for _, skill := range r.BuiltinSkills() {
-		if skill.Name == "stella" && skill.OwnerPluginID != "" {
-			t.Fatalf("core skill stella owner = %q, want empty", skill.OwnerPluginID)
+		if skill.Name == "stella" && skill.OwnerPluginID != "system/stella" {
+			t.Fatalf("stella skill owner = %q, want system/stella", skill.OwnerPluginID)
 		}
 	}
 	for _, id := range []string{"coder"} {

@@ -1,0 +1,5 @@
+assets:
+  - name: stella
+    source: skills/stella
+    logical_root: core/stella
+    owner_plugin_id: system/stella

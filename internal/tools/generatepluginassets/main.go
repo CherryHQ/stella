@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -91,7 +92,7 @@ func discover(pluginsRoot string) ([]assetFile, error) {
 		}
 		relDir = filepath.ToSlash(relDir)
 		for _, entry := range entries {
-			if err := validateEntry(relDir, entry); err != nil {
+			if err := validateEntry(entry); err != nil {
 				return nil, fmt.Errorf("%s: %w", filename, err)
 			}
 			source := path.Join(relDir, entry.Source)
@@ -140,7 +141,7 @@ func decode(filename string) ([]assetEntry, error) {
 		return nil, fmt.Errorf("decode assets: %w", err)
 	}
 	var extra assetDocument
-	if err := decoder.Decode(&extra); err == io.EOF {
+	if err := decoder.Decode(&extra); errors.Is(err, io.EOF) {
 		return document.Assets, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("assets must contain one YAML document: %w", err)
@@ -148,7 +149,7 @@ func decode(filename string) ([]assetEntry, error) {
 	return nil, fmt.Errorf("assets must contain one YAML document")
 }
 
-func validateEntry(dir string, entry assetEntry) error {
+func validateEntry(entry assetEntry) error {
 	if entry.Name == "" || !validPathComponent(entry.Name) || strings.Contains(entry.Name, "/") {
 		return fmt.Errorf("invalid asset name %q", entry.Name)
 	}
@@ -157,12 +158,6 @@ func validateEntry(dir string, entry assetEntry) error {
 	}
 	if path.Base(entry.LogicalRoot) != entry.Name {
 		return fmt.Errorf("logical root %q does not end in asset name %q", entry.LogicalRoot, entry.Name)
-	}
-	if dir == "core" {
-		if entry.OwnerPluginID != "" || !strings.HasPrefix(entry.LogicalRoot, "core/") || (entry.Name != "stella" && entry.Name != "xberg") {
-			return fmt.Errorf("core asset %q must use the explicit empty-owner core allowlist", entry.Name)
-		}
-		return nil
 	}
 	if entry.OwnerPluginID == "" {
 		return fmt.Errorf("asset %q has no owner", entry.Name)

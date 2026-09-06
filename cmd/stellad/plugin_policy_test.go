@@ -6,12 +6,12 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/plugin"
-	coreplugins "github.com/CherryHQ/stella/plugins/core"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
 
 func TestPluginBackendPolicyRejectsCoreRuntimeBinaryNames(t *testing.T) {
 	policy := pluginBackendPolicy(false)
-	for _, resource := range coreplugins.RuntimeResources() {
+	for _, resource := range systemplugins.RuntimeResources() {
 		t.Run("reserved/"+resource.Name, func(t *testing.T) {
 			definition, payload := testCLIBackendDefinition(t, resource.Name)
 			enabled := false
@@ -36,7 +36,7 @@ func TestPluginBackendPolicyRejectsCoreRuntimeBinaryNames(t *testing.T) {
 	}
 
 	definition, _ = testCLIBackendDefinition(t, "ordinary-tool")
-	_, reservedPayload := testCLIBackendDefinition(t, coreplugins.RuntimeResources()[0].Name)
+	_, reservedPayload := testCLIBackendDefinition(t, systemplugins.RuntimeResources()[0].Name)
 	config = plugin.Config{
 		ID: "config", PluginID: definition.ID, Namespace: definition.Namespace,
 		Scope: plugin.ScopeSystem, Enabled: &enabled, Payload: reservedPayload, Revision: 1,
