@@ -2,7 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetPopup } from "@/components/ui/sheet";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
-import { PluginConfigEditor, type PluginConfigPayload } from "@/features/plugins/PluginConfigEditor";
+import {
+  PluginConfigEditor,
+  type PluginConfigPayload,
+} from "@/features/plugins/PluginConfigEditor";
 import { McpInstallSheet } from "@/features/mcp/McpInstallSheet";
 import { getPlugin, getPluginConfig, updatePluginConfig } from "@/lib/api-client/sdk.gen";
 import type { AgentMcpServer, PluginConfig, PluginDefinition } from "@/lib/api-client/types.gen";
@@ -57,7 +60,13 @@ export function AgentMcpServerSheet({
     },
   });
   const updateMutation = useMutation({
-    mutationFn: async ({ config, payload }: { config: PluginConfig; payload: PluginConfigPayload }) => {
+    mutationFn: async ({
+      config,
+      payload,
+    }: {
+      config: PluginConfig;
+      payload: PluginConfigPayload;
+    }) => {
       const { data } = await updatePluginConfig({
         path: { ...path!, config_id: config.id },
         body: {

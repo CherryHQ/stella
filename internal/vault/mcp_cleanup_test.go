@@ -4,11 +4,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/vault"
-	"github.com/google/uuid"
 )
 
 func TestMCPConfigCredentialCleanupIsExactAndTransactionalWithoutKey(t *testing.T) {
@@ -53,7 +54,7 @@ func TestMCPConfigCredentialCleanupIsExactAndTransactionalWithoutKey(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := vault.DeleteMCPConfigCredentialsTx(ctx, tx, target); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,7 @@ func TestMCPConfigCredentialCleanupIsExactAndTransactionalWithoutKey(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := vault.DeleteMCPConfigCredentialsTx(ctx, tx, target); err != nil {
 		t.Fatal(err)
 	}

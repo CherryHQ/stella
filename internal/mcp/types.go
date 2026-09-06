@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/plugin"
 )
 
 // Scope values mirror the skill/vault 4-value model.
@@ -215,10 +217,10 @@ func validateCredentialMode(mode, authType string) error {
 		return nil
 	}
 	if !ValidCredentialMode(mode) {
-		return fmt.Errorf("mcp: invalid credential_mode %q", mode)
+		return fmt.Errorf("%w: mcp: invalid credential_mode %q", plugin.ErrInvalidConfig, mode)
 	}
 	if mode == CredentialModePerUser && authType != AuthTypeOAuth {
-		return fmt.Errorf("mcp: credential_mode %q requires auth_type %q", CredentialModePerUser, AuthTypeOAuth)
+		return fmt.Errorf("%w: mcp: credential_mode %q requires auth_type %q", plugin.ErrInvalidConfig, CredentialModePerUser, AuthTypeOAuth)
 	}
 	return nil
 }
@@ -228,22 +230,22 @@ func validateCredentialMode(mode, authType string) error {
 // url/name. Enum values are enforced here in Go, not by a DB CHECK.
 func validateRegistration(scope, name, rawURL, transport, authType string, policy EndpointPolicy) error {
 	if !ValidScope(scope) {
-		return fmt.Errorf("mcp: invalid scope %q", scope)
+		return fmt.Errorf("%w: mcp: invalid scope %q", plugin.ErrInvalidConfig, scope)
 	}
 	if strings.TrimSpace(name) == "" {
-		return fmt.Errorf("mcp: name is required")
+		return fmt.Errorf("%w: mcp: name is required", plugin.ErrInvalidConfig)
 	}
 	if strings.TrimSpace(rawURL) == "" {
-		return fmt.Errorf("mcp: url is required")
+		return fmt.Errorf("%w: mcp: url is required", plugin.ErrInvalidConfig)
 	}
 	if err := policy.validateEndpointURL(rawURL); err != nil {
-		return err
+		return fmt.Errorf("%w: %w", plugin.ErrInvalidConfig, err)
 	}
 	if !ValidTransport(transport) {
-		return fmt.Errorf("mcp: unsupported transport %q: only %q and %q are allowed (stdio is not supported)", transport, TransportStreamableHTTP, TransportSSE)
+		return fmt.Errorf("%w: mcp: unsupported transport %q: only %q and %q are allowed (stdio is not supported)", plugin.ErrInvalidConfig, transport, TransportStreamableHTTP, TransportSSE)
 	}
 	if !ValidAuthType(authType) {
-		return fmt.Errorf("mcp: invalid auth_type %q", authType)
+		return fmt.Errorf("%w: mcp: invalid auth_type %q", plugin.ErrInvalidConfig, authType)
 	}
 	return nil
 }

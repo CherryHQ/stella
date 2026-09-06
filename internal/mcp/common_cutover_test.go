@@ -6,9 +6,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/CherryHQ/stella/internal/authz"
 )
 
 func TestCommonAuthNoneCRUDWorksWithoutVault(t *testing.T) {

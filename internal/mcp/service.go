@@ -10,14 +10,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/plugin"
-	vaultpkg "github.com/CherryHQ/stella/internal/vault"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/plugin"
+	vaultpkg "github.com/CherryHQ/stella/internal/vault"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/platform/diagnostic"
@@ -306,13 +307,13 @@ type CredentialMutation struct {
 	configManaged bool
 }
 
-// WithCredentialMutationTx binds an MCP credential mutation to the common
+// withCredentialMutationTx binds an MCP credential mutation to the common
 // plugin mutation transaction. The callback receives the bound Access and a
 // typed credential capability, never a raw transaction or arbitrary Vault.
 // The config row is locked and its complete identity is checked before the
 // callback runs. The callback may update/delete the config through Access and
 // clean up its credential refs before that same transaction commits.
-func (s *Service) WithCredentialMutationTx(ctx context.Context, authority authz.Authority, pluginID, configID string, expectedRevision int64, owner CredentialOwner, fn func(context.Context, *plugin.Access, plugin.Config, CredentialMutation) error) error {
+func (s *Service) withCredentialMutationTx(ctx context.Context, authority authz.Authority, pluginID, configID string, expectedRevision int64, owner CredentialOwner, fn func(context.Context, *plugin.Access, plugin.Config, CredentialMutation) error) error {
 	if expectedRevision < 1 || pluginID == "" || configID == "" || fn == nil {
 		return plugin.ErrConflict
 	}
@@ -390,10 +391,10 @@ func (m CredentialMutation) StoreOAuthBundle(ctx context.Context, bundle OAuthBu
 	return writeOAuthBundle(ctx, m.vault, m.owner, m.config.ID, bundle)
 }
 
-// StoreOAuthClientSecret stores the configured client secret at the config
+// storeOAuthClientSecret stores the configured client secret at the config
 // owner tuple. It is separate from StoreOAuthBundle because per-user bundles
 // must never move the shared client secret to a user vault tuple.
-func (m CredentialMutation) StoreOAuthClientSecret(ctx context.Context, secret string) error {
+func (m CredentialMutation) storeOAuthClientSecret(ctx context.Context, secret string) error {
 	if !m.configManaged {
 		return authz.ErrForbidden
 	}
@@ -464,10 +465,7 @@ func (m CredentialMutation) storeScoped(ctx context.Context, owner CredentialOwn
 // single common mutation transaction. Per-user configs are rejected because a
 // single caller cannot enumerate and revoke every user's OAuth bundle safely.
 func (s *Service) DeleteCommonConfig(ctx context.Context, authority authz.Authority, pluginID, configID string, expectedRevision int64, owner CredentialOwner) error {
-	return s.WithCredentialMutationTx(ctx, authority, pluginID, configID, expectedRevision, owner, func(mutationCtx context.Context, access *plugin.Access, _ plugin.Config, mutation CredentialMutation) error {
-		if err := mutation.DeleteAll(mutationCtx); err != nil {
-			return err
-		}
+	return s.withCredentialMutationTx(ctx, authority, pluginID, configID, expectedRevision, owner, func(mutationCtx context.Context, access *plugin.Access, _ plugin.Config, mutation CredentialMutation) error {
 		return access.DeleteConfig(mutationCtx, pluginID, configID, expectedRevision)
 	})
 }
@@ -586,6 +584,10 @@ func (s *Service) scheduleProbe(reg Registration, owner CredentialOwner) {
 // CreateInput describes a new registration. Token is the raw bearer token,
 // stored encrypted in the vault and never persisted in the config payload.
 type CreateInput struct {
+	EnabledSet  bool
+	Enabled     *bool
+	Metadata    map[string]any
+	Description *string
 	// PluginID identifies the common MCP definition. It is required once the
 	// common service is attached.
 	PluginID       string
@@ -616,6 +618,9 @@ func boolPtr(value bool) *bool { return &value }
 // current value; Token nil keeps the current bearer token, while Token != nil
 // replaces it.
 type UpdateInput struct {
+	EnabledSet        bool
+	Metadata          *map[string]any
+	Description       *string
 	ID                string
 	Scope             string
 	UserID            string
@@ -655,16 +660,16 @@ func (s *Service) CreateCustom(ctx context.Context, def plugin.Definition, in Cr
 		return plugin.Definition{}, plugin.Config{}, err
 	}
 	if def.Backend != plugin.BackendMCP {
-		return plugin.Definition{}, plugin.Config{}, fmt.Errorf("mcp: custom definition backend must be %q", plugin.BackendMCP)
+		return plugin.Definition{}, plugin.Config{}, fmt.Errorf("%w: mcp: custom definition backend must be %q", plugin.ErrInvalidConfig, plugin.BackendMCP)
 	}
 	if in.PluginID != "" {
-		return plugin.Definition{}, plugin.Config{}, errors.New("mcp: custom creation must not specify plugin_id")
+		return plugin.Definition{}, plugin.Config{}, fmt.Errorf("%w: "+"mcp: custom creation must not specify plugin_id", plugin.ErrInvalidConfig)
 	}
 	if in.Name == "" {
 		in.Name = def.DisplayName
 	}
 	if in.Name != def.DisplayName {
-		return plugin.Definition{}, plugin.Config{}, errors.New("mcp: custom definition display name and config name must match")
+		return plugin.Definition{}, plugin.Config{}, fmt.Errorf("%w: "+"mcp: custom definition display name and config name must match", plugin.ErrInvalidConfig)
 	}
 	if in.Transport == "" {
 		in.Transport = TransportStreamableHTTP
@@ -682,13 +687,13 @@ func (s *Service) CreateCustom(ctx context.Context, def plugin.Definition, in Cr
 		return plugin.Definition{}, plugin.Config{}, err
 	}
 	if (in.OAuthClientID != "" || in.OAuthClientSecret != "") && in.AuthType != AuthTypeOAuth {
-		return plugin.Definition{}, plugin.Config{}, fmt.Errorf("mcp: OAuth client credentials require auth_type %q", AuthTypeOAuth)
+		return plugin.Definition{}, plugin.Config{}, fmt.Errorf("%w: mcp: OAuth client credentials require auth_type %q", plugin.ErrInvalidConfig, AuthTypeOAuth)
 	}
 	if in.Token != "" && in.AuthType != AuthTypeBearer {
-		return plugin.Definition{}, plugin.Config{}, fmt.Errorf("mcp: token requires auth_type %q", AuthTypeBearer)
+		return plugin.Definition{}, plugin.Config{}, fmt.Errorf("%w: mcp: token requires auth_type %q", plugin.ErrInvalidConfig, AuthTypeBearer)
 	}
 	if in.AuthType == AuthTypeBearer && strings.TrimSpace(in.Token) == "" {
-		return plugin.Definition{}, plugin.Config{}, errors.New("mcp: bearer auth requires a token")
+		return plugin.Definition{}, plugin.Config{}, fmt.Errorf("%w: "+"mcp: bearer auth requires a token", plugin.ErrInvalidConfig)
 	}
 	authority, ok := authz.AuthorityFromContext(ctx)
 	if !ok {
@@ -721,7 +726,7 @@ func (s *Service) CreateCustom(ctx context.Context, def plugin.Definition, in Cr
 		createdDef, createdConfig, err = access.CreateCustom(mutationCtx, def, plugin.Config{
 			Scope:          plugin.Scope(in.Scope),
 			AgentID:        in.AgentID,
-			Enabled:        boolPtr(true),
+			Enabled:        createInputEnabled(in),
 			Payload:        initialPayload,
 			CredentialRefs: json.RawMessage(`{}`),
 		})
@@ -732,7 +737,7 @@ func (s *Service) CreateCustom(ctx context.Context, def plugin.Definition, in Cr
 		if err != nil {
 			return err
 		}
-		updated, err := access.UpdateConfig(mutationCtx, createdDef.ID, createdConfig.ID, createdConfig.Revision, plugin.ConfigPatch{
+		updated, err := updateCredentialConfig(mutationCtx, access, tx, createdConfig, false, plugin.ConfigPatch{
 			PayloadSet: true, Payload: payload, CredentialRefsSet: true, CredentialRefs: refs,
 		})
 		if err != nil {
@@ -750,7 +755,7 @@ func (s *Service) CreateCustom(ctx context.Context, def plugin.Definition, in Cr
 			}
 		}
 		if in.OAuthClientSecret != "" {
-			if err := mutation.StoreOAuthClientSecret(mutationCtx, in.OAuthClientSecret); err != nil {
+			if err := mutation.storeOAuthClientSecret(mutationCtx, in.OAuthClientSecret); err != nil {
 				return err
 			}
 		}
@@ -765,7 +770,7 @@ func (s *Service) CreateCustom(ctx context.Context, def plugin.Definition, in Cr
 
 func (s *Service) createCommon(ctx context.Context, in CreateInput) (Registration, error) {
 	if in.PluginID == "" {
-		return Registration{}, fmt.Errorf("mcp: plugin_id is required for common MCP config")
+		return Registration{}, fmt.Errorf("%w: mcp: plugin_id is required for common MCP config", plugin.ErrInvalidConfig)
 	}
 	if in.Transport == "" {
 		in.Transport = TransportStreamableHTTP
@@ -783,13 +788,13 @@ func (s *Service) createCommon(ctx context.Context, in CreateInput) (Registratio
 		return Registration{}, err
 	}
 	if (in.OAuthClientID != "" || in.OAuthClientSecret != "") && in.AuthType != AuthTypeOAuth {
-		return Registration{}, fmt.Errorf("mcp: OAuth client credentials require auth_type %q", AuthTypeOAuth)
+		return Registration{}, fmt.Errorf("%w: mcp: OAuth client credentials require auth_type %q", plugin.ErrInvalidConfig, AuthTypeOAuth)
 	}
 	if in.Token != "" && in.AuthType != AuthTypeBearer {
-		return Registration{}, fmt.Errorf("mcp: token requires auth_type %q", AuthTypeBearer)
+		return Registration{}, fmt.Errorf("%w: mcp: token requires auth_type %q", plugin.ErrInvalidConfig, AuthTypeBearer)
 	}
 	if in.AuthType == AuthTypeBearer && strings.TrimSpace(in.Token) == "" {
-		return Registration{}, errors.New("mcp: bearer auth requires a token")
+		return Registration{}, fmt.Errorf("%w: "+"mcp: bearer auth requires a token", plugin.ErrInvalidConfig)
 	}
 	if err := validateScopeOwner(in.Scope, in.UserID, in.AgentID); err != nil {
 		return Registration{}, err
@@ -817,7 +822,7 @@ func (s *Service) createCommonForAuthority(ctx context.Context, authority authz.
 		}
 		created, err := access.CreateConfig(mutationCtx, plugin.Config{
 			PluginID: in.PluginID, Namespace: def.Namespace, Scope: plugin.Scope(in.Scope),
-			UserID: in.UserID, AgentID: in.AgentID, Enabled: boolPtr(true),
+			UserID: in.UserID, AgentID: in.AgentID, Enabled: createInputEnabled(in),
 			Payload: initialPayload, CredentialRefs: json.RawMessage(`{}`),
 		})
 		if err != nil {
@@ -827,7 +832,7 @@ func (s *Service) createCommonForAuthority(ctx context.Context, authority authz.
 		if err != nil {
 			return err
 		}
-		updated, err := access.UpdateConfig(mutationCtx, in.PluginID, created.ID, created.Revision, plugin.ConfigPatch{PayloadSet: true, Payload: payload, CredentialRefsSet: true, CredentialRefs: refs})
+		updated, err := updateCredentialConfig(mutationCtx, access, tx, created, false, plugin.ConfigPatch{PayloadSet: true, Payload: payload, CredentialRefsSet: true, CredentialRefs: refs})
 		if err != nil {
 			return err
 		}
@@ -843,7 +848,7 @@ func (s *Service) createCommonForAuthority(ctx context.Context, authority authz.
 			}
 		}
 		if in.OAuthClientSecret != "" {
-			if err := mutation.StoreOAuthClientSecret(mutationCtx, in.OAuthClientSecret); err != nil {
+			if err := mutation.storeOAuthClientSecret(mutationCtx, in.OAuthClientSecret); err != nil {
 				return err
 			}
 		}
@@ -859,13 +864,32 @@ func (s *Service) createCommonForAuthority(ctx context.Context, authority authz.
 
 func commonMCPCreatePayload(id string, in CreateInput) (json.RawMessage, json.RawMessage, error) {
 	metadata := map[string]any{}
-	if in.OAuthClientID != "" {
-		metadata["oauth"] = map[string]any{"client_id": in.OAuthClientID}
+	if in.Metadata != nil {
+		raw, err := json.Marshal(in.Metadata)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := json.Unmarshal(raw, &metadata); err != nil {
+			return nil, nil, err
+		}
 	}
+	if in.OAuthClientID != "" {
+		oauth, _ := metadata["oauth"].(map[string]any)
+		if oauth == nil {
+			oauth = map[string]any{}
+		}
+		oauth["client_id"] = in.OAuthClientID
+		metadata["oauth"] = oauth
+	}
+
 	if in.RegistrySource != "" || in.RegistryID != "" || in.RegistryVersion != "" {
 		metadata["registry"] = map[string]any{"source": in.RegistrySource, "id": in.RegistryID, "version": in.RegistryVersion}
 	}
-	payload, err := json.Marshal(map[string]any{"url": in.URL, "transport": in.Transport, "auth_type": in.AuthType, "credential_mode": in.CredentialMode, "metadata": metadata})
+	object := map[string]any{"url": in.URL, "transport": in.Transport, "auth_type": in.AuthType, "credential_mode": in.CredentialMode, "metadata": metadata}
+	if in.Description != nil {
+		object["description"] = *in.Description
+	}
+	payload, err := json.Marshal(object)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -981,7 +1005,7 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 	}
 	owner := s.CredentialOwner(reg, string(authority.UserID()))
 	var result Registration
-	err = s.WithCredentialMutationTx(ctx, authority, reg.PluginID, reg.ID, reg.ConfigRevision, owner, func(mutationCtx context.Context, access *plugin.Access, current plugin.Config, mutation CredentialMutation) error {
+	err = s.withCredentialMutationTx(ctx, authority, reg.PluginID, reg.ID, reg.ConfigRevision, owner, func(mutationCtx context.Context, access *plugin.Access, current plugin.Config, mutation CredentialMutation) error {
 		payload, err := decodeJSONObject(current.Payload, "MCP config payload")
 		if err != nil {
 			return err
@@ -1006,15 +1030,30 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 		if in.CredentialMode != nil {
 			mode = *in.CredentialMode
 		}
-		sensitiveEdit := endpoint != currentPayload.URL || transport != currentPayload.Transport || authType != currentPayload.AuthType || mode != currentPayload.CredentialMode || in.OAuthClientID != nil || in.OAuthClientSecret != nil
-		if currentPayload.AuthType == AuthTypeOAuth && sensitiveEdit {
-			return errors.New("mcp: OAuth credential changes require reconnect or reset")
+		if in.Metadata != nil {
+			payload["metadata"], _ = json.Marshal(*in.Metadata)
 		}
+		if in.Description != nil {
+			payload["description"], _ = json.Marshal(*in.Description)
+		}
+		nextMetadata := currentPayload.Metadata
+		if raw, ok := payload["metadata"]; ok {
+			nextMetadata, err = decodeMCPPluginMetadata(raw)
+			if err != nil {
+				return fmt.Errorf("%w: %w", plugin.ErrInvalidConfig, err)
+			}
+		}
+		nextClientID := metadataOAuthClientID(nextMetadata)
+		if in.OAuthClientID != nil {
+			nextClientID = *in.OAuthClientID
+		}
+		sensitiveEdit := endpoint != currentPayload.URL || transport != currentPayload.Transport || authType != currentPayload.AuthType || mode != currentPayload.CredentialMode || nextClientID != metadataOAuthClientID(currentPayload.Metadata) || oauthMetadataTokenEndpointAuthMethod(nextMetadata) != oauthMetadataTokenEndpointAuthMethod(currentPayload.Metadata) || in.OAuthClientSecret != nil
+
 		if currentPayload.AuthType == AuthTypeBearer && authType == AuthTypeBearer && sensitiveEdit && in.Token == nil {
-			return errors.New("mcp: bearer endpoint changes require a replacement token")
+			return fmt.Errorf("%w: "+"mcp: bearer endpoint changes require a replacement token", plugin.ErrInvalidConfig)
 		}
-		if currentPayload.AuthType == AuthTypeNone && authType == AuthTypeBearer && in.Token == nil {
-			return errors.New("mcp: enabling bearer auth requires a replacement token")
+		if currentPayload.AuthType != AuthTypeBearer && authType == AuthTypeBearer && in.Token == nil {
+			return fmt.Errorf("%w: "+"mcp: enabling bearer auth requires a replacement token", plugin.ErrInvalidConfig)
 		}
 		name := reg.Name
 		if in.Name != nil {
@@ -1030,15 +1069,10 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 		if err != nil {
 			return err
 		}
-		if currentPayload.AuthType == AuthTypeBearer && authType != AuthTypeBearer {
-			oldBearerRef, _, _, err := decodeMCPPluginCredentialRefs(current.CredentialRefs, current, currentPayload.AuthType, currentPayload.CredentialMode)
-			if err != nil {
-				return err
-			}
-			if err := mutation.deleteScoped(mutationCtx, mutation.owner, oldBearerRef); err != nil {
-				return err
-			}
+		if authType == AuthTypeOAuth && sensitiveEdit && oldClientSecretRef != "" && in.OAuthClientSecret == nil && nextClientID != "" {
+			return fmt.Errorf("%w: "+"mcp: OAuth connection changes require a replacement client secret or clearing the client id", plugin.ErrInvalidConfig)
 		}
+
 		payload["url"], _ = json.Marshal(endpoint)
 		payload["transport"], _ = json.Marshal(transport)
 		payload["auth_type"], _ = json.Marshal(authType)
@@ -1070,7 +1104,7 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 		if err != nil {
 			return err
 		}
-		clearClientSecret := authType == AuthTypeOAuth && in.OAuthClientID != nil && *in.OAuthClientID == "" && in.OAuthClientSecret == nil
+		clearClientSecret := authType == AuthTypeOAuth && nextClientID == "" && in.OAuthClientSecret == nil
 		if clearClientSecret {
 			refs, err := decodeJSONObject(updatedRefs, "MCP credential refs")
 			if err != nil {
@@ -1081,19 +1115,13 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 			if err != nil {
 				return err
 			}
-			// Delete the old config-owned secret before changing the locator. Both
-			// operations share this config-row transaction and roll back together.
-			if oldClientSecretRef != "" {
-				if err := mutation.DeleteOAuthClientSecret(mutationCtx); err != nil {
-					return err
-				}
-			}
+
 		}
 		configPatch := plugin.ConfigPatch{PayloadSet: true, Payload: updatedPayload, CredentialRefsSet: true, CredentialRefs: updatedRefs}
-		if in.Enabled != nil {
+		if in.Enabled != nil || in.EnabledSet {
 			configPatch.EnabledSet, configPatch.Enabled = true, in.Enabled
 		}
-		updated, err := access.UpdateConfig(mutationCtx, current.PluginID, current.ID, current.Revision, configPatch)
+		updated, err := updateCredentialConfig(mutationCtx, access, mutation.tx, current, authType == AuthTypeOAuth && in.OAuthClientSecret != nil, configPatch)
 		if err != nil {
 			return err
 		}
@@ -1105,17 +1133,14 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 				}
 			}
 		} else if in.Token != nil {
-			return errors.New("mcp: token requires bearer auth")
+			return fmt.Errorf("%w: "+"mcp: token requires bearer auth", plugin.ErrInvalidConfig)
 		}
-		if in.OAuthClientSecret != nil {
-			if *in.OAuthClientSecret == "" {
-				if err := mutation.DeleteOAuthClientSecret(mutationCtx); err != nil && !errors.Is(err, authz.ErrForbidden) {
-					return err
-				}
-			} else if err := updatedMutation.StoreOAuthClientSecret(mutationCtx, *in.OAuthClientSecret); err != nil {
+		if in.OAuthClientSecret != nil && *in.OAuthClientSecret != "" {
+			if err := updatedMutation.storeOAuthClientSecret(mutationCtx, *in.OAuthClientSecret); err != nil {
 				return err
 			}
 		}
+
 		def, err := access.GetDefinition(mutationCtx, updated.PluginID)
 		if err != nil {
 			return err
@@ -1469,49 +1494,28 @@ func (s *Service) BearerToken(ctx context.Context, reg Registration) (string, er
 	return snapshot.BearerToken, nil
 }
 
-func (s *Service) storeToken(ctx context.Context, scope, userID, agentID, name, token string) error {
-	return s.storeTokenWithVault(ctx, s.vault, scope, userID, agentID, name, token)
-}
-
-func (s *Service) storeTokenWithVault(ctx context.Context, vault Vault, scope, userID, agentID, name, token string) error {
-	if vault == nil {
-		return fmt.Errorf("mcp: vault not configured")
-	}
-	if IsSystemScope(scope) {
-		return vault.SetSystemScoped(ctx, scope, agentID, name, token)
-	}
-	return vault.SetScoped(ctx, scope, userID, agentID, name, token)
-}
-
-func (s *Service) deleteToken(ctx context.Context, scope, userID, agentID, name string) error {
-	if IsSystemScope(scope) {
-		return s.vault.DeleteSystemScoped(ctx, scope, agentID, name)
-	}
-	return s.vault.DeleteScoped(ctx, scope, userID, agentID, name)
-}
-
 // validateScopeOwner enforces the same scope/owner coupling as the DB CHECK, so
 // callers get a clear error before the insert instead of a constraint violation.
 func validateScopeOwner(scope, userID, agentID string) error {
 	switch scope {
 	case ScopeUser:
 		if userID == "" || agentID != "" {
-			return fmt.Errorf("mcp: user scope requires user_id only")
+			return fmt.Errorf("%w: mcp: user scope requires user_id only", plugin.ErrInvalidConfig)
 		}
 	case ScopeUserAgent:
 		if userID == "" || agentID == "" {
-			return fmt.Errorf("mcp: user_agent scope requires user_id and agent_id")
+			return fmt.Errorf("%w: mcp: user_agent scope requires user_id and agent_id", plugin.ErrInvalidConfig)
 		}
 	case ScopeSystem:
 		if userID != "" || agentID != "" {
-			return fmt.Errorf("mcp: system scope cannot include user_id or agent_id")
+			return fmt.Errorf("%w: mcp: system scope cannot include user_id or agent_id", plugin.ErrInvalidConfig)
 		}
 	case ScopeSystemAgent:
 		if userID != "" || agentID == "" {
-			return fmt.Errorf("mcp: system_agent scope requires agent_id only")
+			return fmt.Errorf("%w: mcp: system_agent scope requires agent_id only", plugin.ErrInvalidConfig)
 		}
 	default:
-		return fmt.Errorf("mcp: invalid scope %q", scope)
+		return fmt.Errorf("%w: mcp: invalid scope %q", plugin.ErrInvalidConfig, scope)
 	}
 	return nil
 }
@@ -1521,10 +1525,6 @@ func textOrEmpty(v pgtype.Text) string {
 		return ""
 	}
 	return v.String
-}
-
-func rowMatchesScopeOwner(row sqlc.McpServer, scope, userID, agentID string) bool {
-	return row.Scope == scope && textOrEmpty(row.UserID) == userID && textOrEmpty(row.AgentID) == agentID
 }
 
 func registrationFromRow(row sqlc.McpServer) Registration {
@@ -1575,10 +1575,9 @@ func decodeCatalog(raw json.RawMessage) []CatalogTool {
 	return out
 }
 
-func registrationsFromRows(rows []sqlc.McpServer) []Registration {
-	out := make([]Registration, len(rows))
-	for i, row := range rows {
-		out[i] = registrationFromRow(row)
+func createInputEnabled(in CreateInput) *bool {
+	if in.EnabledSet {
+		return in.Enabled
 	}
-	return out
+	return boolPtr(true)
 }

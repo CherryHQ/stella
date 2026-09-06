@@ -326,6 +326,9 @@ func setupAdmin(t *testing.T) *testEnv {
 		host.WithNotificationService(dispatcher),
 		host.WithStateStore(stateStore),
 		host.WithChannelRuntimeServices(channelRuntimeServices),
+		host.WithListenerCap(func(context.Context, string, string) (bool, error) {
+			return true, nil
+		}),
 	)
 	phost.SetAccountEnrollment(auth.NewAccountEnrollmentService(oidcStore, nil))
 	if err := phost.LoadDefaultCatalog(); err != nil {
@@ -919,112 +922,58 @@ func TestListAgents(t *testing.T) {
 	}
 }
 
-func TestGetTelegramPluginConfigSchema(t *testing.T) {
+func TestLegacyPluginConfigSchemaRoutesRemoved(t *testing.T) {
 	env := setupAdmin(t)
-
-	rr := doRequest(t, env, "GET", "/api/plugins/channel/telegram/config-schema", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-	}
-
-	resp := parseResponse(t, rr)
-	var schema map[string]any
-	if err := json.Unmarshal(resp.Data, &schema); err != nil {
-		t.Fatalf("unmarshal schema: %v", err)
-	}
-	props, ok := schema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("schema properties = %#v", schema["properties"])
-	}
-	if _, ok := props["token"]; !ok {
-		t.Fatalf("expected token property in schema: %#v", schema)
-	}
-}
-
-func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
-	env := setupAdmin(t)
-
-	tests := []struct {
-		path          string
-		propertyNames []string
-	}{
-		{path: "/api/plugins/channel/telegram/config-schema", propertyNames: []string{"token", "allow_group", "allow_dm", "allow_unlinked_dm", "guest_message_limit_per_minute", "guest_max_per_channel", "guest_retention_days", "require_mention"}},
-		{path: "/api/plugins/channel/discord/config-schema", propertyNames: []string{"token", "allow_group", "allow_dm", "allow_unlinked_dm", "guest_message_limit_per_minute", "guest_max_per_channel", "guest_retention_days", "require_mention"}},
-		{path: "/api/plugins/channel/qq/config-schema", propertyNames: []string{"app_id"}},
-		{path: "/api/plugins/channel/feishu/config-schema", propertyNames: []string{"app_id", "allow_group", "allow_dm", "allow_unlinked_dm", "guest_message_limit_per_minute", "guest_max_per_channel", "guest_retention_days", "require_mention"}},
-		{path: "/api/plugins/channel/weixin/config-schema", propertyNames: []string{"bot_token"}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			rr := doRequest(t, env, "GET", tt.path, nil)
-			if rr.Code != http.StatusOK {
-				t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-			}
-
-			resp := parseResponse(t, rr)
-			var schema map[string]any
-			if err := json.Unmarshal(resp.Data, &schema); err != nil {
-				t.Fatalf("unmarshal schema: %v", err)
-			}
-			props, ok := schema["properties"].(map[string]any)
-			if !ok {
-				t.Fatalf("schema properties = %#v", schema["properties"])
-			}
-			for _, propertyName := range tt.propertyNames {
-				if _, ok := props[propertyName]; !ok {
-					t.Fatalf("expected %q property in schema: %#v", propertyName, schema)
-				}
+	for _, path := range []string{
+		"/api/plugins/channel/telegram/config-schema",
+		"/api/plugins/channel/discord/config-schema",
+		"/api/plugins/channel/qq/config-schema",
+		"/api/plugins/channel/feishu/config-schema",
+		"/api/plugins/channel/weixin/config-schema",
+	} {
+		t.Run(path, func(t *testing.T) {
+			rr := doRequest(t, env, http.MethodGet, path, nil)
+			if rr.Code != http.StatusNotFound {
+				t.Fatalf("legacy config schema route = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
 			}
 		})
 	}
 }
 
-func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
+func TestListPluginsUsesUnifiedSafeDefinitionProjection(t *testing.T) {
 	env := setupAdmin(t)
+	plugins := plugin.NewService(env.db, env.deps.AgentAccess, plugin.NewCatalog(), plugin.BackendPolicy{}, func(_ context.Context, fn func() error) error { return fn() })
+	env.rebuild(t, func(d *server.Deps) { d.PluginService = plugins })
+	if _, err := env.db.Exec(context.Background(), `
+		INSERT INTO plugin_definition(id, namespace, display_name, backend, source,
+			implementation_key, spec, default_enabled, revision)
+		VALUES ('custom/safe', 'safe', 'Safe plugin', 'mcp', 'custom', 'mcp',
+			'{"description":"safe","category":"utility","capabilities":["read"],"url":"https://private.example/path?token=secret","credential_refs":{"token":"vault://secret"}}'::jsonb, false, 1)`); err != nil {
+		t.Fatalf("seed plugin definition: %v", err)
+	}
 
-	rr := doRequest(t, env, "GET", "/api/plugins", nil)
+	rr := doRequest(t, env, http.MethodGet, "/api/plugins", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
-
-	type pluginListItem struct {
-		ID           string         `json:"id"`
-		Kind         string         `json:"kind"`
-		Enabled      bool           `json:"enabled"`
-		Config       map[string]any `json:"config"`
-		DisplayName  string         `json:"display_name"`
-		Description  string         `json:"description"`
-		Managed      bool           `json:"managed"`
-		AdminVisible bool           `json:"admin_visible"`
-		HasConfig    bool           `json:"has_config"`
-		HasStatus    bool           `json:"has_status"`
-		Capabilities []string       `json:"capabilities"`
-	}
-	var plugins []pluginListItem
-	if err := json.Unmarshal(parseListItems(t, rr, "plugins"), &plugins); err != nil {
+	var list apitypes.PluginList
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &list); err != nil {
 		t.Fatalf("unmarshal plugins: %v", err)
 	}
-
-	byID := map[string]pluginListItem{}
-	for _, plugin := range plugins {
-		byID[plugin.ID] = plugin
+	if len(list.Plugins) != 1 {
+		t.Fatalf("plugins = %#v, want one custom definition", list.Plugins)
 	}
-
-	telegram := byID[config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram)]
-	if telegram.DisplayName != "Telegram" || !telegram.Managed || !telegram.AdminVisible || telegram.HasConfig || !telegram.HasStatus {
-		t.Fatalf("unexpected telegram plugin payload: %#v", telegram)
+	item := list.Plugins[0]
+	if item.Id != "custom/safe" || item.Namespace != "safe" || item.DisplayName != "Safe plugin" {
+		t.Fatalf("plugin identity = %#v", item)
 	}
-	if telegram.Description != "Telegram bot integration." {
-		t.Fatalf("telegram description = %q, want %q", telegram.Description, "Telegram bot integration.")
+	if item.Spec["description"] != "safe" || item.Spec["category"] != "utility" {
+		t.Fatalf("safe definition summary = %#v", item.Spec)
 	}
-	if len(telegram.Config) != 0 {
-		t.Fatalf("expected channel plugin config to be hidden, got %#v", telegram.Config)
-	}
-
-	qq := byID[config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ)]
-	if qq.DisplayName != "QQ" {
-		t.Fatalf("unexpected qq plugin payload: %#v", qq)
+	for _, private := range []string{"url", "credential_refs"} {
+		if _, ok := item.Spec[private]; ok {
+			t.Fatalf("definition exposed private field %q: %#v", private, item.Spec)
+		}
 	}
 }
 
@@ -1032,15 +981,15 @@ func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 	env := setupAdmin(t)
 
 	rr := doRequest(t, env, "GET", "/api/plugins/channel/telegram/config", nil)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("GET status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("legacy GET status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
 	}
 
 	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/telegram/config", map[string]any{
 		"config": map[string]any{"token": "telegram-secret"},
 	})
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("PUT status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("legacy PATCH status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
 	}
 }
 

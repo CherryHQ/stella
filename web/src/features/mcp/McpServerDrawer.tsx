@@ -2,7 +2,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Drawer, DrawerClose, DrawerHeader, DrawerPopup, DrawerTitle } from "@/components/ui/drawer";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerHeader,
+  DrawerPopup,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { probePluginConfig } from "@/lib/api-client/sdk.gen";
 import type { AgentMcpServer } from "@/lib/api-client/types.gen";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -64,32 +70,57 @@ export function McpServerDrawer({
         </DrawerHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" size="sm">{t(SCOPE_LABEL_KEY[server.scope])}</Badge>
-            <Badge variant={statusBadgeVariant(server.status)} size="sm">{t(`mcp.status.${server.status}` as never)}</Badge>
+            <Badge variant="outline" size="sm">
+              {t(SCOPE_LABEL_KEY[server.scope])}
+            </Badge>
+            <Badge variant={statusBadgeVariant(server.status)} size="sm">
+              {t(`mcp.status.${server.status}` as never)}
+            </Badge>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" loading={probe.isPending} onClick={() => probe.mutate(server)}>
+            <Button
+              variant="outline"
+              size="sm"
+              loading={probe.isPending}
+              onClick={() => probe.mutate(server)}
+            >
               <RefreshCw size={16} />
               {t("mcp.server.probe")}
             </Button>
             {server.credential_mode === "per_user" && (
-              <Button variant="outline" size="sm" onClick={() => (server.needs_auth ? onConnect(server) : onDisconnect(server))}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => (server.needs_auth ? onConnect(server) : onDisconnect(server))}
+              >
                 {server.needs_auth ? t("mcp.connect") : t("mcp.disconnect")}
               </Button>
             )}
-            {server.readable && <>
-              <Button variant="ghost" size="sm" onClick={() => onEdit(server)}>{t("common.edit")}</Button>
-              <Button variant="ghost" size="sm" onClick={() => onDelete(server)}>{t("common.delete")}</Button>
-            </>}
+            {server.readable && (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => onEdit(server)}>
+                  {t("common.edit")}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => onDelete(server)}>
+                  {t("common.delete")}
+                </Button>
+              </>
+            )}
           </div>
           <div className="space-y-2">
             <p className="text-xs font-medium text-muted-foreground">{t("mcp.server.tools")}</p>
-            {server.tools.length === 0 ? <p className="text-sm text-muted-foreground">{t("mcp.server.noTools")}</p> : server.tools.map((tool) => (
-              <div key={tool.name} className="rounded-lg border p-3">
-                <p className="truncate font-mono text-sm font-medium">{tool.name}</p>
-                {tool.description && <p className="mt-1 text-xs text-muted-foreground">{tool.description}</p>}
-              </div>
-            ))}
+            {server.tools.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("mcp.server.noTools")}</p>
+            ) : (
+              server.tools.map((tool) => (
+                <div key={tool.name} className="rounded-lg border p-3">
+                  <p className="truncate font-mono text-sm font-medium">{tool.name}</p>
+                  {tool.description && (
+                    <p className="mt-1 text-xs text-muted-foreground">{tool.description}</p>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </DrawerPopup>

@@ -8,12 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/server"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 )
 
 type pluginProbeFixture struct {
@@ -25,7 +26,7 @@ type pluginProbeFixture struct {
 func setupPluginProbeHTTPEnv(t *testing.T) (*testEnv, *[]mcp.CredentialOwner) {
 	t.Helper()
 	env := setupAdmin(t)
-	plugins := pluginpkg.NewService(env.db, env.deps.AgentAccess, pluginpkg.NewCatalog(), nil,
+	plugins := pluginpkg.NewService(env.db, env.deps.AgentAccess, pluginpkg.NewCatalog(), mcp.NewMCPBackendPolicy(mcp.EndpointPolicy{}),
 		func(_ context.Context, fn func() error) error { return fn() })
 	owners := []mcp.CredentialOwner{}
 	mcpSvc := mcp.NewServiceForPool(env.db, oauthTestVault{}, func(pgx.Tx) mcp.Vault {
@@ -61,7 +62,7 @@ func installPluginProbeFixture(t *testing.T, env *testEnv, backend pluginpkg.Bac
 	refs := json.RawMessage(`{}`)
 	if backend == pluginpkg.BackendMCP && authType == mcp.AuthTypeOAuth && credentialMode == mcp.CredentialModePerUser {
 		payload = json.RawMessage(`{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user"}`)
-		refs = []byte(fmt.Sprintf(`{"oauth_bundle":{"name":"MCP_OAUTH_%s","mode":"per_user","owner":"per_user"}}`, strings.ToUpper(strings.ReplaceAll(configID, "-", "_"))))
+		refs = fmt.Appendf(nil, `{"oauth_bundle":{"name":"MCP_OAUTH_%s","mode":"per_user","owner":"per_user"}}`, strings.ToUpper(strings.ReplaceAll(configID, "-", "_")))
 	}
 	enabled := true
 	if backend != pluginpkg.BackendMCP {

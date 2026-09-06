@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/CherryHQ/stella/internal/plugin"
 	"log/slog"
 	"sort"
 	"sync"
+
+	"github.com/CherryHQ/stella/internal/plugin"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"

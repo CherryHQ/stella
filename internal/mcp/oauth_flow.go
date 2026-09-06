@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/oauth2"
+
+	"github.com/CherryHQ/stella/internal/authz"
 )
 
 // StartOAuth runs discovery, resolves (or registers) the client, persists a

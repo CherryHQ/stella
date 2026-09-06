@@ -2,8 +2,10 @@ package plugin
 
 import (
 	"context"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
+
 	"github.com/jackc/pgx/v5"
+
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // AdministrativeCap reads only the published S/SA switch for a shipped plugin.

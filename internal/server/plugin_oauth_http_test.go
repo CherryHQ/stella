@@ -8,12 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/server"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 )
 
 // oauthTestVault is deliberately empty. The negative action cases stop at the
@@ -24,15 +25,19 @@ type oauthTestVault struct{}
 func (oauthTestVault) SetScoped(context.Context, string, string, string, string, string) error {
 	return nil
 }
+
 func (oauthTestVault) SetSystemScoped(context.Context, string, string, string, string) error {
 	return nil
 }
+
 func (oauthTestVault) GetScoped(context.Context, string, string, string, string) (string, error) {
 	return "", nil
 }
+
 func (oauthTestVault) DeleteScoped(context.Context, string, string, string, string) error {
 	return nil
 }
+
 func (oauthTestVault) DeleteSystemScoped(context.Context, string, string, string) error {
 	return nil
 }
@@ -89,7 +94,7 @@ func installPluginOAuthFixture(t *testing.T, env *testEnv, scope, userID, agentI
 func setupPluginOAuthHTTPEnv(t *testing.T, endpointPolicy mcp.EndpointPolicy) *testEnv {
 	t.Helper()
 	env := setupAdmin(t)
-	plugins := pluginpkg.NewService(env.db, env.deps.AgentAccess, pluginpkg.NewCatalog(), nil,
+	plugins := pluginpkg.NewService(env.db, env.deps.AgentAccess, pluginpkg.NewCatalog(), mcp.NewMCPBackendPolicy(endpointPolicy),
 		func(_ context.Context, fn func() error) error { return fn() })
 	mcpSvc := mcp.NewServiceForPool(env.db, oauthTestVault{}, func(pgx.Tx) mcp.Vault {
 		return oauthTestVault{}

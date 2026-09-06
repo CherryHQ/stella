@@ -10,11 +10,12 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
+
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/plugin"
 )
 
 type oauthAuthorityContextKey struct{}
@@ -242,7 +243,7 @@ func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Au
 		owner = CredentialOwner{Scope: reg.Scope, UserID: reg.UserID, AgentID: reg.AgentID}
 	}
 	var updatedReg Registration
-	err := s.WithCredentialMutationTx(ctx, authority, reg.PluginID, reg.ID, reg.ConfigRevision, owner, func(mutationCtx context.Context, access *plugin.Access, _ plugin.Config, mutation CredentialMutation) error {
+	err := s.withCredentialMutationTx(ctx, authority, reg.PluginID, reg.ID, reg.ConfigRevision, owner, func(mutationCtx context.Context, access *plugin.Access, _ plugin.Config, mutation CredentialMutation) error {
 		cfg, err := access.GetConfig(mutationCtx, reg.PluginID, reg.ID)
 		if err != nil {
 			return fmt.Errorf("mcp: read plugin config for DCR: %w", err)
@@ -278,6 +279,15 @@ func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Au
 				return errors.New("mcp: OAuth client id metadata is invalid")
 			}
 		}
+		if mcpPayload.AuthType != AuthTypeOAuth {
+			return errors.New("mcp: DCR requires OAuth auth")
+		}
+		if existingClientID != "" {
+			return ErrVersionConflict
+		}
+		if _, _, err := oauthTokenEndpointAuthStyle(resp.TokenEndpointAuthMethod); err != nil {
+			return err
+		}
 		oauthMetadata["client_id"], _ = json.Marshal(resp.ClientID)
 		oauthMetadata["token_endpoint_auth_method"], _ = json.Marshal(resp.TokenEndpointAuthMethod)
 		metadata["oauth"], _ = json.Marshal(oauthMetadata)
@@ -309,7 +319,7 @@ func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Au
 		if err != nil {
 			return err
 		}
-		if _, err := access.UpdateConfig(mutationCtx, reg.PluginID, reg.ID, cfg.Revision, plugin.ConfigPatch{
+		if _, err := updateCredentialConfig(mutationCtx, access, mutation.tx, cfg, resp.ClientSecret != "", plugin.ConfigPatch{
 			PayloadSet: true, Payload: payloadRaw, CredentialRefsSet: true, CredentialRefs: refsRaw,
 		}); err != nil {
 			return fmt.Errorf("mcp: persist DCR client id: %w", err)
@@ -323,7 +333,7 @@ func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Au
 			// locator. Rebind the typed capability to the authoritative config
 			// while keeping the same transaction-bound Vault.
 			updatedMutation := CredentialMutation{tx: mutation.tx, config: updated, owner: owner, vault: mutation.vault, configManaged: mutation.configManaged}
-			if err := updatedMutation.StoreOAuthClientSecret(mutationCtx, resp.ClientSecret); err != nil {
+			if err := updatedMutation.storeOAuthClientSecret(mutationCtx, resp.ClientSecret); err != nil {
 				return fmt.Errorf("mcp: persist DCR client secret: %w", err)
 			}
 		}

@@ -2,12 +2,15 @@ package host
 
 import (
 	"context"
+	"strings"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/plugin"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	"strings"
-	"testing"
 )
 
 func testHostSnapshot(t *testing.T, states map[string]bool, withoutConfig ...string) plugin.Snapshot {
@@ -20,7 +23,7 @@ func testHostSnapshot(t *testing.T, states map[string]bool, withoutConfig ...str
 			t.Fatal(err)
 		}
 	}
-	service := plugin.NewService(db, nil, catalog, nil, func(_ context.Context, fn func() error) error { return fn() })
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Transition: noopBackendTransition}, func(_ context.Context, fn func() error) error { return fn() })
 	if err := service.SyncBuiltinDefaults(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -39,6 +42,11 @@ func testHostSnapshot(t *testing.T, states map[string]bool, withoutConfig ...str
 	}
 	return snapshot
 }
+
+func noopBackendTransition(context.Context, pgx.Tx, authz.Authority, plugin.MutationKind, plugin.Definition, *plugin.Config, *plugin.Config) error {
+	return nil
+}
+
 func TestRequiredHookCannotBypassSnapshotDenial(t *testing.T) {
 	host := New(nil)
 	host.RegisterPluginID("tool/denied")

@@ -1142,7 +1142,7 @@ type SkillUsage struct {
 
 type ToolOverride struct {
 	ID            string      `json:"id"`
-	ToolName      string      `json:"tool_name"`
+	ToolName      pgtype.Text `json:"tool_name"`
 	Scope         string      `json:"scope"`
 	UserID        pgtype.Text `json:"user_id"`
 	AgentID       pgtype.Text `json:"agent_id"`

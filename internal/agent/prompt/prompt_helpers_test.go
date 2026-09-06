@@ -39,7 +39,7 @@ func TestFilesystemPromptOperationalContract(t *testing.T) {
 
 func TestRecallGuidanceMatchesUnifiedAgentActions(t *testing.T) {
 	systemPrompt := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{SystemPrompt: "You are Stella."})
-	stellaSkill, err := os.ReadFile("../../../resources/skills/system/stella/SKILL.md")
+	stellaSkill, err := os.ReadFile("../../../resources/skills/core/stella/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}

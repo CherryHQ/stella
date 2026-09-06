@@ -51,25 +51,45 @@ type ConfigPatch struct {
 // after caps lift; storing a disabled configuration is not execution approval.
 type PayloadValidator func(context.Context, Definition, Config, []string) error
 
-// Service owns persistence; Access is its only caller-facing authorization boundary.
-type Service struct {
-	db              *pgxpool.Pool
-	q               *sqlc.Queries
-	agents          *agentaccess.Service
-	catalog         *Catalog
-	validatePayload PayloadValidator
-	mutationFence   MutationFence
-	txBound         bool
+// BackendPolicy is the single backend boundary for plugin configuration. The
+// transition runs after the SQL row mutation and before the enclosing commit.
+type BackendPolicy struct {
+	Validate   PayloadValidator
+	Transition BackendTransition
 }
 
-func NewService(db *pgxpool.Pool, agents *agentaccess.Service, catalog *Catalog, validate PayloadValidator, mutationFence MutationFence) *Service {
+type BackendTransition func(context.Context, pgx.Tx, authz.Authority, MutationKind, Definition, *Config, *Config) error
+
+type MutationKind string
+
+const (
+	MutationCreate MutationKind = "create"
+	MutationUpdate MutationKind = "update"
+	MutationMove   MutationKind = "move"
+	MutationReset  MutationKind = "reset"
+	MutationDelete MutationKind = "delete"
+)
+
+// Service owns persistence; Access is its only caller-facing authorization boundary.
+type Service struct {
+	db            *pgxpool.Pool
+	q             *sqlc.Queries
+	agents        *agentaccess.Service
+	catalog       *Catalog
+	policy        BackendPolicy
+	mutationTx    pgx.Tx
+	mutationFence MutationFence
+	txBound       bool
+}
+
+func NewService(db *pgxpool.Pool, agents *agentaccess.Service, catalog *Catalog, policy BackendPolicy, mutationFence MutationFence) *Service {
 	shipped := NewCatalog()
 	if catalog != nil {
 		for _, def := range catalog.Definitions() {
 			shipped.byID[def.ID] = cloneDefinition(def)
 		}
 	}
-	return &Service{db: db, q: sqlc.New(db), agents: agents, catalog: shipped, validatePayload: validate, mutationFence: mutationFence}
+	return &Service{db: db, q: sqlc.New(db), agents: agents, catalog: shipped, policy: policy, mutationFence: mutationFence}
 }
 
 func (s *Service) Begin(authority authz.Authority) (*Access, error) {
@@ -235,7 +255,14 @@ func (b *Access) CreateConfig(ctx context.Context, config Config) (Config, error
 	if err := b.service.validateResolved(ctx, def, config, nil); err != nil {
 		return Config{}, err
 	}
-	return b.service.createConfig(ctx, config)
+	created, err := b.service.createConfig(ctx, config)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := b.service.transitionConfig(ctx, b.authority, MutationCreate, def, nil, &created); err != nil {
+		return Config{}, err
+	}
+	return created, nil
 }
 
 func (b *Access) UpdateConfig(ctx context.Context, pluginID, id string, expectedRevision int64, patch ConfigPatch) (Config, error) {
@@ -296,7 +323,14 @@ func (b *Access) UpdateConfig(ctx context.Context, pluginID, id string, expected
 			return Config{}, err
 		}
 	}
-	return b.service.updateConfigCAS(ctx, current.ID, expectedRevision, updated.Enabled, updated.Payload, updated.CredentialRefs)
+	result, err := b.service.updateConfigCAS(ctx, current.ID, expectedRevision, updated.Enabled, updated.Payload, updated.CredentialRefs)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := b.service.transitionConfig(ctx, b.authority, MutationUpdate, def, &current, &result); err != nil {
+		return Config{}, err
+	}
+	return result, nil
 }
 
 // MoveConfig changes a config's scope while preserving its config ID. Both the
@@ -372,7 +406,14 @@ func (b *Access) MoveConfig(ctx context.Context, pluginID, id string, expectedRe
 	if err := b.service.validateResolved(ctx, def, updated, patch.ResetFields); err != nil {
 		return Config{}, err
 	}
-	return b.service.moveConfigCAS(ctx, current.ID, expectedRevision, updated.Scope, updated.UserID, updated.AgentID, updated.Enabled, updated.Payload, updated.CredentialRefs)
+	result, err := b.service.moveConfigCAS(ctx, current.ID, expectedRevision, updated.Scope, updated.UserID, updated.AgentID, updated.Enabled, updated.Payload, updated.CredentialRefs)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := b.service.transitionConfig(ctx, b.authority, MutationMove, def, &current, &result); err != nil {
+		return Config{}, err
+	}
+	return result, nil
 }
 
 func (b *Access) DeleteConfig(ctx context.Context, pluginID, id string, expectedRevision int64) error {
@@ -402,7 +443,7 @@ func (b *Access) DeleteConfig(ctx context.Context, pluginID, id string, expected
 	if !deleted {
 		return ErrConflict
 	}
-	return nil
+	return b.service.transitionConfig(ctx, b.authority, MutationDelete, def, &current, nil)
 }
 
 func (b *Access) ResetBuiltinConfig(ctx context.Context, pluginID, id string, expectedRevision int64) (Config, error) {
@@ -429,7 +470,14 @@ func (b *Access) ResetBuiltinConfig(ctx context.Context, pluginID, id string, ex
 	if !b.authority.IsAdmin() || def.Source != SourceBuiltin || current.Scope != ScopeSystem {
 		return Config{}, ErrForbidden
 	}
-	return b.service.resetBuiltinConfig(ctx, id, expectedRevision, current.PluginID)
+	reset, err := b.service.resetBuiltinConfig(ctx, id, expectedRevision, current.PluginID)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := b.service.transitionConfig(ctx, b.authority, MutationReset, def, &current, &reset); err != nil {
+		return Config{}, err
+	}
+	return reset, nil
 }
 
 // SyncBuiltinDefaults is one startup transaction. Existing config identities,
@@ -520,20 +568,27 @@ func (b *Access) CreateCustom(ctx context.Context, def Definition, config Config
 		return Definition{}, Config{}, err
 	}
 	if config.Enabled == nil || !*config.Enabled {
-		if b.service.validatePayload == nil {
+		if b.service.policy.Validate == nil {
 			return Definition{}, Config{}, ErrInvalidDefinition
 		}
 		definitionOnly := cloneConfig(config)
 		disabled := false
 		definitionOnly.Payload, definitionOnly.Enabled = nil, &disabled
-		if err := b.service.validatePayload(ctx, def, definitionOnly, nil); err != nil {
+		if err := b.service.policy.Validate(ctx, def, definitionOnly, nil); err != nil {
 			return Definition{}, Config{}, err
 		}
 	}
 	if err := b.service.validateResolved(ctx, def, config, nil); err != nil {
 		return Definition{}, Config{}, err
 	}
-	return b.service.createCustom(ctx, def, config)
+	createdDef, createdConfig, err := b.service.createCustom(ctx, def, config)
+	if err != nil {
+		return Definition{}, Config{}, err
+	}
+	if err := b.service.transitionConfig(ctx, b.authority, MutationCreate, createdDef, nil, &createdConfig); err != nil {
+		return Definition{}, Config{}, err
+	}
+	return createdDef, createdConfig, nil
 }
 
 // An MCP definition has no shared endpoint/auth base. CLI resource fields are
@@ -606,12 +661,31 @@ func (s *Service) validateResolved(ctx context.Context, def Definition, config C
 	if err != nil {
 		return fmt.Errorf("%w: resolved payload: %w", ErrInvalidConfig, err)
 	}
-	if s.validatePayload == nil {
+	if s.policy.Validate == nil {
 		return fmt.Errorf("%w: backend validator unavailable", ErrInvalidConfig)
 	}
 	resolved := cloneConfig(config)
 	resolved.Payload, resolved.Enabled = merged, &enabled
-	return s.validatePayload(ctx, def, resolved, resetFields)
+	return s.policy.Validate(ctx, def, resolved, resetFields)
+}
+
+func (s *Service) transitionConfig(ctx context.Context, authority authz.Authority, kind MutationKind, def Definition, before, after *Config) error {
+	if s.policy.Transition == nil {
+		return fmt.Errorf("%w: backend transition unavailable", ErrInvalidConfig)
+	}
+	if !s.txBound || s.mutationTx == nil {
+		return ErrForbidden
+	}
+	var beforeClone, afterClone *Config
+	if before != nil {
+		copy := cloneConfig(*before)
+		beforeClone = &copy
+	}
+	if after != nil {
+		copy := cloneConfig(*after)
+		afterClone = &copy
+	}
+	return s.policy.Transition(ctx, s.mutationTx, authority, kind, cloneDefinition(def), beforeClone, afterClone)
 }
 
 func patchPayload(current json.RawMessage, patch ConfigPatch) (json.RawMessage, error) {

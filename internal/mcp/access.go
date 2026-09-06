@@ -7,12 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // Access binds registration ownership to a verified user authority. Reads use

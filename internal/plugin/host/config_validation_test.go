@@ -1,8 +1,9 @@
 package host
 
 import (
-	"github.com/CherryHQ/stella/internal/plugin"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/plugin"
 )
 
 func TestGoConfigCannotReplaceDomainCredentials(t *testing.T) {

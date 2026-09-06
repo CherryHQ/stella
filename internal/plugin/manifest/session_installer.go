@@ -88,7 +88,7 @@ func OverlayBinaryInstallPlan(base map[string]string, plan BinaryInstallPlan, la
 			env["MISE_SYSTEM_CONFIG_FILE"] = plan.ConfigPath
 		}
 		trusted := []string{plan.ConfigPath}
-		for _, path := range strings.Split(env["MISE_TRUSTED_CONFIG_PATHS"], string(filepath.ListSeparator)) {
+		for path := range strings.SplitSeq(env["MISE_TRUSTED_CONFIG_PATHS"], string(filepath.ListSeparator)) {
 			if path == "" || path == plan.ConfigPath {
 				continue
 			}
@@ -566,8 +566,14 @@ func materializeNativeSelectionAt(ctx context.Context, stellaHome string, plan B
 		if err != nil {
 			return fmt.Errorf("manifest: locate native binary %q: %w", tool.Lookup, err)
 		}
-		installDir = filepath.Clean(installDir)
-		binaryPath = filepath.Clean(binaryPath)
+		installDir, err = canonicalNativePath(installDir)
+		if err != nil {
+			return fmt.Errorf("manifest: resolve native install %q: %w", tool.Key, err)
+		}
+		binaryPath, err = canonicalNativePath(binaryPath)
+		if err != nil {
+			return fmt.Errorf("manifest: resolve native binary %q: %w", tool.Lookup, err)
+		}
 		rel, err := filepath.Rel(installDir, binaryPath)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 			return fmt.Errorf("manifest: native binary %q escapes install %q", tool.Lookup, installDir)
@@ -585,6 +591,18 @@ func materializeNativeSelectionAt(ctx context.Context, stellaHome string, plan B
 		}
 	}
 	return nil
+}
+
+// canonicalNativePath makes paths reported by separate mise commands
+// comparable on platforms where an OS-managed alias such as /var resolves to
+// /private/var. The subsequent relative-path check still rejects binaries
+// whose resolved target is outside the resolved install root.
+func canonicalNativePath(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(resolved), nil
 }
 
 func materializeNativeCoreSelection(stellaHome string, plan BinaryInstallPlan) error {
@@ -608,10 +626,8 @@ func appendUniqueNativeAlias(aliases []string, alias string) []string {
 	if alias == "" {
 		return aliases
 	}
-	for _, existing := range aliases {
-		if existing == alias {
-			return aliases
-		}
+	if slices.Contains(aliases, alias) {
+		return aliases
 	}
 	return append(aliases, alias)
 }

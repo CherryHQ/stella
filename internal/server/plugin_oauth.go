@@ -4,11 +4,12 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/mcp"
-	"github.com/google/uuid"
 )
 
 // pluginOAuthRegistration applies the plugin route's parent identity before

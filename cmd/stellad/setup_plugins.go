@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"sync"
 
 	"golang.org/x/oauth2"
 
@@ -27,7 +25,6 @@ type pluginSetup struct {
 	host                   *pluginhost.Host
 	channelRuntimeServices *pluginhost.ChannelPlatform
 	oauthRegistry          *oauth.ProviderRegistry
-	manifestToReconcile    *manifest.Manifest
 }
 
 func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
@@ -90,55 +87,18 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 		return nil, err
 	}
 
-	var (
-		oauthRegistry       *oauth.ProviderRegistry
-		manifestToReconcile *manifest.Manifest
-	)
-
-	builtinManifest, err := loadBuiltinManifestWithOverrides(ctx, store)
+	builtinManifest, err := manifest.LoadBuiltin()
 	if err != nil {
-		slog.Warn("manifest plugin: failed to load builtin manifest", "error", err)
-	} else {
-		manifestToReconcile = builtinManifest
-		phost.RegisterManifestPlugins(builtinManifest)
-		oauthRegistry = buildOAuthRegistry(builtinManifest)
+		return nil, fmt.Errorf("load shipped OAuth definitions: %w", err)
 	}
+	oauthRegistry := buildOAuthRegistry(builtinManifest)
 
 	return &pluginSetup{
 		catalog:                catalog,
 		host:                   phost,
 		channelRuntimeServices: channelRuntimeServices,
 		oauthRegistry:          oauthRegistry,
-		manifestToReconcile:    manifestToReconcile,
 	}, nil
-}
-
-func loadBuiltinManifestWithOverrides(ctx context.Context, store config.Store) (*manifest.Manifest, error) {
-	builtin, err := manifest.LoadBuiltin()
-	if err != nil {
-		return nil, err
-	}
-	if store == nil {
-		return builtin, nil
-	}
-	overrides, err := store.ListManifestPluginOverrides(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list manifest plugin overrides: %w", err)
-	}
-	rows := make([]manifest.StoredOverride, 0, len(overrides))
-	for _, ov := range overrides {
-		rows = append(rows, manifest.StoredOverride{
-			PluginID: ov.PluginID,
-			Enabled:  ov.Enabled,
-			Config:   ov.Config,
-		})
-	}
-	// The same resolve the admin API uses. Applying only the enable flag here is
-	// what used to make a customization evaporate on restart: the plugin host and
-	// the binary reconcile would both be handed the untouched builtin.
-	return manifest.Resolve(builtin, rows, func(id string, err error) {
-		slog.Warn("manifest plugin: ignoring corrupt override", "plugin", id, "error", err)
-	}), nil
 }
 
 func buildOAuthRegistry(merged *manifest.Manifest) *oauth.ProviderRegistry {
@@ -175,16 +135,4 @@ func buildOAuthRegistry(merged *manifest.Manifest) *oauth.ProviderRegistry {
 		})
 	}
 	return registry
-}
-
-func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGroup, m *manifest.Manifest, stellaHome string) {
-	wg.Go(func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("manifest plugin reconcile panic", "panic", r)
-			}
-		}()
-		slog.Info("manifest plugin reconcile queued in background")
-		manifest.Reconcile(ctx, m, stellaHome)
-	})
 }

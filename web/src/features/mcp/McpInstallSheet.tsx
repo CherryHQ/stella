@@ -131,7 +131,9 @@ export function McpInstallSheet({
           {created ? (
             <div className="flex h-full flex-col items-start gap-4 p-6">
               <h2 className="text-base font-semibold">{t("mcp.market.installed")}</h2>
-              <p className="text-sm text-muted-foreground">{created.backend_summary.backend === "mcp" ? created.backend_summary.auth_type : ""}</p>
+              <p className="text-sm text-muted-foreground">
+                {created.backend_summary.backend === "mcp" ? created.backend_summary.auth_type : ""}
+              </p>
               <div className="mt-auto flex w-full items-center justify-end gap-2">
                 <Button variant="ghost" onClick={close}>
                   {t("common.cancel")}

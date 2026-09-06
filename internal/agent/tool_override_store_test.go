@@ -8,13 +8,14 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -38,14 +39,14 @@ func TestToolOverrideStoreRoundTrip(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	row, err := q.UpsertToolOverride(ctx, sqlc.UpsertToolOverrideParams{
-		ToolName: "memory", Scope: ToolOverrideScopeUserAgent,
+	row, err := q.UpsertCoreToolOverride(ctx, sqlc.UpsertCoreToolOverrideParams{
+		ToolName: pgnull.Text("memory"), Scope: ToolOverrideScopeUserAgent,
 		UserID: pgnull.Text(user.ID), AgentID: pgnull.Text(agentID), Enabled: false,
 	})
 	if err != nil {
-		t.Fatalf("UpsertToolOverride: %v", err)
+		t.Fatalf("UpsertCoreToolOverride: %v", err)
 	}
-	if row.ToolName != "memory" || row.Enabled {
+	if !row.ToolName.Valid || row.ToolName.String != "memory" || row.Enabled {
 		t.Fatalf("row = %+v, want disabled memory", row)
 	}
 
@@ -55,7 +56,7 @@ func TestToolOverrideStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListToolOverridesForAgentContext: %v", err)
 	}
-	if len(rows) != 1 || rows[0].ToolName != "memory" || rows[0].Scope != ToolOverrideScopeUserAgent {
+	if len(rows) != 1 || !rows[0].ToolName.Valid || rows[0].ToolName.String != "memory" || rows[0].Scope != ToolOverrideScopeUserAgent {
 		t.Fatalf("rows = %+v, want one memory user_agent override", rows)
 	}
 
@@ -78,11 +79,11 @@ func TestToolOverrideStoreRoundTrip(t *testing.T) {
 		t.Fatalf("versions = %+v, want one present versioned memory override", versions)
 	}
 
-	if err := q.DeleteToolOverride(ctx, sqlc.DeleteToolOverrideParams{
-		ToolName: "memory", Scope: ToolOverrideScopeUserAgent,
+	if err := q.DeleteCoreToolOverride(ctx, sqlc.DeleteCoreToolOverrideParams{
+		ToolName: pgnull.Text("memory"), Scope: ToolOverrideScopeUserAgent,
 		UserID: pgnull.Text(user.ID), AgentID: pgnull.Text(agentID),
 	}); err != nil {
-		t.Fatalf("DeleteToolOverride: %v", err)
+		t.Fatalf("DeleteCoreToolOverride: %v", err)
 	}
 	rows, err = q.ListToolOverridesForAgentContext(ctx, sqlc.ListToolOverridesForAgentContextParams{
 		UserID: pgnull.Text(user.ID), AgentID: pgnull.Text(agentID),
@@ -180,10 +181,10 @@ func applyToolOverrideIdentityDDL(t *testing.T, db *pgxpool.Pool) {
 	_, err := db.Exec(context.Background(), `
 		ALTER TABLE tool_override ALTER COLUMN tool_name DROP NOT NULL;
 		ALTER TABLE tool_override DROP CONSTRAINT IF EXISTS tool_override_tool_name_scope_user_id_agent_id_key;
-		CREATE UNIQUE INDEX uniq_tool_override_core_identity
+		CREATE UNIQUE INDEX IF NOT EXISTS uniq_tool_override_core_identity
 			ON tool_override (tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
 			WHERE tool_name IS NOT NULL AND plugin_id IS NULL AND local_tool_name IS NULL;
-		CREATE UNIQUE INDEX uniq_tool_override_plugin_identity
+		CREATE UNIQUE INDEX IF NOT EXISTS uniq_tool_override_plugin_identity
 			ON tool_override (plugin_id, local_tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
 			WHERE tool_name IS NULL;
 	`)
@@ -205,7 +206,7 @@ func TestToolOverrideStoreRejectsMalformedIdentity(t *testing.T) {
 
 func TestPersistedToolIdentityUsesStoredPluginPair(t *testing.T) {
 	row := sqlc.ToolOverride{
-		ToolName:      "email__send",
+		ToolName:      pgnull.Text("email__send"),
 		PluginID:      pgnull.Text("system/email"),
 		LocalToolName: pgnull.Text("send"),
 	}

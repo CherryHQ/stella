@@ -78,8 +78,7 @@ const en = {
   "threads.homeAgent": "Agent",
   "threads.rowActions": "Thread actions",
   "threads.emptyTitle": "No threads",
-  "threads.emptyDesc":
-    "Threads you start with this agent or inside a project show up here.",
+  "threads.emptyDesc": "Threads you start with this agent or inside a project show up here.",
   "threads.emptySearch": "No thread matches your search.",
 
   // Agent / project profile
@@ -89,13 +88,10 @@ const en = {
   "profile.skills": "Skills",
   "profile.tools": "Tools",
   "profile.channels": "Channels",
-  "profile.channelsDesc":
-    "Link your chat accounts and bind channels to this agent.",
-  "profile.skillsDesc":
-    "Everything this agent can call on, grouped by who owns it.",
+  "profile.channelsDesc": "Link your chat accounts and bind channels to this agent.",
+  "profile.skillsDesc": "Everything this agent can call on, grouped by who owns it.",
   "profile.skillNoFiles": "This skill has no readable files.",
-  "profile.skillFilesUnavailable":
-    "Files are unavailable for this skill right now.",
+  "profile.skillFilesUnavailable": "Files are unavailable for this skill right now.",
   "profile.openSkill": "Open skill details",
   "profile.skillsGroupMine": "Mine",
   "profile.skillsGroupSystem": "System",
@@ -104,8 +100,7 @@ const en = {
   "profile.addSkill": "Add skill",
   "profile.deleteSkill": "Delete skill",
   "profile.deleteSkillConfirm": "Delete this skill?",
-  "profile.deleteSkillConfirmDesc":
-    "“{{name}}” and its files are removed. This cannot be undone.",
+  "profile.deleteSkillConfirmDesc": "“{{name}}” and its files are removed. This cannot be undone.",
   "profile.skillModelInvocation": "Available to the model",
   "profile.skillUpdateFailed": "Failed to update skill",
   "profile.skillDeleteFailed": "Failed to delete skill",
@@ -126,15 +121,13 @@ const en = {
   "profile.aboutDisabled": "Disabled",
   "profile.aboutLastActive": "Last active",
   "profile.configuration": "Configuration",
-  "profile.configurationDesc":
-    "Model, prompt, tools and sandbox for this agent.",
+  "profile.configurationDesc": "Model, prompt, tools and sandbox for this agent.",
   "profile.files": "Files",
   "profile.openFiles": "Open files",
 
   // Route-level failure and not-found states
   "route.error.title": "Something went wrong",
-  "route.error.desc":
-    "This page could not be loaded. The server may be unreachable.",
+  "route.error.desc": "This page could not be loaded. The server may be unreachable.",
   "route.notFound.title": "Page not found",
   "route.notFound.desc": "This URL does not point anywhere in Stella.",
   "route.notFound.home": "Go to Agents",
@@ -208,16 +201,13 @@ const en = {
   "login.hasAccount": "Already have an account?",
   "login.signUpLink": "Sign up",
   "login.signInLink": "Sign in",
-  "login.noProviders":
-    "No login providers configured. Contact your administrator.",
-  "login.providersUnavailable":
-    "Authentication providers are unavailable. Try again later.",
+  "login.noProviders": "No login providers configured. Contact your administrator.",
+  "login.providersUnavailable": "Authentication providers are unavailable. Try again later.",
   "login.orContinueWith": "Or continue with",
   "login.signupSubtitle": "Create an account to get started",
   "login.noLocalRegistration":
     "Local registration is not available. Please contact your administrator.",
-  "login.registrationDisabled":
-    "Registration is currently disabled on this instance.",
+  "login.registrationDisabled": "Registration is currently disabled on this instance.",
   "login.passwordTooShort": "Password must be at least 8 characters long",
   "login.passwordMismatch": "Passwords do not match",
 
@@ -299,8 +289,7 @@ const en = {
   "library.title": "Library",
   "library.description.user": "Personal files owned by you across all Agents.",
   "library.description.userAgent": "Personal files owned by you for {{agent}}.",
-  "library.description.system":
-    "Company files managed across all users and Agents.",
+  "library.description.system": "Company files managed across all users and Agents.",
   "library.description.systemAgent":
     "Company files managed for the selected Agent across all users.",
   "library.scope.label": "Library range",
@@ -310,11 +299,9 @@ const en = {
   "library.agent.label": "Agent",
   "library.agent.select": "Select an Agent",
   "library.agent.required": "Select an Agent first",
-  "library.agent.requiredDesc":
-    "Choose which Agent should own these company files.",
+  "library.agent.requiredDesc": "Choose which Agent should own these company files.",
   "library.search.placeholder": "Search file names",
-  "library.quota":
-    "{{usedFiles}} / {{maxFiles}} files · {{usedBytes}} / {{maxBytes}}",
+  "library.quota": "{{usedFiles}} / {{maxFiles}} files · {{usedBytes}} / {{maxBytes}}",
   "library.files": "Library files",
   "library.status.processing": "Processing",
   "library.status.ready": "Ready",
@@ -355,8 +342,7 @@ const en = {
   "provisioningTokens.expiry": "Expires after",
   "provisioningTokens.expiryDays": "{{count}} days",
   "provisioningTokens.empty": "No provisioning tokens",
-  "provisioningTokens.emptyDesc":
-    "Create a token to provision users through the API.",
+  "provisioningTokens.emptyDesc": "Create a token to provision users through the API.",
   "provisioningTokens.limitReached":
     "Two active provisioning tokens already exist. Revoke one before creating another.",
   "provisioningTokens.token": "Token",
@@ -395,8 +381,7 @@ const en = {
   "defaultModels.agentTitle": "Agent models",
   "defaultModels.agentHint":
     "The three tiers every agent runs on. An agent that names no model of its own uses these.",
-  "defaultModels.defaultHint":
-    "Runs every turn unless another tier is asked for.",
+  "defaultModels.defaultHint": "Runs every turn unless another tier is asked for.",
   "defaultModels.strongHint": "Reserved for the hard reasoning steps.",
   "defaultModels.fastHint": "Reserved for cheap, high-volume steps.",
   "defaultModels.capabilitiesTitle": "Capabilities",
@@ -405,8 +390,7 @@ const en = {
   "defaultModels.embeddingInactive": "Not running",
   "defaultModels.embeddingNeedsModel":
     "Semantic search stays off until an embedding model is picked: the lane runs on that model's provider key.",
-  "defaultModels.noModels":
-    "No provider is configured yet, so there is nothing to choose from.",
+  "defaultModels.noModels": "No provider is configured yet, so there is nothing to choose from.",
   "defaultModels.noModelsAction": "Add a provider",
   "defaultModels.visionTitle": "Vision",
   "defaultModels.embeddingTitle": "Embedding",
@@ -449,28 +433,23 @@ const en = {
   "mcp.scope.system.label": "All users and agents",
   "mcp.scope.systemAgent.label": "One agent for all users",
   "mcp.scope.user.desc": "Yours — reachable from every agent you own.",
-  "mcp.scope.userAgent.desc":
-    "Yours — reachable only from this agent. Highest priority.",
-  "mcp.scope.system.desc":
-    "Preset — reachable from every agent of every user. Lowest priority.",
-  "mcp.scope.systemAgent.desc":
-    "Preset — reachable only from this agent, for every user.",
+  "mcp.scope.userAgent.desc": "Yours — reachable only from this agent. Highest priority.",
+  "mcp.scope.system.desc": "Preset — reachable from every agent of every user. Lowest priority.",
+  "mcp.scope.systemAgent.desc": "Preset — reachable only from this agent, for every user.",
   "mcp.scope.lockedDescription":
     "Scope is fixed after creation. Move a server between scopes from Settings › Plugins.",
   "mcp.scope.selectAgent": "Select an agent",
   "mcp.scope.agentMissing": "Select an agent for this scope",
   "mcp.agent": "Agent",
   "mcp.name": "Name",
-  "mcp.name.description":
-    "Used in tool names, for example mcp__github__create_issue.",
+  "mcp.name.description": "Used in tool names, for example mcp__github__create_issue.",
   "mcp.url": "URL",
   "mcp.transport": "Transport",
   "mcp.auth": "Authentication",
   "mcp.auth.none": "No auth",
   "mcp.auth.bearer": "Bearer token",
   "mcp.token": "Bearer token",
-  "mcp.token.description":
-    "Stored encrypted in the vault and never shown again.",
+  "mcp.token.description": "Stored encrypted in the vault and never shown again.",
   "mcp.token.editDescription": "Leave blank to keep the existing token.",
   "mcp.nameRequired": "Enter a server name",
   "mcp.urlRequired": "Enter a server URL",
@@ -483,8 +462,7 @@ const en = {
   "mcp.deleteFailed": "Failed to delete MCP server",
   "mcp.deleteTitle": "Delete MCP server?",
   "mcp.deleteConfirm": "Delete MCP server {{name}}?",
-  "mcp.enabled.description":
-    "A disabled server keeps its settings but exposes no tools.",
+  "mcp.enabled.description": "A disabled server keeps its settings but exposes no tools.",
   "mcp.auth.oauth": "OAuth 2.1",
   "mcp.market.title": "Add MCP server",
   "mcp.market.searchPlaceholder": "Search the MCP registry…",
@@ -498,8 +476,7 @@ const en = {
   "mcp.market.headerRequired": "Required",
   "mcp.market.headerSecret": "Secret",
   "mcp.market.bearerFor": "{{template}}",
-  "mcp.market.bearerHint":
-    "Stored encrypted in the vault and never shown again.",
+  "mcp.market.bearerHint": "Stored encrypted in the vault and never shown again.",
   "mcp.market.needsAuthTitle": "Server needs authorization",
   "mcp.market.needsAuthDesc":
     "The server rejected the connection, which usually means it uses OAuth. Connect your account to finish the setup.",
@@ -541,8 +518,7 @@ const en = {
 
   // About
   "about.title": "About",
-  "about.description":
-    "Version and runtime information for this Stella instance.",
+  "about.description": "Version and runtime information for this Stella instance.",
   "about.status": "Status",
   "about.version": "Version",
   "about.commit": "Commit",
@@ -563,8 +539,7 @@ const en = {
   "agents.noAgents": "No agents yet",
   "agents.noAgentsDesc": "Create your first agent to get started.",
   "agents.deleteConfirm": "Delete agent?",
-  "agents.deleteConfirmDesc":
-    "This will permanently delete {{name}} and all associated data.",
+  "agents.deleteConfirmDesc": "This will permanently delete {{name}} and all associated data.",
   "agents.deleted": "Agent deleted",
   "agents.deleteFailed": "Failed to delete agent",
   "agents.created": "Agent created",
@@ -598,8 +573,7 @@ const en = {
   "agents.detail.userAssigned": "User assigned",
   "agents.detail.userRemoved": "User removed",
   "agents.detail.discardChanges": "Discard unsaved changes?",
-  "agents.detail.confirmDeleteSkill":
-    'Delete skill "{{name}}"? This cannot be undone.',
+  "agents.detail.confirmDeleteSkill": 'Delete skill "{{name}}"? This cannot be undone.',
   "agents.detail.confirmDeleteFile": 'Delete file "{{name}}"?',
   "agents.detail.skillRemoved": "Skill removed",
   "agents.detail.chooseSkillFirst": "Choose a skill first",
@@ -646,8 +620,7 @@ const en = {
     "Allow this agent to discover Settings tools only in direct foreground chats. This does not grant deployment or domain permissions.",
   "agents.form.networkMode": "Network mode",
   "agents.form.allowlist": "Allowlist",
-  "agents.form.allowlistHint":
-    "Runtime whitelist support depends on your sandbox backend version.",
+  "agents.form.allowlistHint": "Runtime whitelist support depends on your sandbox backend version.",
   "agents.tools.title": "Tools",
   "agents.tools.description":
     "Tools are grouped by family. Only rows marked override accept visibility changes; system-managed rows explain their runtime policy.",
@@ -659,20 +632,14 @@ const en = {
   "agents.tools.enabled": "Enabled",
   "agents.tools.disabled": "Disabled",
   "agents.tools.systemManaged": "System managed",
-  "agents.tools.runtimeManaged":
-    "Runtime availability decides when this tool is registered.",
-  "agents.tools.mcpReadOnly":
-    "Managed outside your reach. Ask an administrator to change it.",
+  "agents.tools.runtimeManaged": "Runtime availability decides when this tool is registered.",
+  "agents.tools.mcpReadOnly": "Managed outside your reach. Ask an administrator to change it.",
   "agents.tools.mcpServers": "MCP servers",
   "agents.tools.mcp.server": "Server enabled",
-  "agents.tools.mcp.noTools":
-    "No tools cataloged yet. Probe the server to refresh its tool list.",
-  "agents.tools.mcp.reason.mcp_server_disabled":
-    "Server disabled — overrides have no effect",
-  "agents.tools.mcp.reason.mcp_server_error":
-    "Server unreachable — overrides have no effect",
-  "agents.tools.mcp.reason.mcp_needs_auth":
-    "Credential rejected — reconnect in MCP settings",
+  "agents.tools.mcp.noTools": "No tools cataloged yet. Probe the server to refresh its tool list.",
+  "agents.tools.mcp.reason.mcp_server_disabled": "Server disabled — overrides have no effect",
+  "agents.tools.mcp.reason.mcp_server_error": "Server unreachable — overrides have no effect",
+  "agents.tools.mcp.reason.mcp_needs_auth": "Credential rejected — reconnect in MCP settings",
   "mcp.status.unknown": "Not probed",
   "mcp.status.ok": "Healthy",
   "mcp.status.error": "Error",
@@ -724,25 +691,21 @@ const en = {
     "Settings actions this agent can take on a user’s behalf in a foreground 1:1 chat. Read-only policy catalog.",
   "agents.tools.system.readOnly": "Read-only",
   "agents.tools.system.empty": "No System settings apply to this agent.",
-  "agents.tools.system.disabled":
-    "System settings tools are disabled for this agent.",
+  "agents.tools.system.disabled": "System settings tools are disabled for this agent.",
   "agents.tools.system.configure": "Open advanced configuration",
   "agents.tools.system.badge.foregroundOnly": "Foreground 1:1 chat only",
-  "agents.tools.system.badge.writeChecks":
-    "Writes recheck authorization and version",
+  "agents.tools.system.badge.writeChecks": "Writes recheck authorization and version",
   "agents.tools.system.badge.credentials": "Credentials stay in UI and API",
   "agents.tools.system.policy":
     "This catalog does not claim these actions are registered in the current runner and does not offer an editor.",
   "agents.tools.system.family.agentManagement": "Agent management",
   "agents.tools.system.family.knowledgeAndSkills": "Knowledge and skills",
   "agents.tools.system.family.modelsAndDeployment": "Models and deployment",
-  "agents.tools.system.family.extensionsAndConnections":
-    "Extensions and connections",
+  "agents.tools.system.family.extensionsAndConnections": "Extensions and connections",
   "agents.tools.system.adminRequired": "Admin required",
   "agents.channels.loading": "Loading channels...",
   "agents.channels.title": "Channels",
-  "agents.channels.desc":
-    "Every message from these channels is handled by this agent.",
+  "agents.channels.desc": "Every message from these channels is handled by this agent.",
   "agents.channels.empty": "No channels are bound to this agent yet.",
   "agents.channels.linkAccount": "Link my {{platform}} account",
   "agents.channels.linkedAs": "My account: {{name}}",
@@ -777,14 +740,11 @@ const en = {
   "agents.users.selectUser": "Select user…",
   "agents.users.visibility": "Who can use this agent",
   "agents.users.scopeRestricted": "Only me",
-  "agents.users.scopeRestrictedDesc":
-    "Only you — plus anyone an admin assigns.",
+  "agents.users.scopeRestrictedDesc": "Only you — plus anyone an admin assigns.",
   "agents.users.scopeSystem": "Everyone",
-  "agents.users.scopeSystemDesc":
-    "Every user of this deployment can use this agent.",
+  "agents.users.scopeSystemDesc": "Every user of this deployment can use this agent.",
   "agents.users.assignedDesc": "Assigned users (admins only).",
-  "agents.users.systemHint":
-    "This agent is open to everyone, so no assignment is needed.",
+  "agents.users.systemHint": "This agent is open to everyone, so no assignment is needed.",
   "agents.skills.searchPlaceholder": "Search skills…",
   "agents.skills.installSkill": "Install skill",
   "agents.skills.filterAll": "All",
@@ -803,8 +763,7 @@ const en = {
   "agents.skills.disableModelInvocation": "Disable model invocation",
   "agents.skills.activation": "Enabled",
   "agents.skills.scopeBuiltin": "Built-in",
-  "agents.skills.danglingPolicyTitle":
-    "Disabled skill {{ref}} no longer exists",
+  "agents.skills.danglingPolicyTitle": "Disabled skill {{ref}} no longer exists",
   "agents.skills.danglingPolicyDescription":
     "Clear this saved disablement explicitly; it has no effect while the skill is absent.",
   "agents.skills.clearDangling": "Clear disablement",
@@ -817,24 +776,21 @@ const en = {
   "agents.skills.userScope": "Installed for you in this agent.",
   "agents.skills.agentScope": "Installed for this agent.",
   "agents.skills.addSkill": "Add a skill",
-  "agents.skills.addSkillDesc":
-    "Install from the catalog or upload your own skill bundle.",
+  "agents.skills.addSkillDesc": "Install from the catalog or upload your own skill bundle.",
   "agents.skills.installTarget": "Install target",
   "agents.skills.onlyThisAgent": "Only this agent",
   "agents.skills.myProfile": "My profile",
   "agents.skills.agentOnlyHint":
     "Agent-only install is available after the agent is saved, and only for admins.",
   "agents.skills.browseCatalog": "Browse catalog",
-  "agents.skills.browseCatalogDesc":
-    "Search public skills and install in one click.",
+  "agents.skills.browseCatalogDesc": "Search public skills and install in one click.",
   "agents.skills.noSkillsFound": "No skills found for that search.",
   "agents.skills.startTyping": "Start typing to search the catalog.",
   "agents.skills.installFromSource": "Or install from source",
   "agents.skills.uploadZip": "Upload zip",
   "agents.skills.uploadDesc": "Import a skill you already have on disk.",
   "agents.skills.chooseZip": "Choose a .zip file",
-  "agents.skills.zipRequirement":
-    "Must contain exactly one skill folder with SKILL.md.",
+  "agents.skills.zipRequirement": "Must contain exactly one skill folder with SKILL.md.",
   "agents.skills.browseFiles": "Browse files",
   "agents.skills.uploadSkill": "Upload skill",
   "agents.template.startFrom": "Start from a template",
@@ -853,8 +809,7 @@ const en = {
   "channels.title": "Channels",
   "channels.new": "New Channel",
   "channels.noChannels": "No channels configured",
-  "channels.noChannelsDesc":
-    "Add a channel to connect stella to messaging platforms.",
+  "channels.noChannelsDesc": "Add a channel to connect stella to messaging platforms.",
   "channels.type": "Type",
   "channels.active": "Active",
   "channels.inactive": "Inactive",
@@ -865,8 +820,7 @@ const en = {
   "channels.updated": "Channel updated",
   "channels.updateFailed": "Failed to update channel",
   "channels.deleteConfirm": "Delete channel?",
-  "channels.deleteConfirmDesc":
-    "This will permanently delete the channel {{name}}.",
+  "channels.deleteConfirmDesc": "This will permanently delete the channel {{name}}.",
 
   // Webhooks
   "webhooks.title": "Webhooks",
@@ -874,8 +828,7 @@ const en = {
   "webhooks.create": "Create webhook",
   "webhooks.edit": "Edit webhook",
   "webhooks.empty": "No webhooks yet",
-  "webhooks.emptyDesc":
-    "Create a webhook to invoke one of your agents from another service.",
+  "webhooks.emptyDesc": "Create a webhook to invoke one of your agents from another service.",
   "webhooks.name": "Name",
   "webhooks.agent": "Agent",
   "webhooks.selectAgent": "Select an agent",
@@ -884,15 +837,12 @@ const en = {
   "webhooks.disabled": "Disabled",
   "webhooks.waitTimeout": "Wait timeout (seconds)",
   "webhooks.runTimeout": "Run timeout (seconds)",
-  "webhooks.editorDesc":
-    "The webhook always runs as you with the selected agent.",
-  "webhooks.validation":
-    "Enter a name, select an agent, and use whole-number timeouts.",
+  "webhooks.editorDesc": "The webhook always runs as you with the selected agent.",
+  "webhooks.validation": "Enter a name, select an agent, and use whole-number timeouts.",
   "webhooks.rotate": "Rotate capability",
   "webhooks.copy": "Copy URL",
   "webhooks.urlTitle": "Save this webhook URL",
-  "webhooks.urlDesc":
-    "This is the only time Stella can show this URL. Copy it now.",
+  "webhooks.urlDesc": "This is the only time Stella can show this URL. Copy it now.",
   "webhooks.deleteTitle": "Delete webhook?",
   "webhooks.deleteConfirm": "Delete webhook {{name}}? This cannot be undone.",
 
@@ -900,8 +850,7 @@ const en = {
   "credentials.title": "Credentials",
   "credentials.new": "New Credential",
   "credentials.noCredentials": "No credentials stored",
-  "credentials.noCredentialsDesc":
-    "Add credentials to authenticate with external services.",
+  "credentials.noCredentialsDesc": "Add credentials to authenticate with external services.",
   "credentials.key": "Key",
   "credentials.value": "Value",
   "credentials.deleted": "Credential deleted",
@@ -911,8 +860,7 @@ const en = {
   "credentials.updated": "Credential updated",
   "credentials.updateFailed": "Failed to update credential",
   "credentials.deleteConfirm": "Delete credential?",
-  "credentials.deleteConfirmDesc":
-    "This will permanently delete the credential {{key}}.",
+  "credentials.deleteConfirmDesc": "This will permanently delete the credential {{key}}.",
 
   // Plugins
   "plugins.title": "Plugins",
@@ -978,10 +926,8 @@ const en = {
   "plugins.binaryVersions": "Binary versions",
   "plugins.skillSources": "Skill sources",
   "plugins.skillSourcePlaceholder": "Leave blank to keep the current source",
-  "plugins.blankPreserves":
-    "Blank fields keep the current value. Secrets are never shown.",
-  "plugins.scopeUnavailable":
-    "This scope is unavailable to the current account.",
+  "plugins.blankPreserves": "Blank fields keep the current value. Secrets are never shown.",
+  "plugins.scopeUnavailable": "This scope is unavailable to the current account.",
   "plugins.secretWriteUnavailable":
     "Credential entry is handled by the secure connection flow and is temporarily unavailable here.",
   "plugins.oauthAdminInitializationRequired":
@@ -1031,12 +977,10 @@ const en = {
   "providers.created": "Provider created",
   "providers.createFailed": "Failed to create provider",
   "providers.updated": "Provider updated",
-  "providers.conflict":
-    "This provider changed elsewhere. Reload before saving again.",
+  "providers.conflict": "This provider changed elsewhere. Reload before saving again.",
   "providers.updateFailed": "Failed to update provider",
   "providers.deleteConfirm": "Delete provider?",
-  "providers.deleteConfirmDesc":
-    "This will permanently delete the provider {{name}}.",
+  "providers.deleteConfirmDesc": "This will permanently delete the provider {{name}}.",
   "providers.enabled": "Enabled",
   "providers.connection": "Connection",
   "providers.type": "Type",
@@ -1109,13 +1053,11 @@ const en = {
   "providers.providerTypeHint":
     "Choose the API host. Stella derives its API Type, endpoint, serving limits, and pricing.",
   "providers.providerTypeCustom": "Custom / self-hosted",
-  "providers.providerTypeCustomHint":
-    "No vendor catalog; choose an API Type manually.",
+  "providers.providerTypeCustomHint": "No vendor catalog; choose an API Type manually.",
   "providers.searchProviderTypes": "Search Provider Types...",
   "providers.noProviderTypesMatch": "No Provider Types match.",
   "providers.apiType": "API Type",
-  "providers.apiTypeHint":
-    "The wire protocol and adapter used to call this provider.",
+  "providers.apiTypeHint": "The wire protocol and adapter used to call this provider.",
   "providers.apiTypeDerivedHint": "Fixed by the selected Provider Type.",
   "providers.searchApiTypes": "Search API Types...",
   "providers.noApiTypesMatch": "No API Types match.",
@@ -1132,8 +1074,7 @@ const en = {
   "providers.catalogMatchManualHint":
     "This model inherits metadata and pricing from the selected Catalog model.",
   "providers.catalogMatchMatched": "Automatically matched to {{model}}.",
-  "providers.catalogMatchUnmatched":
-    "No safe automatic match. Search and choose a Catalog model.",
+  "providers.catalogMatchUnmatched": "No safe automatic match. Search and choose a Catalog model.",
   "providers.saveProviderTypeBeforeModels":
     "Save the Provider Type change before editing models so the Catalog choices can reload.",
   "providers.catalogSummary": "{{providers}} providers · {{models}} models",
@@ -1142,8 +1083,7 @@ const en = {
   "providers.catalogSyncFailed": "Failed to sync model catalog",
   "providers.modelCount": "{{count}} models",
   "providers.selectProvider": "Select a provider",
-  "providers.selectProviderDesc":
-    "Choose a provider from the list or add a new connection.",
+  "providers.selectProviderDesc": "Choose a provider from the list or add a new connection.",
   "providers.empty": "No providers configured",
   "providers.fetched": "Fetched",
   "providers.custom": "Custom",
@@ -1152,8 +1092,7 @@ const en = {
   "providers.modelPolicy": "Model policy",
   "providers.allowAll": "Allow all discovered models",
   "providers.allowlist": "Allowlist only",
-  "providers.noModels":
-    "No models yet. Fetch from the provider or add custom models above.",
+  "providers.noModels": "No models yet. Fetch from the provider or add custom models above.",
   "providers.fetchModels": "Fetch models",
   "providers.fetching": "Fetching...",
   "providers.modelsAvailable": "{{count}} models available",
@@ -1197,11 +1136,9 @@ const en = {
   "users.updated": "User updated",
   "users.updateFailed": "Failed to update user",
   "users.deleteConfirm": "Delete user?",
-  "users.deleteConfirmDesc":
-    "This will permanently delete the user {{username}}.",
+  "users.deleteConfirmDesc": "This will permanently delete the user {{username}}.",
   "users.resetPassword": "Reset Password",
-  "users.desc":
-    "Manage authentication, roles, linked accounts, and memory databases.",
+  "users.desc": "Manage authentication, roles, linked accounts, and memory databases.",
   "users.admins": "Admins",
   "users.users": "Users",
   "users.active": "Active",
@@ -1217,13 +1154,11 @@ const en = {
   "users.unlinkIdentity": "Unlink {{platform}} identity?",
   "users.identityUnlinked": "Identity unlinked",
   "users.notifyChannel": "Notify channel",
-  "users.notifyChannelDesc":
-    "Which channel receives scheduler and tool notifications.",
+  "users.notifyChannelDesc": "Which channel receives scheduler and tool notifications.",
   "users.autoFirst": "Auto (first linked)",
   "users.notifyUpdated": "Notify channel updated",
   "users.agentAssignments": "Agent assignments",
-  "users.noAgentAssignments":
-    "No agent assignments (has access to all system-scope agents).",
+  "users.noAgentAssignments": "No agent assignments (has access to all system-scope agents).",
   "users.agentAssigned": "Agent assigned",
   "users.agentRemoved": "Agent removed",
   "users.selectAgent": "Select agent...",
@@ -1246,8 +1181,7 @@ const en = {
   "sessions.deleted": "Session deleted",
   "sessions.deleteFailed": "Failed to delete session",
   "sessions.deleteConfirm": "Delete session?",
-  "sessions.deleteConfirmDesc":
-    "This will permanently delete this session and all its messages.",
+  "sessions.deleteConfirmDesc": "This will permanently delete this session and all its messages.",
   "sessions.search": "Search sessions…",
   "sessions.composer.placeholder": "Message…",
   "sessions.composer.send": "Send",
@@ -1368,8 +1302,7 @@ const en = {
   "sessions.sidebar.renameRequired": "Thread name is required.",
   "sessions.sidebar.renameFailed": "Failed to rename thread",
   "sessions.sidebar.deleteThreadConfirm": "Delete this thread?",
-  "sessions.sidebar.deleteProjectConfirm":
-    "Delete this project? Sessions will be kept.",
+  "sessions.sidebar.deleteProjectConfirm": "Delete this project? Sessions will be kept.",
 
   // Sessions panel — automation
 
@@ -1394,8 +1327,7 @@ const en = {
   "memories.soul.description":
     "How this agent behaves. This is the agent's default soul until you customize it for yourself.",
   "memories.soul.empty": "No soul configured yet.",
-  "memories.soul.placeholder":
-    "Describe the agent's personality, tone, and behavior…",
+  "memories.soul.placeholder": "Describe the agent's personality, tone, and behavior…",
   "memories.soul.source.user": "Customized by you",
   "memories.soul.source.agent": "Agent default",
   "memories.soul.source.builtin": "Built-in default",
@@ -1405,14 +1337,12 @@ const en = {
   "memories.soul.resetConfirm":
     "This agent goes back to its default soul for you. Nothing changes for other users.",
   "memories.profile.title": "User Profile",
-  "memories.profile.description":
-    "Persistent context this agent remembers about you.",
+  "memories.profile.description": "Persistent context this agent remembers about you.",
   "memories.profile.empty": "No profile memory yet.",
   "memories.profile.placeholder":
     "What should this agent remember? Use natural language or bullet points.",
   "memories.knowledge.title": "Knowledge",
-  "memories.knowledge.description":
-    "Durable facts this agent can recall in future conversations.",
+  "memories.knowledge.description": "Durable facts this agent can recall in future conversations.",
   "memories.knowledge.add": "Add",
   "memories.knowledge.active": "Active",
   "memories.knowledge.removedTab": "Removed",
@@ -1448,8 +1378,7 @@ const en = {
   "memories.knowledge.removeDescription":
     "It will stop appearing in memory search. You can restore it from Removed.",
   "memories.constraints.title": "Constraints",
-  "memories.constraints.description":
-    "Hard rules the agent must always follow.",
+  "memories.constraints.description": "Hard rules the agent must always follow.",
   "memories.constraints.empty":
     "No constraints set. Constraints are hard rules the agent must always follow.",
   "memories.constraints.error": "Failed to load constraints.",
@@ -1561,14 +1490,12 @@ const en = {
   "workflows.nameLabel": "Name",
   "workflows.nameRequired": "Name is required.",
   "workflows.inputsTitle": "Inputs",
-  "workflows.inputsHint":
-    "Optional inputs become {{inputs.name}} placeholders.",
+  "workflows.inputsHint": "Optional inputs become {{inputs.name}} placeholders.",
   "workflows.inputsEmpty": "No inputs declared.",
   "workflows.addInput": "Add input",
   "workflows.inputName": "Name",
   "workflows.inputNameRequired": "Input name is required.",
-  "workflows.inputNameInvalid":
-    "Use letters, numbers, underscores, or hyphens only.",
+  "workflows.inputNameInvalid": "Use letters, numbers, underscores, or hyphens only.",
   "workflows.inputDefault": "Default",
   "workflows.inputDescription": "Description",
   "workflows.inputRequired": "Required",
@@ -1670,15 +1597,12 @@ const en = {
   "goals.contractDescription":
     "Edit the acceptance contract JSON. Saving resolves contract conflicts.",
   "goals.contractJsonLabel": "Contract JSON",
-  "goals.contractJsonHelp":
-    "Keep the PATCH shape: policy plus acceptance items.",
-  "goals.contractInvalidJson":
-    "Enter a JSON object for the acceptance contract.",
+  "goals.contractJsonHelp": "Keep the PATCH shape: policy plus acceptance items.",
+  "goals.contractInvalidJson": "Enter a JSON object for the acceptance contract.",
   "goals.contractSave": "Save contract",
   "goals.contractSaveFailed": "Could not save the contract.",
   "goals.actionFailed": "Action failed.",
-  "goals.conflictIntentHelp":
-    "The conflict may be in the goal itself — reword it here if so.",
+  "goals.conflictIntentHelp": "The conflict may be in the goal itself — reword it here if so.",
   "goals.conflictMaxDepthLabel": "Max depth",
   "goals.conflictMaxDepthHelp":
     "Levels of child goals the plan may nest. Raise it when the goal demands more structure than allowed.",
@@ -1769,8 +1693,7 @@ const en = {
   "goals.timelineEmpty": "No timeline events yet.",
   "goals.timelineLoadMore": "Load older events",
   "goals.timelineMessageLabel": "Tell this goal what changed",
-  "goals.timelineMessagePlaceholder":
-    "Add guidance, new facts, or a retry instruction…",
+  "goals.timelineMessagePlaceholder": "Add guidance, new facts, or a retry instruction…",
   "goals.timelineSend": "Add to timeline",
   "goals.timelineMessageSaved": "Saved to timeline.",
   "goals.timelineReattemptAuthorized": "Retry authorized +1.",
@@ -1782,10 +1705,8 @@ const en = {
   "goals.timelineLifecycleChanged": "Lifecycle changed",
   "goals.timelineHumanMessage": "Human message",
   "goals.timelinePlanSummary": "{{children}} children · {{edges}} dependencies",
-  "goals.timelineAttemptStartedSummary":
-    "{{purpose}} attempt {{attempt}} started: {{status}}",
-  "goals.timelineAttemptFinishedSummary":
-    "{{purpose}} attempt {{attempt}} finished: {{status}}",
+  "goals.timelineAttemptStartedSummary": "{{purpose}} attempt {{attempt}} started: {{status}}",
+  "goals.timelineAttemptFinishedSummary": "{{purpose}} attempt {{attempt}} finished: {{status}}",
 
   // Goals — common agent-authored output field labels (humanized fallback for unknown keys)
   "goals.fieldReport": "Report",
@@ -1814,8 +1735,7 @@ const en = {
   "goals.newKindComposite": "Decomposed",
   "goals.newKindLeafDesc": "Run directly by a worker.",
   "goals.newKindCompositeDesc": "Plan into children first.",
-  "goals.newCompositeHint":
-    "A decomposed goal must be planned into children before it can run.",
+  "goals.newCompositeHint": "A decomposed goal must be planned into children before it can run.",
   "goals.create": "Create",
   "goals.creating": "Creating…",
   "goals.createRun": "Create & run",
@@ -1826,16 +1746,14 @@ const en = {
   "hub.openHistory": "Open history",
   "hub.noNeedsYouDesc":
     "Active work may still be running or waiting upstream; nothing needs your decision.",
-  "hub.noActiveGoals":
-    "No active goals. History stays one click away when you need receipts.",
+  "hub.noActiveGoals": "No active goals. History stays one click away when you need receipts.",
   "hub.achievedAt": "Achieved {{time}}",
 
   // Automations hub (unified page)
   "hub.title": "Work",
   "hub.secNeedsYou": "Needs you",
   "hub.emptyTitle": "Nothing tracked yet",
-  "hub.emptyDesc":
-    "Ask {{agent}} for an outcome, or schedule a recurring task.",
+  "hub.emptyDesc": "Ask {{agent}} for an outcome, or schedule a recurring task.",
   "hub.secActive": "Active",
   "hub.secSchedules": "Scheduled",
   "hub.secRepeatable": "Repeatable (workflows)",
@@ -1909,8 +1827,7 @@ const en = {
   "hub.blockerKindToolError": "Tool error",
   "hub.blockerKindPolicyHold": "Policy hold",
   "hub.blockerKindDepFailure": "Upstream dependency failed",
-  "hub.blockerAnswerPlaceholder":
-    "Write your answer; the agent resumes with it…",
+  "hub.blockerAnswerPlaceholder": "Write your answer; the agent resumes with it…",
   "hub.resolveBlocker": "Resolve & resume",
   "hub.failedDeps": "Failed dependencies",
   "hub.waiveDep": "Waive",
@@ -2017,8 +1934,7 @@ const en = {
   "credentials.secretSaved": "Secret saved",
   "credentials.secretDeleted": "Secret deleted",
   "credentials.secretNameRequired": "Secret name is required",
-  "credentials.secretNameReserved":
-    "This name is reserved for Stella-managed credentials",
+  "credentials.secretNameReserved": "This name is reserved for Stella-managed credentials",
   "credentials.secretValueRequired": "Secret value is required",
   "credentials.secretSaveFailed": "Failed to save secret",
   "credentials.secretDeleteFailed": "Failed to delete secret",
@@ -2047,8 +1963,7 @@ const en = {
     "Reconnect to grant {{count}} newly requested scope(s).",
   "credentials.oauth.reconnectRotated":
     "The app credentials changed. Reconnect to keep this connection working.",
-  "credentials.oauth.reconnectGeneric":
-    "This connection needs to be re-authorized.",
+  "credentials.oauth.reconnectGeneric": "This connection needs to be re-authorized.",
   "credentials.oauth.accessExpires": "Access token expires",
   "credentials.oauth.refreshExpires": "Refresh token expires",
   "credentials.oauth.flowFailed": "Authorization failed",
@@ -2068,15 +1983,13 @@ const en = {
   "credentials.oauth.clientIdRequired": "Client ID is required",
   "credentials.oauth.error": "OAuth error",
   "credentials.oauth.connectedSuccess": "{{provider}} connected successfully",
-  "credentials.oauth.authorizationState":
-    "{{provider}} authorization {{state}}",
+  "credentials.oauth.authorizationState": "{{provider}} authorization {{state}}",
   "credentials.oauth.disconnectConfirm": "Disconnect {{provider}} credentials?",
   "credentials.oauth.disconnected": "{{provider}} disconnected",
   "credentials.oauth.disconnectFailed": "Failed to disconnect",
   "credentials.oauth.configSaved": "{{provider}} credentials saved",
   "credentials.oauth.configSaveFailed": "Failed to save config",
-  "credentials.oauth.resetConfirm":
-    "Reset {{provider}} credentials to defaults?",
+  "credentials.oauth.resetConfirm": "Reset {{provider}} credentials to defaults?",
   "credentials.oauth.configReset": "{{provider}} credentials reset to defaults",
   "credentials.oauth.configResetFailed": "Failed to reset config",
   "credentials.oauth.scopes.title": "Minimum scopes",
@@ -2085,18 +1998,15 @@ const en = {
   "credentials.oauth.scopes.selectionHint":
     "Groups start collapsed. Check the scopes every connect should request; unchecked scopes are removed when you save.",
   "credentials.oauth.scopes.search": "Search scopes",
-  "credentials.oauth.scopes.addHint":
-    "Add scopes that are not in the built-in list.",
+  "credentials.oauth.scopes.addHint": "Add scopes that are not in the built-in list.",
   "credentials.oauth.scopes.addPlaceholder": "One per line, comma, or space",
   "credentials.oauth.scopes.add": "Add",
   "credentials.oauth.scopes.restoreDefaults": "Restore defaults",
   "credentials.oauth.scopes.custom": "custom",
   "credentials.oauth.scopes.empty": "No scopes available.",
-  "credentials.oauth.scopes.emptyOverride":
-    "At least one scope must remain selected",
+  "credentials.oauth.scopes.emptyOverride": "At least one scope must remain selected",
   "credentials.oauth.scopes.noMatch": "No scopes match your search.",
-  "credentials.oauth.scopes.selectedCount":
-    "{{selected}} of {{total}} selected",
+  "credentials.oauth.scopes.selectedCount": "{{selected}} of {{total}} selected",
   "credentials.oauth.scopes.saveHint":
     "Saving applies the checked scopes as the floor for every user. Connected users must re-authorize to gain added scopes.",
   "credentials.oauth.resetTitle": "Reset OAuth app",
@@ -2167,8 +2077,7 @@ const en = {
   "skills.deleted": "Skill deleted",
   "skills.deleteFailed": "Failed to delete skill",
   "skills.deleteConfirmTitle": "Delete this skill?",
-  "skills.deleteConfirmDesc":
-    "“{{name}}” and its files are removed. This cannot be undone.",
+  "skills.deleteConfirmDesc": "“{{name}}” and its files are removed. This cannot be undone.",
   "skills.readOnly": "Read-only",
   "skills.updateFailed": "Failed to update skill",
   "skills.sourceRequired": "A source is required",
@@ -2179,19 +2088,15 @@ const en = {
   "skills.scope.current": "current",
   "skills.scope.agentMissing": "Select an agent for this scope.",
   "skills.scope.user.label": "Mine · all agents",
-  "skills.scope.user.desc":
-    "Skills you added — available across all of your agents.",
+  "skills.scope.user.desc": "Skills you added — available across all of your agents.",
   "skills.scope.userAgent.label": "Mine · this agent",
-  "skills.scope.userAgent.desc":
-    "Skills you added — active only in this agent. Highest priority.",
+  "skills.scope.userAgent.desc": "Skills you added — active only in this agent. Highest priority.",
   "skills.scope.system.label": "System · all agents",
-  "skills.scope.system.desc":
-    "Preset skills — available in every agent. Lowest priority.",
+  "skills.scope.system.desc": "Preset skills — available in every agent. Lowest priority.",
   "skills.scope.systemAgent.label": "System · this agent",
   "skills.scope.systemAgent.desc": "Preset skills — active only in this agent.",
   "skills.scope.project.label": "Project",
-  "skills.scope.project.desc":
-    "Managed in the project's filesystem. Read-only here.",
+  "skills.scope.project.desc": "Managed in the project's filesystem. Read-only here.",
 
   // Login (additions)
   "login.email": "Email",
@@ -2214,10 +2119,8 @@ const en = {
   "sessions.composer.removeItem": "Remove {{item}}",
   "sessions.composer.retryUpload": "Retry upload of {{item}}",
   "sessions.attachment.openRaw": "Open raw",
-  "sessions.attachment.notPreviewable":
-    "This file type cannot be previewed here.",
-  "sessions.attachment.openToView":
-    "Open this file to view it in your device's viewer.",
+  "sessions.attachment.notPreviewable": "This file type cannot be previewed here.",
+  "sessions.attachment.openToView": "Open this file to view it in your device's viewer.",
   "sessions.attachment.loadFailed": "Could not load this file.",
   "sessions.conversation": "Conversation",
   "sessions.fullView": "Full view",
@@ -2225,13 +2128,11 @@ const en = {
   "sessions.startThread": "New thread",
   "sessions.width.comfortable": "Narrow the column",
   "sessions.width.wide": "Widen the column",
-  "sessions.inspector.sessionWorkspace":
-    "Session workspace, work queue, and context",
+  "sessions.inspector.sessionWorkspace": "Session workspace, work queue, and context",
   "sessions.skill.installSkill": "Install a skill",
   "sessions.skill.catalog": "Catalog",
   "sessions.skill.searchSkills": "Search skills...",
-  "sessions.skill.searchPublic":
-    "Search public skills and install one into the selected target.",
+  "sessions.skill.searchPublic": "Search public skills and install one into the selected target.",
   "sessions.skill.noSkillsFound": "No skills found for that search.",
   "sessions.skill.searchCatalog": "Search the catalog",
   "sessions.skill.resultsAppear": "Results appear here as you type.",
@@ -2244,12 +2145,10 @@ const en = {
   "sessions.skill.myProfile": "My profile",
   "sessions.skill.thisAgent": "This agent",
   "sessions.skill.adminOnly": "Agent installs are available to admins.",
-  "sessions.skill.catalogDesc":
-    "Search the catalog or import a zip bundle into Stella.",
+  "sessions.skill.catalogDesc": "Search the catalog or import a zip bundle into Stella.",
   "sessions.sidebar.newProject": "New Project",
   "sessions.sidebar.projectName": "Project name",
-  "sessions.sidebar.projectNameDesc":
-    "Name it — a working folder is created for it automatically.",
+  "sessions.sidebar.projectNameDesc": "Name it — a working folder is created for it automatically.",
   "sessions.sidebar.projectUnavailable": "Needs repair",
   "sessions.sidebar.projectUnavailableHint":
     "Move the project files into this agent’s workspace, then update base_dir or delete this project.",
@@ -2277,11 +2176,9 @@ const en = {
   "sessions.workspace.binaryFile": "Binary file",
   "sessions.skillsList.userDesc": "Your personal skills, visible only to you",
   "sessions.skillsList.user_agentDesc": "Your skills for this agent only",
-  "sessions.skillsList.system_agentDesc":
-    "Shared with everyone who uses this agent",
+  "sessions.skillsList.system_agentDesc": "Shared with everyone who uses this agent",
   "sessions.skillsList.systemDesc": "Built into Stella, read-only",
-  "sessions.skillsList.projectDesc":
-    "Loaded from the project directory, managed via files",
+  "sessions.skillsList.projectDesc": "Loaded from the project directory, managed via files",
   "sessions.skillsList.noAgentSkills": "No agent-level skills installed.",
   "sessions.skillsList.noSystemSkills": "No system skills.",
   "sessions.skillsList.noProjectSkills": "No skills in the project directory.",
@@ -2296,10 +2193,8 @@ const en = {
   "sessions.skillsList.githubSkill": "Skill",
   "sessions.skillsList.githubSkillPlaceholder": "skill name within the repo",
   "sessions.skillsList.githubVersion": "Version (optional)",
-  "sessions.skillsList.githubVersionPlaceholder":
-    "tag or branch — blank uses the default branch",
-  "sessions.skillsList.githubHint":
-    "Private repos require a connected GitHub account.",
+  "sessions.skillsList.githubVersionPlaceholder": "tag or branch — blank uses the default branch",
+  "sessions.skillsList.githubHint": "Private repos require a connected GitHub account.",
   "sessions.skillsList.upgradeCheck": "Check for updates",
   "sessions.skillsList.upgradeDone": "Updated to {version}",
   "sessions.skillsList.upgradeUpToDate": "Already up to date",
@@ -2313,13 +2208,11 @@ const en = {
   "sessions.skillsList.files": "Files",
   "sessions.skillsList.status": "Status",
   "sessions.skillsList.versionLabel": "Version",
-  "sessions.skillsList.versionHint":
-    "Recorded tag, branch, or commit. Cleared if left blank.",
+  "sessions.skillsList.versionHint": "Recorded tag, branch, or commit. Cleared if left blank.",
   "sessions.skillsList.modelInvocation": "Model invocation",
   "sessions.skillsList.fileCount": "Files",
   "sessions.skillsList.readonlyNote": "This skill is read-only at this scope.",
-  "sessions.skillsList.modelInvocationHint":
-    "Allow the model to call this skill automatically.",
+  "sessions.skillsList.modelInvocationHint": "Allow the model to call this skill automatically.",
   "sessions.skillsList.deleteSkill": "Delete skill",
   "sessions.skillsList.deleteConfirm": "Permanently delete this skill?",
   "sessions.skillsList.deleteConfirmDesc":
@@ -2346,8 +2239,7 @@ const en = {
   "sessions.discover.count": "{{n}} skills",
   "sessions.discover.installTo": "Install to",
   "sessions.discover.installWhere": "Where to install",
-  "sessions.discover.installWhereDesc":
-    "Choose who this skill is available to.",
+  "sessions.discover.installWhereDesc": "Choose who this skill is available to.",
   "sessions.discover.installingName": "Installing {{name}}",
   "sessions.discover.installed": "Installed",
   "sessions.discover.installSuccess": "Skill installed",
@@ -2383,8 +2275,7 @@ const en = {
   "plugins.resetDone": "Reset to the definition that ships with the server",
   "plugins.searchRegistry": "Search a tool name or mise key…",
   "plugins.searchingRegistry": "Searching…",
-  "plugins.noRegistryMatches":
-    "No matches. You can still add a mise key directly.",
+  "plugins.noRegistryMatches": "No matches. You can still add a mise key directly.",
   "plugins.useDirectKey": 'Use "{{key}}" as a mise key',
   "plugins.miseKey": "mise key",
   "plugins.miseKeyRequired": "Set a mise key first",
@@ -2534,8 +2425,7 @@ const en = {
   "plugins.displayName": "Display name",
   "plugins.binaries": "Binaries",
   "plugins.addBinary": "+ Add binary",
-  "plugins.noBinaries":
-    "No binaries declared. Add one to install a CLI from a GitHub release.",
+  "plugins.noBinaries": "No binaries declared. Add one to install a CLI from a GitHub release.",
   "plugins.binaryN": "Binary {{n}}",
   "plugins.githubRepoLabel": "GitHub repo (owner/repo)",
   "plugins.binPath": "Bin path",
@@ -2548,8 +2438,7 @@ const en = {
   "plugins.sourceLabel": "Source",
   "plugins.valueStaticOnly": "Value (static only)",
   "plugins.oauthProvider": "OAuth provider",
-  "plugins.overrideDesc":
-    "Override the manifest definition. Binaries sync on save.",
+  "plugins.overrideDesc": "Override the manifest definition. Binaries sync on save.",
   "plugins.exeOverride": "Exe override",
   "plugins.nameLabel": "Name",
   "plugins.descriptionLabel": "Description",
@@ -2567,17 +2456,14 @@ const en = {
   "channels.addChannel": "Add Channel",
   "channels.adding": "Adding...",
   "channels.namePlaceholder": "e.g. Feishu Coder",
-  "channels.nameDesc":
-    "Suggested for you — rename it to whatever you'll recognize.",
+  "channels.nameDesc": "Suggested for you — rename it to whatever you'll recognize.",
   "channels.weixinInstanceDesc":
     "Each WeChat registration keeps its own channel credentials and instance.",
   "channels.configuration": "Configuration",
   "channels.editTitle": "Edit channel",
-  "channels.activeDesc":
-    "An inactive channel receives nothing, whatever it is bound to.",
+  "channels.activeDesc": "An inactive channel receives nothing, whatever it is bound to.",
   "channels.autoProvision": "Auto-provision accounts",
-  "channels.autoProvisionDesc":
-    "Create a Stella account for every member of the tenant.",
+  "channels.autoProvisionDesc": "Create a Stella account for every member of the tenant.",
   "channels.allowDm": "Allow direct messages",
   "channels.allowDmDesc":
     "Accept account linking and direct-message chat. Disable this to reject all DMs.",
@@ -2597,8 +2483,7 @@ const en = {
   "channels.allowAllGuildsDesc":
     "Dangerous: skip the allowlist below and let this bot answer in every server it has joined.",
   "channels.allowedGuildIds": "Allowed guild IDs",
-  "channels.allowedGuildIdsDesc":
-    "Comma or newline separated Discord server (guild) IDs.",
+  "channels.allowedGuildIdsDesc": "Comma or newline separated Discord server (guild) IDs.",
   "channels.allowedChannelIds": "Allowed channel IDs",
   "channels.allowedChannelIdsDesc":
     "Comma or newline separated channel IDs. Matches a thread's own ID or its parent channel ID.",
@@ -2616,14 +2501,12 @@ const en = {
   "channels.guestMessageLimit": "Guest messages per minute",
   "channels.guestMessageLimitDesc": "Per-guest limit, including commands.",
   "channels.guestMaxPerChannel": "Maximum guests",
-  "channels.guestMaxPerChannelDesc":
-    "Maximum durable guest identities for this channel.",
+  "channels.guestMaxPerChannelDesc": "Maximum durable guest identities for this channel.",
   "channels.guestRetentionDays": "Guest retention (days)",
   "channels.guestRetentionDaysDesc":
     "Delete inactive guest identities and sessions after this period.",
   "channels.requireMention": "Require a mention",
-  "channels.requireMentionDesc":
-    "Ignore group messages that do not mention this bot.",
+  "channels.requireMentionDesc": "Ignore group messages that do not mention this bot.",
   "channels.feishuGroups": "Feishu group rules",
   "channels.feishuGroupsDesc":
     "Add only the chats this bot should treat differently from the channel defaults.",
@@ -2632,8 +2515,7 @@ const en = {
   "channels.feishuGroup": "Group {{number}}",
   "channels.removeFeishuGroup": "Remove group {{number}}",
   "channels.feishuGroupChatId": "Feishu group",
-  "channels.feishuGroupChatIdDesc":
-    "Choose a group this bot currently belongs to.",
+  "channels.feishuGroupChatIdDesc": "Choose a group this bot currently belongs to.",
   "channels.feishuGroupChatPlaceholder": "Search joined Feishu groups...",
   "channels.feishuGroupsSaveFirst":
     "Save and activate this channel instance before choosing groups.",
@@ -2643,15 +2525,12 @@ const en = {
   "channels.feishuGroupsEmpty": "This bot has not joined any groups yet.",
   "channels.feishuGroupNoLongerJoined": "This bot is no longer in this group.",
   "channels.feishuGroupSystemPrompt": "Group system prompt",
-  "channels.feishuGroupSystemPromptDesc":
-    "Prepended only to messages from this chat.",
+  "channels.feishuGroupSystemPromptDesc": "Prepended only to messages from this chat.",
   "channels.feishuOverrideGroupAccess": "Override group access",
-  "channels.feishuOverrideGroupAccessDesc":
-    "Otherwise this chat inherits Allow group chats.",
+  "channels.feishuOverrideGroupAccessDesc": "Otherwise this chat inherits Allow group chats.",
   "channels.feishuGroupAccess": "Allow this group",
   "channels.feishuOverrideMention": "Override mention rule",
-  "channels.feishuOverrideMentionDesc":
-    "Otherwise this chat inherits Require a mention.",
+  "channels.feishuOverrideMentionDesc": "Otherwise this chat inherits Require a mention.",
   "channels.feishuGroupRequireMention": "Require a mention in this group",
   "channels.feishuAllowedUsers": "Allowed users",
   "channels.feishuAllowedUsersDesc":
@@ -2666,8 +2545,7 @@ const en = {
   "channels.boundAgent": "Bound agent",
   "channels.boundAgentDesc":
     "Messages received by this bot are routed to this agent. Each agent can only have one channel per platform.",
-  "channels.noAvailableAgents":
-    "No enabled agents are available for this platform.",
+  "channels.noAvailableAgents": "No enabled agents are available for this platform.",
   "channels.selectAgent": "Select agent...",
   "channels.manualFeishuSetup": "I already have a Feishu app",
   "channels.manualWeixinSetup": "I already have WeChat iLink credentials",
@@ -2692,12 +2570,10 @@ const en = {
     "Scan with the Feishu mobile app, then confirm the app creation request.",
   "channels.scanFeishuQrAlt": "Feishu bot registration QR code",
   "channels.scanWeixinTitle": "Create WeChat bot",
-  "channels.scanWeixinDesc":
-    "Scan with the WeChat mobile app, then confirm bot creation.",
+  "channels.scanWeixinDesc": "Scan with the WeChat mobile app, then confirm bot creation.",
   "channels.scanWeixinQrAlt": "WeChat bot registration QR code",
   "channels.scanNeedsName": "Enter a name before starting QR setup.",
-  "channels.scanNeedsAgent":
-    "Bind this channel to an agent before starting QR setup.",
+  "channels.scanNeedsAgent": "Bind this channel to an agent before starting QR setup.",
   "channels.scanExpired": "QR code expired. Try again.",
   "channels.waiting": "Waiting",
   "channels.boundToThisAgent": "Will be bound to this agent",
@@ -2757,8 +2633,7 @@ const en = {
 
   // Workspace share dialog
   "sessions.workspace.shareArtifact": "Share artifact",
-  "sessions.workspace.shareDesc":
-    "Create a public, read-only snapshot link for {{file}}.",
+  "sessions.workspace.shareDesc": "Create a public, read-only snapshot link for {{file}}.",
   "sessions.workspace.thisFile": "this file",
   "sessions.workspace.expiration": "Expiration",
   "sessions.workspace.1hour": "1 hour",
@@ -2895,8 +2770,7 @@ const zh = {
   "profile.addSkill": "添加技能",
   "profile.deleteSkill": "删除技能",
   "profile.deleteSkillConfirm": "删除该技能？",
-  "profile.deleteSkillConfirmDesc":
-    "“{{name}}”及其文件将被移除，此操作无法撤销。",
+  "profile.deleteSkillConfirmDesc": "“{{name}}”及其文件将被移除，此操作无法撤销。",
   "profile.skillModelInvocation": "允许模型调用",
   "profile.skillUpdateFailed": "更新技能失败",
   "profile.skillDeleteFailed": "删除技能失败",
@@ -3085,8 +2959,7 @@ const zh = {
   "library.description.user": "管理归你所有、适用于全部智能体的个人文件。",
   "library.description.userAgent": "管理归你所有、属于 {{agent}} 的个人文件。",
   "library.description.system": "管理适用于全部用户和智能体的企业文件。",
-  "library.description.systemAgent":
-    "管理适用于全部用户、属于所选智能体的企业文件。",
+  "library.description.systemAgent": "管理适用于全部用户、属于所选智能体的企业文件。",
   "library.scope.label": "知识范围",
   "library.scope.user": "我的 · 全部智能体",
   "library.scope.system": "系统 · 全部智能体",
@@ -3096,8 +2969,7 @@ const zh = {
   "library.agent.required": "请先选择智能体",
   "library.agent.requiredDesc": "选择这批企业文件归属的智能体。",
   "library.search.placeholder": "搜索文件名",
-  "library.quota":
-    "{{usedFiles}} / {{maxFiles}} 个文件 · {{usedBytes}} / {{maxBytes}}",
+  "library.quota": "{{usedFiles}} / {{maxFiles}} 个文件 · {{usedBytes}} / {{maxBytes}}",
   "library.files": "知识文件",
   "library.status.processing": "处理中",
   "library.status.ready": "可用",
@@ -3120,8 +2992,7 @@ const zh = {
   "library.upload.state.success": "已上传",
   "library.upload.state.error": "失败",
   "library.delete.title": "删除知识文件？",
-  "library.delete.description":
-    "{{name}} 及其处理数据将被永久删除，且无法恢复。",
+  "library.delete.description": "{{name}} 及其处理数据将被永久删除，且无法恢复。",
   "library.delete.success": "知识文件已删除",
   "library.delete.failed": "无法删除知识文件",
   "provisioningTokens.title": "开通令牌",
@@ -3132,15 +3003,13 @@ const zh = {
   "provisioningTokens.loadFailed": "加载开通令牌失败",
   "provisioningTokens.revokeFailed": "撤销开通令牌失败",
   "provisioningTokens.copyFailed": "复制开通令牌失败",
-  "provisioningTokens.createDescription":
-    "创建用于开通用户的令牌。令牌仅会显示一次。",
+  "provisioningTokens.createDescription": "创建用于开通用户的令牌。令牌仅会显示一次。",
   "provisioningTokens.nameRequired": "请输入令牌名称。",
   "provisioningTokens.expiry": "有效期",
   "provisioningTokens.expiryDays": "{{count}} 天",
   "provisioningTokens.empty": "还没有开通令牌",
   "provisioningTokens.emptyDesc": "创建令牌，以便通过 API 开通用户。",
-  "provisioningTokens.limitReached":
-    "当前已有两个有效开通令牌。请先撤销一个再创建。",
+  "provisioningTokens.limitReached": "当前已有两个有效开通令牌。请先撤销一个再创建。",
   "provisioningTokens.token": "令牌",
   "provisioningTokens.createdAt": "创建时间",
   "provisioningTokens.expiresAt": "过期时间",
@@ -3151,32 +3020,26 @@ const zh = {
   "provisioningTokens.status.expired": "已过期",
   "provisioningTokens.revoke": "撤销",
   "provisioningTokens.revokeTitle": "撤销开通令牌？",
-  "provisioningTokens.revokeDescription":
-    "{{name}} 将立即无法继续开通用户。此操作无法撤销。",
+  "provisioningTokens.revokeDescription": "{{name}} 将立即无法继续开通用户。此操作无法撤销。",
   "provisioningTokens.secretTitle": "保存此开通令牌",
-  "provisioningTokens.secretDescription":
-    "这是 Stella 唯一一次显示此令牌。请立即复制。",
+  "provisioningTokens.secretDescription": "这是 Stella 唯一一次显示此令牌。请立即复制。",
   "provisioningTokens.secretDone": "我已保存",
   "provisioningTokens.copied": "令牌已复制",
   "embedding.description":
     "配置语义搜索通道。开启后,记忆搜索会将向量相似度与关键词匹配融合;关闭时则只使用关键词搜索。",
   "embedding.enableTitle": "启用语义搜索",
-  "embedding.enableHint":
-    "为新内容生成向量并将向量结果融合进搜索。修改即时生效,无需重启。",
+  "embedding.enableHint": "为新内容生成向量并将向量结果融合进搜索。修改即时生效,无需重启。",
   "embedding.dim": "维度",
-  "embedding.dimHint":
-    "必须与模型输出维度一致。修改后会将内容重新嵌入到新的向量空间。",
+  "embedding.dimHint": "必须与模型输出维度一致。修改后会将内容重新嵌入到新的向量空间。",
   "embedding.normalizeTitle": "归一化向量",
-  "embedding.normalizeHint":
-    "存储前对向量做 L2 归一化。除非提供商已归一化,否则建议保持开启。",
+  "embedding.normalizeHint": "存储前对向量做 L2 归一化。除非提供商已归一化,否则建议保持开启。",
 
   "settings.nav.defaultModels": "模型",
   "defaultModels.title": "模型",
   "defaultModels.description":
     "本部署默认使用的模型，按旁边配置的提供商解析。每个智能体可以按需覆盖，留空的部分回退到这里。",
   "defaultModels.agentTitle": "智能体模型",
-  "defaultModels.agentHint":
-    "每个智能体运行所依赖的三档模型。智能体自己没填时就用这里的。",
+  "defaultModels.agentHint": "每个智能体运行所依赖的三档模型。智能体自己没填时就用这里的。",
   "defaultModels.defaultHint": "除非明确要求其他档位，每一轮都用它。",
   "defaultModels.strongHint": "留给需要深度推理的步骤。",
   "defaultModels.fastHint": "留给量大、要省钱的步骤。",
@@ -3210,8 +3073,7 @@ const zh = {
   "mcp.title": "MCP 服务器",
   "mcp.add": "添加服务器",
   "mcp.addTitle": "添加 MCP 服务器",
-  "mcp.addDescription":
-    "注册 HTTP 或 SSE MCP 服务器，并把它的工具暴露给匹配的智能体。",
+  "mcp.addDescription": "注册 HTTP 或 SSE MCP 服务器，并把它的工具暴露给匹配的智能体。",
   "mcp.editTitle": "编辑 MCP 服务器",
   "mcp.editDescription": "更新注册信息。Bearer 令牌留空则保留现有令牌。",
   "mcp.empty": "还没有 MCP 服务器",
@@ -3227,14 +3089,10 @@ const zh = {
   "mcp.scope.system.label": "所有用户和智能体",
   "mcp.scope.systemAgent.label": "所有用户的某个智能体",
   "mcp.scope.user.desc": "你添加的服务器，在你的每个智能体中都可用。",
-  "mcp.scope.userAgent.desc":
-    "你添加的服务器，只在当前这个智能体中可用。优先级最高。",
-  "mcp.scope.system.desc":
-    "系统预设服务器，所有用户的所有智能体都可用。优先级最低。",
-  "mcp.scope.systemAgent.desc":
-    "系统预设服务器，对所有用户生效，但只在当前这个智能体中可用。",
-  "mcp.scope.lockedDescription":
-    "创建后作用域不可更改。要移动服务器，请前往 设置 › 插件。",
+  "mcp.scope.userAgent.desc": "你添加的服务器，只在当前这个智能体中可用。优先级最高。",
+  "mcp.scope.system.desc": "系统预设服务器，所有用户的所有智能体都可用。优先级最低。",
+  "mcp.scope.systemAgent.desc": "系统预设服务器，对所有用户生效，但只在当前这个智能体中可用。",
+  "mcp.scope.lockedDescription": "创建后作用域不可更改。要移动服务器，请前往 设置 › 插件。",
   "mcp.scope.selectAgent": "选择智能体",
   "mcp.scope.agentMissing": "请为此作用域选择智能体",
   "mcp.agent": "智能体",
@@ -3275,8 +3133,7 @@ const zh = {
   "mcp.market.bearerFor": "{{template}}",
   "mcp.market.bearerHint": "加密存储于保险库，之后不再显示。",
   "mcp.market.needsAuthTitle": "服务器需要授权",
-  "mcp.market.needsAuthDesc":
-    "服务器拒绝了连接，通常表示它使用 OAuth。连接你的账号以完成设置。",
+  "mcp.market.needsAuthDesc": "服务器拒绝了连接，通常表示它使用 OAuth。连接你的账号以完成设置。",
   "mcp.market.installFailed": "安装失败",
   "mcp.market.installed": "MCP 服务器已安装",
   "mcp.market.openManual": "手动设置",
@@ -3433,11 +3290,9 @@ const zh = {
   "agents.tools.mcpServers": "MCP 服务器",
   "agents.tools.mcp.server": "服务器已启用",
   "agents.tools.mcp.noTools": "尚无工具目录。探测服务器以刷新其工具列表。",
-  "agents.tools.mcp.reason.mcp_server_disabled":
-    "服务器已禁用——覆盖开关暂不生效",
+  "agents.tools.mcp.reason.mcp_server_disabled": "服务器已禁用——覆盖开关暂不生效",
   "agents.tools.mcp.reason.mcp_server_error": "服务器不可达——覆盖开关暂不生效",
-  "agents.tools.mcp.reason.mcp_needs_auth":
-    "凭据被拒绝——请在 MCP 设置中重新连接",
+  "agents.tools.mcp.reason.mcp_needs_auth": "凭据被拒绝——请在 MCP 设置中重新连接",
   "mcp.status.unknown": "未探测",
   "mcp.status.ok": "正常",
   "mcp.status.error": "错误",
@@ -3492,8 +3347,7 @@ const zh = {
   "agents.tools.system.badge.foregroundOnly": "仅前台 1 对 1 对话",
   "agents.tools.system.badge.writeChecks": "写入会重新校验授权和版本",
   "agents.tools.system.badge.credentials": "凭据仅限 UI 和 API",
-  "agents.tools.system.policy":
-    "该目录不声明这些动作已在当前 runner 注册，也不提供编辑入口。",
+  "agents.tools.system.policy": "该目录不声明这些动作已在当前 runner 注册，也不提供编辑入口。",
   "agents.tools.system.family.agentManagement": "Agent 管理",
   "agents.tools.system.family.knowledgeAndSkills": "知识与技能",
   "agents.tools.system.family.modelsAndDeployment": "模型与部署",
@@ -3523,8 +3377,7 @@ const zh = {
   "agents.channels.bound": "渠道已绑定到此智能体",
   "agents.channels.unbound": "渠道已解绑",
   "agents.channels.bindFailed": "修改渠道绑定失败",
-  "agents.channels.bindForbidden":
-    "你没有该智能体的访问权限，无法修改这个渠道的绑定。",
+  "agents.channels.bindForbidden": "你没有该智能体的访问权限，无法修改这个渠道的绑定。",
   "agents.channels.rebindTitle": "转移该渠道？",
   "agents.channels.rebindConfirm":
     "{{channel}} 目前绑定给 {{agent}}。绑定到这里后，该渠道的所有消息都会改由此智能体处理。",
@@ -3559,12 +3412,10 @@ const zh = {
   "agents.skills.activation": "已启用",
   "agents.skills.scopeBuiltin": "内置",
   "agents.skills.danglingPolicyTitle": "已禁用的技能 {{ref}} 已不存在",
-  "agents.skills.danglingPolicyDescription":
-    "请显式清除此保存的禁用项；技能不存在时它不会生效。",
+  "agents.skills.danglingPolicyDescription": "请显式清除此保存的禁用项；技能不存在时它不会生效。",
   "agents.skills.clearDangling": "清除禁用项",
   "agents.skills.noMatch": "没有技能匹配此筛选条件。",
-  "agents.skills.saveFirst":
-    "如果要添加或自定义智能体专用技能，请先保存智能体。",
+  "agents.skills.saveFirst": "如果要添加或自定义智能体专用技能，请先保存智能体。",
   "agents.skills.noDescription": "暂无描述。",
   "agents.skills.noContent": "暂无内容。",
   "agents.skills.systemScope": "系统技能，此处只读。",
@@ -3588,8 +3439,7 @@ const zh = {
   "agents.skills.browseFiles": "浏览文件",
   "agents.skills.uploadSkill": "上传技能",
   "agents.template.startFrom": "从模板开始",
-  "agents.template.templateDesc":
-    "模板会预填系统提示词、技能和模型。保存前可以编辑所有内容。",
+  "agents.template.templateDesc": "模板会预填系统提示词、技能和模型。保存前可以编辑所有内容。",
   "agents.template.blank": "空白",
   "agents.template.blankSlate": "空白模板",
   "agents.template.blankDesc": "从零开始自行配置所有内容。",
@@ -3722,8 +3572,7 @@ const zh = {
   "plugins.skillSourcePlaceholder": "留空以保留当前来源",
   "plugins.blankPreserves": "留空字段会保留当前值。秘密不会显示。",
   "plugins.scopeUnavailable": "当前账户无法访问此作用域。",
-  "plugins.secretWriteUnavailable":
-    "凭据录入由安全连接流程处理，当前暂不可用。",
+  "plugins.secretWriteUnavailable": "凭据录入由安全连接流程处理，当前暂不可用。",
   "plugins.oauthAdminInitializationRequired":
     "管理员需要先初始化此连接，之后你才能授权自己的账号。",
   "plugins.oauthAuthorize": "授权账号",
@@ -3805,8 +3654,7 @@ const zh = {
   "providers.deleteModel": "删除自定义模型",
   "providers.deleteModelConfirm": "将移除 {{model}} 的本地配置。",
   "providers.modelExists": "该模型 ID 已存在。",
-  "providers.customModelDesc":
-    "添加该提供商可用、但模型目录未收录的模型。其余字段在模型行内编辑。",
+  "providers.customModelDesc": "添加该提供商可用、但模型目录未收录的模型。其余字段在模型行内编辑。",
   "providers.inputModalities": "输入模态",
   "providers.outputModalities": "输出模态",
   "providers.contextShort": "上下文 {{value}}",
@@ -3840,8 +3688,7 @@ const zh = {
   "providers.free": "免费",
   "providers.catalog": "模型目录",
   "providers.catalogNone": "不绑定模型目录",
-  "providers.catalogHint":
-    "目录提供模型能力与定价，提供商设置仅保存本地覆盖项。",
+  "providers.catalogHint": "目录提供模型能力与定价，提供商设置仅保存本地覆盖项。",
   "providers.providerType": "Provider Type",
   "providers.providerTypeHint":
     "选择 API Host 后，Stella 会自动确定 API Type、Endpoint、服务限制和价格。",
@@ -3859,16 +3706,12 @@ const zh = {
   "providers.noCatalogModelsMatch": "没有匹配的 Catalog 模型。",
   "providers.catalogMatchAutomatic": "自动匹配",
   "providers.catalogMatchAutomaticValue": "自动匹配 · {{model}}",
-  "providers.catalogMatchAutomaticHint":
-    "按完全相同或唯一的模型 ID，在完整实验室模型列表中匹配。",
+  "providers.catalogMatchAutomaticHint": "按完全相同或唯一的模型 ID，在完整实验室模型列表中匹配。",
   "providers.catalogMatchNone": "不使用 Catalog 元数据",
-  "providers.catalogMatchNoneHint":
-    "保持为独立模型，仅填写确实需要覆盖的字段。",
-  "providers.catalogMatchManualHint":
-    "该模型会继承所选 Catalog 模型的元数据和价格。",
+  "providers.catalogMatchNoneHint": "保持为独立模型，仅填写确实需要覆盖的字段。",
+  "providers.catalogMatchManualHint": "该模型会继承所选 Catalog 模型的元数据和价格。",
   "providers.catalogMatchMatched": "已自动匹配到 {{model}}。",
-  "providers.catalogMatchUnmatched":
-    "未找到安全的自动匹配，请搜索并选择 Catalog 模型。",
+  "providers.catalogMatchUnmatched": "未找到安全的自动匹配，请搜索并选择 Catalog 模型。",
   "providers.saveProviderTypeBeforeModels":
     "请先保存 Provider Type 变更，再编辑模型，以便重新加载对应的 Catalog 选项。",
   "providers.catalogSummary": "{{providers}} 个提供商 · {{models}} 个模型",
@@ -4118,8 +3961,7 @@ const zh = {
   // Memories
   "memories.title": "记忆",
   "memories.soul.title": "智能体灵魂",
-  "memories.soul.description":
-    "该智能体的行为方式。在你自定义之前显示的是智能体的默认灵魂。",
+  "memories.soul.description": "该智能体的行为方式。在你自定义之前显示的是智能体的默认灵魂。",
   "memories.soul.empty": "还没有配置灵魂。",
   "memories.soul.placeholder": "描述 agent 的个性、语气和行为…",
   "memories.soul.source.user": "你已自定义",
@@ -4128,13 +3970,11 @@ const zh = {
   "memories.soul.customize": "自定义",
   "memories.soul.reset": "重置为默认",
   "memories.soul.resetTitle": "重置智能体灵魂？",
-  "memories.soul.resetConfirm":
-    "该智能体对你恢复为默认灵魂，其他用户不受影响。",
+  "memories.soul.resetConfirm": "该智能体对你恢复为默认灵魂，其他用户不受影响。",
   "memories.profile.title": "用户档案",
   "memories.profile.description": "该 agent 会持续记住的你的上下文。",
   "memories.profile.empty": "还没有用户档案记忆。",
-  "memories.profile.placeholder":
-    "该 agent 应该记住什么？用自然语言或要点列表。",
+  "memories.profile.placeholder": "该 agent 应该记住什么？用自然语言或要点列表。",
   "memories.knowledge.title": "知识",
   "memories.knowledge.description": "该 agent 可在后续对话中检索的长期事实。",
   "memories.knowledge.add": "添加",
@@ -4144,8 +3984,7 @@ const zh = {
   "memories.knowledge.emptyRemoved": "没有可查看的已移除知识。",
   "memories.knowledge.createTitle": "添加知识",
   "memories.knowledge.editTitle": "编辑知识",
-  "memories.knowledge.editorDescription":
-    "保存一条在后续对话中仍然有用的长期事实。",
+  "memories.knowledge.editorDescription": "保存一条在后续对话中仍然有用的长期事实。",
   "memories.knowledge.reflectEditDescription":
     "保存后这条自动生成的知识将转为手动维护，Reflect 和 Curator 不再自动维护它。",
   "memories.knowledge.contentLabel": "内容",
@@ -4169,8 +4008,7 @@ const zh = {
   "memories.knowledge.removeError": "移除知识失败。",
   "memories.knowledge.restoreError": "恢复知识失败。",
   "memories.knowledge.removeTitle": "移除这条知识？",
-  "memories.knowledge.removeDescription":
-    "移除后它将不再参与记忆检索，你仍可在“已移除”中恢复。",
+  "memories.knowledge.removeDescription": "移除后它将不再参与记忆检索，你仍可在“已移除”中恢复。",
   "memories.constraints.title": "约束",
   "memories.constraints.description": "Agent 必须始终遵守的硬规则。",
   "memories.constraints.empty": "暂无约束。约束是 agent 必须始终遵守的硬规则。",
@@ -4311,8 +4149,7 @@ const zh = {
   "workflows.runFailed": "无法运行工作流",
   "workflows.inputValueRequired": "此输入为必填。",
   "workflows.deleteConfirm": "删除工作流？",
-  "workflows.deleteConfirmDesc":
-    "删除 {{name}}？已有运行或被启用日程引用的工作流不能删除。",
+  "workflows.deleteConfirmDesc": "删除 {{name}}？已有运行或被启用日程引用的工作流不能删除。",
   "workflows.deleteSuccess": "工作流已删除",
   "workflows.deleteFailed": "无法删除工作流",
   "workflows.runStatus.claimed": "已领取",
@@ -4395,8 +4232,7 @@ const zh = {
   "goals.actionFailed": "操作失败。",
   "goals.conflictIntentHelp": "冲突可能出在目标本身——如是,在这里改写。",
   "goals.conflictMaxDepthLabel": "最大深度",
-  "goals.conflictMaxDepthHelp":
-    "计划允许嵌套的子目标层数。目标要求的结构超出限制时调大它。",
+  "goals.conflictMaxDepthHelp": "计划允许嵌套的子目标层数。目标要求的结构超出限制时调大它。",
   "goals.reattemptHint": "提高尝试预算并继续。",
   "goals.abandonHint": "彻底放弃此目标。",
   "goals.waiveDepHint": "豁免失败的依赖以继续。",
@@ -4496,10 +4332,8 @@ const zh = {
   "goals.timelineLifecycleChanged": "生命周期变化",
   "goals.timelineHumanMessage": "人工留言",
   "goals.timelinePlanSummary": "{{children}} 个子项 · {{edges}} 条依赖",
-  "goals.timelineAttemptStartedSummary":
-    "{{purpose}} 第 {{attempt}} 次尝试开始：{{status}}",
-  "goals.timelineAttemptFinishedSummary":
-    "{{purpose}} 第 {{attempt}} 次尝试结束：{{status}}",
+  "goals.timelineAttemptStartedSummary": "{{purpose}} 第 {{attempt}} 次尝试开始：{{status}}",
+  "goals.timelineAttemptFinishedSummary": "{{purpose}} 第 {{attempt}} 次尝试结束：{{status}}",
 
   // Goals — common agent-authored output field labels (humanized fallback for unknown keys)
   "goals.fieldReport": "报告",
@@ -4537,8 +4371,7 @@ const zh = {
     "这里只放等待你决定的目标。等上游的目标留在活跃工作里，上游完成后会自动继续。",
   "hub.openActiveGoals": "打开活跃目标",
   "hub.openHistory": "打开历史",
-  "hub.noNeedsYouDesc":
-    "活跃工作可能仍在运行或等待上游；目前没有需要你决定的事项。",
+  "hub.noNeedsYouDesc": "活跃工作可能仍在运行或等待上游；目前没有需要你决定的事项。",
   "hub.noActiveGoals": "暂无活跃目标。需要追溯时，历史记录仍可一键查看。",
   "hub.achievedAt": "已于 {{time}} 达成",
 
@@ -4709,14 +4542,12 @@ const zh = {
   "credentials.scope.user.label": "我的 · 所有 Agent",
   "credentials.scope.user.desc": "在你的所有 Agent 会话中作为环境变量可用。",
   "credentials.scope.userAgent.label": "我的 · 指定 Agent",
-  "credentials.scope.userAgent.desc":
-    "只在所选 Agent 的会话中作为环境变量可用；优先级最高。",
+  "credentials.scope.userAgent.desc": "只在所选 Agent 的会话中作为环境变量可用；优先级最高。",
   "credentials.scope.system.label": "全局 · 所有 Agent",
   "credentials.scope.system.desc":
     "在所有用户的 Agent 会话中作为环境变量可用，优先级最低。仅管理员。",
   "credentials.scope.systemAgent.label": "全局 · 指定 Agent",
-  "credentials.scope.systemAgent.desc":
-    "在所选 Agent 的所有用户会话中作为环境变量可用。仅管理员。",
+  "credentials.scope.systemAgent.desc": "在所选 Agent 的所有用户会话中作为环境变量可用。仅管理员。",
   "credentials.scope.reserved": "由 stella 托管 · 只读",
   "credentials.scope.agentMissing": "请为该范围选择一个 agent。",
   "credentials.scope.priorityTitle": "优先级 — 上覆盖下",
@@ -4751,10 +4582,8 @@ const zh = {
     "这些工具需要此凭据。缺少它们将以未授权方式运行，可能会失败。",
   "credentials.oauth.connect": "连接",
   "credentials.oauth.reconnect": "重新连接",
-  "credentials.oauth.reconnectMissingScopes":
-    "重新连接以授予 {{count}} 个新请求的权限范围。",
-  "credentials.oauth.reconnectRotated":
-    "应用凭据已变更。请重新连接以保持此连接可用。",
+  "credentials.oauth.reconnectMissingScopes": "重新连接以授予 {{count}} 个新请求的权限范围。",
+  "credentials.oauth.reconnectRotated": "应用凭据已变更。请重新连接以保持此连接可用。",
   "credentials.oauth.reconnectGeneric": "此连接需要重新授权。",
   "credentials.oauth.accessExpires": "访问令牌过期时间",
   "credentials.oauth.refreshExpires": "刷新令牌过期时间",
@@ -4787,8 +4616,7 @@ const zh = {
   "credentials.oauth.scopes.title": "最小权限",
   "credentials.oauth.scopes.description":
     "每次连接至少请求的权限。用户可在工具需要时自行申请更多；最终授予范围由提供方的授权页面决定。",
-  "credentials.oauth.scopes.selectionHint":
-    "权限分组默认收起；未勾选的权限会在保存时移除。",
+  "credentials.oauth.scopes.selectionHint": "权限分组默认收起；未勾选的权限会在保存时移除。",
   "credentials.oauth.scopes.search": "搜索权限范围",
   "credentials.oauth.scopes.addHint": "添加内置列表中没有的权限范围。",
   "credentials.oauth.scopes.addPlaceholder": "每行、逗号或空格分隔",
@@ -4882,8 +4710,7 @@ const zh = {
   "skills.scope.user.label": "我的 · 全部智能体",
   "skills.scope.user.desc": "你添加的技能，在你的每个智能体中都可用。",
   "skills.scope.userAgent.label": "我的 · 仅此智能体",
-  "skills.scope.userAgent.desc":
-    "你添加的技能，只在当前这个智能体中生效。优先级最高。",
+  "skills.scope.userAgent.desc": "你添加的技能，只在当前这个智能体中生效。优先级最高。",
   "skills.scope.system.label": "系统 · 全部智能体",
   "skills.scope.system.desc": "系统预设技能，所有智能体通用。优先级最低。",
   "skills.scope.systemAgent.label": "系统 · 仅此智能体",
@@ -4982,8 +4809,7 @@ const zh = {
   "sessions.skillsList.githubSkill": "技能",
   "sessions.skillsList.githubSkillPlaceholder": "仓库内的技能名",
   "sessions.skillsList.githubVersion": "版本（可选）",
-  "sessions.skillsList.githubVersionPlaceholder":
-    "tag 或 branch — 留空用默认分支",
+  "sessions.skillsList.githubVersionPlaceholder": "tag 或 branch — 留空用默认分支",
   "sessions.skillsList.githubHint": "私有仓库需要已连接 GitHub 账号。",
   "sessions.skillsList.upgradeCheck": "检查更新",
   "sessions.skillsList.upgradeDone": "已更新到 {version}",
@@ -4994,32 +4820,28 @@ const zh = {
   "sessions.skillsList.uploadZip": "上传 ZIP",
   "sessions.skillsList.searchPlaceholder": "搜索技能…",
   "sessions.skillsList.allLoaded": "已全部加载",
-  "sessions.skillsList.stats":
-    "{{total}} 项技能 · {{callable}} 项可自动调用 · {{readonly}} 项只读",
+  "sessions.skillsList.stats": "{{total}} 项技能 · {{callable}} 项可自动调用 · {{readonly}} 项只读",
   "sessions.skillsList.readonly": "只读",
   "sessions.skillsList.manual": "手动",
   "sessions.skillsList.auto": "自动",
   "sessions.skillsList.files": "文件",
   "sessions.skillsList.status": "状态",
   "sessions.skillsList.versionLabel": "版本",
-  "sessions.skillsList.versionHint":
-    "记录的 tag、branch 或 commit。留空则清除。",
+  "sessions.skillsList.versionHint": "记录的 tag、branch 或 commit。留空则清除。",
   "sessions.skillsList.modelInvocation": "模型调用",
   "sessions.skillsList.fileCount": "文件数",
   "sessions.skillsList.readonlyNote": "此作用域的技能为只读。",
   "sessions.skillsList.modelInvocationHint": "允许模型自动调用此技能。",
   "sessions.skillsList.deleteSkill": "删除技能",
   "sessions.skillsList.deleteConfirm": "永久删除此技能？",
-  "sessions.skillsList.deleteConfirmDesc":
-    "{{name}} 及其全部文件将被永久删除，此操作无法撤销。",
+  "sessions.skillsList.deleteConfirmDesc": "{{name}} 及其全部文件将被永久删除，此操作无法撤销。",
   "sessions.skillsList.deletedSuccess": "技能已删除",
   "sessions.skillsList.generated": "自动生成",
   "sessions.skillsList.manualMaintenance": "手动维护",
   "sessions.skillsList.convertToManual": "改为手动维护",
   "sessions.skillsList.convertToManualHint":
     "保存本次编辑，并停止 Reflect 和 Curator 继续维护此技能。",
-  "sessions.skillsList.convertToManualWarning":
-    "此操作不可逆，之后将无法自动维护。",
+  "sessions.skillsList.convertToManualWarning": "此操作不可逆，之后将无法自动维护。",
   "sessions.skillsList.saved": "设置已保存",
   "sessions.skillsList.emptyFile": "此文件为空。",
   "sessions.skillsList.name": "名称",
@@ -5051,8 +4873,7 @@ const zh = {
 
   // Plugins (additions)
   "plugins.addTool": "添加工具",
-  "plugins.addToolDesc":
-    "声明 GitHub 发布二进制文件。Stella 会注册该插件并自动同步。",
+  "plugins.addToolDesc": "声明 GitHub 发布二进制文件。Stella 会注册该插件并自动同步。",
   "plugins.addCliToolDesc":
     "按名称搜索 mise 注册表，或直接输入 mise 标识（如 github:owner/repo）。Stella 会自动安装并保持同步。",
   "plugins.removePlugin": "移除此插件？",
@@ -5065,8 +4886,7 @@ const zh = {
   "plugins.resetField": "恢复此字段",
   "plugins.resetFieldDone": "该字段已恢复为服务端默认值",
   "plugins.resetToDefault": "恢复默认",
-  "plugins.resetDesc":
-    "被改过的字段不再跟随服务端更新。恢复默认会丢弃这些改动，启用开关保持不变。",
+  "plugins.resetDesc": "被改过的字段不再跟随服务端更新。恢复默认会丢弃这些改动，启用开关保持不变。",
   "plugins.resetDone": "已恢复为服务端自带的定义",
   "plugins.searchRegistry": "搜索工具名称或 mise 标识…",
   "plugins.searchingRegistry": "搜索中…",
@@ -5273,8 +5093,7 @@ const zh = {
   "channels.allowAllGuildsDesc":
     "危险操作：跳过下方白名单，允许该机器人在其加入的所有服务器中响应消息。",
   "channels.allowedGuildIds": "允许的服务器 ID",
-  "channels.allowedGuildIdsDesc":
-    "以逗号或换行分隔的 Discord 服务器（Guild）ID。",
+  "channels.allowedGuildIdsDesc": "以逗号或换行分隔的 Discord 服务器（Guild）ID。",
   "channels.allowedChannelIds": "允许的频道 ID",
   "channels.allowedChannelIdsDesc":
     "以逗号或换行分隔的频道 ID，匹配子区（Thread）自身 ID 或其父频道 ID。",
@@ -5287,15 +5106,13 @@ const zh = {
   "channels.dingtalkNotifyDesc":
     "通知使用钉钉的临时会话 Webhook；用户再次向机器人发消息后，通知能力会恢复。",
   "channels.allowUnlinkedDm": "允许访客私信",
-  "channels.allowUnlinkedDmDesc":
-    "允许未关联用户通过持久、无工具权限的访客会话与绑定 Agent 对话。",
+  "channels.allowUnlinkedDmDesc": "允许未关联用户通过持久、无工具权限的访客会话与绑定 Agent 对话。",
   "channels.guestMessageLimit": "访客每分钟消息数",
   "channels.guestMessageLimitDesc": "每位访客的限制，包含命令。",
   "channels.guestMaxPerChannel": "访客数量上限",
   "channels.guestMaxPerChannelDesc": "此渠道可持久保存的访客身份上限。",
   "channels.guestRetentionDays": "访客保留天数",
-  "channels.guestRetentionDaysDesc":
-    "超过此期限未活动的访客身份和会话将被删除。",
+  "channels.guestRetentionDaysDesc": "超过此期限未活动的访客身份和会话将被删除。",
   "channels.requireMention": "必须 @机器人",
   "channels.requireMentionDesc": "忽略群聊中未 @此机器人的消息。",
   "channels.feishuGroups": "飞书群规则",
@@ -5309,19 +5126,16 @@ const zh = {
   "channels.feishuGroupChatPlaceholder": "搜索已加入的飞书群聊...",
   "channels.feishuGroupsSaveFirst": "请先保存并激活此渠道实例，再选择群聊。",
   "channels.feishuGroupsLoading": "正在加载机器人已加入的群聊...",
-  "channels.feishuGroupsLoadFailed":
-    "无法加载群聊。请检查此渠道实例是否已激活并连接成功。",
+  "channels.feishuGroupsLoadFailed": "无法加载群聊。请检查此渠道实例是否已激活并连接成功。",
   "channels.feishuGroupsEmpty": "机器人还没有加入任何群聊。",
   "channels.feishuGroupNoLongerJoined": "机器人已不在这个群聊中。",
   "channels.feishuGroupSystemPrompt": "群专属系统提示词",
   "channels.feishuGroupSystemPromptDesc": "只会附加到这个群聊的消息前。",
   "channels.feishuOverrideGroupAccess": "覆盖群聊访问策略",
-  "channels.feishuOverrideGroupAccessDesc":
-    "关闭时，这个群沿用「允许群聊」设置。",
+  "channels.feishuOverrideGroupAccessDesc": "关闭时，这个群沿用「允许群聊」设置。",
   "channels.feishuGroupAccess": "允许此群聊",
   "channels.feishuOverrideMention": "覆盖 @规则",
-  "channels.feishuOverrideMentionDesc":
-    "关闭时，这个群沿用「必须 @机器人」设置。",
+  "channels.feishuOverrideMentionDesc": "关闭时，这个群沿用「必须 @机器人」设置。",
   "channels.feishuGroupRequireMention": "此群必须 @机器人",
   "channels.feishuAllowedUsers": "允许的用户",
   "channels.feishuAllowedUsersDesc":
@@ -5345,8 +5159,7 @@ const zh = {
   "channels.scanAlignFeishu": "扫码补齐飞书应用配置",
   "channels.scanAlignFeishuDesc":
     "补齐 Stella 所需的权限、事件、回调和原生命令，不会移除已有配置。",
-  "channels.scanAlignFeishuUnavailable":
-    "先保存 App ID 并绑定 Agent，再对齐这个飞书应用。",
+  "channels.scanAlignFeishuUnavailable": "先保存 App ID 并绑定 Agent，再对齐这个飞书应用。",
   "channels.scanAlignFeishuTitle": "更新飞书应用",
   "channels.scanAlignFeishuScanDesc": "用飞书手机端扫码，然后确认应用更新。",
   "channels.scanAlignFeishuQrAlt": "飞书应用更新二维码",
@@ -5458,10 +5271,7 @@ const zh = {
   "update.dismiss": "忽略",
 };
 
-export const messages = { en, zh } satisfies Record<
-  Locale,
-  Record<MessageKey, string>
->;
+export const messages = { en, zh } satisfies Record<Locale, Record<MessageKey, string>>;
 export type { MessageKey };
 
 declare module "i18next" {

@@ -1,8 +1,9 @@
 package db
 
 import (
-	"github.com/CherryHQ/stella/internal/plugin"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/plugin"
 )
 
 func TestUnifiedPluginAdministrativeCap(t *testing.T) {
@@ -25,7 +26,7 @@ func TestUnifiedPluginAdministrativeCap(t *testing.T) {
 			if err := catalog.Register(def); err != nil {
 				t.Fatal(err)
 			}
-			svc := plugin.NewService(db, nil, catalog, noopPluginValidator, inlinePluginMutationFence)
+			svc := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 			if err := svc.SyncBuiltinDefaults(ctx); err != nil {
 				t.Fatal(err)
 			}
@@ -51,7 +52,7 @@ func TestUnifiedPluginAdministrativeCap(t *testing.T) {
 					t.Fatalf("unknown %s permitted: %v %v", id, got, err)
 				}
 			}
-			dormant := plugin.NewService(db, nil, plugin.NewCatalog(), noopPluginValidator, inlinePluginMutationFence)
+			dormant := plugin.NewService(db, nil, plugin.NewCatalog(), plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 			if got, err := dormant.AdministrativeCap(ctx, def.ID, tc.target); err == nil || got {
 				t.Fatalf("dormant definition permitted: %v %v", got, err)
 			}

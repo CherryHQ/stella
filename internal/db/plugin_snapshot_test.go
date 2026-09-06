@@ -107,7 +107,7 @@ func TestUnifiedPluginSnapshotFiltersDormantAndForeignDefinitions(t *testing.T) 
 	if err := catalog.Register(builtin); err != nil {
 		t.Fatal(err)
 	}
-	service := plugin.NewService(db, nil, catalog, noopPluginValidator, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	snapshot, err := service.ResolveSnapshot(ctx, userA, "")
 	if err != nil {
 		t.Fatal(err)

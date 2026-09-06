@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -44,6 +45,10 @@ func noopPluginValidator(context.Context, plugin.Definition, plugin.Config, []st
 
 func inlinePluginMutationFence(_ context.Context, mutate func() error) error {
 	return mutate()
+}
+
+func noopBackendTransition(context.Context, pgx.Tx, authz.Authority, plugin.MutationKind, plugin.Definition, *plugin.Config, *plugin.Config) error {
+	return nil
 }
 
 func TestUnifiedPluginConfigConstraints(t *testing.T) {
@@ -125,7 +130,7 @@ func syncPluginCatalog(t *testing.T, db *pgxpool.Pool, definitions ...plugin.Def
 			t.Fatal(err)
 		}
 	}
-	service := plugin.NewService(db, nil, catalog, noopPluginValidator, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	if err := service.SyncBuiltinDefaults(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +214,7 @@ func TestUnifiedPluginSyncFailureRollsBackEarlierDefinitions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	service := plugin.NewService(db, nil, catalog, noopPluginValidator, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	if err := service.SyncBuiltinDefaults(ctx); err == nil {
 		t.Fatal("sync accepted an incompatible existing definition")
 	}
@@ -326,7 +331,7 @@ func TestUnifiedPluginPayloadValidatorSeparatesNegativeAndReady(t *testing.T) {
 		validatorCalls++
 		return plugin.ErrInvalidConfig
 	}
-	service := plugin.NewService(db, nil, catalog, validator, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Validate: validator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	if err := service.SyncBuiltinDefaults(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +381,7 @@ func TestUnifiedPluginSafetyCallbackRunsForWritesUnderSystemDeny(t *testing.T) {
 		}
 		return plugin.ErrInvalidConfig
 	}
-	service := plugin.NewService(db, nil, catalog, validator, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Validate: validator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	if err := service.SyncBuiltinDefaults(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +464,7 @@ func TestUnifiedPluginNegativeResetKeepsNullPayloadAndNoNamespaceClaim(t *testin
 			t.Fatal(err)
 		}
 	}
-	service := plugin.NewService(db, nil, catalog, noopPluginValidator, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	user := insertPluginUser(t, db, "plugin-negative@example.test", false)
 	access, err := service.Begin(user)
 	if err != nil {
@@ -511,7 +516,7 @@ func TestUnifiedPluginSharedCustomVisibleWithoutSystemPayload(t *testing.T) {
 	`).Scan(&configID); err != nil {
 		t.Fatal(err)
 	}
-	service := plugin.NewService(db, nil, plugin.NewCatalog(), noopPluginValidator, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, plugin.NewCatalog(), plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	user := insertPluginUser(t, db, "plugin-shared@example.test", false)
 	access, err := service.Begin(user)
 	if err != nil {
@@ -547,7 +552,7 @@ func TestUnifiedPluginCustomIdentityValidationAndNamespaceRollback(t *testing.T)
 	if err := catalog.Register(pluginDefinition("builtin/taken", "taken", true)); err != nil {
 		t.Fatal(err)
 	}
-	service := plugin.NewService(db, nil, catalog, noopPluginValidator, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	access, err := service.Begin(user)
 	if err != nil {
 		t.Fatal(err)
@@ -615,7 +620,7 @@ func TestUnifiedPluginDefinitionDeleteCASAndPolicyRollback(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
 	user := insertPluginUser(t, db, "plugin-delete@example.test", false)
-	service := plugin.NewService(db, nil, plugin.NewCatalog(), noopPluginValidator, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, plugin.NewCatalog(), plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	access, err := service.Begin(user)
 	if err != nil {
 		t.Fatal(err)

@@ -1,11 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createPlugin,
   createPluginConfig,
@@ -45,10 +40,7 @@ import {
   SettingsGridPage,
 } from "@/features/settings/SettingsCardGrid";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import {
-  DetailPanel,
-  DetailPanelHeader,
-} from "@/features/settings/SettingsDetailPanel";
+import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import { apiErrorCode, apiErrorMessage } from "@/lib/api-error";
@@ -57,30 +49,16 @@ import {
   type PluginConfigPayload,
 } from "@/features/plugins/PluginConfigEditor";
 import { McpInstallSheet } from "@/features/mcp/McpInstallSheet";
-import {
-  Cable,
-  Code2,
-  MessageSquare,
-  Package,
-  Plus,
-  RotateCcw,
-  Trash2,
-} from "lucide-react";
+import { Cable, Code2, MessageSquare, Package, Plus, RotateCcw, Trash2 } from "lucide-react";
 
 export type Translate = ReturnType<typeof useI18n>["t"];
 
 const oauthClientInitializationMessage =
   "administrator must initialize this connection before users can authorize their own accounts";
 
-export function pluginErrorMessage(
-  error: unknown,
-  t: Translate,
-): string {
+export function pluginErrorMessage(error: unknown, t: Translate): string {
   const message = apiErrorMessage(error, t("common.error"));
-  if (
-    apiErrorCode(error) === 409 &&
-    message === oauthClientInitializationMessage
-  ) {
+  if (apiErrorCode(error) === 409 && message === oauthClientInitializationMessage) {
     return t("plugins.oauthAdminInitializationRequired");
   }
   return message;
@@ -101,8 +79,7 @@ function routePath(plugin: PluginDefinition): { kind: string; name: string } {
 function backendIcon(plugin: PluginDefinition) {
   if (plugin.backend === "mcp") return <Cable className="size-4" />;
   if (plugin.backend === "cli") return <Package className="size-4" />;
-  if (plugin.id.startsWith("channel/"))
-    return <MessageSquare className="size-4" />;
+  if (plugin.id.startsWith("channel/")) return <MessageSquare className="size-4" />;
   return <Code2 className="size-4" />;
 }
 
@@ -131,10 +108,7 @@ function BackendSummary({ config, t }: { config: PluginConfig; t: Translate }) {
         <Badge variant="outline" size="sm">
           {summary.credential_mode}
         </Badge>
-        <Badge
-          variant={summary.endpoint_configured ? "success" : "warning"}
-          size="sm"
-        >
+        <Badge variant={summary.endpoint_configured ? "success" : "warning"} size="sm">
           {t(
             summary.endpoint_configured
               ? "plugins.summary.endpointReady"
@@ -142,10 +116,7 @@ function BackendSummary({ config, t }: { config: PluginConfig; t: Translate }) {
           )}
         </Badge>
         {summary.auth_type === "bearer" && (
-          <Badge
-            variant={summary.bearer_configured ? "success" : "warning"}
-            size="sm"
-          >
+          <Badge variant={summary.bearer_configured ? "success" : "warning"} size="sm">
             {t(
               summary.bearer_configured
                 ? "plugins.summary.bearerReady"
@@ -155,12 +126,7 @@ function BackendSummary({ config, t }: { config: PluginConfig; t: Translate }) {
         )}
         {summary.auth_type === "oauth" && (
           <>
-            <Badge
-              variant={
-                summary.oauth_client_id_configured ? "success" : "warning"
-              }
-              size="sm"
-            >
+            <Badge variant={summary.oauth_client_id_configured ? "success" : "warning"} size="sm">
               {t(
                 summary.oauth_client_id_configured
                   ? "plugins.summary.oauthClientReady"
@@ -168,9 +134,7 @@ function BackendSummary({ config, t }: { config: PluginConfig; t: Translate }) {
               )}
             </Badge>
             <Badge
-              variant={
-                summary.oauth_client_secret_configured ? "success" : "warning"
-              }
+              variant={summary.oauth_client_secret_configured ? "success" : "warning"}
               size="sm"
             >
               {t(
@@ -185,20 +149,12 @@ function BackendSummary({ config, t }: { config: PluginConfig; t: Translate }) {
     );
   }
   if (summary.backend === "cli") {
-    const binaries = summary.binaries.map((binary) =>
-      `${binary.name} ${binary.version}`.trim(),
-    );
+    const binaries = summary.binaries.map((binary) => `${binary.name} ${binary.version}`.trim());
     const skills = summary.skills.map((skill) => (
-      <Badge
-        key={skill.name}
-        variant={skill.source_configured ? "success" : "warning"}
-        size="sm"
-      >
+      <Badge key={skill.name} variant={skill.source_configured ? "success" : "warning"} size="sm">
         {skill.name}:{" "}
         {t(
-          skill.source_configured
-            ? "plugins.summary.sourceReady"
-            : "plugins.summary.sourceMissing",
+          skill.source_configured ? "plugins.summary.sourceReady" : "plugins.summary.sourceMissing",
         )}
       </Badge>
     ));
@@ -207,9 +163,7 @@ function BackendSummary({ config, t }: { config: PluginConfig; t: Translate }) {
         {binaries.length > 0 && (
           <p className="text-xs text-muted-foreground">{binaries.join(", ")}</p>
         )}
-        {skills.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">{skills}</div>
-        )}
+        {skills.length > 0 && <div className="flex flex-wrap gap-1.5">{skills}</div>}
         {summary.session_env.length > 0 && (
           <p className="text-xs text-muted-foreground">
             {t("plugins.summary.env", { count: summary.session_env.length })}
@@ -225,9 +179,7 @@ function BackendSummary({ config, t }: { config: PluginConfig; t: Translate }) {
   }
   return (
     <Badge variant={summary.configured ? "success" : "secondary"} size="sm">
-      {summary.configured
-        ? t("plugins.summary.configured")
-        : t("plugins.summary.notConfigured")}
+      {summary.configured ? t("plugins.summary.configured") : t("plugins.summary.notConfigured")}
       {summary.kind ? ` · ${summary.kind}` : ""}
     </Badge>
   );
@@ -267,16 +219,10 @@ function ConfigRow({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">
-              {scopeLabel(config.scope, t)}
-            </span>
+            <span className="text-sm font-medium">{scopeLabel(config.scope, t)}</span>
             <Badge
               variant={
-                config.is_enabled === null
-                  ? "secondary"
-                  : config.is_enabled
-                    ? "success"
-                    : "warning"
+                config.is_enabled === null ? "secondary" : config.is_enabled ? "success" : "warning"
               }
               size="sm"
             >
@@ -284,9 +230,7 @@ function ConfigRow({
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground">
-            {config.agent_id
-              ? `${t("plugins.agent")}: ${config.agent_id}`
-              : t("plugins.allAgents")}
+            {config.agent_id ? `${t("plugins.agent")}: ${config.agent_id}` : t("plugins.allAgents")}
           </p>
           <BackendSummary config={config} t={t} />
         </div>
@@ -295,22 +239,12 @@ function ConfigRow({
             {t("common.edit")}
           </Button>
           {onOAuthConnect && (
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={onOAuthConnect}
-              disabled={busy}
-            >
+            <Button variant="outline" size="xs" onClick={onOAuthConnect} disabled={busy}>
               {t("plugins.oauthAuthorize")}
             </Button>
           )}
           {onOAuthDisconnect && (
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={onOAuthDisconnect}
-              disabled={busy}
-            >
+            <Button variant="ghost" size="xs" onClick={onOAuthDisconnect} disabled={busy}>
               {t("plugins.oauthDisconnect")}
             </Button>
           )}
@@ -335,12 +269,7 @@ function ConfigRow({
             </Button>
           )}
           {onDelete && (
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={onDelete}
-              disabled={busy}
-            >
+            <Button variant="ghost" size="xs" onClick={onDelete} disabled={busy}>
               <Trash2 className="size-3.5" />
               {t("common.delete")}
             </Button>
@@ -371,7 +300,9 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
   );
   const selectedPath = selectedPlugin ? routePath(selectedPlugin) : null;
   const closeDetail = () =>
-    void navigate({ to: scopeBand === "system" ? "/admin/integrations/plugins" : "/settings/plugins" });
+    void navigate({
+      to: scopeBand === "system" ? "/admin/integrations/plugins" : "/settings/plugins",
+    });
   const configQueries = useQueries({
     queries: selectedPath
       ? visibleScopes.map((scope) =>
@@ -385,8 +316,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
       : [],
   });
   const [pendingDelete, setPendingDelete] = useState<PluginConfig | null>(null);
-  const [pendingPluginDelete, setPendingPluginDelete] =
-    useState<PluginDefinition | null>(null);
+  const [pendingPluginDelete, setPendingPluginDelete] = useState<PluginDefinition | null>(null);
   const [editingConfig, setEditingConfig] = useState<PluginConfig | null>(null);
   const [newMcpOpen, setNewMcpOpen] = useState(false);
   const [registryOpen, setRegistryOpen] = useState(false);
@@ -403,10 +333,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     void queryClient.invalidateQueries({ queryKey: ["plugins"] });
   };
   const configMutation = useMutation({
-    mutationFn: async (input: {
-      config: PluginConfig;
-      enabled: boolean | null;
-    }) => {
+    mutationFn: async (input: { config: PluginConfig; enabled: boolean | null }) => {
       if (!selectedPath) throw new Error(t("plugins.noSelection"));
       const { data } = await updatePluginConfig({
         path: { ...selectedPath, config_id: input.config.id },
@@ -478,10 +405,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
   });
   const editMutation = useMutation({
-    mutationFn: async (input: {
-      config: PluginConfig;
-      payload: PluginConfigPayload;
-    }) => {
+    mutationFn: async (input: { config: PluginConfig; payload: PluginConfigPayload }) => {
       if (!selectedPath) throw new Error(t("plugins.noSelection"));
       const { data } = await updatePluginConfig({
         path: { ...selectedPath, config_id: input.config.id },
@@ -491,9 +415,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
           ...(input.payload.binary_versions
             ? { binary_versions: input.payload.binary_versions }
             : {}),
-          ...(input.payload.skill_sources
-            ? { skill_sources: input.payload.skill_sources }
-            : {}),
+          ...(input.payload.skill_sources ? { skill_sources: input.payload.skill_sources } : {}),
         },
         throwOnError: true,
       });
@@ -538,8 +460,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     mutationFn: async (input: { payload: PluginConfigPayload }) => {
       const displayName = newMcpName.trim();
       const namespace = newMcpNamespace.trim();
-      if (!displayName || !namespace)
-        throw new Error(t("plugins.mcpIdentityRequired"));
+      if (!displayName || !namespace) throw new Error(t("plugins.mcpIdentityRequired"));
       const { data } = await createPlugin({
         body: {
           display_name: displayName,
@@ -594,10 +515,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     const cli = plugins.filter((plugin) => plugin.backend === "cli");
     const mcp = plugins.filter((plugin) => plugin.backend === "mcp");
     const system = plugins.filter(
-      (plugin) =>
-        !channel.includes(plugin) &&
-        !cli.includes(plugin) &&
-        !mcp.includes(plugin),
+      (plugin) => !channel.includes(plugin) && !cli.includes(plugin) && !mcp.includes(plugin),
     );
     return [
       { title: t("plugins.group.channels"), items: channel },
@@ -637,19 +555,14 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
           </div>
         }
       />
-      {typeof selectedPlugin.spec.description === "string" &&
-        selectedPlugin.spec.description && (
-          <p className="text-sm text-muted-foreground">
-            {selectedPlugin.spec.description}
-          </p>
-        )}
+      {typeof selectedPlugin.spec.description === "string" && selectedPlugin.spec.description && (
+        <p className="text-sm text-muted-foreground">{selectedPlugin.spec.description}</p>
+      )}
       <Field>
         <FieldLabel>{t("plugins.agent")}</FieldLabel>
         <Select
           value={selectedAgentID || "__none"}
-          onValueChange={(value) =>
-            setSelectedAgentID(value === "__none" || !value ? "" : value)
-          }
+          onValueChange={(value) => setSelectedAgentID(value === "__none" || !value ? "" : value)}
         >
           <SelectTrigger>
             <SelectValue placeholder={t("plugins.selectAgent")} />
@@ -665,9 +578,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
         </Select>
       </Field>
       <div className="space-y-2">
-        <p className="text-xs font-semibold text-muted-foreground">
-          {t("plugins.configuration")}
-        </p>
+        <p className="text-xs font-semibold text-muted-foreground">{t("plugins.configuration")}</p>
         {visibleScopes.map((scope, index) => {
           const query = configQueries[index];
           const configs = query.data ?? [];
@@ -675,29 +586,21 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
             <section key={scope} className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-medium">
-                    {scopeLabel(scope, t)}
-                  </h3>
+                  <h3 className="text-sm font-medium">{scopeLabel(scope, t)}</h3>
                   <Badge variant="secondary" size="sm">
                     {configs.length}
                   </Badge>
                 </div>
-                {query.isFetching && (
-                  <Spinner className="size-4 text-muted-foreground" />
-                )}
+                {query.isFetching && <Spinner className="size-4 text-muted-foreground" />}
               </div>
               {isAgentManagedScope(scope) && !selectedAgentID ? (
-                <p className="text-xs text-muted-foreground">
-                  {t("plugins.selectAgent")}
-                </p>
+                <p className="text-xs text-muted-foreground">{t("plugins.selectAgent")}</p>
               ) : query.isError ? (
                 <p className="text-xs text-destructive-foreground">
                   {t("plugins.scopeUnavailable")}
                 </p>
               ) : configs.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  {t("plugins.noScopeConfig")}
-                </p>
+                <p className="text-xs text-muted-foreground">{t("plugins.noScopeConfig")}</p>
               ) : (
                 configs.map((config) => (
                   <ConfigRow
@@ -710,12 +613,8 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                       oauthStartMutation.isPending ||
                       oauthDisconnectMutation.isPending
                     }
-                    onEnabled={(enabled) =>
-                      configMutation.mutate({ config, enabled })
-                    }
-                    onInherit={() =>
-                      configMutation.mutate({ config, enabled: null })
-                    }
+                    onEnabled={(enabled) => configMutation.mutate({ config, enabled })}
+                    onInherit={() => configMutation.mutate({ config, enabled: null })}
                     onEdit={() => setEditingConfig(config)}
                     onReset={
                       selectedPlugin.is_builtin && scope === "system"
@@ -750,16 +649,11 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
         })}
       </div>
       <div className="space-y-3 border-t border-border pt-4">
-        <p className="text-xs font-semibold text-muted-foreground">
-          {t("plugins.addScopeConfig")}
-        </p>
+        <p className="text-xs font-semibold text-muted-foreground">{t("plugins.addScopeConfig")}</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field>
             <FieldLabel>{t("plugins.scopeLabel")}</FieldLabel>
-            <Select
-              value={newScope}
-              onValueChange={(value) => setNewScope(value as PluginScope)}
-            >
+            <Select value={newScope} onValueChange={(value) => setNewScope(value as PluginScope)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -775,11 +669,22 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
           {(newScope === "system_agent" || newScope === "user_agent") && (
             <Field>
               <FieldLabel>{t("plugins.agent")}</FieldLabel>
-              <Select value={selectedAgentID || "__none"} onValueChange={(value) => setSelectedAgentID(value === "__none" || !value ? "" : value)}>
-                <SelectTrigger><SelectValue placeholder={t("plugins.selectAgent")} /></SelectTrigger>
+              <Select
+                value={selectedAgentID || "__none"}
+                onValueChange={(value) =>
+                  setSelectedAgentID(value === "__none" || !value ? "" : value)
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t("plugins.selectAgent")} />
+                </SelectTrigger>
                 <SelectPopup>
                   <SelectItem value="__none">{t("plugins.selectAgent")}</SelectItem>
-                  {agents.map((agent) => <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>)}
+                  {agents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </SelectItem>
+                  ))}
                 </SelectPopup>
               </Select>
             </Field>
@@ -789,17 +694,12 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
           variant="outline"
           size="sm"
           loading={createMutation.isPending}
-          disabled={
-            (newScope === "system_agent" || newScope === "user_agent") &&
-            !selectedAgentID
-          }
+          disabled={(newScope === "system_agent" || newScope === "user_agent") && !selectedAgentID}
           onClick={() => createMutation.mutate()}
         >
           {t("plugins.addScopeConfig")}
         </Button>
-        <p className="text-xs text-muted-foreground">
-          {t("plugins.secretWriteUnavailable")}
-        </p>
+        <p className="text-xs text-muted-foreground">{t("plugins.secretWriteUnavailable")}</p>
       </div>
       {!selectedPlugin.is_builtin && (
         <div className="border-t border-border pt-4">
@@ -837,10 +737,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
         }
       >
         {plugins.length === 0 ? (
-          <ErrorState
-            title={t("plugins.noPlugins")}
-            description={t("plugins.noPluginsDesc")}
-          />
+          <ErrorState title={t("plugins.noPlugins")} description={t("plugins.noPluginsDesc")} />
         ) : (
           groups.map(
             (group) =>
@@ -881,8 +778,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {typeof plugin.spec.description === "string" &&
-                            plugin.spec.description
+                            {typeof plugin.spec.description === "string" && plugin.spec.description
                               ? plugin.spec.description
                               : t("plugins.noDescription")}
                           </p>
@@ -906,10 +802,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
       <SettingsDetailSheet open={detail !== null} onClose={closeDetail}>
         {detail}
       </SettingsDetailSheet>
-      <SettingsDetailSheet
-        open={newMcpOpen}
-        onClose={() => setNewMcpOpen(false)}
-      >
+      <SettingsDetailSheet open={newMcpOpen} onClose={() => setNewMcpOpen(false)}>
         <DetailPanel>
           <DetailPanelHeader title={t("plugins.addMcp")} />
           <div className="space-y-4">
@@ -958,15 +851,25 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                 </SelectPopup>
               </Select>
             </Field>
-            {(newMcpScope === "system_agent" ||
-              newMcpScope === "user_agent") && (
+            {(newMcpScope === "system_agent" || newMcpScope === "user_agent") && (
               <Field>
                 <FieldLabel>{t("plugins.agent")}</FieldLabel>
-                <Select value={selectedAgentID || "__none"} onValueChange={(value) => setSelectedAgentID(value === "__none" || !value ? "" : value)}>
-                  <SelectTrigger><SelectValue placeholder={t("plugins.selectAgent")} /></SelectTrigger>
+                <Select
+                  value={selectedAgentID || "__none"}
+                  onValueChange={(value) =>
+                    setSelectedAgentID(value === "__none" || !value ? "" : value)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={t("plugins.selectAgent")} />
+                  </SelectTrigger>
                   <SelectPopup>
                     <SelectItem value="__none">{t("plugins.selectAgent")}</SelectItem>
-                    {agents.map((agent) => <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>)}
+                    {agents.map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>
+                        {agent.name}
+                      </SelectItem>
+                    ))}
                   </SelectPopup>
                 </Select>
               </Field>
@@ -991,10 +894,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
           </div>
         </DetailPanel>
       </SettingsDetailSheet>
-      <SettingsDetailSheet
-        open={editingConfig !== null}
-        onClose={() => setEditingConfig(null)}
-      >
+      <SettingsDetailSheet open={editingConfig !== null} onClose={() => setEditingConfig(null)}>
         {editingConfig && selectedPlugin && (
           <DetailPanel>
             <DetailPanelHeader
@@ -1045,8 +945,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
             : ""
         }
         onConfirm={() => {
-          if (pendingPluginDelete)
-            definitionDeleteMutation.mutate(pendingPluginDelete);
+          if (pendingPluginDelete) definitionDeleteMutation.mutate(pendingPluginDelete);
           setPendingPluginDelete(null);
         }}
       />

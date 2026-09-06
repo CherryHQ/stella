@@ -306,16 +306,6 @@ func (d testUserDirectory) LookupUsers(ctx context.Context, ids []string) ([]age
 	return out, nil
 }
 
-// newTestServer builds a Server from testServerDeps.
-func newTestServer(t *testing.T, store config.Store, as *appdb.AuthStore, mem memory.Provider, db *pgxpool.Pool, phost *host.Host) *Server {
-	t.Helper()
-	srv, err := New(context.Background(), testServerDeps(t, store, as, mem, db, phost))
-	if err != nil {
-		t.Fatalf("server.New: %v", err)
-	}
-	return srv
-}
-
 func TestResolvedToDBSkillPreservesExactRevisionIdentity(t *testing.T) {
 	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	resolved := &skill.ResolvedSkill{Skill: skill.Skill{

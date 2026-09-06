@@ -18,14 +18,8 @@ import {
   SystemCredentialsPage,
 } from "@/features/credentials/CredentialsPage";
 import { GlobalMCPPage } from "@/features/mcp/MCPServersPage";
-import {
-  GlobalLibraryPage,
-  SettingsLibraryPage,
-} from "@/features/library/LibraryFilesPage";
-import {
-  GlobalSkillsPage,
-  PersonalSkillsPage,
-} from "@/features/skills/SkillsPage";
+import { GlobalLibraryPage, SettingsLibraryPage } from "@/features/library/LibraryFilesPage";
+import { GlobalSkillsPage, PersonalSkillsPage } from "@/features/skills/SkillsPage";
 import { adminSettingsNav } from "@/features/settings/AdminLayout";
 import { personalSettingsGroups } from "@/features/settings/SettingsLayout";
 import { Route as PersonalPluginsRoute } from "@/routes/_app/settings/plugins.lazy";
@@ -65,16 +59,12 @@ describe("plugin surface ownership", () => {
     expect(PersonalPluginsRoute.options.component).toBe(PersonalUnifiedPluginsPage);
     expect(PersonalPluginDetailRoute.options.beforeLoad).toBeUndefined();
     expect(PersonalSkillsRoute.options.component).toBe(PersonalSkillsPage);
-    expect(PersonalCredentialsRoute.options.component).toBe(
-      PersonalCredentialsPage,
-    );
+    expect(PersonalCredentialsRoute.options.component).toBe(PersonalCredentialsPage);
     expect(PersonalLibraryRoute.options.component).toBe(SettingsLibraryPage);
   });
 
   it("keeps deployment plugin management on Admin Console without personal MCP", () => {
-    const adminLinks = adminSettingsNav.flatMap((group) =>
-      group.items.map((item) => item.href),
-    );
+    const adminLinks = adminSettingsNav.flatMap((group) => group.items.map((item) => item.href));
 
     expect(adminLinks).toContain("/admin/integrations/plugins");
     expect(adminLinks).toContain("/admin/resources/mcp");

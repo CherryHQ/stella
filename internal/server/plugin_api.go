@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -44,7 +45,7 @@ func (s *Server) GetPlugin(w http.ResponseWriter, r *http.Request, kind, name st
 }
 
 func (s *Server) CreatePlugin(w http.ResponseWriter, r *http.Request) {
-	access, _, ok := s.beginPluginAccess(w, r)
+	access, authority, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
 	}
@@ -61,6 +62,14 @@ func (s *Server) CreatePlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	if request.DisplayName == "" || request.Namespace == "" || request.Backend == "" || request.InitialConfig.Scope == "" {
 		writeError(w, http.StatusBadRequest, "display_name, namespace, backend, and initial_config are required")
+		return
+	}
+	if rawContainsAnyKey(data, "credential_refs") {
+		writePluginError(w, pluginpkg.ErrInvalidConfig)
+		return
+	}
+	if request.Backend == apitypes.CreatePluginRequestBackend(pluginpkg.BackendMCP) && (request.InitialConfig.Config != nil || request.InitialConfig.Credentials != nil) {
+		s.createMCPPlugin(w, r, authority, request)
 		return
 	}
 	if request.InitialConfig.Credentials != nil || rawContainsAnyKey(data, "credentials", "credential_refs") {
@@ -141,7 +150,7 @@ func (s *Server) ListPluginConfigs(w http.ResponseWriter, r *http.Request, kind,
 }
 
 func (s *Server) CreatePluginConfig(w http.ResponseWriter, r *http.Request, kind, name string) {
-	access, _, ok := s.beginPluginAccess(w, r)
+	access, authority, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
 	}
@@ -156,8 +165,8 @@ func (s *Server) CreatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if request.Credentials != nil || rawContainsAnyKey(data, "credentials", "credential_refs") {
-		writePluginError(w, errPluginCapabilityUnavailable)
+	if rawContainsAnyKey(data, "credential_refs") {
+		writePluginError(w, pluginpkg.ErrInvalidConfig)
 		return
 	}
 	config := pluginpkg.Config{PluginID: pluginID(kind, name), Scope: pluginpkg.Scope(request.Scope), Enabled: request.IsEnabled, Payload: mustJSONPtr(request.Config)}
@@ -167,6 +176,24 @@ func (s *Server) CreatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 	definition, err := access.GetDefinition(r.Context(), config.PluginID)
 	if err != nil {
 		writePluginError(w, err)
+		return
+	}
+	if definition.Backend == pluginpkg.BackendMCP && (request.Config != nil || request.Credentials != nil) {
+		created, err := s.createMCPPluginConfig(r.Context(), authority, access, definition, request)
+		if err != nil {
+			writePluginError(w, err)
+			return
+		}
+		view, err := pluginConfigView(definition, created)
+		if err != nil {
+			writePluginError(w, err)
+			return
+		}
+		writeData(w, http.StatusCreated, view)
+		return
+	}
+	if request.Credentials != nil {
+		writePluginError(w, errPluginCapabilityUnavailable)
 		return
 	}
 	created, err := access.CreateConfig(r.Context(), config)
@@ -187,7 +214,7 @@ func (s *Server) GetPluginConfig(w http.ResponseWriter, r *http.Request, kind, n
 }
 
 func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind, name, configId string) {
-	access, _, ok := s.beginPluginAccess(w, r)
+	access, authority, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
 	}
@@ -202,12 +229,40 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if request.Credentials != nil || rawContainsAnyKey(data, "credentials", "credential_refs") {
-		writePluginError(w, errPluginCapabilityUnavailable)
+	if rawContainsAnyKey(data, "credential_refs") {
+		writePluginError(w, pluginpkg.ErrInvalidConfig)
 		return
 	}
 	if request.ExpectedRevision < 1 {
 		writeError(w, http.StatusBadRequest, "expected_revision must be a positive integer")
+		return
+	}
+	current, err := access.GetConfig(r.Context(), pluginID(kind, name), configId)
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
+	backendDefinition, err := access.GetDefinition(r.Context(), current.PluginID)
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
+	if backendDefinition.Backend == pluginpkg.BackendMCP && (request.Config != nil || request.Credentials != nil) {
+		updated, err := s.updateMCPPluginConfig(r.Context(), authority, access, current, request, raw)
+		if err != nil {
+			writePluginError(w, err)
+			return
+		}
+		view, err := pluginConfigView(backendDefinition, updated)
+		if err != nil {
+			writePluginError(w, err)
+			return
+		}
+		writeData(w, http.StatusOK, view)
+		return
+	}
+	if request.Credentials != nil {
+		writePluginError(w, errPluginCapabilityUnavailable)
 		return
 	}
 	patch := pluginpkg.ConfigPatch{}
@@ -352,10 +407,8 @@ func valueContainsAnyKey(value any, keys []string) bool {
 	switch current := value.(type) {
 	case map[string]any:
 		for key, child := range current {
-			for _, forbidden := range keys {
-				if key == forbidden {
-					return true
-				}
+			if slices.Contains(keys, key) {
+				return true
 			}
 			if valueContainsAnyKey(child, keys) {
 				return true

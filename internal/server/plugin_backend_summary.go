@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -91,9 +92,7 @@ func mergeCLISummaryPayload(definitionSpec, configPayload json.RawMessage) (json
 		if err := json.Unmarshal(configPayload, &overlay); err != nil || overlay == nil {
 			return nil, fmt.Errorf("invalid CLI config payload")
 		}
-		for key, value := range overlay {
-			base[key] = value
-		}
+		maps.Copy(base, overlay)
 	}
 	return json.Marshal(base)
 }

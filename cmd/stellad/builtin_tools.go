@@ -55,6 +55,7 @@ type builtinToolDeps struct {
 	SettingsAdmin   settingspolicy.AdminLookup
 	SettingsAgents  settingspolicy.AgentLookup
 	ControlPlane    func() *controlplane.Service
+	PluginService   func() *pluginpkg.Service
 	MCPAccess       func() *mcp.Access
 	MCPCatalog      agent.MCPCatalogFunc
 }
@@ -302,7 +303,7 @@ func builtinToolGroups() []builtinToolGroup {
 			metadata: controlplane.SettingsPluginActionTools(),
 			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
 				return splitBuiltins(controlplane.SettingsPluginActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-					return settingspolicy.Wrap(controlplane.NewPluginManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
+					return settingspolicy.Wrap(controlplane.NewPluginManagementTool(spec, d.PluginService), d.SettingsAgents, d.SettingsAdmin)
 				}, settingsToolAvailable(d, true))
 			},
 		},

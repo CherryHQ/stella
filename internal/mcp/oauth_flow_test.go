@@ -8,14 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/oauth2"
+
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // seedOAuthRegistration inserts a common MCP definition/config directly so the
@@ -57,10 +58,12 @@ func seedOAuthRegistration(t *testing.T, pool *pgxpool.Pool, scope, userID, agen
 	}); err != nil {
 		t.Fatalf("seed dormant OAuth flow FK identity: %v", err)
 	}
-	return Registration{ID: id, PluginID: pluginID, Namespace: namespace, ConfigRevision: 1,
+	return Registration{
+		ID: id, PluginID: pluginID, Namespace: namespace, ConfigRevision: 1,
 		Scope: scope, UserID: userID, AgentID: agentID, Name: "oauth-" + id[:8], URL: rawURL,
 		Transport: TransportStreamableHTTP, AuthType: AuthTypeOAuth, Enabled: true,
-		CredentialMode: CredentialModeShared}
+		CredentialMode: CredentialModeShared,
+	}
 }
 
 func nullableTestText(value string) any {
@@ -370,7 +373,7 @@ func TestNonAdminSystemDCRDoesNotWriteClientOrFlow(t *testing.T) {
 	}
 }
 
-func TestClearingOAuthClientIDFailsClosedWithoutAtomicCredentialReset(t *testing.T) {
+func TestClearingOAuthClientIDAtomicallyRevokesCredentials(t *testing.T) {
 	withLoopbackDialer(t)
 	svc, _, userID, _ := setupInternal(t)
 	as := newFakeAS(t)
@@ -391,18 +394,29 @@ func TestClearingOAuthClientIDFailsClosedWithoutAtomicCredentialReset(t *testing
 	}
 	ctx := authz.WithAuthority(context.Background(), authority)
 	empty := ""
-	if _, err := svc.Update(ctx, UpdateInput{ID: reg.ID, Scope: ScopeUser, UserID: userID, OAuthClientID: &empty}); err == nil {
-		t.Fatal("clear OAuth client id unexpectedly succeeded without an atomic credential reset")
+	if _, err := svc.Update(ctx, UpdateInput{ID: reg.ID, Scope: ScopeUser, UserID: userID, OAuthClientID: &empty}); err != nil {
+		t.Fatalf("atomic clear: %v", err)
 	}
 	var storedRef string
 	if err := svc.pool.QueryRow(t.Context(), `SELECT config #>> '{metadata,oauth,client_id}' FROM plugin_config WHERE id = $1::uuid`, reg.ID).Scan(&storedRef); err != nil {
 		t.Fatal(err)
 	}
-	if storedRef != "old-client" {
-		t.Fatalf("client id after rejected clear = %q, want old-client", storedRef)
+	if storedRef != "" {
+		t.Fatalf("client id after clear = %q", storedRef)
 	}
-	if got, err := svc.vault.GetScoped(t.Context(), ScopeUser, userID, "", secretRef); err != nil || got != "old-secret" {
-		t.Fatalf("client secret after rejected clear = %q, %v, want old-secret", got, err)
+	var remaining int
+	if err := svc.pool.QueryRow(ctx, `SELECT count(*) FROM vault_entry WHERE name IN ($1,$2,$3)`, secretRef, credentialName(reg.ID), oauthBundleName(reg.ID)).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Fatalf("atomic clear retained %d credentials", remaining)
+	}
+	var hasRef bool
+	if err := svc.pool.QueryRow(ctx, `SELECT credential_refs ? 'oauth_client_secret' FROM plugin_config WHERE id=$1`, reg.ID).Scan(&hasRef); err != nil {
+		t.Fatal(err)
+	}
+	if hasRef {
+		t.Fatal("cleared client retained secret locator")
 	}
 }
 

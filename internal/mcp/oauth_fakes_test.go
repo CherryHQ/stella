@@ -22,6 +22,7 @@ import (
 
 	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -29,6 +30,10 @@ import (
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func noopBackendTransition(context.Context, pgx.Tx, authz.Authority, plugin.MutationKind, plugin.Definition, *plugin.Config, *plugin.Config) error {
+	return nil
+}
 
 // loopbackDialer is the test dial policy: loopback reaches the fake AS and MCP
 // servers; everything else still goes through the production SSRF dialer, so
@@ -205,41 +210,6 @@ func parseAuthCodeURL(t *testing.T, raw string) (flowID, challenge, resource str
 	return q.Get("state"), q.Get("code_challenge"), q.Get("resource")
 }
 
-// oauthVaultDB adapts OIDCStore + sqlc.Queries to the vault.DB interface for
-// the internal-package OAuth tests (mirrors the mcp_test package harness).
-type oauthVaultDB struct {
-	oidc *appdb.OIDCStore
-	q    *sqlc.Queries
-}
-
-func (d *oauthVaultDB) GetVaultUser(ctx context.Context, id string) (sqlc.VaultUser, error) {
-	u, err := d.oidc.GetUser(ctx, id)
-	if err != nil {
-		return sqlc.VaultUser{}, err
-	}
-	return sqlc.VaultUser{AgePublicKey: u.AgePublicKey, AgePrivateKey: u.AgePrivateKey}, nil
-}
-
-func (d *oauthVaultDB) GetVaultEntryByScope(ctx context.Context, arg sqlc.GetVaultEntryByScopeParams) (sqlc.VaultEntry, error) {
-	return d.q.GetVaultEntryByScope(ctx, arg)
-}
-
-func (d *oauthVaultDB) ListVaultEntriesByScope(ctx context.Context, arg sqlc.ListVaultEntriesByScopeParams) ([]sqlc.VaultEntry, error) {
-	return d.q.ListVaultEntriesByScope(ctx, arg)
-}
-
-func (d *oauthVaultDB) ListVaultEntriesForRuntime(ctx context.Context, arg sqlc.ListVaultEntriesForRuntimeParams) ([]sqlc.VaultEntry, error) {
-	return d.q.ListVaultEntriesForRuntime(ctx, arg)
-}
-
-func (d *oauthVaultDB) UpsertVaultEntryByScope(ctx context.Context, arg sqlc.UpsertVaultEntryByScopeParams) (sqlc.VaultEntry, error) {
-	return d.q.UpsertVaultEntryByScope(ctx, arg)
-}
-
-func (d *oauthVaultDB) DeleteVaultEntryByScope(ctx context.Context, arg sqlc.DeleteVaultEntryByScopeParams) error {
-	return d.q.DeleteVaultEntryByScope(ctx, arg)
-}
-
 // setupInternal is the package-mcp twin of the mcp_test setup(): real database,
 // real age-encrypted vault, one user and one agent.
 func setupInternal(t *testing.T) (svc *Service, q *sqlc.Queries, userID, agentID string) {
@@ -278,7 +248,7 @@ func setupInternal(t *testing.T) (svc *Service, q *sqlc.Queries, userID, agentID
 	policy := EndpointPolicy{AllowPrivate: true}
 	svc.SetEndpointPolicy(policy)
 	agents := agentaccess.NewService(storepkg.NewDBStore(pool), appdb.NewAuthStore(pool))
-	svc.SetPluginService(plugin.NewService(pool, agents, plugin.NewCatalog(), NewMCPPayloadValidator(policy), func(_ context.Context, fn func() error) error {
+	svc.SetPluginService(plugin.NewService(pool, agents, plugin.NewCatalog(), NewMCPBackendPolicy(policy), func(_ context.Context, fn func() error) error {
 		return fn()
 	}))
 	return svc, q, user.ID, "oauth-test-agent"

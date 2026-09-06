@@ -1,14 +1,9 @@
 package db
 
 import (
-	"io/fs"
-	"os"
 	"testing"
-	"testing/fstest"
 
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/pressly/goose/v3"
 )
 
 const (
@@ -16,39 +11,11 @@ const (
 	pluginCutoverMigration41 = int64(90000000000041)
 )
 
-// TestPluginCutoverCandidateThroughGoose exercises the external candidate as
-// Goose would apply it. Set STELLA_FINAL_MIGRATION_CUTOVER_SQL to the reviewed
-// candidate path while it remains outside the embedded migration set; remove
-// this indirection once migration 41 is finalized in the repository.
-func TestPluginCutoverCandidateThroughGoose(t *testing.T) {
-	candidatePath := os.Getenv("STELLA_FINAL_MIGRATION_CUTOVER_SQL")
-	if candidatePath == "" {
-		t.Skip("set STELLA_FINAL_MIGRATION_CUTOVER_SQL to run the external migration candidate")
-	}
-	candidate, err := os.ReadFile(candidatePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	db := newTestDB(t)
+// TestPluginCutoverMigrationThroughGoose applies the embedded final migration
+// to the exact pre-41 schema and then exercises the UUID-preserving importer.
+func TestPluginCutoverMigrationThroughGoose(t *testing.T) {
+	db, provider := newTestDBAtMigration(t, pluginCutoverMigration40)
 	ctx := t.Context()
-	sqlDB := stdlib.OpenDBFromPool(db)
-	t.Cleanup(func() { _ = sqlDB.Close() })
-	baseMigrations, err := fs.Sub(MigrationsFS, "migrations")
-	if err != nil {
-		t.Fatal(err)
-	}
-	baseProvider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, baseMigrations)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := baseProvider.DownTo(ctx, pluginCutoverMigration40); err != nil {
-		t.Fatalf("down to preparation migration 40: %v", err)
-	}
-	candidateProvider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, candidateMigrationFS(t, candidate))
-	if err != nil {
-		t.Fatal(err)
-	}
 	user := insertPluginUser(t, db, "plugin-cutover-candidate@example.test", false)
 	const registrationID = "0198f9a4-1b2c-7def-8123-456789abcdef"
 	if _, err := db.Exec(ctx, `
@@ -69,8 +36,8 @@ func TestPluginCutoverCandidateThroughGoose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := candidateProvider.UpTo(ctx, pluginCutoverMigration41); err != nil {
-		t.Fatalf("apply candidate migration 41: %v", err)
+	if _, err := provider.UpTo(ctx, pluginCutoverMigration41); err != nil {
+		t.Fatalf("apply embedded migration 41: %v", err)
 	}
 	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); err != nil {
 		t.Fatalf("import legacy state after candidate migration: %v", err)
@@ -100,8 +67,8 @@ func TestPluginCutoverCandidateThroughGoose(t *testing.T) {
 		t.Fatalf("cutover marker = %q", marker)
 	}
 
-	if _, err := candidateProvider.DownTo(ctx, pluginCutoverMigration40); err == nil {
-		t.Fatal("candidate Down unexpectedly succeeded")
+	if _, err := provider.DownTo(ctx, pluginCutoverMigration40); err == nil {
+		t.Fatal("migration 41 Down unexpectedly succeeded")
 	}
 	var latestVersion int64
 	var applied bool
@@ -120,31 +87,4 @@ func TestPluginCutoverCandidateThroughGoose(t *testing.T) {
 	if !stateTableExists {
 		t.Fatal("candidate Down removed mcp_connection_state")
 	}
-}
-
-func candidateMigrationFS(t *testing.T, candidate []byte) fs.FS {
-	t.Helper()
-	files := make(fstest.MapFS)
-	if err := fs.WalkDir(MigrationsFS, ".", func(name string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		data, err := fs.ReadFile(MigrationsFS, name)
-		if err != nil {
-			return err
-		}
-		files[name] = &fstest.MapFile{Data: data, Mode: 0o644}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	files["migrations/90000000000041_plugin_runtime_identity.sql"] = &fstest.MapFile{Data: candidate, Mode: 0o644}
-	migrations, err := fs.Sub(files, "migrations")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return migrations
 }

@@ -287,9 +287,13 @@ func canonicalToolBinaries(binaries []ToolBinary) []ToolBinary {
 	canonical := slices.Clone(binaries)
 	slices.SortFunc(canonical, func(left, right ToolBinary) int {
 		for _, pair := range [][2]string{
-			{left.PluginID, right.PluginID}, {left.ConfigID, right.ConfigID},
-			{left.Scope, right.Scope}, {fmt.Sprint(left.Revision), fmt.Sprint(right.Revision)},
-			{left.Name, right.Name}, {left.Tool, right.Tool}, {left.Version, right.Version},
+			{left.PluginID, right.PluginID},
+			{left.ConfigID, right.ConfigID},
+			{left.Scope, right.Scope},
+			{fmt.Sprint(left.Revision), fmt.Sprint(right.Revision)},
+			{left.Name, right.Name},
+			{left.Tool, right.Tool},
+			{left.Version, right.Version},
 		} {
 			if pair[0] < pair[1] {
 				return -1

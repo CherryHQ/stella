@@ -78,7 +78,6 @@ ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/bin/stellad \
     --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
 	STELLA_HOME=/opt/stella stellad system-bundle install && \
-	STELLA_HOME=/opt/stella stellad mise reconcile-builtins && \
 	REVISION="$(STELLA_HOME=/opt/stella stellad system-bundle revision)" && \
 	test "$REVISION" = "$BUILTIN_BUNDLE_REVISION" && \
 	mkdir -p /opt/stella/skills && ln -s "../bundles/$REVISION" /opt/stella/skills/builtin && \

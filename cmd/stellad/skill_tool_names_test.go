@@ -141,7 +141,7 @@ func TestBuiltinProseOnlyNamesRegisteredTools(t *testing.T) {
 var wildcardToolFamily = regexp.MustCompile(`(?m)^([a-z][a-z_]*)\*\s+#`)
 
 func TestStellaSkillWildcardFamiliesMatchRegisteredTools(t *testing.T) {
-	body, err := fs.ReadFile(resources.FS(), "skills/system/stella/SKILL.md")
+	body, err := fs.ReadFile(resources.FS(), "skills/core/stella/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}

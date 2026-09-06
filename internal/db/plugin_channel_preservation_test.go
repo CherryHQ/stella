@@ -47,7 +47,7 @@ func TestPluginImportPreservesIndependentChannelCredentialsAndDisable(t *testing
 	if after := snapshotChannels(); after != before {
 		t.Fatal("import changed channel identities, credentials, bindings, or active states")
 	}
-	service := plugin.NewService(database, nil, catalog, noopPluginValidator, inlinePluginMutationFence)
+	service := plugin.NewService(database, nil, catalog, plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	if err := service.SyncBuiltinDefaults(ctx); err != nil {
 		t.Fatal(err)
 	}

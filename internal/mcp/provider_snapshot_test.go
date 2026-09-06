@@ -4,11 +4,11 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"time"
 )
 
 func TestToolsForRegistrationsUsesPluginNamespaceForExport(t *testing.T) {
@@ -118,7 +118,7 @@ func TestSnapshotMCPExportBoundaries(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			svc := plugin.NewService(pool, nil, plugin.NewCatalog(), nil, func(_ context.Context, fn func() error) error { return fn() })
+			svc := plugin.NewService(pool, nil, plugin.NewCatalog(), plugin.BackendPolicy{Transition: noopBackendTransition}, func(_ context.Context, fn func() error) error { return fn() })
 			snapshot, err := svc.ResolveSnapshot(ctx, authority, "")
 			if err != nil {
 				t.Fatal(err)

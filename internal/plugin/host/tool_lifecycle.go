@@ -2,8 +2,9 @@ package host
 
 import (
 	"context"
-	"github.com/CherryHQ/stella/internal/plugin"
 	"sort"
+
+	"github.com/CherryHQ/stella/internal/plugin"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )

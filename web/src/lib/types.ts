@@ -29,8 +29,7 @@ import type {
 
 export type Agent = ComponentsAgent & { id: string; name: string };
 export type Session = import("@/lib/api-client/types.gen").ComponentsSession;
-export type SessionDetail =
-  import("@/lib/api-client/types.gen").ComponentsSessionDetail;
+export type SessionDetail = import("@/lib/api-client/types.gen").ComponentsSessionDetail;
 export type Identity = ComponentsIdentity & { id: string };
 export type ChannelIdentity = SdkChannelIdentity & { id: string };
 export type Skill = ComponentsSkill & {
@@ -89,10 +88,7 @@ export type OAuthProvider = ComponentsOAuthProviderStatus & {
 // ── Local types (no SDK equivalent) ───────────────────────────────────────────
 
 export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue =
-  | JsonPrimitive
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
 export interface ToolBlock {

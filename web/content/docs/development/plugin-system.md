@@ -14,12 +14,12 @@ Custom definitions cannot select arbitrary Go implementations.
 
 `PluginConfig` records one decision for a definition at one scope:
 
-| Scope | Applies to |
-| --- | --- |
-| System | Everyone in the deployment |
-| System agent | One Agent, across its users |
-| User | One user, across their Agents |
-| User agent | One user using one Agent |
+| Scope        | Applies to                    |
+| ------------ | ----------------------------- |
+| System       | Everyone in the deployment    |
+| System agent | One Agent, across its users   |
+| User         | One user, across their Agents |
+| User agent   | One user using one Agent      |
 
 There is at most one configuration for each definition and scope tuple. The
 selected configuration is user agent, user, system agent, then system. An

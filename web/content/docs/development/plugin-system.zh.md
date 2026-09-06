@@ -12,12 +12,12 @@ Builtin 定义来自可信的发行声明，数据库中的 builtin 行只是投
 
 `PluginConfig` 保存某个定义在一个范围内的决策：
 
-| 范围 | 适用对象 |
-| --- | --- |
-| System | 部署中的所有用户 |
-| System agent | 某个 Agent 的所有用户 |
-| User | 某个用户的所有 Agent |
-| User agent | 某个用户使用某个 Agent |
+| 范围         | 适用对象               |
+| ------------ | ---------------------- |
+| System       | 部署中的所有用户       |
+| System agent | 某个 Agent 的所有用户  |
+| User         | 某个用户的所有 Agent   |
+| User agent   | 某个用户使用某个 Agent |
 
 每个定义在一个范围元组内至多一份配置。选择顺序是 user agent、user、system
 agent、system。System 或匹配的 system agent 显式设为 `false`，分别构成独立上限，

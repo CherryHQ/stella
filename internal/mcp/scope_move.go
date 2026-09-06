@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/jackc/pgx/v5"
 )
 
 var (
@@ -94,13 +95,11 @@ func (s *Service) MoveConfigScope(ctx context.Context, authority authz.Authority
 				return errPluginCredentialsUnavailable
 			}
 			if req.Patch.CredentialRefsSet {
-				// Access validates a caller-supplied locator against the target
-				// tuple. It is useful when the backend wants an exact next refs
-				// shape, but it must never be inferred from request owner fields.
-			} else {
-				req.Patch.CredentialRefsSet = true
-				req.Patch.CredentialRefs = bearerMoveRefs(req.ConfigID, req.TargetScope, req.TargetAgentID, authority)
+				return authz.ErrForbidden
 			}
+			req.Patch.CredentialRefsSet = true
+			req.Patch.CredentialRefs = bearerMoveRefs(req.ConfigID, req.TargetScope, req.TargetAgentID, authority)
+
 		case AuthTypeOAuth:
 			return ErrScopeMoveOAuth
 		default:
@@ -110,7 +109,7 @@ func (s *Service) MoveConfigScope(ctx context.Context, authority authz.Authority
 			return authz.ErrForbidden
 		}
 
-		moved, err := access.MoveConfig(mutationCtx, req.PluginID, req.ConfigID, req.ExpectedRevision, req.TargetScope, req.TargetAgentID, req.Patch)
+		moved, err := access.MoveConfig(permittedConfigMutation(mutationCtx, tx, current, plugin.MutationMove, false), req.PluginID, req.ConfigID, req.ExpectedRevision, req.TargetScope, req.TargetAgentID, req.Patch)
 		if err != nil {
 			return err
 		}
@@ -123,9 +122,6 @@ func (s *Service) MoveConfigScope(ctx context.Context, authority authz.Authority
 			}
 		}
 		mutation := CredentialMutation{tx: tx, config: moved, owner: newOwner, vault: vault, configManaged: true}
-		if err := mutation.DeleteAll(mutationCtx); err != nil {
-			return err
-		}
 		if currentPayload.AuthType == AuthTypeBearer {
 			if err := mutation.StoreBearer(mutationCtx, *req.Replacement); err != nil {
 				return err

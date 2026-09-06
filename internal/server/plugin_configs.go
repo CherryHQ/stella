@@ -7,13 +7,14 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
+
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/mcp"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
-	"github.com/google/uuid"
 )
 
 // Transport responses use generated API types and project backend payloads
@@ -47,7 +48,7 @@ func writePluginError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	message := "internal error"
 	switch {
-	case errors.Is(err, pluginpkg.ErrConflict):
+	case errors.Is(err, pluginpkg.ErrConflict), errors.Is(err, mcp.ErrVersionConflict):
 		status, message = http.StatusConflict, "resource revision conflict"
 	case errors.Is(err, pluginpkg.ErrBuiltinConfig):
 		status, message = http.StatusConflict, "builtin system configuration cannot be deleted"
@@ -277,21 +278,6 @@ func (s *Server) resetPluginConfig(w http.ResponseWriter, r *http.Request, kind,
 		return
 	}
 	writeData(w, http.StatusOK, view)
-}
-
-// Probe and sync intentionally authorize and resolve the addressed config
-// first. Their backend ports are injected in a later phase, so a request never
-// reports success or delegates to legacy MCP/manifest handlers.
-func (s *Server) unsupportedPluginBackendAction(w http.ResponseWriter, r *http.Request, kind, name, configID string) {
-	access, _, ok := s.beginPluginAccess(w, r)
-	if !ok {
-		return
-	}
-	if _, err := access.GetConfig(r.Context(), pluginID(kind, name), configID); err != nil {
-		writePluginError(w, err)
-		return
-	}
-	writePluginError(w, errPluginCapabilityUnavailable)
 }
 
 func (s *Server) getPluginEffective(w http.ResponseWriter, r *http.Request, kind, name, agentID string) {

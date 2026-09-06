@@ -22,7 +22,7 @@ WHERE tool_name = $1
 `
 
 type DeleteCoreToolOverrideParams struct {
-	ToolName string      `json:"tool_name"`
+	ToolName pgtype.Text `json:"tool_name"`
 	Scope    string      `json:"scope"`
 	UserID   pgtype.Text `json:"user_id"`
 	AgentID  pgtype.Text `json:"agent_id"`
@@ -46,11 +46,11 @@ WHERE tool_name = $1
   AND coalesce(user_id::text, '') = coalesce($3::text, '')
   AND coalesce(agent_id, '') = coalesce($4, '')
   AND updated_at = $5
-RETURNING id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type DeleteCoreToolOverrideIfVersionParams struct {
-	ToolName          string      `json:"tool_name"`
+	ToolName          pgtype.Text `json:"tool_name"`
 	Scope             string      `json:"scope"`
 	UserID            pgtype.Text `json:"user_id"`
 	AgentID           pgtype.Text `json:"agent_id"`
@@ -119,7 +119,7 @@ WHERE tool_name IS NULL
   AND coalesce(user_id::text, '') = coalesce($4::text, '')
   AND coalesce(agent_id, '') = coalesce($5, '')
   AND updated_at = $6
-RETURNING id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type DeletePluginToolOverrideIfVersionParams struct {
@@ -165,7 +165,7 @@ WHERE tool_name = $1
 `
 
 type DeleteToolOverrideParams struct {
-	ToolName string      `json:"tool_name"`
+	ToolName pgtype.Text `json:"tool_name"`
 	Scope    string      `json:"scope"`
 	UserID   pgtype.Text `json:"user_id"`
 	AgentID  pgtype.Text `json:"agent_id"`
@@ -192,7 +192,7 @@ RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_
 `
 
 type DeleteToolOverrideIfVersionParams struct {
-	ToolName          string      `json:"tool_name"`
+	ToolName          pgtype.Text `json:"tool_name"`
 	Scope             string      `json:"scope"`
 	UserID            pgtype.Text `json:"user_id"`
 	AgentID           pgtype.Text `json:"agent_id"`
@@ -237,7 +237,7 @@ func (q *Queries) DeleteToolOverridesByPrefix(ctx context.Context, prefix string
 }
 
 const getToolOverride = `-- name: GetToolOverride :one
-SELECT id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name FROM tool_override
+SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name FROM tool_override
 WHERE tool_name = $1
   AND scope = $2
   AND coalesce(user_id::text, '') = coalesce($3::text, '')
@@ -246,7 +246,7 @@ LIMIT 1
 `
 
 type GetToolOverrideParams struct {
-	ToolName string      `json:"tool_name"`
+	ToolName pgtype.Text `json:"tool_name"`
 	Scope    string      `json:"scope"`
 	UserID   pgtype.Text `json:"user_id"`
 	AgentID  pgtype.Text `json:"agent_id"`
@@ -276,7 +276,7 @@ func (q *Queries) GetToolOverride(ctx context.Context, arg GetToolOverrideParams
 }
 
 const getToolOverrideByIdentity = `-- name: GetToolOverrideByIdentity :one
-SELECT id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name FROM tool_override
+SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name FROM tool_override
 WHERE tool_name IS NOT DISTINCT FROM $1
   AND plugin_id IS NOT DISTINCT FROM $2
   AND local_tool_name IS NOT DISTINCT FROM $3
@@ -324,11 +324,11 @@ const insertCoreToolOverrideIfAbsent = `-- name: InsertCoreToolOverrideIfAbsent 
 INSERT INTO tool_override (tool_name, plugin_id, local_tool_name, scope, user_id, agent_id, enabled)
 VALUES ($1, NULL, NULL, $2, $3, $4, $5)
 ON CONFLICT DO NOTHING
-RETURNING id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type InsertCoreToolOverrideIfAbsentParams struct {
-	ToolName string      `json:"tool_name"`
+	ToolName pgtype.Text `json:"tool_name"`
 	Scope    string      `json:"scope"`
 	UserID   pgtype.Text `json:"user_id"`
 	AgentID  pgtype.Text `json:"agent_id"`
@@ -363,7 +363,7 @@ const insertPluginToolOverrideIfAbsent = `-- name: InsertPluginToolOverrideIfAbs
 INSERT INTO tool_override (tool_name, plugin_id, local_tool_name, scope, user_id, agent_id, enabled)
 VALUES (NULL, $1, $2, $3, $4, $5, $6)
 ON CONFLICT DO NOTHING
-RETURNING id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type InsertPluginToolOverrideIfAbsentParams struct {
@@ -404,11 +404,11 @@ const insertToolOverrideIfAbsent = `-- name: InsertToolOverrideIfAbsent :one
 INSERT INTO tool_override (tool_name, scope, user_id, agent_id, enabled)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT DO NOTHING
-RETURNING id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type InsertToolOverrideIfAbsentParams struct {
-	ToolName string      `json:"tool_name"`
+	ToolName pgtype.Text `json:"tool_name"`
 	Scope    string      `json:"scope"`
 	UserID   pgtype.Text `json:"user_id"`
 	AgentID  pgtype.Text `json:"agent_id"`
@@ -440,7 +440,7 @@ func (q *Queries) InsertToolOverrideIfAbsent(ctx context.Context, arg InsertTool
 }
 
 const listToolOverridesForAgentContext = `-- name: ListToolOverridesForAgentContext :many
-SELECT id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name FROM tool_override
+SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name FROM tool_override
 WHERE scope = 'system'
    OR (scope = 'system_agent' AND agent_id = $1)
    OR (scope = 'user'         AND user_id = $2)
@@ -520,12 +520,12 @@ WHERE tool_name = $2
   AND coalesce(user_id::text, '') = coalesce($4::text, '')
   AND coalesce(agent_id, '') = coalesce($5, '')
   AND updated_at = $6
-RETURNING id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type UpdateCoreToolOverrideIfVersionParams struct {
 	Enabled           bool        `json:"enabled"`
-	ToolName          string      `json:"tool_name"`
+	ToolName          pgtype.Text `json:"tool_name"`
 	Scope             string      `json:"scope"`
 	UserID            pgtype.Text `json:"user_id"`
 	AgentID           pgtype.Text `json:"agent_id"`
@@ -567,7 +567,7 @@ WHERE tool_name IS NULL
   AND coalesce(user_id::text, '') = coalesce($5::text, '')
   AND coalesce(agent_id, '') = coalesce($6, '')
   AND updated_at = $7
-RETURNING id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type UpdatePluginToolOverrideIfVersionParams struct {
@@ -614,12 +614,12 @@ WHERE tool_name = $2
   AND coalesce(user_id::text, '') = coalesce($4::text, '')
   AND coalesce(agent_id, '') = coalesce($5, '')
   AND updated_at = $6
-RETURNING id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type UpdateToolOverrideIfVersionParams struct {
 	Enabled           bool        `json:"enabled"`
-	ToolName          string      `json:"tool_name"`
+	ToolName          pgtype.Text `json:"tool_name"`
 	Scope             string      `json:"scope"`
 	UserID            pgtype.Text `json:"user_id"`
 	AgentID           pgtype.Text `json:"agent_id"`
@@ -655,13 +655,13 @@ const upsertCoreToolOverride = `-- name: UpsertCoreToolOverride :one
 INSERT INTO tool_override (tool_name, plugin_id, local_tool_name, scope, user_id, agent_id, enabled)
 VALUES ($1, NULL, NULL, $2, $3, $4, $5)
 ON CONFLICT (tool_name, scope, user_id, agent_id)
-  WHERE plugin_id IS NULL AND local_tool_name IS NULL
+  WHERE tool_name IS NOT NULL AND plugin_id IS NULL AND local_tool_name IS NULL
 DO UPDATE SET enabled = excluded.enabled, updated_at = now()
-RETURNING id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type UpsertCoreToolOverrideParams struct {
-	ToolName string      `json:"tool_name"`
+	ToolName pgtype.Text `json:"tool_name"`
 	Scope    string      `json:"scope"`
 	UserID   pgtype.Text `json:"user_id"`
 	AgentID  pgtype.Text `json:"agent_id"`
@@ -698,7 +698,7 @@ VALUES (NULL, $1, $2, $3, $4, $5, $6)
 ON CONFLICT (plugin_id, local_tool_name, scope, user_id, agent_id)
   WHERE tool_name IS NULL
 DO UPDATE SET enabled = excluded.enabled, updated_at = now()
-RETURNING id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type UpsertPluginToolOverrideParams struct {
@@ -740,11 +740,11 @@ INSERT INTO tool_override (tool_name, scope, user_id, agent_id, enabled)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (tool_name, scope, user_id, agent_id)
 DO UPDATE SET enabled = excluded.enabled, updated_at = now()
-RETURNING id, coalesce(tool_name, '') AS tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
 `
 
 type UpsertToolOverrideParams struct {
-	ToolName string      `json:"tool_name"`
+	ToolName pgtype.Text `json:"tool_name"`
 	Scope    string      `json:"scope"`
 	UserID   pgtype.Text `json:"user_id"`
 	AgentID  pgtype.Text `json:"agent_id"`

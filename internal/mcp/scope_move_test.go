@@ -7,10 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/plugin"
 )
 
 func TestMoveConfigScopeAuthNonePreservesIDAndUsesTargetOwner(t *testing.T) {

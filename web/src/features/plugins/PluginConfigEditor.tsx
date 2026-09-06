@@ -16,21 +16,14 @@ export type PluginConfigCredentials = Record<string, unknown>;
 
 type Translate = ReturnType<typeof useI18n>["t"];
 
-type SaveConfig = (
-  payload: PluginConfigPayload,
-  credentials: PluginConfigCredentials,
-) => void;
+type SaveConfig = (payload: PluginConfigPayload, credentials: PluginConfigCredentials) => void;
 
 function mcpSummary(config?: PluginConfig) {
-  return config?.backend_summary.backend === "mcp"
-    ? config.backend_summary
-    : undefined;
+  return config?.backend_summary.backend === "mcp" ? config.backend_summary : undefined;
 }
 
 function cliSummary(config?: PluginConfig) {
-  return config?.backend_summary.backend === "cli"
-    ? config.backend_summary
-    : undefined;
+  return config?.backend_summary.backend === "cli" ? config.backend_summary : undefined;
 }
 
 function ConfigEditor({
@@ -53,9 +46,7 @@ function ConfigEditor({
   const [url, setURL] = useState("");
   const [transport, setTransport] = useState<McpTransport>("streamable_http");
   const [authType, setAuthType] = useState<McpAuthType>("none");
-  const [credentialMode, setCredentialMode] = useState<"shared" | "per_user">(
-    "shared",
-  );
+  const [credentialMode, setCredentialMode] = useState<"shared" | "per_user">("shared");
   const [token, setToken] = useState("");
   const [oauthClientId, setOauthClientId] = useState("");
   const [oauthClientSecret, setOauthClientSecret] = useState("");
@@ -70,11 +61,7 @@ function ConfigEditor({
     setToken("");
     setOauthClientId("");
     setOauthClientSecret("");
-    setVersions(
-      Object.fromEntries(
-        (cli?.binaries ?? []).map((binary) => [binary.name, ""]),
-      ),
-    );
+    setVersions(Object.fromEntries((cli?.binaries ?? []).map((binary) => [binary.name, ""])));
     setSkillSources({});
   }, [cli, mcp]);
 
@@ -89,10 +76,8 @@ function ConfigEditor({
       const credentials: PluginConfigCredentials = {};
       if (authType === "bearer" && token.trim()) credentials.token = token;
       if (authType === "oauth") {
-        if (oauthClientId.trim())
-          credentials.oauth_client_id = oauthClientId.trim();
-        if (oauthClientSecret.trim())
-          credentials.oauth_client_secret = oauthClientSecret;
+        if (oauthClientId.trim()) credentials.oauth_client_id = oauthClientId.trim();
+        if (oauthClientSecret.trim()) credentials.oauth_client_secret = oauthClientSecret;
       }
       onSave({ config }, credentials);
       return;
@@ -102,8 +87,7 @@ function ConfigEditor({
       const binaryVersions = Object.fromEntries(
         Object.entries(versions).filter(([, version]) => version.trim()),
       );
-      if (Object.keys(binaryVersions).length > 0)
-        payload.binary_versions = binaryVersions;
+      if (Object.keys(binaryVersions).length > 0) payload.binary_versions = binaryVersions;
       const sources = Object.fromEntries(
         Object.entries(skillSources).filter(([, source]) => source.trim()),
       );
@@ -138,11 +122,7 @@ function ConfigEditor({
           showCredentialMode
           showName={false}
         />
-        {config && (
-          <p className="text-sm text-muted-foreground">
-            {t("plugins.blankPreserves")}
-          </p>
-        )}
+        {config && <p className="text-sm text-muted-foreground">{t("plugins.blankPreserves")}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
             {t("common.cancel")}
@@ -202,9 +182,7 @@ function ConfigEditor({
             ))}
           </div>
         )}
-        <p className="text-sm text-muted-foreground">
-          {t("plugins.blankPreserves")}
-        </p>
+        <p className="text-sm text-muted-foreground">{t("plugins.blankPreserves")}</p>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
             {t("common.cancel")}
@@ -226,9 +204,7 @@ function ConfigEditor({
   );
 }
 
-export function PluginConfigEditor(
-  props: Omit<Parameters<typeof ConfigEditor>[0], "t">,
-) {
+export function PluginConfigEditor(props: Omit<Parameters<typeof ConfigEditor>[0], "t">) {
   const { t } = useI18n();
   return <ConfigEditor {...props} t={t} />;
 }

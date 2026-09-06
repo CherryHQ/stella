@@ -11,12 +11,12 @@ import (
 )
 
 type fakeManagedChannelRuntimeHost struct {
-	metas             []pkgplugins.PluginInfo
-	channels          []config.Channel
-	listErr           error
-	configured        map[string]bool
-	applyErrs         map[string]error
-	applyCalls        []string
+	metas                 []pkgplugins.PluginInfo
+	channels              []config.Channel
+	listErr               error
+	configured            map[string]bool
+	applyErrs             map[string]error
+	applyCalls            []string
 	reconcileChannelCalls []string
 }
 

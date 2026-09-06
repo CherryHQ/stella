@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -266,9 +267,7 @@ func TestToolMutationDispatchRejectsBlankExpectedVersionBeforeService(t *testing
 	} {
 		t.Run(tc.action, func(t *testing.T) {
 			args := make(map[string]any, len(tc.args)+1)
-			for key, value := range tc.args {
-				args[key] = value
-			}
+			maps.Copy(args, tc.args)
 			args["id"] = configID
 			if _, err := SettingsMcpDispatch(ctx, handler, tc.action, args); !errors.Is(err, ErrVersionConflict) {
 				t.Fatalf("dispatch = %v, want version conflict", err)
@@ -367,7 +366,8 @@ func commonMCPTestService(t *testing.T) (*Service, string, string, context.Conte
 // production DDL.
 func preparePluginToolOverrideIdentitySchema(t *testing.T, pool interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
-}) {
+},
+) {
 	t.Helper()
 	if _, err := pool.Exec(t.Context(), `
 		ALTER TABLE tool_override ALTER COLUMN tool_name DROP NOT NULL;
@@ -881,9 +881,10 @@ func TestToolProviderDiscoversServersConcurrently(t *testing.T) {
 	regs := []Registration{reg}
 	for i := 1; i < 3; i++ {
 		scope, ownerUser, ownerAgent := ScopeUser, userID, ""
-		if i == 1 {
+		switch i {
+		case 1:
 			scope, ownerAgent = ScopeUserAgent, "oauth-test-agent"
-		} else if i == 2 {
+		case 2:
 			scope, ownerUser, ownerAgent = ScopeSystemAgent, "", "oauth-test-agent"
 		}
 		copy, err := svc.Create(ctx, CreateInput{

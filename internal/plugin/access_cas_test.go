@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -27,7 +28,7 @@ func TestAccessUpdateConfigUsesExpectedRevision(t *testing.T) {
 	if err := catalog.Register(definition); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(db, nil, catalog, nil, func(_ context.Context, fn func() error) error { return fn() })
+	service := NewService(db, nil, catalog, BackendPolicy{Transition: inlineBackendPolicyTransition}, func(_ context.Context, fn func() error) error { return fn() })
 	if err := service.SyncBuiltinDefaults(t.Context()); err != nil {
 		t.Fatalf("sync defaults: %v", err)
 	}
@@ -114,7 +115,7 @@ func TestAccessMoveConfigRejectsUnauthorizedAgentSource(t *testing.T) {
 		t.Fatalf("CreateConfig: %v", err)
 	}
 
-	deniedService := NewService(db, agentaccess.NewService(denyingMoveAgentStore{}, denyingMoveAgentLinks{}), allowedService.catalog, nil, func(_ context.Context, fn func() error) error { return fn() })
+	deniedService := NewService(db, agentaccess.NewService(denyingMoveAgentStore{}, denyingMoveAgentLinks{}), allowedService.catalog, BackendPolicy{Transition: inlineBackendPolicyTransition}, func(_ context.Context, fn func() error) error { return fn() })
 	denied, err := deniedService.Begin(authority)
 	if err != nil {
 		t.Fatal(err)
@@ -204,7 +205,7 @@ func TestAccessMoveConfigValidatesBeforeMutation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateConfig: %v", err)
 	}
-	service.validatePayload = func(context.Context, Definition, Config, []string) error { return ErrInvalidConfig }
+	service.policy.Validate = func(context.Context, Definition, Config, []string) error { return ErrInvalidConfig }
 	if _, err := access.MoveConfig(t.Context(), definition.ID, created.ID, created.Revision, ScopeUser, "", ConfigPatch{}); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("validation error = %v, want ErrInvalidConfig", err)
 	}
@@ -224,7 +225,7 @@ func newMoveService(t *testing.T, db *pgxpool.Pool, agents *agentaccess.Service,
 	if err := catalog.Register(definition); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(db, agents, catalog, validate, func(_ context.Context, fn func() error) error { return fn() })
+	service := NewService(db, agents, catalog, BackendPolicy{Validate: validate, Transition: inlineBackendPolicyTransition}, func(_ context.Context, fn func() error) error { return fn() })
 	if err := service.SyncBuiltinDefaults(t.Context()); err != nil {
 		t.Fatalf("SyncBuiltinDefaults: %v", err)
 	}
@@ -259,4 +260,159 @@ type denyingMoveAgentLinks struct{}
 
 func (denyingMoveAgentLinks) ListUserAgentIDs(context.Context, string) ([]string, error) {
 	return nil, nil
+}
+
+func TestBackendPolicyCASConflictSkipsTransition(t *testing.T) {
+	db := dbtest.New(t)
+	catalog := NewCatalog()
+	definition := backendPolicyDefinition("policy-cas", false)
+	if err := catalog.Register(definition); err != nil {
+		t.Fatal(err)
+	}
+	var transitions int
+	service := NewService(db, nil, catalog, BackendPolicy{
+		Transition: func(context.Context, pgx.Tx, authz.Authority, MutationKind, Definition, *Config, *Config) error {
+			transitions++
+			return nil
+		},
+	}, inlineBackendPolicyFence)
+	if err := service.SyncBuiltinDefaults(t.Context()); err != nil {
+		t.Fatalf("sync defaults: %v", err)
+	}
+	authority, err := authz.NewUserAuthority("10000000-0000-0000-0000-000000000001", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	access, err := service.Begin(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configs, err := access.ListConfigs(t.Context(), definition.ID, ScopeSystem, "")
+	if err != nil || len(configs) != 1 {
+		t.Fatalf("list system config = %d/%v, want one", len(configs), err)
+	}
+	initial := configs[0]
+	disabled := false
+	if _, err := access.UpdateConfig(t.Context(), definition.ID, initial.ID, initial.Revision, ConfigPatch{EnabledSet: true, Enabled: &disabled}); err != nil {
+		t.Fatalf("first update: %v", err)
+	}
+	if transitions != 1 {
+		t.Fatalf("transition count after first update = %d, want 1", transitions)
+	}
+	if _, err := access.UpdateConfig(t.Context(), definition.ID, initial.ID, initial.Revision, ConfigPatch{EnabledSet: true, Enabled: &disabled}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale update = %v, want ErrConflict", err)
+	}
+	if transitions != 1 {
+		t.Fatalf("transition count after stale update = %d, want unchanged", transitions)
+	}
+}
+
+func TestBackendPolicyTransitionErrorRollsBackConfig(t *testing.T) {
+	db := dbtest.New(t)
+	catalog := NewCatalog()
+	definition := backendPolicyDefinition("policy-rollback", true)
+	if err := catalog.Register(definition); err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("backend transition rejected")
+	var hookSawCommittedRow bool
+	service := NewService(db, nil, catalog, BackendPolicy{
+		Transition: func(ctx context.Context, tx pgx.Tx, _ authz.Authority, _ MutationKind, _ Definition, _ *Config, after *Config) error {
+			var revision int64
+			if err := tx.QueryRow(ctx, `SELECT revision FROM plugin_config WHERE id = $1`, after.ID).Scan(&revision); err != nil {
+				return err
+			}
+			hookSawCommittedRow = revision == after.Revision
+			return wantErr
+		},
+	}, inlineBackendPolicyFence)
+	if err := service.SyncBuiltinDefaults(t.Context()); err != nil {
+		t.Fatalf("sync defaults: %v", err)
+	}
+	authority, err := authz.NewUserAuthority("10000000-0000-0000-0000-000000000001", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	access, err := service.Begin(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configs, err := access.ListConfigs(t.Context(), definition.ID, ScopeSystem, "")
+	if err != nil || len(configs) != 1 {
+		t.Fatalf("list system config = %d/%v, want one", len(configs), err)
+	}
+	before := configs[0]
+	disabled := false
+	if _, err := access.UpdateConfig(t.Context(), definition.ID, before.ID, before.Revision, ConfigPatch{EnabledSet: true, Enabled: &disabled}); !errors.Is(err, wantErr) {
+		t.Fatalf("transition error = %v, want %v", err, wantErr)
+	}
+	if !hookSawCommittedRow {
+		t.Fatal("transition did not observe the post-CAS row in the same transaction")
+	}
+	after, err := access.GetConfig(t.Context(), definition.ID, before.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Revision != before.Revision || !sameBackendPolicyBool(after.Enabled, before.Enabled) {
+		t.Fatalf("config after transition rollback = %+v, want revision/enabled %+v", after, before)
+	}
+}
+
+func TestBackendPolicyValidateOnlyFailsClosedAndRollsBack(t *testing.T) {
+	db := dbtest.New(t)
+	catalog := NewCatalog()
+	definition := backendPolicyDefinition("policy-no-transition", false)
+	if err := catalog.Register(definition); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(db, nil, catalog, BackendPolicy{
+		Validate: func(context.Context, Definition, Config, []string) error { return nil },
+	}, inlineBackendPolicyFence)
+	if err := service.SyncBuiltinDefaults(t.Context()); err != nil {
+		t.Fatalf("sync defaults: %v", err)
+	}
+	authority, err := authz.NewUserAuthority("10000000-0000-0000-0000-000000000001", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	access, err := service.Begin(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configs, err := access.ListConfigs(t.Context(), definition.ID, ScopeSystem, "")
+	if err != nil || len(configs) != 1 {
+		t.Fatalf("list system config = %d/%v, want one", len(configs), err)
+	}
+	before := configs[0]
+	disabled := false
+	if _, err := access.UpdateConfig(t.Context(), definition.ID, before.ID, before.Revision, ConfigPatch{EnabledSet: true, Enabled: &disabled}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("validate-only update = %v, want ErrInvalidConfig", err)
+	}
+	after, err := access.GetConfig(t.Context(), definition.ID, before.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Revision != before.Revision || !sameBackendPolicyBool(after.Enabled, before.Enabled) {
+		t.Fatalf("config after fail-closed rollback = %+v, want unchanged %+v", after, before)
+	}
+}
+
+func sameBackendPolicyBool(left, right *bool) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func backendPolicyDefinition(id string, defaultEnabled bool) Definition {
+	return Definition{
+		ID: id, Namespace: id, DisplayName: id, Backend: BackendGo, Source: SourceBuiltin,
+		ImplementationKey: id, Spec: []byte(`{}`), DefaultEnabled: defaultEnabled, Revision: 1,
+	}
+}
+
+func inlineBackendPolicyFence(_ context.Context, fn func() error) error { return fn() }
+
+func inlineBackendPolicyTransition(context.Context, pgx.Tx, authz.Authority, MutationKind, Definition, *Config, *Config) error {
+	return nil
 }

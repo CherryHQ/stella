@@ -73,17 +73,17 @@ plugins:
 
 ## 插件字段
 
-| 字段             | 必填 | 描述                                                                  |
-| ---------------- | ---- | --------------------------------------------------------------------- |
-| `id`             | 是   | 唯一插件 ID，格式为 `kind/name`，例如 `tool/my-cli`                   |
-| `kind`           | 是   | 插件类型，通常为 `tool`                                               |
-| `name`           | 是   | 简短的机器可读名称                                                    |
-| `display_name`   | 否   | 在管理界面显示的人类可读标签                                          |
-| `description`    | 否   | 在管理界面显示的简短描述                                              |
-| `enabled`        | 否   | 清单输入的简写，会规范化到选中的 `PluginConfig`；不是第二套权限系统。 |
+| 字段             | 必填 | 描述                                                                             |
+| ---------------- | ---- | -------------------------------------------------------------------------------- |
+| `id`             | 是   | 唯一插件 ID，格式为 `kind/name`，例如 `tool/my-cli`                              |
+| `kind`           | 是   | 插件类型，通常为 `tool`                                                          |
+| `name`           | 是   | 简短的机器可读名称                                                               |
+| `display_name`   | 否   | 在管理界面显示的人类可读标签                                                     |
+| `description`    | 否   | 在管理界面显示的简短描述                                                         |
+| `enabled`        | 否   | 清单输入的简写，会规范化到选中的 `PluginConfig`；不是第二套权限系统。            |
 | `binaries`       | 否   | CLI 二进制声明；Native managed 安装使用 managed tree，用户范围使用各自的沙箱目录 |
-| `session_env`    | 否   | 要注入沙箱会话的环境变量                                              |
-| `oauth_provider` | 否   | `oauth.*` 会话环境变量来源使用的静态 OAuth provider ID，例如 `github` |
+| `session_env`    | 否   | 要注入沙箱会话的环境变量                                                         |
+| `oauth_provider` | 否   | `oauth.*` 会话环境变量来源使用的静态 OAuth provider ID，例如 `github`            |
 
 ## 二进制字段
 

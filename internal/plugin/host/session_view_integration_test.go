@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -33,7 +34,7 @@ func TestSessionPluginViewRejectsIncompletePayloadAfterCapabilityLift(t *testing
 	insertUser(t, db, "10000000-0000-0000-0000-000000000001")
 	insertConfig(t, db, "20000000-0000-0000-0000-000000000001", definition, "user", "10000000-0000-0000-0000-000000000001", false, `{"binaries":null}`)
 
-	service := plugin.NewService(db, nil, catalog, nil, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Transition: noopBackendTransition}, inlinePluginMutationFence)
 	authority, err := authz.NewUserAuthority(authz.UserID("10000000-0000-0000-0000-000000000001"), false)
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +93,7 @@ func TestSessionPluginViewNamespaceWinnerHidesGoResources(t *testing.T) {
 	host.RegisterPluginID(goDefinition.ID)
 	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: goDefinition.ID, EnvVar: "EMAIL_TOKEN", Source: pkgplugins.SessionEnvSourceStatic, Value: "trusted"})
 	host.AddBundledSkill(pkgplugins.BundledSkillSpec{PluginID: goDefinition.ID, Name: "email-skill"})
-	service := plugin.NewService(db, nil, catalog, nil, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Transition: noopBackendTransition}, inlinePluginMutationFence)
 	authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +136,7 @@ func TestSessionPluginViewProjectsBundledRuntimeResources(t *testing.T) {
 	if _, err := db.Exec(ctx, `INSERT INTO plugin_config (id, plugin_id, namespace, scope, enabled, config, credential_refs, revision) VALUES ($1, $2, $3, 'system', TRUE, '{}'::jsonb, '{}'::jsonb, 1)`, "20000000-0000-0000-0000-000000000003", definition.ID, definition.Namespace); err != nil {
 		t.Fatal(err)
 	}
-	service := plugin.NewService(db, nil, catalog, nil, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Transition: noopBackendTransition}, inlinePluginMutationFence)
 	authority, err := authz.NewUserAuthority(authz.UserID("10000000-0000-0000-0000-000000000003"), false)
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +185,7 @@ func TestSessionPluginViewProjectsAuthoredMiseBundle(t *testing.T) {
 	if _, err := db.Exec(ctx, `INSERT INTO plugin_config (id, plugin_id, namespace, scope, enabled, config, credential_refs, revision) VALUES ($1, $2, $3, 'system', TRUE, '{}'::jsonb, '{}'::jsonb, 1)`, "20000000-0000-0000-0000-000000000004", definition.ID, definition.Namespace); err != nil {
 		t.Fatal(err)
 	}
-	service := plugin.NewService(db, nil, catalog, nil, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Transition: noopBackendTransition}, inlinePluginMutationFence)
 	authority, err := authz.NewUserAuthority(authz.UserID("10000000-0000-0000-0000-000000000004"), false)
 	if err != nil {
 		t.Fatal(err)
@@ -204,6 +205,10 @@ func TestSessionPluginViewProjectsAuthoredMiseBundle(t *testing.T) {
 
 func inlinePluginMutationFence(_ context.Context, mutate func() error) error {
 	return mutate()
+}
+
+func noopBackendTransition(context.Context, pgx.Tx, authz.Authority, plugin.MutationKind, plugin.Definition, *plugin.Config, *plugin.Config) error {
+	return nil
 }
 
 func insertUser(t *testing.T, db *pgxpool.Pool, id string) {
@@ -240,7 +245,7 @@ func TestPromptUsesFrozenCLIConfig(t *testing.T) {
 	const configID = "20000000-0000-0000-0000-000000000091"
 	insertUser(t, db, userID)
 	insertConfig(t, db, configID, def, "user", userID, true, `{}`)
-	svc := plugin.NewService(db, nil, catalog, nil, inlinePluginMutationFence)
+	svc := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Transition: noopBackendTransition}, inlinePluginMutationFence)
 	authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
 	if err != nil {
 		t.Fatal(err)

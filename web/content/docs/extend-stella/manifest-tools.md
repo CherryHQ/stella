@@ -73,17 +73,17 @@ plugins:
 
 ## Plugin fields
 
-| Field            | Required | Description                                                                        |
-| ---------------- | -------- | ---------------------------------------------------------------------------------- |
-| `id`             | Yes      | Unique plugin ID in `kind/name` form, e.g. `tool/my-cli`                           |
-| `kind`           | Yes      | Plugin kind, typically `tool`                                                      |
-| `name`           | Yes      | Short machine-readable name                                                        |
-| `display_name`   | No       | Human-readable label shown in the admin UI                                         |
-| `description`    | No       | Short description shown in the admin UI                                            |
-| `enabled`        | No       | Manifest input shorthand normalized into the selected `PluginConfig`; it is not a second permission system. |
+| Field            | Required | Description                                                                                                       |
+| ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `id`             | Yes      | Unique plugin ID in `kind/name` form, e.g. `tool/my-cli`                                                          |
+| `kind`           | Yes      | Plugin kind, typically `tool`                                                                                     |
+| `name`           | Yes      | Short machine-readable name                                                                                       |
+| `display_name`   | No       | Human-readable label shown in the admin UI                                                                        |
+| `description`    | No       | Short description shown in the admin UI                                                                           |
+| `enabled`        | No       | Manifest input shorthand normalized into the selected `PluginConfig`; it is not a second permission system.       |
 | `binaries`       | No       | CLI binary specifications; native managed installs use the managed tree, while user scopes use their sandbox tree |
-| `session_env`    | No       | Environment variables to inject into sandbox sessions                              |
-| `oauth_provider` | No       | Static OAuth provider ID used by `oauth.*` session env sources, such as `github`   |
+| `session_env`    | No       | Environment variables to inject into sandbox sessions                                                             |
+| `oauth_provider` | No       | Static OAuth provider ID used by `oauth.*` session env sources, such as `github`                                  |
 
 ## Binary fields
 
@@ -93,7 +93,7 @@ Each binary requires a `name` and a `tool` field. The `tool` field uses mise's t
 
 | Field              | Required | Description                                                                                   |
 | ------------------ | -------- | --------------------------------------------------------------------------------------------- |
-| `name`             | Yes      | Binary filename exposed in the selected runtime tree (without extension)                              |
+| `name`             | Yes      | Binary filename exposed in the selected runtime tree (without extension)                      |
 | `tool`             | Yes      | Mise tool key in `backend:identifier` format (e.g. `github:cli/cli`)                          |
 | `version`          | No       | Version to install. Defaults to `latest` for all backends.                                    |
 | `strip_components` | No       | Leading directory levels to strip when extracting an archive. Auto-detected for most layouts. |

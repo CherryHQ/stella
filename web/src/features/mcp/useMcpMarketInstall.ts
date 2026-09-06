@@ -1,9 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  createPlugin,
-  startPluginConfigOAuth,
-} from "@/lib/api-client/sdk.gen";
+import { createPlugin, startPluginConfigOAuth } from "@/lib/api-client/sdk.gen";
 import type { McpRegistryServer, PluginConfig } from "@/lib/api-client/types.gen";
 import type { InstallRequest, WritableScope } from "@/features/marketplace/InstallScopeStep";
 import { apiErrorMessage } from "@/lib/api-error";

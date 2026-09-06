@@ -10,8 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
+
+	"github.com/CherryHQ/stella/internal/authz"
 )
 
 func TestResolveOAuthClientRejectsUninitializedSystemDCRBeforeNetwork(t *testing.T) {

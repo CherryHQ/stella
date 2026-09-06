@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // DeleteMCPConfigCredentialsTx removes only one config's reserved credential

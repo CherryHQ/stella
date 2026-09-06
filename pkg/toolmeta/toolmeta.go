@@ -220,8 +220,5 @@ var handWritten = map[string]bool{
 // union awaiting a split, so the pendingSplit map that held it is gone rather
 // than kept empty — an empty second mechanism only invites a third entry.
 func HandWritten(name string) bool {
-	if handWritten[name] {
-		return true
-	}
-	return false
+	return handWritten[name]
 }

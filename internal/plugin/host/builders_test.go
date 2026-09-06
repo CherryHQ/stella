@@ -3,8 +3,9 @@ package host
 import (
 	"context"
 	"errors"
-	"github.com/CherryHQ/stella/pkg/hooks"
 	"testing"
+
+	"github.com/CherryHQ/stella/pkg/hooks"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"

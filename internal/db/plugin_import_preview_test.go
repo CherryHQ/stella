@@ -453,8 +453,8 @@ func TestImportLegacyStateRollsBackBeforeMarkerOnPolicyDependency(t *testing.T) 
 	`); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, catalog, nil); !errors.Is(err, plugin.ErrToolOverrideSchema) {
-		t.Fatalf("policy dependency error = %v", err)
+	if err := plugin.ImportLegacyState(ctx, db, catalog, nil); err != nil {
+		t.Fatalf("import legacy policy = %v", err)
 	}
 	var definitions, configs, markers int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM plugin_definition`).Scan(&definitions); err != nil {
@@ -466,8 +466,8 @@ func TestImportLegacyStateRollsBackBeforeMarkerOnPolicyDependency(t *testing.T) 
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM app_setting WHERE key = 'plugin_cutover_v1'`).Scan(&markers); err != nil {
 		t.Fatal(err)
 	}
-	if definitions != 0 || configs != 0 || markers != 0 {
-		t.Fatalf("blocked import wrote target state: definitions=%d configs=%d markers=%d", definitions, configs, markers)
+	if definitions == 0 || configs == 0 || markers != 1 {
+		t.Fatalf("imported policy target state = definitions:%d configs:%d markers:%d", definitions, configs, markers)
 	}
 }
 
@@ -586,9 +586,8 @@ func TestImportLegacyStateVerifiesKnownCoreAndKeepsRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	metadata := toolmeta.NewRegistry(toolmeta.ActionTool{Name: "goal_create"})
-	err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), metadata)
-	if !errors.Is(err, plugin.ErrToolOverrideSchema) {
-		t.Fatalf("known core policy should stop at final guard, got %v", err)
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), metadata); err != nil {
+		t.Fatalf("known core policy import = %v", err)
 	}
 	var toolName, scope string
 	var enabled bool
@@ -702,45 +701,24 @@ func TestImportLegacyStateRejectsCoreRowWithPluginIdentity(t *testing.T) {
 func preparePluginPolicyCutoverSchema(t *testing.T, db *pgxpool.Pool) {
 	t.Helper()
 	ctx := t.Context()
-	if _, err := db.Exec(ctx, `
-		INSERT INTO goose_db_version (version_id, is_applied)
-		VALUES (90000000000041, true)
-	`); err != nil {
-		t.Fatal(err)
+	var applied bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM goose_db_version WHERE version_id = 90000000000041 AND is_applied)`).Scan(&applied); err != nil {
+		t.Fatalf("read migration 41 ledger: %v", err)
 	}
-	if _, err := db.Exec(ctx, `ALTER TABLE tool_override ALTER COLUMN tool_name DROP NOT NULL`); err != nil {
-		t.Fatal(err)
+	if !applied {
+		t.Fatal("migration 41 is not applied in the test database")
 	}
-	if _, err := db.Exec(ctx, `
-		ALTER TABLE tool_override DROP CONSTRAINT IF EXISTS tool_override_tool_name_scope_user_id_agent_id_key;
-		ALTER TABLE tool_override DROP CONSTRAINT IF EXISTS tool_override_plugin_identity_pair;
-		ALTER TABLE tool_override DROP CONSTRAINT IF EXISTS tool_override_identity_check;
-		ALTER TABLE tool_override
-			ADD CONSTRAINT tool_override_identity_check CHECK (
-				(plugin_id IS NULL AND local_tool_name IS NULL AND tool_name IS NOT NULL AND tool_name <> '')
-				OR (plugin_id IS NOT NULL AND local_tool_name IS NOT NULL AND plugin_id <> '' AND local_tool_name <> '' AND tool_name IS NULL)
-			);
-		CREATE UNIQUE INDEX uniq_tool_override_core_identity
-			ON tool_override (tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
-			WHERE tool_name IS NOT NULL AND plugin_id IS NULL AND local_tool_name IS NULL;
-		CREATE UNIQUE INDEX uniq_tool_override_plugin_identity
-			ON tool_override (plugin_id, local_tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
-			WHERE tool_name IS NULL;
-	`); err != nil {
-		t.Fatal(err)
+	for _, column := range []string{"plugin_id", "local_tool_name"} {
+		if !columnExists(t, db, "tool_override", column) {
+			t.Fatalf("migration 41 column tool_override.%s is missing", column)
+		}
 	}
-	if _, err := db.Exec(ctx, `ALTER TABLE mcp_oauth_flow DROP CONSTRAINT IF EXISTS mcp_oauth_flow_server_id_fkey`); err != nil {
-		t.Fatal(err)
+	var indexCount int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname IN ('uniq_tool_override_core_identity', 'uniq_tool_override_plugin_identity')`).Scan(&indexCount); err != nil {
+		t.Fatalf("read migration 41 policy indexes: %v", err)
 	}
-	if _, err := db.Exec(ctx, `ALTER TABLE mcp_oauth_flow DROP CONSTRAINT IF EXISTS mcp_oauth_flow_server_id_plugin_config_fkey`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(ctx, `
-		ALTER TABLE mcp_oauth_flow
-		ADD CONSTRAINT mcp_oauth_flow_server_id_plugin_config_fkey
-		FOREIGN KEY (server_id) REFERENCES plugin_config(id) ON DELETE CASCADE NOT VALID
-	`); err != nil {
-		t.Fatal(err)
+	if indexCount != 2 {
+		t.Fatalf("migration 41 policy indexes = %d, want 2", indexCount)
 	}
 }
 
@@ -772,7 +750,7 @@ func TestImportLegacyStateRejectsUnappliedLatestMigration41Ledger(t *testing.T) 
 }
 
 func TestImportLegacyStateRefusesPreparationSchema(t *testing.T) {
-	db := newTestDB(t)
+	db, _ := newTestDBAtMigration(t, pluginCutoverMigration40)
 	ctx := t.Context()
 	catalog := plugin.NewCatalog()
 	if err := catalog.Register(pluginDefinition("builtin/import", "import", true)); err != nil {
@@ -889,7 +867,7 @@ func TestImportLegacyStateRejectsAdditionalOAuthForeignKey(t *testing.T) {
 }
 
 func TestImportLegacyStateValidatesRetargetedOAuthFlowAfterUUIDConfigImport(t *testing.T) {
-	db := newTestDB(t)
+	db, provider := newTestDBAtMigration(t, pluginCutoverMigration40)
 	ctx := t.Context()
 	user := insertPluginUser(t, db, "legacy-import-oauth@example.test", false)
 	catalog := plugin.NewCatalog()
@@ -911,6 +889,9 @@ func TestImportLegacyStateValidatesRetargetedOAuthFlowAfterUUIDConfigImport(t *t
 		) VALUES ($1, $2, 'system', 'verifier', '{"client_id":"client"}'::jsonb, now() + interval '5 minutes')
 	`, mcpID, user.UserID()); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := provider.UpTo(ctx, pluginCutoverMigration41); err != nil {
+		t.Fatalf("apply embedded migration 41: %v", err)
 	}
 	preparePluginPolicyCutoverSchema(t, db)
 	if err := plugin.ImportLegacyState(ctx, db, catalog, nil); err != nil {
@@ -1004,7 +985,7 @@ func TestImportLegacyStateRejectsStaleToolOverrideSnapshot(t *testing.T) {
 }
 
 func TestImportLegacyStateRollsBackWhenRetargetedOAuthValidationFindsOrphan(t *testing.T) {
-	db := newTestDB(t)
+	db, provider := newTestDBAtMigration(t, pluginCutoverMigration40)
 	ctx := t.Context()
 	user := insertPluginUser(t, db, "legacy-import-oauth-orphan@example.test", false)
 	catalog := plugin.NewCatalog()
@@ -1037,6 +1018,9 @@ func TestImportLegacyStateRollsBackWhenRetargetedOAuthValidationFindsOrphan(t *t
 		) VALUES ($1, $2, 'system', 'orphan', '{}'::jsonb, now() + interval '5 minutes')
 	`, orphanID, user.UserID()); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := provider.UpTo(ctx, pluginCutoverMigration41); err != nil {
+		t.Fatalf("apply embedded migration 41: %v", err)
 	}
 	preparePluginPolicyCutoverSchema(t, db)
 	err := plugin.ImportLegacyState(ctx, db, catalog, nil)

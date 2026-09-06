@@ -36,8 +36,10 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-type PluginContext = agentruntime.PluginContext
-type PluginContextBuilder = agentruntime.PluginContextBuilder
+type (
+	PluginContext        = agentruntime.PluginContext
+	PluginContextBuilder = agentruntime.PluginContextBuilder
+)
 
 // MCPToolProvider surfaces external MCP-server tools from the runner's
 // authority-bound plugin snapshot. Implemented by *mcp.ToolProvider; kept as

@@ -383,12 +383,7 @@ func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, 
 	if err := verifyCoreOverrides(ctx, tx, plan.CoreOverrides, metadata); err != nil {
 		return err
 	}
-	// Keep the final cutover fail-closed until the coordinated core-policy
-	// replacement is approved. The verifier above proves that rows are known
-	// core identities and unchanged; it does not make the cutover gate obsolete.
-	if len(plan.CoreOverrides) > 0 {
-		return fmt.Errorf("%w: core tool policy mapping is not ready", ErrToolOverrideSchema)
-	}
+
 	q := sqlc.New(tx)
 	for _, def := range plan.Definitions {
 		if _, err := q.UpsertPluginDefinition(ctx, sqlc.UpsertPluginDefinitionParams{

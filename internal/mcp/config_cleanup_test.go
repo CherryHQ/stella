@@ -5,11 +5,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/google/uuid"
 )
 
 func TestCommonConfigDeleteCleansOnlyAuthorizedCredentialFamily(t *testing.T) {
@@ -62,7 +63,7 @@ func TestCommonConfigDeleteCleansOnlyAuthorizedCredentialFamily(t *testing.T) {
 	}
 	assertCounts(1, 7)
 	rollback := errors.New("force rollback after both deletes")
-	err = svc.WithCredentialMutationTx(ctx, admin, pluginID, configID, 1, owner, func(txCtx context.Context, access *plugin.Access, _ plugin.Config, mutation CredentialMutation) error {
+	err = svc.withCredentialMutationTx(ctx, admin, pluginID, configID, 1, owner, func(txCtx context.Context, access *plugin.Access, _ plugin.Config, mutation CredentialMutation) error {
 		if err := mutation.DeleteAll(txCtx); err != nil {
 			return err
 		}

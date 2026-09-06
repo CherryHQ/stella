@@ -319,11 +319,12 @@ func buildMounts(opts CreateOptions) []mount.Mount {
 			Target:   m.ContainerPath,
 			ReadOnly: m.ReadOnly,
 		}
-		if m.Type == MountTypeVolume && m.VolumeSubpath != "" {
+		switch {
+		case m.Type == MountTypeVolume && m.VolumeSubpath != "":
 			mm.VolumeOptions = &mount.VolumeOptions{Subpath: m.VolumeSubpath, NoCopy: m.NoCopy}
-		} else if m.Type == MountTypeVolume && m.NoCopy {
+		case m.Type == MountTypeVolume && m.NoCopy:
 			mm.VolumeOptions = &mount.VolumeOptions{NoCopy: true}
-		} else if m.Type == MountTypeTmpfs && m.TmpfsExec {
+		case m.Type == MountTypeTmpfs && m.TmpfsExec:
 			mm.TmpfsOptions = &mount.TmpfsOptions{Options: [][]string{{"exec"}}}
 		}
 		mounts = append(mounts, mm)

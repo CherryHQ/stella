@@ -5,9 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/google/uuid"
 )
 
 func customMCPDefinition(name string) plugin.Definition {

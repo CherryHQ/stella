@@ -71,7 +71,7 @@ func setup(t *testing.T) (svc *mcp.Service, q *sqlc.Queries, userID, agentID str
 	policy := mcp.EndpointPolicy{AllowPrivate: true}
 	svc.SetEndpointPolicy(policy)
 	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))
-	svc.SetPluginService(plugin.NewService(db, agents, plugin.NewCatalog(), mcp.NewMCPPayloadValidator(policy), func(_ context.Context, fn func() error) error {
+	svc.SetPluginService(plugin.NewService(db, agents, plugin.NewCatalog(), mcp.NewMCPBackendPolicy(policy), func(_ context.Context, fn func() error) error {
 		return fn()
 	}))
 	if _, err := db.Exec(ctx, `INSERT INTO plugin_definition(id,namespace,display_name,backend,source,implementation_key,spec,default_enabled,revision,creator_user_id) VALUES($1,'mcp_integration','MCP integration','mcp','custom','mcp','{}',false,1,$2)`, integrationPluginID, user.ID); err != nil {

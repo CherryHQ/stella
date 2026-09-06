@@ -7,16 +7,17 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/jackc/pgx/v5"
 )
 
 func TestUnifiedPluginWithMutationTxRollsBackCallbackError(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
 	user := insertPluginUser(t, db, "plugin-tx-bind@example.test", false)
-	service := plugin.NewService(db, nil, plugin.NewCatalog(), noopPluginValidator, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, plugin.NewCatalog(), plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	callbackRan := false
 	callbackErr := errors.New("caller abort")
 	err := service.WithMutationTx(ctx, user, func(_ context.Context, access *plugin.Access, _ pgx.Tx) error {
@@ -57,7 +58,7 @@ func TestUnifiedPluginWithMutationTxRollbackRestoresConfigAndPolicies(t *testing
 	db := newTestDB(t)
 	ctx := t.Context()
 	user := insertPluginUser(t, db, "plugin-tx-delete@example.test", false)
-	service := plugin.NewService(db, nil, plugin.NewCatalog(), noopPluginValidator, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, plugin.NewCatalog(), plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	access, err := service.Begin(user)
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +108,7 @@ func TestUnifiedPluginWithMutationTxRollbackRestoresConfigAndPolicies(t *testing
 func TestUnifiedPluginWithMutationTxRejectsNonUserWithoutCallback(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
-	service := plugin.NewService(db, nil, plugin.NewCatalog(), noopPluginValidator, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, plugin.NewCatalog(), plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	agent, err := authz.NewAgentAuthority("owner", "agent")
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +127,7 @@ func TestUnifiedPluginWithMutationTxInvalidatesAccessOnPanic(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
 	user := insertPluginUser(t, db, "plugin-tx-panic@example.test", false)
-	service := plugin.NewService(db, nil, plugin.NewCatalog(), noopPluginValidator, inlinePluginMutationFence)
+	service := plugin.NewService(db, nil, plugin.NewCatalog(), plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
 	var captured *plugin.Access
 	func() {
 		defer func() {
@@ -153,7 +154,7 @@ func TestUnifiedPluginWithMutationTxRejectsNestedUsingProvidedContext(t *testing
 		fenceCalls++
 		return mutate()
 	}
-	service := plugin.NewService(db, nil, plugin.NewCatalog(), noopPluginValidator, fence)
+	service := plugin.NewService(db, nil, plugin.NewCatalog(), plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, fence)
 	callbackRan := false
 	err := service.WithMutationTx(ctx, user, func(mutationCtx context.Context, _ *plugin.Access, _ pgx.Tx) error {
 		nestedErr := service.WithMutationTx(mutationCtx, user, func(context.Context, *plugin.Access, pgx.Tx) error {
@@ -187,7 +188,7 @@ func TestUnifiedPluginWithMutationTxExpiresAccessBeforeFenceUnlock(t *testing.T)
 		}
 		return nil
 	}
-	service := plugin.NewService(db, nil, plugin.NewCatalog(), noopPluginValidator, fence)
+	service := plugin.NewService(db, nil, plugin.NewCatalog(), plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, fence)
 	if err := service.WithMutationTx(ctx, user, func(_ context.Context, access *plugin.Access, _ pgx.Tx) error {
 		captured = access
 		return nil

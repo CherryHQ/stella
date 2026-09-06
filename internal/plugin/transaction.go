@@ -45,6 +45,7 @@ func (s *Service) WithMutationTx(ctx context.Context, authority authz.Authority,
 
 		bound := *s
 		bound.q = s.q.WithTx(tx)
+		bound.mutationTx = tx
 		bound.txBound = true
 		mutationCtx := context.WithValue(ctx, mutationContextKey{}, struct{}{})
 		active := &atomic.Bool{}

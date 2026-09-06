@@ -16,9 +16,7 @@ const plugin = (backend: PluginDefinition["backend"]): PluginDefinition =>
     display_name: backend === "cli" ? "Lark CLI" : "Remote MCP",
   }) as PluginDefinition;
 
-const config = (
-  backend_summary: PluginConfig["backend_summary"],
-): PluginConfig =>
+const config = (backend_summary: PluginConfig["backend_summary"]): PluginConfig =>
   ({
     id: "0198f9a4-1b2c-7def-8123-456789abcdef",
     plugin_id: "custom/0198f9a4-1b2c-7def-8123-456789abcdef",

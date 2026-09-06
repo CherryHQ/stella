@@ -191,8 +191,8 @@ func validateResources(payload cliPayload, name string, complete bool) error {
 		}
 		seenEnv[env.EnvVar] = struct{}{}
 		if env.Source != "" {
-			if strings.HasPrefix(env.Source, "oauth.") {
-				if !knownOAuthField(strings.TrimPrefix(env.Source, "oauth.")) {
+			if after, ok := strings.CutPrefix(env.Source, "oauth."); ok {
+				if !knownOAuthField(after) {
 					return invalidPayload("%s session_env[%d] has unknown OAuth field %q", name, i, env.Source)
 				}
 			} else if env.Source != "static" {
@@ -255,7 +255,7 @@ func validateUserOverlay(shipped, resolved cliPayload, config plugin.Config) err
 			return invalidPayload("user scope cannot change binary[%d] name or tool", i)
 		}
 		if err := validateUserOptions(want.Options, got.Options, got.Version); err != nil {
-			return fmt.Errorf("%w: binary[%d] options: %v", plugin.ErrInvalidConfig, i, err)
+			return fmt.Errorf("%w: binary[%d] options: %w", plugin.ErrInvalidConfig, i, err)
 		}
 		if err := validateVersion(got.Version); err != nil {
 			return err

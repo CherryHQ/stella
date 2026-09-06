@@ -532,11 +532,9 @@ func TestPublishNativeSelectionSerializesConcurrentIdentity(t *testing.T) {
 	var wg sync.WaitGroup
 	errCh := make(chan error, callers)
 	for range callers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errCh <- publishNativeSelection(root, []string{"tool"}, build)
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)
@@ -576,6 +574,44 @@ func TestCopyNativeTreeRejectsEscapingSymlink(t *testing.T) {
 	err = copyNativeTree(source, filepath.Join(t.TempDir(), "copy"))
 	if err == nil || !strings.Contains(err.Error(), "escapes install") {
 		t.Fatalf("copyNativeTree error = %v, want escaping symlink rejection", err)
+	}
+}
+
+func TestMaterializeNativeSelectionCanonicalizesMisePaths(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake mise script uses POSIX shell")
+	}
+	root := t.TempDir()
+	install := filepath.Join(root, "install")
+	binary := filepath.Join(install, "bin", "bun")
+	if err := os.MkdirAll(filepath.Dir(binary), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binary, []byte("bun-real\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	installAlias := filepath.Join(root, "install-alias")
+	if err := os.Symlink(install, installAlias); err != nil {
+		t.Fatal(err)
+	}
+
+	mise := filepath.Join(root, "mise")
+	script := "#!/bin/sh\nset -eu\ncase \"$1\" in\nwhere) printf '%s\\n' " + shellQuotePOSIX(installAlias) + ";;\nwhich) printf '%s\\n' " + shellQuotePOSIX(binary) + ";;\n*) exit 9;;\nesac\n"
+	if err := os.WriteFile(mise, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	public := filepath.Join(root, "public")
+	tool := miseTool{Key: "github:oven/bun", Lookup: "bun", PublicName: "bun"}
+	plan := BinaryInstallPlan{Identity: "realpath", PublicDir: public, PublicBinDir: public}
+	if err := materializeNativeSelection(context.Background(), filepath.Join(root, "stella"), plan, []miseTool{tool}, mise, nil, root); err != nil {
+		t.Fatalf("materializeNativeSelection: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(public, "installs", nativeInstallKey(tool), "bin", "bun"))
+	if err != nil {
+		t.Fatalf("read selected bun: %v", err)
+	}
+	if string(data) != "bun-real\n" {
+		t.Fatalf("selected bun = %q, want real install content", data)
 	}
 }
 
@@ -623,7 +659,7 @@ func TestInstallSandboxBinariesUsesSessionOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 	spec := pkgplugins.PluginBinarySpec{
 		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
 			PluginID: "tool/user", ConfigID: "cfg-user", Scope: string(plugin.ScopeUser), Revision: 2,

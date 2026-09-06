@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 )
 
@@ -179,9 +180,7 @@ func overlayResources(base []map[string]json.RawMessage, owned json.RawMessage, 
 		if !exists {
 			return nil, fmt.Errorf("%w: config contains unknown %s %q", ErrInvalidConfig, kind, name)
 		}
-		for key, value := range item {
-			base[idx][key] = value
-		}
+		maps.Copy(base[idx], item)
 	}
 	return base, nil
 }

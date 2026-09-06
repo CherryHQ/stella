@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestPluginImportBoundsInitialCatalogLock(t *testing.T) {
@@ -17,7 +18,7 @@ func TestPluginImportBoundsInitialCatalogLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer held.Rollback(t.Context())
+	defer func() { _ = held.Rollback(t.Context()) }()
 	if err := sqlc.New(held).LockPluginCatalog(t.Context()); err != nil {
 		t.Fatal(err)
 	}

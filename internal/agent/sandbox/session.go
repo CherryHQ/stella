@@ -211,11 +211,11 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 			userPlan, err := manifest.InstallSandboxBinaries(ctx, prep, cfg.BinarySpecs)
 			if err != nil {
 				_ = prep.Close()
-				cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
+				_ = cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
 				return nil, fmt.Errorf("install sandbox plugin binaries: %w", err)
 			}
 			if err := prep.Close(); err != nil {
-				cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
+				_ = cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
 				return nil, fmt.Errorf("close sandbox binary preparation: %w", err)
 			}
 			// InstallSandboxBinaries operates in the preparation session's process

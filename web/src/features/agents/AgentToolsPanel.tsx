@@ -575,7 +575,8 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
                     mcpFamilyMutation.variables?.family === `mcp:${server.namespace}`
                   }
                   toggleBusy={
-                    toggleServer.isPending && toggleServer.variables?.server.config_id === server.config_id
+                    toggleServer.isPending &&
+                    toggleServer.variables?.server.config_id === server.config_id
                   }
                   onToggle={(tool, enabled, scope) => mutation.mutate({ tool, enabled, scope })}
                   onSetFamilyEnabled={(members_, enabled) =>
@@ -952,9 +953,7 @@ export function McpServerGroup({
               variant="outline"
               size="xs"
               disabled={toggleBusy}
-              onClick={() =>
-                server.needs_auth ? onConnect(server) : onDisconnect(server)
-              }
+              onClick={() => (server.needs_auth ? onConnect(server) : onDisconnect(server))}
             >
               {server.needs_auth ? t("mcp.connect") : t("mcp.disconnect")}
             </Button>
@@ -973,7 +972,7 @@ export function McpServerGroup({
               <MoreHorizontal />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={6}>
-            <DropdownMenuLabel>{server.namespace}</DropdownMenuLabel>
+              <DropdownMenuLabel>{server.namespace}</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => onEdit(server)}>{t("common.edit")}</DropdownMenuItem>
               <DropdownMenuItem onClick={() => onDelete(server)}>
                 {t("common.delete")}
@@ -982,15 +981,12 @@ export function McpServerGroup({
           </DropdownMenu>
         </div>
       )}
-      {!server.readable &&
-        (server.needs_auth || server.credential_mode === "per_user") && (
+      {!server.readable && (server.needs_auth || server.credential_mode === "per_user") && (
         <div className="flex items-center justify-end gap-2 pr-1">
           <Button
             variant="outline"
             size="xs"
-            onClick={() =>
-              server.needs_auth ? onConnect(server) : onDisconnect(server)
-            }
+            onClick={() => (server.needs_auth ? onConnect(server) : onDisconnect(server))}
           >
             {server.needs_auth ? t("mcp.connect") : t("mcp.disconnect")}
           </Button>

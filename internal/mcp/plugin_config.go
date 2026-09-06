@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"strings"
 	"time"
@@ -198,9 +199,7 @@ func mergeMCPJSONObjects(definition, config json.RawMessage) (json.RawMessage, e
 	if err != nil {
 		return nil, err
 	}
-	for key, value := range overlay {
-		base[key] = value
-	}
+	maps.Copy(base, overlay)
 	return json.Marshal(base)
 }
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
@@ -75,7 +76,7 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := plugin.NewService(db, nil, plugin.NewCatalog(), nil, noOpMutationFence)
+	plugins := plugin.NewService(db, nil, plugin.NewCatalog(), plugin.BackendPolicy{Transition: noopBackendTransition}, noOpMutationFence)
 	snapshot, err := plugins.ResolveSnapshot(ctx, authority, "")
 	if err != nil {
 		t.Fatalf("resolve plugin snapshot: %v", err)
@@ -155,7 +156,7 @@ func TestMigratedMCPNamespaceDenyDoesNotFallThrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := plugin.NewService(db, nil, plugin.NewCatalog(), nil, noOpMutationFence)
+	plugins := plugin.NewService(db, nil, plugin.NewCatalog(), plugin.BackendPolicy{Transition: noopBackendTransition}, noOpMutationFence)
 	snapshot, err := plugins.ResolveSnapshot(ctx, authority, "")
 	if err != nil {
 		t.Fatalf("resolve plugin snapshot: %v", err)
@@ -194,6 +195,10 @@ func TestMigratedMCPNamespaceDenyDoesNotFallThrough(t *testing.T) {
 }
 
 func noOpMutationFence(_ context.Context, fn func() error) error { return fn() }
+
+func noopBackendTransition(context.Context, pgx.Tx, authz.Authority, plugin.MutationKind, plugin.Definition, *plugin.Config, *plugin.Config) error {
+	return nil
+}
 
 type migratedMCPToolProvider struct{ pluginID string }
 

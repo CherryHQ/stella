@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	pluginapi "github.com/CherryHQ/stella/internal/plugin"
@@ -61,7 +63,9 @@ func unifiedPluginTestService(t *testing.T) *pluginapi.Service {
 	if err := catalog.Register(definition); err != nil {
 		t.Fatal(err)
 	}
-	service := pluginapi.NewService(db, nil, catalog, nil, func(_ context.Context, fn func() error) error { return fn() })
+	service := pluginapi.NewService(db, nil, catalog, pluginapi.BackendPolicy{Transition: func(context.Context, pgx.Tx, authz.Authority, pluginapi.MutationKind, pluginapi.Definition, *pluginapi.Config, *pluginapi.Config) error {
+		return nil
+	}}, func(_ context.Context, fn func() error) error { return fn() })
 	if err := service.SyncBuiltinDefaults(t.Context()); err != nil {
 		t.Fatalf("sync plugin defaults: %v", err)
 	}
