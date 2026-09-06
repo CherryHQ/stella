@@ -173,6 +173,51 @@ func TestLocalSession_darwinProductionMountUsesHostCwd(t *testing.T) {
 	})
 }
 
+func TestNativeSelectionPathRunsSelectedCommand(t *testing.T) {
+	if !seatbeltFunctional() {
+		t.Skip("macOS Seatbelt is unavailable in this environment")
+	}
+	stellaHome := t.TempDir()
+	selection := filepath.Join(stellaHome, ".mise-tools", "public", "selection")
+	if err := os.MkdirAll(selection, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := filepath.Join(selection, "selected-tool")
+	if err := os.WriteFile(command, []byte("#!/bin/sh\nprintf 'selected\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	policy := sandboxpkg.Policy{
+		Env: map[string]string{
+			sandboxpkg.EnvNativeSelectionDir: selection,
+			"PATH":                           selection,
+		},
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkingDir: sandboxpkg.MountWorkspace,
+			Mounts: []sandboxpkg.Mount{
+				{SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite},
+				{SandboxPath: sandboxpkg.MountStellaHome + "/bin", Access: sandboxpkg.MountReadOnly},
+			},
+		},
+	}
+	f := NewFactoryWithMountSources(map[string]string{
+		sandboxpkg.MountWorkspace:           t.TempDir(),
+		sandboxpkg.MountStellaHome + "/bin": selection,
+	}, Config{StellaHome: stellaHome})
+	sess, err := f.CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	defer sess.Close() //nolint:errcheck
+	result, err := sess.Exec(context.Background(), "selected-tool", sandboxpkg.ExecOptions{})
+	if err != nil || result.ExitCode != 0 || result.Stdout != "selected\n" {
+		t.Fatalf("selected command result = %+v, err=%v", result, err)
+	}
+	result, err = sess.Exec(context.Background(), "command -v selected-tool", sandboxpkg.ExecOptions{})
+	if err != nil || result.ExitCode != 0 || strings.TrimSpace(result.Stdout) != command {
+		t.Fatalf("command -v selected-tool = %q, err=%v", result.Stdout, err)
+	}
+}
+
 func TestBuildSeatbeltProfile_structure(t *testing.T) {
 	policy := makePolicy("/tmp/ws", sandboxpkg.NetworkDisabled)
 	profile := buildSeatbeltProfile(policy, darwinTestMounts("/tmp/ws"), "/tmp/ws", "")

@@ -174,7 +174,66 @@ func (s *Service) commonRegistration(ctx context.Context, authority authz.Author
 	if err != nil {
 		return Registration{}, err
 	}
-	return s.registrationFromCommonConfig(ctx, authority, def, cfg)
+	observation, err := s.commonObservation(ctx, cfg, authority)
+	if err != nil {
+		return Registration{}, err
+	}
+	return s.registrationFromCommonConfig(ctx, authority, def, cfg, observation)
+}
+
+// commonObservation loads the exact observation owner for one resolved config.
+// Shared rows use the NULL owner tuple; per-user rows use only the caller's
+// trusted authority user. A missing or stale row remains StatusUnknown.
+func (s *Service) commonObservation(ctx context.Context, cfg plugin.Config, authority authz.Authority) (PluginMCPObservation, error) {
+	observation := PluginMCPObservation{ConfigRevision: cfg.Revision}
+	payload, err := decodeMCPPluginPayload(cfg.Payload)
+	if err != nil {
+		return observation, err
+	}
+	var userID *string
+	if payload.CredentialMode == CredentialModePerUser {
+		if authority.Kind() != authz.ActorUser && authority.Kind() != authz.ActorAgent {
+			return observation, nil
+		}
+		value := string(authority.UserID())
+		if value == "" {
+			return observation, nil
+		}
+		userID = &value
+	}
+	states, err := appdb.ListMCPConnectionStatesForConfigs(ctx, s.pool, []string{cfg.ID}, userID)
+	if err != nil {
+		return observation, err
+	}
+	for _, state := range states {
+		if payload.CredentialMode == CredentialModePerUser {
+			if state.CredentialUserID == nil || userID == nil || *state.CredentialUserID != *userID {
+				continue
+			}
+		} else if state.CredentialUserID != nil {
+			continue
+		}
+		var tools []CatalogTool
+		if len(state.Tools) != 0 {
+			if err := json.Unmarshal(state.Tools, &tools); err != nil {
+				return observation, fmt.Errorf("mcp: decode common observation: %w", err)
+			}
+		}
+		observation = PluginMCPObservation{
+			Status: state.Status, StatusError: state.StatusError,
+			ProbedAt: derefTime(state.ProbedAt), ConfigRevision: state.ConfigRevision,
+			CredentialUserID: derefString(state.CredentialUserID), Tools: tools,
+		}
+		break
+	}
+	return observation, nil
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (s *Service) commonRegistrationsByScope(ctx context.Context, authority authz.Authority, scope, agentID string) ([]Registration, error) {
@@ -1278,6 +1337,12 @@ func (s *Service) Probe(ctx context.Context, reg Registration, owner CredentialO
 func (s *Service) probeCommon(ctx context.Context, reg Registration, owner CredentialOwner) (Registration, error) {
 	if s.pool == nil || reg.ConfigRevision < 1 {
 		return Registration{}, errPluginCredentialsUnavailable
+	}
+	// A rejected OAuth credential is terminal until CompleteOAuth supplies a
+	// fresh bundle. Explicit probes must not keep retrying a known-dead refresh
+	// token; CompleteOAuth builds a fresh registration without this observation.
+	if reg.AuthType == AuthTypeOAuth && reg.Status == StatusNeedsAuth {
+		return reg, nil
 	}
 	if reg.AuthType == AuthTypeOAuth && !s.OAuthState(ctx, reg, owner.UserID).Connected {
 		return s.persistCommonObservation(ctx, reg, owner, StatusNeedsAuth, credentialRejectedHint, reg.Tools)

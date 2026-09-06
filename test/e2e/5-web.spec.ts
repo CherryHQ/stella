@@ -73,7 +73,15 @@ async function deletePlugin(
   pluginID: string,
   configs: Array<{ id: string; revision: number; }>,
 ) {
-  const definition = await pluginDefinition(admin, pluginID);
+  const definitionResponse = await admin.get<PluginDefinition>(
+    pluginDefinitionPath(pluginID),
+  );
+  if (definitionResponse.status === 404) return;
+  const definition = expectStatus(
+    definitionResponse,
+    200,
+    `get plugin ${pluginID}`,
+  );
   for (const config of configs) {
     await admin.delete(
       `${pluginConfigPath(pluginID, config.id)}?expected_revision=${config.revision}`,
@@ -232,7 +240,7 @@ test("bearer secret uses the registry template and only creates vault-backed mat
   await sheet.getByRole("button", { name: "Install" }).last().click();
 
   const dbRow = (
-    await db`select id, scope, agent_id, credential_refs #>> '{bearer,name}' as credential_ref, row_to_json(plugin_config)::text as raw from plugin_config where plugin_id in (select id from plugin_definition where namespace = 'com.stella/bearer') order by created_at desc limit 1`
+    await db`select id, scope, agent_id, credential_refs #>> '{bearer,name}' as credential_ref, row_to_json(plugin_config)::text as raw from plugin_config where plugin_id in (select id from plugin_definition where namespace = 'com-stella-bearer') order by created_at desc limit 1`
   )[0];
   expect(dbRow).toBeDefined();
   const definitions = expectStatus(
@@ -282,9 +290,11 @@ test("unsupported registry entry hands off to the prefilled manual form", async 
     .last()
     .getByRole("button", { name: "Install" })
     .click();
-  const manualName = page.getByLabel(/Display name|Name/).last();
-  const manualNamespace = page.getByLabel(/Plugin namespace|Namespace/).last();
-  const manualURL = page.getByLabel("URL").last();
+  const manualForm = page.getByRole("dialog").last();
+  const manualInputs = manualForm.locator('input:not([aria-hidden="true"]):visible');
+  const manualName = manualInputs.nth(0);
+  const manualNamespace = manualInputs.nth(1);
+  const manualURL = manualInputs.nth(3);
   await expect(manualName).toHaveValue("com.stella/unsupported");
   await expect(manualNamespace).toHaveValue("com-stella-unsupported");
   await expect(manualURL).toHaveValue("http://127.0.0.1:1/unsupported");
@@ -294,15 +304,23 @@ test("unsupported registry entry hands off to the prefilled manual form", async 
     })
     .last()
     .click();
-  const plugins = expectStatus(
-    await admin.get<PluginList>("/api/plugins"),
-    200,
-    "list plugins",
-  ).plugins;
-  const manual = plugins.find(
-    (item) => item.namespace === "com-stella-unsupported",
-  );
-  expect(manual).toBeDefined();
+  let manual: PluginDefinition | undefined;
+  await expect
+    .poll(
+      async () => {
+        const plugins = expectStatus(
+          await admin.get<PluginList>("/api/plugins"),
+          200,
+          "list plugins",
+        ).plugins;
+        manual = plugins.find(
+          (item) => item.namespace === "com-stella-unsupported",
+        );
+        return manual !== undefined;
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
   created.push(manual!.id);
   expect(
     (
@@ -366,10 +384,27 @@ test("OAuth connect and disconnect run through the browser", async ({ page, admi
     page.getByRole("button", { name: /Authorize account|授权/ }),
   ).toBeVisible();
   await page.getByRole("button", { name: /Authorize account|授权/ }).click();
-  await page.waitForURL(/settings\/mcp/);
-  await expect(
-    page.getByRole("button", { name: /Disconnect account|断开/ }),
-  ).toBeVisible();
+  await page.waitForURL(
+    (url) => url.pathname === "/settings/mcp" && url.searchParams.has("connected"),
+  );
+  await page.goto("/settings/mcp");
+  const connectedCard = page
+    .locator('[data-slot="card"]')
+    .filter({ hasText: "browser-oauth" });
+  await expect(connectedCard).toBeVisible();
+  await connectedCard.click();
+  await expect
+    .poll(
+      async () =>
+        (
+          await db`select s.status, c.credential_refs #>> '{oauth_bundle,name}' as bundle from mcp_connection_state s join plugin_config c on c.id = s.config_id where s.config_id = ${createdOAuth.config.id}`
+        )[0],
+    )
+    .toMatchObject({ status: "ok" });
+  const connected = (
+    await db`select credential_refs #>> '{oauth_bundle,name}' as bundle from plugin_config where id = ${createdOAuth.config.id}`
+  )[0]?.bundle;
+  expect(connected).toBeTruthy();
   await page.getByRole("button", { name: /Disconnect account|断开/ }).click();
   await expect(
     page.getByRole("button", { name: /Authorize account|授权/ }),
@@ -414,7 +449,10 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
   await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();
   await page.getByRole("button", { name: "Edit" }).click();
   const form = page.getByRole("dialog").last();
-  await form.getByLabel("URL").fill("http://127.0.0.1:8/edited");
+  await form
+    .locator('input:not([aria-hidden="true"]):visible')
+    .first()
+    .fill("http://127.0.0.1:8/edited");
   const configURL = pluginConfigPath(dead.plugin.id, dead.config.id);
   const patch = page.waitForRequest(
     (request) => request.method() === "PATCH" && request.url().includes(configURL),
@@ -448,7 +486,10 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
   );
   await page.getByRole("button", { name: "Edit" }).click();
   const staleForm = page.getByRole("dialog").last();
-  await staleForm.getByLabel("URL").fill("http://127.0.0.1:6/must-not-win");
+  await staleForm
+    .locator('input:not([aria-hidden="true"]):visible')
+    .first()
+    .fill("http://127.0.0.1:6/must-not-win");
   const staleResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "PATCH"
@@ -459,10 +500,27 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
   await staleForm
     .getByRole("button", { name: "Cancel" })
     .click({ force: true });
-  await page.getByRole("button", { name: "Delete" }).last().click();
-  await expect(page.getByRole("alertdialog")).toBeVisible();
-  await page
-    .getByRole("alertdialog")
+  await page.reload();
+  await expect(page.getByText("out-of-band", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Delete", exact: true }).first().click();
+  const configDeleteDialog = page
+    .getByRole("dialog")
+    .filter({ hasText: /Delete configuration\?|删除配置/ });
+  await expect(configDeleteDialog).toBeVisible();
+  await configDeleteDialog
+    .getByRole("button", { name: "Delete" })
+    .click();
+  await expect
+    .poll(
+      async () => (await admin.get(pluginConfigPath(dead.plugin.id, dead.config.id))).status,
+    )
+    .toBe(404);
+  await page.getByRole("button", { name: "Delete", exact: true }).last().click();
+  const pluginDeleteDialog = page
+    .getByRole("dialog")
+    .filter({ hasText: /Remove plugin\?|Delete plugin\?|移除插件/ });
+  await expect(pluginDeleteDialog).toBeVisible();
+  await pluginDeleteDialog
     .getByRole("button", { name: "Delete" })
     .click();
   await expect
@@ -478,7 +536,7 @@ test("agent-scoped install and MCP tool permission toggle persist", async ({ pag
   const { modelRef } = await ensureProvider(admin);
   agentId = await ensureAgent(admin, modelRef, "e2e-mcp-web-agent");
   await loginAsAdmin();
-  const scoped = await createMcpPlugin(admin, registry, {
+  const scoped = await createMcpPlugin(admin, { url: registry.mcpUrl }, {
     namespace: "agent-browser",
     displayName: "agent-browser",
     scope: "user_agent",

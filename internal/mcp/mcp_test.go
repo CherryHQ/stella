@@ -1032,6 +1032,47 @@ func TestProbeCredentialRejectionSetsNeedsAuth(t *testing.T) {
 	}
 }
 
+func TestProbeSkipsOAuthWhenObservationNeedsAuth(t *testing.T) {
+	svc, reg, userID, ctx := commonMCPRegistration(t, AuthTypeOAuth)
+	called := false
+	svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) {
+		called = true
+		return nil, errors.New("dead refresh token must not be retried")
+	}
+	authority, ok := authz.AuthorityFromContext(ctx)
+	if !ok {
+		t.Fatal("test context has no authority")
+	}
+	if err := svc.persistCommonStatus(ctx, reg, svc.CredentialOwner(reg, userID), StatusNeedsAuth, credentialRejectedHint); err != nil {
+		t.Fatalf("seed needs_auth observation: %v", err)
+	}
+	access, err := NewAccess(svc, nil, nil).Begin(authority)
+	if err != nil {
+		t.Fatalf("begin MCP access: %v", err)
+	}
+
+	updated, err := access.Probe(ctx, reg.ID, ScopeUser, "")
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if called {
+		t.Fatal("Probe connected with a terminal needs_auth observation")
+	}
+	if updated.Status != StatusNeedsAuth {
+		t.Fatalf("status = %q, want needs_auth", updated.Status)
+	}
+	updated, err = access.Probe(ctx, reg.ID, ScopeUser, "")
+	if err != nil {
+		t.Fatalf("repeat Probe: %v", err)
+	}
+	if called {
+		t.Fatal("repeat Probe connected with a terminal needs_auth observation")
+	}
+	if updated.Status != StatusNeedsAuth {
+		t.Fatalf("repeat status = %q, want needs_auth", updated.Status)
+	}
+}
+
 func TestExecuteContentConvertsImageBlocks(t *testing.T) {
 	proxy := &toolProxy{
 		reg:        Registration{Name: "gh", Namespace: "gh"},

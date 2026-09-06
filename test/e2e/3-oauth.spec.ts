@@ -307,7 +307,7 @@ test("rejected access and refresh failure fail closed without a retry loop", asy
   as.refreshExpiresIn = 3600;
 });
 
-test("disconnect removes the bundle and UI exposes Connect, Reconnect, Disconnect", async ({ admin, db, page, loginAsAdmin }) => {
+test("disconnect removes the bundle and the UI reconnects OAuth", async ({ admin, db, page, loginAsAdmin }) => {
   const connected = await getConfig(admin, oauthServer);
   const disconnected = expectStatus(
     await admin.post<PluginConfig>(
@@ -333,8 +333,9 @@ test("disconnect removes the bundle and UI exposes Connect, Reconnect, Disconnec
   const card = page
     .locator('[data-slot="card"]')
     .filter({ hasText: "oauth-e2e" });
+  await card.click();
   await expect(
-    card.getByRole("button", { name: /重新连接|Reconnect/ }),
+    page.getByRole("button", { name: /Authorize account|授权/ }),
   ).toBeVisible();
   expect(connected.backend_summary).toMatchObject({ auth_type: "oauth" });
   const fresh = await createOAuthPlugin(
@@ -344,21 +345,54 @@ test("disconnect removes the bundle and UI exposes Connect, Reconnect, Disconnec
     mcp.url.replace("/mcp", "/ui-connect"),
   );
   created.push(fresh);
-  await page.reload();
+  await page.goto("/settings/mcp");
   const freshCard = page
     .locator('[data-slot="card"]')
     .filter({ hasText: "oauth-ui-connect" });
+  await expect(freshCard).toBeVisible();
+  await freshCard.click();
   await expect(
-    freshCard.getByRole("button", { name: /连接|Connect/ }),
+    page.getByRole("button", { name: /Authorize account|授权/ }),
   ).toBeVisible();
-  await card.getByRole("button", { name: /重新连接|Reconnect/ }).click();
-  await page.waitForURL(/settings\/mcp\?connected=/);
+
+  await page.goto("/settings/mcp");
+  const reconnectCard = page
+    .locator('[data-slot="card"]')
+    .filter({ hasText: "oauth-e2e" });
+  await reconnectCard.click();
+  await page.getByRole("button", { name: /Authorize account|授权/ }).click();
+  await page.waitForURL(
+    (url) => url.pathname === "/settings/mcp" && url.searchParams.has("connected"),
+  );
+  await page.goto("/settings/mcp");
+  const connectedCard = page
+    .locator('[data-slot="card"]')
+    .filter({ hasText: "oauth-e2e" });
+  await connectedCard.click();
+  await expect
+    .poll(
+      async () =>
+        (
+          await db`select s.status, c.credential_refs #>> '{oauth_bundle,name}' as bundle
+      from mcp_connection_state s
+      join plugin_config c on c.id = s.config_id
+      where s.config_id = ${oauthServer.configId}`
+        )[0],
+    )
+    .toMatchObject({ status: "ok" });
+  const bundle = (
+    await db`select c.credential_refs #>> '{oauth_bundle,name}' as bundle
+      from plugin_config c where c.id = ${oauthServer.configId}`
+  )[0]?.bundle;
+  expect(bundle).toBeTruthy();
   await expect(
-    page.getByText(/已连接|Connected/, { exact: true }),
+    page.getByRole("button", { name: /Disconnect account|断开/ }),
   ).toBeVisible();
+  await page.getByRole("button", { name: /Disconnect account|断开/ }).click();
   await expect(
-    card.getByRole("button", { name: /断开连接|Disconnect/ }),
+    page.getByRole("button", { name: /Authorize account|授权/ }),
   ).toBeVisible();
+  expect((await connectionState(db, oauthServer)).status).toBe("needs_auth");
 });
 
 test("per-user bundles isolate users and a real agent calls OAuth MCP @model", async ({ admin, user, db }) => {
