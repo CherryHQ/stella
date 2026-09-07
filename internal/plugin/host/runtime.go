@@ -75,11 +75,6 @@ func (h *RuntimeHost) Get(_ context.Context, runtimeID string, runtimeName strin
 	return nil, false
 }
 
-// Lookup is an alias for Get to match the pkgplugins.RuntimeLookup interface.
-func (h *RuntimeHost) Lookup(ctx context.Context, runtimeID string, runtimeName string) (pkgplugins.RuntimeHandle, bool) {
-	return h.Get(ctx, runtimeID, runtimeName)
-}
-
 // ListChannelChats reads the optional joined-chat capability from a running
 // channel instance. Runtime selection stays in the plugin host so transport
 // code never imports a concrete channel plugin.
@@ -184,13 +179,6 @@ func (h *RuntimeHost) channelLock(channelID string) *sync.Mutex {
 		h.channelLocks[channelID] = lock
 	}
 	return lock
-}
-
-// ApplyChannel is the compatibility entry point for callers that already have
-// a channel-shaped value. Only its ID is trusted; the durable row is reread by
-// ReconcileChannel before any runtime sees credentials or enablement.
-func (h *RuntimeHost) ApplyChannel(ctx context.Context, channel config.Channel) error {
-	return h.ReconcileChannel(ctx, channel.ID)
 }
 
 func (h *RuntimeHost) applyChannel(ctx context.Context, channel config.Channel) error {
@@ -433,14 +421,6 @@ func (h *RuntimeHost) Stop(ctx context.Context) error {
 	return lastErr
 }
 
-func (h *RuntimeHost) Snapshot(ctx context.Context, runtimeID string, runtimeName string) (pkgplugins.RuntimeStatus, error) {
-	handle, ok := h.Get(ctx, runtimeID, runtimeName)
-	if !ok {
-		return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateStopped, UpdatedAt: time.Now().UTC()}, nil
-	}
-	return handle.Snapshot(ctx)
-}
-
 type runtimeHandle struct{ entry *runtimeEntry }
 
 func (h runtimeHandle) Snapshot(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
@@ -448,8 +428,4 @@ func (h runtimeHandle) Snapshot(ctx context.Context) (pkgplugins.RuntimeStatus, 
 		return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateStopped, UpdatedAt: time.Now().UTC()}, nil
 	}
 	return h.entry.managed.Snapshot(ctx)
-}
-
-func (h runtimeHandle) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
-	return h.Snapshot(ctx)
 }

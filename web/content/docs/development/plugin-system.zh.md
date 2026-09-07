@@ -26,6 +26,17 @@ Native 写入经过 runner 准入屏障。提交成功或提交结果未知时�
 并重新协调频道 listener，避免一次报错响应留下旧权限。
 Native 管理 API 只接受管理员认证，OAuth access token 无法访问。
 
+## Native Go 契约
+
+Native runtime 实现 `Apply`、`Stop` 和 `Snapshot`，运行时查询使用 `Get`。
+频道协调通过 `ReconcileChannel` 接收已提交的频道 ID，注册信息使用
+`ManagedChannelPluginRegistration.Info`。这些接口不保留 `Start`、`Reconcile`、
+`Status`、`Lookup`、`ApplyChannel` 或 `Meta` 兼容别名；仓库外编译的 Native 插件
+需要更新对应调用后重新构建。
+
+`PluginInfo.Capabilities` 声明注册特征，由 Host 对照实际注册验证。
+`RequiredCapabilities` 独立声明宿主端口，继续执行默认拒绝的权限检查。
+
 ## 定义与配置
 
 `PluginDefinition.ID` 是唯一的规范包名，定义还包含发行资源与默认启用状态。
@@ -86,6 +97,10 @@ CLI 集成可以包含二进制、Skills、环境声明和提示。CLI 版本与
 规范化的 Definition 目录内嵌为 JSON。启动时直接读取该目录，不再经过中间 Manifest
 或 YAML 转换。`internal/plugin` 统一拥有资源 payload 与作用域配置校验；
 OAuth provider 文档由 `internal/connections/oauth` 加载和校验。
+
+Builtin Skill 必须显式声明来源路径和所属包，生成与运行时加载共用这份发行声明。
+旧目录扫描器和按目录推断 owner 的路线已移除。旧版提取式 Skill 的升级检查放在
+`cmd/stellad`，继续阻止不安全升级，资源加载器不再理解旧目录布局。
 
 只有 mise 和 Xberg 是同步准备的内嵌发行运行时。其他 CLI，包括 fd 和 rg，
 都在后台通过会话选择共用的安装器预装。`internal/platform/toolinstall` 负责 mise 执行、

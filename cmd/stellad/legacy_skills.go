@@ -1,27 +1,30 @@
-package resources
+package main
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
+
+	"github.com/CherryHQ/stella/resources"
 )
 
-// LegacySkillBlocker is an unsupported entry in the retired extracted builtin
+// legacySkillBlocker is an unsupported entry in the retired extracted builtin
 // projection. Path is relative to $STELLA_HOME/.agents/skills using slash paths.
-type LegacySkillBlocker struct {
+type legacySkillBlocker struct {
 	Path string
 	Kind string
 }
 
-// InventoryLegacySkills classifies the legacy extracted projection without
+// inventoryLegacySkills classifies the legacy extracted projection without
 // changing it. Manifest file paths are inert old derived bytes and may have
 // different contents or modes; every other entry blocks the bundle cutover.
-func (r *Registry) InventoryLegacySkills(skillsDir string) ([]LegacySkillBlocker, error) {
+func inventoryLegacySkills(skillsDir string, skills []resources.BuiltinSkillDescriptor) ([]legacySkillBlocker, error) {
 	if skillsDir == "" {
 		return nil, nil
 	}
@@ -36,24 +39,24 @@ func (r *Registry) InventoryLegacySkills(skillsDir string) ([]LegacySkillBlocker
 		return nil, fmt.Errorf("legacy skills root %q must be a directory, not %s", skillsDir, legacyEntryType(info.Mode()))
 	}
 
-	expectedFiles, expectedDirs := r.legacyProjectionPaths()
-	var blockers []LegacySkillBlocker
+	expectedFiles, expectedDirs := legacyProjectionPaths(skills)
+	var blockers []legacySkillBlocker
 	if err := inventoryLegacyDir(skillsDir, ".", expectedFiles, expectedDirs, &blockers); err != nil {
 		return nil, err
 	}
-	sort.Slice(blockers, func(i, j int) bool {
-		if blockers[i].Path == blockers[j].Path {
-			return blockers[i].Kind < blockers[j].Kind
+	slices.SortFunc(blockers, func(a, b legacySkillBlocker) int {
+		if order := strings.Compare(a.Path, b.Path); order != 0 {
+			return order
 		}
-		return strings.Compare(blockers[i].Path, blockers[j].Path) < 0
+		return cmp.Compare(a.Kind, b.Kind)
 	})
 	return blockers, nil
 }
 
-func (r *Registry) legacyProjectionPaths() (map[string]struct{}, map[string]struct{}) {
+func legacyProjectionPaths(skills []resources.BuiltinSkillDescriptor) (map[string]struct{}, map[string]struct{}) {
 	files := make(map[string]struct{})
 	dirs := map[string]struct{}{".": {}}
-	for _, skill := range r.BuiltinSkills() {
+	for _, skill := range skills {
 		for _, file := range skill.Files {
 			filePath := path.Join(skill.Root, file.Path)
 			files[filePath] = struct{}{}
@@ -65,7 +68,7 @@ func (r *Registry) legacyProjectionPaths() (map[string]struct{}, map[string]stru
 	return files, dirs
 }
 
-func inventoryLegacyDir(root, relative string, expectedFiles, expectedDirs map[string]struct{}, blockers *[]LegacySkillBlocker) error {
+func inventoryLegacyDir(root, relative string, expectedFiles, expectedDirs map[string]struct{}, blockers *[]legacySkillBlocker) error {
 	entries, err := os.ReadDir(legacyDiskPath(root, relative))
 	if err != nil {
 		return err
@@ -93,7 +96,7 @@ func inventoryLegacyDir(root, relative string, expectedFiles, expectedDirs map[s
 				return err
 			}
 			if !expectedDir && kind == "skill_root" {
-				*blockers = append(*blockers, LegacySkillBlocker{Path: relativePath, Kind: "skill_root"})
+				*blockers = append(*blockers, legacySkillBlocker{Path: relativePath, Kind: "skill_root"})
 				continue
 			}
 			before := len(*blockers)
@@ -101,25 +104,25 @@ func inventoryLegacyDir(root, relative string, expectedFiles, expectedDirs map[s
 				return err
 			}
 			if !expectedDir && len(*blockers) == before {
-				*blockers = append(*blockers, LegacySkillBlocker{Path: relativePath, Kind: kind})
+				*blockers = append(*blockers, legacySkillBlocker{Path: relativePath, Kind: kind})
 			}
 		case info.Mode()&fs.ModeSymlink != 0:
 			if expectedFile || expectedDir {
 				return legacyUnexpectedExpectedEntry(relativePath, info.Mode(), expectedLegacyType(expectedFile))
 			}
-			*blockers = append(*blockers, LegacySkillBlocker{Path: relativePath, Kind: "residual_path"})
+			*blockers = append(*blockers, legacySkillBlocker{Path: relativePath, Kind: "residual_path"})
 		case info.Mode().IsRegular():
 			if expectedDir {
 				return legacyUnexpectedExpectedEntry(relativePath, info.Mode(), "directory")
 			}
 			if !expectedFile {
-				*blockers = append(*blockers, LegacySkillBlocker{Path: relativePath, Kind: "residual_path"})
+				*blockers = append(*blockers, legacySkillBlocker{Path: relativePath, Kind: "residual_path"})
 			}
 		default:
 			if expectedFile || expectedDir {
 				return legacyUnexpectedExpectedEntry(relativePath, info.Mode(), expectedLegacyType(expectedFile))
 			}
-			*blockers = append(*blockers, LegacySkillBlocker{Path: relativePath, Kind: "residual_path"})
+			*blockers = append(*blockers, legacySkillBlocker{Path: relativePath, Kind: "residual_path"})
 		}
 	}
 	return nil

@@ -9,12 +9,11 @@ const PluginID = "system/reflect"
 func init() {
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
 		host.SetInfo(pkgplugins.PluginInfo{
-			ID:           PluginID,
-			Kind:         "system",
-			Name:         "reflect",
-			DisplayName:  "Reflect",
-			Description:  "Background conversation review and skill usage curation.",
-			AdminVisible: true,
+			ID:          PluginID,
+			Kind:        "system",
+			Name:        "reflect",
+			DisplayName: "Reflect",
+			Description: "Background conversation review and skill usage curation.",
 		})
 	}))
 }

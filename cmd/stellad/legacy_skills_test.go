@@ -1,15 +1,18 @@
-package resources
+package main
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/CherryHQ/stella/resources"
 )
 
-func legacyInventoryFixture(t *testing.T) (*Registry, string, string) {
-	registry, err := Default()
+func legacyInventoryFixture(t *testing.T) (*resources.Registry, string, string) {
+	registry, err := resources.Default()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +39,7 @@ func TestInventoryLegacySkillsAllowsKnownProjectionPathsWithOldBytes(t *testing.
 		t.Fatal(err)
 	}
 
-	blockers, err := registry.InventoryLegacySkills(legacy)
+	blockers, err := inventoryLegacySkills(legacy, registry.BuiltinSkills())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +73,7 @@ func TestInventoryLegacySkillsAllowsNestedKnownProjectionPath(t *testing.T) {
 			if err := os.WriteFile(filename, []byte("old nested bytes"), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			blockers, err := registry.InventoryLegacySkills(legacy)
+			blockers, err := inventoryLegacySkills(legacy, registry.BuiltinSkills())
 			if err != nil || len(blockers) != 0 {
 				t.Fatalf("nested known projection blockers = %#v, %v", blockers, err)
 			}
@@ -96,11 +99,11 @@ func TestInventoryLegacySkillsFindsExtraFileAndNestedCustomSkill(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(custom, "SKILL.md"), []byte("custom"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	blockers, err := registry.InventoryLegacySkills(legacy)
+	blockers, err := inventoryLegacySkills(legacy, registry.BuiltinSkills())
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []LegacySkillBlocker{{Path: pathJoin(owned, "extra.txt"), Kind: "residual_path"}, {Path: pathJoin(owned, "nested/custom"), Kind: "skill_root"}}
+	want := []legacySkillBlocker{{Path: path.Join(owned, "extra.txt"), Kind: "residual_path"}, {Path: path.Join(owned, "nested/custom"), Kind: "skill_root"}}
 	if !reflect.DeepEqual(blockers, want) {
 		t.Fatalf("blockers = %#v, want %#v", blockers, want)
 	}
@@ -117,7 +120,7 @@ func TestInventoryLegacySkillsRejectsInvalidRootAndManifestPath(t *testing.T) {
 	if err := os.WriteFile(legacy, []byte("not a directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := registry.InventoryLegacySkills(legacy); err == nil {
+	if _, err := inventoryLegacySkills(legacy, registry.BuiltinSkills()); err == nil {
 		t.Fatal("expected regular legacy root to fail closed")
 	}
 
@@ -125,7 +128,7 @@ func TestInventoryLegacySkillsRejectsInvalidRootAndManifestPath(t *testing.T) {
 	if err := os.Symlink(t.TempDir(), link); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
 	}
-	if _, err := registry.InventoryLegacySkills(link); err == nil {
+	if _, err := inventoryLegacySkills(link, registry.BuiltinSkills()); err == nil {
 		t.Fatal("expected symlink legacy root to fail closed")
 	}
 
@@ -137,7 +140,7 @@ func TestInventoryLegacySkillsRejectsInvalidRootAndManifestPath(t *testing.T) {
 	if err := os.Symlink("target", filepath.Join(root, "SKILL.md")); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
 	}
-	if _, err := registry.InventoryLegacySkills(legacy); err == nil {
+	if _, err := inventoryLegacySkills(legacy, registry.BuiltinSkills()); err == nil {
 		t.Fatal("expected manifest-owned symlink to fail closed")
 	}
 }
@@ -153,17 +156,15 @@ func TestInventoryLegacySkillsOrdersBlockersStably(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want := []LegacySkillBlocker{
-		{Path: pathJoin(owned, "aaa-extra"), Kind: "residual_path"},
-		{Path: pathJoin(owned, "middle-custom"), Kind: "skill_root"},
-		{Path: pathJoin(owned, "zzz-extra"), Kind: "residual_path"},
+	want := []legacySkillBlocker{
+		{Path: path.Join(owned, "aaa-extra"), Kind: "residual_path"},
+		{Path: path.Join(owned, "middle-custom"), Kind: "skill_root"},
+		{Path: path.Join(owned, "zzz-extra"), Kind: "residual_path"},
 	}
 	for i := range 3 {
-		got, err := registry.InventoryLegacySkills(legacy)
+		got, err := inventoryLegacySkills(legacy, registry.BuiltinSkills())
 		if err != nil || !reflect.DeepEqual(got, want) {
 			t.Fatalf("run %d blockers = %#v, %v; want %#v", i, got, err, want)
 		}
 	}
 }
-
-func pathJoin(base, child string) string { return filepath.ToSlash(filepath.Join(base, child)) }

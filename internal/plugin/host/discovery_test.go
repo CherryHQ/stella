@@ -44,9 +44,6 @@ func TestLoadCatalogFailsOnIncompleteManagedMetadata(t *testing.T) {
 			Kind:        config.PluginKindChannel,
 			Name:        "telegram",
 			DisplayName: "Telegram",
-			Managed:     true,
-			HasConfig:   true,
-			HasStatus:   true,
 			Capabilities: []string{
 				pkgplugins.CapabilityChannel,
 				pkgplugins.CapabilityRuntime,
@@ -82,14 +79,10 @@ func TestDiscoveryReportsRegistrations(t *testing.T) {
 	host := New(store)
 	host.RegisterPluginID("channel/telegram")
 	host.SetInfo(pkgplugins.PluginInfo{
-		ID:           "channel/telegram",
-		Kind:         config.PluginKindChannel,
-		Name:         "telegram",
-		DisplayName:  "Telegram",
-		Managed:      true,
-		AdminVisible: true,
-		HasConfig:    true,
-		HasStatus:    true,
+		ID:          "channel/telegram",
+		Kind:        config.PluginKindChannel,
+		Name:        "telegram",
+		DisplayName: "Telegram",
 		Capabilities: []string{
 			pkgplugins.CapabilityChannel,
 			pkgplugins.CapabilityRuntime,
@@ -107,7 +100,7 @@ func TestDiscoveryReportsRegistrations(t *testing.T) {
 		t.Fatalf("ValidateRegistrations: %v", err)
 	}
 
-	if !host.HasRuntime("channel/telegram") || !host.HasConfig("channel/telegram") || !host.HasStatus("channel/telegram") {
+	if !hasRuntimeLocked(host.runtimeRegs, "channel/telegram") || !host.IsConfigurable("channel/telegram") || host.statusRegs["channel/telegram"].PluginID == "" {
 		t.Fatal("expected runtime/config/status registrations")
 	}
 }
@@ -211,7 +204,7 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 		feishuplugin.PluginID,
 		weixinplugin.PluginID,
 	} {
-		if !host.HasRuntime(pluginID) || !host.HasStatus(pluginID) {
+		if !hasRuntimeLocked(host.runtimeRegs, pluginID) || host.statusRegs[pluginID].PluginID == "" {
 			t.Fatalf("missing runtime/status registration for %q", pluginID)
 		}
 		if len(host.ConfigSchema(pluginID)) == 0 {

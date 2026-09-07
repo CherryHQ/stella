@@ -8,42 +8,10 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-func (h *Host) ListRegisteredPlugins() []pkgplugins.PluginInfo {
-	h.mu.RLock()
-	metas := make([]pkgplugins.PluginInfo, 0, len(h.metadataRegs))
-	for _, meta := range h.metadataRegs {
-		metas = append(metas, meta.Clone())
-	}
-	h.mu.RUnlock()
-	sort.Slice(metas, func(i, j int) bool {
-		if metas[i].Kind != metas[j].Kind {
-			return metas[i].Kind < metas[j].Kind
-		}
-		if metas[i].Name != metas[j].Name {
-			return metas[i].Name < metas[j].Name
-		}
-		return metas[i].ID < metas[j].ID
-	})
-	return metas
-}
-
 func (h *Host) ValidateRegistrations() error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, meta := range h.metadataRegs {
-		if meta.Managed && !hasRuntimeLocked(h.runtimeRegs, meta.ID) {
-			return fmt.Errorf("pluginhost: metadata for %q declares managed runtime but no runtime is registered", meta.ID)
-		}
-		if meta.HasConfig {
-			if _, ok := h.configRegs[meta.ID]; !ok {
-				return fmt.Errorf("pluginhost: metadata for %q declares config but no config is registered", meta.ID)
-			}
-		}
-		if meta.HasStatus {
-			if _, ok := h.statusRegs[meta.ID]; !ok {
-				return fmt.Errorf("pluginhost: metadata for %q declares status but no status is registered", meta.ID)
-			}
-		}
 		for _, capability := range meta.Capabilities {
 			switch capability {
 			case pkgplugins.CapabilityChannel:

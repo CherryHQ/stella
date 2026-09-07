@@ -112,7 +112,7 @@ func TestBotRuntimeForwardsJoinedChatListing(t *testing.T) {
 		},
 		Snapshot: botTestSnapshot,
 	})
-	if err := runtime.Start(context.Background(), PluginState{ID: "feishu", Enabled: true}); err != nil {
+	if err := runtime.Apply(context.Background(), PluginState{ID: "feishu", Enabled: true}); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	waitClosed(t, channel.started, "channel start")
@@ -156,7 +156,7 @@ func TestBotRuntimeQuiesceTwoPhase(t *testing.T) {
 	})
 
 	state := PluginState{ID: "tg", Enabled: true}
-	if err := rt.Start(context.Background(), state); err != nil {
+	if err := rt.Apply(context.Background(), state); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	waitClosed(t, ch.started, "channel start")

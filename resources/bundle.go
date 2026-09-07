@@ -175,10 +175,10 @@ func (r *Registry) writeBuiltinBundle(root string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return fmt.Errorf("create builtin skill directory for %q: %w", file.Path, err)
 			}
-			if err := os.WriteFile(target, data, manifestSourceMode(file.Mode)); err != nil {
+			if err := os.WriteFile(target, data, file.Mode.Perm()); err != nil {
 				return fmt.Errorf("write builtin skill %q/%q: %w", skill.Name, file.Path, err)
 			}
-			if err := os.Chmod(target, manifestSourceMode(file.Mode)); err != nil {
+			if err := os.Chmod(target, file.Mode.Perm()); err != nil {
 				return fmt.Errorf("set builtin skill mode %q/%q: %w", skill.Name, file.Path, err)
 			}
 		}
@@ -275,7 +275,7 @@ func verifyBundleAt(root string, manifest BuiltinManifest) error {
 		if err != nil {
 			return err
 		}
-		if !info.Mode().IsRegular() || !bundleFileModeMatches(info.Mode(), manifestSourceMode(file.Mode)) {
+		if !info.Mode().IsRegular() || !bundleFileModeMatches(info.Mode(), file.Mode.Perm()) {
 			return fmt.Errorf("bundle file %q has unexpected mode %s", rel, info.Mode())
 		}
 		data, err := os.ReadFile(filename)

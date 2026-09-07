@@ -21,22 +21,8 @@ func TestSelfRegisteredTelegramPluginIsComplete(t *testing.T) {
 	if err := host.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
-	if !host.HasRuntime(PluginID) || !host.HasConfig(PluginID) || !host.HasStatus(PluginID) {
-		t.Fatal("expected telegram runtime/config/status registrations")
-	}
-	metas := host.ListRegisteredPlugins()
-	found := false
-	for _, meta := range metas {
-		if meta.ID != PluginID {
-			continue
-		}
-		found = true
-		if meta.Kind != "channel" || meta.Name != pkgchannel.PlatformTelegram || !meta.Managed || !meta.AdminVisible {
-			t.Fatalf("unexpected telegram metadata: %#v", meta)
-		}
-	}
-	if !found {
-		t.Fatal("expected telegram metadata")
+	if !host.IsConfigurable(PluginID) || len(host.ConfigSchema(PluginID)) == 0 {
+		t.Fatal("expected telegram configuration schema")
 	}
 }
 

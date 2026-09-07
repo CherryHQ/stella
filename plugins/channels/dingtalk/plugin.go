@@ -42,13 +42,12 @@ func init() {
 		pkgplugins.RegisterManagedChannelPlugin(host, pkgplugins.ManagedChannelPluginRegistration{
 			PluginID:    PluginID,
 			RuntimeName: RuntimeName,
-			Meta: pkgplugins.PluginInfo{
+			Info: pkgplugins.PluginInfo{
 				ID:           PluginID,
 				Kind:         "channel",
 				Name:         pkgchannel.PlatformDingTalk,
 				DisplayName:  "DingTalk",
 				Description:  "DingTalk Stream bot integration.",
-				AdminVisible: true,
 				Capabilities: []string{pkgplugins.CapabilityRuntime, pkgplugins.CapabilityConfig, pkgplugins.CapabilityStatus},
 				RequiredCapabilities: []pkgplugins.Capability{
 					pkgplugins.CapabilityChannelPlatform,

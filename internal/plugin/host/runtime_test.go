@@ -97,18 +97,18 @@ func TestRuntimeLookupKeepsChannelInstancesDistinct(t *testing.T) {
 		Config: `{"app_id":"app-second","app_secret":"secret-second"}`,
 	}
 	store.channels = map[string][]config.Channel{"feishu": {first, second}}
-	if err := host.ApplyChannel(ctx, first); err != nil {
-		t.Fatalf("ApplyChannel(first): %v", err)
+	if err := host.ReconcileChannel(ctx, first.ID); err != nil {
+		t.Fatalf("ReconcileChannel(first): %v", err)
 	}
-	if err := host.ApplyChannel(ctx, second); err != nil {
-		t.Fatalf("ApplyChannel(second): %v", err)
+	if err := host.ReconcileChannel(ctx, second.ID); err != nil {
+		t.Fatalf("ReconcileChannel(second): %v", err)
 	}
 
 	firstHandle, ok := host.Runtime().Get(ctx, first.ID, "bot")
 	if !ok {
 		t.Fatal("missing first channel runtime")
 	}
-	secondHandle, ok := host.Runtime().Lookup(ctx, second.ID, "bot")
+	secondHandle, ok := host.Runtime().Get(ctx, second.ID, "bot")
 	if !ok {
 		t.Fatal("missing second channel runtime")
 	}
@@ -119,14 +119,14 @@ func TestRuntimeLookupKeepsChannelInstancesDistinct(t *testing.T) {
 	if _, ok := host.Runtime().Get(ctx, "channel/feishu", "bot"); ok {
 		t.Fatal("platform plugin ID must not select an arbitrary channel instance")
 	}
-	if _, ok := host.Runtime().Lookup(ctx, "channel/feishu", "bot"); ok {
+	if _, ok := host.Runtime().Get(ctx, "channel/feishu", "bot"); ok {
 		t.Fatal("platform plugin ID must not select an arbitrary channel instance")
 	}
 
 	first.Config = `{"app_id":"app-first-updated","app_secret":"secret-first-updated"}`
 	store.channels["feishu"][0] = first
-	if err := host.ApplyChannel(ctx, first); err != nil {
-		t.Fatalf("ApplyChannel(first update): %v", err)
+	if err := host.ReconcileChannel(ctx, first.ID); err != nil {
+		t.Fatalf("ReconcileChannel(first update): %v", err)
 	}
 	if builds[first.ID] != 1 || builds[second.ID] != 1 {
 		t.Fatalf("runtime builds = %#v, want one build per instance", builds)
@@ -232,11 +232,11 @@ func TestListenerCapIsScopedToExactChannelInstance(t *testing.T) {
 	first := config.Channel{ID: "feishu-first", Type: "feishu", AgentID: "agent-first", Enabled: true}
 	blocked := config.Channel{ID: "feishu-blocked", Type: "feishu", AgentID: "agent-blocked", Enabled: true}
 	store.channels["feishu"] = []config.Channel{first, blocked}
-	if err := host.ApplyChannel(t.Context(), first); err != nil {
-		t.Fatalf("ApplyChannel(first): %v", err)
+	if err := host.ReconcileChannel(t.Context(), first.ID); err != nil {
+		t.Fatalf("ReconcileChannel(first): %v", err)
 	}
-	if err := host.ApplyChannel(t.Context(), blocked); err != nil {
-		t.Fatalf("ApplyChannel(blocked): %v", err)
+	if err := host.ReconcileChannel(t.Context(), blocked.ID); err != nil {
+		t.Fatalf("ReconcileChannel(blocked): %v", err)
 	}
 
 	if got, want := strings.Join(calls, ","), "channel/feishu/agent-first,channel/feishu/agent-blocked"; got != want {
@@ -266,21 +266,21 @@ func TestListenerCapErrorLeavesExistingRuntimeUntouched(t *testing.T) {
 		Build:    func(pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) { return instance, nil },
 	})
 	channel := config.Channel{ID: "feishu-first", Type: "feishu", AgentID: "agent-first", Enabled: true, Config: `{"app_id":"old"}`}
-	if err := host.ApplyChannel(t.Context(), channel); err != nil {
-		t.Fatalf("initial ApplyChannel: %v", err)
+	if err := host.ReconcileChannel(t.Context(), channel.ID); err != nil {
+		t.Fatalf("initial ReconcileChannel: %v", err)
 	}
 	host.SetListenerCap(func(context.Context, string, string) (bool, error) { return false, capErr })
 	channel.Config = `{"app_id":"new"}`
 	store.channels["feishu"][0] = channel
-	if err := host.ApplyChannel(t.Context(), channel); !errors.Is(err, capErr) {
-		t.Fatalf("ApplyChannel error = %v, want %v", err, capErr)
+	if err := host.ReconcileChannel(t.Context(), channel.ID); !errors.Is(err, capErr) {
+		t.Fatalf("ReconcileChannel error = %v, want %v", err, capErr)
 	}
 	if instance.applies != 1 || instance.state.Config["app_id"] != "old" || !instance.state.Enabled {
 		t.Fatalf("runtime changed after cap error: applies=%d state=%#v", instance.applies, instance.state)
 	}
 }
 
-func TestApplyChannelFailsClosedWhenListenerCapIsMissing(t *testing.T) {
+func TestReconcileChannelFailsClosedWhenListenerCapIsMissing(t *testing.T) {
 	host := New(&stubStore{channels: map[string][]config.Channel{"feishu": {{ID: "feishu-a", Type: "feishu", Enabled: true}}}})
 	host.RegisterPluginID("channel/feishu")
 	builds := 0
@@ -293,9 +293,9 @@ func TestApplyChannelFailsClosedWhenListenerCapIsMissing(t *testing.T) {
 		},
 	})
 
-	err := host.ApplyChannel(t.Context(), config.Channel{ID: "feishu-a", Type: "feishu", Enabled: true})
+	err := host.ReconcileChannel(t.Context(), "feishu-a")
 	if !errors.Is(err, ErrListenerCapUnavailable) {
-		t.Fatalf("ApplyChannel error = %v, want ErrListenerCapUnavailable", err)
+		t.Fatalf("ReconcileChannel error = %v, want ErrListenerCapUnavailable", err)
 	}
 	if builds != 0 {
 		t.Fatalf("runtime builds = %d, want 0 when listener cap is missing", builds)
@@ -498,14 +498,6 @@ func (r *barrierChannelRuntime) Apply(ctx context.Context, desired pkgplugins.Pl
 	return nil
 }
 
-func (r *barrierChannelRuntime) Start(ctx context.Context, desired pkgplugins.PluginState) error {
-	return r.Apply(ctx, desired)
-}
-
-func (r *barrierChannelRuntime) Reconcile(ctx context.Context, desired pkgplugins.PluginState) error {
-	return r.Apply(ctx, desired)
-}
-
 func (r *barrierChannelRuntime) Stop(context.Context) error {
 	r.stops.Add(1)
 	return nil
@@ -518,10 +510,6 @@ func (r *barrierChannelRuntime) Snapshot(context.Context) (pkgplugins.RuntimeSta
 		return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateStopped}, nil
 	}
 	return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateRunning, Metadata: map[string]any{"config": r.states[len(r.states)-1].Config}}, nil
-}
-
-func (r *barrierChannelRuntime) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
-	return r.Snapshot(ctx)
 }
 
 func (r *barrierChannelRuntime) lastConfig() string {
@@ -608,14 +596,6 @@ func (r *channelInstanceRuntime) Apply(_ context.Context, desired pkgplugins.Plu
 	return nil
 }
 
-func (r *channelInstanceRuntime) Start(ctx context.Context, desired pkgplugins.PluginState) error {
-	return r.Apply(ctx, desired)
-}
-
-func (r *channelInstanceRuntime) Reconcile(ctx context.Context, desired pkgplugins.PluginState) error {
-	return r.Apply(ctx, desired)
-}
-
 func (*channelInstanceRuntime) Stop(context.Context) error { return nil }
 
 func (r *channelInstanceRuntime) Snapshot(context.Context) (pkgplugins.RuntimeStatus, error) {
@@ -626,10 +606,6 @@ func (r *channelInstanceRuntime) Snapshot(context.Context) (pkgplugins.RuntimeSt
 			"app_id":      r.state.Config["app_id"],
 		},
 	}, nil
-}
-
-func (r *channelInstanceRuntime) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
-	return r.Snapshot(ctx)
 }
 
 // TestRuntimeMissingKeyReturnsFalse ensures Get returns (nil,false) for
@@ -700,20 +676,10 @@ type joinedChatRuntime struct {
 }
 
 func (joinedChatRuntime) Apply(context.Context, pkgplugins.PluginState) error { return nil }
-func (r joinedChatRuntime) Start(ctx context.Context, state pkgplugins.PluginState) error {
-	return r.Apply(ctx, state)
-}
 
-func (r joinedChatRuntime) Reconcile(ctx context.Context, state pkgplugins.PluginState) error {
-	return r.Apply(ctx, state)
-}
 func (joinedChatRuntime) Stop(context.Context) error { return nil }
 func (joinedChatRuntime) Snapshot(context.Context) (pkgplugins.RuntimeStatus, error) {
 	return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateRunning}, nil
-}
-
-func (r joinedChatRuntime) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
-	return r.Snapshot(ctx)
 }
 
 func (r joinedChatRuntime) ListJoinedChats(context.Context, int, string) (pkgchannel.JoinedChatPage, error) {
@@ -725,15 +691,9 @@ func (r *blockingApplyRuntime) Apply(context.Context, pkgplugins.PluginState) er
 	<-r.release
 	return nil
 }
-func (r *blockingApplyRuntime) Start(context.Context, pkgplugins.PluginState) error     { return nil }
-func (r *blockingApplyRuntime) Reconcile(context.Context, pkgplugins.PluginState) error { return nil }
-func (r *blockingApplyRuntime) Stop(context.Context) error                              { r.stops.Add(1); return nil }
+func (r *blockingApplyRuntime) Stop(context.Context) error { r.stops.Add(1); return nil }
 func (r *blockingApplyRuntime) Snapshot(context.Context) (pkgplugins.RuntimeStatus, error) {
 	return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateRunning}, nil
-}
-
-func (r *blockingApplyRuntime) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
-	return r.Snapshot(ctx)
 }
 
 func TestShutdownReleasesLockBeforeStop(t *testing.T) {
@@ -763,9 +723,7 @@ func TestShutdownReleasesLockBeforeStop(t *testing.T) {
 // the lock during Stop, this would deadlock.
 type reentrantRuntime struct{ host *Host }
 
-func (r reentrantRuntime) Apply(context.Context, pkgplugins.PluginState) error     { return nil }
-func (r reentrantRuntime) Start(context.Context, pkgplugins.PluginState) error     { return nil }
-func (r reentrantRuntime) Reconcile(context.Context, pkgplugins.PluginState) error { return nil }
+func (r reentrantRuntime) Apply(context.Context, pkgplugins.PluginState) error { return nil }
 func (r reentrantRuntime) Stop(ctx context.Context) error {
 	// During Stop, Shutdown has already removed the entry; this lookup should
 	// return (nil,false) without deadlocking on the RuntimeHost mutex.
@@ -775,8 +733,4 @@ func (r reentrantRuntime) Stop(ctx context.Context) error {
 
 func (r reentrantRuntime) Snapshot(context.Context) (pkgplugins.RuntimeStatus, error) {
 	return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateRunning}, nil
-}
-
-func (r reentrantRuntime) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
-	return r.Snapshot(ctx)
 }

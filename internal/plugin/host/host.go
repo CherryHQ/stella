@@ -36,7 +36,7 @@ type Host struct {
 	// sealed is set by Seal() after all static registrations and capability
 	// bindings are complete. Once sealed, the static composition surface
 	// (LoadCatalog and the Set* capability binders) refuses further changes,
-	// while the dynamic desired-state surface (ApplyPlugin/ApplyChannel/
+	// while the dynamic desired-state surface (ApplyPlugin/ReconcileChannel/
 	// SetEnabled/Stop) stays available.
 	sealed           bool
 	pluginIDs        map[string]struct{}
@@ -151,7 +151,7 @@ func (h *Host) RegisterPluginID(id string) {
 // registrations fail here; duplicate static registrations already fail eagerly
 // at registration time (registerUnique). After Seal, LoadCatalog and the Set*
 // capability binders refuse late changes, while the dynamic desired-state
-// surface (ApplyPlugin/ApplyChannel/SetEnabled/Stop)
+// surface (ApplyPlugin/ReconcileChannel/SetEnabled/Stop)
 // remains available. Seal is one-shot.
 func (h *Host) Seal() error {
 	if err := h.ValidateRegistrations(); err != nil {
@@ -359,10 +359,6 @@ func (h *Host) DesiredState(ctx context.Context, pluginID string) (pkgplugins.Pl
 
 func (h *Host) ApplyPlugin(ctx context.Context, pluginID string) error {
 	return h.runtimes.ApplyPlugin(ctx, pluginID)
-}
-
-func (h *Host) ApplyChannel(ctx context.Context, channel config.Channel) error {
-	return h.runtimes.ApplyChannel(ctx, channel)
 }
 
 // ReconcileChannel reapplies one committed channel instance by exact ID.

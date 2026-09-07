@@ -33,6 +33,19 @@ channel listeners. A failed response therefore does not preserve stale access.
 The Native management API requires administrator authentication; OAuth access
 tokens cannot reach it.
 
+## Native Go contract
+
+Native runtimes implement `Apply`, `Stop` and `Snapshot`. Runtime lookup uses
+`Get`; channel reconciliation accepts the committed channel ID through
+`ReconcileChannel`. Registrations use `ManagedChannelPluginRegistration.Info`.
+There are no `Start`, `Reconcile`, `Status`, `Lookup`, `ApplyChannel` or `Meta`
+compatibility aliases on these interfaces. Native plugins compiled outside this
+repository must update those calls before rebuilding.
+
+`PluginInfo.Capabilities` declares registration traits; the host validates them
+against the actual registrations. `RequiredCapabilities` separately declares
+host ports and remains subject to fail-closed authorization.
+
 ## Definition and configuration
 
 `PluginDefinition.ID` is the unique canonical package name. It describes the
@@ -116,6 +129,12 @@ JSON. Startup reads that catalog directly, without an intermediate manifest or
 YAML conversion. `internal/plugin` owns the shared resource payload and scoped
 configuration validation. OAuth provider documents are loaded and validated by
 `internal/connections/oauth`.
+
+Builtin Skills require an explicit source path and package owner. Generation and
+runtime loading use that release declaration; the old directory scanner and
+implicit owner layout are removed. Startup migration checks for extracted
+legacy Skills live in `cmd/stellad`, where they can block an unsafe upgrade
+without making legacy layouts part of the resource loader.
 
 Only mise and Xberg are embedded release runtimes prepared synchronously. Other CLIs, including fd and rg, are preinstalled
 in the background through the same installer used for session selection.

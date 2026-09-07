@@ -515,18 +515,7 @@ func (r runtimeStub) Apply(ctx context.Context, desired pkgplugins.PluginState) 
 	return r.apply(ctx, desired)
 }
 
-func (r runtimeStub) Start(ctx context.Context, desired pkgplugins.PluginState) error {
-	return r.Apply(ctx, desired)
-}
-
-func (r runtimeStub) Reconcile(ctx context.Context, desired pkgplugins.PluginState) error {
-	return r.Apply(ctx, desired)
-}
 func (r runtimeStub) Stop(context.Context) error { return nil }
 func (r runtimeStub) Snapshot(context.Context) (pkgplugins.RuntimeStatus, error) {
 	return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateRunning}, nil
-}
-
-func (r runtimeStub) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
-	return r.Snapshot(ctx)
 }

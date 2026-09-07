@@ -350,7 +350,7 @@ func TestUnregisteredAgentPackagesReceiveNoPlatformCapabilities(t *testing.T) {
 	if host.platform("agent-package").ChannelPlatform() != nil {
 		t.Fatal("manifest plugin must not receive a Platform capability")
 	}
-	for _, meta := range host.ListRegisteredPlugins() {
+	for _, meta := range host.metadataRegs {
 		if meta.ID == "agent-package" && len(meta.RequiredCapabilities) != 0 {
 			t.Fatalf("manifest mutated RequiredCapabilities: %#v", meta)
 		}

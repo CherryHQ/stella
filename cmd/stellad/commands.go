@@ -832,7 +832,7 @@ func ensureEmbeddedAssets() error {
 	if err != nil {
 		return fmt.Errorf("load builtin skill bundle: %w", err)
 	}
-	blockers, err := registry.InventoryLegacySkills(filepath.Join(config.StellaHome(), ".agents", "skills"))
+	blockers, err := inventoryLegacySkills(filepath.Join(config.StellaHome(), ".agents", "skills"), registry.BuiltinSkills())
 	if err != nil {
 		return fmt.Errorf("inventory legacy system skills: %w", err)
 	}

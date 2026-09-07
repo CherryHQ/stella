@@ -1053,7 +1053,7 @@ func assertChannelRuntime(t *testing.T, env *testEnv, channelID string, want pkg
 		}
 		return
 	}
-	status, err := handle.Status(t.Context())
+	status, err := handle.Snapshot(t.Context())
 	if err != nil {
 		t.Fatalf("runtime %q status: %v", channelID, err)
 	}

@@ -27,23 +27,18 @@ type ConfigStore interface {
 // RuntimeLookup resolves running runtime handles by plugin and runtime capability ID.
 type RuntimeLookup interface {
 	Get(ctx context.Context, runtimeID string, runtimeName string) (RuntimeHandle, bool)
-	Lookup(ctx context.Context, runtimeID string, runtimeName string) (RuntimeHandle, bool)
 }
 
 // RuntimeHandle exposes status access to a running runtime.
 type RuntimeHandle interface {
 	Snapshot(ctx context.Context) (RuntimeStatus, error)
-	Status(ctx context.Context) (RuntimeStatus, error)
 }
 
 // Runtime is implemented by plugin-owned long-lived runtime services.
 type Runtime interface {
 	Apply(ctx context.Context, desired PluginState) error
-	Start(ctx context.Context, desired PluginState) error
-	Reconcile(ctx context.Context, desired PluginState) error
 	Stop(ctx context.Context) error
 	Snapshot(ctx context.Context) (RuntimeStatus, error)
-	Status(ctx context.Context) (RuntimeStatus, error)
 }
 
 // RuntimeState is the shared high-level runtime state used by host orchestration.
