@@ -12,7 +12,7 @@ import (
 func TestResolveExhaustive256WinnerFirst(t *testing.T) {
 	def := Definition{
 		ID: "builtin/email", Namespace: "email", DisplayName: "Email",
-		Backend: BackendGo, Source: SourceBuiltin, ImplementationKey: "email", Revision: 1,
+		Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "email", Revision: 1,
 		DefaultEnabled: true, Spec: json.RawMessage(`{"schema":1}`),
 	}
 	states := []struct {
@@ -138,7 +138,7 @@ func TestCustomDefinitionCannotDefaultEnabled(t *testing.T) {
 }
 
 func TestResolveBackendSourceMatrix(t *testing.T) {
-	backends := []Backend{BackendCLI, BackendMCP, BackendGo}
+	backends := []Backend{BackendCLI, BackendMCP}
 	sources := []Source{SourceBuiltin, SourceCustom}
 	for _, backend := range backends {
 		for _, source := range sources {
@@ -149,12 +149,6 @@ func TestResolveBackendSourceMatrix(t *testing.T) {
 						ID: "matrix/" + name, Namespace: "matrix-" + string(backend) + "-" + string(source), DisplayName: name,
 						Backend: backend, Source: source, ImplementationKey: name, Spec: json.RawMessage(`{"kind":"matrix"}`),
 						DefaultEnabled: defaultEnabled, Revision: 1,
-					}
-					if source == SourceCustom && backend == BackendGo {
-						if err := def.Validate(); err == nil {
-							t.Fatal("custom Go definition accepted")
-						}
-						return
 					}
 					if source == SourceCustom {
 						def.DefaultEnabled = false
@@ -338,7 +332,7 @@ func TestAccessDerivesOnlyTrustedUserScope(t *testing.T) {
 }
 
 func testDefinition() Definition {
-	return Definition{ID: "builtin/test", Namespace: "test", DisplayName: "Test", Backend: BackendGo, Source: SourceBuiltin, ImplementationKey: "test", Spec: json.RawMessage(`{}`), Revision: 1}
+	return Definition{ID: "builtin/test", Namespace: "test", DisplayName: "Test", Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "test", Spec: json.RawMessage(`{}`), Revision: 1}
 }
 
 func boolPtr(value bool) *bool { return &value }

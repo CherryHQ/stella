@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "recally",
+  "version": "1.0.0",
+  "description": "Reading assistant guidance for saving, organizing, and recalling web content."
+}

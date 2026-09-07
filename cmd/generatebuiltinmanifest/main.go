@@ -6,14 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	recallyplugin "github.com/CherryHQ/stella/internal/library/recally"
-	"github.com/CherryHQ/stella/internal/plugin/host"
-	_ "github.com/CherryHQ/stella/internal/plugin/host/catalogimports"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
-	schedulerplugin "github.com/CherryHQ/stella/internal/scheduler"
-	"github.com/CherryHQ/stella/pkg/toolmeta"
 	builtinplugins "github.com/CherryHQ/stella/plugins"
-	emailplugin "github.com/CherryHQ/stella/plugins/email"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -39,34 +33,16 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	owners := map[string]struct{}{}
-	runtimeHost := host.New(nil)
-	if err := runtimeHost.LoadDefaultCatalog(); err != nil {
-		fatal(fmt.Errorf("load runtime plugin catalog: %w", err))
-	}
-	for _, plugin := range runtimeHost.ListRegisteredPlugins() {
-		owners[plugin.ID] = struct{}{}
-	}
-	var generatedTools []toolmeta.ActionTool
-	for _, specs := range [][]toolmeta.ActionTool{emailplugin.ActionTools(), recallyplugin.ActionTools(), schedulerplugin.ActionTools()} {
-		generatedTools = append(generatedTools, specs...)
-	}
-	goDefinitions, err := host.BuiltinToolDefinitions(toolmeta.NewRegistry(generatedTools...))
+	builtinManifest, err := manifest.GenerateBuiltinPlugins(filepath.Join(root, "plugins"), nil, oauthProviderIDs)
 	if err != nil {
 		fatal(err)
 	}
-	for _, definition := range goDefinitions {
-		owners[definition.ID] = struct{}{}
-	}
-	cliManifest, err := manifest.GenerateBuiltinPlugins(filepath.Join(root, "plugins"), nil, oauthProviderIDs)
-	if err != nil {
-		fatal(err)
-	}
-	if err := validateBuiltinSkillDeclarations(assets, cliManifest.Plugins); err != nil {
-		fatal(err)
-	}
-	for _, plugin := range cliManifest.Plugins {
+	owners := make(map[string]struct{}, len(builtinManifest.Plugins))
+	for _, plugin := range builtinManifest.Plugins {
 		owners[plugin.ID] = struct{}{}
+	}
+	if err := validateBuiltinSkillDeclarations(assets, builtinManifest.Plugins); err != nil {
+		fatal(err)
 	}
 	for _, asset := range assets {
 		if asset.OwnerPluginID == "" {
@@ -82,7 +58,7 @@ func main() {
 	if err := manifest.WriteBuiltinPlugins(filepath.Join(root, "plugins"), filepath.Join(root, "resources", "builtin_plugins_gen.go"), nil, oauthProviderIDs); err != nil {
 		fatal(err)
 	}
-	if err := writeSystemRuntimes(filepath.Join(root, "plugins", "system", "runtime_gen.go"), cliManifest); err != nil {
+	if err := writeSystemRuntimes(filepath.Join(root, "plugins", "system", "runtime_gen.go"), builtinManifest); err != nil {
 		fatal(err)
 	}
 }

@@ -314,82 +314,6 @@ func TestNormalizeLegacyNativeToolOverrideBecomesCoreIdentity(t *testing.T) {
 	}
 }
 
-func TestNormalizeLegacyChannelMigratesOnlyPlatformCapability(t *testing.T) {
-	const secret = "fakeappsecret"
-	legacyConfig := json.RawMessage(`{"app_id":"fake-app","app_secret":"fakeappsecret"}`)
-	snapshot := LegacySnapshot{
-		Plugins:  []LegacyPlugin{{ID: "channel/feishu", Enabled: false, Config: legacyConfig}},
-		Channels: []LegacyChannel{{ID: "feishu-work", Type: "feishu"}},
-	}
-	originalConfig := append(json.RawMessage(nil), snapshot.Plugins[0].Config...)
-	catalog := NewCatalog()
-	if err := catalog.Register(testChannelDefinition("feishu")); err != nil {
-		t.Fatal(err)
-	}
-
-	plan, err := NormalizeLegacySnapshot(snapshot, catalog, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(plan.Configs) != 1 {
-		t.Fatalf("channel config count = %d", len(plan.Configs))
-	}
-	config := plan.Configs[0]
-	if config.PluginID != "channel/feishu" || config.Enabled == nil || *config.Enabled {
-		t.Fatalf("channel capability = %#v", config)
-	}
-	if string(config.Payload) != `{}` || len(config.CredentialRefs) != 0 {
-		t.Fatalf("channel config copied legacy material: payload=%s refs=%s", config.Payload, config.CredentialRefs)
-	}
-	definitionBytes, err := json.Marshal(plan.Definitions)
-	if err != nil {
-		t.Fatal(err)
-	}
-	configBytes, err := json.Marshal(plan.Configs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(definitionBytes), secret) || strings.Contains(string(configBytes), secret) {
-		t.Fatal("channel secret escaped into target definition or config")
-	}
-	if string(snapshot.Plugins[0].Config) != string(originalConfig) {
-		t.Fatal("legacy channel mirror mutated")
-	}
-}
-
-func TestNormalizeLegacyChannelRejectsPayloadWithoutInstance(t *testing.T) {
-	const secret = "fakeappsecret"
-	catalog := NewCatalog()
-	if err := catalog.Register(testChannelDefinition("feishu")); err != nil {
-		t.Fatal(err)
-	}
-	_, err := NormalizeLegacySnapshot(LegacySnapshot{Plugins: []LegacyPlugin{{
-		ID: "channel/feishu", Enabled: true, Config: json.RawMessage(`{"app_secret":"fakeappsecret"}`),
-	}}}, catalog, nil, nil)
-	if !errors.Is(err, ErrLegacyMigrationConflict) || !strings.Contains(err.Error(), "channel/feishu") {
-		t.Fatalf("missing channel instance error = %v", err)
-	}
-	if strings.Contains(err.Error(), secret) {
-		t.Fatal("migration error exposed channel secret")
-	}
-}
-
-func TestNormalizeLegacyChannelAllowsEmptyPayloadWithoutInstance(t *testing.T) {
-	catalog := NewCatalog()
-	if err := catalog.Register(testChannelDefinition("feishu")); err != nil {
-		t.Fatal(err)
-	}
-	plan, err := NormalizeLegacySnapshot(LegacySnapshot{Plugins: []LegacyPlugin{{
-		ID: "channel/feishu", Enabled: false, Config: json.RawMessage(`{}`),
-	}}}, catalog, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(plan.Configs) != 1 || plan.Configs[0].Enabled == nil || *plan.Configs[0].Enabled || string(plan.Configs[0].Payload) != `{}` {
-		t.Fatalf("empty channel capability = %#v", plan.Configs)
-	}
-}
-
 func TestNormalizeLegacyNativeRowsStayOutsideAgentCatalog(t *testing.T) {
 	plan, err := NormalizeLegacySnapshot(LegacySnapshot{Plugins: []LegacyPlugin{
 		{ID: "channel/telegram", Enabled: true, Config: json.RawMessage(`{"token":"secret"}`)},
@@ -400,13 +324,5 @@ func TestNormalizeLegacyNativeRowsStayOutsideAgentCatalog(t *testing.T) {
 	}
 	if len(plan.Configs) != 0 || len(plan.Definitions) != 0 {
 		t.Fatalf("native rows were imported as Agent plugin state: %#v", plan)
-	}
-}
-
-func testChannelDefinition(channelType string) Definition {
-	return Definition{
-		ID: "channel/" + channelType, Namespace: channelType, DisplayName: channelType,
-		Backend: BackendGo, Source: SourceBuiltin, ImplementationKey: "channel/" + channelType,
-		Spec: json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1,
 	}
 }

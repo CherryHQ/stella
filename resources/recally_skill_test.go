@@ -11,7 +11,7 @@ import (
 // The save instruction in SKILL.md is a contract with the recally tool schema.
 // Prose cannot be compiled, so assert every field it names actually exists.
 func TestRecallyCaptureSkillMatchesSaveSchema(t *testing.T) {
-	text := readBuiltinSkillPath(t, "skills/plugins/system/recally/recally/SKILL.md")
+	text := readBuiltinSkillPath(t, "skills/plugins/agent/recally/recally/SKILL.md")
 
 	for _, want := range []string{
 		"recally__article_save",

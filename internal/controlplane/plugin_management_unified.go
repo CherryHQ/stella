@@ -3,7 +3,6 @@ package controlplane
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	pluginapi "github.com/CherryHQ/stella/internal/plugin"
 )
@@ -39,47 +38,45 @@ func (h *UnifiedPluginManagementHandler) List(ctx context.Context, _ SettingsPlu
 		if err != nil {
 			return nil, err
 		}
-		kind, name := unifiedPluginRoute(definition.ID, definition.Namespace)
-		out = append(out, projectPlugin(kind, name, enabled))
+		out = append(out, projectPlugin(definition.ID, enabled))
 	}
 	return map[string]any{"plugins": out, "truncated": false}, nil
 }
 
 func (h *UnifiedPluginManagementHandler) Enable(ctx context.Context, in SettingsPluginEnableInput) (any, error) {
-	return h.toggle(ctx, in.Kind, in.Name, true)
+	return h.toggle(ctx, in.PluginId, true)
 }
 
 func (h *UnifiedPluginManagementHandler) Disable(ctx context.Context, in SettingsPluginDisableInput) (any, error) {
-	return h.toggle(ctx, in.Kind, in.Name, false)
+	return h.toggle(ctx, in.PluginId, false)
 }
 
-func (h *UnifiedPluginManagementHandler) toggle(ctx context.Context, kind, name string, enabled bool) (any, error) {
+func (h *UnifiedPluginManagementHandler) toggle(ctx context.Context, pluginID string, enabled bool) (any, error) {
 	if h == nil || h.access == nil {
 		return nil, pluginapi.ErrForbidden
 	}
-	id := pluginRouteID(kind, name)
-	definition, err := h.access.GetDefinition(ctx, id)
+	definition, err := h.access.GetDefinition(ctx, pluginID)
 	if err != nil {
 		return nil, err
 	}
-	configs, err := h.access.ListConfigs(ctx, id, pluginapi.ScopeSystem, "")
+	configs, err := h.access.ListConfigs(ctx, pluginID, pluginapi.ScopeSystem, "")
 	if err != nil {
 		return nil, err
 	}
 	if len(configs) == 0 {
-		return nil, fmt.Errorf("%w: system config missing for plugin %q", pluginapi.ErrNotFound, id)
+		return nil, fmt.Errorf("%w: system config missing for plugin %q", pluginapi.ErrNotFound, pluginID)
 	}
 	if len(configs) > 1 {
-		return nil, fmt.Errorf("%w: multiple system configs for plugin %q", pluginapi.ErrConflict, id)
+		return nil, fmt.Errorf("%w: multiple system configs for plugin %q", pluginapi.ErrConflict, pluginID)
 	}
-	updated, err := h.access.UpdateConfig(ctx, id, configs[0].ID, configs[0].Revision, pluginapi.ConfigPatch{
+	updated, err := h.access.UpdateConfig(ctx, pluginID, configs[0].ID, configs[0].Revision, pluginapi.ConfigPatch{
 		EnabledSet: true,
 		Enabled:    &enabled,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return projectPlugin(kind, name, enabledValue(definition, updated)), nil
+	return projectPlugin(definition.ID, enabledValue(definition, updated)), nil
 }
 
 // systemPluginEnabled projects the existing system config, with an absent
@@ -101,12 +98,4 @@ func enabledValue(definition pluginapi.Definition, config pluginapi.Config) bool
 		return definition.DefaultEnabled
 	}
 	return *config.Enabled
-}
-
-func unifiedPluginRoute(id, fallbackNamespace string) (string, string) {
-	kind, name, ok := strings.Cut(id, "/")
-	if !ok || kind == "" || name == "" {
-		return fallbackNamespace, id
-	}
-	return kind, name
 }

@@ -5,6 +5,7 @@ description: |
   Use when user mentions email, inbox, send email, check mail, read message,
   compose, reply, set up email, add email account, configure email
   (non-Lark/Feishu accounts).
+compatibility: Requires the corresponding native Stella capability to be separately enabled.
 metadata:
   author: CherryHQ/stella
   version: "1.0"

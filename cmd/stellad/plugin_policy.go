@@ -10,7 +10,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
@@ -25,8 +24,6 @@ func pluginBackendPolicy(allowPrivate bool) plugin.BackendPolicy {
 				return validateCLIBackendPayload(ctx, def, cfg, resets)
 			case plugin.BackendMCP:
 				return mcpPolicy.Validate(ctx, def, cfg, resets)
-			case plugin.BackendGo:
-				return host.ValidatePayload(ctx, def, cfg, resets)
 			default:
 				return plugin.ErrInvalidDefinition
 			}
@@ -35,7 +32,7 @@ func pluginBackendPolicy(allowPrivate bool) plugin.BackendPolicy {
 			switch def.Backend {
 			case plugin.BackendMCP:
 				return mcpPolicy.Transition(ctx, tx, authority, kind, def, before, after)
-			case plugin.BackendCLI, plugin.BackendGo:
+			case plugin.BackendCLI:
 				return nil
 			default:
 				return plugin.ErrInvalidDefinition

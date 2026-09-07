@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -112,17 +113,17 @@ func setupPluginOAuthHTTPEnv(t *testing.T, endpointPolicy mcp.EndpointPolicy) *t
 func TestPluginOAuthHTTPRejectsWrongParentAndUnknownConfig(t *testing.T) {
 	env := setupPluginOAuthHTTPEnv(t, mcp.EndpointPolicy{})
 	fixture := installPluginOAuthFixture(t, env, mcp.ScopeSystem, "", "", mcp.CredentialModeShared, "https://mcp.example.test/mcp")
-	path := "/api/plugins/" + fixture.kind + "/" + fixture.name + "/configs/" + fixture.id + "/oauth/start"
+	path := fmt.Sprintf("%s/configs/%s/oauth/start", pluginAPIPath(fixture.kind+"/"+fixture.name), fixture.id)
 	if rr := doUnauthRequest(t, env.srv, http.MethodPost, path, nil); rr.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated start status = %d, want 401 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	for _, action := range []string{"start", "disconnect"} {
-		wrongParent := "/api/plugins/custom/wrong/configs/" + fixture.id + "/oauth/" + action
+		wrongParent := fmt.Sprintf("%s/configs/%s/oauth/%s", pluginAPIPath("custom/wrong"), fixture.id, action)
 		if rr := doRequest(t, env, http.MethodPost, wrongParent, nil); rr.Code != http.StatusNotFound {
 			t.Fatalf("wrong parent %s status = %d, want 404 (body: %s)", action, rr.Code, rr.Body.String())
 		}
-		unknownConfig := "/api/plugins/" + fixture.kind + "/" + fixture.name + "/configs/" + uuid.NewString() + "/oauth/" + action
+		unknownConfig := fmt.Sprintf("%s/configs/%s/oauth/%s", pluginAPIPath(fixture.kind+"/"+fixture.name), uuid.NewString(), action)
 		if rr := doRequest(t, env, http.MethodPost, unknownConfig, nil); rr.Code != http.StatusNotFound {
 			t.Fatalf("unknown config %s status = %d, want 404 (body: %s)", action, rr.Code, rr.Body.String())
 		}
@@ -152,7 +153,7 @@ func TestPluginOAuthHTTPRejectsUnauthorizedAgentAndSharedScope(t *testing.T) {
 		{name: "shared-system", fixture: systemShared},
 	} {
 		for _, action := range []string{"start", "disconnect"} {
-			path := "/api/plugins/" + test.fixture.kind + "/" + test.fixture.name + "/configs/" + test.fixture.id + "/oauth/" + action
+			path := fmt.Sprintf("%s/configs/%s/oauth/%s", pluginAPIPath(test.fixture.kind+"/"+test.fixture.name), test.fixture.id, action)
 			if rr := doRequestWithSession(t, env.srv, userToken, http.MethodPost, path, nil); rr.Code != http.StatusForbidden {
 				t.Fatalf("unauthorized %s %s status = %d, want 403 (body: %s)", test.name, action, rr.Code, rr.Body.String())
 			}
@@ -172,7 +173,7 @@ func TestPluginOAuthHTTPMapsSystemPerUserInitializationHint(t *testing.T) {
 	env := setupPluginOAuthHTTPEnv(t, mcp.EndpointPolicy{AllowPrivate: true})
 	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "oauth-user", "user")
 	fixture := installPluginOAuthFixture(t, env, mcp.ScopeSystem, "", "", mcp.CredentialModePerUser, remote.URL+"/mcp")
-	path := "/api/plugins/" + fixture.kind + "/" + fixture.name + "/configs/" + fixture.id + "/oauth/start"
+	path := fmt.Sprintf("%s/configs/%s/oauth/start", pluginAPIPath(fixture.kind+"/"+fixture.name), fixture.id)
 	rr := doRequestWithSession(t, env.srv, userToken, http.MethodPost, path, nil)
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("per-user initialization status = %d, want 409 (body: %s)", rr.Code, rr.Body.String())

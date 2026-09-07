@@ -52,7 +52,7 @@ Stella probes each registered server — connects and fetches its tool list — 
 | `error`      | The last probe or tool call failed; the redacted reason is shown |
 | `needs_auth` | The server rejected the stored credential with 401/403           |
 
-Creating or updating a configuration does not probe the server. Use **Probe** in the Web UI, or `POST /api/plugins/{kind}/{name}/configs/{config_id}/probe`, to check the saved connection. Stella also refreshes discovery when an agent session needs a missing tool catalog or the last snapshot is older than 24 hours. A failed probe updates the connection status and shows a redacted reason.
+Creating or updating a configuration does not probe the server. Use **Probe** in the Web UI, or `POST /api/plugins/{plugin_id}/configs/{config_id}/probe`, to check the saved connection. Pass the exact plugin ID as a URL-encoded path segment. Stella also refreshes discovery when an agent session needs a missing tool catalog or the last snapshot is older than 24 hours. A failed probe updates the connection status and shows a redacted reason.
 
 When a tool call is rejected with 401/403, the server moves to `needs_auth`; update the credential in the Web UI and probe again.
 

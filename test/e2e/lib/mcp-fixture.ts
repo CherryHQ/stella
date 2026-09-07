@@ -83,7 +83,8 @@ export async function createMcpPlugin(
 }
 
 export function pluginDefinitionPath(definition: PluginDefinition | string): string {
-  return `/api/plugins/${typeof definition === "string" ? definition : definition.id}`;
+  const pluginID = typeof definition === "string" ? definition : definition.id;
+  return `/api/plugins/${encodeURIComponent(pluginID)}`;
 }
 
 export function pluginConfigPath(definition: PluginDefinition | string, config: PluginConfig | string): string {

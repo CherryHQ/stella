@@ -40,8 +40,8 @@ func (s *Server) ListPlugins(w http.ResponseWriter, r *http.Request, params apis
 	writeData(w, http.StatusOK, apitypes.PluginList{Plugins: items, NextPageToken: stringPtrOrNil(next)})
 }
 
-func (s *Server) GetPlugin(w http.ResponseWriter, r *http.Request, kind, name string) {
-	s.getPluginDefinition(w, r, kind, name)
+func (s *Server) GetPlugin(w http.ResponseWriter, r *http.Request, pluginID string) {
+	s.getPluginDefinition(w, r, pluginID)
 }
 
 func (s *Server) CreatePlugin(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +99,7 @@ func (s *Server) CreatePlugin(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, apitypes.CreatePluginResponse{Plugin: definitionView, Config: configView})
 }
 
-func (s *Server) UpdatePlugin(w http.ResponseWriter, r *http.Request, kind, name string) {
+func (s *Server) UpdatePlugin(w http.ResponseWriter, r *http.Request, pluginID string) {
 	access, _, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
@@ -128,7 +128,7 @@ func (s *Server) UpdatePlugin(w http.ResponseWriter, r *http.Request, kind, name
 		cleared := ""
 		description = &cleared
 	}
-	definition, err := access.UpdateDefinition(r.Context(), pluginID(kind, name), request.ExpectedRevision, pluginpkg.DefinitionPatch{DisplayName: request.DisplayName, Description: description})
+	definition, err := access.UpdateDefinition(r.Context(), pluginID, request.ExpectedRevision, pluginpkg.DefinitionPatch{DisplayName: request.DisplayName, Description: description})
 	if err != nil {
 		writePluginError(w, err)
 		return
@@ -141,15 +141,15 @@ func (s *Server) UpdatePlugin(w http.ResponseWriter, r *http.Request, kind, name
 	writeData(w, http.StatusOK, view)
 }
 
-func (s *Server) DeletePlugin(w http.ResponseWriter, r *http.Request, kind, name string, params apiserver.DeletePluginParams) {
-	s.deletePluginDefinition(w, r, kind, name, params.ExpectedRevision)
+func (s *Server) DeletePlugin(w http.ResponseWriter, r *http.Request, pluginID string, params apiserver.DeletePluginParams) {
+	s.deletePluginDefinition(w, r, pluginID, params.ExpectedRevision)
 }
 
-func (s *Server) ListPluginConfigs(w http.ResponseWriter, r *http.Request, kind, name string, params apiserver.ListPluginConfigsParams) {
-	s.listPluginConfigs(w, r, kind, name, params.Scope, params.AgentId, params.PageSize, params.PageToken)
+func (s *Server) ListPluginConfigs(w http.ResponseWriter, r *http.Request, pluginID string, params apiserver.ListPluginConfigsParams) {
+	s.listPluginConfigs(w, r, pluginID, params.Scope, params.AgentId, params.PageSize, params.PageToken)
 }
 
-func (s *Server) CreatePluginConfig(w http.ResponseWriter, r *http.Request, kind, name string) {
+func (s *Server) CreatePluginConfig(w http.ResponseWriter, r *http.Request, pluginID string) {
 	access, authority, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
@@ -169,7 +169,7 @@ func (s *Server) CreatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 		writePluginError(w, pluginpkg.ErrInvalidConfig)
 		return
 	}
-	config := pluginpkg.Config{PluginID: pluginID(kind, name), Scope: pluginpkg.Scope(request.Scope), Enabled: request.IsEnabled, Payload: mustJSONPtr(request.Config)}
+	config := pluginpkg.Config{PluginID: pluginID, Scope: pluginpkg.Scope(request.Scope), Enabled: request.IsEnabled, Payload: mustJSONPtr(request.Config)}
 	if request.AgentId != nil {
 		config.AgentID = *request.AgentId
 	}
@@ -209,11 +209,11 @@ func (s *Server) CreatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 	writeData(w, http.StatusCreated, view)
 }
 
-func (s *Server) GetPluginConfig(w http.ResponseWriter, r *http.Request, kind, name, configId string) {
-	s.getPluginConfig(w, r, kind, name, configId)
+func (s *Server) GetPluginConfig(w http.ResponseWriter, r *http.Request, pluginID, configId string) {
+	s.getPluginConfig(w, r, pluginID, configId)
 }
 
-func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind, name, configId string) {
+func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, pluginID, configId string) {
 	access, authority, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
@@ -237,7 +237,7 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 		writeError(w, http.StatusBadRequest, "expected_revision must be a positive integer")
 		return
 	}
-	current, err := access.GetConfig(r.Context(), pluginID(kind, name), configId)
+	current, err := access.GetConfig(r.Context(), pluginID, configId)
 	if err != nil {
 		writePluginError(w, err)
 		return
@@ -289,7 +289,7 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 	if request.ResetFields != nil {
 		patch.ResetFields = *request.ResetFields
 	}
-	updated, err := access.UpdateConfig(r.Context(), pluginID(kind, name), configId, request.ExpectedRevision, patch)
+	updated, err := access.UpdateConfig(r.Context(), pluginID, configId, request.ExpectedRevision, patch)
 	if err != nil {
 		writePluginError(w, err)
 		return
@@ -307,25 +307,25 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, kind
 	writeData(w, http.StatusOK, view)
 }
 
-func (s *Server) DeletePluginConfig(w http.ResponseWriter, r *http.Request, kind, name, configId string, params apiserver.DeletePluginConfigParams) {
-	s.deletePluginConfig(w, r, kind, name, configId, params.ExpectedRevision)
+func (s *Server) DeletePluginConfig(w http.ResponseWriter, r *http.Request, pluginID, configId string, params apiserver.DeletePluginConfigParams) {
+	s.deletePluginConfig(w, r, pluginID, configId, params.ExpectedRevision)
 }
 
-func (s *Server) ResetPluginConfig(w http.ResponseWriter, r *http.Request, kind, name, configId string) {
+func (s *Server) ResetPluginConfig(w http.ResponseWriter, r *http.Request, pluginID, configId string) {
 	var request apitypes.RevisionRequest
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	s.resetPluginConfig(w, r, kind, name, configId, request.ExpectedRevision)
+	s.resetPluginConfig(w, r, pluginID, configId, request.ExpectedRevision)
 }
 
-func (s *Server) ProbePluginConfig(w http.ResponseWriter, r *http.Request, kind, name, configId string) {
+func (s *Server) ProbePluginConfig(w http.ResponseWriter, r *http.Request, pluginID, configId string) {
 	access, authority, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
 	}
-	config, err := access.GetConfig(r.Context(), pluginID(kind, name), configId)
+	config, err := access.GetConfig(r.Context(), pluginID, configId)
 	if err != nil {
 		writePluginError(w, err)
 		return
@@ -364,8 +364,8 @@ func (s *Server) ProbePluginConfig(w http.ResponseWriter, r *http.Request, kind,
 	writeData(w, http.StatusOK, view)
 }
 
-func (s *Server) GetPluginEffective(w http.ResponseWriter, r *http.Request, kind, name string, params apiserver.GetPluginEffectiveParams) {
-	s.getPluginEffective(w, r, kind, name, params.AgentId)
+func (s *Server) GetPluginEffective(w http.ResponseWriter, r *http.Request, pluginID string, params apiserver.GetPluginEffectiveParams) {
+	s.getPluginEffective(w, r, pluginID, params.AgentId)
 }
 
 func stringPtrOrNil(value string) *string {

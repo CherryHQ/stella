@@ -7,7 +7,7 @@ import (
 
 func TestBuiltinSkillsUseSequentialSessionSurface(t *testing.T) {
 	for _, logicalPath := range []string{
-		"skills/plugins/system/recally/recally/references/rss-workflow.md",
+		"skills/plugins/agent/recally/recally/references/rss-workflow.md",
 		"skills/core/skill-creator/SKILL.md",
 	} {
 		text := readBuiltinSkillPath(t, logicalPath)

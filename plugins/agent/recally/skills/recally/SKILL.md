@@ -2,6 +2,7 @@
 name: recally
 description: |
   Reading assistant for saving, organizing, and recalling web content. Use when the user says "save this article", "read this link", "summarize this", "check my feeds", "add to my library", or asks about previously saved content. Handles articles, tweets, YouTube videos, GitHub repos, PDFs, and RSS feeds. Articles are stored with their metadata and indexed for fast search.
+compatibility: Requires the corresponding native Stella capability to be separately enabled.
 metadata:
   author: CherryHQ/stella
   version: "1.0"

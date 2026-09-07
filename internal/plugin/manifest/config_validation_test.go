@@ -84,7 +84,7 @@ func TestSystemPluginIdentityCannotBeSpoofed(t *testing.T) {
 	}
 	for _, mutate := range []func(*plugin.Definition){
 		func(d *plugin.Definition) { d.Source = plugin.SourceCustom },
-		func(d *plugin.Definition) { d.Backend = plugin.BackendGo },
+		func(d *plugin.Definition) { d.Backend = plugin.BackendMCP },
 		func(d *plugin.Definition) { d.Namespace = "other" },
 		func(d *plugin.Definition) { d.ImplementationKey = "tool/demo" },
 	} {

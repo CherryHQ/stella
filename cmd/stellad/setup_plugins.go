@@ -91,18 +91,10 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 	nativeIDs := nativeRegistry(code, generatedFamilies()...)
 	owners := make(map[string]struct{})
 	for _, definition := range cliDefinitions {
-		// Native implementations are discovered from Go registrations and
-		// static tool metadata. They do not become Agent-scoped plugin
-		// definitions, even when a release manifest carries their skills.
-		if _, native := nativeIDs.NativeDefaultEnabled(definition.ID); !native {
-			if err := catalog.Register(definition); err != nil {
-				return nil, err
-			}
+		if err := catalog.Register(definition); err != nil {
+			return nil, err
 		}
 		owners[definition.ID] = struct{}{}
-	}
-	for _, id := range nativeIDs.NativeIDs() {
-		owners[id] = struct{}{}
 	}
 	bundled, err := resources.Default()
 	if err != nil {

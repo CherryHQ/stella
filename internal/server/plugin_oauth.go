@@ -17,7 +17,7 @@ import (
 // deliberately used here: a per-user OAuth config in a system scope is
 // visible to a user who is authorizing their own account, even though that
 // user cannot manage the system config through plugin Access.
-func (s *Server) pluginOAuthRegistration(w http.ResponseWriter, r *http.Request, kind, name, configID string) (*mcp.Access, mcp.Registration, bool) {
+func (s *Server) pluginOAuthRegistration(w http.ResponseWriter, r *http.Request, pluginID, configID string) (*mcp.Access, mcp.Registration, bool) {
 	access, _, ok := s.beginMCPAccess(w, r)
 	if !ok {
 		return nil, mcp.Registration{}, false
@@ -31,7 +31,7 @@ func (s *Server) pluginOAuthRegistration(w http.ResponseWriter, r *http.Request,
 		writePluginOAuthError(w, err)
 		return nil, mcp.Registration{}, false
 	}
-	if reg.PluginID != pluginID(kind, name) {
+	if reg.PluginID != pluginID {
 		writeError(w, http.StatusNotFound, "not found")
 		return nil, mcp.Registration{}, false
 	}
@@ -56,8 +56,8 @@ func writePluginOAuthError(w http.ResponseWriter, err error) {
 // StartPluginConfigOAuth handles the common config-scoped OAuth action. The
 // callback URL remains the existing MCP protocol endpoint; the durable flow
 // carries the plugin config identity and revision through the exchange.
-func (s *Server) StartPluginConfigOAuth(w http.ResponseWriter, r *http.Request, kind, name, configID string) {
-	access, _, ok := s.pluginOAuthRegistration(w, r, kind, name, configID)
+func (s *Server) StartPluginConfigOAuth(w http.ResponseWriter, r *http.Request, pluginID, configID string) {
+	access, _, ok := s.pluginOAuthRegistration(w, r, pluginID, configID)
 	if !ok {
 		return
 	}
@@ -75,8 +75,8 @@ func (s *Server) StartPluginConfigOAuth(w http.ResponseWriter, r *http.Request, 
 
 // DisconnectPluginConfigOAuth removes only the credential bundle selected by
 // MCP Access for this caller, then returns a safe typed config projection.
-func (s *Server) DisconnectPluginConfigOAuth(w http.ResponseWriter, r *http.Request, kind, name, configID string) {
-	access, reg, ok := s.pluginOAuthRegistration(w, r, kind, name, configID)
+func (s *Server) DisconnectPluginConfigOAuth(w http.ResponseWriter, r *http.Request, pluginID, configID string) {
+	access, reg, ok := s.pluginOAuthRegistration(w, r, pluginID, configID)
 	if !ok {
 		return
 	}
@@ -112,7 +112,7 @@ func pluginMCPRegistrationView(reg mcp.Registration) (apitypes.PluginConfig, err
 	}
 	enabled := reg.Enabled
 	summary := apitypes.PluginMCPBackendSummary{
-		Backend:                     apitypes.Mcp,
+		Backend:                     apitypes.PluginMCPBackendSummaryBackendMcp,
 		Transport:                   apitypes.PluginMCPBackendSummaryTransport(reg.Transport),
 		AuthType:                    apitypes.PluginMCPBackendSummaryAuthType(reg.AuthType),
 		CredentialMode:              apitypes.PluginMCPBackendSummaryCredentialMode(reg.CredentialMode),

@@ -140,9 +140,8 @@ function mcpAvailabilityReason(reason: string): McpAvailabilityReason | null {
 const FAMILY_UPDATE_CONCURRENCY = 4;
 
 function pluginPath(pluginID: string) {
-  const slash = pluginID.indexOf("/");
-  if (slash <= 0 || slash === pluginID.length - 1) throw new Error("invalid plugin id");
-  return { kind: pluginID.slice(0, slash), name: pluginID.slice(slash + 1) };
+  if (!pluginID) throw new Error("invalid plugin id");
+  return { plugin_id: pluginID };
 }
 
 async function readOwnedConfig(server: AgentMcpServer): Promise<PluginConfig> {

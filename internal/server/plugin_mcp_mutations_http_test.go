@@ -90,7 +90,7 @@ func TestPluginMCPHTTPAtomicCredentialsAndClosedProjection(t *testing.T) {
 		if mode == "null" {
 			child["is_enabled"] = nil
 		}
-		response := doRequest(t, env, http.MethodPost, "/api/plugins/"+created.Plugin.Id+"/configs", child)
+		response := doRequest(t, env, http.MethodPost, pluginAPIPath(created.Plugin.Id)+"/configs", child)
 		if response.Code != http.StatusCreated {
 			t.Fatalf("child %s=%d %s", mode, response.Code, response.Body.String())
 		}
@@ -104,7 +104,7 @@ func TestPluginMCPHTTPAtomicCredentialsAndClosedProjection(t *testing.T) {
 	}
 	for _, scope := range []string{"system_agent", "user_agent"} {
 		invalid := map[string]any{"scope": scope, "config": map[string]any{"url": "https://mcp.example.test", "auth_type": "none", "transport": "streamable_http"}}
-		response := doRequest(t, env, http.MethodPost, "/api/plugins/"+created.Plugin.Id+"/configs", invalid)
+		response := doRequest(t, env, http.MethodPost, pluginAPIPath(created.Plugin.Id)+"/configs", invalid)
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("missing agent %s=%d %s", scope, response.Code, response.Body.String())
 		}
@@ -112,13 +112,13 @@ func TestPluginMCPHTTPAtomicCredentialsAndClosedProjection(t *testing.T) {
 			t.Fatal("owner validation exposed config")
 		}
 	}
-	path := "/api/plugins/" + created.Plugin.Id + "/configs/" + cfg.Id.String()
+	path := pluginAPIPath(created.Plugin.Id) + "/configs/" + cfg.Id.String()
 	var revision int64
 	if err := env.db.QueryRow(t.Context(), `SELECT revision FROM plugin_config WHERE id=$1`, cfg.Id.String()).Scan(&revision); err != nil {
 		t.Fatal(err)
 	}
 	update := map[string]any{"expected_revision": revision, "config": map[string]any{"url": "https://changed.example.test/mcp"}, "credentials": map[string]any{"token": "second-bearer-secret"}}
-	wrong := "/api/plugins/custom/wrong/configs/" + cfg.Id.String()
+	wrong := pluginAPIPath("custom/wrong") + "/configs/" + cfg.Id.String()
 	if rr := doRequest(t, env, http.MethodPatch, wrong, update); rr.Code != http.StatusNotFound {
 		t.Fatalf("wrong parent=%d %s", rr.Code, rr.Body.String())
 	}
@@ -236,7 +236,7 @@ func TestPluginHTTPDefinitionLifecycleAndConfigIsolation(t *testing.T) {
 	if err := env.db.QueryRow(t.Context(), `SELECT config FROM plugin_config WHERE id = $1`, second.Config.Id.String()).Scan(&before); err != nil {
 		t.Fatalf("read second config: %v", err)
 	}
-	updatePath := "/api/plugins/" + first.Plugin.Id + "/configs/" + first.Config.Id.String()
+	updatePath := pluginAPIPath(first.Plugin.Id) + "/configs/" + first.Config.Id.String()
 	update := map[string]any{
 		"expected_revision": first.Config.Revision,
 		"config":            map[string]any{"url": "https://a-updated.example.test/mcp", "auth_type": "bearer", "transport": "streamable_http"},
@@ -273,7 +273,7 @@ func TestPluginHTTPDefinitionLifecycleAndConfigIsolation(t *testing.T) {
 	if err := plugins.SyncBuiltinDefaults(t.Context()); err != nil {
 		t.Fatalf("sync builtin: %v", err)
 	}
-	builtinDelete := doRequest(t, env, http.MethodDelete, "/api/plugins/builtin/lifecycle?expected_revision=1", nil)
+	builtinDelete := doRequest(t, env, http.MethodDelete, pluginAPIPath("builtin/lifecycle")+"?expected_revision=1", nil)
 	if builtinDelete.Code != http.StatusForbidden {
 		t.Fatalf("builtin delete = %d, want 403: %s", builtinDelete.Code, builtinDelete.Body.String())
 	}
@@ -289,15 +289,15 @@ func TestPluginHTTPDefinitionLifecycleAndConfigIsolation(t *testing.T) {
 	if err := env.db.QueryRow(t.Context(), `SELECT revision FROM plugin_config WHERE id = $1`, second.Config.Id.String()).Scan(&secondRevision); err != nil {
 		t.Fatalf("read second revision: %v", err)
 	}
-	staleDelete := doRequest(t, env, http.MethodDelete, "/api/plugins/"+second.Plugin.Id+"?expected_revision=2", nil)
+	staleDelete := doRequest(t, env, http.MethodDelete, pluginAPIPath(second.Plugin.Id)+"?expected_revision=2", nil)
 	if staleDelete.Code != http.StatusConflict {
 		t.Fatalf("stale custom delete = %d, want 409: %s", staleDelete.Code, staleDelete.Body.String())
 	}
-	deleteConfig := doRequest(t, env, http.MethodDelete, "/api/plugins/"+second.Plugin.Id+"/configs/"+second.Config.Id.String()+"?expected_revision="+strconv.FormatInt(secondRevision, 10), nil)
+	deleteConfig := doRequest(t, env, http.MethodDelete, pluginAPIPath(second.Plugin.Id)+"/configs/"+second.Config.Id.String()+"?expected_revision="+strconv.FormatInt(secondRevision, 10), nil)
 	if deleteConfig.Code != http.StatusNoContent {
 		t.Fatalf("custom config delete = %d, want 204: %s", deleteConfig.Code, deleteConfig.Body.String())
 	}
-	deleteSecond := doRequest(t, env, http.MethodDelete, "/api/plugins/"+second.Plugin.Id+"?expected_revision=1", nil)
+	deleteSecond := doRequest(t, env, http.MethodDelete, pluginAPIPath(second.Plugin.Id)+"?expected_revision=1", nil)
 	if deleteSecond.Code != http.StatusNoContent {
 		t.Fatalf("custom delete = %d, want 204: %s", deleteSecond.Code, deleteSecond.Body.String())
 	}

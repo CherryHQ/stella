@@ -56,48 +56,6 @@ func TestNativeLifecycleFailsClosedWithoutPolicy(t *testing.T) {
 	}
 }
 
-func TestNativeSessionViewUsesPolicyOverSameNameSnapshot(t *testing.T) {
-	store := &stubStore{
-		plugins:      map[string]config.Plugin{"tool/native": {ID: "tool/native", Enabled: true}},
-		nativeDenies: map[string]map[string]bool{"tool/native": {"agent-a": true}},
-	}
-	host := New(store)
-	host.RegisterPluginID("tool/native")
-	bindNativePolicy(t, host, store, "tool/native")
-	snapshot := testHostSnapshot(t, map[string]bool{"tool/native": true})
-
-	denied, err := host.SessionPluginViewForAgent(t.Context(), "agent-a", snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Contains(denied.RegisteredPluginIDs, "tool/native") || slices.Contains(denied.ExposedPluginIDs, "tool/native") {
-		t.Fatalf("denied native view = %+v", denied)
-	}
-	allowed, err := host.SessionPluginViewForAgent(t.Context(), "agent-b", snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Contains(allowed.ExposedPluginIDs, "tool/native") {
-		t.Fatalf("allowed native view = %+v", allowed)
-	}
-}
-
-func TestNativeSessionViewFailsClosedForMissingNativeIdentity(t *testing.T) {
-	snapshot := testHostSnapshot(t, map[string]bool{"tool/native": true})
-	host := New(nil)
-	if _, err := host.SessionPluginViewForAgent(t.Context(), "agent-a", snapshot); !errors.Is(err, internalplugin.ErrNativePolicyUnavailable) {
-		t.Fatalf("missing policy error = %v; want ErrNativePolicyUnavailable", err)
-	}
-
-	store := &stubStore{plugins: map[string]config.Plugin{"tool/native": {ID: "tool/native", Enabled: true}}}
-	host = New(store)
-	host.RegisterPluginID("tool/native")
-	bindNativePolicy(t, host, store, "tool/native")
-	if _, err := host.SessionPluginViewForAgent(t.Context(), "", snapshot); !errors.Is(err, internalplugin.ErrNativePolicyUnavailable) {
-		t.Fatalf("empty Agent error = %v; want ErrNativePolicyUnavailable", err)
-	}
-}
-
 type stubStore struct {
 	plugins       map[string]config.Plugin
 	nativeDenies  map[string]map[string]bool

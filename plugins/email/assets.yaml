@@ -1,5 +1,0 @@
-assets:
-  - name: email
-    source: skills/email
-    logical_root: plugins/system/email/email
-    owner_plugin_id: system/email

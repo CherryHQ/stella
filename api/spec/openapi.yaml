@@ -488,22 +488,22 @@ paths:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1native-plugins~1{kind}~1{name}~1agent-denials~1{agent_id}"
   /api/plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"
-  /api/plugins/{kind}/{name}:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}"
-  /api/plugins/{kind}/{name}/configs:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}~1configs"
-  /api/plugins/{kind}/{name}/configs/{config_id}:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}~1configs~1{config_id}"
-  /api/plugins/{kind}/{name}/configs/{config_id}/reset:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}~1configs~1{config_id}~1reset"
-  /api/plugins/{kind}/{name}/configs/{config_id}/oauth/start:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}~1configs~1{config_id}~1oauth~1start"
-  /api/plugins/{kind}/{name}/configs/{config_id}/oauth/disconnect:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}~1configs~1{config_id}~1oauth~1disconnect"
-  /api/plugins/{kind}/{name}/configs/{config_id}/probe:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}~1configs~1{config_id}~1probe"
-  /api/plugins/{kind}/{name}/effective:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}~1effective"
+  /api/plugins/{plugin_id}:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}"
+  /api/plugins/{plugin_id}/configs:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs"
+  /api/plugins/{plugin_id}/configs/{config_id}:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs~1{config_id}"
+  /api/plugins/{plugin_id}/configs/{config_id}/reset:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs~1{config_id}~1reset"
+  /api/plugins/{plugin_id}/configs/{config_id}/oauth/start:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs~1{config_id}~1oauth~1start"
+  /api/plugins/{plugin_id}/configs/{config_id}/oauth/disconnect:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs~1{config_id}~1oauth~1disconnect"
+  /api/plugins/{plugin_id}/configs/{config_id}/probe:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs~1{config_id}~1probe"
+  /api/plugins/{plugin_id}/effective:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1effective"
   /api/cli-tools/registry:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1cli-tools~1registry"
   /api/cli-tools/latest:

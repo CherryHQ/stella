@@ -49,14 +49,6 @@ type LegacyPlugin struct {
 	Config  json.RawMessage
 }
 
-// LegacyChannel is the identity-only snapshot of one old channel instance.
-// Its configuration stays in the legacy channel row and is never copied into
-// a plugin config during this import.
-type LegacyChannel struct {
-	ID   string
-	Type string
-}
-
 // LegacyManifestOverride is the old manifest override row. Config may be a
 // sparse patch ($sparse=true) or a pre-sparse full snapshot.
 type LegacyManifestOverride struct {
@@ -107,7 +99,6 @@ type LegacyToolOverride struct {
 // preview without touching a database.
 type LegacySnapshot struct {
 	Plugins           []LegacyPlugin
-	Channels          []LegacyChannel
 	ManifestOverrides []LegacyManifestOverride
 	MCP               []LegacyMCPRegistration
 	ToolOverrides     []LegacyToolOverride
@@ -200,7 +191,7 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, native N
 			return ImportPlan{}, fmt.Errorf("%w: %s", ErrLegacyPluginUnknown, id)
 		}
 		acc := configs[id]
-		if err := acc.addLegacyPlugin(def, legacy, snapshot.Channels); err != nil {
+		if err := acc.addLegacyPlugin(def, legacy); err != nil {
 			return ImportPlan{}, err
 		}
 		configs[id] = acc
@@ -809,24 +800,6 @@ func readLegacySnapshot(ctx context.Context, tx pgx.Tx) (LegacySnapshot, error) 
 	}
 	rows.Close()
 
-	rows, err = tx.Query(ctx, `SELECT id, type FROM channel ORDER BY id`)
-	if err != nil {
-		return LegacySnapshot{}, fmt.Errorf("read legacy channels: %w", err)
-	}
-	for rows.Next() {
-		var row LegacyChannel
-		if err := rows.Scan(&row.ID, &row.Type); err != nil {
-			rows.Close()
-			return LegacySnapshot{}, fmt.Errorf("scan legacy channel: %w", err)
-		}
-		snapshot.Channels = append(snapshot.Channels, row)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return LegacySnapshot{}, fmt.Errorf("read legacy channels: %w", err)
-	}
-	rows.Close()
-
 	rows, err = tx.Query(ctx, `SELECT plugin_id, enabled, session_env_vault_key, config FROM plugin_override ORDER BY plugin_id`)
 	if err != nil {
 		return LegacySnapshot{}, fmt.Errorf("read legacy manifest overrides: %w", err)
@@ -986,10 +959,7 @@ type ConfigAccumulator struct {
 	hasConfig bool
 }
 
-func (a *ConfigAccumulator) addLegacyPlugin(def Definition, row LegacyPlugin, channels []LegacyChannel) error {
-	if isBuiltinGoChannel(def) {
-		return a.addLegacyChannelCapability(def, row, channels)
-	}
+func (a *ConfigAccumulator) addLegacyPlugin(def Definition, row LegacyPlugin) error {
 	if !a.hasConfig {
 		a.config = Config{PluginID: def.ID, Namespace: def.Namespace, Scope: ScopeSystem, Revision: 1}
 		a.hasConfig = true
@@ -1007,42 +977,6 @@ func (a *ConfigAccumulator) addLegacyPlugin(def Definition, row LegacyPlugin, ch
 		return fmt.Errorf("%w: plugin %s config: %w", ErrLegacyMigrationConflict, def.ID, err)
 	}
 	return nil
-}
-
-func isBuiltinGoChannel(def Definition) bool {
-	if def.Source != SourceBuiltin || def.Backend != BackendGo {
-		return false
-	}
-	channelType, ok := strings.CutPrefix(def.ID, "channel/")
-	return ok && channelType != "" && !strings.Contains(channelType, "/")
-}
-
-func (a *ConfigAccumulator) addLegacyChannelCapability(def Definition, row LegacyPlugin, channels []LegacyChannel) error {
-	channelType := strings.TrimPrefix(def.ID, "channel/")
-	if hasLegacyPayload(row.Config) && !slices.ContainsFunc(channels, func(channel LegacyChannel) bool {
-		return channel.Type == channelType
-	}) {
-		return fmt.Errorf("%w: channel %s has payload but no %s instance", ErrLegacyMigrationConflict, legacyPluginID(row), channelType)
-	}
-	if !a.hasConfig {
-		a.config = Config{PluginID: def.ID, Namespace: def.Namespace, Scope: ScopeSystem, Revision: 1}
-		a.hasConfig = true
-	}
-	if a.config.Enabled != nil && *a.config.Enabled != row.Enabled {
-		falseValue := false
-		a.config.Enabled = &falseValue
-	} else {
-		value := row.Enabled
-		a.config.Enabled = &value
-	}
-	// Channel credentials and instance state belong to channel rows. The old
-	// global plugin mirror is only an enabled capability toggle.
-	a.config.Payload = json.RawMessage(`{}`)
-	return nil
-}
-
-func hasLegacyPayload(raw json.RawMessage) bool {
-	return len(raw) != 0 && !emptyJSONObject(raw)
 }
 
 func (a *ConfigAccumulator) addManifestOverride(def Definition, row LegacyManifestOverride, creatingDefinition bool) error {

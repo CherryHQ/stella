@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as sdk from "@/lib/api-client/sdk.gen";
-import { nativePluginDenialsQueryOptions, nativePluginsQueryOptions } from "./plugins";
+import {
+  nativePluginDenialsQueryOptions,
+  nativePluginsQueryOptions,
+  pluginConfigsQueryOptions,
+} from "./plugins";
 
 const listNativePlugins = vi.spyOn(sdk, "listNativePlugins");
 const listNativePluginAgentDenials = vi.spyOn(sdk, "listNativePluginAgentDenials");
+const listPluginConfigs = vi.spyOn(sdk, "listPluginConfigs");
 
 function sdkResponse<T>(data: T) {
   // SAFETY: tests provide the exact response shape consumed by the generated SDK wrapper.
@@ -13,6 +18,7 @@ function sdkResponse<T>(data: T) {
 beforeEach(() => {
   listNativePlugins.mockReset();
   listNativePluginAgentDenials.mockReset();
+  listPluginConfigs.mockReset();
 });
 
 describe("native capability queries", () => {
@@ -67,6 +73,19 @@ describe("native capability queries", () => {
     expect(listNativePluginAgentDenials).toHaveBeenNthCalledWith(1, {
       path: { kind: "system", name: "email" },
       query: { page_size: 500 },
+      throwOnError: true,
+    });
+  });
+
+  it("uses the canonical plugin ID for config requests", async () => {
+    listPluginConfigs.mockResolvedValueOnce(
+      sdkResponse({ configs: [{ plugin_id: "custom/acme", scope: "user" }] }),
+    );
+    const options = pluginConfigsQueryOptions("custom/acme", "user");
+    await (options.queryFn as () => Promise<unknown[]>)();
+    expect(listPluginConfigs).toHaveBeenCalledWith({
+      path: { plugin_id: "custom/acme" },
+      query: { scope: "user", page_size: 500 },
       throwOnError: true,
     });
   });

@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
@@ -540,6 +541,10 @@ func doRequest(t *testing.T, env *testEnv, method, path string, body any) *httpt
 	return doRequestWithSession(t, env.srv, env.bearerToken, method, path, body)
 }
 
+func pluginAPIPath(pluginID string) string {
+	return "/api/plugins/" + url.PathEscape(pluginID)
+}
+
 func doRequestWithSession(t *testing.T, srv *server.Server, sessionToken, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
@@ -974,6 +979,54 @@ func TestListPluginsUsesUnifiedSafeDefinitionProjection(t *testing.T) {
 		if _, ok := item.Spec[private]; ok {
 			t.Fatalf("definition exposed private field %q: %#v", private, item.Spec)
 		}
+	}
+}
+
+func TestPluginHTTPRouteUsesBareAndEncodedPluginIDs(t *testing.T) {
+	env := setupAdmin(t)
+	plugins := plugin.NewService(env.db, env.deps.AgentAccess, plugin.NewCatalog(), plugin.BackendPolicy{
+		Transition: func(context.Context, pgx.Tx, authz.Authority, plugin.MutationKind, plugin.Definition, *plugin.Config, *plugin.Config) error {
+			return nil
+		},
+	}, func(_ context.Context, fn func() error) error { return fn() })
+	env.rebuild(t, func(d *server.Deps) { d.PluginService = plugins })
+	for _, id := range []string{"email", "custom/acme"} {
+		namespace := id
+		if id == "custom/acme" {
+			namespace = "acme"
+		}
+		if _, err := env.db.Exec(context.Background(), `
+			INSERT INTO plugin_definition(id, namespace, display_name, backend, source,
+				implementation_key, spec, default_enabled, revision)
+			VALUES ($1, $2, $3, 'cli', 'custom', 'cli', '{}'::jsonb, false, 1)`, id, namespace, id); err != nil {
+			t.Fatalf("seed plugin %q: %v", id, err)
+		}
+		rr := doRequest(t, env, http.MethodGet, pluginAPIPath(id), nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d, want 200: %s", id, rr.Code, rr.Body.String())
+		}
+		var definition apitypes.PluginDefinition
+		if err := json.Unmarshal(parseResponse(t, rr).Data, &definition); err != nil {
+			t.Fatalf("decode %s: %v", id, err)
+		}
+		if definition.Id != id {
+			t.Fatalf("GET %s returned %q", id, definition.Id)
+		}
+	}
+	configID := uuid.NewString()
+	if _, err := env.db.Exec(context.Background(), `
+		INSERT INTO plugin_config(id, plugin_id, namespace, scope, user_id, enabled, config, credential_refs, revision)
+		VALUES ($1::uuid, 'email', 'email', 'user', $2::uuid, true, '{}'::jsonb, '{}'::jsonb, 1)`, configID, env.adminUser.ID); err != nil {
+		t.Fatalf("seed bare plugin config: %v", err)
+	}
+	configs := doRequest(t, env, http.MethodGet, pluginAPIPath("email")+"/configs?scope=user", nil)
+	if configs.Code != http.StatusOK {
+		t.Fatalf("GET bare plugin configs = %d, want 200: %s", configs.Code, configs.Body.String())
+	}
+	updated := doRequest(t, env, http.MethodPatch, pluginAPIPath("email")+"/configs/"+configID,
+		map[string]any{"expected_revision": 1, "is_enabled": false})
+	if updated.Code != http.StatusOK {
+		t.Fatalf("PATCH bare plugin config = %d, want 200: %s", updated.Code, updated.Body.String())
 	}
 }
 

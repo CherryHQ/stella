@@ -80,7 +80,7 @@ func installPluginProbeFixture(t *testing.T, env *testEnv, backend pluginpkg.Bac
 }
 
 func pluginProbePath(f pluginProbeFixture) string {
-	return fmt.Sprintf("/api/plugins/%s/%s/configs/%s/probe", f.kind, f.name, f.configID)
+	return fmt.Sprintf("%s/configs/%s/probe", pluginAPIPath(f.kind+"/"+f.name), f.configID)
 }
 
 func TestPluginProbeHTTPAuthorizesParentAndBackend(t *testing.T) {
@@ -89,7 +89,7 @@ func TestPluginProbeHTTPAuthorizesParentAndBackend(t *testing.T) {
 	if rr := doUnauthRequest(t, env.srv, http.MethodPost, pluginProbePath(mcpFixture), nil); rr.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated probe status = %d, want 401 (body: %s)", rr.Code, rr.Body.String())
 	}
-	wrongParent := fmt.Sprintf("/api/plugins/%s/wrong/configs/%s/probe", mcpFixture.kind, mcpFixture.configID)
+	wrongParent := fmt.Sprintf("%s/configs/%s/probe", pluginAPIPath(mcpFixture.kind+"/wrong"), mcpFixture.configID)
 	if rr := doRequest(t, env, http.MethodPost, wrongParent, nil); rr.Code != http.StatusNotFound {
 		t.Fatalf("wrong parent probe status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
 	}

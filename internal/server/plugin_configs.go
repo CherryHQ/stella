@@ -70,10 +70,6 @@ func writePluginError(w http.ResponseWriter, err error) {
 	writeError(w, status, message)
 }
 
-func pluginID(kind, name string) string {
-	return kind + "/" + name
-}
-
 func pluginDefinitionView(def pluginpkg.Definition) (apitypes.PluginDefinition, error) {
 	spec, err := safeDefinitionSpec(def)
 	if err != nil {
@@ -139,12 +135,12 @@ func safeDefinitionSpec(def pluginpkg.Definition) (map[string]any, error) {
 	return out, nil
 }
 
-func (s *Server) getPluginDefinition(w http.ResponseWriter, r *http.Request, kind, name string) {
+func (s *Server) getPluginDefinition(w http.ResponseWriter, r *http.Request, pluginID string) {
 	access, _, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
 	}
-	definition, err := access.GetDefinition(r.Context(), pluginID(kind, name))
+	definition, err := access.GetDefinition(r.Context(), pluginID)
 	if err != nil {
 		writePluginError(w, err)
 		return
@@ -157,7 +153,7 @@ func (s *Server) getPluginDefinition(w http.ResponseWriter, r *http.Request, kin
 	writeData(w, http.StatusOK, view)
 }
 
-func (s *Server) deletePluginDefinition(w http.ResponseWriter, r *http.Request, kind, name string, expectedRevision int64) {
+func (s *Server) deletePluginDefinition(w http.ResponseWriter, r *http.Request, pluginID string, expectedRevision int64) {
 	access, _, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
@@ -166,14 +162,14 @@ func (s *Server) deletePluginDefinition(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusBadRequest, "expected_revision must be a positive integer")
 		return
 	}
-	if err := access.DeleteDefinition(r.Context(), pluginID(kind, name), expectedRevision); err != nil {
+	if err := access.DeleteDefinition(r.Context(), pluginID, expectedRevision); err != nil {
 		writePluginError(w, err)
 		return
 	}
 	writeNoContent(w)
 }
 
-func (s *Server) listPluginConfigs(w http.ResponseWriter, r *http.Request, kind, name string, scope *apiserver.ListPluginConfigsParamsScope, agentID *string, pageSize *int, pageToken *string) {
+func (s *Server) listPluginConfigs(w http.ResponseWriter, r *http.Request, pluginID string, scope *apiserver.ListPluginConfigsParamsScope, agentID *string, pageSize *int, pageToken *string) {
 	access, _, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
@@ -191,7 +187,7 @@ func (s *Server) listPluginConfigs(w http.ResponseWriter, r *http.Request, kind,
 	if agentID != nil {
 		requestedAgentID = *agentID
 	}
-	configs, err := access.ListConfigs(r.Context(), pluginID(kind, name), pluginpkg.Scope(scopeValue), requestedAgentID)
+	configs, err := access.ListConfigs(r.Context(), pluginID, pluginpkg.Scope(scopeValue), requestedAgentID)
 	if err != nil {
 		writePluginError(w, err)
 		return
@@ -214,12 +210,12 @@ func (s *Server) listPluginConfigs(w http.ResponseWriter, r *http.Request, kind,
 	writeData(w, http.StatusOK, apitypes.PluginConfigList{Configs: items, NextPageToken: stringPtrOrNil(next)})
 }
 
-func (s *Server) getPluginConfig(w http.ResponseWriter, r *http.Request, kind, name, configID string) {
+func (s *Server) getPluginConfig(w http.ResponseWriter, r *http.Request, pluginID, configID string) {
 	access, _, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
 	}
-	config, err := access.GetConfig(r.Context(), pluginID(kind, name), configID)
+	config, err := access.GetConfig(r.Context(), pluginID, configID)
 	if err != nil {
 		writePluginError(w, err)
 		return
@@ -237,7 +233,7 @@ func (s *Server) getPluginConfig(w http.ResponseWriter, r *http.Request, kind, n
 	writeData(w, http.StatusOK, view)
 }
 
-func (s *Server) deletePluginConfig(w http.ResponseWriter, r *http.Request, kind, name, configID string, expectedRevision int64) {
+func (s *Server) deletePluginConfig(w http.ResponseWriter, r *http.Request, pluginID, configID string, expectedRevision int64) {
 	access, _, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
@@ -246,14 +242,14 @@ func (s *Server) deletePluginConfig(w http.ResponseWriter, r *http.Request, kind
 		writeError(w, http.StatusBadRequest, "expected_revision must be a positive integer")
 		return
 	}
-	if err := access.DeleteConfig(r.Context(), pluginID(kind, name), configID, expectedRevision); err != nil {
+	if err := access.DeleteConfig(r.Context(), pluginID, configID, expectedRevision); err != nil {
 		writePluginError(w, err)
 		return
 	}
 	writeNoContent(w)
 }
 
-func (s *Server) resetPluginConfig(w http.ResponseWriter, r *http.Request, kind, name, configID string, expectedRevision int64) {
+func (s *Server) resetPluginConfig(w http.ResponseWriter, r *http.Request, pluginID, configID string, expectedRevision int64) {
 	access, _, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
@@ -262,7 +258,7 @@ func (s *Server) resetPluginConfig(w http.ResponseWriter, r *http.Request, kind,
 		writeError(w, http.StatusBadRequest, "expected_revision must be a positive integer")
 		return
 	}
-	config, err := access.ResetBuiltinConfig(r.Context(), pluginID(kind, name), configID, expectedRevision)
+	config, err := access.ResetBuiltinConfig(r.Context(), pluginID, configID, expectedRevision)
 	if err != nil {
 		writePluginError(w, err)
 		return
@@ -280,7 +276,7 @@ func (s *Server) resetPluginConfig(w http.ResponseWriter, r *http.Request, kind,
 	writeData(w, http.StatusOK, view)
 }
 
-func (s *Server) getPluginEffective(w http.ResponseWriter, r *http.Request, kind, name, agentID string) {
+func (s *Server) getPluginEffective(w http.ResponseWriter, r *http.Request, pluginID, agentID string) {
 	access, authority, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
@@ -289,7 +285,7 @@ func (s *Server) getPluginEffective(w http.ResponseWriter, r *http.Request, kind
 		writeError(w, http.StatusBadRequest, "agent_id is required")
 		return
 	}
-	definition, err := access.GetDefinition(r.Context(), pluginID(kind, name))
+	definition, err := access.GetDefinition(r.Context(), pluginID)
 	if err != nil {
 		writePluginError(w, err)
 		return

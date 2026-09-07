@@ -15,7 +15,7 @@ import (
 func TestSnapshotAccessDefensivelyCopiesNestedValues(t *testing.T) {
 	enabled := true
 	def := Definition{
-		ID: "builtin/demo", Namespace: "demo", DisplayName: "Demo", Backend: BackendGo,
+		ID: "builtin/demo", Namespace: "demo", DisplayName: "Demo", Backend: BackendCLI,
 		Source: SourceBuiltin, ImplementationKey: "demo", Revision: 1,
 		Spec: json.RawMessage(`{"base":"definition"}`),
 	}

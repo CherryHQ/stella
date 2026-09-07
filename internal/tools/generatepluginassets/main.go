@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
 
 const (
@@ -41,6 +43,11 @@ type assetEntry struct {
 	OwnerPluginID string `yaml:"owner_plugin_id"`
 }
 
+type discoveredAgentPackage struct {
+	relDir string
+	pkg    *agentpackage.Package
+}
+
 func main() {
 	root, err := os.Getwd()
 	if err != nil {
@@ -56,7 +63,7 @@ func main() {
 }
 
 func discover(pluginsRoot string) ([]assetFile, error) {
-	var paths []string
+	var paths, agentPackages []string
 	err := filepath.WalkDir(pluginsRoot, func(filename string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -70,12 +77,36 @@ func discover(pluginsRoot string) ([]assetFile, error) {
 		if !entry.IsDir() && entry.Name() == "assets.yaml" {
 			paths = append(paths, filename)
 		}
+		if !entry.IsDir() && entry.Name() == "plugin.json" {
+			rel, err := filepath.Rel(pluginsRoot, filename)
+			if err != nil {
+				return fmt.Errorf("relative Agent package path %q: %w", filename, err)
+			}
+			parts := strings.Split(filepath.ToSlash(rel), "/")
+			if len(parts) != 3 || parts[0] != "agent" || parts[2] != "plugin.json" {
+				return nil
+			}
+			agentPackages = append(agentPackages, filename)
+		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	sort.Strings(paths)
+	sort.Strings(agentPackages)
+	discoveredAgents := make([]discoveredAgentPackage, 0, len(agentPackages))
+	for _, filename := range agentPackages {
+		pkg, err := loadAgentPackage(filepath.Dir(filename))
+		if err != nil {
+			return nil, err
+		}
+		relDir, err := filepath.Rel(pluginsRoot, filepath.Dir(filename))
+		if err != nil {
+			return nil, err
+		}
+		discoveredAgents = append(discoveredAgents, discoveredAgentPackage{relDir: filepath.ToSlash(relDir), pkg: pkg})
+	}
 	assets := make([]assetFile, 0)
 	seenNames := map[string]struct{}{}
 	seenSources := map[string]struct{}{}
@@ -118,6 +149,31 @@ func discover(pluginsRoot string) ([]assetFile, error) {
 			assets = append(assets, assetFile{Name: entry.Name, SourceRoot: source, LogicalRoot: entry.LogicalRoot, OwnerPluginID: entry.OwnerPluginID, Files: files, Bytes: bytes})
 		}
 	}
+	for _, discovered := range discoveredAgents {
+		for _, skill := range discovered.pkg.Skills {
+			relDir := discovered.relDir
+			source := path.Join(relDir, skill.Directory)
+			logicalRoot := path.Join("plugins", "agent", discovered.pkg.Manifest.Name, skill.Name)
+			entry := assetEntry{Name: skill.Name, Source: skill.Directory, LogicalRoot: logicalRoot, OwnerPluginID: discovered.pkg.Manifest.Name}
+			if _, ok := seenNames[entry.Name]; ok {
+				return nil, fmt.Errorf("duplicate builtin skill name %q", entry.Name)
+			}
+			if _, ok := seenSources[source]; ok {
+				return nil, fmt.Errorf("duplicate builtin skill source root %q", source)
+			}
+			if _, ok := seenLogical[entry.LogicalRoot]; ok {
+				return nil, fmt.Errorf("duplicate builtin skill logical root %q", entry.LogicalRoot)
+			}
+			files, bytes, err := collectFiles(filepath.Join(pluginsRoot, filepath.FromSlash(source)))
+			if err != nil {
+				return nil, fmt.Errorf("asset %q: %w", entry.Name, err)
+			}
+			seenNames[entry.Name] = struct{}{}
+			seenSources[source] = struct{}{}
+			seenLogical[entry.LogicalRoot] = struct{}{}
+			assets = append(assets, assetFile{Name: entry.Name, SourceRoot: source, LogicalRoot: entry.LogicalRoot, OwnerPluginID: entry.OwnerPluginID, Files: files, Bytes: bytes})
+		}
+	}
 	if len(assets) == 0 || len(assets) > maxAssets {
 		return nil, fmt.Errorf("builtin asset count %d outside 1..%d", len(assets), maxAssets)
 	}
@@ -126,6 +182,33 @@ func discover(pluginsRoot string) ([]assetFile, error) {
 	}
 	sort.Slice(assets, func(i, j int) bool { return assets[i].Name < assets[j].Name })
 	return assets, nil
+}
+
+func loadAgentPackage(root string) (*agentpackage.Package, error) {
+	diagnostics := agentpackage.ValidateAuthoring(root)
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == agentpackage.SeverityError {
+			return nil, fmt.Errorf("validate Agent package %q: %s", root, diagnostic.Message)
+		}
+	}
+	pkg, diagnostics := agentpackage.Load(root)
+	if pkg == nil {
+		return nil, fmt.Errorf("load Agent package %q: %v", root, diagnostics)
+	}
+	for _, legacy := range []string{"assets.yaml", "plugin.yaml"} {
+		if _, err := os.Stat(filepath.Join(root, legacy)); err == nil {
+			return nil, fmt.Errorf("agent package %q cannot also contain %s", root, legacy)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("stat Agent package %q %s: %w", root, legacy, err)
+		}
+	}
+	if len(pkg.MCPServers) > 0 {
+		return nil, fmt.Errorf("agent package %q declares MCP servers; guide-only packages cannot declare runtime components", root)
+	}
+	if pkg.Extension != nil && (len(pkg.Extension.Binaries) > 0 || len(pkg.Extension.SessionEnv) > 0 || len(pkg.Extension.OAuth) > 0) {
+		return nil, fmt.Errorf("agent package %q declares Stella runtime requirements; guide-only packages cannot declare runtime components", root)
+	}
+	return pkg, nil
 }
 
 func decode(filename string) ([]assetEntry, error) {

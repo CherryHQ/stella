@@ -252,7 +252,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		if err != nil {
 			return agent.PluginContext{}, err
 		}
-		view, err := phost.SessionPluginViewForAgent(ctx, agentID, snapshot)
+		view, err := phost.SessionPluginView(snapshot)
 		if err != nil {
 			return agent.PluginContext{}, err
 		}

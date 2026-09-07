@@ -457,10 +457,18 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
   const patch = page.waitForRequest(
     (request) => request.method() === "PATCH" && request.url().includes(configURL),
   );
+  const saveResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PATCH"
+      && response.url().includes(configURL),
+  );
   await form.getByRole("button", { name: "Save" }).click();
   expect((await patch).postDataJSON()).toMatchObject({
     expected_revision: dead.config.revision,
   });
+  expect((await saveResponse).status()).toBe(200);
+  await expect(form.getByRole("button", { name: "Save" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();
   await expect
     .poll(
       async () =>
@@ -470,9 +478,15 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
     )
     .toBe("http://127.0.0.1:8/edited");
 
+  await page.getByRole("button", { name: "Edit" }).click();
+  const staleForm = page.getByRole("dialog").last();
+  await staleForm
+    .locator('input:not([aria-hidden="true"]):visible')
+    .first()
+    .fill("http://127.0.0.1:6/must-not-win");
   const current = await pluginConfig(admin, dead.plugin.id, dead.config.id);
-  expectStatus(
-    await admin.patch(configURL, {
+  const outOfBand = expectStatus(
+    await admin.patch<PluginConfig>(configURL, {
       expected_revision: current.revision,
       config: {
         url: "http://127.0.0.1:7/out-of-band",
@@ -484,19 +498,30 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
     200,
     "out of band update",
   );
-  await page.getByRole("button", { name: "Edit" }).click();
-  const staleForm = page.getByRole("dialog").last();
-  await staleForm
-    .locator('input:not([aria-hidden="true"]):visible')
-    .first()
-    .fill("http://127.0.0.1:6/must-not-win");
+  expect(outOfBand.revision).toBeGreaterThan(current.revision);
+  const staleRequest = page.waitForRequest(
+    (request) =>
+      request.method() === "PATCH"
+      && request.url().includes(configURL),
+  );
   const staleResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "PATCH"
       && response.url().includes(configURL),
   );
   await staleForm.getByRole("button", { name: "Save" }).click();
+  const staleBody = (await staleRequest).postDataJSON() as { expected_revision: number; };
+  expect(staleBody.expected_revision).toBe(current.revision);
+  expect(staleBody.expected_revision).toBeLessThan(outOfBand.revision);
   expect((await staleResponse).status()).toBe(409);
+  await expect
+    .poll(
+      async () =>
+        (
+          await db`select config->>'url' as url from plugin_config where id = ${dead.config.id}`
+        )[0]?.url,
+    )
+    .toBe("http://127.0.0.1:7/out-of-band");
   await staleForm
     .getByRole("button", { name: "Cancel" })
     .click({ force: true });

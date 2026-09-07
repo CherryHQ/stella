@@ -83,14 +83,9 @@ export const nativePluginDenialsQueryOptions = (nativeID: string, enabled: boole
   });
 };
 
-export const pluginConfigsQueryOptions = (
-  kind: string,
-  name: string,
-  scope: PluginScope,
-  agentID?: string,
-) =>
+export const pluginConfigsQueryOptions = (pluginID: string, scope: PluginScope, agentID?: string) =>
   queryOptions({
-    queryKey: ["plugin-configs", kind, name, scope, agentID ?? null],
+    queryKey: ["plugin-configs", pluginID, scope, agentID ?? null],
     // Agent-owned scopes require an explicit PEP target. A disabled query is
     // preferable to a broad request that could accidentally enumerate agents.
     enabled: scope === "user" || scope === "system" || !!agentID,
@@ -99,7 +94,7 @@ export const pluginConfigsQueryOptions = (
       let pageToken: string | undefined;
       do {
         const { data } = await listPluginConfigs({
-          path: { kind, name },
+          path: { plugin_id: pluginID },
           query: {
             scope,
             ...(agentID ? { agent_id: agentID } : {}),

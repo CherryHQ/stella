@@ -67,7 +67,7 @@ components:
         id: { type: string }
         namespace: { type: string }
         display_name: { type: string }
-        backend: { type: string, enum: [cli, mcp, go] }
+        backend: { type: string, enum: [cli, mcp] }
         is_builtin: { type: boolean, readOnly: true }
         is_default_enabled: { type: boolean, readOnly: true }
         spec:
@@ -110,13 +110,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/PluginCLIBackendSummary"
             - $ref: "#/components/schemas/PluginMCPBackendSummary"
-            - $ref: "#/components/schemas/PluginGoBackendSummary"
           discriminator:
             propertyName: backend
             mapping:
               cli: "#/components/schemas/PluginCLIBackendSummary"
               mcp: "#/components/schemas/PluginMCPBackendSummary"
-              go: "#/components/schemas/PluginGoBackendSummary"
           description: Typed non-secret backend summary. Raw backend payload and credential references are never returned.
         revision: { type: integer, format: int64, readOnly: true }
         created_at: { type: string, format: date-time, readOnly: true }
@@ -188,14 +186,6 @@ components:
         bearer_configured: { type: boolean }
         oauth_client_id_configured: { type: boolean }
         oauth_client_secret_configured: { type: boolean }
-    PluginGoBackendSummary:
-      type: object
-      additionalProperties: false
-      required: [backend, configured]
-      properties:
-        backend: { type: string, enum: [go] }
-        kind: { type: string, enum: [channel], nullable: true }
-        configured: { type: boolean }
     PluginConfigList:
       type: object
       required: [configs, next_page_token]

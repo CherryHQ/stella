@@ -56,7 +56,7 @@ import {
   type PluginConfigPayload,
 } from "@/features/plugins/PluginConfigEditor";
 import { McpInstallSheet } from "@/features/mcp/McpInstallSheet";
-import { Cable, Code2, MessageSquare, Package, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Cable, Package, Plus, RotateCcw, Trash2 } from "lucide-react";
 
 export type Translate = ReturnType<typeof useI18n>["t"];
 
@@ -71,30 +71,14 @@ export function pluginErrorMessage(error: unknown, t: Translate): string {
   return message;
 }
 
-function routeName(plugin: PluginDefinition): string {
-  const slash = plugin.id.indexOf("/");
-  return slash === -1 ? plugin.id : plugin.id.slice(slash + 1);
-}
-
-function routePath(plugin: PluginDefinition): { kind: string; name: string } {
-  const slash = plugin.id.indexOf("/");
-  return slash === -1
-    ? { kind: plugin.backend, name: plugin.id }
-    : { kind: plugin.id.slice(0, slash), name: plugin.id.slice(slash + 1) };
-}
-
 function backendIcon(plugin: PluginDefinition) {
   if (plugin.backend === "mcp") return <Cable className="size-4" />;
-  if (plugin.backend === "cli") return <Package className="size-4" />;
-  if (plugin.id.startsWith("channel/")) return <MessageSquare className="size-4" />;
-  return <Code2 className="size-4" />;
+  return <Package className="size-4" />;
 }
 
 function backendTitle(plugin: PluginDefinition, t: Translate): string {
   if (plugin.backend === "mcp") return t("plugins.backend.mcp");
-  if (plugin.backend === "cli") return t("plugins.backend.cli");
-  if (plugin.id.startsWith("channel/")) return t("plugins.backend.channel");
-  return t("plugins.backend.go");
+  return t("plugins.backend.cli");
 }
 
 function scopeLabel(scope: PluginScope, t: Translate): string {
@@ -181,12 +165,7 @@ function BackendSummary({ config, t }: { config: PluginConfig; t: Translate }) {
       </div>
     );
   }
-  return (
-    <Badge variant={summary.configured ? "success" : "secondary"} size="sm">
-      {summary.configured ? t("plugins.summary.configured") : t("plugins.summary.notConfigured")}
-      {summary.kind ? ` · ${summary.kind}` : ""}
-    </Badge>
-  );
+  return null;
 }
 
 function ConfigRow({
@@ -299,20 +278,19 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
   const visibleScopes = scopesForBand(scopeBand) as readonly PluginScope[];
   const plugins = pluginsQuery.data ?? [];
   const selectedPlugin = useMemo(
-    () => plugins.find((plugin) => routeName(plugin) === params.pluginId),
+    () => plugins.find((plugin) => plugin.id === params.pluginId),
     [plugins, params.pluginId],
   );
-  const selectedPath = selectedPlugin ? routePath(selectedPlugin) : null;
+  const selectedPluginID = selectedPlugin?.id;
   const closeDetail = () =>
     void navigate({
       to: scopeBand === "system" ? "/admin/integrations/plugins" : "/settings/plugins",
     });
   const configQueries = useQueries({
-    queries: selectedPath
+    queries: selectedPluginID
       ? visibleScopes.map((scope) =>
           pluginConfigsQueryOptions(
-            selectedPath.kind,
-            selectedPath.name,
+            selectedPluginID,
             scope,
             isAgentManagedScope(scope) ? selectedAgentID || undefined : undefined,
           ),
@@ -335,17 +313,17 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     setNewMcpURL("");
   };
   const invalidate = () => {
-    if (selectedPath)
+    if (selectedPluginID)
       void queryClient.invalidateQueries({
-        queryKey: ["plugin-configs", selectedPath.kind, selectedPath.name],
+        queryKey: ["plugin-configs", selectedPluginID],
       });
     void queryClient.invalidateQueries({ queryKey: ["plugins"] });
   };
   const configMutation = useMutation({
     mutationFn: async (input: { config: PluginConfig; enabled: boolean | null }) => {
-      if (!selectedPath) throw new Error(t("plugins.noSelection"));
+      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
       const { data } = await updatePluginConfig({
-        path: { ...selectedPath, config_id: input.config.id },
+        path: { plugin_id: selectedPluginID, config_id: input.config.id },
         body: {
           expected_revision: input.config.revision,
           is_enabled: input.enabled,
@@ -362,9 +340,9 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
   });
   const resetMutation = useMutation({
     mutationFn: async (config: PluginConfig) => {
-      if (!selectedPath) throw new Error(t("plugins.noSelection"));
+      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
       const { data } = await resetPluginConfig({
-        path: { ...selectedPath, config_id: config.id },
+        path: { plugin_id: selectedPluginID, config_id: config.id },
         body: { expected_revision: config.revision },
         throwOnError: true,
       });
@@ -378,9 +356,9 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
   });
   const deleteMutation = useMutation({
     mutationFn: async (config: PluginConfig) => {
-      if (!selectedPath) throw new Error(t("plugins.noSelection"));
+      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
       await deletePluginConfig({
-        path: { ...selectedPath, config_id: config.id },
+        path: { plugin_id: selectedPluginID, config_id: config.id },
         query: { expected_revision: config.revision },
         throwOnError: true,
       });
@@ -393,9 +371,9 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
   });
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedPath) throw new Error(t("plugins.noSelection"));
+      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
       const { data } = await createPluginConfig({
-        path: selectedPath,
+        path: { plugin_id: selectedPluginID },
         body: {
           scope: newScope,
           ...(isAgentManagedScope(newScope) && selectedAgentID
@@ -419,7 +397,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
       payload: PluginConfigPayload;
       credentials: PluginConfigCredentials;
     }) => {
-      if (!selectedPath) throw new Error(t("plugins.noSelection"));
+      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
       const body: ComponentsUpdatePluginConfigRequestWritable = {
         expected_revision: input.config.revision,
       };
@@ -427,7 +405,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
       if (input.payload.binary_versions) body.binary_versions = input.payload.binary_versions;
       if (Object.keys(input.credentials).length > 0) body.credentials = input.credentials;
       const { data } = await updatePluginConfig({
-        path: { ...selectedPath, config_id: input.config.id },
+        path: { plugin_id: selectedPluginID, config_id: input.config.id },
         body,
         throwOnError: true,
       });
@@ -442,9 +420,9 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
   });
   const oauthStartMutation = useMutation({
     mutationFn: async (config: PluginConfig) => {
-      if (!selectedPath) throw new Error(t("plugins.noSelection"));
+      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
       const { data } = await startPluginConfigOAuth({
-        path: { ...selectedPath, config_id: config.id },
+        path: { plugin_id: selectedPluginID, config_id: config.id },
         throwOnError: true,
       });
       return data;
@@ -456,9 +434,9 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
   });
   const oauthDisconnectMutation = useMutation({
     mutationFn: async (config: PluginConfig) => {
-      if (!selectedPath) throw new Error(t("plugins.noSelection"));
+      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
       await disconnectPluginConfigOAuth({
-        path: { ...selectedPath, config_id: config.id },
+        path: { plugin_id: selectedPluginID, config_id: config.id },
         throwOnError: true,
       });
     },
@@ -512,9 +490,8 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
   });
   const definitionDeleteMutation = useMutation({
     mutationFn: async (plugin: PluginDefinition) => {
-      const path = routePath(plugin);
       await deletePlugin({
-        path,
+        path: { plugin_id: plugin.id },
         query: { expected_revision: plugin.revision },
         throwOnError: true,
       });
@@ -527,19 +504,11 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
   });
   const groups = useMemo(() => {
-    const channel = plugins.filter(
-      (plugin) => plugin.backend === "go" && plugin.id.startsWith("channel/"),
-    );
     const cli = plugins.filter((plugin) => plugin.backend === "cli");
     const mcp = plugins.filter((plugin) => plugin.backend === "mcp");
-    const system = plugins.filter(
-      (plugin) => !channel.includes(plugin) && !cli.includes(plugin) && !mcp.includes(plugin),
-    );
     return [
-      { title: t("plugins.group.channels"), items: channel },
       { title: t("plugins.group.cli"), items: cli },
       { title: t("plugins.group.mcp"), items: mcp },
-      { title: t("plugins.group.system"), items: system },
     ];
   }, [plugins, t]);
   if (pluginsQuery.isPending)
@@ -774,7 +743,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                               ? "/admin/integrations/plugins/$pluginId"
                               : "/settings/plugins/$pluginId"
                           }
-                          params={{ pluginId: routeName(plugin) }}
+                          params={{ pluginId: plugin.id }}
                         />
                       }
                       className="gap-3 p-4 transition-colors hover:border-ring/40"

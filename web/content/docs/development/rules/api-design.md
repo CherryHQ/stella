@@ -41,7 +41,7 @@ The parent-child graph must be acyclic.
 
 ```
 agents/{agentId}/sessions/{sessionId}
-plugins/{kind}/{name}/config
+plugins/{plugin_id}/configs/{config_id}
 ```
 
 Keep nesting shallow — two levels is typical, three is the practical maximum.
@@ -379,15 +379,16 @@ Plugin sub-resources are nested under the plugin resource, not flattened into
 sibling top-level paths:
 
 ```
-GET /api/plugins/{kind}/{name}              # the plugin
-GET /api/plugins/{kind}/{name}/status
-GET /api/plugins/{kind}/{name}/config
-GET /api/plugins/{kind}/{name}/config-schema
+GET /api/plugins/{plugin_id}              # the plugin
+GET /api/plugins/{plugin_id}/configs
+GET /api/plugins/{plugin_id}/configs/{config_id}
+GET /api/plugins/{plugin_id}/effective
 ```
 
-The old flat forms (`/api/plugin-status/{kind}/{name}`,
-`/api/plugin-config/{kind}/{name}`, `/api/plugin-config-schema/{kind}/{name}`)
-are gone. Model plugin facets as sub-resources of the plugin.
+Pass the exact Agent Plugin ID as one URL-encoded path segment; do not split
+it into backend or directory categories. Native capabilities have a separate
+resource tree under `/api/native-plugins`. Model plugin facets as sub-resources
+of the plugin.
 
 ## Versioning
 

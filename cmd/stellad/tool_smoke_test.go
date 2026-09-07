@@ -1286,11 +1286,11 @@ func deploymentAndMCPSmokeCases() []smokeCase {
 		}, check: captureVersion("settings_embedding_setting_update", "embedding_setting_version")},
 		{tool: "settings_plugin_list", args: noArgs},
 		{tool: "settings_plugin_disable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"kind": "system", "name": "stella"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("stella", false)}},
+			return map[string]any{"plugin_id": "system/stella"}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("system/stella", false)}},
 		{tool: "settings_plugin_enable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"kind": "system", "name": "stella"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("stella", true)}},
+			return map[string]any{"plugin_id": "system/stella"}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("system/stella", true)}},
 		{tool: "settings_mcp_server_list", args: noArgs},
 		{tool: "settings_mcp_server_create", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"scope": "user", "name": "tool-smoke-mcp-" + s.values["runID"], "url": "https://mcp.example.test"}
@@ -1352,26 +1352,26 @@ func captureVersion(tool, key string) func(*testing.T, *smokeState, map[string]s
 	}
 }
 
-func pluginListedEnabled(name string, enabled bool) func(*testing.T, *smokeState, string) {
+func pluginListedEnabled(pluginID string, enabled bool) func(*testing.T, *smokeState, string) {
 	return func(t *testing.T, _ *smokeState, result string) {
 		var value struct {
 			Plugins []struct {
-				Name    string `json:"name"`
-				Enabled bool   `json:"enabled"`
+				PluginID string `json:"plugin_id"`
+				Enabled  bool   `json:"enabled"`
 			} `json:"plugins"`
 		}
 		if err := json.Unmarshal([]byte(result), &value); err != nil {
 			t.Fatal(err)
 		}
 		for _, plugin := range value.Plugins {
-			if plugin.Name == name {
+			if plugin.PluginID == pluginID {
 				if plugin.Enabled != enabled {
-					t.Fatalf("plugin %q enabled = %t, want %t", name, plugin.Enabled, enabled)
+					t.Fatalf("plugin %q enabled = %t, want %t", pluginID, plugin.Enabled, enabled)
 				}
 				return
 			}
 		}
-		t.Fatalf("settings_plugin_list did not return %q: %s", name, result)
+		t.Fatalf("settings_plugin_list did not return %q: %s", pluginID, result)
 	}
 }
 

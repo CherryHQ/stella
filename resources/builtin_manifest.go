@@ -276,7 +276,7 @@ func validateExplicitSkillOwner(root, owner string) error {
 	if owner == "" {
 		return fmt.Errorf("builtin skill %q has no explicit plugin owner", root)
 	}
-	if !canonicalBuiltinPath(owner) || strings.Count(owner, "/") != 1 {
+	if !canonicalBuiltinPath(owner) || (strings.Contains(owner, "/") && strings.Count(owner, "/") != 1) {
 		return fmt.Errorf("builtin skill %q has invalid explicit owner %q", root, owner)
 	}
 	return nil

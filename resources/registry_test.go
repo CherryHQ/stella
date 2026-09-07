@@ -51,9 +51,9 @@ func TestDefaultLoadsBuiltinResources(t *testing.T) {
 		t.Error("expected builtin template 'stella'")
 	}
 	if err := r.ValidateBuiltinSkillOwners(map[string]struct{}{
-		"system/email":        {},
-		"system/recally":      {},
-		"system/scheduler":    {},
+		"email":               {},
+		"recally":             {},
+		"scheduler":           {},
 		"system/stella":       {},
 		"system/xberg":        {},
 		"tool/bun":            {},

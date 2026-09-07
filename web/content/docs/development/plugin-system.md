@@ -37,7 +37,12 @@ tokens cannot reach it.
 `PluginDefinition` identifies an integration and its namespace. It describes the
 backend, shipped resources and default enabled state. Builtin definitions come
 from trusted release declarations; persisted builtin rows are projections.
-Custom definitions cannot select arbitrary Go implementations.
+Agent definitions contain only CLI or MCP resources. Compiled Go implementations
+are registered and managed through the separate Native path.
+
+Management routes use `/api/plugins/{plugin_id}` and its sub-resources. Pass the
+exact ID returned by the catalog as one URL-encoded path segment. Backend and
+source-directory categories do not participate in request addressing.
 
 `PluginConfig` records one decision for a definition at one scope:
 
@@ -71,10 +76,10 @@ The common service resolves a snapshot from trusted user, Agent or group
 identity. A runner captures that snapshot once for Agent Plugin resources,
 Skills and environment. Native tools and hooks read their separate policy.
 
-Public resources follow the namespace winner. A custom MCP integration that
-wins a namespace cannot acquire the shadowed builtin's Go hooks or credentials.
-Internal capability checks use the exact plugin ID, so a namespace collision
-cannot hide an administrator's restriction on a channel or background task.
+Agent Plugin resources follow the namespace winner. Native tools and hooks are
+absent from that snapshot, so a custom MCP integration cannot acquire Native
+capabilities by claiming a matching namespace. Native admission uses the trusted
+registration ID and its independent policy.
 Model-facing plugin tools use `{namespace}__{local_name}`. Authorization uses
 trusted plugin ID and local tool identity, never a parsed display name.
 
@@ -94,16 +99,21 @@ changing one need not change the other. The manifest is a release input loader,
 not a separate permission system. CLI installation is lazy: a runner materializes
 the selected snapshot when it needs it, and there is no standalone sync endpoint.
 
-Builtin plugin Skill ownership comes from its trusted resource path,
-`plugins/<kind>/<plugin>/<skill>`. Core Skills live under `core/<skill>` and are
-not plugin contributions. User frontmatter cannot turn a core Skill into a
-plugin Skill or claim a plugin owner.
-Frontmatter cannot claim ownership. Prompt listing, search and direct loading
+Builtin Skill ownership is generated from the release package declarations.
+User frontmatter cannot claim an owner. Prompt listing, search and direct loading
 apply the same owner restriction after selecting the resource winner.
-A core Skill can still have a declared CLI dependency: Web requires Bun and
-Python Script requires uv. Disabled dependencies suppress that Skill through the
-same listing and loading checks. Lightpanda affects rendering within Web, not
-plain fetch or search.
+
+The email, recally and scheduler guides are standard Agent packages under
+`plugins/agent/<name>/`, with `plugin.json` and `skills/<name>/SKILL.md` as their
+authored sources. Their Agent Plugin identities are the bare package names.
+Disabling a guide hides its Skill without changing the corresponding Native
+capability. Loading a guide does not enable Native tools; its compatibility text
+states that the Native capability must be available separately.
+
+The remaining shipped packages still use their existing YAML declarations.
+Web currently belongs to Bun and Python Script to uv; disabling the owning
+package suppresses its Skill. Lightpanda affects rendering within Web, not plain
+fetch or search.
 
 Each runner receives only the selected CLI artifacts and their entry points.
 Trusted system installations keep private options out of the runner filesystem;

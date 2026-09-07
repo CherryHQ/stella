@@ -29,7 +29,10 @@ Native 管理 API 只接受管理员认证，OAuth access token 无法访问。
 
 `PluginDefinition` 确定集成身份、命名空间、后端、发行资源与默认启用状态。
 Builtin 定义来自可信的发行声明，数据库中的 builtin 行只是投影。
-自定义定义不能选择任意 Go 实现。
+Agent 定义只包含 CLI 或 MCP 资源。编译进程序的 Go 实现通过独立 Native 路径注册和管理。
+
+管理路由使用 `/api/plugins/{plugin_id}` 及其子资源。将目录返回的完整 ID 编码为一个
+URL 路径段；后端类型和源码目录分类不参与请求寻址。
 
 `PluginConfig` 保存某个定义在一个范围内的决策：
 
@@ -56,9 +59,9 @@ Definition 拥有稳定的实现和 namespace 身份；所选 Config 拥有该�
 公共服务从可信用户、Agent 或群组身份解析快照。Runner 在创建时捕获一次，Agent
 Plugin 资源、Skills 和环境变量使用这一代配置。Native 工具和 hooks 读取独立策略。
 
-公开资源遵循命名空间的胜出定义。自定义 MCP 即使占用了 builtin 的命名空间，也不能
-取得被遮蔽 builtin 的 Go 钩子或凭据。内部能力检查使用精确 plugin ID，因此命名空间
-冲突不能隐藏管理员对渠道或后台任务的限制。模型可见工具名采用
+Agent Plugin 资源遵循命名空间的胜出定义。Native 工具和 hooks 不进入这份快照，
+自定义 MCP 不能通过认领同名 namespace 获得 Native 能力。Native 准入使用可信注册 ID
+和独立策略。模型可见工具名采用
 `{namespace}__{local_name}`，授权使用可信 plugin ID 和本地工具身份，不解析展示名称。
 
 配置写入在执行准入屏障内原子提交。空闲 runner 被回收，已经开始的 turn 可以结束后
@@ -72,12 +75,16 @@ CLI 集成可以包含二进制、Skills、环境声明和提示。CLI 版本与
 更新一个不要求更新另一个。Manifest 只是发行输入的加载器，不再拥有独立权限规则。
 CLI 按选中的 snapshot 惰性安装，runner 需要时才物化，没有独立 sync endpoint。
 
-Builtin plugin Skill 的归属来自可信资源路径 `plugins/<kind>/<plugin>/<skill>`。
-Core Skill 使用 `core/<skill>`，不是插件贡献。用户 frontmatter 不能把 Core Skill
-变成插件 Skill，也不能认领插件 owner。提示列表、搜索与直接加载都在选定资源后检查
-同一归属限制。Core Skill 仍可声明 CLI 硬依赖：Web 依赖
-Bun，Python Script 依赖 uv。依赖禁用时，同一列表与加载检查会隐藏该 Skill。
-Lightpanda 仅影响 Web 中的渲染能力，不影响普通抓取和搜索。
+Builtin Skill 的归属由发行包声明生成，用户 frontmatter 不能认领 owner。
+提示列表、搜索与直接加载都在选定资源后检查同一归属限制。
+
+email、recally、scheduler 指南是位于 `plugins/agent/<name>/` 的标准 Agent 包，
+以 `plugin.json` 和 `skills/<name>/SKILL.md` 为编写来源，Agent Plugin 身份使用包的裸名。
+禁用指南只隐藏它的 Skill，不改变对应 Native 能力。加载指南不会启用 Native 工具；
+指南的 compatibility 说明会指出，对应 Native 能力需要单独可用。
+
+其余内置包暂时沿用现有 YAML 声明。Web 当前归 Bun 所有，Python Script 归 uv 所有，
+禁用所属包会隐藏对应 Skill。Lightpanda 仅影响 Web 中的渲染能力，不影响普通抓取和搜索。
 
 每个 runner 只获得选中的 CLI 文件及入口。可信 system 安装的私有参数不进入 runner
 可读的文件系统；Docker 在现有工具缓存内按一个解析后的 image ID 和完整四层范围选择

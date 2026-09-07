@@ -15,7 +15,7 @@ Source plugins can be grouped under any number of category folders in `plugins/`
 
 The declared ID and namespace identify the plugin. Category folder names do not affect tool names, configuration keys or permissions, so moving a plugin between categories preserves its identity. Empty category folders do not create plugins. Duplicate IDs or namespaces, unknown YAML fields, extra YAML documents and symlink declarations fail generation before the generated catalog is replaced.
 
-Go plugins retain explicit compiled registration and do not add a second identity declaration in YAML. `plugins/system/` groups system plugins: each CLI declaration and its skills live together, and Stella's own guide belongs to `system/stella`. Shared OAuth provider declarations remain in `resources/oauth.yaml`.
+Native capabilities retain explicit compiled registration and are managed separately from Agent Plugins. They do not add a second identity declaration in YAML. `plugins/system/` groups system CLI declarations with their skills, and Stella's own guide belongs to `system/stella`. The email, recally and scheduler guides are independent packages under `plugins/agent/`, declared by `plugin.json`; enabling a guide does not enable its Native capability. Shared OAuth provider declarations remain in `resources/oauth.yaml`.
 
 Bundled skill files live only inside their owning plugin directory and are embedded directly through build-time asset declarations. There is no global resource skill mirror, and category folders do not determine asset identity. `web` belongs to bun and `python-script` to uv. `html-artifact` and `skill-creator` are default-enabled skill-only plugins that can be disabled normally. Project `.agents/skills/` stays independent of plugin packaging.
 

@@ -4,7 +4,7 @@ export interface PluginDefinition {
   id: string;
   namespace: string;
   display_name: string;
-  backend: "cli" | "mcp" | "go";
+  backend: "cli" | "mcp";
   is_builtin: boolean;
   is_default_enabled: boolean;
   spec: Record<string, unknown>;

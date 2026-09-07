@@ -17,6 +17,10 @@ let pluginRevision = 0;
 let agentId = "";
 let sessionId = "";
 
+function pluginPath(): string {
+  return `/api/plugins/${encodeURIComponent(pluginId)}`;
+}
+
 type PluginConfig = { id: string; revision?: number; };
 type PluginCreate = {
   plugin: { id: string; revision?: number; };
@@ -57,12 +61,12 @@ test.beforeAll(async () => {
 test.afterAll(async ({ admin }) => {
   if (configId) {
     await admin.delete(
-      `/api/plugins/${pluginId}/configs/${configId}?expected_revision=${configRevision}`,
+      `${pluginPath()}/configs/${configId}?expected_revision=${configRevision}`,
     );
   }
   if (pluginRevision) {
     await admin.delete(
-      `/api/plugins/${pluginId}?expected_revision=${pluginRevision}`,
+      `${pluginPath()}?expected_revision=${pluginRevision}`,
     );
   }
   await fixture.close();
@@ -97,7 +101,7 @@ test("catalog endpoint exposes effective MCP registration and tools", async ({ a
   pluginRevision = created.plugin.revision ?? 1;
   const probed = expectStatus(
     await admin.post<{ status?: string; }>(
-      `/api/plugins/${pluginId}/configs/${configId}/probe`,
+      `${pluginPath()}/configs/${configId}/probe`,
     ),
     200,
     "probe permissions plugin",
@@ -295,7 +299,7 @@ test.describe("real model permissions turn", () => {
       configId = setup.config.id;
       configRevision = setup.config.revision ?? 1;
       pluginRevision = setup.plugin.revision ?? 1;
-      await admin.post(`/api/plugins/${pluginId}/configs/${configId}/probe`);
+      await admin.post(`${pluginPath()}/configs/${configId}/probe`);
     }
     const add = "permissions__add";
     const echo = "permissions__echo";

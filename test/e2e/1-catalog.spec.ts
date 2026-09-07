@@ -212,9 +212,13 @@ test("an agent calls the remote tool through one shared session @model", async (
   expect(invoked.length, JSON.stringify(messages).slice(0, 3000)).toBeGreaterThanOrEqual(2);
 });
 
-test("settings page lists servers and can register one", async ({ page, admin, loginAsAdmin }) => {
+test("settings page opens MCP details without disclosing the endpoint", async ({ page, loginAsAdmin }) => {
   await loginAsAdmin();
   await page.goto("/settings/mcp");
-  await expect(page.getByText("e2e", { exact: true })).toBeVisible();
-  await expect(page.getByText(open.url).first()).toBeVisible();
+  const entry = page.getByText("e2e", { exact: true }).first();
+  await expect(entry).toBeVisible();
+  await entry.click();
+  await expect(page.getByRole("heading", { name: "e2e", exact: true })).toBeVisible();
+  await expect(page.getByText("Endpoint configured", { exact: true })).toBeVisible();
+  await expect(page.getByText(open.url, { exact: true })).toHaveCount(0);
 });

@@ -2847,7 +2847,7 @@ components:
           type: string
         backend:
           type: string
-          enum: [cli, mcp, go]
+          enum: [cli, mcp]
         is_builtin:
           type: boolean
           readOnly: true
@@ -2916,13 +2916,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/PluginCLIBackendSummary"
             - $ref: "#/components/schemas/PluginMCPBackendSummary"
-            - $ref: "#/components/schemas/PluginGoBackendSummary"
           discriminator:
             propertyName: backend
             mapping:
               cli: "#/components/schemas/PluginCLIBackendSummary"
               mcp: "#/components/schemas/PluginMCPBackendSummary"
-              go: "#/components/schemas/PluginGoBackendSummary"
           description: Typed non-secret backend summary. Raw backend payload and credential references are never returned.
         revision:
           type: integer
@@ -3024,20 +3022,6 @@ components:
         oauth_client_id_configured:
           type: boolean
         oauth_client_secret_configured:
-          type: boolean
-    PluginGoBackendSummary:
-      type: object
-      additionalProperties: false
-      required: [backend, configured]
-      properties:
-        backend:
-          type: string
-          enum: [go]
-        kind:
-          type: string
-          enum: [channel]
-          nullable: true
-        configured:
           type: boolean
     PluginConfigList:
       type: object

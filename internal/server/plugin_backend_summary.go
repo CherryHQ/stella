@@ -31,9 +31,6 @@ func pluginBackendSummary(definition pluginpkg.Definition, config pluginpkg.Conf
 			return summary, err
 		}
 		return summary, summary.FromPluginMCPBackendSummary(value)
-	case pluginpkg.BackendGo:
-		value := goBackendSummary(definition, config)
-		return summary, summary.FromPluginGoBackendSummary(value)
 	default:
 		return summary, fmt.Errorf("%w: unsupported plugin backend %q", pluginpkg.ErrInvalidConfig, definition.Backend)
 	}
@@ -156,7 +153,7 @@ func mcpBackendSummary(definitionSpec, configPayload, credentialRefs json.RawMes
 		return apitypes.PluginMCPBackendSummary{}, err
 	}
 	return apitypes.PluginMCPBackendSummary{
-		Backend:                     apitypes.Mcp,
+		Backend:                     apitypes.PluginMCPBackendSummaryBackendMcp,
 		Transport:                   apitypes.PluginMCPBackendSummaryTransport(transport),
 		AuthType:                    apitypes.PluginMCPBackendSummaryAuthType(authType),
 		CredentialMode:              apitypes.PluginMCPBackendSummaryCredentialMode(credentialMode),
@@ -205,18 +202,6 @@ func decodeMCPCredentialSummaryRefs(raw json.RawMessage) (mcpCredentialSummaryRe
 		return refs, fmt.Errorf("invalid MCP credential refs: %w", err)
 	}
 	return refs, nil
-}
-
-func goBackendSummary(definition pluginpkg.Definition, config pluginpkg.Config) apitypes.PluginGoBackendSummary {
-	result := apitypes.PluginGoBackendSummary{
-		Backend:    apitypes.PluginGoBackendSummaryBackendGo,
-		Configured: !emptyJSON(config.Payload),
-	}
-	if strings.HasPrefix(definition.ID, "channel/") {
-		kind := apitypes.PluginGoBackendSummaryKindChannel
-		result.Kind = &kind
-	}
-	return result
 }
 
 func emptyJSON(raw json.RawMessage) bool {

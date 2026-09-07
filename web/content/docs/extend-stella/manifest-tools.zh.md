@@ -15,7 +15,7 @@ Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集�
 
 插件由声明中的 ID 和 namespace 标识。分类目录名不影响工具名、配置键或权限，因此移动分类不会改变插件身份。空分类目录不产生插件。重复 ID 或 namespace、未知 YAML 字段、额外 YAML 文档和符号链接声明都会使生成失败，且不会替换已有生成物。
 
-Go 插件继续显式编译注册，不另加一份 YAML 身份声明。`plugins/system/` 统一组织系统插件：每个 CLI 声明与自己的 skill 放在一起，Stella 自身的指南归 `system/stella`。共享 OAuth provider 声明仍位于 `resources/oauth.yaml`。
+Native 能力继续显式编译注册，与 Agent Plugin 分开管理，不另加一份 YAML 身份声明。`plugins/system/` 将系统 CLI 声明与自己的 skill 放在一起，Stella 自身的指南归 `system/stella`。email、recally 和 scheduler 指南是 `plugins/agent/` 下由 `plugin.json` 声明的独立包；启用指南不会启用对应的 Native 能力。共享 OAuth provider 声明仍位于 `resources/oauth.yaml`。
 
 插件自带的技能文件只保存在所属插件目录，通过构建时的资源声明直接嵌入，不再镜像到全局 resources skills 目录。分类目录不决定资产身份。`web` 归 bun，`python-script` 归 uv；`html-artifact` 和 `skill-creator` 是默认启用的纯 skills 插件，可使用正常插件开关禁用。项目 `.agents/skills/` 不参与这套插件发布机制。
 

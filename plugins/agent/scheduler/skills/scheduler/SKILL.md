@@ -2,6 +2,7 @@
 name: scheduler
 description: |
   Manage scheduled jobs. Use when the user wants to create, list, inspect, update, pause, resume, or remove recurring or one-time scheduled tasks. Handles cron schedules, interval-based (every), one-time (at) jobs, platform job templates, and scheduled workflow runs.
+compatibility: Requires the corresponding native Stella capability to be separately enabled.
 metadata:
   author: CherryHQ/stella
   version: "1.0"

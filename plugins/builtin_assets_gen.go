@@ -4,17 +4,17 @@ package plugins
 
 import "embed"
 
-//go:embed "email/skills/email/SKILL.md"
+//go:embed "agent/email/skills/email/SKILL.md"
 //go:embed "guidance/html-artifact/skills/html-artifact/SKILL.md"
 //go:embed "tools/lark-cli/skills/lark-cli/SKILL.md"
 //go:embed "tools/uv/skills/python-script/SKILL.md"
 //go:embed "tools/uv/skills/python-script/references/script-template.md"
-//go:embed "system/recally/skills/recally/SKILL.md"
-//go:embed "system/recally/skills/recally/references/rss-workflow.md"
-//go:embed "system/recally/skills/recally/references/save-workflow.md"
-//go:embed "system/recally/skills/recally/references/twitter-workflow.md"
-//go:embed "system/recally/skills/recally/references/website-workflow.md"
-//go:embed "system/scheduler/skills/scheduler/SKILL.md"
+//go:embed "agent/recally/skills/recally/SKILL.md"
+//go:embed "agent/recally/skills/recally/references/rss-workflow.md"
+//go:embed "agent/recally/skills/recally/references/save-workflow.md"
+//go:embed "agent/recally/skills/recally/references/twitter-workflow.md"
+//go:embed "agent/recally/skills/recally/references/website-workflow.md"
+//go:embed "agent/scheduler/skills/scheduler/SKILL.md"
 //go:embed "guidance/skill-creator/skills/skill-creator/LICENSE.txt"
 //go:embed "guidance/skill-creator/skills/skill-creator/SKILL.md"
 //go:embed "guidance/skill-creator/skills/skill-creator/agents/analyzer.md"
@@ -62,12 +62,12 @@ import "embed"
 var builtinAssetFS embed.FS
 
 var builtinSkillAssets = []BuiltinSkillAsset{
-	{Name: "email", SourceRoot: "email/skills/email", LogicalRoot: "plugins/system/email/email", OwnerPluginID: "system/email"},
+	{Name: "email", SourceRoot: "agent/email/skills/email", LogicalRoot: "plugins/agent/email/email", OwnerPluginID: "email"},
 	{Name: "html-artifact", SourceRoot: "guidance/html-artifact/skills/html-artifact", LogicalRoot: "core/html-artifact", OwnerPluginID: "skill/html-artifact"},
 	{Name: "lark-cli", SourceRoot: "tools/lark-cli/skills/lark-cli", LogicalRoot: "plugins/tool/lark-cli/lark-cli", OwnerPluginID: "tool/lark-cli"},
 	{Name: "python-script", SourceRoot: "tools/uv/skills/python-script", LogicalRoot: "core/python-script", OwnerPluginID: "tool/uv"},
-	{Name: "recally", SourceRoot: "system/recally/skills/recally", LogicalRoot: "plugins/system/recally/recally", OwnerPluginID: "system/recally"},
-	{Name: "scheduler", SourceRoot: "system/scheduler/skills/scheduler", LogicalRoot: "plugins/system/scheduler/scheduler", OwnerPluginID: "system/scheduler"},
+	{Name: "recally", SourceRoot: "agent/recally/skills/recally", LogicalRoot: "plugins/agent/recally/recally", OwnerPluginID: "recally"},
+	{Name: "scheduler", SourceRoot: "agent/scheduler/skills/scheduler", LogicalRoot: "plugins/agent/scheduler/scheduler", OwnerPluginID: "scheduler"},
 	{Name: "skill-creator", SourceRoot: "guidance/skill-creator/skills/skill-creator", LogicalRoot: "core/skill-creator", OwnerPluginID: "skill/skill-creator"},
 	{Name: "stella", SourceRoot: "system/stella/skills/stella", LogicalRoot: "core/stella", OwnerPluginID: "system/stella"},
 	{Name: "web", SourceRoot: "tools/bun/skills/web", LogicalRoot: "core/web", OwnerPluginID: "tool/bun"},

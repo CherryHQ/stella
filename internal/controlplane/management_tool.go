@@ -38,8 +38,8 @@ var deploymentToolDescriptions = map[string]map[string]string{
 	},
 	"plugin": {
 		"list":    "List up to 50 registered plugins and whether each is enabled.",
-		"enable":  "Enable one registered plugin by kind and name.",
-		"disable": "Disable one registered plugin by kind and name.",
+		"enable":  "Enable one registered plugin by its plugin ID.",
+		"disable": "Disable one registered plugin by its plugin ID.",
 	},
 }
 
@@ -377,14 +377,13 @@ func (h embeddingManagementHandler) Update(ctx context.Context, in SettingsEmbed
 }
 
 type pluginToolView struct {
-	Kind    string `json:"kind"`
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
-	Version string `json:"version"`
+	PluginID string `json:"plugin_id"`
+	Enabled  bool   `json:"enabled"`
+	Version  string `json:"version"`
 }
 
-func projectPlugin(kind, name string, enabled bool) pluginToolView {
-	return pluginToolView{Kind: kind, Name: name, Enabled: enabled, Version: deploymentVersion(kind, name, enabled)}
+func projectPlugin(pluginID string, enabled bool) pluginToolView {
+	return pluginToolView{PluginID: pluginID, Enabled: enabled, Version: deploymentVersion(pluginID, enabled)}
 }
 
 // validateEmbeddingDim is shared by HTTP and tool callers. Keeping it here

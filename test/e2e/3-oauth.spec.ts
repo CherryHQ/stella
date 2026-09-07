@@ -73,7 +73,7 @@ async function createOAuthPlugin(
 }
 
 function configPath(server: OAuthServer, suffix = ""): string {
-  return `/api/plugins/${server.pluginId}/configs/${server.configId}${suffix}`;
+  return `/api/plugins/${encodeURIComponent(server.pluginId)}/configs/${server.configId}${suffix}`;
 }
 
 async function connect(
@@ -115,7 +115,7 @@ async function getDefinition(
   server: OAuthServer,
 ): Promise<PluginDefinition> {
   return expectStatus(
-    await api.get<PluginDefinition>(`/api/plugins/${server.pluginId}`),
+    await api.get<PluginDefinition>(`/api/plugins/${encodeURIComponent(server.pluginId)}`),
     200,
     "get OAuth plugin",
   );
@@ -178,7 +178,7 @@ test.afterAll(async ({ admin }) => {
         + `?expected_revision=${config.revision ?? server.configRevision}`,
     );
     await admin.delete(
-      `/api/plugins/${server.pluginId}?expected_revision=${definition.revision ?? server.pluginRevision}`,
+      `/api/plugins/${encodeURIComponent(server.pluginId)}?expected_revision=${definition.revision ?? server.pluginRevision}`,
     );
   }
   await mcp.close();

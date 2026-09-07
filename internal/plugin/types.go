@@ -16,7 +16,6 @@ type Backend string
 const (
 	BackendCLI Backend = "cli"
 	BackendMCP Backend = "mcp"
-	BackendGo  Backend = "go"
 )
 
 // Source identifies whether a definition ships with Stella or was installed.
@@ -99,7 +98,7 @@ func (d Definition) Validate() error {
 	if err := ValidateNamespace(d.Namespace); err != nil {
 		return err
 	}
-	if d.Backend != BackendCLI && d.Backend != BackendMCP && d.Backend != BackendGo {
+	if d.Backend != BackendCLI && d.Backend != BackendMCP {
 		return fmt.Errorf("%w: backend %q", ErrInvalidDefinition, d.Backend)
 	}
 	if d.Source != SourceBuiltin && d.Source != SourceCustom {
@@ -107,9 +106,6 @@ func (d Definition) Validate() error {
 	}
 	if d.Source == SourceBuiltin && d.CreatorUserID != "" {
 		return fmt.Errorf("%w: builtin creator", ErrInvalidDefinition)
-	}
-	if d.Source == SourceCustom && d.Backend == BackendGo {
-		return fmt.Errorf("%w: custom Go implementations are not installable", ErrInvalidDefinition)
 	}
 	if d.Source == SourceCustom && d.DefaultEnabled {
 		return fmt.Errorf("%w: custom definitions default disabled", ErrInvalidDefinition)

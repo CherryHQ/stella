@@ -75,10 +75,8 @@ export function useMcpMarketInstall(
       });
       const createdConfig = data?.config;
       if (!createdConfig) throw new Error("plugin configuration was not returned");
-      const [kind, ...nameParts] = createdConfig.plugin_id.split("/");
-      if (!kind || nameParts.length === 0) throw new Error("invalid plugin id");
       await probePluginConfig({
-        path: { kind, name: nameParts.join("/"), config_id: createdConfig.id },
+        path: { plugin_id: createdConfig.plugin_id, config_id: createdConfig.id },
         throwOnError: true,
       });
       return createdConfig;
@@ -97,10 +95,8 @@ export function useMcpMarketInstall(
   // from config writes so the callback can enforce common plugin visibility.
   const connect = useMutation({
     mutationFn: async (config: PluginConfig) => {
-      const [kind, ...nameParts] = config.plugin_id.split("/");
-      if (!kind || nameParts.length === 0) throw new Error("invalid plugin id");
       const { data } = await startPluginConfigOAuth({
-        path: { kind, name: nameParts.join("/"), config_id: config.id },
+        path: { plugin_id: config.plugin_id, config_id: config.id },
         throwOnError: true,
       });
       return data?.authorization_url ?? "";

@@ -15,9 +15,8 @@ import { useI18n } from "@/lib/i18n";
 type Notify = (message: string, kind?: "success" | "error") => void;
 
 function pluginPath(pluginID: string) {
-  const slash = pluginID.indexOf("/");
-  if (slash <= 0 || slash === pluginID.length - 1) throw new Error("invalid plugin id");
-  return { kind: pluginID.slice(0, slash), name: pluginID.slice(slash + 1) };
+  if (!pluginID) throw new Error("invalid plugin id");
+  return { plugin_id: pluginID };
 }
 
 export function AgentMcpServerSheet({
@@ -41,7 +40,7 @@ export function AgentMcpServerSheet({
   const queryClient = useQueryClient();
   const path = server ? pluginPath(server.plugin_id) : null;
   const configQuery = useQuery({
-    queryKey: ["plugin-config", path?.kind, path?.name, server?.config_id],
+    queryKey: ["plugin-config", path?.plugin_id, server?.config_id],
     enabled: open && !!path && !!server?.readable,
     queryFn: async () => {
       const { data } = await getPluginConfig({
@@ -52,7 +51,7 @@ export function AgentMcpServerSheet({
     },
   });
   const pluginQuery = useQuery({
-    queryKey: ["plugin", path?.kind, path?.name],
+    queryKey: ["plugin", path?.plugin_id],
     enabled: open && !!path,
     queryFn: async () => {
       const { data } = await getPlugin({ path: path!, throwOnError: true });

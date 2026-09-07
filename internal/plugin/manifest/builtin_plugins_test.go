@@ -73,6 +73,39 @@ func TestGenerateBuiltinPluginsEmptyDirectoryIsNotPlugin(t *testing.T) {
 	}
 }
 
+func TestGenerateBuiltinPluginsIncludesStandardAgentPackage(t *testing.T) {
+	root := t.TempDir()
+	packageRoot := filepath.Join(root, "agent", "demo")
+	if err := os.MkdirAll(filepath.Join(packageRoot, "skills", "demo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "plugin.json"), []byte(`{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "demo",
+  "version": "1.0.0",
+  "description": "Demo Agent package"
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "skills", "demo", "SKILL.md"), []byte("---\nname: demo\ndescription: Demo skill\n---\n\nUse the demo skill.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageRoot, "skills", "demo", "plugin.json"), []byte(`{"name":"skill-attachment"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plugins, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plugins.Plugins) != 1 {
+		t.Fatalf("plugins = %#v, want one Agent package", plugins.Plugins)
+	}
+	got := plugins.Plugins[0]
+	if got.ID != "demo" || got.Kind != "agent" || got.Name != "demo" || len(got.Skills) != 1 || got.Skills[0].Name != "demo" {
+		t.Fatalf("Agent plugin = %#v", got)
+	}
+}
+
 func TestGenerateBuiltinPluginsRejectsDuplicateIDsNamespacesAndResources(t *testing.T) {
 	tests := []struct {
 		name  string

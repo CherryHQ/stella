@@ -16,6 +16,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
 
 var builtinPluginIdentifier = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -42,8 +44,9 @@ func BuiltinOAuthProviderIDs(data []byte) ([]string, error) {
 	return ids, nil
 }
 
-// GenerateBuiltinPlugins recursively loads plugin.yaml files beneath sourceRoot.
-// Directory names are packaging only; declared IDs and namespaces are the identity.
+// GenerateBuiltinPlugins recursively loads authored plugin declarations beneath
+// sourceRoot. YAML declarations describe CLI resources; standard Agent
+// packages use plugin.json and contribute their public metadata and Skills.
 func GenerateBuiltinPlugins(sourceRoot string, reservedRuntimeNames, oauthProviderIDs []string) (*Manifest, error) {
 	info, err := os.Lstat(sourceRoot)
 	if err != nil {
@@ -82,21 +85,31 @@ func GenerateBuiltinPlugins(sourceRoot string, reservedRuntimeNames, oauthProvid
 		if !fileInfo.Mode().IsRegular() {
 			return fmt.Errorf("builtin plugin path %q has unsupported type %s", rel, fileInfo.Mode().Type())
 		}
-		if path.Base(rel) != "plugin.yaml" {
-			return nil
+		switch path.Base(rel) {
+		case "plugin.yaml":
+			plugin, err := loadBuiltinPlugin(filename, rel)
+			if err != nil {
+				return err
+			}
+			rawPlugins = append(rawPlugins, plugin)
+		case "plugin.json":
+			parts := strings.Split(rel, "/")
+			if len(parts) != 3 || parts[0] != "agent" || parts[2] != "plugin.json" {
+				return nil
+			}
+			plugin, err := loadAgentPlugin(filepath.Dir(filename), rel)
+			if err != nil {
+				return err
+			}
+			rawPlugins = append(rawPlugins, plugin)
 		}
-		plugin, err := loadBuiltinPlugin(filename, rel)
-		if err != nil {
-			return err
-		}
-		rawPlugins = append(rawPlugins, plugin)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	if len(rawPlugins) == 0 {
-		return nil, fmt.Errorf("builtin plugins root contains no plugin.yaml: %s", sourceRoot)
+		return nil, fmt.Errorf("builtin plugins root contains no plugin.yaml or plugin.json: %s", sourceRoot)
 	}
 
 	manifest := rawToManifest(rawManifest{Plugins: rawPlugins})
@@ -105,6 +118,47 @@ func GenerateBuiltinPlugins(sourceRoot string, reservedRuntimeNames, oauthProvid
 	}
 	slices.SortFunc(manifest.Plugins, func(a, b ManifestPlugin) int { return cmp.Compare(a.ID, b.ID) })
 	return manifest, nil
+}
+
+func loadAgentPlugin(root, relative string) (rawManifestPlugin, error) {
+	diagnostics := agentpackage.ValidateAuthoring(root)
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == agentpackage.SeverityError {
+			return rawManifestPlugin{}, fmt.Errorf("validate Agent package %q: %s", relative, diagnostic.Message)
+		}
+	}
+	pkg, diagnostics := agentpackage.Load(root)
+	if pkg == nil {
+		return rawManifestPlugin{}, fmt.Errorf("load Agent package %q: %v", relative, diagnostics)
+	}
+	if filepath.Base(root) != pkg.Manifest.Name {
+		return rawManifestPlugin{}, fmt.Errorf("agent package %q directory must match manifest name %q", relative, pkg.Manifest.Name)
+	}
+	for _, legacy := range []string{"assets.yaml", "plugin.yaml"} {
+		if _, err := os.Stat(filepath.Join(root, legacy)); err == nil {
+			return rawManifestPlugin{}, fmt.Errorf("agent package %q cannot also contain %s", relative, legacy)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return rawManifestPlugin{}, fmt.Errorf("stat Agent package %q %s: %w", relative, legacy, err)
+		}
+	}
+	if len(pkg.MCPServers) > 0 {
+		return rawManifestPlugin{}, fmt.Errorf("agent package %q declares MCP servers; guide-only packages cannot declare runtime components", relative)
+	}
+	if pkg.Extension != nil && (len(pkg.Extension.Binaries) > 0 || len(pkg.Extension.SessionEnv) > 0 || len(pkg.Extension.OAuth) > 0) {
+		return rawManifestPlugin{}, fmt.Errorf("agent package %q declares Stella runtime requirements; guide-only packages cannot declare runtime components", relative)
+	}
+	enabled := true
+	result := rawManifestPlugin{
+		ID: pkg.Manifest.Name, Kind: "agent", Enabled: &enabled,
+		ManifestPluginDefinition: ManifestPluginDefinition{
+			Name: pkg.Manifest.Name, DisplayName: pkg.Manifest.Name,
+			Description: pkg.Manifest.Description,
+		},
+	}
+	for _, skill := range pkg.Skills {
+		result.Skills = append(result.Skills, ManifestSkill{Name: skill.Name})
+	}
+	return result, nil
 }
 
 func loadBuiltinPlugin(filename, relative string) (rawManifestPlugin, error) {
@@ -184,7 +238,11 @@ func validateBuiltinPlugins(plugins []ManifestPlugin, reservedRuntimeNames, oaut
 		if plugin.Kind == "" || !builtinPluginIdentifier.MatchString(plugin.Kind) || plugin.Name == "" || !builtinPluginIdentifier.MatchString(plugin.Name) || strings.Contains(plugin.Name, "__") || plugin.DisplayName == "" {
 			return fmt.Errorf("builtin plugin %q has invalid kind, namespace, or display_name", plugin.ID)
 		}
-		if plugin.ID != plugin.Kind+"/"+plugin.Name {
+		if plugin.Kind == "agent" {
+			if plugin.ID != plugin.Name {
+				return fmt.Errorf("builtin Agent plugin %q must use bare ID %s", plugin.ID, plugin.Name)
+			}
+		} else if plugin.ID != plugin.Kind+"/"+plugin.Name {
 			return fmt.Errorf("builtin plugin %q must use ID %s/%s", plugin.ID, plugin.Kind, plugin.Name)
 		}
 		if _, reserved := reservedIDs[plugin.ID]; reserved {

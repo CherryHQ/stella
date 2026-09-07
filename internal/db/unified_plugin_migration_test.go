@@ -20,7 +20,7 @@ import (
 func pluginDefinition(id, namespace string, enabled bool) plugin.Definition {
 	return plugin.Definition{
 		ID: id, Namespace: namespace, DisplayName: id,
-		Backend: plugin.BackendGo, Source: plugin.SourceBuiltin,
+		Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin,
 		ImplementationKey: id, Spec: json.RawMessage(`{"schema":1}`),
 		DefaultEnabled: enabled, Revision: 1,
 	}
@@ -58,7 +58,7 @@ func TestUnifiedPluginConfigConstraints(t *testing.T) {
 		t.Helper()
 		if _, err := db.Exec(ctx, `
 			INSERT INTO plugin_definition (id, namespace, display_name, backend, source, implementation_key, spec)
-			VALUES ($1, $2, $1, 'go', 'builtin', $1, '{}'::jsonb)
+			VALUES ($1, $2, $1, 'cli', 'builtin', $1, '{}'::jsonb)
 		`, id, namespace); err != nil {
 			t.Fatal(err)
 		}
@@ -594,7 +594,7 @@ func TestUnifiedPluginCustomIdentityValidationAndNamespaceRollback(t *testing.T)
 
 	if _, err := db.Exec(ctx, `
 		INSERT INTO plugin_definition (id, namespace, display_name, backend, source, implementation_key, spec, default_enabled)
-		VALUES ('builtin/taken', 'taken', 'Taken', 'go', 'builtin', 'builtin/taken', '{}'::jsonb, true)
+		VALUES ('builtin/taken', 'taken', 'Taken', 'cli', 'builtin', 'builtin/taken', '{}'::jsonb, true)
 	`); err != nil {
 		t.Fatal(err)
 	}

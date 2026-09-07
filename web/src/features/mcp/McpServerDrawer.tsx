@@ -16,9 +16,8 @@ import { useI18n } from "@/lib/i18n";
 import { SCOPE_LABEL_KEY } from "@/lib/skill-scope";
 
 function pluginPath(pluginID: string) {
-  const slash = pluginID.indexOf("/");
-  if (slash <= 0 || slash === pluginID.length - 1) throw new Error("invalid plugin id");
-  return { kind: pluginID.slice(0, slash), name: pluginID.slice(slash + 1) };
+  if (!pluginID) throw new Error("invalid plugin id");
+  return { plugin_id: pluginID };
 }
 
 function statusBadgeVariant(status: string) {

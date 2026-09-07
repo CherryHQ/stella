@@ -248,28 +248,11 @@ func TestPluginCLIBackendSummaryHonorsScopeOverlayAndNegativeConfig(t *testing.T
 	}
 }
 
-func TestPluginGoBackendSummaryOmitsBackendPayload(t *testing.T) {
-	definition := pluginpkg.Definition{ID: "channel/telegram/bot", Backend: pluginpkg.BackendGo}
+func TestPluginBackendSummaryRejectsUnsupportedBackend(t *testing.T) {
+	definition := pluginpkg.Definition{ID: "channel/telegram/bot", Backend: pluginpkg.Backend("go")}
 	config := pluginpkg.Config{Payload: json.RawMessage(`{"token":"channel-secret","endpoint":"private.example"}`)}
-	summary, err := pluginBackendSummary(definition, config)
-	if err != nil {
-		t.Fatalf("pluginBackendSummary: %v", err)
-	}
-	goSummary, err := summary.AsPluginGoBackendSummary()
-	if err != nil {
-		t.Fatalf("decode Go backend summary: %v", err)
-	}
-	if !goSummary.Configured || goSummary.Kind == nil || *goSummary.Kind != "channel" {
-		t.Fatalf("Go backend summary = %#v, want configured channel", goSummary)
-	}
-	encoded, err := json.Marshal(summary)
-	if err != nil {
-		t.Fatalf("marshal Go backend summary: %v", err)
-	}
-	for _, forbidden := range []string{"channel-secret", "private.example", "token", "endpoint"} {
-		if strings.Contains(string(encoded), forbidden) {
-			t.Fatalf("Go backend summary exposed %q: %s", forbidden, encoded)
-		}
+	if _, err := pluginBackendSummary(definition, config); err == nil {
+		t.Fatal("pluginBackendSummary accepted unsupported backend")
 	}
 }
 

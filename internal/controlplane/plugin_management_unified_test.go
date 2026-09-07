@@ -15,21 +15,6 @@ import (
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
-func TestUnifiedPluginRouteUsesDefinitionIdentity(t *testing.T) {
-	for _, tc := range []struct {
-		id, namespace, kind, name string
-	}{
-		{id: "tool/email", namespace: "email", kind: "tool", name: "email"},
-		{id: "channel/feishu", namespace: "feishu", kind: "channel", name: "feishu"},
-		{id: "standalone", namespace: "standalone", kind: "standalone", name: "standalone"},
-	} {
-		kind, name := unifiedPluginRoute(tc.id, tc.namespace)
-		if kind != tc.kind || name != tc.name {
-			t.Fatalf("unifiedPluginRoute(%q, %q) = %q/%q, want %q/%q", tc.id, tc.namespace, kind, name, tc.kind, tc.name)
-		}
-	}
-}
-
 func TestUnifiedPluginManagementHandlerRequiresUnifiedAccess(t *testing.T) {
 	h := NewUnifiedPluginManagementHandler(nil)
 	if _, err := h.List(t.Context(), SettingsPluginListInput{}); !errors.Is(err, pluginapi.ErrForbidden) {
@@ -56,8 +41,8 @@ func unifiedPluginTestService(t *testing.T) *pluginapi.Service {
 	db := dbtest.New(t)
 	catalog := pluginapi.NewCatalog()
 	definition := pluginapi.Definition{
-		ID: "tool/demo", Namespace: "demo", DisplayName: "Demo", Backend: pluginapi.BackendGo,
-		Source: pluginapi.SourceBuiltin, ImplementationKey: "tool/demo", Spec: []byte(`{}`),
+		ID: "email", Namespace: "email", DisplayName: "Email", Backend: pluginapi.BackendCLI,
+		Source: pluginapi.SourceBuiltin, ImplementationKey: "email", Spec: []byte(`{}`),
 		DefaultEnabled: true, Revision: 1,
 	}
 	if err := catalog.Register(definition); err != nil {
@@ -121,7 +106,7 @@ func TestPluginManagementToolNonAdminUsesCommonPermissionBoundary(t *testing.T) 
 		t.Fatal(err)
 	}
 	tool := NewPluginManagementTool(pluginActionToolSpec(t, "disable"), func() *pluginapi.Service { return service })
-	_, err = tool.Execute(pluginToolContext(t, authority), map[string]any{"kind": "tool", "name": "demo"})
+	_, err = tool.Execute(pluginToolContext(t, authority), map[string]any{"plugin_id": "email"})
 	if err == nil || !strings.Contains(err.Error(), "access denied") {
 		t.Fatalf("non-admin plugin tool error = %v, want access denial", err)
 	}
@@ -137,7 +122,7 @@ func TestUnifiedPluginManagementKeepsCommonConfigCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	configs, err := access.ListConfigs(t.Context(), "tool/demo", pluginapi.ScopeSystem, "")
+	configs, err := access.ListConfigs(t.Context(), "email", pluginapi.ScopeSystem, "")
 	if err != nil || len(configs) != 1 {
 		t.Fatalf("system configs = %d/%v, want one", len(configs), err)
 	}
@@ -148,5 +133,32 @@ func TestUnifiedPluginManagementKeepsCommonConfigCAS(t *testing.T) {
 	}
 	if _, err := access.UpdateConfig(t.Context(), initial.PluginID, initial.ID, initial.Revision, pluginapi.ConfigPatch{EnabledSet: true, Enabled: &disabled}); !errors.Is(err, pluginapi.ErrConflict) {
 		t.Fatalf("stale plugin toggle error = %v, want conflict", err)
+	}
+}
+
+func TestUnifiedPluginManagementUsesCanonicalIDForListAndToggle(t *testing.T) {
+	service := unifiedPluginTestService(t)
+	authority, err := authz.NewUserAuthority("10000000-0000-0000-0000-000000000001", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := NewPluginManagementTool(pluginActionToolSpec(t, "list"), func() *pluginapi.Service { return service })
+	before, err := list.Execute(pluginToolContext(t, authority), map[string]any{})
+	if err != nil {
+		t.Fatalf("list before toggle: %v", err)
+	}
+	if !strings.Contains(before, `"plugin_id":"email"`) || strings.Contains(before, `"kind"`) {
+		t.Fatalf("list projection = %s, want canonical plugin_id", before)
+	}
+	disable := NewPluginManagementTool(pluginActionToolSpec(t, "disable"), func() *pluginapi.Service { return service })
+	if _, err := disable.Execute(pluginToolContext(t, authority), map[string]any{"plugin_id": "email"}); err != nil {
+		t.Fatalf("disable by plugin ID: %v", err)
+	}
+	after, err := list.Execute(pluginToolContext(t, authority), map[string]any{})
+	if err != nil {
+		t.Fatalf("list after toggle: %v", err)
+	}
+	if !strings.Contains(after, `"plugin_id":"email","enabled":false`) {
+		t.Fatalf("list after toggle = %s, want email disabled", after)
 	}
 }
