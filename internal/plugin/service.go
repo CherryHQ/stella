@@ -42,6 +42,8 @@ type ConfigPatch struct {
 
 // PayloadValidator always checks field permissions, types, secrets and locator
 // ownership. Enabled=false suppresses only completeness/readiness requirements.
+// Config.Payload is already resolved against Definition.Spec by the service;
+// backend validators must not merge it as ConfigParameters a second time.
 // A new disabled definition is checked with a nil payload to validate its
 // immutable resource schema without requiring connection fields.
 // CLI system scopes may configure host installation; user scopes are confined
@@ -79,16 +81,29 @@ type Service struct {
 	mutationTx    pgx.Tx
 	mutationFence MutationFence
 	txBound       bool
+	contentStore  *ContentStore
 }
 
-func NewService(db *pgxpool.Pool, agents *agentaccess.Service, catalog *Catalog, policy BackendPolicy, mutationFence MutationFence) *Service {
+type ServiceOption func(*Service)
+
+func WithContentStore(store *ContentStore) ServiceOption {
+	return func(service *Service) { service.contentStore = store }
+}
+
+func NewService(db *pgxpool.Pool, agents *agentaccess.Service, catalog *Catalog, policy BackendPolicy, mutationFence MutationFence, options ...ServiceOption) *Service {
 	shipped := NewCatalog()
 	if catalog != nil {
 		for _, def := range catalog.Definitions() {
 			shipped.byID[def.ID] = cloneDefinition(def)
 		}
 	}
-	return &Service{db: db, q: sqlc.New(db), agents: agents, catalog: shipped, policy: policy, mutationFence: mutationFence}
+	service := &Service{db: db, q: sqlc.New(db), agents: agents, catalog: shipped, policy: policy, mutationFence: mutationFence}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 func (s *Service) Begin(authority authz.Authority) (*Access, error) {
@@ -239,6 +254,9 @@ func (b *Access) CreateConfig(ctx context.Context, config Config) (Config, error
 	if err != nil {
 		return Config{}, err
 	}
+	if err := ensureActiveDefinition(def); err != nil {
+		return Config{}, err
+	}
 	userID, agentID, err := b.owner(ctx, config.Scope, config.AgentID)
 	if err != nil {
 		return Config{}, err
@@ -294,11 +312,14 @@ func (b *Access) UpdateConfig(ctx context.Context, pluginID, id string, expected
 	if err != nil {
 		return Config{}, err
 	}
+	if err := ensureActiveDefinition(def); err != nil {
+		return Config{}, err
+	}
 	if err := rejectImmutableSkillPatch(patch); err != nil {
 		return Config{}, err
 	}
 	if patch.BinaryVersionsSet {
-		typedPayload, err := applyCLIWriteOnlyPatch(def, current.Payload, patch, b.authority.IsAdmin())
+		typedPayload, err := applyCLIWriteOnlyPatch(def, current.Payload, patch)
 		if err != nil {
 			return Config{}, err
 		}
@@ -367,6 +388,9 @@ func (b *Access) MoveConfig(ctx context.Context, pluginID, id string, expectedRe
 	if err != nil {
 		return Config{}, err
 	}
+	if err := ensureActiveDefinition(def); err != nil {
+		return Config{}, err
+	}
 	if err := rejectImmutableSkillPatch(patch); err != nil {
 		return Config{}, err
 	}
@@ -384,7 +408,7 @@ func (b *Access) MoveConfig(ctx context.Context, pluginID, id string, expectedRe
 		return Config{}, err
 	}
 	if patch.BinaryVersionsSet {
-		typedPayload, err := applyCLIWriteOnlyPatch(def, current.Payload, patch, b.authority.IsAdmin())
+		typedPayload, err := applyCLIWriteOnlyPatch(def, current.Payload, patch)
 		if err != nil {
 			return Config{}, err
 		}
@@ -436,6 +460,9 @@ func (b *Access) DeleteConfig(ctx context.Context, pluginID, id string, expected
 	}
 	def, err := b.GetDefinition(ctx, current.PluginID)
 	if err != nil {
+		return err
+	}
+	if err := ensureActiveDefinition(def); err != nil {
 		return err
 	}
 	if def.Source == SourceBuiltin && current.Scope == ScopeSystem {
@@ -509,6 +536,9 @@ func (b *Access) ResetBuiltinConfig(ctx context.Context, pluginID, id string, ex
 	if err != nil {
 		return Config{}, err
 	}
+	if err := ensureActiveDefinition(def); err != nil {
+		return Config{}, err
+	}
 	if !b.authority.IsAdmin() || def.Source != SourceBuiltin || current.Scope != ScopeSystem {
 		return Config{}, ErrForbidden
 	}
@@ -562,15 +592,39 @@ func (s *Service) syncBuiltinDefaultsTx(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("sync config %s: %w", def.ID, err)
 		}
-		config := Config{ID: row.ID, PluginID: row.PluginID, Payload: row.Config}
-		if err := (&Service{q: q}).ensureMCPServerChildren(ctx, &config); err != nil {
-			return err
+		// Fixed package resources have stable child identities even when the
+		// system config inherits its payload from the definition. Reconcile these
+		// rows during startup so settings can address each inherited server.
+		var declaration ResourcePayload
+		err = json.Unmarshal(def.Spec, &declaration)
+		if err != nil {
+			return fmt.Errorf("sync definition %s: decode spec: %w", def.ID, err)
+		}
+		if declaration.Origin != "remote_mcp" && len(declaration.MCPServers) != 0 {
+			config := fromSQLConfig(sqlc.PluginConfig(row))
+			// Startup sync must preserve an existing projection even when it was
+			// written by an older release and no longer satisfies the formal
+			// parameter contract. Child reconciliation is safe only for payloads
+			// that can be resolved against the current declaration.
+			if _, resolveErr := MergeDefinitionConfig(def.Spec, config.Payload); resolveErr != nil {
+				continue
+			}
+			if err := (&Service{q: q}).ensureMCPServerChildren(ctx, &config); err != nil {
+				return fmt.Errorf("sync MCP children %s: %w", def.ID, err)
+			}
 		}
 	}
 	return classifyCommitError(tx.Commit(ctx))
 }
 
 func (b *Access) CreateCustom(ctx context.Context, def Definition, config Config) (Definition, Config, error) {
+	return b.createCustom(ctx, def, config, false)
+}
+
+// createCustom carries the only internal exception to the public custom
+// definition boundary. A true packagePublished value is supplied only after
+// ContentStore has published and validated the package tree.
+func (b *Access) createCustom(ctx context.Context, def Definition, config Config, packagePublished bool) (Definition, Config, error) {
 	if err := b.ensureActive(); err != nil {
 		return Definition{}, Config{}, err
 	}
@@ -579,7 +633,7 @@ func (b *Access) CreateCustom(ctx context.Context, def Definition, config Config
 		var createdConfig Config
 		err := b.service.WithMutationTx(ctx, b.authority, func(mutationCtx context.Context, bound *Access, _ pgx.Tx) error {
 			var err error
-			createdDef, createdConfig, err = bound.CreateCustom(mutationCtx, def, config)
+			createdDef, createdConfig, err = bound.createCustom(mutationCtx, def, config, packagePublished)
 			return err
 		})
 		return createdDef, createdConfig, err
@@ -595,6 +649,16 @@ func (b *Access) CreateCustom(ctx context.Context, def Definition, config Config
 		def.CreatorUserID = ""
 	}
 	def.Spec = nonEmptyJSON(def.Spec)
+	def.Spec, err = PublishDefinitionSpec(def.Spec)
+	if err != nil {
+		return Definition{}, Config{}, err
+	}
+	// Package content is trusted only after the directory publisher has copied,
+	// validated, and content-addressed the tree. The public metadata API must
+	// never let a caller claim an arbitrary digest and bundled skill payload.
+	if isPackageDefinition(def) && !packagePublished {
+		return Definition{}, Config{}, fmt.Errorf("%w: package definitions require the directory publisher", ErrInvalidDefinition)
+	}
 	if err := validateCustomSpec(def); err != nil {
 		return Definition{}, Config{}, err
 	}
@@ -638,6 +702,18 @@ func (b *Access) CreateCustom(ctx context.Context, def Definition, config Config
 	return createdDef, createdConfig, nil
 }
 
+func isPackageDefinition(def Definition) bool {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(def.Spec, &fields); err != nil || fields == nil {
+		return false
+	}
+	var origin string
+	if err := json.Unmarshal(fields["origin"], &origin); err != nil {
+		return false
+	}
+	return origin == "package"
+}
+
 // validateCustomResourceContent preserves the remote-only non-admin boundary
 // from the actual resources rather than a caller-selected backend label.
 func validateCustomResourceContent(def Definition, config Config, isAdmin bool) error {
@@ -654,7 +730,7 @@ func validateCustomResourceContent(def Definition, config Config, isAdmin bool) 
 		}
 		for key := range fields {
 			switch key {
-			case "description", "mcp_servers", "url", "transport", "auth_type", "credential_mode", "metadata":
+			case "description", "version", contentDigestField, "origin", "mcp_servers", "url", "transport", "auth_type", "credential_mode", "metadata":
 				continue
 			default:
 				return fmt.Errorf("%w: non-admin custom resources cannot declare %s", ErrForbidden, key)
@@ -674,6 +750,24 @@ func validateCustomSpec(def Definition) error {
 	if err := json.Unmarshal(def.Spec, &fields); err != nil {
 		return ErrInvalidDefinition
 	}
+	packageContent := false
+	if origin, ok := fields["origin"]; ok {
+		var value string
+		if err := json.Unmarshal(origin, &value); err != nil {
+			return ErrInvalidDefinition
+		}
+		packageContent = value == "package"
+		if packageContent {
+			if _, ok := fields["content"]; !ok {
+				return fmt.Errorf("%w: package definitions require content", ErrInvalidDefinition)
+			}
+		}
+	}
+	if !packageContent {
+		if _, ok := fields["content"]; ok {
+			return fmt.Errorf("%w: custom definitions cannot claim bundled content", ErrInvalidDefinition)
+		}
+	}
 	for field, value := range fields {
 		if field == "description" {
 			var description string
@@ -683,11 +777,11 @@ func validateCustomSpec(def Definition) error {
 			continue
 		}
 		switch field {
-		case "category", "prompt", "binaries", "session_env", "oauth_provider", "oauth", "mcp_servers":
+		case "category", "prompt", "version", "content_digest", "content", "origin", "binaries", "session_env", "oauth_provider", "oauth", "mcp_servers":
 			continue
 		case "skills":
 			var skills []json.RawMessage
-			if err := json.Unmarshal(value, &skills); err != nil || len(skills) != 0 {
+			if err := json.Unmarshal(value, &skills); err != nil || (!packageContent && len(skills) != 0) {
 				return fmt.Errorf("%w: custom definitions cannot claim bundled skills", ErrInvalidDefinition)
 			}
 			continue
@@ -736,7 +830,7 @@ func (s *Service) validateResolved(ctx context.Context, def Definition, config C
 			}
 		}
 	}
-	merged, err := mergeObjects(def.Spec, config.Payload)
+	merged, err := MergeDefinitionConfig(def.Spec, config.Payload)
 	if err != nil {
 		return fmt.Errorf("%w: resolved payload: %w", ErrInvalidConfig, err)
 	}
@@ -827,24 +921,6 @@ func patchPayload(current json.RawMessage, patch ConfigPatch) (json.RawMessage, 
 	return json.Marshal(owned)
 }
 
-func mergeObjects(base, overlay json.RawMessage) (json.RawMessage, error) {
-	var baseObject, overlayObject map[string]json.RawMessage
-	if err := json.Unmarshal(base, &baseObject); err != nil || baseObject == nil {
-		return nil, errors.New("definition spec must be an object")
-	}
-	if err := json.Unmarshal(overlay, &overlayObject); err != nil || overlayObject == nil {
-		return nil, errors.New("config payload must be an object")
-	}
-	for key, value := range overlayObject {
-		if string(value) == "null" {
-			delete(baseObject, key)
-			continue
-		}
-		baseObject[key] = value
-	}
-	return json.Marshal(baseObject)
-}
-
 // DefinitionPatch changes presentation metadata only; execution identity and
 // resource declarations cannot be replaced under existing shared configs.
 type DefinitionPatch struct {
@@ -863,7 +939,17 @@ func (b *Access) managedDefinition(ctx context.Context, id string) (Definition, 
 	if !b.authority.IsAdmin() && (def.CreatorUserID == "" || def.CreatorUserID != string(b.authority.UserID())) {
 		return Definition{}, ErrNotFound
 	}
+	if !def.RetiredAt.IsZero() {
+		return Definition{}, ErrRetiredDefinition
+	}
 	return def, nil
+}
+
+func ensureActiveDefinition(def Definition) error {
+	if !def.RetiredAt.IsZero() {
+		return ErrRetiredDefinition
+	}
+	return nil
 }
 
 func (b *Access) UpdateDefinition(ctx context.Context, id string, revision int64, patch DefinitionPatch) (Definition, error) {
@@ -895,7 +981,11 @@ func (b *Access) UpdateDefinition(ctx context.Context, id string, revision int64
 		if err != nil {
 			return Definition{}, err
 		}
-		def.Spec, err = json.Marshal(fields)
+		encoded, marshalErr := json.Marshal(fields)
+		if marshalErr != nil {
+			return Definition{}, marshalErr
+		}
+		def.Spec, err = PublishDefinitionSpec(encoded)
 		if err != nil {
 			return Definition{}, err
 		}
@@ -924,28 +1014,13 @@ func (b *Access) DeleteDefinition(ctx context.Context, id string, revision int64
 	if _, err := b.managedDefinition(ctx, id); err != nil {
 		return err
 	}
-	return b.service.deleteDefinition(ctx, id, revision)
+	return b.service.retireDefinition(ctx, id, revision)
 }
 
-func (s *Service) deleteDefinition(ctx context.Context, id string, revision int64) error {
-	def, err := s.getDefinition(ctx, id)
-	if err != nil {
-		return err
-	}
-	if def.Source == SourceBuiltin {
-		return ErrForbidden
-	}
-	if err := s.q.DeletePluginToolPolicies(ctx, nullableText(id)); err != nil {
-		return err
-	}
-	// The definition FK makes concurrent config creation atomic with deletion.
-	// A remaining config aborts this transaction, including policy cleanup.
-	deleted, err := s.q.DeletePluginDefinitionCAS(ctx, sqlc.DeletePluginDefinitionCASParams{ID: id, Revision: revision})
+func (s *Service) retireDefinition(ctx context.Context, id string, revision int64) error {
+	_, err := s.q.RetirePluginDefinitionCAS(ctx, sqlc.RetirePluginDefinitionCASParams{ID: id, Revision: revision})
 	if err != nil {
 		return mapConflict(err)
-	}
-	if deleted != 1 {
-		return ErrConflict
 	}
 	return nil
 }

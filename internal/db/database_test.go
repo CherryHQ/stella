@@ -102,8 +102,8 @@ func TestLarkCLIOverrideRepairMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode lark-cli definition: %v", err)
 	}
-	if larkPayload.OAuthProvider != "feishu" {
-		t.Fatalf("repaired Lark OAuth provider = %q, want feishu", larkPayload.OAuthProvider)
+	if len(larkPayload.OAuth) != 1 || larkPayload.OAuth[0].Provider != "feishu" {
+		t.Fatalf("repaired Lark OAuth requirements = %#v, want feishu", larkPayload.OAuth)
 	}
 	gotSessionEnvs := make(map[string]string, len(larkPayload.SessionEnvs))
 	for _, spec := range larkPayload.SessionEnvs {

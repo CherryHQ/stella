@@ -13,8 +13,8 @@ import (
 )
 
 // ValidatePayload validates resources against their configuration owner. Definition
-// resources are trusted release input; a config is an overlay, so a user may
-// pin a release version or select an OAuth source but cannot replace the
+// resources are published input; config parameters let a user
+// pin a release version but cannot replace the
 // executable, its install location, or the skill that belongs to it.
 //
 // The plugin service calls this with the resolved definition plus overlay. The
@@ -27,7 +27,7 @@ func ValidatePayload(_ context.Context, definition Definition, config Config, re
 	if err := definition.Validate(); err != nil {
 		return invalidPayload("definition: %v", err)
 	}
-	if err := validateResetFields(config.Scope, resetFields); err != nil {
+	if err := validateResetFields(resetFields); err != nil {
 		return err
 	}
 	if err := validateCredentialRefs(config); err != nil {
@@ -243,9 +243,9 @@ func validateConfigEnvValues(payload ResourcePayload) error {
 
 func validateUserOverlay(shipped, resolved ResourcePayload, config Config) error {
 	if resolved.Description != shipped.Description || resolved.Category != shipped.Category ||
-		resolved.Prompt != shipped.Prompt || resolved.OAuthProvider != shipped.OAuthProvider ||
+		resolved.Prompt != shipped.Prompt ||
 		!reflect.DeepEqual(resolved.Skills, shipped.Skills) || !reflect.DeepEqual(resolved.OAuth, shipped.OAuth) {
-		return invalidPayload("user scope may only change binary version/options and OAuth session env source")
+		return invalidPayload("user scope cannot replace resource declarations")
 	}
 	if len(resolved.Binaries) != len(shipped.Binaries) {
 		return invalidPayload("user scope cannot add or remove binaries")
@@ -267,11 +267,8 @@ func validateUserOverlay(shipped, resolved ResourcePayload, config Config) error
 	}
 	for i := range shipped.SessionEnvs {
 		want, got := shipped.SessionEnvs[i], resolved.SessionEnvs[i]
-		if got.EnvVar != want.EnvVar || got.Required != want.Required || got.Value != want.Value {
+		if got.EnvVar != want.EnvVar || got.Required != want.Required || got.Value != want.Value || got.Source != want.Source {
 			return invalidPayload("user scope cannot change session_env[%d] declaration", i)
-		}
-		if got.Source != want.Source && !strings.HasPrefix(got.Source, "oauth.") {
-			return invalidPayload("user scope session_env[%d] source must be an OAuth source", i)
 		}
 		if strings.HasPrefix(got.Source, "oauth.") && config.UserID == "" {
 			return invalidPayload("OAuth session env requires a user-owned config")
@@ -331,7 +328,7 @@ func validateVersion(version string) error {
 	return nil
 }
 
-func validateResetFields(scope Scope, fields []string) error {
+func validateResetFields(fields []string) error {
 	seen := make(map[string]struct{}, len(fields))
 	for _, field := range fields {
 		if _, ok := seen[field]; ok {
@@ -339,14 +336,9 @@ func validateResetFields(scope Scope, fields []string) error {
 		}
 		seen[field] = struct{}{}
 		switch field {
-		case "description", "category", "prompt", "binaries", "skills", "session_env", "oauth_provider", "oauth", "mcp_servers":
+		case "binaries", "mcp_servers":
 		default:
 			return invalidPayload("reset_fields contains unknown field %q", field)
-		}
-		if scope == ScopeUser || scope == ScopeUserAgent {
-			if field != "binaries" && field != "session_env" {
-				return invalidPayload("user scope cannot reset %q", field)
-			}
 		}
 	}
 	return nil

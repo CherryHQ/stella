@@ -9,10 +9,11 @@ import (
 const (
 	pluginCutoverMigration40 = int64(90000000000040)
 	pluginCutoverMigration41 = int64(90000000000041)
+	pluginCutoverMigration44 = int64(90000000000044)
 )
 
-// TestPluginCutoverMigrationThroughGoose applies the embedded final migration
-// to the exact pre-41 schema and then exercises the UUID-preserving importer.
+// TestPluginCutoverMigrationThroughGoose applies the embedded post-cutover
+// migrations to the exact pre-41 schema and then exercises the UUID-preserving importer.
 func TestPluginCutoverMigrationThroughGoose(t *testing.T) {
 	db, provider := newTestDBAtMigration(t, pluginCutoverMigration40)
 	ctx := t.Context()
@@ -36,8 +37,8 @@ func TestPluginCutoverMigrationThroughGoose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := provider.UpTo(ctx, pluginCutoverMigration41); err != nil {
-		t.Fatalf("apply embedded migration 41: %v", err)
+	if _, err := provider.UpTo(ctx, pluginCutoverMigration44); err != nil {
+		t.Fatalf("apply embedded migrations through 44: %v", err)
 	}
 	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); err != nil {
 		t.Fatalf("import legacy state after candidate migration: %v", err)
@@ -77,8 +78,11 @@ func TestPluginCutoverMigrationThroughGoose(t *testing.T) {
 	`).Scan(&latestVersion, &applied); err != nil {
 		t.Fatal(err)
 	}
-	if latestVersion != pluginCutoverMigration41 || !applied {
-		t.Fatalf("latest migration ledger = %d applied=%v, want 41/applied", latestVersion, applied)
+	// DownTo reaches the irreversible retirement migration and leaves its
+	// applied ledger row as the last durable state. Migrations 43/44 have
+	// already been rolled back before migration 42 rejects the Down operation.
+	if latestVersion != pluginRetirementMigration42 || !applied {
+		t.Fatalf("latest migration ledger = %d applied=%v, want 42/applied", latestVersion, applied)
 	}
 	var stateTableExists bool
 	if err := db.QueryRow(ctx, `SELECT to_regclass('public.mcp_connection_state') IS NOT NULL`).Scan(&stateTableExists); err != nil {

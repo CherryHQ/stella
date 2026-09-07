@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -51,8 +52,10 @@ func installPluginProbeFixture(t *testing.T, env *testEnv, scope, userID, agentI
 	configID := uuid.NewString()
 	childID := uuid.NewString()
 	child := fmt.Sprintf(`{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":%q,"credential_mode":%q}`, authType, credentialMode)
-	spec := fmt.Sprintf(`{"mcp_servers":{"main":%s}}`, child)
-	payload := spec
+	spec, err := pluginpkg.PublishDefinitionSpec(json.RawMessage(fmt.Sprintf(`{"mcp_servers":{"main":%s}}`, child)))
+	if err != nil {
+		t.Fatalf("publish definition: %v", err)
+	}
 	refs := `{}`
 	if authType == mcp.AuthTypeOAuth && credentialMode == mcp.CredentialModePerUser {
 		refs = fmt.Sprintf(`{"mcp_servers":{"main":{"oauth_bundle":{"name":"MCP_OAUTH_%s","mode":"per_user","owner":"per_user"}}}}`, strings.ToUpper(strings.ReplaceAll(childID, "-", "_")))
@@ -66,7 +69,7 @@ func installPluginProbeFixture(t *testing.T, env *testEnv, scope, userID, agentI
 		INSERT INTO plugin_config(id, plugin_id, scope, user_id, agent_id,
 			enabled, config, credential_refs, revision)
 		VALUES ($1::uuid, $2, $3, NULLIF($4, '')::uuid, NULLIF($5, ''),
-			$6, $7::jsonb, $8::jsonb, 1)`, configID, pluginID, scope, userID, agentID, true, payload, refs); err != nil {
+			$6, $7::jsonb, $8::jsonb, 1)`, configID, pluginID, scope, userID, agentID, true, `{}`, refs); err != nil {
 		t.Fatalf("seed plugin config: %v", err)
 	}
 	if _, err := env.db.Exec(context.Background(), `

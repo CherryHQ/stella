@@ -191,7 +191,7 @@ func TestMoveConfigScopeMovesAllChildrenWithPerServerReplacements(t *testing.T) 
 	authority := mustMoveAuthority(t, userID, true)
 	ctx := authz.WithAuthority(t.Context(), authority)
 	def, parent, err := svc.CreateCustom(ctx, plugin.Definition{
-		ID: "scope-move-bearer-multi", DisplayName: "Scope move bearer multi", Spec: []byte(`{}`),
+		ID: "scope-move-bearer-multi", DisplayName: "Scope move bearer multi", Spec: mustPublishedMCPTestSpec(`{}`),
 	}, CreateInput{
 		Scope: ScopeUser, URL: "https://main.scope-move.example.test", AuthType: AuthTypeBearer,
 		Transport: TransportStreamableHTTP, Token: "old-main",
@@ -269,7 +269,7 @@ func TestMoveConfigScopeMovesAllAuthNoneChildrenWithoutVault(t *testing.T) {
 	authority := mustMoveAuthority(t, userID, true)
 	ctx := authz.WithAuthority(t.Context(), authority)
 	def, parent, err := svc.CreateCustom(ctx, plugin.Definition{
-		ID: "scope-move-none-multi", DisplayName: "Scope move none multi", Spec: []byte(`{}`),
+		ID: "scope-move-none-multi", DisplayName: "Scope move none multi", Spec: mustPublishedMCPTestSpec(`{}`),
 	}, CreateInput{
 		Scope: ScopeUser, URL: "https://main.scope-move-none.example.test", AuthType: AuthTypeNone,
 		Transport: TransportStreamableHTTP,
@@ -306,7 +306,7 @@ func TestMoveConfigScopeRejectsOAuthSiblingBeforeAnyMutation(t *testing.T) {
 	authority := mustMoveAuthority(t, userID, true)
 	ctx := authz.WithAuthority(t.Context(), authority)
 	def, parent, err := svc.CreateCustom(ctx, plugin.Definition{
-		ID: "scope-move-oauth-sibling", DisplayName: "Scope move OAuth sibling", Spec: []byte(`{}`),
+		ID: "scope-move-oauth-sibling", DisplayName: "Scope move OAuth sibling", Spec: mustPublishedMCPTestSpec(`{}`),
 	}, CreateInput{
 		Scope: ScopeUser, URL: "https://main.scope-move-oauth.example.test", AuthType: AuthTypeBearer,
 		Transport: TransportStreamableHTTP, Token: "old-main",
@@ -451,7 +451,7 @@ func mustMoveAuthority(t *testing.T, userID string, admin bool) authz.Authority 
 
 func seedBearerMoveRefs(t *testing.T, svc *Service, configID string, scope plugin.Scope, userID, agentID string) {
 	t.Helper()
-	refs := fmt.Sprintf(`{"bearer":{"name":"%s","scope":"%s","user_id":"%s","agent_id":"%s"}}`, credentialName(configID), scope, userID, agentID)
+	refs := fmt.Sprintf(`{"mcp_servers":{"main":{"bearer":{"name":"%s","scope":"%s","user_id":"%s","agent_id":"%s"}}}}`, credentialName(configID), scope, userID, agentID)
 	if _, err := svc.pool.Exec(context.Background(), `UPDATE plugin_config SET credential_refs = $1::jsonb WHERE id = $2::uuid`, refs, configID); err != nil {
 		t.Fatal(err)
 	}

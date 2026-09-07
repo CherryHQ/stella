@@ -121,7 +121,7 @@ func appendCLIResources(view *pkgplugins.SessionPluginView, identity pkgplugins.
 	}
 	declaredEnv := make(map[string]struct{}, len(payload.SessionEnvs))
 	for _, env := range payload.SessionEnvs {
-		provider := payload.OAuthProvider
+		provider := ""
 		for _, requirement := range payload.OAuth {
 			for _, binding := range requirement.Bindings {
 				if binding.EnvVar == env.EnvVar {

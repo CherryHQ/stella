@@ -261,6 +261,15 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, native N
 				config.ID = stableLegacyConfigID(id)
 			}
 		}
+		definition, ok := defs[id]
+		if !ok {
+			return ImportPlan{}, fmt.Errorf("%w: config %s has no definition", ErrLegacyPluginUnknown, id)
+		}
+		normalizedPayload, err := normalizeImportedConfigPayload(definition.Spec, config.Payload)
+		if err != nil {
+			return ImportPlan{}, fmt.Errorf("legacy config %s: %w", id, err)
+		}
+		config.Payload = normalizedPayload
 		if err := config.Validate(); err != nil {
 			return ImportPlan{}, fmt.Errorf("legacy config %s: %w", id, err)
 		}
@@ -983,6 +992,10 @@ func (a *ConfigAccumulator) addManifestOverride(def Definition, row LegacyManife
 		if err != nil {
 			return fmt.Errorf("manifest %s: %w", def.ID, err)
 		}
+		payload, err = normalizeConfigPayload(payload)
+		if err != nil {
+			return fmt.Errorf("manifest %s config: %w", def.ID, err)
+		}
 		if err := mergeConfigPayload(&a.config.Payload, payload); err != nil {
 			return fmt.Errorf("%w: manifest %s config: %w", ErrLegacyMigrationConflict, def.ID, err)
 		}
@@ -996,6 +1009,50 @@ func (a *ConfigAccumulator) addManifestOverride(def Definition, row LegacyManife
 		a.config.CredentialRefs = json.RawMessage(`{"session_env":` + string(encoded) + `}`)
 	}
 	return nil
+}
+
+func normalizeConfigPayload(raw json.RawMessage) (json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil || object == nil {
+		return nil, fmt.Errorf("config payload must be an object")
+	}
+	// Legacy plugin rows sometimes carried their registry identity in a
+	// top-level provider field. The unified config contract keeps provider
+	// inside typed OAuth resources, so this old identity must not become an
+	// unknown executable parameter during cutover.
+	for _, field := range []string{"version", contentDigestField, "description", "category", "prompt", "skills", "session_env", "oauth", "oauth_provider", "provider"} {
+		delete(object, field)
+	}
+	for field, value := range object {
+		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			delete(object, field)
+		}
+	}
+	return json.Marshal(object)
+}
+
+func normalizeImportedConfigPayload(spec, raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 || emptyJSONObject(raw) {
+		return json.RawMessage(`{}`), nil
+	}
+	base, err := decodeParameterObject(spec, "definition spec")
+	if err != nil {
+		return nil, err
+	}
+	normalized, err := legacyConfigParameters(raw, base)
+	if err != nil {
+		return nil, err
+	}
+	// Migration drops old presentation/ownership fields before the strict
+	// parameter decoder. Secrets remain in CredentialRefs, never in this JSON.
+	normalized, err = normalizeConfigPayload(normalized)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := DecodeConfigParameters(normalized); err != nil {
+		return nil, err
+	}
+	return normalized, nil
 }
 
 func mergeConfigPayload(dst *json.RawMessage, raw json.RawMessage) error {
@@ -1100,6 +1157,25 @@ func customDefinitionFromManifest(raw string) (Definition, error) {
 	if err != nil {
 		return Definition{}, fmt.Errorf("manifest %s: %w", id, err)
 	}
+	defSpec, err = normalizeLegacyOAuthDeclaration(defSpec)
+	if err != nil {
+		return Definition{}, fmt.Errorf("manifest %s OAuth declaration: %w", id, err)
+	}
+	defSpec, err = promoteLegacyMCPDefinition(defSpec)
+	if err != nil {
+		return Definition{}, fmt.Errorf("manifest %s MCP declaration: %w", id, err)
+	}
+	payload, err := DecodeResourcePayload(defSpec, "manifest "+id+" definition")
+	if err != nil {
+		return Definition{}, err
+	}
+	if err := ValidateResourceDeclarations(payload, id, nil); err != nil {
+		return Definition{}, fmt.Errorf("manifest %s: %w", id, err)
+	}
+	defSpec, err = PublishDefinitionSpec(defSpec)
+	if err != nil {
+		return Definition{}, fmt.Errorf("manifest %s: %w", id, err)
+	}
 	displayName := jsonString(object["display_name"])
 	if displayName == "" {
 		displayName = name
@@ -1178,6 +1254,21 @@ func normalizeMCP(row LegacyMCPRegistration) (Definition, Config, error) {
 		ID: row.ID, PluginID: def.ID, Scope: Scope(row.Scope), UserID: row.UserID, AgentID: row.AgentID,
 		Enabled: cloneBool(&row.Enabled), Payload: encodedPayload, CredentialRefs: refsPayload, Revision: 1,
 		MCPServers: []MCPServerChild{{ID: row.ID, ParentConfigID: row.ID, ServerKey: "main"}},
+	}
+	def.Spec, err = prepareCustomDefinitionSpec(def.Spec, config.Payload)
+	if err != nil {
+		return Definition{}, Config{}, err
+	}
+	published, err := DecodeResourcePayload(def.Spec, "MCP "+pluginID+" definition")
+	if err != nil {
+		return Definition{}, Config{}, err
+	}
+	if err := ValidateResourceDeclarations(published, pluginID, nil); err != nil {
+		return Definition{}, Config{}, err
+	}
+	def.Spec, err = PublishDefinitionSpec(def.Spec)
+	if err != nil {
+		return Definition{}, Config{}, err
 	}
 	return def, config, nil
 }

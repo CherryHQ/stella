@@ -348,8 +348,8 @@ func commonMCPTestService(t *testing.T) (*Service, string, string, context.Conte
 	if _, err := svc.pool.Exec(t.Context(), `
 		INSERT INTO plugin_definition(id, display_name, source,
 			spec, default_enabled, revision, creator_user_id)
-		VALUES ($1, $2, 'custom', '{"mcp_servers":{}}'::jsonb, false, 1, $3::uuid)`,
-		pluginID, "MCP test", userID); err != nil {
+		VALUES ($1, $2, 'custom', $4::jsonb, false, 1, $3::uuid)`,
+		pluginID, "MCP test", userID, mustPublishedMCPTestSpec(`{"origin":"remote_mcp","mcp_servers":{"main":{}}}`)); err != nil {
 		t.Fatalf("seed common MCP definition: %v", err)
 	}
 	preparePluginToolOverrideIdentitySchema(t, svc.pool)

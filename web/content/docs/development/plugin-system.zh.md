@@ -24,7 +24,9 @@ Native 工具身份不依赖 Agent Plugin 定义外键。导入流程与运行�
 
 Native 写入经过 runner 准入屏障。提交成功或提交结果未知时，都会回收旧 runner，
 并重新协调频道 listener，避免一次报错响应留下旧权限。
-Native 管理 API 只接受管理员认证，OAuth access token 无法访问。
+Native 管理方法要求可信管理员身份，非 HTTP 调用也不能绕过；逐 Agent 限制还需通过
+Agent 授权服务。OAuth access token 无法访问管理 API。Host 通过 `ConfigStore.Get`
+读取配置，不再提供绕过管理服务的配置写入或开关方法。
 
 ## Native Go 契约
 

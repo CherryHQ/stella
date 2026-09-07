@@ -99,6 +99,9 @@ func (s *Service) ResolveSnapshot(ctx context.Context, authority authz.Authority
 	defs := make([]Definition, 0, len(rows))
 	for _, row := range rows {
 		def := fromSQLDefinition(row)
+		if !def.RetiredAt.IsZero() {
+			continue
+		}
 		if def.Source == SourceBuiltin {
 			if _, ok := s.catalog.Get(def.ID); !ok {
 				continue // A missing shipped definition is dormant.

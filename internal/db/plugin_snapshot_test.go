@@ -1,7 +1,6 @@
 package db
 
 import (
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -18,31 +17,31 @@ func TestUnifiedPluginSnapshotFiltersDormantAndForeignDefinitions(t *testing.T) 
 	dormant := pluginDefinition("dormant", true)
 	custom := plugin.Definition{
 		ID: "shared-a", DisplayName: "Shared A",
-		Source: plugin.SourceCustom, Spec: json.RawMessage(`{"schema":1}`), Revision: 1, CreatorUserID: string(userA.UserID()),
+		Source: plugin.SourceCustom, Spec: publishedPluginSpec(`{"schema":1}`), Revision: 1, CreatorUserID: string(userA.UserID()),
 	}
 	hidden := plugin.Definition{
 		ID: "hidden", DisplayName: "Hidden",
-		Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
+		Source: plugin.SourceCustom, Spec: publishedPluginSpec(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
 	}
 	foreign := plugin.Definition{
 		ID: "foreign", DisplayName: "Foreign",
-		Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userB.UserID()),
+		Source: plugin.SourceCustom, Spec: publishedPluginSpec(`{}`), Revision: 1, CreatorUserID: string(userB.UserID()),
 	}
 	negative := plugin.Definition{
 		ID: "negative", DisplayName: "Negative",
-		Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
+		Source: plugin.SourceCustom, Spec: publishedPluginSpec(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
 	}
 	negativePayload := plugin.Definition{
 		ID: "negative-payload", DisplayName: "Negative Payload",
-		Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
+		Source: plugin.SourceCustom, Spec: publishedPluginSpec(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
 	}
 	privateNegative := plugin.Definition{
 		ID: "private-negative", DisplayName: "Private Negative",
-		Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userB.UserID()),
+		Source: plugin.SourceCustom, Spec: publishedPluginSpec(`{}`), Revision: 1, CreatorUserID: string(userB.UserID()),
 	}
 	sharedDenied := plugin.Definition{
 		ID: "shared-denied", DisplayName: "Shared Denied",
-		Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
+		Source: plugin.SourceCustom, Spec: publishedPluginSpec(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
 	}
 
 	for _, def := range []plugin.Definition{builtin, dormant, custom, hidden, foreign, negative, negativePayload, privateNegative, sharedDenied} {

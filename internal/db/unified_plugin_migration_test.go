@@ -21,7 +21,7 @@ func pluginDefinition(id string, enabled bool) plugin.Definition {
 	return plugin.Definition{
 		ID: id, DisplayName: id,
 		Source:         plugin.SourceBuiltin,
-		Spec:           json.RawMessage(`{"schema":1}`),
+		Spec:           publishedPluginSpec(`{"schema":1}`),
 		DefaultEnabled: enabled, Revision: 1,
 	}
 }
@@ -234,7 +234,11 @@ func TestUnifiedPluginSyncFailureRollsBackEarlierDefinitions(t *testing.T) {
 func TestUnifiedPluginAccessOwnerCASAndReset(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
-	def := pluginDefinition("owner", true)
+	def := plugin.Definition{
+		ID: "owner", DisplayName: "owner", Source: plugin.SourceBuiltin,
+		Spec:           publishedPluginSpec(`{"binaries":[{"name":"main","tool":"main","version":"1"}]}`),
+		DefaultEnabled: true, Revision: 1,
+	}
 	otherDef := pluginDefinition("other", true)
 	service, _ := syncPluginCatalog(t, db, def, otherDef)
 	userA := insertPluginUser(t, db, "plugin-a@example.test", false)
@@ -246,7 +250,7 @@ func TestUnifiedPluginAccessOwnerCASAndReset(t *testing.T) {
 	value := true
 	created, err := accessA.CreateConfig(ctx, plugin.Config{
 		PluginID: def.ID, Scope: plugin.ScopeUser, Enabled: &value,
-		Payload: json.RawMessage(`{"version":"1","env":"keep","owned":"mine"}`),
+		Payload: json.RawMessage(`{"binaries":{"main":{"version":"1"}}}`),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -272,7 +276,7 @@ func TestUnifiedPluginAccessOwnerCASAndReset(t *testing.T) {
 
 	updated, err := accessA.UpdateConfig(ctx, def.ID, created.ID, 1, plugin.ConfigPatch{
 		PayloadSet: true,
-		Payload:    json.RawMessage(`{"version":"2","owned":null}`),
+		Payload:    json.RawMessage(`{"binaries":{"main":{"version":"2"}}}`),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -280,11 +284,11 @@ func TestUnifiedPluginAccessOwnerCASAndReset(t *testing.T) {
 	if updated.Revision != 2 {
 		t.Fatalf("revision after patch = %d, want 2", updated.Revision)
 	}
-	updated, err = accessA.UpdateConfig(ctx, def.ID, created.ID, 2, plugin.ConfigPatch{ResetFields: []string{"env"}})
+	updated, err = accessA.UpdateConfig(ctx, def.ID, created.ID, 2, plugin.ConfigPatch{ResetFields: []string{"binaries"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Revision != 3 || string(updated.Payload) == `{"version":"2","env":"keep","owned":null}` {
+	if updated.Revision != 3 || string(updated.Payload) == `{"binaries":{"main":{"version":"2"}}}` {
 		t.Fatalf("reset patch = revision %d payload %s", updated.Revision, updated.Payload)
 	}
 	if _, err := accessA.UpdateConfig(ctx, def.ID, created.ID, 1, plugin.ConfigPatch{EnabledSet: true, Enabled: boolPtr(false)}); !errors.Is(err, plugin.ErrConflict) {
@@ -365,7 +369,11 @@ func TestUnifiedPluginPayloadValidatorSeparatesNegativeAndReady(t *testing.T) {
 func TestUnifiedPluginSafetyCallbackRunsForWritesUnderSystemDeny(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
-	def := pluginDefinition("deny", true)
+	def := plugin.Definition{
+		ID: "deny", DisplayName: "deny", Source: plugin.SourceBuiltin,
+		Spec:           publishedPluginSpec(`{"binaries":[{"name":"main","tool":"main","version":"1"}]}`),
+		DefaultEnabled: true, Revision: 1,
+	}
 	catalog := plugin.NewCatalog()
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)
@@ -373,11 +381,11 @@ func TestUnifiedPluginSafetyCallbackRunsForWritesUnderSystemDeny(t *testing.T) {
 	var calls []plugin.Config
 	validator := func(_ context.Context, _ plugin.Definition, config plugin.Config, _ []string) error {
 		calls = append(calls, config)
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(config.Payload, &fields); err != nil {
+		var resolved plugin.ResourcePayload
+		if err := json.Unmarshal(config.Payload, &resolved); err != nil {
 			return plugin.ErrInvalidConfig
 		}
-		if _, safe := fields["safe"]; safe {
+		if len(resolved.Binaries) == 1 && resolved.Binaries[0].Name == "main" && resolved.Binaries[0].Version == "1" {
 			return nil
 		}
 		return plugin.ErrInvalidConfig
@@ -394,7 +402,7 @@ func TestUnifiedPluginSafetyCallbackRunsForWritesUnderSystemDeny(t *testing.T) {
 	enabled := true
 	created, err := closingAccess.CreateConfig(ctx, plugin.Config{
 		PluginID: def.ID, Scope: plugin.ScopeUser, Enabled: &enabled,
-		Payload: json.RawMessage(`{"safe":true}`),
+		Payload: json.RawMessage(`{"binaries":{"main":{"version":"1"}}}`),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -418,7 +426,7 @@ func TestUnifiedPluginSafetyCallbackRunsForWritesUnderSystemDeny(t *testing.T) {
 	}
 	if _, err := maliciousAccess.CreateConfig(ctx, plugin.Config{
 		PluginID: def.ID, Scope: plugin.ScopeUser, Enabled: &enabled,
-		Payload: json.RawMessage(`{"malicious_secret":"blocked"}`),
+		Payload: json.RawMessage(`{"binaries":{"main":{"version":"blocked"}}}`),
 	}); !errors.Is(err, plugin.ErrInvalidConfig) {
 		t.Fatalf("true write under system deny = %v, want invalid config", err)
 	}
@@ -433,7 +441,7 @@ func TestUnifiedPluginSafetyCallbackRunsForWritesUnderSystemDeny(t *testing.T) {
 	}
 	if _, err := explicitFalseAccess.CreateConfig(ctx, plugin.Config{
 		PluginID: def.ID, Scope: plugin.ScopeUser, Enabled: &disabled,
-		Payload:        json.RawMessage(`{"malicious_secret":"blocked"}`),
+		Payload:        json.RawMessage(`{"binaries":{"main":{"version":"blocked"}}}`),
 		CredentialRefs: json.RawMessage(`{"ref":"secret"}`),
 	}); !errors.Is(err, plugin.ErrInvalidConfig) {
 		t.Fatalf("explicit false malicious write = %v, want invalid config", err)
@@ -451,7 +459,11 @@ func TestUnifiedPluginNegativeResetKeepsNullPayload(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
 	first := pluginDefinition("negative-one", true)
-	second := pluginDefinition("negative-two", true)
+	second := plugin.Definition{
+		ID: "negative-two", DisplayName: "negative-two", Source: plugin.SourceBuiltin,
+		Spec:           publishedPluginSpec(`{"mcp_servers":{"main":{"url":"https://first.example","transport":"sse","auth_type":"none"}}}`),
+		DefaultEnabled: true, Revision: 1,
+	}
 	syncPluginCatalog(t, db, first)
 	if _, err := db.Exec(ctx, `
 		INSERT INTO plugin_definition (id, display_name, source, spec)
@@ -490,7 +502,7 @@ func TestUnifiedPluginNegativeResetKeepsNullPayload(t *testing.T) {
 	enabled := true
 	claimed, err := access.CreateConfig(ctx, plugin.Config{
 		PluginID: second.ID, Scope: plugin.ScopeUser, Enabled: &enabled,
-		Payload: json.RawMessage(`{"connection":"second"}`),
+		Payload: json.RawMessage(`{"mcp_servers":{"main":{"url":"https://second.example"}}}`),
 	})
 	if err != nil {
 		t.Fatalf("payload config after negative reset: %v", err)
@@ -505,8 +517,8 @@ func TestUnifiedPluginSharedCustomVisibleWithoutSystemPayload(t *testing.T) {
 	ctx := t.Context()
 	if _, err := db.Exec(ctx, `
 		INSERT INTO plugin_definition (id, display_name, source, spec)
-		VALUES ('shared', 'Shared', 'custom', '{}'::jsonb)
-	`); err != nil {
+		VALUES ('shared', 'Shared', 'custom', $1::jsonb)
+	`, publishedPluginSpec(`{}`)); err != nil {
 		t.Fatal(err)
 	}
 	var configID string
@@ -559,7 +571,7 @@ func TestUnifiedPluginCustomIdentityValidationAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	createdDef, createdConfig, err := access.CreateCustom(ctx,
-		plugin.Definition{ID: "remote", DisplayName: "Remote", Spec: json.RawMessage(`{"description":"safe"}`)},
+		plugin.Definition{ID: "remote", DisplayName: "Remote", Spec: publishedPluginSpec(`{"description":"safe"}`)},
 		plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(false)})
 	if err != nil {
 		t.Fatal(err)
@@ -581,7 +593,7 @@ func TestUnifiedPluginCustomIdentityValidationAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := access.CreateCustom(ctx,
-		plugin.Definition{ID: "bad-endpoint", DisplayName: "Bad", Spec: json.RawMessage(`{"endpoint":"https://secret.example"}`)},
+		plugin.Definition{ID: "bad-endpoint", DisplayName: "Bad", Spec: publishedPluginSpec(`{"endpoint":"https://secret.example"}`)},
 		plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(false)}); !errors.Is(err, plugin.ErrInvalidDefinition) {
 		t.Fatalf("endpoint in custom spec = %v, want invalid definition", err)
 	}
@@ -600,7 +612,7 @@ func TestUnifiedPluginCustomIdentityValidationAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := access.CreateCustom(ctx,
-		plugin.Definition{ID: "taken", DisplayName: "Conflict", Spec: json.RawMessage(`{}`)},
+		plugin.Definition{ID: "taken", DisplayName: "Conflict", Spec: publishedPluginSpec(`{}`)},
 		plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(true), Payload: json.RawMessage(`{}`)}); !errors.Is(err, plugin.ErrConflict) {
 		t.Fatalf("definition ID conflict = %v, want conflict", err)
 	}
@@ -623,7 +635,7 @@ func TestUnifiedPluginDefinitionDeleteCASAndPolicyRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	def, config, err := access.CreateCustom(ctx,
-		plugin.Definition{ID: "deletable", DisplayName: "Deletable", Spec: json.RawMessage(`{}`)},
+		plugin.Definition{ID: "deletable", DisplayName: "Deletable", Spec: publishedPluginSpec(`{}`)},
 		plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(false)})
 	if err != nil {
 		t.Fatal(err)
@@ -634,8 +646,8 @@ func TestUnifiedPluginDefinitionDeleteCASAndPolicyRollback(t *testing.T) {
 	`, user.UserID(), def.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := access.DeleteDefinition(ctx, def.ID, def.Revision); err == nil {
-		t.Fatal("definition with config was deleted")
+	if err := access.DeleteDefinition(ctx, def.ID, def.Revision); err != nil {
+		t.Fatalf("definition retirement = %v", err)
 	}
 	var policies, definitions, configs int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM tool_override WHERE plugin_id = $1`, def.ID).Scan(&policies); err != nil {
@@ -647,23 +659,15 @@ func TestUnifiedPluginDefinitionDeleteCASAndPolicyRollback(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM plugin_config WHERE id = $1`, config.ID).Scan(&configs); err != nil {
 		t.Fatal(err)
 	}
-	if policies != 1 || definitions != 1 || configs != 1 {
-		t.Fatalf("failed delete did not roll back: policies=%d definitions=%d configs=%d", policies, definitions, configs)
-	}
-	if err := access.DeleteConfig(ctx, def.ID, config.ID, config.Revision); err != nil {
+	var retired bool
+	if err := db.QueryRow(ctx, `SELECT retired_at IS NOT NULL FROM plugin_definition WHERE id = $1`, def.ID).Scan(&retired); err != nil {
 		t.Fatal(err)
 	}
-	if err := access.DeleteDefinition(ctx, def.ID, def.Revision); err != nil {
-		t.Fatal(err)
+	if !retired || policies != 1 || definitions != 1 || configs != 1 {
+		t.Fatalf("retirement changed durable state: retired=%v policies=%d definitions=%d configs=%d", retired, policies, definitions, configs)
 	}
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM tool_override WHERE plugin_id = $1`, def.ID).Scan(&policies); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM plugin_definition WHERE id = $1`, def.ID).Scan(&definitions); err != nil {
-		t.Fatal(err)
-	}
-	if policies != 0 || definitions != 0 {
-		t.Fatalf("successful delete left rows: policies=%d definitions=%d", policies, definitions)
+	if err := access.DeleteDefinition(ctx, def.ID, def.Revision+1); !errors.Is(err, plugin.ErrRetiredDefinition) {
+		t.Fatalf("repeat retirement = %v, want retired error", err)
 	}
 }
 

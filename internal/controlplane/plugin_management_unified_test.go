@@ -40,8 +40,12 @@ func unifiedPluginTestService(t *testing.T) *pluginapi.Service {
 	t.Helper()
 	db := dbtest.New(t)
 	catalog := pluginapi.NewCatalog()
+	spec, err := pluginapi.PublishDefinitionSpec([]byte(`{}`))
+	if err != nil {
+		t.Fatalf("publish test plugin spec: %v", err)
+	}
 	definition := pluginapi.Definition{
-		ID: "email", DisplayName: "Email", Source: pluginapi.SourceBuiltin, Spec: []byte(`{}`),
+		ID: "email", DisplayName: "Email", Source: pluginapi.SourceBuiltin, Spec: spec,
 		DefaultEnabled: true, Revision: 1,
 	}
 	if err := catalog.Register(definition); err != nil {

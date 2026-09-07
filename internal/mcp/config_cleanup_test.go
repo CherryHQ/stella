@@ -17,7 +17,7 @@ func TestCommonConfigDeleteCleansOnlyAuthorizedCredentialFamily(t *testing.T) {
 	svc, _, userID, _ := setupInternal(t)
 	ctx := t.Context()
 	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 1, AuthTypeOAuth)
-	if _, err := svc.pool.Exec(ctx, `UPDATE plugin_config SET scope='system',user_id=NULL,config=jsonb_set(config,'{credential_mode}','"per_user"'),credential_refs='{}'::jsonb WHERE id=$1`, configID); err != nil {
+	if _, err := svc.pool.Exec(ctx, `UPDATE plugin_config SET scope='system',user_id=NULL,config=jsonb_set(config,'{mcp_servers,main,credential_mode}','"per_user"'),credential_refs='{}'::jsonb WHERE id=$1`, configID); err != nil {
 		t.Fatal(err)
 	}
 	otherUser, err := appdb.NewOIDCStore(svc.pool).CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "other@cleanup.test", Name: "Other"})

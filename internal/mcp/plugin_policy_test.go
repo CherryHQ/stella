@@ -35,7 +35,15 @@ func TestCommonMCPPolicyRejectsRawIdentityMutationAndCleansDelete(t *testing.T) 
 	if err := json.Unmarshal(current.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	payload["url"] = "https://new-endpoint.example/mcp"
+	servers, ok := payload["mcp_servers"].(map[string]any)
+	if !ok {
+		t.Fatalf("formal MCP payload = %#v", payload)
+	}
+	main, ok := servers["main"].(map[string]any)
+	if !ok {
+		t.Fatalf("formal MCP main payload = %#v", payload)
+	}
+	main["url"] = "https://new-endpoint.example/mcp"
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)

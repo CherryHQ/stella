@@ -18,10 +18,9 @@ func (s PluginState) Clone() PluginState {
 	return s
 }
 
-// ConfigStore exposes plugin-owned config persistence through a narrow interface.
+// ConfigStore reads the configuration selected by the management service.
 type ConfigStore interface {
 	Get(ctx context.Context) (PluginState, error)
-	Set(ctx context.Context, config map[string]any) error
 }
 
 // RuntimeLookup resolves running runtime handles by plugin and runtime capability ID.

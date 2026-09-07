@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -13,7 +14,7 @@ func TestResolveExhaustive256WinnerFirst(t *testing.T) {
 	def := Definition{
 		ID: "email", DisplayName: "Email",
 		Source: SourceBuiltin, Revision: 1,
-		DefaultEnabled: true, Spec: json.RawMessage(`{"schema":1}`),
+		DefaultEnabled: true, Spec: publishedSpec(t, `{"schema":1}`),
 	}
 	states := []struct {
 		name    string
@@ -115,7 +116,7 @@ func TestResolveRejectsMismatchedOwner(t *testing.T) {
 func TestResolveAbsentUsesShippedPayload(t *testing.T) {
 	def := testDefinition()
 	def.DefaultEnabled = true
-	def.Spec = json.RawMessage(`{"description":"shipped"}`)
+	def.Spec = publishedSpec(t, `{"description":"shipped"}`)
 	got, err := Resolve(def, nil, "u", "")
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +125,7 @@ func TestResolveAbsentUsesShippedPayload(t *testing.T) {
 		t.Fatalf("shipped payload = %s, want %s", got.Payload, def.Spec)
 	}
 	def.Spec[16] = 'X'
-	if string(got.Payload) != `{"description":"shipped"}` {
+	if string(got.Payload) != string(publishedSpec(t, `{"description":"shipped"}`)) {
 		t.Fatalf("effective payload retained definition alias: %s", got.Payload)
 	}
 }
@@ -134,6 +135,16 @@ func TestCustomDefinitionCannotDefaultEnabled(t *testing.T) {
 	def.Source, def.DefaultEnabled = SourceCustom, true
 	if err := def.Validate(); err == nil {
 		t.Fatal("custom definition defaulted enabled")
+	}
+}
+
+func TestResolveRejectsRetiredDefinition(t *testing.T) {
+	def := testDefinition()
+	def.Source, def.DefaultEnabled = SourceCustom, false
+	def.RetiredAt = time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	effective, err := Resolve(def, nil, "user", "agent")
+	if err != nil || effective.IsEffectivelyEnabled || effective.AvailabilityReason != "retired" {
+		t.Fatalf("retired definition = %#v, %v; want disabled retired", effective, err)
 	}
 }
 
@@ -154,7 +165,7 @@ func TestResolveResourceSourceMatrix(t *testing.T) {
 				t.Run(name, func(t *testing.T) {
 					def := Definition{
 						ID: "matrix-" + resource.name + "-" + string(source) + "-" + fmt.Sprint(defaultEnabled), DisplayName: name,
-						Source: source, Spec: resource.spec,
+						Source: source, Spec: publishedSpec(t, string(resource.spec)),
 						DefaultEnabled: defaultEnabled, Revision: 1,
 					}
 					if source == SourceCustom {
@@ -163,7 +174,7 @@ func TestResolveResourceSourceMatrix(t *testing.T) {
 					if err := def.Validate(); err != nil {
 						t.Fatal(err)
 					}
-					if string(def.Spec) != string(resource.spec) {
+					if string(def.Spec) != string(publishedSpec(t, string(resource.spec))) {
 						t.Fatalf("resource spec changed for %s: %s", resource.name, def.Spec)
 					}
 					got, err := Resolve(def, nil, "user", "agent")
@@ -266,7 +277,8 @@ func TestDefinitionValidationDoesNotNormalizeEmptySpec(t *testing.T) {
 }
 
 func TestCatalogAndResolverDefensivelyCopyMutableFields(t *testing.T) {
-	spec := json.RawMessage(`{"key":"original"}`)
+	spec := publishedSpec(t, `{"binaries":[{"name":"tool","tool":"uv","options":{"channel":"stable"}}]}`)
+	original := append(json.RawMessage(nil), spec...)
 	def := testDefinition()
 	def.Spec = spec
 	catalog := NewCatalog()
@@ -275,24 +287,32 @@ func TestCatalogAndResolverDefensivelyCopyMutableFields(t *testing.T) {
 	}
 	spec[8] = 'X'
 	got, ok := catalog.Get(def.ID)
-	if !ok || string(got.Spec) != `{"key":"original"}` {
+	if !ok || string(got.Spec) != string(original) {
 		t.Fatalf("catalog retained caller alias: %s", got.Spec)
 	}
 	got.Spec[8] = 'Y'
 	again, _ := catalog.Get(def.ID)
-	if string(again.Spec) != `{"key":"original"}` {
+	if string(again.Spec) != string(original) {
 		t.Fatalf("catalog returned internal alias: %s", again.Spec)
 	}
-	def.Spec = json.RawMessage(`{"key":"original"}`)
+	def.Spec = append(json.RawMessage(nil), original...)
 	value := true
-	payload := json.RawMessage(`{"safe":true}`)
+	payload := json.RawMessage(`{"binaries":{"tool":{"options":{"channel":"custom"}}}}`)
 	config := Config{ID: "c", PluginID: def.ID, Scope: ScopeUser, UserID: "u", Enabled: &value, Payload: payload, Revision: 1, CreatedAt: time.Now().UTC()}
 	effective, err := Resolve(def, []Config{config}, "u", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload[2] = 'X'
-	if string(effective.Payload) != `{"key":"original","safe":true}` {
+	channelOffset := bytes.Index(payload, []byte("custom"))
+	if channelOffset < 0 {
+		t.Fatal("fixture has no custom channel")
+	}
+	copy(payload[channelOffset:], "mutant")
+	if string(effective.Payload) == "" {
+		t.Fatal("resolver returned empty payload")
+	}
+	var effectivePayload ResourcePayload
+	if err := json.Unmarshal(effective.Payload, &effectivePayload); err != nil || len(effectivePayload.Binaries) != 1 || effectivePayload.Binaries[0].Options["channel"] != "custom" {
 		t.Fatalf("resolver retained caller alias: %s", effective.Payload)
 	}
 }
@@ -316,7 +336,7 @@ func TestAccessDerivesOnlyTrustedUserScope(t *testing.T) {
 }
 
 func testDefinition() Definition {
-	return Definition{ID: "test", DisplayName: "Test", Source: SourceBuiltin, Spec: json.RawMessage(`{}`), Revision: 1}
+	return Definition{ID: "test", DisplayName: "Test", Source: SourceBuiltin, Spec: publishedSpecOrPanic(`{}`), Revision: 1}
 }
 
 func boolPtr(value bool) *bool { return &value }

@@ -70,7 +70,7 @@ func RegistrationFromPluginConfig(def plugin.Definition, cfg plugin.Config, effe
 	if err != nil {
 		return Registration{}, err
 	}
-	credentialRef, credentialMode, oauthClientSecretRef, err := decodeMCPPluginCredentialRefs(cfg.CredentialRefs, cfg, payload.AuthType, payload.CredentialMode)
+	credentialRef, credentialMode, oauthClientSecretRef, err := decodeMCPPluginCredentialRefsForKey(cfg.CredentialRefs, cfg, "main", payload.AuthType, payload.CredentialMode)
 	if err != nil {
 		return Registration{}, err
 	}
@@ -111,16 +111,12 @@ func RegistrationFromPluginConfig(def plugin.Definition, cfg plugin.Config, effe
 	}, nil
 }
 
-// decodeMCPPluginPayloadSingle accepts the legacy flat shape and a nested
-// package only when it has one authored server. Older single-server callers
-// must not accidentally decode the parent envelope as server metadata.
+// decodeMCPPluginPayloadSingle reads the formal named-map shape when exactly
+// one authored server is expected. The parent envelope is never interpreted
+// as server metadata.
 func decodeMCPPluginPayloadSingle(raw json.RawMessage) (mcpPluginPayload, error) {
-	payload, err := decodeMCPPluginPayload(raw)
-	if err == nil {
-		return payload, nil
-	}
-	payloads, nestedErr := decodeMCPPluginPayloads(raw)
-	if nestedErr != nil {
+	payloads, err := decodeMCPPluginPayloads(raw)
+	if err != nil {
 		return mcpPluginPayload{}, err
 	}
 	if len(payloads) != 1 {
@@ -158,12 +154,6 @@ func RegistrationFromPluginChild(def plugin.Definition, cfg plugin.Config, effec
 		return Registration{}, errors.New("mcp parent config id is not a UUID")
 	}
 	payload, err := decodeMCPPluginPayloadForKey(effective.Payload, child.ServerKey)
-	if err != nil && child.ID == cfg.ID {
-		// Imported legacy flat configs may have a compatibility child row
-		// whose UUID equals the parent. Keep their flat payload readable while
-		// newly authored children remain strictly nested.
-		payload, err = decodeMCPPluginPayloadSingle(effective.Payload)
-	}
 	if err != nil {
 		return Registration{}, err
 	}
@@ -224,9 +214,6 @@ func decodeMCPPluginPayloadForKey(raw json.RawMessage, key string) (mcpPluginPay
 	}
 	serversRaw, ok := object["mcp_servers"]
 	if !ok {
-		if key == "main" {
-			return decodeMCPPluginPayloadSingle(raw)
-		}
 		return mcpPluginPayload{}, errors.New("MCP config payload is missing mcp_servers")
 	}
 	servers, err := decodeJSONObject(serversRaw, "MCP mcp_servers payload")
@@ -235,17 +222,13 @@ func decodeMCPPluginPayloadForKey(raw json.RawMessage, key string) (mcpPluginPay
 	}
 	childRaw, ok := servers[key]
 	if !ok {
-		if len(servers) == 0 && key == "main" {
-			return decodeMCPPluginPayloadSingle(raw)
-		}
 		return mcpPluginPayload{}, fmt.Errorf("MCP config payload has no server %q", key)
 	}
 	return decodeMCPPluginChildPayload(childRaw)
 }
 
-// decodeMCPPluginPayloads returns the authored server payloads keyed by their
-// package key. The legacy flat shape is exposed as the synthetic "main"
-// child so callers can share one projection path during the transition.
+// decodeMCPPluginPayloads returns authored server payloads keyed by package
+// key. Only the formal mcp_servers named map is accepted.
 func decodeMCPPluginPayloads(raw json.RawMessage) (map[string]mcpPluginPayload, error) {
 	object, err := decodeJSONObject(raw, "MCP config payload")
 	if err != nil {
@@ -255,29 +238,6 @@ func decodeMCPPluginPayloads(raw json.RawMessage) (map[string]mcpPluginPayload, 
 		servers, err := decodeJSONObject(nested, "MCP mcp_servers payload")
 		if err != nil {
 			return nil, err
-		}
-		// Legacy configs over an empty MCP marker keep the one server flat.
-		if len(servers) == 0 {
-			if _, hasURL := object["url"]; hasURL {
-				// A legacy flat config may overlay a definition's empty
-				// composable marker. Remove that marker before applying the flat
-				// decoder, which intentionally rejects envelope fields.
-				flatObject := make(map[string]json.RawMessage, len(object))
-				for key, value := range object {
-					if key != "mcp_servers" {
-						flatObject[key] = value
-					}
-				}
-				flatRaw, marshalErr := json.Marshal(flatObject)
-				if marshalErr != nil {
-					return nil, marshalErr
-				}
-				payload, err := decodeMCPPluginPayload(flatRaw)
-				if err != nil {
-					return nil, err
-				}
-				return map[string]mcpPluginPayload{"main": payload}, nil
-			}
 		}
 		result := make(map[string]mcpPluginPayload, len(servers))
 		for key, child := range servers {
@@ -292,11 +252,10 @@ func decodeMCPPluginPayloads(raw json.RawMessage) (map[string]mcpPluginPayload, 
 		}
 		return result, nil
 	}
-	payload, err := decodeMCPPluginPayload(raw)
-	if err != nil {
+	if _, err := plugin.DecodeResourcePayload(raw, "MCP config payload"); err != nil {
 		return nil, err
 	}
-	return map[string]mcpPluginPayload{"main": payload}, nil
+	return nil, nil
 }
 
 // decodeMCPPluginObservationPayload gives the observation reader a credential
@@ -378,7 +337,7 @@ func NewMCPPayloadValidator(policy EndpointPolicy) plugin.PayloadValidator {
 	}
 }
 
-// ValidateMCPPayload validates authored MCP data without dialing its endpoint.
+// ValidateMCPPayload validates resolved MCP data without dialing its endpoint.
 // A negative config has no backend payload; its empty credential refs are still
 // checked by Config.Validate. A disabled payload is fully safety-validated.
 func ValidateMCPPayload(_ context.Context, policy EndpointPolicy, definition plugin.Definition, config plugin.Config, resetFields []string) error {
@@ -402,15 +361,11 @@ func ValidateMCPPayload(_ context.Context, policy EndpointPolicy, definition plu
 		// negative record. There is no endpoint or auth payload to inspect.
 		return nil
 	}
-	merged, err := mergeMCPJSONObjects(definition.Spec, config.Payload)
+	payloads, err := decodeMCPPluginPayloads(config.Payload)
 	if err != nil {
 		return err
 	}
-	payloads, err := decodeMCPPluginPayloads(merged)
-	if err != nil {
-		return err
-	}
-	nestedPayload := payloadHasMCP(merged)
+	nestedPayload := payloadHasMCP(config.Payload)
 	for key, payload := range payloads {
 		if err := policy.validateEndpointURL(payload.URL); err != nil {
 			return errors.New("MCP config endpoint is not allowed by endpoint policy")
@@ -448,121 +403,35 @@ func payloadHasMCP(raw json.RawMessage) bool {
 	if _, ok := object["mcp_servers"]; ok {
 		return true
 	}
-	// Legacy one-server configs are flat. Keep them inside the MCP boundary
-	// while new composable packages use the explicit mcp_servers map.
-	_, hasURL := object["url"]
-	_, hasTransport := object["transport"]
-	return hasURL && hasTransport
+	return false
 }
 
 func validateMCPDefinitionSpec(raw json.RawMessage) error {
-	object, err := decodeJSONObject(raw, "MCP definition spec")
+	payload, err := plugin.DecodeResourcePayload(raw, "MCP definition spec")
 	if err != nil {
 		return err
 	}
-	for key, value := range object {
-		switch key {
-		case "description":
-			if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-				return errors.New("MCP definition description must not be null")
-			}
-			var description string
-			if err := json.Unmarshal(value, &description); err != nil {
-				return errors.New("MCP definition description must be a string")
-			}
-		case "category", "prompt", "binaries", "skills", "session_env", "oauth_provider", "oauth":
-			// These are validated by the CLI/manifest backend. MCP must accept
-			// a composed package and inspect only its own resource section.
-		case "mcp_servers":
-			servers, err := decodeJSONObject(value, "MCP definition mcp_servers")
-			if err != nil {
-				return err
-			}
-			for name, child := range servers {
-				if strings.TrimSpace(name) == "" {
-					return errors.New("MCP definition server key must not be empty")
-				}
-				if _, err := decodeMCPPluginChildPayload(child); err != nil {
-					return fmt.Errorf("MCP definition server %q: %w", name, err)
-				}
-			}
-		default:
-			return fmt.Errorf("MCP definition spec contains unsupported field %q", key)
+	for key, server := range payload.MCPServers {
+		if strings.TrimSpace(key) == "" {
+			return errors.New("MCP definition server key must not be empty")
+		}
+		// A definition can declare a connection whose endpoint and auth are
+		// supplied by its config. Validate completeness on the resolved payload.
+		if server.Transport != "" && !ValidTransport(server.Transport) {
+			return errors.New("MCP definition has unsupported transport")
+		}
+		if server.AuthType != "" && !ValidAuthType(server.AuthType) {
+			return errors.New("MCP definition has unsupported auth type")
+		}
+		if server.CredentialMode != "" && !ValidCredentialMode(server.CredentialMode) {
+			return errors.New("MCP definition has unsupported credential mode")
 		}
 	}
 	return nil
 }
 
 func mergeMCPJSONObjects(definition, config json.RawMessage) (json.RawMessage, error) {
-	base, err := decodeJSONObject(definition, "MCP definition spec")
-	if err != nil {
-		return nil, err
-	}
-	overlay, err := decodeJSONObject(config, "MCP config payload")
-	if err != nil {
-		return nil, err
-	}
-	maps.Copy(base, overlay)
-	return json.Marshal(base)
-}
-
-func decodeMCPPluginPayload(raw json.RawMessage) (mcpPluginPayload, error) {
-	object, err := decodeJSONObject(raw, "MCP config payload")
-	if err != nil {
-		return mcpPluginPayload{}, err
-	}
-	for key := range object {
-		switch key {
-		case "url", "transport", "auth_type", "credential_mode", "headers", "metadata", "description":
-		default:
-			return mcpPluginPayload{}, fmt.Errorf("mcp config payload contains unsupported field %q", key)
-		}
-	}
-	payload := mcpPluginPayload{CredentialMode: CredentialModeShared, Metadata: map[string]any{}}
-	if payload.URL, err = requiredJSONString(object, "url"); err != nil {
-		return mcpPluginPayload{}, err
-	}
-	if payload.Transport, err = requiredJSONString(object, "transport"); err != nil {
-		return mcpPluginPayload{}, err
-	}
-	if !ValidTransport(payload.Transport) {
-		return mcpPluginPayload{}, errors.New("mcp config payload has unsupported transport")
-	}
-	if payload.AuthType, err = requiredJSONString(object, "auth_type"); err != nil {
-		return mcpPluginPayload{}, err
-	}
-	if !ValidAuthType(payload.AuthType) {
-		return mcpPluginPayload{}, errors.New("mcp config payload has unsupported auth type")
-	}
-	if value, ok := object["credential_mode"]; ok {
-		if isJSONNull(value) {
-			return mcpPluginPayload{}, errors.New("mcp config payload credential mode must not be null")
-		}
-		if err := json.Unmarshal(value, &payload.CredentialMode); err != nil || !ValidCredentialMode(payload.CredentialMode) {
-			return mcpPluginPayload{}, errors.New("mcp config payload has unsupported credential mode")
-		}
-	}
-	if payload.CredentialMode == CredentialModePerUser && payload.AuthType != AuthTypeOAuth {
-		return mcpPluginPayload{}, errors.New("mcp config payload has per-user credentials without OAuth")
-	}
-	if err := decodePublicHeaders(object, &payload.Headers); err != nil {
-		return mcpPluginPayload{}, err
-	}
-	if value, ok := object["metadata"]; ok {
-		payload.Metadata, err = decodeMCPPluginMetadata(value)
-		if err != nil {
-			return mcpPluginPayload{}, err
-		}
-	}
-	if value, ok := object["description"]; ok {
-		if isJSONNull(value) {
-			return mcpPluginPayload{}, errors.New("MCP config payload description must not be null")
-		}
-		if err := json.Unmarshal(value, &payload.Description); err != nil {
-			return mcpPluginPayload{}, errors.New("MCP config payload description must be a string")
-		}
-	}
-	return payload, nil
+	return plugin.MergeDefinitionConfig(definition, config)
 }
 
 func cloneHeaders(in map[string]string) map[string]string {
@@ -707,9 +576,19 @@ func decodeMCPPluginCredentialRefs(raw json.RawMessage, cfg plugin.Config, authT
 // Vault locator remains independently namespaced while the parent JSON stays
 // the sole authored credential-ref authority.
 func decodeMCPPluginCredentialRefsForKey(raw json.RawMessage, cfg plugin.Config, serverKey, authType, mode string) (string, string, string, error) {
+	// Callers that already selected a child pass its child-level refs object.
+	// The parent-level path below always requires the formal mcp_servers map.
+	if serverKey == "" {
+		return decodeMCPPluginCredentialRefs(raw, cfg, authType, mode)
+	}
 	object, err := decodeJSONObject(raw, "MCP credential refs")
 	if err != nil {
 		return "", "", "", err
+	}
+	for key := range object {
+		if key != "mcp_servers" && key != "session_env" {
+			return "", "", "", errors.New("MCP credential refs must use the mcp_servers map")
+		}
 	}
 	if nested, ok := object["mcp_servers"]; ok {
 		servers, err := decodeJSONObject(nested, "MCP credential refs mcp_servers")
@@ -718,16 +597,11 @@ func decodeMCPPluginCredentialRefsForKey(raw json.RawMessage, cfg plugin.Config,
 		}
 		child, ok := servers[serverKey]
 		if !ok {
-			if authType == AuthTypeNone {
-				return "", CredentialModeShared, "", nil
-			}
-			return "", "", "", fmt.Errorf("MCP credential refs have no server %q", serverKey)
+			child = json.RawMessage(`{}`)
 		}
 		return decodeMCPPluginCredentialRefs(child, cfg, authType, mode)
 	}
-	// Keep the one-child compatibility shape readable while all new child
-	// registrations use the nested map.
-	return decodeMCPPluginCredentialRefs(raw, cfg, authType, mode)
+	return decodeMCPPluginCredentialRefs(json.RawMessage(`{}`), cfg, authType, mode)
 }
 
 type mcpCredentialLocator struct {

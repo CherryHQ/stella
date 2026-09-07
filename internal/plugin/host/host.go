@@ -37,7 +37,7 @@ type Host struct {
 	// bindings are complete. Once sealed, the static composition surface
 	// (LoadCatalog and the Set* capability binders) refuses further changes,
 	// while the dynamic desired-state surface (ApplyPlugin/ReconcileChannel/
-	// SetEnabled/Stop) stays available.
+	// Stop) stays available.
 	sealed           bool
 	pluginIDs        map[string]struct{}
 	metadataRegs     map[string]pkgplugins.PluginInfo
@@ -151,7 +151,7 @@ func (h *Host) RegisterPluginID(id string) {
 // registrations fail here; duplicate static registrations already fail eagerly
 // at registration time (registerUnique). After Seal, LoadCatalog and the Set*
 // capability binders refuse late changes, while the dynamic desired-state
-// surface (ApplyPlugin/ReconcileChannel/SetEnabled/Stop)
+// surface (ApplyPlugin/ReconcileChannel/Stop)
 // remains available. Seal is one-shot.
 func (h *Host) Seal() error {
 	if err := h.ValidateRegistrations(); err != nil {
@@ -293,10 +293,6 @@ func registerUnique[T any](m map[string]T, key string, reg T, kind string) {
 
 func runtimeRegKey(pluginID, name string) string { return pluginID + "/" + name }
 func promptKey(pluginID, name string) string     { return pluginID + "/" + name }
-
-func (h *Host) SetEnabled(ctx context.Context, pluginID string, enabled bool) error {
-	return h.config.SetEnabled(ctx, pluginID, enabled)
-}
 
 func (h *Host) Status(ctx context.Context, pluginID string) (any, error) {
 	h.mu.RLock()

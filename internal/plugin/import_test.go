@@ -28,11 +28,18 @@ func TestNormalizeLegacyMCPKeepsIdentityAndSecretBoundaries(t *testing.T) {
 	if definition.ID != "github-cloud" {
 		t.Fatalf("MCP identity = %q", definition.ID)
 	}
-	if string(definition.Spec) != `{}` || definition.CreatorUserID != "user-1" {
+	if definition.CreatorUserID != "user-1" {
 		t.Fatalf("MCP definition safety fields = spec=%s creator=%q", definition.Spec, definition.CreatorUserID)
 	}
-	if strings.Contains(string(definition.Spec), "example.test") || strings.Contains(string(definition.Spec), "secret") {
-		t.Fatalf("definition contains endpoint or secret material: %s", definition.Spec)
+	var declaration ResourcePayload
+	if err := json.Unmarshal(definition.Spec, &declaration); err != nil {
+		t.Fatal(err)
+	}
+	if declaration.Origin != "remote_mcp" || declaration.MCPServers["main"].URL != "https://mcp.example.test" || declaration.MCPServers["main"].AuthType != "oauth" {
+		t.Fatalf("MCP declaration = %#v", declaration)
+	}
+	if strings.Contains(string(definition.Spec), "MCP_OAUTH_CLIENT_") || strings.Contains(string(definition.Spec), "secret") {
+		t.Fatalf("definition contains secret locator material: %s", definition.Spec)
 	}
 	if !strings.Contains(string(config.Payload), "https://mcp.example.test") || strings.Contains(string(config.Payload), "create-issue") || strings.Contains(string(config.Payload), "tool_map") {
 		t.Fatalf("config mixed MCP observation into backend payload: %s", config.Payload)
@@ -45,6 +52,26 @@ func TestNormalizeLegacyMCPKeepsIdentityAndSecretBoundaries(t *testing.T) {
 	}
 	if strings.Contains(string(config.CredentialRefs), "MCP_TOKEN_") || !strings.Contains(string(config.CredentialRefs), "MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF") {
 		t.Fatalf("credential boundary broken: payload=%s refs=%s", config.Payload, config.CredentialRefs)
+	}
+}
+
+func TestNormalizeLegacyManifestPromotesFlatMCPDeclaration(t *testing.T) {
+	plan, err := NormalizeLegacySnapshot(LegacySnapshot{ManifestOverrides: []LegacyManifestOverride{{
+		PluginID: "legacy-remote",
+		Config:   `{"name":"legacy-remote","url":"https://mcp.example.test","transport":"sse","auth_type":"none"}`,
+	}}}, NewCatalog(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Definitions) != 1 {
+		t.Fatalf("definitions = %d", len(plan.Definitions))
+	}
+	var payload ResourcePayload
+	if err := json.Unmarshal(plan.Definitions[0].Spec, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Origin != "remote_mcp" || payload.MCPServers["main"].URL != "https://mcp.example.test" {
+		t.Fatalf("manifest MCP declaration = %#v", payload)
 	}
 }
 
@@ -111,7 +138,7 @@ func TestNormalizeLegacyRejectsNameAndPayloadCollisions(t *testing.T) {
 		t.Fatalf("namespace collision error = %v", err)
 	}
 
-	def := Definition{ID: "test", DisplayName: "Test", Source: SourceBuiltin, Spec: json.RawMessage(`{"name":"test"}`), DefaultEnabled: true, Revision: 1}
+	def := Definition{ID: "test", DisplayName: "Test", Source: SourceBuiltin, Spec: publishedSpec(t, `{"name":"test"}`), DefaultEnabled: true, Revision: 1}
 	catalog := NewCatalog()
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)
@@ -136,7 +163,7 @@ func TestNormalizeLegacyRejectsUnsupportedMCPMetadata(t *testing.T) {
 }
 
 func TestNormalizeLegacyRejectsManifestIdentityChange(t *testing.T) {
-	def := Definition{ID: "test", DisplayName: "Test", Source: SourceBuiltin, Spec: json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1}
+	def := Definition{ID: "test", DisplayName: "Test", Source: SourceBuiltin, Spec: publishedSpec(t, `{}`), DefaultEnabled: true, Revision: 1}
 	catalog := NewCatalog()
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)
@@ -150,7 +177,7 @@ func TestNormalizeLegacyRejectsManifestIdentityChange(t *testing.T) {
 }
 
 func TestNormalizeLegacyRejectsLiteralSessionEnv(t *testing.T) {
-	def := Definition{ID: "test", DisplayName: "Test", Source: SourceBuiltin, Spec: json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1}
+	def := Definition{ID: "test", DisplayName: "Test", Source: SourceBuiltin, Spec: publishedSpec(t, `{}`), DefaultEnabled: true, Revision: 1}
 	catalog := NewCatalog()
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)
@@ -166,7 +193,7 @@ func TestNormalizeLegacyRejectsLiteralSessionEnv(t *testing.T) {
 func TestNormalizeLegacyMapsCustomCLIToStableCustomIdentity(t *testing.T) {
 	oldID := "agent/private-cli"
 	plan, err := NormalizeLegacySnapshot(LegacySnapshot{
-		ManifestOverrides: []LegacyManifestOverride{{PluginID: oldID, Enabled: importBoolPtr(true), Config: `{"name":"private-cli","display_name":"Private CLI","prompt":"use it"}`}},
+		ManifestOverrides: []LegacyManifestOverride{{PluginID: oldID, Enabled: importBoolPtr(true), Config: `{"name":"private-cli","display_name":"Private CLI","description":"CLI package","prompt":"use it"}`}},
 		Plugins:           []LegacyPlugin{{ID: oldID, Enabled: true, Config: json.RawMessage(`{"version":"1"}`)}},
 	}, NewCatalog(), nil, nil)
 	if err != nil {
@@ -175,6 +202,13 @@ func TestNormalizeLegacyMapsCustomCLIToStableCustomIdentity(t *testing.T) {
 	wantID := "private-cli"
 	if len(plan.Definitions) != 1 || plan.Definitions[0].ID != wantID || len(plan.Configs) != 1 || plan.Configs[0].PluginID != wantID || plan.Configs[0].ID == "" {
 		t.Fatalf("custom identity mapping = %#v / %#v", plan.Definitions, plan.Configs)
+	}
+	var definition ResourcePayload
+	if err := json.Unmarshal(plan.Definitions[0].Spec, &definition); err != nil {
+		t.Fatal(err)
+	}
+	if definition.Origin == "remote_mcp" || len(definition.MCPServers) != 0 || definition.Description != "CLI package" {
+		t.Fatalf("description-only CLI was promoted to MCP: %#v", definition)
 	}
 }
 
@@ -220,7 +254,7 @@ func TestNormalizeLegacyMainEraToolIDsMapToBareBuiltin(t *testing.T) {
 	catalog := NewCatalog()
 	if err := catalog.Register(Definition{
 		ID: "lark-cli", DisplayName: "Lark CLI",
-		Source: SourceBuiltin, Spec: json.RawMessage(`{}`),
+		Source: SourceBuiltin, Spec: publishedSpec(t, `{}`),
 		DefaultEnabled: true, Revision: 1,
 	}); err != nil {
 		t.Fatal(err)
@@ -228,7 +262,7 @@ func TestNormalizeLegacyMainEraToolIDsMapToBareBuiltin(t *testing.T) {
 	plan, err := NormalizeLegacySnapshot(LegacySnapshot{
 		Plugins: []LegacyPlugin{{
 			ID: "tool/lark-cli", Enabled: true,
-			Config: json.RawMessage(`{"binary":"lark-cli"}`),
+			Config: json.RawMessage(`{"version":"1"}`),
 		}},
 		ManifestOverrides: []LegacyManifestOverride{{
 			PluginID: "tool/lark-cli", Enabled: importBoolPtr(false),
@@ -249,7 +283,7 @@ func TestNormalizeLegacyMainEraToolIDsMapToBareBuiltin(t *testing.T) {
 	if err := json.Unmarshal(config.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload["binary"] != "lark-cli" || payload["prompt"] != "use managed Lark OAuth" {
+	if len(payload) != 0 {
 		t.Fatalf("legacy lark-cli payload = %s", config.Payload)
 	}
 

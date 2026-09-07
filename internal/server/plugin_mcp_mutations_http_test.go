@@ -224,10 +224,14 @@ func TestPluginHTTPDefinitionLifecycleAndConfigIsolation(t *testing.T) {
 	}
 
 	catalog := pluginpkg.NewCatalog()
+	builtinSpec, err := pluginpkg.PublishDefinitionSpec(json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := catalog.Register(pluginpkg.Definition{
 		ID: "builtin.lifecycle", DisplayName: "Builtin lifecycle",
 		Source: pluginpkg.SourceBuiltin,
-		Spec:   json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1,
+		Spec:   builtinSpec, DefaultEnabled: true, Revision: 1,
 	}); err != nil {
 		t.Fatalf("register builtin: %v", err)
 	}

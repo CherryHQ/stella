@@ -112,7 +112,7 @@ func TestPluginDefinitionViewProjectsOnlySafeSummary(t *testing.T) {
 	definition := pluginpkg.Definition{
 		ID: "custom/plugin", DisplayName: "Plugin",
 		Source: pluginpkg.SourceCustom, Revision: 1,
-		Spec: json.RawMessage(`{"description":"safe","category":"utility","capabilities":["read"],"url":"https://private.example/path?token=secret","credential_refs":{"token":"vault://secret"}}`),
+		Spec: json.RawMessage(`{"description":"safe","category":"utility","origin":"remote_mcp","capabilities":["read"],"url":"https://private.example/path?token=secret","credential_refs":{"token":"vault://secret"}}`),
 	}
 	view, err := pluginDefinitionView(definition)
 	if err != nil {
@@ -120,6 +120,9 @@ func TestPluginDefinitionViewProjectsOnlySafeSummary(t *testing.T) {
 	}
 	if view.Spec["description"] != "safe" || view.Spec["category"] != "utility" {
 		t.Fatalf("safe summary = %#v", view.Spec)
+	}
+	if view.Spec["origin"] != "remote_mcp" {
+		t.Fatalf("safe origin = %#v, want remote_mcp", view.Spec["origin"])
 	}
 	if _, ok := view.Spec["url"]; ok {
 		t.Fatal("definition view exposed private url")
@@ -162,22 +165,28 @@ func TestPluginConfigViewProjectsTypedSummary(t *testing.T) {
 
 func TestPluginMCPBackendSummaryProjectsOnlyConfigurationFlags(t *testing.T) {
 	definition := json.RawMessage(`{
-		"url":"https://user:definition-secret@private.example/definition/path?token=definition-secret#fragment",
-		"transport":"streamable_http",
-		"auth_type":"oauth",
-		"credential_mode":"per_user",
-		"metadata":{"oauth":{"client_id":"public-client-id"},"private":"metadata-secret"},
-		"credential_refs":{"oauth_bundle":"vault://oauth-bundle","oauth_client_secret":"vault://oauth-secret"}
+		"mcp_servers":{"main":{
+			"url":"https://user:definition-secret@private.example/definition/path?token=definition-secret#fragment",
+			"transport":"streamable_http",
+			"auth_type":"oauth",
+			"credential_mode":"per_user",
+			"metadata":{"oauth":{"client_id":"public-client-id"},"private":"metadata-secret"}
+		}}
 	}`)
 	config := json.RawMessage(`{
-		"url":"https://user:config-secret@private.example/config/path?token=config-secret#fragment",
-		"metadata":{"oauth":{"client_id":"config-client-id"}},
-		"credential_refs":{"bearer":"vault://bearer","oauth_bundle":"vault://config-bundle","oauth_client_secret":"vault://config-secret"}
+		"mcp_servers":{"main":{
+			"url":"https://user:config-secret@private.example/config/path?token=config-secret#fragment",
+			"metadata":{"oauth":{"client_id":"config-client-id"}}
+		}}
 	}`)
 	refs := json.RawMessage(`{
-		"bearer":"vault://bearer",
-		"oauth_bundle":"vault://config-bundle",
-		"oauth_client_secret":"vault://config-secret"
+		"mcp_servers": {
+			"main": {
+				"bearer":"vault://bearer",
+				"oauth_bundle":"vault://config-bundle",
+				"oauth_client_secret":"vault://config-secret"
+			}
+		}
 	}`)
 
 	summaries, err := mcpResourceSummaries(definition, config, refs, nil, 1)
@@ -234,6 +243,21 @@ func TestPluginMCPBackendSummaryProjectsCredentialFlagsPerChild(t *testing.T) {
 	}
 }
 
+func TestPluginMCPBackendSummaryOmitsEmptyFormalSelection(t *testing.T) {
+	definition := json.RawMessage(`{
+		"origin":"remote_mcp",
+		"mcp_servers":{"main":{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"none"}}
+	}`)
+	config := json.RawMessage(`{"mcp_servers":{}}`)
+	summaries, err := mcpResourceSummaries(definition, config, nil, nil, 1)
+	if err != nil {
+		t.Fatalf("mcpResourceSummaries: %v", err)
+	}
+	if len(summaries) != 0 {
+		t.Fatalf("MCP summaries = %#v, want empty after removing the final child", summaries)
+	}
+}
+
 func TestPluginResourceSummaryOmitsInheritedResourcesForDisabledEmptyConfig(t *testing.T) {
 	definition := pluginpkg.Definition{Spec: json.RawMessage(`{
 		"binaries":[{"name":"tool","tool":"uv","version":"1.0"}],
@@ -253,8 +277,8 @@ func TestPluginResourceSummaryOmitsInheritedResourcesForDisabledEmptyConfig(t *t
 }
 
 func TestPluginCLIBackendSummaryOmitsResourceSecrets(t *testing.T) {
-	definition := pluginpkg.Definition{}
-	config := pluginpkg.Config{Payload: json.RawMessage(`{"prompt":"static secret","binaries":[{"name":"tool","tool":"private/repo","version":"1.2.3","options":{"token":"secret"}}],"skills":[{"name":"skill"}],"session_env":[{"env_var":"TOKEN","source":"literal","value":"secret","required":true}],"oauth_provider":"github"}`)}
+	definition := pluginpkg.Definition{Spec: json.RawMessage(`{"prompt":"static secret","binaries":[{"name":"tool","tool":"private/repo","version":"1.2.3","options":{"token":"secret"}}],"skills":[{"name":"skill"}],"session_env":[{"env_var":"TOKEN","source":"static","value":"secret","required":true}],"oauth":[{"provider":"github","bindings":[{"credential":"access_token","env_var":"TOKEN"}]}]}`)}
+	config := pluginpkg.Config{Payload: json.RawMessage(`{}`)}
 	summary, err := cliBackendSummary(definition.Spec, config.Payload, config.Enabled)
 	if err != nil {
 		t.Fatalf("pluginBackendSummary: %v", err)
@@ -289,8 +313,9 @@ func TestPluginCLISummaryProjectsOAuthBindingsAsRequiredEnv(t *testing.T) {
 		"oauth": [{"provider":"github","bindings":[
 			{"credential":"access_token","env_var":"GH_TOKEN"},
 			{"credential":"refresh_token","env_var":"GH_REFRESH"}
-		]}]
-	}`), json.RawMessage(`{"session_env":[{"env_var":"GH_TOKEN","source":"legacy.oauth","required":false}]}`), nil)
+		]}],
+		"session_env":[{"env_var":"GH_TOKEN","source":"legacy.oauth","required":false}]
+	}`), json.RawMessage(`{}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,13 +339,13 @@ func TestPluginCLIBackendSummaryHonorsScopeOverlayAndNegativeConfig(t *testing.T
 		Spec: json.RawMessage(`{"binaries":[{"name":"tool","tool":"uv","version":"1.0"},{"name":"other","tool":"bun","version":"1.0"}],"skills":[{"name":"docs"}]}`),
 	}
 	enabled := true
-	summary, err := cliBackendSummary(definition.Spec, json.RawMessage(`{"binaries":[{"name":"tool","version":"2.0"}]}`), &enabled)
+	summary, err := cliBackendSummary(definition.Spec, json.RawMessage(`{"binaries":{"tool":{"version":"2.0"}}}`), &enabled)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cli := summary
-	if len(cli.Binaries) != 1 || cli.Binaries[0].Name != "tool" || cli.Binaries[0].Version != "2.0" {
-		t.Fatalf("overlay summary = %#v, want target scope payload", cli)
+	if len(cli.Binaries) != 2 || cli.Binaries[0].Name != "tool" || cli.Binaries[0].Version != "2.0" || cli.Binaries[1].Name != "other" {
+		t.Fatalf("overlay summary = %#v, want declared resources with tool override", cli)
 	}
 
 	disabled := false
@@ -359,6 +384,7 @@ func TestWritePluginErrorMapsUnifiedCRUDErrors(t *testing.T) {
 	}{
 		{name: "scope", err: pluginpkg.ErrUnknownScope, want: http.StatusBadRequest},
 		{name: "cas", err: pluginpkg.ErrConflict, want: http.StatusConflict},
+		{name: "retired definition", err: pluginpkg.ErrRetiredDefinition, want: http.StatusConflict},
 		{name: "builtin", err: pluginpkg.ErrBuiltinConfig, want: http.StatusConflict},
 		{name: "private definition", err: authz.ErrNotFound, want: http.StatusNotFound},
 	}
@@ -368,6 +394,9 @@ func TestWritePluginErrorMapsUnifiedCRUDErrors(t *testing.T) {
 			writePluginError(recorder, tc.err)
 			if recorder.Code != tc.want {
 				t.Fatalf("status = %d, want %d", recorder.Code, tc.want)
+			}
+			if tc.name == "retired definition" && !strings.Contains(recorder.Body.String(), "definition is retired") {
+				t.Fatalf("retired definition response = %s", recorder.Body.String())
 			}
 		})
 	}

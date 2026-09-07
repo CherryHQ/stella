@@ -838,13 +838,6 @@ func (s *POSIXStore) DeleteManagedSkill(ctx context.Context, in ManagedSkillDele
 	return s.cleanupDeletedSelection(before.Skill, in.ExpectedDigest)
 }
 
-func (s *POSIXStore) DeleteManagedSkillFile(ctx context.Context, in ManagedSkillFileDelete) (SkillSnapshot, error) {
-	return s.UpdateManagedSkill(ctx, ManagedSkillUpdate{
-		ID: in.ID, UserID: in.UserID, AgentID: in.AgentID, Scope: in.Scope,
-		ExpectedDigest: in.ExpectedDigest, DeleteFiles: []string{in.Path},
-	})
-}
-
 func (s *POSIXStore) ListSkillChangelogBySkill(ctx context.Context, skillID string, limit int) ([]SkillChangelog, error) {
 	if err := s.checkAvailable(); err != nil {
 		return nil, err

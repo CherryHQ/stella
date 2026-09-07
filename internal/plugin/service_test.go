@@ -147,26 +147,26 @@ func TestPatchPayloadPreservesOmittedFieldsAndExplicitResets(t *testing.T) {
 	}
 }
 
-func TestApplyCLIWriteOnlyPatchMaterializesOnlyKnownResources(t *testing.T) {
+func TestApplyCLIWriteOnlyPatchKeepsResourceDeclarationsOutOfConfig(t *testing.T) {
 	definition := Definition{
-		Spec: []byte(`{"binaries":[{"name":"tool","tool":"github:owner/tool","version":"1.0","options":{"channel":"stable"}}],"skills":[{"name":"docs"}]}`),
+		Spec: publishedSpec(t, `{"binaries":[{"name":"tool","tool":"github:owner/tool","version":"1.0","options":{"channel":"stable"}}],"skills":[{"name":"docs"}]}`),
 	}
-	patched, err := applyCLIWriteOnlyPatch(definition, []byte(`{"binaries":[{"name":"tool","version":"1.5"}]}`), ConfigPatch{
+	patched, err := applyCLIWriteOnlyPatch(definition, []byte(`{"binaries":{"tool":{"version":"1.5"}}}`), ConfigPatch{
 		BinaryVersionsSet: true,
 		BinaryVersions:    map[string]string{"tool": "2.0"},
-	}, true)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload map[string][]map[string]any
+	var payload map[string]map[string]map[string]any
 	if err := json.Unmarshal(patched, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if got := payload["binaries"][0]["version"]; got != "2.0" {
+	if got := payload["binaries"]["tool"]["version"]; got != "2.0" {
 		t.Fatalf("version = %#v, want 2.0", got)
 	}
-	if got := payload["binaries"][0]["tool"]; got != "github:owner/tool" {
-		t.Fatalf("tool = %#v, want definition locator", got)
+	if _, exists := payload["binaries"]["tool"]["tool"]; exists {
+		t.Fatal("config copied the declaration's executable locator")
 	}
 	if _, ok := payload["skills"]; ok {
 		t.Fatalf("write-only patch unexpectedly materialized mutable skills: %#v", payload["skills"])
@@ -174,11 +174,11 @@ func TestApplyCLIWriteOnlyPatchMaterializesOnlyKnownResources(t *testing.T) {
 }
 
 func TestApplyCLIWriteOnlyPatchRejectsUnknownAndUnauthorizedResources(t *testing.T) {
-	definition := Definition{Spec: []byte(`{"binaries":[{"name":"tool","tool":"uv","version":"1"}],"skills":[{"name":"docs"}]}`)}
+	definition := Definition{Spec: publishedSpec(t, `{"binaries":[{"name":"tool","tool":"uv","version":"1"}],"skills":[{"name":"docs"}]}`)}
 	_, err := applyCLIWriteOnlyPatch(definition, nil, ConfigPatch{
 		BinaryVersionsSet: true,
 		BinaryVersions:    map[string]string{"missing": "2"},
-	}, false)
+	})
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("unknown binary error = %v, want invalid config", err)
 	}
@@ -223,7 +223,7 @@ func TestValidateCustomSpecRejectsClaimedSkills(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			definition := base
-			definition.Spec = json.RawMessage(test.spec)
+			definition.Spec = publishedSpec(t, test.spec)
 			err := validateCustomSpec(definition)
 			if (err != nil) != test.want {
 				t.Fatalf("validateCustomSpec() error = %v, want error %v", err, test.want)
@@ -233,20 +233,20 @@ func TestValidateCustomSpecRejectsClaimedSkills(t *testing.T) {
 }
 
 func TestValidateCustomResourceContentNonAdminRejectsHostResources(t *testing.T) {
-	base := Definition{ID: "remote", DisplayName: "Remote", Source: SourceCustom, Revision: 1, Spec: json.RawMessage(`{}`)}
+	base := Definition{ID: "remote", DisplayName: "Remote", Source: SourceCustom, Revision: 1, Spec: publishedSpec(t, `{}`)}
 	for _, raw := range []string{`{"binaries":[]}`, `{"session_env":[]}`, `{"skills":[]}`, `{"oauth_bindings":[]}`} {
 		if err := validateCustomResourceContent(base, Config{Payload: json.RawMessage(raw)}, false); !errors.Is(err, ErrForbidden) {
 			t.Errorf("payload %s error = %v, want forbidden", raw, err)
 		}
 	}
-	base.Spec = json.RawMessage(`{"binaries":[]}`)
+	base.Spec = publishedSpec(t, `{"binaries":[]}`)
 	if err := validateCustomResourceContent(base, Config{Payload: json.RawMessage(`{"url":"https://example.test","transport":"sse"}`)}, false); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("definition host resource error = %v, want forbidden", err)
 	}
 }
 
 func TestValidateCustomResourceContentAllowsRemoteMCP(t *testing.T) {
-	def := Definition{ID: "remote", DisplayName: "Remote", Source: SourceCustom, Revision: 1, Spec: json.RawMessage(`{"description":"remote"}`)}
+	def := Definition{ID: "remote", DisplayName: "Remote", Source: SourceCustom, Revision: 1, Spec: publishedSpec(t, `{"description":"remote"}`)}
 	config := Config{Payload: json.RawMessage(`{"url":"https://example.test","transport":"streamable_http","auth_type":"none","credential_mode":"shared"}`)}
 	if err := validateCustomResourceContent(def, config, false); err != nil {
 		t.Fatalf("valid remote MCP rejected: %v", err)

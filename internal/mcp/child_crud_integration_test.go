@@ -25,7 +25,7 @@ func TestComposableChildCRUDUsesChildIdentity(t *testing.T) {
 	ctx := authz.WithAuthority(context.Background(), authority)
 
 	def, parent, err := svc.CreateCustom(ctx, plugin.Definition{
-		ID: "composable-child-crud", DisplayName: "Composable Child CRUD", Spec: []byte(`{"description":"child CRUD integration"}`),
+		ID: "composable-child-crud", DisplayName: "Composable Child CRUD", Spec: mustPublishedMCPTestSpec(`{"description":"child CRUD integration"}`),
 	}, CreateInput{
 		Scope: ScopeUser, Name: "Composable Child CRUD", URL: "https://main.example.test",
 		Transport: TransportStreamableHTTP, AuthType: AuthTypeNone,
@@ -163,7 +163,7 @@ func TestComposableChildCredentialFamiliesAndParentDelete(t *testing.T) {
 	ctx := authz.WithAuthority(context.Background(), authority)
 
 	def, parent, err := svc.CreateCustom(ctx, plugin.Definition{
-		ID: "composable-child-credentials", DisplayName: "Composable Child Credentials", Spec: []byte(`{"description":"credential family integration"}`),
+		ID: "composable-child-credentials", DisplayName: "Composable Child Credentials", Spec: mustPublishedMCPTestSpec(`{"description":"credential family integration"}`),
 	}, CreateInput{
 		Scope: ScopeUser, Name: "Composable Child Credentials", URL: "https://main.example.test",
 		Transport: TransportStreamableHTTP, AuthType: AuthTypeNone,
@@ -258,7 +258,7 @@ func TestComposableChildCredentialFamiliesAndParentDelete(t *testing.T) {
 	assertChildCredentialFamilies(bearerChild.ID, 0)
 
 	otherDef, otherParent, err := svc.CreateCustom(ctx, plugin.Definition{
-		ID: "composable-child-other", DisplayName: "Composable Child Other", Spec: []byte(`{"description":"other parent"}`),
+		ID: "composable-child-other", DisplayName: "Composable Child Other", Spec: mustPublishedMCPTestSpec(`{"description":"other parent"}`),
 	}, CreateInput{
 		Scope: ScopeUser, Name: "Composable Child Other", URL: "https://other.example.test",
 		Transport: TransportStreamableHTTP, AuthType: AuthTypeBearer, Token: "other-parent-token",
@@ -315,7 +315,7 @@ func TestComposableBuiltinChildrenUseInheritedPayload(t *testing.T) {
 				t.Fatal(err)
 			}
 			ctx := authz.WithAuthority(t.Context(), authority)
-			def := plugin.Definition{ID: "inherited-mcp", DisplayName: "Inherited MCP", Source: plugin.SourceBuiltin, Revision: 1, DefaultEnabled: true, Spec: []byte(`{"mcp_servers":{"main":{"url":"https://main.example.test","transport":"streamable_http","auth_type":"none"},"search":{"url":"https://search.example.test","transport":"streamable_http","auth_type":"none"}}}`)}
+			def := plugin.Definition{ID: "inherited-mcp", DisplayName: "Inherited MCP", Source: plugin.SourceBuiltin, Revision: 1, DefaultEnabled: true, Spec: mustPublishedMCPTestSpec(`{"mcp_servers":{"main":{"url":"https://main.example.test","transport":"streamable_http","auth_type":"none"},"search":{"url":"https://search.example.test","transport":"streamable_http","auth_type":"none"}}}`)}
 			catalog := plugin.NewCatalog()
 			if err := catalog.Register(def); err != nil {
 				t.Fatal(err)
@@ -353,13 +353,21 @@ func TestComposableBuiltinChildrenUseInheritedPayload(t *testing.T) {
 			switch operation {
 			case "create":
 				_, err = access.CreateChild(ctx, cfg.ID, "extra", cfg.Revision, CreateInput{URL: "https://extra.example.test", AuthType: AuthTypeNone})
-				wantCount = 3
+				if !errors.Is(err, authz.ErrForbidden) {
+					t.Fatalf("create fixed package child = %v, want forbidden", err)
+				}
+				err = nil
+				wantCount = 2
 			case "update":
 				url := "https://updated.example.test"
 				_, err = access.UpdateChild(ctx, main.ID, cfg.Revision, UpdateInput{URL: &url})
 			case "delete":
 				err = access.DeleteChild(ctx, main.ID, cfg.Revision)
-				wantCount = 1
+				if !errors.Is(err, authz.ErrForbidden) {
+					t.Fatalf("delete fixed package child = %v, want forbidden", err)
+				}
+				err = nil
+				wantCount = 2
 			}
 			if err != nil {
 				t.Fatalf("%s inherited child: %v", operation, err)
@@ -388,7 +396,7 @@ func TestComposableChildDescriptionPreservesBearer(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := authz.WithAuthority(t.Context(), authority)
-	_, parent, err := svc.CreateCustom(ctx, plugin.Definition{ID: "description-mcp", DisplayName: "Description MCP", Spec: []byte(`{}`)}, CreateInput{Scope: ScopeUser, Name: "Description MCP", URL: "https://example.test", AuthType: AuthTypeBearer, Transport: TransportStreamableHTTP, Token: "keep-this-token"})
+	_, parent, err := svc.CreateCustom(ctx, plugin.Definition{ID: "description-mcp", DisplayName: "Description MCP", Spec: mustPublishedMCPTestSpec(`{}`)}, CreateInput{Scope: ScopeUser, Name: "Description MCP", URL: "https://example.test", AuthType: AuthTypeBearer, Transport: TransportStreamableHTTP, Token: "keep-this-token"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +421,7 @@ func TestComposableChildPermitRejectsSiblingMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := authz.WithAuthority(t.Context(), authority)
-	_, parent, err := svc.CreateCustom(ctx, plugin.Definition{ID: "permit-mcp", DisplayName: "Permit MCP", Spec: []byte(`{}`)}, CreateInput{Scope: ScopeUser, Name: "Permit MCP", URL: "https://main.example.test", AuthType: AuthTypeNone, Transport: TransportStreamableHTTP})
+	_, parent, err := svc.CreateCustom(ctx, plugin.Definition{ID: "permit-mcp", DisplayName: "Permit MCP", Spec: mustPublishedMCPTestSpec(`{}`)}, CreateInput{Scope: ScopeUser, Name: "Permit MCP", URL: "https://main.example.test", AuthType: AuthTypeNone, Transport: TransportStreamableHTTP})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +469,7 @@ func TestComposableAddChildToDisabledEmptyScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := authz.WithAuthority(t.Context(), authority)
-	def := plugin.Definition{ID: "disabled-scope-mcp", DisplayName: "Disabled scope MCP", Source: plugin.SourceBuiltin, Revision: 1, DefaultEnabled: true, Spec: []byte(`{"mcp_servers":{"main":{"url":"https://main.example.test","transport":"streamable_http","auth_type":"none"}}}`)}
+	def := plugin.Definition{ID: "disabled-scope-mcp", DisplayName: "Disabled scope MCP", Source: plugin.SourceBuiltin, Revision: 1, DefaultEnabled: true, Spec: mustPublishedMCPTestSpec(`{"mcp_servers":{"main":{"url":"https://main.example.test","transport":"streamable_http","auth_type":"none"}}}`)}
 	catalog := plugin.NewCatalog()
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)
@@ -488,26 +496,26 @@ func TestComposableAddChildToDisabledEmptyScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	child, err := access.CreateChild(ctx, cfg.ID, "extra", cfg.Revision, CreateInput{URL: "https://extra.example.test", AuthType: AuthTypeNone})
-	if err != nil {
-		t.Fatalf("create first child in empty scope: %v", err)
+	if !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("create child in fixed package = %v, want forbidden", err)
 	}
-	if child.Enabled {
-		t.Fatal("adding a child unexpectedly enabled the parent")
+	if child.ID != "" {
+		t.Fatalf("forbidden child returned identity: %#v", child)
 	}
 	children, err := access.ListChildren(ctx, cfg.ID)
-	if err != nil || len(children) != 1 || children[0].ServerKey != "extra" {
-		t.Fatalf("negative config inherited suppressed children: %#v, %v", children, err)
+	if err != nil || len(children) != 0 {
+		t.Fatalf("negative config inherited fixed children: %#v, %v", children, err)
 	}
 	enabled := true
-	if _, err := pluginAccess.UpdateConfig(ctx, def.ID, cfg.ID, child.ConfigRevision, plugin.ConfigPatch{EnabledSet: true, Enabled: &enabled}); err != nil {
-		t.Fatalf("enable configured parent: %v", err)
+	if _, err := pluginAccess.UpdateConfig(ctx, def.ID, cfg.ID, cfg.Revision, plugin.ConfigPatch{EnabledSet: true, Enabled: &enabled}); !errors.Is(err, plugin.ErrInvalidConfig) {
+		t.Fatalf("enable empty fixed package = %v, want invalid config", err)
 	}
 }
 
 func TestMCPExecutionIdentitiesEmptyResources(t *testing.T) {
 	for _, raw := range []string{`{}`, `{"prompt":"CLI guidance"}`, `{"mcp_servers":{}}`} {
 		t.Run(raw, func(t *testing.T) {
-			identities, err := mcpExecutionIdentities(plugin.Definition{Spec: []byte(`{}`)}, plugin.Config{Payload: []byte(raw)})
+			identities, err := mcpExecutionIdentities(plugin.Definition{Spec: mustPublishedMCPTestSpec(`{}`)}, plugin.Config{Payload: []byte(raw)})
 			if err != nil || len(identities) != 0 {
 				t.Fatalf("empty resources invented identities: %#v, %v", identities, err)
 			}

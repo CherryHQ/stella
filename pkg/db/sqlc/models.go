@@ -878,15 +878,16 @@ type PluginConfigMcpServer struct {
 }
 
 type PluginDefinition struct {
-	ID             string          `json:"id"`
-	DisplayName    string          `json:"display_name"`
-	Source         string          `json:"source"`
-	Spec           json.RawMessage `json:"spec"`
-	DefaultEnabled bool            `json:"default_enabled"`
-	Revision       int64           `json:"revision"`
-	CreatorUserID  pgtype.Text     `json:"creator_user_id"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	ID             string             `json:"id"`
+	DisplayName    string             `json:"display_name"`
+	Source         string             `json:"source"`
+	Spec           json.RawMessage    `json:"spec"`
+	DefaultEnabled bool               `json:"default_enabled"`
+	Revision       int64              `json:"revision"`
+	CreatorUserID  pgtype.Text        `json:"creator_user_id"`
+	CreatedAt      time.Time          `json:"created_at"`
+	UpdatedAt      time.Time          `json:"updated_at"`
+	RetiredAt      pgtype.Timestamptz `json:"retired_at"`
 }
 
 type PluginOauthProvider struct {

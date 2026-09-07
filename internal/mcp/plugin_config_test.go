@@ -16,12 +16,12 @@ func TestRegistrationFromPluginConfigPreservesIdentityRefsAndRemoteNames(t *test
 	def := plugin.Definition{
 		ID: "github", DisplayName: "GitHub MCP",
 		Source: plugin.SourceCustom,
-		Spec:   []byte(`{}`), Revision: 1,
+		Spec:   mustPublishedMCPTestSpec(`{"mcp_servers":{"main":{}}}`), Revision: 1,
 	}
 	cfg := plugin.Config{
 		ID: id, PluginID: def.ID, Scope: plugin.ScopeSystem,
-		Enabled: boolPtr(true), Payload: []byte(`{"url":"https://mcp.example.test/path","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user","metadata":{"oauth":{"client_id":"client-123"}}}`),
-		CredentialRefs: []byte(`{"oauth_bundle":{"name":"MCP_OAUTH_0198F9A4_1B2C_7DEF_8123_456789ABCDEF","mode":"per_user","owner":"per_user"},"oauth_client_secret":{"name":"MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF","scope":"system","user_id":"","agent_id":""}}`),
+		Enabled: boolPtr(true), Payload: []byte(`{"mcp_servers":{"main":{"url":"https://mcp.example.test/path","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user","metadata":{"oauth":{"client_id":"client-123"}}}}}`),
+		CredentialRefs: []byte(`{"mcp_servers":{"main":{"oauth_bundle":{"name":"MCP_OAUTH_0198F9A4_1B2C_7DEF_8123_456789ABCDEF","mode":"per_user","owner":"per_user"},"oauth_client_secret":{"name":"MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF","scope":"system","user_id":"","agent_id":""}}}}`),
 		Revision:       1,
 	}
 	effective := plugin.Effective{PluginID: def.ID, ConfigID: cfg.ID, SourceScope: plugin.ScopeSystem, IsEffectivelyEnabled: true, Payload: cfg.Payload}
@@ -54,7 +54,7 @@ func TestRegistrationFromPluginConfigPreservesIdentityRefsAndRemoteNames(t *test
 
 func TestRegistrationsFromResolvedConfigExpandsMCPChildren(t *testing.T) {
 	def := plugin.Definition{
-		ID: "multi-mcp", DisplayName: "Multi MCP", Source: plugin.SourceCustom, Spec: []byte(`{"mcp_servers":{}}`), Revision: 1,
+		ID: "multi-mcp", DisplayName: "Multi MCP", Source: plugin.SourceCustom, Spec: mustPublishedMCPTestSpec(`{"mcp_servers":{}}`), Revision: 1,
 	}
 	parentID := "0198f9a4-1b2c-7def-8123-456789abcdef"
 	childA := "0198f9a4-1b2c-7def-8123-456789abcde0"
@@ -104,7 +104,7 @@ func TestMCPConverterMatchesNormalizedLegacyOAuthShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	def, cfg := plan.Definitions[0], plan.Configs[0]
-	def.Spec = []byte(`{}`)
+	def.Spec = mustPublishedMCPTestSpec(`{"mcp_servers":{"main":{}}}`)
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(cfg.Payload, &payload); err != nil {
 		t.Fatal(err)
@@ -319,17 +319,17 @@ func TestPerUserObservationIsolatedByTrustedOwner(t *testing.T) {
 
 func testPluginMCPInputs() (plugin.Definition, plugin.Config, plugin.Effective) {
 	const id = "0198f9a4-1b2c-7def-8123-456789abcdef"
-	def := plugin.Definition{ID: "mcp-test", DisplayName: "MCP test", Source: plugin.SourceCustom, Spec: []byte(`{"mcp_servers":{}}`), Revision: 1}
-	cfg := plugin.Config{ID: id, PluginID: def.ID, Scope: plugin.ScopeUser, UserID: "user-1", Enabled: boolPtr(true), Payload: []byte(`{"url":"https://mcp.example.test","transport":"sse","auth_type":"none"}`), CredentialRefs: []byte(`{}`), Revision: 1}
+	def := plugin.Definition{ID: "mcp-test", DisplayName: "MCP test", Source: plugin.SourceCustom, Spec: mustPublishedMCPTestSpec(`{"mcp_servers":{"main":{}}}`), Revision: 1}
+	cfg := plugin.Config{ID: id, PluginID: def.ID, Scope: plugin.ScopeUser, UserID: "user-1", Enabled: boolPtr(true), Payload: []byte(`{"mcp_servers":{"main":{"url":"https://mcp.example.test","transport":"sse","auth_type":"none"}}}`), CredentialRefs: []byte(`{"mcp_servers":{"main":{}}}`), Revision: 1}
 	effective := plugin.Effective{PluginID: def.ID, ConfigID: cfg.ID, SourceScope: plugin.ScopeUser, IsEffectivelyEnabled: true, Payload: cfg.Payload}
 	return def, cfg, effective
 }
 
 func testPerUserPluginMCPInputs() (plugin.Definition, plugin.Config, plugin.Effective) {
 	const id = "0198f9a4-1b2c-7def-8123-456789abcdef"
-	def := plugin.Definition{ID: "mcp-per-user-test", DisplayName: "MCP per-user test", Source: plugin.SourceCustom, Spec: []byte(`{"mcp_servers":{}}`), Revision: 1}
-	cfg := plugin.Config{ID: id, PluginID: def.ID, Scope: plugin.ScopeSystem, Enabled: boolPtr(true), Payload: []byte(`{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user","metadata":{"oauth":{"client_id":"client-123"}}}`), Revision: 1}
-	refs, _ := json.Marshal(map[string]any{"oauth_bundle": map[string]any{"name": oauthBundleName(id), "mode": CredentialModePerUser, "owner": "per_user"}})
+	def := plugin.Definition{ID: "mcp-per-user-test", DisplayName: "MCP per-user test", Source: plugin.SourceCustom, Spec: mustPublishedMCPTestSpec(`{"mcp_servers":{"main":{}}}`), Revision: 1}
+	cfg := plugin.Config{ID: id, PluginID: def.ID, Scope: plugin.ScopeSystem, Enabled: boolPtr(true), Payload: []byte(`{"mcp_servers":{"main":{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user","metadata":{"oauth":{"client_id":"client-123"}}}}}`), Revision: 1}
+	refs, _ := json.Marshal(map[string]any{"mcp_servers": map[string]any{"main": map[string]any{"oauth_bundle": map[string]any{"name": oauthBundleName(id), "mode": CredentialModePerUser, "owner": "per_user"}}}})
 	cfg.CredentialRefs = refs
 	effective := plugin.Effective{PluginID: def.ID, ConfigID: cfg.ID, SourceScope: cfg.Scope, IsEffectivelyEnabled: true, Payload: cfg.Payload}
 	return def, cfg, effective

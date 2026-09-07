@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -14,6 +16,7 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -23,7 +26,7 @@ func TestAccessUpdateConfigUsesExpectedRevision(t *testing.T) {
 	catalog := NewCatalog()
 	definition := Definition{
 		ID: "cas", DisplayName: "CAS",
-		Source: SourceBuiltin, Spec: []byte(`{}`), DefaultEnabled: true, Revision: 1,
+		Source: SourceBuiltin, Spec: publishedSpec(t, `{}`), DefaultEnabled: true, Revision: 1,
 	}
 	if err := catalog.Register(definition); err != nil {
 		t.Fatal(err)
@@ -72,7 +75,7 @@ func TestSyncBuiltinDefaultsReconcilesMCPChildrenFromDefinition(t *testing.T) {
 	catalog := NewCatalog()
 	definition := Definition{
 		ID: "mcp-bundle", DisplayName: "MCP bundle", Source: SourceBuiltin,
-		Spec:           []byte(`{"mcp_servers":{"alpha":{"url":"https://alpha.example","transport":"sse"},"beta":{"url":"https://beta.example","transport":"sse"}}}`),
+		Spec:           publishedSpec(t, `{"mcp_servers":{"alpha":{"url":"https://alpha.example","transport":"sse"},"beta":{"url":"https://beta.example","transport":"sse"}}}`),
 		DefaultEnabled: true, Revision: 1,
 	}
 	if err := catalog.Register(definition); err != nil {
@@ -136,20 +139,114 @@ func TestAccessCreateCustomMCPResourceContentBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := Definition{ID: "remote-boundary", DisplayName: "Remote", Spec: json.RawMessage(`{}`)}
+	base := Definition{ID: "remote-boundary", DisplayName: "Remote", Spec: publishedSpec(t, `{"mcp_servers":{"main":{"url":"https://declared.example","transport":"sse","auth_type":"none"}}}`)}
 	for _, payload := range []string{`{"binaries":[]}`, `{"session_env":[]}`} {
 		_, _, err := access.CreateCustom(t.Context(), base, Config{Scope: ScopeUser, Enabled: boolPtr(true), Payload: json.RawMessage(payload)})
 		if !errors.Is(err, ErrForbidden) {
 			t.Fatalf("payload %s error = %v, want ErrForbidden", payload, err)
 		}
 	}
-	createdDef, createdConfig, err := access.CreateCustom(t.Context(), base, Config{Scope: ScopeUser, Enabled: boolPtr(true), Payload: json.RawMessage(`{"url":"https://example.test","transport":"sse","auth_type":"none","credential_mode":"shared"}`)})
+	createdDef, createdConfig, err := access.CreateCustom(t.Context(), base, Config{Scope: ScopeUser, Enabled: boolPtr(true), Payload: json.RawMessage(`{"mcp_servers":{"main":{"url":"https://example.test","transport":"sse","auth_type":"none","credential_mode":"shared"}}}`)})
 	if err != nil {
 		t.Fatalf("valid remote MCP create: %v", err)
 	}
 	if createdDef.ID != base.ID || createdConfig.PluginID != base.ID {
 		t.Fatalf("created identities = %q/%q", createdDef.ID, createdConfig.PluginID)
 	}
+}
+
+func TestAccessCreateCustomFromDirectoryRejectsNonAdmin(t *testing.T) {
+	authority, err := authz.NewUserAuthority("10000000-0000-0000-0000-000000000001", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	access := &Access{service: &Service{}, authority: authority}
+	if _, _, err := access.CreateCustomFromDirectory(t.Context(), t.TempDir(), Config{Scope: ScopeUser}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("non-admin package create = %v, want ErrForbidden", err)
+	}
+}
+
+func TestAccessCreateCustomRejectsRawPackageDeclaration(t *testing.T) {
+	authority, err := authz.NewUserAuthority("10000000-0000-0000-0000-000000000001", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	access := &Access{service: &Service{txBound: true}, authority: authority}
+	_, _, err = access.CreateCustom(t.Context(), Definition{
+		ID: "claimed-package", DisplayName: "Claimed package",
+		Spec: json.RawMessage(`{"origin":"package","content":{"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"skills":[{"name":"claimed"}]}`),
+	}, Config{Scope: ScopeSystem, Enabled: boolPtr(false)})
+	if !errors.Is(err, ErrInvalidDefinition) {
+		t.Fatalf("raw package create = %v, want ErrInvalidDefinition", err)
+	}
+}
+
+func TestAccessDirectoryPackageRejectsNestedMutation(t *testing.T) {
+	authority, err := authz.NewUserAuthority("10000000-0000-0000-0000-000000000001", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	access := &Access{service: &Service{txBound: true}, authority: authority}
+	if _, _, err := access.CreateCustomFromDirectory(t.Context(), t.TempDir(), Config{Scope: ScopeSystem}); !errors.Is(err, ErrNestedMutation) {
+		t.Fatalf("nested package create = %v, want ErrNestedMutation", err)
+	}
+}
+
+func TestAccessDirectoryPackageIdentityCASAndConfigIdentity(t *testing.T) {
+	db := dbtest.New(t)
+	store, err := NewContentStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(db, nil, NewCatalog(), BackendPolicy{
+		Validate:   func(context.Context, Definition, Config, []string) error { return nil },
+		Transition: inlineBackendPolicyTransition,
+	}, inlineBackendPolicyFence, WithContentStore(store))
+	authority, err := authz.NewUserAuthority("10000000-0000-0000-0000-000000000001", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	access, err := service.Begin(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _, err := access.CreateCustomFromDirectory(t.Context(), testPackageDirectory(t, "cas.package", "one"), Config{Scope: ScopeSystem})
+	if err != nil {
+		t.Fatalf("first package create: %v", err)
+	}
+	configs, err := access.ListConfigs(t.Context(), first.ID, ScopeSystem, "")
+	if err != nil || len(configs) != 1 {
+		t.Fatalf("created configs = %d/%v, want one", len(configs), err)
+	}
+	configID := configs[0].ID
+
+	if _, err := access.UpdateDefinitionFromDirectory(t.Context(), first.ID, first.Revision, testPackageDirectory(t, "other.package", "wrong id")); !errors.Is(err, ErrInvalidDefinition) {
+		t.Fatalf("different package identity update = %v, want ErrInvalidDefinition", err)
+	}
+	if _, err := access.UpdateDefinitionFromDirectory(t.Context(), first.ID, first.Revision+1, testPackageDirectory(t, "cas.package", "stale")); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale package update = %v, want ErrConflict", err)
+	}
+	updated, err := access.UpdateDefinitionFromDirectory(t.Context(), first.ID, first.Revision, testPackageDirectory(t, "cas.package", "two"))
+	if err != nil {
+		t.Fatalf("same identity package update: %v", err)
+	}
+	if updated.Revision != first.Revision+1 {
+		t.Fatalf("updated revision = %d, want %d", updated.Revision, first.Revision+1)
+	}
+	configs, err = access.ListConfigs(t.Context(), first.ID, ScopeSystem, "")
+	if err != nil || len(configs) != 1 || configs[0].ID != configID {
+		t.Fatalf("config identity after package update = %#v/%v, want %q", configs, err, configID)
+	}
+}
+
+func testPackageDirectory(t *testing.T, name, description string) string {
+	t.Helper()
+	root := t.TempDir()
+	manifest := `{"$schema":"` + agentpackage.PluginSchemaV1 + `","name":"` + name + `","description":"` + description + `"}`
+	if err := os.WriteFile(filepath.Join(root, "plugin.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
 }
 
 func TestAccessMoveConfigPreservesIDAndDerivesTargetUser(t *testing.T) {
@@ -286,7 +383,7 @@ func TestAccessMoveConfigValidatesBeforeMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := access.CreateConfig(t.Context(), Config{PluginID: definition.ID, Scope: ScopeUser, Enabled: boolPtr(false), Payload: []byte(`{"version":"1"}`)})
+	created, err := access.CreateConfig(t.Context(), Config{PluginID: definition.ID, Scope: ScopeUser, Enabled: boolPtr(false), Payload: []byte(`{"binaries":{"tool":{"version":"1"}}}`)})
 	if err != nil {
 		t.Fatalf("CreateConfig: %v", err)
 	}
@@ -306,7 +403,7 @@ func TestAccessMoveConfigValidatesBeforeMutation(t *testing.T) {
 func newMoveService(t *testing.T, db *pgxpool.Pool, agents *agentaccess.Service, validate PayloadValidator) (*Service, Definition) {
 	t.Helper()
 	catalog := NewCatalog()
-	definition := Definition{ID: "move", DisplayName: "Move", Source: SourceBuiltin, Spec: []byte(`{}`), DefaultEnabled: false, Revision: 1}
+	definition := Definition{ID: "move", DisplayName: "Move", Source: SourceBuiltin, Spec: publishedSpec(t, `{"binaries":[{"name":"tool","tool":"uv","version":"latest"}]}`), DefaultEnabled: false, Revision: 1}
 	if err := catalog.Register(definition); err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +589,7 @@ func sameBackendPolicyBool(left, right *bool) bool {
 func backendPolicyDefinition(id string, defaultEnabled bool) Definition {
 	return Definition{
 		ID: id, DisplayName: id, Source: SourceBuiltin,
-		Spec: []byte(`{}`), DefaultEnabled: defaultEnabled, Revision: 1,
+		Spec: publishedSpecOrPanic(`{}`), DefaultEnabled: defaultEnabled, Revision: 1,
 	}
 }
 

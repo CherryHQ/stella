@@ -1,19 +1,30 @@
 package plugin
 
-// ResourcePayload is the persisted resource declaration shared by release
-// definitions and scoped configurations. Identity and ownership stay on their
-// enclosing Definition and Config.
+// ResourcePayload is the declaration stored in Definition.Spec and the
+// resolved execution payload. Persisted Config uses ConfigParameters instead.
 type ResourcePayload struct {
-	Description string               `json:"description,omitempty"`
-	Category    string               `json:"category,omitempty"`
-	Prompt      string               `json:"prompt,omitempty"`
-	Binaries    []BinaryResource     `json:"binaries,omitempty"`
-	Skills      []SkillResource      `json:"skills,omitempty"`
-	SessionEnvs []SessionEnvResource `json:"session_env,omitempty"`
-	// OAuthProvider preserves the shorthand stored by existing configurations.
-	OAuthProvider string                       `json:"oauth_provider,omitempty"`
-	OAuth         []OAuthRequirement           `json:"oauth,omitempty"`
-	MCPServers    map[string]MCPServerResource `json:"mcp_servers,omitempty"`
+	Version       string            `json:"version,omitempty"`
+	ContentDigest string            `json:"content_digest,omitempty"`
+	Content       *ContentReference `json:"content,omitempty"`
+	// Origin distinguishes immutable directory packages from personal remote
+	// MCP definitions. It is authored in the Definition.Spec and never a
+	// configuration parameter.
+	Origin      string                       `json:"origin,omitempty"`
+	Description string                       `json:"description,omitempty"`
+	Category    string                       `json:"category,omitempty"`
+	Prompt      string                       `json:"prompt,omitempty"`
+	Binaries    []BinaryResource             `json:"binaries,omitempty"`
+	Skills      []SkillResource              `json:"skills,omitempty"`
+	SessionEnvs []SessionEnvResource         `json:"session_env,omitempty"`
+	OAuth       []OAuthRequirement           `json:"oauth,omitempty"`
+	MCPServers  map[string]MCPServerResource `json:"mcp_servers,omitempty"`
+}
+
+// ContentReference binds a published definition to the complete immutable
+// asset tree. The tree digest is separate from content_digest, which covers
+// the canonical definition envelope containing this reference.
+type ContentReference struct {
+	Digest string `json:"digest"`
 }
 
 type BinaryResource struct {
@@ -57,6 +68,7 @@ type OAuthBinding struct {
 }
 
 type MCPServerResource struct {
+	Description    string            `json:"description,omitempty"`
 	URL            string            `json:"url"`
 	Transport      string            `json:"transport"`
 	AuthType       string            `json:"auth_type"`

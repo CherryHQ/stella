@@ -53,19 +53,17 @@ func installPluginOAuthFixture(t *testing.T, env *testEnv, scope, userID, agentI
 	const pluginID = "oauth-test"
 	configID := uuid.NewString()
 	childID := uuid.NewString()
+	spec, err := pluginpkg.PublishDefinitionSpec(json.RawMessage(fmt.Sprintf(`{"mcp_servers":{"main":{"url":%q,"transport":"streamable_http","auth_type":"oauth","credential_mode":%q}}}`, endpoint, mode)))
+	if err != nil {
+		t.Fatalf("publish definition: %v", err)
+	}
 	if _, err := env.db.Exec(context.Background(), `
 		INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision)
-		VALUES ($1, 'OAuth test', 'custom', '{"mcp_servers":{"main":{"url":"https://mcp.example.test/mcp","transport":"streamable_http","auth_type":"oauth","credential_mode":"shared"}}}'::jsonb, false, 1)
-		ON CONFLICT (id) DO NOTHING`, pluginID); err != nil {
+		VALUES ($1, 'OAuth test', 'custom', $2::jsonb, false, 1)
+		ON CONFLICT (id) DO NOTHING`, pluginID, spec); err != nil {
 		t.Fatalf("seed plugin definition: %v", err)
 	}
-	payload, err := json.Marshal(map[string]any{"mcp_servers": map[string]any{"main": map[string]string{
-		"url": endpoint, "transport": mcp.TransportStreamableHTTP,
-		"auth_type": mcp.AuthTypeOAuth, "credential_mode": mode,
-	}}})
-	if err != nil {
-		t.Fatalf("marshal OAuth payload: %v", err)
-	}
+	payload := []byte(`{}`)
 	bundle := map[string]any{
 		"name": "MCP_OAUTH_" + strings.ToUpper(strings.ReplaceAll(childID, "-", "_")),
 		"mode": mode,

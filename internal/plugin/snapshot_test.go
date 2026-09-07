@@ -16,7 +16,7 @@ func TestSnapshotAccessDefensivelyCopiesNestedValues(t *testing.T) {
 	def := Definition{
 		ID: "demo", DisplayName: "Demo",
 		Source: SourceBuiltin, Revision: 1,
-		Spec: json.RawMessage(`{"base":"definition"}`),
+		Spec: publishedSpec(t, `{"binaries":[{"name":"tool","tool":"uv","options":{"channel":"stable"}}]}`),
 	}
 	catalog := NewCatalog()
 	if err := catalog.Register(def); err != nil {
@@ -27,7 +27,7 @@ func TestSnapshotAccessDefensivelyCopiesNestedValues(t *testing.T) {
 		PluginID:       "demo",
 		Scope:          ScopeSystem,
 		Enabled:        &enabled,
-		Payload:        json.RawMessage(`{"key":"config"}`),
+		Payload:        json.RawMessage(`{"binaries":{"tool":{"options":{"channel":"custom"}}}}`),
 		CredentialRefs: json.RawMessage(`{"vault":"ref"}`),
 		Revision:       1,
 	}}}
@@ -46,8 +46,12 @@ func TestSnapshotAccessDefensivelyCopiesNestedValues(t *testing.T) {
 	if !ok {
 		t.Fatal("second Get returned no plugin")
 	}
-	if string(again.Definition.Spec) != `{"base":"definition"}` || string(again.Config.Payload) != `{"key":"config"}` || string(again.Config.CredentialRefs) != `{"vault":"ref"}` || !*again.Config.Enabled || string(again.Effective.Payload) != `{"base":"definition","key":"config"}` {
+	if string(again.Definition.Spec) != string(def.Spec) || string(again.Config.Payload) != `{"binaries":{"tool":{"options":{"channel":"custom"}}}}` || string(again.Config.CredentialRefs) != `{"vault":"ref"}` || !*again.Config.Enabled {
 		t.Fatalf("snapshot was mutated through Get: %#v", again)
+	}
+	var effective ResourcePayload
+	if err := json.Unmarshal(again.Effective.Payload, &effective); err != nil || len(effective.Binaries) != 1 || effective.Binaries[0].Options["channel"] != "custom" {
+		t.Fatalf("effective payload = %s, err=%v", again.Effective.Payload, err)
 	}
 
 	defs := snapshot.Definitions()
@@ -61,7 +65,8 @@ func TestSnapshotAccessDefensivelyCopiesNestedValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(resolvedAgain.Payload) != `{"base":"definition","key":"config"}` {
+	var resolvedPayload ResourcePayload
+	if err := json.Unmarshal(resolvedAgain.Payload, &resolvedPayload); err != nil || len(resolvedPayload.Binaries) != 1 || resolvedPayload.Binaries[0].Options["channel"] != "custom" {
 		t.Fatalf("snapshot was mutated through accessors: %s", resolvedAgain.Payload)
 	}
 }
@@ -75,7 +80,7 @@ func TestSnapshotAccessDefensivelyCopiesMCPChildIdentity(t *testing.T) {
 			MCPServers: []MCPServerChild{{ID: "child-1", ParentConfigID: "config-1", ServerKey: "main"}},
 		}},
 	}
-	if err := snapshot.catalog.Register(Definition{ID: "demo", DisplayName: "Demo", Source: SourceBuiltin, Spec: json.RawMessage(`{}`), Revision: 1}); err != nil {
+	if err := snapshot.catalog.Register(Definition{ID: "demo", DisplayName: "Demo", Source: SourceBuiltin, Spec: publishedSpec(t, `{}`), Revision: 1}); err != nil {
 		t.Fatal(err)
 	}
 	got, ok := snapshot.Get("demo")

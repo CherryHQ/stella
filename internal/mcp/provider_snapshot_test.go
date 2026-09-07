@@ -118,7 +118,7 @@ func TestSnapshotMCPExportBoundaries(t *testing.T) {
 			if _, err := pool.Exec(ctx, `INSERT INTO auth_user(id,email) VALUES($1,$2)`, userID, "snapshot-boundary@test.invalid"); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := pool.Exec(ctx, `INSERT INTO plugin_definition(id,display_name,source,spec,default_enabled,revision,creator_user_id) VALUES($1,'Remote','custom','{}',false,1,$2)`, pluginID, userID); err != nil {
+			if _, err := pool.Exec(ctx, `INSERT INTO plugin_definition(id,display_name,source,spec,default_enabled,revision,creator_user_id) VALUES($1,'Remote','custom',$3::jsonb,false,1,$2)`, pluginID, userID, mustPublishedMCPTestSpec(`{}`)); err != nil {
 				t.Fatal(err)
 			}
 			if tc.payload != nil {
@@ -179,7 +179,7 @@ func TestMCPMalformedChildDoesNotHideHealthySibling(t *testing.T) {
 	const parentID = "10000000-0000-0000-0000-000000000001"
 	const healthyID = "10000000-0000-0000-0000-000000000002"
 	const badID = "10000000-0000-0000-0000-000000000003"
-	def := plugin.Definition{ID: "demo", DisplayName: "Demo", Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1}
+	def := plugin.Definition{ID: "demo", DisplayName: "Demo", Source: plugin.SourceCustom, Spec: json.RawMessage(mustPublishedMCPTestSpec(`{}`)), Revision: 1}
 	payload := json.RawMessage(`{"mcp_servers":{"healthy":{"url":"https://example.com/mcp","transport":"streamable_http","auth_type":"none"},"bad":{"url":17}}}`)
 	cfg := plugin.Config{ID: parentID, PluginID: def.ID, Scope: plugin.ScopeSystem, Enabled: boolPtr(true), Payload: payload, CredentialRefs: json.RawMessage(`{}`), Revision: 1, MCPServers: []plugin.MCPServerChild{{ID: healthyID, ParentConfigID: parentID, ServerKey: "healthy"}, {ID: badID, ParentConfigID: parentID, ServerKey: "bad"}}}
 	effective := plugin.Effective{PluginID: def.ID, ConfigID: parentID, SourceScope: cfg.Scope, IsEffectivelyEnabled: true, Payload: payload}

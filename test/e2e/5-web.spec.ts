@@ -95,6 +95,7 @@ async function deletePlugin(
     200,
     `get plugin ${pluginID}`,
   );
+  if (definition.retired_at) return;
   for (const config of configs) {
     await admin.delete(
       `${pluginConfigPath(pluginID, config.id)}?expected_revision=${config.revision}`,
@@ -578,7 +579,37 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
     .poll(
       async () => (await admin.get(pluginDefinitionPath(dead.plugin.id))).status,
     )
-    .toBe(404);
+    .toBe(200);
+  const retired = await pluginDefinition(admin, dead.plugin.id);
+  expect(retired.retired_at).toBeTruthy();
+  const newConfig = await admin.post(`${pluginDefinitionPath(dead.plugin.id)}/configs`, {
+    scope: "user",
+    is_enabled: true,
+    config: {
+      mcp_servers: {
+        main: {
+          url: "http://127.0.0.1:9/mcp",
+          transport: "streamable_http",
+          auth_type: "none",
+          credential_mode: "shared",
+        },
+      },
+    },
+  });
+  expect(newConfig.status).toBe(409);
+  const agents = expectStatus(
+    await admin.get<{ agents: Array<{ id: string; }>; }>("/api/agents"),
+    200,
+    "list agents for retired plugin effective state",
+  );
+  expect(agents.agents.length).toBeGreaterThan(0);
+  expect(
+    (
+      await admin.get(
+        `${pluginDefinitionPath(dead.plugin.id)}/effective?agent_id=${agents.agents[0].id}`,
+      )
+    ).status,
+  ).toBe(404);
   await page.reload();
   await expect(page.getByText("out-of-band", { exact: true })).toHaveCount(0);
 });

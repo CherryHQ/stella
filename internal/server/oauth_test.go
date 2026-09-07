@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -52,22 +53,29 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 		payload     plugin.ResourcePayload
 	}{
 		{name: "acme-exporter", displayName: "Acme Exporter", enabled: true, payload: plugin.ResourcePayload{
-			OAuthProvider: "acme", SessionEnvs: []plugin.SessionEnvResource{
+			OAuth: []plugin.OAuthRequirement{{Provider: "acme"}}, SessionEnvs: []plugin.SessionEnvResource{
 				{EnvVar: "ACME_EXPORTER_TOKEN", Source: "oauth.access_token"},
 				{EnvVar: "ACME_EXPORTER_APP_ID", Source: "oauth.client_id"},
 			},
 		}},
 		{name: "gh", displayName: "GitHub CLI", enabled: true, payload: plugin.ResourcePayload{
-			OAuthProvider: "github", SessionEnvs: []plugin.SessionEnvResource{{EnvVar: "GH_TOKEN", Source: "oauth.access_token"}},
+			OAuth: []plugin.OAuthRequirement{{Provider: "github"}}, SessionEnvs: []plugin.SessionEnvResource{{EnvVar: "GH_TOKEN", Source: "oauth.access_token"}},
 		}},
 		{name: "disabled", displayName: "disabled", enabled: false, payload: plugin.ResourcePayload{
-			OAuthProvider: "acme", SessionEnvs: []plugin.SessionEnvResource{{EnvVar: "X", Source: "oauth.access_token"}},
+			OAuth: []plugin.OAuthRequirement{{Provider: "acme"}}, SessionEnvs: []plugin.SessionEnvResource{{EnvVar: "X", Source: "oauth.access_token"}},
 		}},
 	}
 	db := dbtest.New(t)
 	catalog := plugin.NewCatalog()
 	for _, declared := range shipped {
+		for _, env := range declared.payload.SessionEnvs {
+			declared.payload.OAuth[0].Bindings = append(declared.payload.OAuth[0].Bindings, plugin.OAuthBinding{Credential: strings.TrimPrefix(env.Source, "oauth."), EnvVar: env.EnvVar})
+		}
 		spec, err := json.Marshal(declared.payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		spec, err = plugin.PublishDefinitionSpec(spec)
 		if err != nil {
 			t.Fatal(err)
 		}

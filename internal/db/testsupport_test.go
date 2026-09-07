@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -12,7 +13,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+
+	"github.com/CherryHQ/stella/internal/plugin"
 )
+
+func publishedPluginSpec(raw string) json.RawMessage {
+	spec, err := plugin.PublishDefinitionSpec(json.RawMessage(raw))
+	if err != nil {
+		panic(err)
+	}
+	return spec
+}
 
 // Package db's own tests cannot use internal/db/dbtest — that helper imports this
 // package — so this mirrors it locally: one embedded server per test binary, a

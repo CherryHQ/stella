@@ -119,6 +119,7 @@ type setupResult struct {
 	projectStore           *agent.ProjectStore
 	sessionAccess          *sessionaccess.Service
 	skillAccess            *access.Service
+	skillManagement        *skill.Management
 	pluginHost             *pluginhost.Host
 	pluginService          *plugin.Service
 	nativePolicy           *plugin.NativePolicy
@@ -206,7 +207,12 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Every authorization domain owns its own static rules and loads durable facts
 	// before deciding; the Agent domain is the shared read gate the others fold in.
 	agentAccess := agentaccess.NewService(store, authStore, agentaccess.WithGuestPolicyDecoder(phost.GuestPolicyResolver))
+	ps.nativePolicy.SetAgentAccess(agentAccess)
 	var poolMgr *agent.PoolManager
+	contentStore, err := plugin.NewContentStore(filepath.Join(config.StellaHome(), "plugins", "content"))
+	if err != nil {
+		return nil, fmt.Errorf("build plugin content store: %w", err)
+	}
 	pluginSvc := plugin.NewService(db, agentAccess, ps.catalog, pluginBackendPolicy(cfg.MCP.AllowPrivateEndpoints), func(ctx context.Context, mutate func() error) error {
 		// Startup has no admitted runners or listeners yet.
 		if poolMgr == nil {
@@ -223,7 +229,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			}
 		}
 		return err
-	})
+	}, plugin.WithContentStore(contentStore))
 	ps.nativePolicy.SetMutationFence(func(ctx context.Context, mutate func() error) error {
 		if poolMgr == nil {
 			return mutate()
@@ -240,6 +246,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	})
 	if err := plugin.ImportLegacyState(parent, db, ps.catalog, ps.nativeRegistry, newToolMetaRegistry(generatedFamilies()...)); err != nil && !errors.Is(err, plugin.ErrImportComplete) {
 		return nil, fmt.Errorf("import plugin configuration: %w", err)
+	}
+	if err := plugin.MigratePublishedState(parent, db, ps.catalog); err != nil && !errors.Is(err, plugin.ErrImportComplete) {
+		return nil, fmt.Errorf("publish plugin configuration: %w", err)
 	}
 	if err := pluginSvc.SyncBuiltinDefaults(parent); err != nil {
 		return nil, fmt.Errorf("sync builtin plugins: %w", err)
@@ -462,7 +471,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		Memory:            memProvider,
 		Store:             store,
 		Snapshots:         snapshotLoader,
-		SkillStore:        skillStore,
+		SkillStore:        skillManagement.NewReflectWorker(),
 		SkillAuthorizer:   skillAccess,
 		UsageCuratorStore: reflect.NewSQLUsageCuratorStoreForPool(db),
 		StateStore:        pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
@@ -786,6 +795,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		projectStore:           projectStore,
 		sessionAccess:          sessionAccess,
 		skillAccess:            skillAccess,
+		skillManagement:        skillManagement,
 		pluginHost:             phost,
 		pluginService:          pluginSvc,
 		nativePolicy:           ps.nativePolicy,

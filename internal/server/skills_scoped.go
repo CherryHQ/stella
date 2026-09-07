@@ -52,7 +52,7 @@ func skillAccessError(err error) (int, string) {
 		return http.StatusForbidden, "forbidden"
 	case errors.Is(err, access.ErrInvalidScope):
 		return http.StatusBadRequest, "invalid scope"
-	case errors.Is(err, access.ErrUnavailable):
+	case errors.Is(err, access.ErrUnavailable), errors.Is(err, skill.ErrManagedSkillsUnavailable):
 		return http.StatusServiceUnavailable, "skills authorization unavailable"
 	default:
 		return http.StatusInternalServerError, "internal error"
@@ -314,14 +314,8 @@ func (s *Server) agentSkillWriteScope(ctx context.Context, agentID, scope string
 	default:
 		return "", http.StatusBadRequest, "scope must be one of: user, user_agent, system_agent"
 	}
-	acc, code, msg := s.beginSkillAccess(ctx)
-	if code != 0 {
-		return "", code, msg
-	}
-	if _, _, err := acc.AuthorizeManageScope(ctx, scope, agentID); err != nil {
-		code, msg := skillAccessError(err)
-		return "", code, msg
-	}
+	// SkillManagement performs the authoritative scope and agent check. This
+	// adapter only validates the transport shape before bounded parsing/fetch.
 	return info.UserID, 0, ""
 }
 
@@ -695,7 +689,7 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusBadRequest, "scope is required")
 		return
 	}
-	userID, code, msg := s.agentSkillWriteScope(r.Context(), agentID, req.Scope)
+	_, code, msg := s.agentSkillWriteScope(r.Context(), agentID, req.Scope)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
@@ -708,22 +702,16 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusBadRequest, "files must include SKILL.md")
 		return
 	}
-	sk := skill.Skill{
-		Scope:                  req.Scope,
-		Name:                   req.Name,
-		Description:            req.Description,
-		DisableModelInvocation: req.DisableModelInvocation,
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return
 	}
-	switch req.Scope {
-	case "user":
-		sk.UserID = userID
-	case "user_agent":
-		sk.UserID = userID
-		sk.AgentID = agentID
-	case "system_agent":
-		sk.AgentID = agentID
-	}
-	snapshot, err := s.skills.CreateManagedSkill(r.Context(), sk, files)
+	snapshot, err := s.skillManagement.Create(r.Context(), authority, skill.ManagedCreate{
+		Scope: req.Scope, TargetAgentID: agentID, Name: req.Name, Description: req.Description,
+		DisableModelInvocation: req.DisableModelInvocation, Files: files,
+	})
 	if err != nil {
 		if errors.Is(err, skill.ErrInvalidSkillFilePath) {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -796,7 +784,13 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, code, msg)
 		return
 	}
-	s.applySkillUpdate(w, r, &sk)
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return
+	}
+	s.applySkillUpdate(w, r, authority, sk.ID)
 }
 
 // UpgradeAgentSkill re-fetches a DB-backed skill from its recorded install source
@@ -835,7 +829,13 @@ func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		}
 	}
 
-	res, err := skill.UpgradeInStore(ctx, s.skills, resolvedToDBSkill(rs), params.ExpectedDigest, rs.Metadata)
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return
+	}
+	res, err := s.skillManagement.Upgrade(ctx, authority, skill.ManagedUpgrade{ID: rs.ID, ExpectedVersion: params.ExpectedDigest})
 	if err != nil {
 		if errors.Is(err, skill.ErrNoUpgradeSource) {
 			writeError(w, http.StatusBadRequest, "skill was not installed from an upgradable source")
@@ -880,7 +880,13 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	if params.ExpectedDigest != nil {
 		expectedDigest = *params.ExpectedDigest
 	}
-	s.doDeleteSkill(w, r, resolvedToDBSkill(rs), expectedDigest)
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return
+	}
+	s.doDeleteSkill(w, r, authority, rs.ID, expectedDigest)
 }
 
 func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillFileParams) {
@@ -930,7 +936,13 @@ func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id
 	if params.ExpectedDigest != nil {
 		expectedDigest = *params.ExpectedDigest
 	}
-	s.doDeleteSkillFile(w, r, resolvedToDBSkill(rs), params.Path, expectedDigest)
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return
+	}
+	s.doDeleteSkillFile(w, r, authority, rs.ID, params.Path, expectedDigest)
 }
 
 func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id string) {
@@ -954,17 +966,19 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		writeError(w, code, msg)
 		return
 	}
-	storeUserID := ""
-	if scope == "user" || scope == "user_agent" {
-		storeUserID = userID
-	}
 	ctx := r.Context()
 	if skill.GitHubSource(req.Source) {
 		if token := s.credSvc.GitHubAccessToken(ctx, userID); token != "" {
 			ctx = skill.WithGitHubToken(ctx, token)
 		}
 	}
-	snapshot, err := skill.InstallToStore(ctx, s.skills, req.Source, scope, storeUserID, agentID)
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return
+	}
+	snapshot, err := s.skillManagement.Install(ctx, authority, skill.ManagedInstall{Source: req.Source, Scope: scope, TargetAgentID: agentID})
 	if err != nil {
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "a skill with this name is already installed in this scope")

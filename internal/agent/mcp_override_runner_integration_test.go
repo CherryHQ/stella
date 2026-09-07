@@ -28,7 +28,7 @@ import (
 // in the importer, read through the real ToolOverrideStore, and finally hides
 // the MCP proxy in the runner registry.
 func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
-	db := dbtest.NewAtMigration(t, runnerImportMigration41)
+	db := dbtest.NewAtMigration(t, runnerImportMigration44)
 	ctx := t.Context()
 
 	userID := uuid.NewString()
@@ -113,7 +113,7 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 }
 
 func TestDisabledHostToolNameRemainsReservedFromMCP(t *testing.T) {
-	db := dbtest.NewAtMigration(t, runnerImportMigration41)
+	db := dbtest.NewAtMigration(t, runnerImportMigration44)
 	ctx := t.Context()
 	userID := uuid.NewString()
 	agentID := "host-name-reservation-agent"
@@ -175,7 +175,7 @@ func TestDisabledHostToolNameRemainsReservedFromMCP(t *testing.T) {
 // The package is imported first, then receives a user-scope deny; resolution
 // must not fall back to the broader system config or another package.
 func TestMigratedMCPPackageDenyDoesNotFallThrough(t *testing.T) {
-	db := dbtest.NewAtMigration(t, runnerImportMigration41)
+	db := dbtest.NewAtMigration(t, runnerImportMigration44)
 	ctx := t.Context()
 
 	userID := uuid.NewString()
@@ -247,7 +247,8 @@ func TestMigratedMCPPackageDenyDoesNotFallThrough(t *testing.T) {
 	}
 }
 
-const runnerImportMigration41 = int64(90000000000041)
+// Startup runs the legacy-state importer after Goose adds retired_at in migration 44.
+const runnerImportMigration44 = int64(90000000000044)
 
 func noOpMutationFence(_ context.Context, fn func() error) error { return fn() }
 

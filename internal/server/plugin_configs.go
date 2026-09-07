@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -48,6 +49,8 @@ func writePluginError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	message := "internal error"
 	switch {
+	case errors.Is(err, pluginpkg.ErrRetiredDefinition):
+		status, message = http.StatusConflict, "definition is retired"
 	case errors.Is(err, pluginpkg.ErrConflict), errors.Is(err, mcp.ErrVersionConflict):
 		status, message = http.StatusConflict, "resource revision conflict"
 	case isUniqueViolation(err):
@@ -80,6 +83,11 @@ func pluginDefinitionView(def pluginpkg.Definition) (apitypes.PluginDefinition, 
 	isBuiltin, isDefault := def.Source == pluginpkg.SourceBuiltin, def.DefaultEnabled
 	revision := def.Revision
 	createdAt, updatedAt := def.CreatedAt.UTC(), def.UpdatedAt.UTC()
+	var retiredAt *time.Time
+	if !def.RetiredAt.IsZero() {
+		value := def.RetiredAt.UTC()
+		retiredAt = &value
+	}
 	resources, err := pluginResourceSummary(def, pluginpkg.Config{})
 	if err != nil {
 		return apitypes.PluginDefinition{}, err
@@ -89,6 +97,7 @@ func pluginDefinitionView(def pluginpkg.Definition) (apitypes.PluginDefinition, 
 		IsBuiltin:        &isBuiltin,
 		IsDefaultEnabled: &isDefault, Spec: spec, Revision: &revision,
 		ResourceSummary: resources,
+		RetiredAt:       retiredAt,
 		CreatedAt:       &createdAt, UpdatedAt: &updatedAt,
 	}, nil
 }
@@ -129,15 +138,13 @@ func safeDefinitionSpec(def pluginpkg.Definition) (map[string]any, error) {
 		return nil, fmt.Errorf("invalid plugin definition spec")
 	}
 	out := make(map[string]any)
-	for _, field := range []string{"description", "category"} {
+	for _, field := range []string{"description", "category", "origin"} {
 		var value string
 		if json.Unmarshal(source[field], &value) == nil && value != "" {
-			out[field] = value
+			if field != "origin" || value == "package" || value == "remote_mcp" {
+				out[field] = value
+			}
 		}
-	}
-	var capabilities []string
-	if json.Unmarshal(source["capabilities"], &capabilities) == nil {
-		out["capabilities"] = capabilities
 	}
 	return out, nil
 }

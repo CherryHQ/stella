@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -864,6 +865,26 @@ func (s *Service) CreateCustom(ctx context.Context, def plugin.Definition, in Cr
 	if in.Name == "" {
 		in.Name = def.DisplayName
 	}
+	// The typed MCP seam owns the authored child declaration. Older callers
+	// passed an empty definition and a flat payload; materialize the declared
+	// `main` child here, before the common plugin Access boundary.
+	var authored map[string]json.RawMessage
+	generatedMCPDeclaration := false
+	if len(bytes.TrimSpace(def.Spec)) == 0 || bytes.Equal(bytes.TrimSpace(def.Spec), []byte("{}")) {
+		authored = map[string]json.RawMessage{}
+	} else if err := json.Unmarshal(def.Spec, &authored); err != nil || authored == nil {
+		return plugin.Definition{}, plugin.Config{}, plugin.ErrInvalidDefinition
+	}
+	if _, declared := authored["mcp_servers"]; !declared {
+		generatedMCPDeclaration = true
+		authored["origin"] = json.RawMessage(`"remote_mcp"`)
+		authored["mcp_servers"] = json.RawMessage(`{"main":{}}`)
+		encoded, err := json.Marshal(authored)
+		if err != nil {
+			return plugin.Definition{}, plugin.Config{}, err
+		}
+		def.Spec = encoded
+	}
 	if in.Name != def.DisplayName {
 		return plugin.Definition{}, plugin.Config{}, fmt.Errorf("%w: "+"mcp: custom definition display name and config name must match", plugin.ErrInvalidConfig)
 	}
@@ -882,6 +903,22 @@ func (s *Service) CreateCustom(ctx context.Context, def plugin.Definition, in Cr
 	if err := validateCredentialMode(in.CredentialMode, in.AuthType); err != nil {
 		return plugin.Definition{}, plugin.Config{}, err
 	}
+	if generatedMCPDeclaration {
+		authored["mcp_servers"] = json.RawMessage(fmt.Sprintf(`{"main":{"url":%q,"transport":%q,"auth_type":%q,"credential_mode":%q}}`, in.URL, in.Transport, AuthTypeNone, CredentialModeShared))
+		encoded, err := json.Marshal(authored)
+		if err != nil {
+			return plugin.Definition{}, plugin.Config{}, err
+		}
+		def.Spec = encoded
+	}
+	// Definitions are persisted through the published-spec boundary. Custom
+	// MCP callers may provide authored JSON without the derived digest, but the
+	// common plugin store must only receive the canonical form.
+	publishedSpec, err := plugin.PublishDefinitionSpec(def.Spec)
+	if err != nil {
+		return plugin.Definition{}, plugin.Config{}, err
+	}
+	def.Spec = publishedSpec
 	if (in.OAuthClientID != "" || in.OAuthClientSecret != "") && in.AuthType != AuthTypeOAuth {
 		return plugin.Definition{}, plugin.Config{}, fmt.Errorf("%w: mcp: OAuth client credentials require auth_type %q", plugin.ErrInvalidConfig, AuthTypeOAuth)
 	}
@@ -1249,11 +1286,19 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 	owner := s.CredentialOwner(reg, string(authority.UserID()))
 	var result Registration
 	err = s.withCredentialMutationTxForRegistration(ctx, authority, reg, owner, func(mutationCtx context.Context, access *plugin.Access, current plugin.Config, mutation CredentialMutation) error {
-		payload, err := decodeJSONObject(current.Payload, "MCP config payload")
+		parameters, err := plugin.DecodeConfigParameters(current.Payload)
 		if err != nil {
 			return err
 		}
-		currentPayload, err := decodeMCPPluginPayload(current.Payload)
+		if parameters.MCPServers == nil {
+			parameters.MCPServers = make(map[string]plugin.MCPParameters)
+		}
+		serverKey := mutation.serverKey
+		if serverKey == "" {
+			serverKey = "main"
+		}
+		childParameters := parameters.MCPServers[serverKey]
+		currentPayload, err := mutation.payload()
 		if err != nil {
 			return err
 		}
@@ -1273,23 +1318,35 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 		if in.CredentialMode != nil {
 			mode = *in.CredentialMode
 		}
+		nextMetadata := cloneMetadata(currentPayload.Metadata)
 		if in.Metadata != nil {
-			payload["metadata"], _ = json.Marshal(*in.Metadata)
-		}
-		if in.Description != nil {
-			payload["description"], _ = json.Marshal(*in.Description)
-		}
-		nextMetadata := currentPayload.Metadata
-		if raw, ok := payload["metadata"]; ok {
-			nextMetadata, err = decodeMCPPluginMetadata(raw)
-			if err != nil {
-				return fmt.Errorf("%w: %w", plugin.ErrInvalidConfig, err)
-			}
+			nextMetadata = cloneMetadata(*in.Metadata)
+			childParameters.Metadata = nextMetadata
 		}
 		nextClientID := metadataOAuthClientID(nextMetadata)
 		if in.OAuthClientID != nil {
 			nextClientID = *in.OAuthClientID
+			metadata := cloneMetadata(nextMetadata)
+			if metadata == nil {
+				metadata = make(map[string]any)
+			}
+			oauthMetadata, ok := metadata["oauth"].(map[string]any)
+			if !ok {
+				oauthMetadata = make(map[string]any)
+			}
+			oauthMetadata["client_id"] = *in.OAuthClientID
+			metadata["oauth"] = oauthMetadata
+			childParameters.Metadata = metadata
 		}
+		childParameters.URL = endpoint
+		childParameters.Transport = transport
+		childParameters.AuthType = authType
+		childParameters.CredentialMode = mode
+		if in.Description != nil {
+			description := *in.Description
+			childParameters.Description = &description
+		}
+		parameters.MCPServers[serverKey] = childParameters
 		sensitiveEdit := endpoint != currentPayload.URL || transport != currentPayload.Transport || authType != currentPayload.AuthType || mode != currentPayload.CredentialMode || nextClientID != metadataOAuthClientID(currentPayload.Metadata) || oauthMetadataTokenEndpointAuthMethod(nextMetadata) != oauthMetadataTokenEndpointAuthMethod(currentPayload.Metadata) || in.OAuthClientSecret != nil
 
 		if currentPayload.AuthType == AuthTypeBearer && authType == AuthTypeBearer && sensitiveEdit && in.Token == nil {
@@ -1308,7 +1365,9 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 		if err := validateCredentialMode(mode, authType); err != nil {
 			return err
 		}
-		_, _, oldClientSecretRef, err := decodeMCPPluginCredentialRefs(current.CredentialRefs, current, currentPayload.AuthType, currentPayload.CredentialMode)
+		childConfig := current
+		childConfig.ID = mutation.registrationID
+		_, _, oldClientSecretRef, err := decodeMCPPluginCredentialRefsForKey(current.CredentialRefs, childConfig, serverKey, currentPayload.AuthType, currentPayload.CredentialMode)
 		if err != nil {
 			return err
 		}
@@ -1316,34 +1375,11 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 			return fmt.Errorf("%w: "+"mcp: OAuth connection changes require a replacement client secret or clearing the client id", plugin.ErrInvalidConfig)
 		}
 
-		payload["url"], _ = json.Marshal(endpoint)
-		payload["transport"], _ = json.Marshal(transport)
-		payload["auth_type"], _ = json.Marshal(authType)
-		payload["credential_mode"], _ = json.Marshal(mode)
-		if in.OAuthClientID != nil {
-			metadata := map[string]json.RawMessage{}
-			if raw, ok := payload["metadata"]; ok {
-				metadata, err = decodeJSONObject(raw, "MCP metadata")
-				if err != nil {
-					return err
-				}
-			}
-			oauthMetadata := map[string]json.RawMessage{}
-			if raw, ok := metadata["oauth"]; ok {
-				oauthMetadata, err = decodeJSONObject(raw, "MCP oauth metadata")
-				if err != nil {
-					return err
-				}
-			}
-			oauthMetadata["client_id"], _ = json.Marshal(*in.OAuthClientID)
-			metadata["oauth"], _ = json.Marshal(oauthMetadata)
-			payload["metadata"], _ = json.Marshal(metadata)
-		}
-		updatedPayload, err := json.Marshal(payload)
+		updatedPayload, err := json.Marshal(parameters)
 		if err != nil {
 			return err
 		}
-		updatedRefs, err := commonMCPUpdateRefs(current, authType, mode, in.OAuthClientSecret)
+		updatedRefs, err := commonMCPUpdateRefs(current, mutation.registrationID, serverKey, authType, mode, in.OAuthClientSecret)
 		if err != nil {
 			return err
 		}
@@ -1353,12 +1389,27 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 			if err != nil {
 				return err
 			}
-			delete(refs, "oauth_client_secret")
+			children, err := decodeJSONObject(refs["mcp_servers"], "MCP credential refs mcp_servers")
+			if err != nil {
+				return err
+			}
+			childRefs, err := decodeJSONObject(children[serverKey], "MCP child credential refs")
+			if err != nil {
+				return err
+			}
+			delete(childRefs, "oauth_client_secret")
+			children[serverKey], err = json.Marshal(childRefs)
+			if err != nil {
+				return err
+			}
+			refs["mcp_servers"], err = json.Marshal(children)
+			if err != nil {
+				return err
+			}
 			updatedRefs, err = json.Marshal(refs)
 			if err != nil {
 				return err
 			}
-
 		}
 		configPatch := plugin.ConfigPatch{PayloadSet: true, Payload: updatedPayload, CredentialRefsSet: true, CredentialRefs: updatedRefs}
 		if in.Enabled != nil || in.EnabledSet {
@@ -1368,7 +1419,7 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 		if err != nil {
 			return err
 		}
-		updatedMutation := CredentialMutation{tx: mutation.tx, config: updated, owner: owner, vault: mutation.vault, configManaged: mutation.configManaged}
+		updatedMutation := CredentialMutation{tx: mutation.tx, config: updated, registrationID: mutation.registrationID, serverKey: serverKey, owner: owner, vault: mutation.vault, configManaged: mutation.configManaged}
 		if authType == AuthTypeBearer {
 			if in.Token != nil {
 				if err := updatedMutation.StoreBearer(mutationCtx, *in.Token); err != nil {
@@ -1404,24 +1455,46 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 	return result, err
 }
 
-func commonMCPUpdateRefs(current plugin.Config, authType, mode string, secret *string) (json.RawMessage, error) {
-	refs := map[string]json.RawMessage{}
+func commonMCPUpdateRefs(current plugin.Config, childID, serverKey, authType, mode string, secret *string) (json.RawMessage, error) {
+	if childID == "" {
+		childID = current.ID
+	}
+	if serverKey == "" {
+		serverKey = "main"
+	}
+	// Keep the complete parent refs object. A common update targets one child,
+	// while sibling credential namespaces and package-level refs belong to the
+	// same config and must survive the mutation.
+	refsObject := map[string]json.RawMessage{}
+	children := map[string]json.RawMessage{}
 	if len(current.CredentialRefs) != 0 {
-		var err error
-		refs, err = decodeJSONObject(current.CredentialRefs, "MCP credential refs")
+		object, err := decodeJSONObject(current.CredentialRefs, "MCP credential refs")
 		if err != nil {
 			return nil, err
 		}
+		refsObject = object
+		nested, ok := object["mcp_servers"]
+		if !ok {
+			if len(object) != 0 {
+				return nil, errors.New("MCP credential refs is missing mcp_servers")
+			}
+		} else {
+			children, err = decodeJSONObject(nested, "MCP credential refs mcp_servers")
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
+	refs := map[string]json.RawMessage{}
 	switch authType {
 	case AuthTypeNone:
 		refs = map[string]json.RawMessage{}
 	case AuthTypeBearer:
 		refs = map[string]json.RawMessage{}
-		ref, _ := json.Marshal(map[string]string{"name": credentialName(current.ID), "scope": string(current.Scope), "user_id": current.UserID, "agent_id": current.AgentID})
+		ref, _ := json.Marshal(map[string]string{"name": credentialName(childID), "scope": string(current.Scope), "user_id": current.UserID, "agent_id": current.AgentID})
 		refs["bearer"] = ref
 	case AuthTypeOAuth:
-		bundle := map[string]string{"name": oauthBundleName(current.ID), "mode": mode}
+		bundle := map[string]string{"name": oauthBundleName(childID), "mode": mode}
 		if mode == CredentialModePerUser {
 			bundle["owner"] = "per_user"
 		} else {
@@ -1433,14 +1506,34 @@ func commonMCPUpdateRefs(current plugin.Config, authType, mode string, secret *s
 			if *secret == "" {
 				delete(refs, "oauth_client_secret")
 			} else {
-				secretRaw, _ := json.Marshal(map[string]string{"name": oauthClientSecretName(current.ID), "scope": string(current.Scope), "user_id": current.UserID, "agent_id": current.AgentID})
+				secretRaw, _ := json.Marshal(map[string]string{"name": oauthClientSecretName(childID), "scope": string(current.Scope), "user_id": current.UserID, "agent_id": current.AgentID})
 				refs["oauth_client_secret"] = secretRaw
+			}
+		} else if existing, ok := children[serverKey]; ok {
+			// Omitted secret means retain the existing client-secret locator. An
+			// explicit empty secret is the opt-in clear operation above.
+			childRefs, err := decodeJSONObject(existing, "MCP child credential refs")
+			if err != nil {
+				return nil, err
+			}
+			if existingSecret, ok := childRefs["oauth_client_secret"]; ok {
+				refs["oauth_client_secret"] = existingSecret
 			}
 		}
 	default:
 		return nil, errors.New("mcp: unsupported auth type")
 	}
-	return json.Marshal(refs)
+	childRaw, err := json.Marshal(refs)
+	if err != nil {
+		return nil, err
+	}
+	children[serverKey] = childRaw
+	nested, err := json.Marshal(children)
+	if err != nil {
+		return nil, err
+	}
+	refsObject["mcp_servers"] = nested
+	return json.Marshal(refsObject)
 }
 
 // UpdateIfVersion applies a tool mutation only if the durable row still matches

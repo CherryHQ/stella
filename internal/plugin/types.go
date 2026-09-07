@@ -40,6 +40,7 @@ type Definition struct {
 	DefaultEnabled bool
 	Revision       int64
 	CreatorUserID  string
+	RetiredAt      time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
@@ -88,6 +89,7 @@ type Effective struct {
 var (
 	ErrInvalidDefinition = errors.New("plugin: invalid definition")
 	ErrInvalidConfig     = errors.New("plugin: invalid config")
+	ErrRetiredDefinition = errors.New("plugin: definition retired")
 	ErrUnknownScope      = errors.New("plugin: unknown scope")
 )
 
@@ -104,6 +106,9 @@ func (d Definition) Validate() error {
 	if d.Source == SourceBuiltin && d.CreatorUserID != "" {
 		return fmt.Errorf("%w: builtin creator", ErrInvalidDefinition)
 	}
+	if d.Source == SourceBuiltin && !d.RetiredAt.IsZero() {
+		return fmt.Errorf("%w: builtin retired", ErrInvalidDefinition)
+	}
 	if d.Source == SourceCustom && d.DefaultEnabled {
 		return fmt.Errorf("%w: custom definitions default disabled", ErrInvalidDefinition)
 	}
@@ -113,6 +118,9 @@ func (d Definition) Validate() error {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(d.Spec, &object); err != nil || object == nil {
 		return fmt.Errorf("%w: spec must be object: %w", ErrInvalidDefinition, err)
+	}
+	if err := ValidateDefinitionSpecDigest(d.Spec); err != nil {
+		return err
 	}
 	return nil
 }

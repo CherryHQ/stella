@@ -376,6 +376,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	agentAccess := agentaccess.NewService(store, as)
 	skillAccess := access.NewService(skillStore, agentAccess)
+	skillManagement := skill.NewManagement(skillStore, skillAccess)
 	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		Memory:    mem,
@@ -422,6 +423,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		SessionAccess:        sessionSvc,
 		SkillAccess:          skillAccess,
 		Skills:               skillStore,
+		SkillManagement:      skillManagement,
 		LinkCodes:            auth.NewLinkCodeStore(),
 		PoolManager:          poolManager,
 		PluginHost:           phost,
@@ -949,10 +951,14 @@ func TestListPluginsUsesUnifiedSafeDefinitionProjection(t *testing.T) {
 	env := setupAdmin(t)
 	plugins := plugin.NewService(env.db, env.deps.AgentAccess, plugin.NewCatalog(), plugin.BackendPolicy{}, func(_ context.Context, fn func() error) error { return fn() })
 	env.rebuild(t, func(d *server.Deps) { d.PluginService = plugins })
+	spec, err := plugin.PublishDefinitionSpec(json.RawMessage(`{"description":"safe","category":"utility","origin":"remote_mcp","capabilities":["read"],"url":"https://private.example/path?token=secret","credential_refs":{"token":"vault://secret"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := env.db.Exec(context.Background(), `
 		INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision)
 		VALUES ('custom-safe', 'Safe plugin', 'custom',
-			'{"description":"safe","category":"utility","capabilities":["read"],"url":"https://private.example/path?token=secret","credential_refs":{"token":"vault://secret"}}'::jsonb, false, 1)`); err != nil {
+			$1::jsonb, false, 1)`, spec); err != nil {
 		t.Fatalf("seed plugin definition: %v", err)
 	}
 
@@ -974,6 +980,9 @@ func TestListPluginsUsesUnifiedSafeDefinitionProjection(t *testing.T) {
 	if item.Spec["description"] != "safe" || item.Spec["category"] != "utility" {
 		t.Fatalf("safe definition summary = %#v", item.Spec)
 	}
+	if item.Spec["origin"] != "remote_mcp" {
+		t.Fatalf("safe definition origin = %#v, want remote_mcp", item.Spec["origin"])
+	}
 	for _, private := range []string{"url", "credential_refs"} {
 		if _, ok := item.Spec[private]; ok {
 			t.Fatalf("definition exposed private field %q: %#v", private, item.Spec)
@@ -989,10 +998,14 @@ func TestPluginHTTPRouteUsesBareAndEncodedPluginIDs(t *testing.T) {
 		},
 	}, func(_ context.Context, fn func() error) error { return fn() })
 	env.rebuild(t, func(d *server.Deps) { d.PluginService = plugins })
+	emptySpec, err := plugin.PublishDefinitionSpec(json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range []string{"email", "custom.acme"} {
 		if _, err := env.db.Exec(context.Background(), `
 			INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision)
-			VALUES ($1, $2, 'custom', '{}'::jsonb, false, 1)`, id, id); err != nil {
+			VALUES ($1, $2, 'custom', $3::jsonb, false, 1)`, id, id, emptySpec); err != nil {
 			t.Fatalf("seed plugin %q: %v", id, err)
 		}
 		rr := doRequest(t, env, http.MethodGet, pluginAPIPath(id), nil)

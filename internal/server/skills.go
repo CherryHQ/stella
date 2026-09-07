@@ -10,6 +10,7 @@ import (
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/skill"
 )
 
@@ -87,7 +88,7 @@ func storedSkillToView(sk skill.Skill, files []string) skillView {
 }
 
 // applySkillUpdate commits mutable DB metadata, files, and ownership together.
-func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, sk *skill.Skill) {
+func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, authority authz.Authority, id string) {
 	var req updateSkillRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -97,22 +98,9 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, sk *sk
 		Description:            req.Description,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
-	if sk.Status == "deprecated" {
-		writeError(w, http.StatusConflict, "deprecated skills cannot be edited")
-		return
-	}
-	if req.Version != nil {
-		merged, err := mergeMetadataVersion(sk.Metadata, *req.Version)
-		if err != nil {
-			s.writeInternalError(w, err)
-			return
-		}
-		patch.Metadata = merged
-	}
-	updated, err := s.skills.UpdateManagedSkill(r.Context(), skill.ManagedSkillUpdate{
-		ID: sk.ID, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope,
-		Patch: patch, Files: req.Files, ConvertToManual: req.ConvertToManual,
-		ExpectedDigest: req.ExpectedDigest,
+	updated, err := s.skillManagement.Update(r.Context(), authority, skill.ManagedUpdate{
+		ID: id, Patch: patch, Version: req.Version, Files: req.Files,
+		ConvertToManual: req.ConvertToManual, ExpectedVersion: req.ExpectedDigest,
 	})
 	if errors.Is(err, skill.ErrInvalidSkillFilePath) {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -125,25 +113,11 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, sk *sk
 	writeData(w, http.StatusOK, committedSkillView(updated))
 }
 
-// mergeMetadataVersion overwrites just the "version" key in a skill's metadata
-// JSON, preserving every other field (source, install timestamps). An empty
-// version clears the key so the badge disappears.
-func mergeMetadataVersion(metadata json.RawMessage, version string) (json.RawMessage, error) {
-	m := map[string]any{}
-	if len(metadata) > 0 {
-		if err := json.Unmarshal(metadata, &m); err != nil {
-			return nil, err
-		}
-	}
-	if version == "" {
-		delete(m, "version")
-	} else {
-		m["version"] = version
-	}
-	return json.Marshal(m)
-}
-
 func (s *Server) writeSkillMutationError(w http.ResponseWriter, err error) {
+	if code, msg := skillAccessError(err); code != http.StatusInternalServerError {
+		writeError(w, code, msg)
+		return
+	}
 	switch {
 	case errors.Is(err, skill.ErrSkillDigestRequired):
 		writeError(w, http.StatusBadRequest, "expected_digest is required")
@@ -155,17 +129,8 @@ func (s *Server) writeSkillMutationError(w http.ResponseWriter, err error) {
 }
 
 // doDeleteSkill is the shared body for DELETE .../skills/{id}.
-func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, sk skill.Skill, expectedDigest string) {
-	if sk.Scope != "user" && sk.Scope != "user_agent" && sk.Scope != "system" && sk.Scope != "system_agent" {
-		// Project skills are deleted by their existing filesystem handler and do
-		// not reach this DB-backed lifecycle path.
-		writeError(w, http.StatusBadRequest, "skill scope is not lifecycle-managed")
-		return
-	}
-	if err := s.skills.DeleteManagedSkill(r.Context(), skill.ManagedSkillDelete{
-		ID: sk.ID, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope,
-		ExpectedDigest: expectedDigest,
-	}); err != nil {
+func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, authority authz.Authority, id, expectedDigest string) {
+	if err := s.skillManagement.Delete(r.Context(), authority, id, expectedDigest); err != nil {
 		s.writeSkillMutationError(w, err)
 		return
 	}
@@ -173,7 +138,7 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, sk skill.
 }
 
 // doDeleteSkillFile is the shared body of DELETE .../skills/{id}/file?path=...
-func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, sk skill.Skill, path, expectedDigest string) {
+func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, authority authz.Authority, id, path, expectedDigest string) {
 	if path == "" {
 		writeError(w, http.StatusBadRequest, "path query parameter is required")
 		return
@@ -182,13 +147,7 @@ func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, sk sk
 		writeError(w, http.StatusBadRequest, "cannot delete SKILL.md")
 		return
 	}
-	if _, err := s.skills.DeleteManagedSkillFile(r.Context(), skill.ManagedSkillFileDelete{
-		ManagedSkillDelete: skill.ManagedSkillDelete{
-			ID: sk.ID, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope,
-			ExpectedDigest: expectedDigest,
-		},
-		Path: path,
-	}); err != nil {
+	if _, err := s.skillManagement.DeleteFile(r.Context(), authority, id, path, expectedDigest); err != nil {
 		s.writeSkillMutationError(w, err)
 		return
 	}

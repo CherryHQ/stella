@@ -66,6 +66,10 @@ func seedCatalogedMCPServer(t *testing.T, env *testEnv) {
 	t.Helper()
 	ctx := context.Background()
 	const pluginID = catalogedMCPPluginID
+	spec, err := pluginpkg.PublishDefinitionSpec(json.RawMessage(`{"mcp_servers":{"main":{"url":"https://mcp.example.com","transport":"streamable_http","auth_type":"none","credential_mode":"shared"}}}`))
+	if err != nil {
+		t.Fatalf("publish definition: %v", err)
+	}
 	configID := uuid.NewString()
 	childID := uuid.NewString()
 	tools, err := json.Marshal([]mcp.CatalogTool{{
@@ -77,7 +81,7 @@ func seedCatalogedMCPServer(t *testing.T, env *testEnv) {
 	}
 	if _, err := env.db.Exec(ctx, `
 		INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision)
-		VALUES ($1, 'GitHub', 'custom', '{"mcp_servers":{"main":{"url":"https://mcp.example.com","transport":"streamable_http","auth_type":"none","credential_mode":"shared"}}}'::jsonb, false, 1)`, pluginID); err != nil {
+		VALUES ($1, 'GitHub', 'custom', $2::jsonb, false, 1)`, pluginID, spec); err != nil {
 		t.Fatalf("seed definition: %v", err)
 	}
 	if _, err := env.db.Exec(ctx, `
@@ -85,7 +89,7 @@ func seedCatalogedMCPServer(t *testing.T, env *testEnv) {
 			config, credential_refs, revision)
 		VALUES ($1::uuid, $2, 'user', $3::uuid, true,
 			$4::jsonb, '{}'::jsonb, 1)`, configID, pluginID, env.adminUser.ID,
-		`{"mcp_servers":{"main":{"url":"https://mcp.example.com","transport":"streamable_http","auth_type":"none","credential_mode":"shared"}}}`); err != nil {
+		`{}`); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
 	if _, err := env.db.Exec(ctx, `
@@ -241,14 +245,18 @@ func TestAgentToolsPerUserNeedsAuth(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()
 	const pluginID = "custom-notion"
+	spec, err := pluginpkg.PublishDefinitionSpec(json.RawMessage(`{"mcp_servers":{"main":{"url":"https://mcp.example.com","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user"}}}`))
+	if err != nil {
+		t.Fatalf("publish definition: %v", err)
+	}
 	configID := uuid.NewString()
 	childID := uuid.NewString()
 	if _, err := env.db.Exec(ctx, `
 		INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision)
-		VALUES ($1, 'Notion', 'custom', '{"mcp_servers":{"main":{"url":"https://mcp.example.com","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user"}}}'::jsonb, false, 1)`, pluginID); err != nil {
+		VALUES ($1, 'Notion', 'custom', $2::jsonb, false, 1)`, pluginID, spec); err != nil {
 		t.Fatalf("seed definition: %v", err)
 	}
-	payload := `{"mcp_servers":{"main":{"url":"https://mcp.example.com","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user"}}}`
+	payload := `{}`
 	refs := `{"mcp_servers":{"main":{"oauth_bundle":{"name":"MCP_OAUTH_` + strings.ToUpper(strings.ReplaceAll(childID, "-", "_")) + `","mode":"per_user","owner":"per_user"}}}}`
 	if _, err := env.db.Exec(ctx, `
 		INSERT INTO plugin_config(id, plugin_id, scope, agent_id, enabled,

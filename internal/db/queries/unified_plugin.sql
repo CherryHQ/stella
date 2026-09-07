@@ -58,6 +58,14 @@ RETURNING *;
 DELETE FROM plugin_definition
 WHERE id = $1 AND revision = $2 AND source = 'custom';
 
+-- name: RetirePluginDefinitionCAS :one
+UPDATE plugin_definition
+SET retired_at = now(),
+    revision = revision + 1,
+    updated_at = now()
+WHERE id = $1 AND revision = $2 AND source = 'custom' AND retired_at IS NULL
+RETURNING *;
+
 -- name: CreatePluginConfig :one
 INSERT INTO plugin_config (
     id, plugin_id, scope, user_id, agent_id, enabled, config,

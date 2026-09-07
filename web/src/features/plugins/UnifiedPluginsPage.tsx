@@ -808,13 +808,18 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                     onEnabled={(enabled) => configMutation.mutate({ config, enabled })}
                     onInherit={() => configMutation.mutate({ config, enabled: null })}
                     onEdit={(serverKey) => setEditingConfig({ config, serverKey })}
-                    onAddChild={() => setAddingChildConfig(config)}
+                    onAddChild={
+                      selectedPlugin.spec.origin === "remote_mcp"
+                        ? () => setAddingChildConfig(config)
+                        : undefined
+                    }
                     onProbe={
                       config.resource_summary.mcp_servers.length > 0
                         ? (serverKey) => probeChildMutation.mutate({ config, serverKey })
                         : undefined
                     }
                     onDeleteChild={
+                      selectedPlugin.spec.origin === "remote_mcp" &&
                       config.resource_summary.mcp_servers.length > 0
                         ? (serverKey) => setPendingChildDelete({ config, serverKey })
                         : undefined

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -102,6 +103,11 @@ func (a *Access) CreateChild(ctx context.Context, parentConfigID, serverKey stri
 	if cfg.Revision != expectedParentRevision {
 		return Registration{}, plugin.ErrConflict
 	}
+	declaration, err := plugin.DecodeResourcePayload(def.Spec, "MCP definition spec")
+	if err != nil {
+		return Registration{}, err
+	}
+	_, declared := declaration.MCPServers[serverKey]
 	// The parent is the only trusted owner tuple. Never derive child locators
 	// from request fields, which are intentionally absent from the API contract.
 	in.Scope, in.UserID, in.AgentID = string(cfg.Scope), cfg.UserID, cfg.AgentID
@@ -110,29 +116,15 @@ func (a *Access) CreateChild(ctx context.Context, parentConfigID, serverKey stri
 			return Registration{}, fmt.Errorf("mcp: server key %q already exists", serverKey)
 		}
 	}
-	effective, err := plugin.Resolve(def, []plugin.Config{cfg}, cfg.UserID, cfg.AgentID)
+	parameters, err := decodeMCPConfigParameters(cfg.Payload)
 	if err != nil {
 		return Registration{}, err
 	}
-	effectiveObject := map[string]json.RawMessage{}
-	if len(cfg.Payload) != 0 && len(effective.Payload) != 0 {
-		effectiveObject, err = decodeJSONObject(effective.Payload, "MCP config payload")
-		if err != nil {
-			return Registration{}, err
-		}
+	if parameters.MCPServers == nil {
+		parameters.MCPServers = make(map[string]plugin.MCPParameters)
 	}
-	parentObject := map[string]json.RawMessage{}
-	if len(cfg.Payload) != 0 {
-		parentObject, err = decodeJSONObject(cfg.Payload, "MCP config payload")
-		if err != nil {
-			return Registration{}, err
-		}
-	}
-	servers := map[string]json.RawMessage{}
-	if raw, ok := effectiveObject["mcp_servers"]; ok {
-		if err := json.Unmarshal(raw, &servers); err != nil {
-			return Registration{}, fmt.Errorf("mcp: decode child payloads: %w", err)
-		}
+	if _, exists := parameters.MCPServers[serverKey]; exists {
+		return Registration{}, fmt.Errorf("mcp: server key %q already exists", serverKey)
 	}
 	refsObject := map[string]json.RawMessage{}
 	if len(cfg.CredentialRefs) != 0 {
@@ -152,6 +144,23 @@ func (a *Access) CreateChild(ctx context.Context, parentConfigID, serverKey stri
 	childID := ""
 	err = a.svc.withPluginMutation(ctx, a.authority, func(mutationCtx context.Context, access *plugin.Access, tx pgx.Tx) error {
 		var err error
+		if !declared {
+			currentDef, getErr := access.GetDefinition(mutationCtx, def.ID)
+			if getErr != nil {
+				return getErr
+			}
+			server := plugin.MCPServerResource{
+				URL: in.URL, Transport: in.Transport, AuthType: in.AuthType,
+				CredentialMode: in.CredentialMode, Metadata: in.Metadata,
+			}
+			if in.Description != nil {
+				server.Description = *in.Description
+			}
+			def, err = access.EnsureMCPServerDeclaration(mutationCtx, currentDef.ID, currentDef.Revision, serverKey, server)
+			if err != nil {
+				return err
+			}
+		}
 		createdChild, createErr := access.CreateMCPServerChild(mutationCtx, cfg.ID, serverKey)
 		childID, err = createdChild.ID, createErr
 		if err != nil {
@@ -161,20 +170,15 @@ func (a *Access) CreateChild(ctx context.Context, parentConfigID, serverKey stri
 		if err != nil {
 			return err
 		}
-		childObject, err := decodeJSONObject(payload, "MCP child payload")
+		childParameters, err := mcpParametersFromPayload(payload)
 		if err != nil {
 			return err
 		}
-		childRaw, err := json.Marshal(childObject)
+		parameters.MCPServers[serverKey] = childParameters
+		updatedRaw, err := json.Marshal(parameters)
 		if err != nil {
 			return err
 		}
-		servers[serverKey] = childRaw
-		parentRaw, err := json.Marshal(servers)
-		if err != nil {
-			return err
-		}
-		parentObject["mcp_servers"] = parentRaw
 		childRefsObject, err := decodeJSONObject(childRefs, "MCP child credential refs")
 		if err != nil {
 			return err
@@ -190,10 +194,6 @@ func (a *Access) CreateChild(ctx context.Context, parentConfigID, serverKey stri
 		}
 		refsObject["mcp_servers"] = refsNestedRaw
 		updatedRefs, err := json.Marshal(refsObject)
-		if err != nil {
-			return err
-		}
-		updatedRaw, err := json.Marshal(parentObject)
 		if err != nil {
 			return err
 		}
@@ -263,35 +263,39 @@ func (a *Access) UpdateChild(ctx context.Context, id string, expectedParentRevis
 	if err != nil {
 		return Registration{}, err
 	}
-	parentObject, err := decodeJSONObject(cfg.Payload, "MCP config payload")
+	effectiveServers, err := decodeJSONObject(effectiveObject["mcp_servers"], "MCP mcp_servers payload")
 	if err != nil {
 		return Registration{}, err
 	}
-	// A compatibility child may point at a legacy flat config whose parent
-	// UUID is also its runtime identity. Keep that shape flat through the
-	// mutation; newly authored composable configs always use mcp_servers.
-	_, hasNestedServers := parentObject["mcp_servers"]
-	flatCompat := reg.ID == cfg.ID && reg.ServerKey == "main" && !hasNestedServers
-	servers, err := decodeJSONObject(parentObject["mcp_servers"], "MCP mcp_servers payload")
-	if err != nil {
-		servers, err = decodeJSONObject(effectiveObject["mcp_servers"], "MCP mcp_servers payload")
-	}
-	if flatCompat && (err != nil || len(servers) == 0) {
-		servers = map[string]json.RawMessage{"main": cfg.Payload}
-		err = nil
-	}
-	if err != nil {
-		return Registration{}, err
-	}
-	child, ok := servers[reg.ServerKey]
+	effectiveChild, ok := effectiveServers[reg.ServerKey]
 	if !ok {
 		return Registration{}, authz.ErrNotFound
 	}
-	childObject, err := decodeJSONObject(child, "MCP server payload")
+	parameters, err := decodeMCPConfigParameters(cfg.Payload)
 	if err != nil {
 		return Registration{}, err
 	}
-	currentPayload, err := decodeMCPPluginChildPayload(child)
+	childParameters, ok := parameters.MCPServers[reg.ServerKey]
+	if !ok {
+		declaration, decodeErr := plugin.DecodeResourcePayload(def.Spec, "MCP definition spec")
+		if decodeErr != nil {
+			return Registration{}, decodeErr
+		}
+		if declaration.Origin == "remote_mcp" {
+			return Registration{}, authz.ErrNotFound
+		}
+		// Fixed packages inherit endpoint parameters from the declaration. An
+		// update materializes only the edited child into the scope config while
+		// preserving the package's immutable resource membership.
+		childParameters, err = mcpParametersFromPayload(effectiveChild)
+		if err != nil {
+			return Registration{}, err
+		}
+		if parameters.MCPServers == nil {
+			parameters.MCPServers = make(map[string]plugin.MCPParameters)
+		}
+	}
+	currentPayload, err := decodeMCPPluginChildPayload(effectiveChild)
 	if err != nil {
 		return Registration{}, err
 	}
@@ -330,7 +334,11 @@ func (a *Access) UpdateChild(ctx context.Context, id string, expectedParentRevis
 	if _, _, oldSecretRef, err = decodeMCPPluginCredentialRefsForKey(cfg.CredentialRefs, plugin.Config{ID: reg.ID, Scope: cfg.Scope, UserID: cfg.UserID, AgentID: cfg.AgentID}, reg.ServerKey, currentPayload.AuthType, currentPayload.CredentialMode); err != nil && currentPayload.AuthType != AuthTypeNone {
 		return Registration{}, err
 	}
-	nextClientID := metadataOAuthClientID(currentPayload.Metadata)
+	nextMetadata := cloneMetadata(currentPayload.Metadata)
+	if in.Metadata != nil {
+		nextMetadata = *in.Metadata
+	}
+	nextClientID := metadataOAuthClientID(nextMetadata)
 	if in.OAuthClientID != nil {
 		nextClientID = *in.OAuthClientID
 	}
@@ -344,51 +352,29 @@ func (a *Access) UpdateChild(ctx context.Context, id string, expectedParentRevis
 	if authType == AuthTypeBearer && sensitiveEdit && in.Token == nil {
 		return Registration{}, fmt.Errorf("%w: mcp: bearer endpoint changes require a replacement token", plugin.ErrInvalidConfig)
 	}
-	childObject["url"], _ = json.Marshal(endpoint)
-	childObject["transport"], _ = json.Marshal(transport)
-	childObject["auth_type"], _ = json.Marshal(authType)
-	if in.Transport != nil {
-		childObject["transport"], _ = json.Marshal(transport)
-	}
-	if in.Metadata != nil {
-		childObject["metadata"], _ = json.Marshal(*in.Metadata)
-	}
+	childParameters.URL = endpoint
+	childParameters.Transport = transport
+	childParameters.AuthType = authType
+	childParameters.CredentialMode = mode
+	childParameters.Metadata = nextMetadata
 	if in.Description != nil {
-		childObject["description"], _ = json.Marshal(*in.Description)
+		description := *in.Description
+		childParameters.Description = &description
 	}
-	childObject["credential_mode"], _ = json.Marshal(mode)
 	if in.OAuthClientID != nil {
-		metadata, err := decodeJSONObject(childObject["metadata"], "MCP metadata")
-		if err != nil {
-			metadata = map[string]json.RawMessage{}
+		metadata := cloneMetadata(nextMetadata)
+		if metadata == nil {
+			metadata = make(map[string]any)
 		}
-		oauthMetadata := map[string]json.RawMessage{}
-		if raw, ok := metadata["oauth"]; ok {
-			oauthMetadata, err = decodeJSONObject(raw, "MCP OAuth metadata")
-			if err != nil {
-				return Registration{}, err
-			}
+		oauthMetadata, ok := metadata["oauth"].(map[string]any)
+		if !ok {
+			oauthMetadata = map[string]any{}
 		}
-		oauthMetadata["client_id"], _ = json.Marshal(*in.OAuthClientID)
-		metadata["oauth"], _ = json.Marshal(oauthMetadata)
-		childObject["metadata"], _ = json.Marshal(metadata)
+		oauthMetadata["client_id"] = *in.OAuthClientID
+		metadata["oauth"] = oauthMetadata
+		childParameters.Metadata = metadata
 	}
-	childRaw, err := json.Marshal(childObject)
-	if err != nil {
-		return Registration{}, err
-	}
-	servers[reg.ServerKey] = childRaw
-	if flatCompat {
-		// The legacy flat decoder treats the whole parent object as the child.
-		// Do not introduce an envelope just because the settings endpoint used a
-		// compatibility child row.
-		for key := range parentObject {
-			delete(parentObject, key)
-		}
-		maps.Copy(parentObject, childObject)
-	} else {
-		parentObject["mcp_servers"], _ = json.Marshal(servers)
-	}
+	parameters.MCPServers[reg.ServerKey] = childParameters
 	keepClientSecret := oldSecretRef != "" && in.OAuthClientSecret == nil && nextClientID != ""
 	if in.OAuthClientSecret != nil && *in.OAuthClientSecret != "" {
 		keepClientSecret = true
@@ -402,26 +388,18 @@ func (a *Access) UpdateChild(ctx context.Context, id string, expectedParentRevis
 		return Registration{}, err
 	}
 	refsChildren := map[string]json.RawMessage{}
-	flatRefs := false
 	if nested, ok := refsObject["mcp_servers"]; ok {
 		refsChildren, err = decodeJSONObject(nested, "MCP credential refs mcp_servers")
 		if err != nil {
 			return Registration{}, err
 		}
-	} else if flatCompat {
-		flatRefs = true
+	} else if len(refsObject) != 0 {
+		return Registration{}, errors.New("MCP credential refs is missing mcp_servers")
 	}
-	if flatRefs {
-		refsObject, err = decodeJSONObject(childRefs, "MCP child credential refs")
-		if err != nil {
-			return Registration{}, err
-		}
-	} else {
-		refsChildren[reg.ServerKey] = childRefs
-		refsObject["mcp_servers"], err = json.Marshal(refsChildren)
-		if err != nil {
-			return Registration{}, err
-		}
+	refsChildren[reg.ServerKey] = childRefs
+	refsObject["mcp_servers"], err = json.Marshal(refsChildren)
+	if err != nil {
+		return Registration{}, err
 	}
 	delete(refsObject, "bearer")
 	delete(refsObject, "oauth_bundle")
@@ -430,7 +408,7 @@ func (a *Access) UpdateChild(ctx context.Context, id string, expectedParentRevis
 	if err != nil {
 		return Registration{}, err
 	}
-	updatedRaw, err := json.Marshal(parentObject)
+	updatedRaw, err := json.Marshal(parameters)
 	if err != nil {
 		return Registration{}, err
 	}
@@ -520,6 +498,49 @@ func childCredentialRefs(childID string, cfg plugin.Config, authType, mode, clie
 	return json.Marshal(refs)
 }
 
+func decodeMCPConfigParameters(raw json.RawMessage) (plugin.ConfigParameters, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return plugin.ConfigParameters{}, nil
+	}
+	return plugin.DecodeConfigParameters(raw)
+}
+
+func mcpParametersFromPayload(raw json.RawMessage) (plugin.MCPParameters, error) {
+	payload, err := decodeMCPPluginChildPayload(raw)
+	if err != nil {
+		return plugin.MCPParameters{}, err
+	}
+	var description *string
+	object, err := decodeJSONObject(raw, "MCP child payload")
+	if err != nil {
+		return plugin.MCPParameters{}, err
+	}
+	if value, ok := object["description"]; ok {
+		var decoded string
+		if err := json.Unmarshal(value, &decoded); err != nil {
+			return plugin.MCPParameters{}, fmt.Errorf("mcp child payload description: %w", err)
+		}
+		description = &decoded
+	}
+	return plugin.MCPParameters{
+		Description:    description,
+		URL:            payload.URL,
+		Transport:      payload.Transport,
+		AuthType:       payload.AuthType,
+		CredentialMode: payload.CredentialMode,
+		Headers:        payload.Headers,
+		Metadata:       payload.Metadata,
+	}, nil
+}
+
+func cloneMetadata(metadata map[string]any) map[string]any {
+	cloned := maps.Clone(metadata)
+	if oauth, ok := cloned["oauth"].(map[string]any); ok {
+		cloned["oauth"] = maps.Clone(oauth)
+	}
+	return cloned
+}
+
 // DeleteChild removes one authored child and CASes its parent configuration.
 func (a *Access) DeleteChild(ctx context.Context, id string, expectedParentRevision int64) error {
 	reg, err := a.GetVisible(ctx, id)
@@ -533,35 +554,27 @@ func (a *Access) DeleteChild(ctx context.Context, id string, expectedParentRevis
 	if err != nil {
 		return err
 	}
-	parentObject, err := decodeJSONObject(cfg.Payload, "MCP config payload")
+	declaration, err := plugin.DecodeResourcePayload(def.Spec, "MCP definition spec")
 	if err != nil {
 		return err
 	}
-	_, hasNestedServers := parentObject["mcp_servers"]
-	flatCompat := reg.ID == cfg.ID && reg.ServerKey == "main" && !hasNestedServers
-	effective, err := plugin.Resolve(def, []plugin.Config{cfg}, cfg.UserID, cfg.AgentID)
+	if declaration.Origin != "remote_mcp" {
+		return authz.ErrForbidden
+	}
+	parameters, err := decodeMCPConfigParameters(cfg.Payload)
 	if err != nil {
 		return err
 	}
-	effectiveObject, err := decodeJSONObject(effective.Payload, "effective MCP config payload")
-	if err != nil {
-		return err
+	if _, ok := parameters.MCPServers[reg.ServerKey]; !ok {
+		return authz.ErrNotFound
 	}
-	servers, err := decodeJSONObject(effectiveObject["mcp_servers"], "MCP mcp_servers payload")
-	if err != nil && !flatCompat {
-		return err
+	delete(parameters.MCPServers, reg.ServerKey)
+	// Keep the empty map explicit. Config patches merge top-level fields, so
+	// omitting mcp_servers would leave the previous selection intact.
+	if len(parameters.MCPServers) == 0 {
+		parameters.MCPServers = map[string]plugin.MCPParameters{}
 	}
-	if flatCompat {
-		// Deleting the only compatibility child deletes its parent config. This
-		// preserves the old settings DELETE contract and lets the common backend
-		// revoke the child UUID's credential family atomically.
-		return a.svc.withPluginMutation(ctx, a.authority, func(mutationCtx context.Context, access *plugin.Access, _ pgx.Tx) error {
-			return access.DeleteConfig(mutationCtx, cfg.PluginID, cfg.ID, expectedParentRevision)
-		})
-	}
-	delete(servers, reg.ServerKey)
-	parentObject["mcp_servers"], _ = json.Marshal(servers)
-	updatedRaw, err := json.Marshal(parentObject)
+	updatedRaw, err := json.Marshal(parameters)
 	if err != nil {
 		return err
 	}
@@ -587,8 +600,9 @@ func (a *Access) DeleteChild(ctx context.Context, id string, expectedParentRevis
 			}
 		}
 	}
+	patch := plugin.ConfigPatch{PayloadSet: true, Payload: updatedRaw, CredentialRefsSet: true, CredentialRefs: updatedRefs}
 	return a.svc.withPluginMutation(ctx, a.authority, func(mutationCtx context.Context, access *plugin.Access, tx pgx.Tx) error {
-		if _, err := updateCredentialChildConfig(mutationCtx, access, tx, cfg, reg.ID, false, plugin.ConfigPatch{PayloadSet: true, Payload: updatedRaw, CredentialRefsSet: true, CredentialRefs: updatedRefs}); err != nil {
+		if _, err := updateCredentialChildConfig(mutationCtx, access, tx, cfg, reg.ID, false, patch); err != nil {
 			return err
 		}
 		return access.DeleteMCPServerChild(mutationCtx, cfg.ID, reg.ID)

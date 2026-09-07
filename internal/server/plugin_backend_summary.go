@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -51,14 +50,6 @@ func hasMCPResources(definitionSpec, configPayload json.RawMessage) bool {
 			if _, ok := object["mcp_servers"]; ok {
 				return true
 			}
-			// A single MCP resource is accepted in the compact authoring form
-			// used by marketplace installs. The backend expands it into the
-			// composable `mcp_servers.main` child during creation.
-			for _, key := range []string{"url", "transport", "auth_type", "credential_mode"} {
-				if _, ok := object[key]; ok {
-					return true
-				}
-			}
 		}
 	}
 	return false
@@ -88,25 +79,7 @@ func cliBackendSummary(definitionSpec, configPayload json.RawMessage, enabled *b
 	if err != nil {
 		return result, err
 	}
-	// A package can carry MCP and CLI resources together. Project only the
-	// allowlisted CLI keys so MCP endpoint/auth fields and package metadata do
-	// not make the safe summary decoder reject the whole package.
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &object); err != nil || object == nil {
-		return result, fmt.Errorf("resolved CLI payload: invalid object")
-	}
-	allowed := map[string]struct{}{"description": {}, "category": {}, "prompt": {}, "binaries": {}, "skills": {}, "session_env": {}, "oauth_provider": {}, "oauth": {}}
-	filtered := make(map[string]json.RawMessage)
-	for key, value := range object {
-		if _, ok := allowed[key]; ok {
-			filtered[key] = value
-		}
-	}
-	filteredRaw, err := json.Marshal(filtered)
-	if err != nil {
-		return result, fmt.Errorf("resolved CLI payload: %w", err)
-	}
-	payload, err := pluginpkg.DecodeResourcePayload(filteredRaw, "resolved CLI payload")
+	payload, err := pluginpkg.DecodeResourcePayload(raw, "resolved CLI payload")
 	if err != nil {
 		return result, err
 	}
@@ -143,25 +116,19 @@ func cliBackendSummary(definitionSpec, configPayload json.RawMessage, enabled *b
 			})
 		}
 	}
-	result.OauthProviderConfigured = strings.TrimSpace(payload.OAuthProvider) != "" || len(payload.OAuth) > 0
+	result.OauthProviderConfigured = len(payload.OAuth) > 0
 	return result, nil
 }
 
 func mergeCLISummaryPayload(definitionSpec, configPayload json.RawMessage) (json.RawMessage, error) {
-	base := map[string]json.RawMessage{}
-	if !emptyJSON(definitionSpec) {
-		if err := json.Unmarshal(definitionSpec, &base); err != nil || base == nil {
-			return nil, fmt.Errorf("invalid CLI definition payload")
-		}
+	if emptyJSON(configPayload) {
+		configPayload = json.RawMessage(`{}`)
 	}
-	if !emptyJSON(configPayload) {
-		var overlay map[string]json.RawMessage
-		if err := json.Unmarshal(configPayload, &overlay); err != nil || overlay == nil {
-			return nil, fmt.Errorf("invalid CLI config payload")
-		}
-		maps.Copy(base, overlay)
+	merged, err := pluginpkg.MergeDefinitionConfig(definitionSpec, configPayload)
+	if err != nil {
+		return nil, fmt.Errorf("invalid CLI config payload: %w", err)
 	}
-	return json.Marshal(base)
+	return merged, nil
 }
 
 type mcpSummaryPayload struct {
@@ -223,32 +190,18 @@ func mcpResourceSummaries(definitionSpec, configPayload, credentialRefs json.Raw
 		}
 		return out, nil
 	}
-	refs, err := decodeMCPCredentialSummaryRefs(credentialRefs, "main")
-	if err != nil {
-		return nil, err
-	}
-	value, err := mcpResourceSummaryForPayload("main", merged, refs, childByKey["main"], revision)
-	if err != nil {
-		return nil, err
-	}
-	return []apitypes.PluginMCPServerSummary{value}, nil
+	return []apitypes.PluginMCPServerSummary{}, nil
 }
 
 func mergeMCPBackendSummaryObjects(definitionSpec, configPayload json.RawMessage) (json.RawMessage, error) {
-	base := map[string]json.RawMessage{}
-	if !emptyJSON(definitionSpec) {
-		if err := json.Unmarshal(definitionSpec, &base); err != nil || base == nil {
-			return nil, fmt.Errorf("invalid MCP definition payload")
-		}
+	if emptyJSON(configPayload) {
+		configPayload = json.RawMessage(`{}`)
 	}
-	if !emptyJSON(configPayload) {
-		var overlay map[string]json.RawMessage
-		if err := json.Unmarshal(configPayload, &overlay); err != nil || overlay == nil {
-			return nil, fmt.Errorf("invalid MCP config payload")
-		}
-		maps.Copy(base, overlay)
+	merged, err := pluginpkg.MergeDefinitionConfig(definitionSpec, configPayload)
+	if err != nil {
+		return nil, fmt.Errorf("invalid MCP config payload: %w", err)
 	}
-	return json.Marshal(base)
+	return merged, nil
 }
 
 func mcpResourceSummaryForPayload(key string, raw json.RawMessage, refs mcpCredentialSummaryRefs, child pluginpkg.MCPServerChild, revision int64) (apitypes.PluginMCPServerSummary, error) {
@@ -340,11 +293,7 @@ func decodeMCPCredentialSummaryRefs(raw json.RawMessage, key string) (mcpCredent
 		}
 		return refs, nil
 	}
-	var refs mcpCredentialSummaryRefs
-	if err := json.Unmarshal(raw, &refs); err != nil {
-		return refs, fmt.Errorf("invalid MCP credential refs: %w", err)
-	}
-	return refs, nil
+	return mcpCredentialSummaryRefs{}, nil
 }
 
 func emptyJSON(raw json.RawMessage) bool {

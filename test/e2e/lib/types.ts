@@ -7,6 +7,7 @@ export interface PluginDefinition {
   is_default_enabled: boolean;
   spec: Record<string, unknown>;
   revision: number;
+  retired_at?: string | null;
   created_at: string;
   updated_at: string;
 }

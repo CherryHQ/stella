@@ -39,9 +39,9 @@ func TestAppendCLIResourcesCarriesIdentityAndClonesOptions(t *testing.T) {
 		Binaries: []plugin.BinaryResource{{Name: "demo", Tool: "github:demo/demo", Version: "1.2.3", Options: options}},
 		Skills:   []plugin.SkillResource{{Name: "demo"}},
 		SessionEnvs: []plugin.SessionEnvResource{{
-			EnvVar: "DEMO_TOKEN", Source: "oauth", Required: true,
+			EnvVar: "DEMO_TOKEN", Source: "oauth.access_token", Required: true,
 		}},
-		OAuthProvider: "demo-oauth",
+		OAuth: []plugin.OAuthRequirement{{Provider: "demo-oauth", Bindings: []plugin.OAuthBinding{{Credential: "access_token", EnvVar: "DEMO_TOKEN"}}}},
 	})
 
 	options["extras"] = "mutated"

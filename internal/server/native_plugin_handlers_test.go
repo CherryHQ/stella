@@ -29,6 +29,7 @@ func TestNativePluginHandlers(t *testing.T) {
 		mutations++
 		return env.deps.PoolManager.ApplyPluginMutation(ctx, mutate)
 	})
+	policy.SetAgentAccess(env.deps.AgentAccess)
 	env.rebuild(t, func(deps *server.Deps) { deps.NativePolicy = policy })
 	for _, id := range []string{"native-a", "native-b"} {
 		if err := env.store.CreateAgent(t.Context(), config.Agent{
@@ -183,6 +184,7 @@ func TestNativePluginHandlers(t *testing.T) {
 			}
 			return err
 		})
+		uncertain.SetAgentAccess(env.deps.AgentAccess)
 		env.rebuild(t, func(deps *server.Deps) { deps.NativePolicy = uncertain })
 		check(t, doRequest(t, env, http.MethodPatch, base, map[string]any{"is_enabled": false}), http.StatusInternalServerError)
 		if enabled, err := policy.GlobalEnabled(t.Context(), "channel/telegram"); err != nil || enabled {

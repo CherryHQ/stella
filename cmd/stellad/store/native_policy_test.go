@@ -6,6 +6,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/plugin"
 )
@@ -91,7 +92,8 @@ func (s failingNativeDenyStore) ListNativeAgentDenials(context.Context, string) 
 
 type atomicAdmissionStore struct {
 	config.Store
-	reads int
+	reads  int
+	writes int
 }
 
 func (s *atomicAdmissionStore) GetPlugin(context.Context, string) (config.Plugin, error) {
@@ -99,6 +101,7 @@ func (s *atomicAdmissionStore) GetPlugin(context.Context, string) (config.Plugin
 }
 
 func (s *atomicAdmissionStore) SetNativePluginEnabled(context.Context, string, bool) error {
+	s.writes++
 	return nil
 }
 
@@ -112,10 +115,12 @@ func (s *atomicAdmissionStore) GetNativeAdmission(context.Context, string, strin
 }
 
 func (s *atomicAdmissionStore) SetNativeAgentDeny(context.Context, string, string) error {
+	s.writes++
 	return nil
 }
 
 func (s *atomicAdmissionStore) DeleteNativeAgentDeny(context.Context, string, string) error {
+	s.writes++
 	return nil
 }
 
@@ -138,12 +143,45 @@ func TestNativeAdministrativeCapUsesAtomicAdmissionRead(t *testing.T) {
 func TestNativePolicyMutationRequiresFence(t *testing.T) {
 	store := &atomicAdmissionStore{}
 	policy := plugin.NewNativePolicy(store, nativeRegistry{"system/email": true})
-	if err := policy.SetGlobalEnabled(t.Context(), "system/email", false); !errors.Is(err, plugin.ErrNativePolicyUnavailable) {
+	admin, err := authz.NewUserAuthority("admin", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := policy.SetGlobalEnabled(t.Context(), authz.Authority{}, "system/email", false); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("mutation without authority = %v, want authz.ErrForbidden", err)
+	}
+	if err := policy.SetGlobalEnabled(t.Context(), admin, "system/email", false); !errors.Is(err, plugin.ErrNativePolicyUnavailable) {
 		t.Fatalf("mutation without fence = %v, want ErrNativePolicyUnavailable", err)
 	}
 	policy.SetMutationFence(func(_ context.Context, mutate func() error) error { return mutate() })
-	if err := policy.SetGlobalEnabled(t.Context(), "system/email", false); err != nil {
+	if err := policy.SetGlobalEnabled(t.Context(), admin, "system/email", false); err != nil {
 		t.Fatalf("mutation with inline fence = %v", err)
+	}
+}
+
+func TestNativePolicyMutationRequiresAdmin(t *testing.T) {
+	store := &atomicAdmissionStore{}
+	policy := plugin.NewNativePolicy(store, nativeRegistry{"system/email": true})
+	user, err := authz.NewUserAuthority("user", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fenceCalls := 0
+	policy.SetMutationFence(func(_ context.Context, mutate func() error) error {
+		fenceCalls++
+		return mutate()
+	})
+	for _, mutate := range []func() error{
+		func() error { return policy.SetGlobalEnabled(t.Context(), user, "system/email", false) },
+		func() error { return policy.SetAgentDeny(t.Context(), user, "system/email", "agent") },
+		func() error { return policy.DeleteAgentDeny(t.Context(), user, "system/email", "agent") },
+	} {
+		if err := mutate(); !errors.Is(err, authz.ErrForbidden) {
+			t.Fatalf("non-admin mutation = %v, want authz.ErrForbidden", err)
+		}
+	}
+	if fenceCalls != 0 || store.writes != 0 {
+		t.Fatalf("non-admin mutation side effects = fence %d, store %d; want zero", fenceCalls, store.writes)
 	}
 }
 

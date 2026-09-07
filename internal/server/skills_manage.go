@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"io/fs"
@@ -31,6 +32,10 @@ func skillFileResponse(path, content string) map[string]string {
 // writeConflictOrInternal maps caller-correctable Skill mutations before using
 // the shared internal-error response for storage failures.
 func (s *Server) writeConflictOrInternal(w http.ResponseWriter, err error) {
+	if code, msg := skillAccessError(err); code != http.StatusInternalServerError {
+		writeError(w, code, msg)
+		return
+	}
 	if errors.Is(err, skill.ErrInvalidSkillFilePath) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -52,6 +57,10 @@ func (s *Server) writeManagedSkillError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusServiceUnavailable, "managed Skills are unavailable; check the server log, repair the reported storage problem, and restart Stella")
 		return
 	}
+	if code, msg := skillAccessError(err); code != http.StatusInternalServerError {
+		writeError(w, code, msg)
+		return
+	}
 	s.writeInternalError(w, err)
 }
 
@@ -66,56 +75,33 @@ func (s *Server) writeManagedSkillError(w http.ResponseWriter, err error) {
 //   - system        managed by admins, available everywhere
 //   - system_agent  managed by admins, scoped to one agent
 
-// skillScopeOwner maps a (scope, userID, agentID) triple to the owner columns a
-// skill row of that scope is allowed to carry, per the skill table CHECK.
-func skillScopeOwner(scope, userID, agentID string) (uid, aid string) {
-	switch scope {
-	case "user":
-		return userID, ""
-	case "user_agent":
-		return userID, agentID
-	case "system_agent":
-		return "", agentID
-	default: // system
-		return "", ""
-	}
-}
-
-// resolveSkillManageScope validates the requested management scope shape and
-// authorizes managing that scope bucket, returning the owner columns a row of
-// that scope carries. user/user_agent bind the acting user; system/system_agent
-// require the admin superuser; agent-bound scopes fold an agent-read gate into
-// the authorization. On failure it writes the response and returns ok=false.
-func (s *Server) resolveSkillManageScope(w http.ResponseWriter, r *http.Request, info *AuthInfo, scope, agentID string) (string, string, *access.Access, bool) {
+// validateSkillManageScope checks transport shape; Management owns authorization.
+func validateSkillManageScope(w http.ResponseWriter, scope, agentID string) bool {
 	switch scope {
 	case "user", "system":
-		agentID = ""
 	case "user_agent":
 		if agentID == "" {
 			writeError(w, http.StatusBadRequest, "agent_id is required for user_agent scope")
-			return "", "", nil, false
+			return false
 		}
 	case "system_agent":
 		if agentID == "" {
 			writeError(w, http.StatusBadRequest, "agent_id is required for system_agent scope")
-			return "", "", nil, false
+			return false
 		}
 	default:
 		writeError(w, http.StatusBadRequest, "invalid scope")
-		return "", "", nil, false
+		return false
 	}
-	acc, code, msg := s.beginSkillAccess(r.Context())
-	if code != 0 {
-		writeError(w, code, msg)
-		return "", "", nil, false
+	return true
+}
+
+func (s *Server) skillManagementAuthority(ctx context.Context) (authz.Authority, error) {
+	info := UserFromContext(ctx)
+	if info == nil {
+		return authz.Authority{}, access.ErrForbidden
 	}
-	uid, aid, err := acc.AuthorizeManageScope(r.Context(), scope, agentID)
-	if err != nil {
-		code, msg := skillAccessError(err)
-		writeError(w, code, msg)
-		return "", "", nil, false
-	}
-	return uid, aid, acc, true
+	return info.authority()
 }
 
 // scopedSkillByID loads a DB skill by id and authorizes the given action. It
@@ -142,12 +128,16 @@ func (s *Server) dbSkillView(r *http.Request, sk *skill.Skill) (skillView, error
 	if err != nil {
 		return skillView{}, err
 	}
-	files := make([]string, 0, len(revision.Files))
-	for path := range revision.Files {
-		files = append(files, path)
+	return storedSkillToView(revision.Skill, sortedSkillFiles(revision.Files)), nil
+}
+
+func sortedSkillFiles(files map[string][]byte) []string {
+	paths := make([]string, 0, len(files))
+	for file := range files {
+		paths = append(paths, file)
 	}
-	sort.Strings(files)
-	return storedSkillToView(revision.Skill, files), nil
+	sort.Strings(paths)
+	return paths
 }
 
 func committedSkillView(snapshot skill.SkillSnapshot) skillView {
@@ -169,25 +159,23 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 	if params.AgentId != nil {
 		agentID = *params.AgentId
 	}
-	userID, agentID, acc, ok := s.resolveSkillManageScope(w, r, info, scope, agentID)
-	if !ok {
+	if !validateSkillManageScope(w, scope, agentID) {
 		return
 	}
-	rows, err := s.skills.ListIdentityByScope(r.Context(), scope, userID, agentID)
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return
+	}
+	rows, err := s.skillManagement.List(r.Context(), authority, scope, agentID)
 	if err != nil {
 		s.writeManagedSkillError(w, err)
 		return
 	}
 	out := make([]skillView, 0, len(rows))
 	for i := range rows {
-		if err := acc.AuthorizeRead(r.Context(), rows[i]); err != nil {
-			if errors.Is(err, access.ErrNotFound) || errors.Is(err, access.ErrForbidden) {
-				continue
-			}
-			s.writeManagedSkillError(w, err)
-			return
-		}
-		view, err := s.dbSkillView(r, &rows[i])
+		revision, err := s.skillManagement.Get(r.Context(), authority, rows[i].ID)
 		if skill.IsCurrentSelectorMissing(err) {
 			s.warnMissingSkillSelector(rows[i], err)
 			continue
@@ -196,7 +184,7 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 			s.writeManagedSkillError(w, err)
 			return
 		}
-		out = append(out, view)
+		out = append(out, storedSkillToView(revision.Skill, sortedSkillFiles(revision.Files)))
 	}
 	writeData(w, http.StatusOK, map[string]any{"skills": out})
 }
@@ -224,8 +212,7 @@ func (s *Server) CreateScopedSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	userID, agentID, _, ok := s.resolveSkillManageScope(w, r, info, req.Scope, req.AgentID)
-	if !ok {
+	if !validateSkillManageScope(w, req.Scope, req.AgentID) {
 		return
 	}
 	files := req.Files
@@ -236,16 +223,16 @@ func (s *Server) CreateScopedSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "files must include SKILL.md")
 		return
 	}
-	uid, aid := skillScopeOwner(req.Scope, userID, agentID)
-	sk := skill.Skill{
-		Scope:                  req.Scope,
-		UserID:                 uid,
-		AgentID:                aid,
-		Name:                   req.Name,
-		Description:            req.Description,
-		DisableModelInvocation: req.DisableModelInvocation,
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return
 	}
-	snapshot, err := s.skills.CreateManagedSkill(r.Context(), sk, files)
+	snapshot, err := s.skillManagement.Create(r.Context(), authority, skill.ManagedCreate{
+		Scope: req.Scope, TargetAgentID: req.AgentID, Name: req.Name,
+		Description: req.Description, DisableModelInvocation: req.DisableModelInvocation, Files: files,
+	})
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
@@ -273,8 +260,13 @@ func (s *Server) InstallScopedSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "source is required")
 		return
 	}
-	userID, agentID, _, ok := s.resolveSkillManageScope(w, r, info, req.Scope, req.AgentID)
-	if !ok {
+	if !validateSkillManageScope(w, req.Scope, req.AgentID) {
+		return
+	}
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
 		return
 	}
 	ctx := r.Context()
@@ -285,7 +277,7 @@ func (s *Server) InstallScopedSkill(w http.ResponseWriter, r *http.Request) {
 			ctx = skill.WithGitHubToken(ctx, token)
 		}
 	}
-	snapshot, err := skill.InstallToStore(ctx, s.skills, req.Source, req.Scope, userID, agentID)
+	snapshot, err := s.skillManagement.Install(ctx, authority, skill.ManagedInstall{Source: req.Source, Scope: req.Scope, TargetAgentID: req.AgentID})
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
@@ -309,22 +301,20 @@ func (s *Server) UploadScopedSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := r.FormValue("scope")
-	userID, agentID, _, ok := s.resolveSkillManageScope(w, r, info, scope, r.FormValue("agent_id"))
-	if !ok {
+	agentID := r.FormValue("agent_id")
+	if !validateSkillManageScope(w, scope, agentID) {
 		return
 	}
-	uid, aid := skillScopeOwner(scope, userID, agentID)
-	sk := skill.Skill{
-		Scope:                  scope,
-		UserID:                 uid,
-		AgentID:                aid,
-		Name:                   up.name,
-		Description:            up.description,
-		Status:                 skill.SkillStatusActive,
-		DisableModelInvocation: up.disableModelInvocation,
-		Metadata:               up.metadata,
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return
 	}
-	snapshot, err := s.skills.CreateManagedSkill(r.Context(), sk, up.files)
+	snapshot, err := s.skillManagement.Create(r.Context(), authority, skill.ManagedCreate{
+		Scope: scope, TargetAgentID: agentID, Name: up.name, Description: up.description,
+		DisableModelInvocation: up.disableModelInvocation, Metadata: up.metadata, Files: up.files,
+	})
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
@@ -334,38 +324,44 @@ func (s *Server) UploadScopedSkill(w http.ResponseWriter, r *http.Request) {
 
 // GetScopedSkill handles GET /api/skills/{id}.
 func (s *Server) GetScopedSkill(w http.ResponseWriter, r *http.Request, id string) {
-	sk := s.scopedSkillByID(w, r, id, authz.ActionRead)
-	if sk == nil {
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
 		return
 	}
-	view, err := s.dbSkillView(r, sk)
+	revision, err := s.skillManagement.Get(r.Context(), authority, id)
 	if err != nil {
 		s.writeManagedSkillError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, view)
+	writeData(w, http.StatusOK, storedSkillToView(revision.Skill, sortedSkillFiles(revision.Files)))
 }
 
 // UpdateScopedSkill handles PATCH /api/skills/{id}.
 func (s *Server) UpdateScopedSkill(w http.ResponseWriter, r *http.Request, id string) {
-	sk := s.scopedSkillByID(w, r, id, authz.ActionWrite)
-	if sk == nil {
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
 		return
 	}
-	s.applySkillUpdate(w, r, sk)
+	s.applySkillUpdate(w, r, authority, id)
 }
 
 // DeleteScopedSkill handles DELETE /api/skills/{id}.
 func (s *Server) DeleteScopedSkill(w http.ResponseWriter, r *http.Request, id string, params apiserver.DeleteScopedSkillParams) {
-	sk := s.scopedSkillByID(w, r, id, authz.ActionDelete)
-	if sk == nil {
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
 		return
 	}
 	expectedDigest := ""
 	if params.ExpectedDigest != nil {
 		expectedDigest = *params.ExpectedDigest
 	}
-	s.doDeleteSkill(w, r, *sk, expectedDigest)
+	s.doDeleteSkill(w, r, authority, id, expectedDigest)
 }
 
 // GetScopedSkillFile handles GET /api/skills/{id}/file.
@@ -390,13 +386,15 @@ func (s *Server) GetScopedSkillFile(w http.ResponseWriter, r *http.Request, id s
 
 // DeleteScopedSkillFile handles DELETE /api/skills/{id}/file.
 func (s *Server) DeleteScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, params apiserver.DeleteScopedSkillFileParams) {
-	sk := s.scopedSkillByID(w, r, id, authz.ActionWrite)
-	if sk == nil {
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
 		return
 	}
 	expectedDigest := ""
 	if params.ExpectedDigest != nil {
 		expectedDigest = *params.ExpectedDigest
 	}
-	s.doDeleteSkillFile(w, r, *sk, params.Path, expectedDigest)
+	s.doDeleteSkillFile(w, r, authority, id, params.Path, expectedDigest)
 }

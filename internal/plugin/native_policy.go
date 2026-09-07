@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/CherryHQ/stella/internal/authz"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
@@ -72,6 +74,7 @@ type NativeAgentDeny struct {
 type NativePolicy struct {
 	store    NativeStore
 	registry NativeRegistry
+	agents   *agentaccess.Service
 	fence    MutationFence
 }
 
@@ -85,6 +88,15 @@ func NewNativePolicy(store NativeStore, registry NativeRegistry) *NativePolicy {
 func (p *NativePolicy) SetMutationFence(fence MutationFence) {
 	if p != nil {
 		p.fence = fence
+	}
+}
+
+// SetAgentAccess binds the Agent PEP used by native management writes. Native
+// admission remains independent of Agent policy; only the admin operation that
+// changes a per-Agent deny needs to prove the target Agent is visible.
+func (p *NativePolicy) SetAgentAccess(agents *agentaccess.Service) {
+	if p != nil {
+		p.agents = agents
 	}
 }
 
@@ -158,7 +170,10 @@ func (p *NativePolicy) NativeIDs() []string {
 	return p.registry.NativeIDs()
 }
 
-func (p *NativePolicy) SetGlobalEnabled(ctx context.Context, nativeID string, enabled bool) error {
+func (p *NativePolicy) SetGlobalEnabled(ctx context.Context, authority authz.Authority, nativeID string, enabled bool) error {
+	if err := requireNativeAdmin(authority); err != nil {
+		return err
+	}
 	if p == nil || p.store == nil || p.registry == nil {
 		return ErrNativePolicyUnavailable
 	}
@@ -171,18 +186,38 @@ func (p *NativePolicy) SetGlobalEnabled(ctx context.Context, nativeID string, en
 	})
 }
 
-func (p *NativePolicy) SetAgentDeny(ctx context.Context, nativeID, agentID string) error {
-	if !p.IsRegistered(nativeID) {
-		return fmt.Errorf("%w: %q", ErrUnknownNativeID, nativeID)
+func (p *NativePolicy) SetAgentDeny(ctx context.Context, authority authz.Authority, nativeID, agentID string) error {
+	if err := p.authorizeAgentManagement(ctx, authority, nativeID, agentID); err != nil {
+		return err
 	}
 	return p.mutate(ctx, func() error { return p.store.SetNativeAgentDeny(ctx, nativeID, agentID) })
 }
 
-func (p *NativePolicy) DeleteAgentDeny(ctx context.Context, nativeID, agentID string) error {
+func (p *NativePolicy) DeleteAgentDeny(ctx context.Context, authority authz.Authority, nativeID, agentID string) error {
+	if err := p.authorizeAgentManagement(ctx, authority, nativeID, agentID); err != nil {
+		return err
+	}
+	return p.mutate(ctx, func() error { return p.store.DeleteNativeAgentDeny(ctx, nativeID, agentID) })
+}
+
+func (p *NativePolicy) authorizeAgentManagement(ctx context.Context, authority authz.Authority, nativeID, agentID string) error {
+	if err := requireNativeAdmin(authority); err != nil {
+		return err
+	}
 	if !p.IsRegistered(nativeID) {
 		return fmt.Errorf("%w: %q", ErrUnknownNativeID, nativeID)
 	}
-	return p.mutate(ctx, func() error { return p.store.DeleteNativeAgentDeny(ctx, nativeID, agentID) })
+	if p.agents == nil {
+		return ErrNativePolicyUnavailable
+	}
+	return p.agents.Authorize(ctx, authority, agentID, authz.ActionRead)
+}
+
+func requireNativeAdmin(authority authz.Authority) error {
+	if !authority.Valid() || authority.Kind() != authz.ActorUser || !authority.IsAdmin() {
+		return authz.ErrForbidden
+	}
+	return nil
 }
 
 func (p *NativePolicy) ListAgentDenials(ctx context.Context, nativeID string) ([]NativeAgentDeny, error) {

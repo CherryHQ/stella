@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -126,96 +125,29 @@ func loadAgentDefinition(root, relative string) (builtinDefinition, error) {
 	}
 
 	displayName := pkg.Manifest.Name
-	prompt := ""
-	payload := plugin.ResourcePayload{Description: pkg.Manifest.Description}
-	if pkg.Extension != nil {
-		if pkg.Extension.DisplayName != "" {
-			displayName = pkg.Extension.DisplayName
-		}
-		prompt = pkg.Extension.Prompt
-		payload.Prompt = prompt
-		for _, binary := range pkg.Extension.Binaries {
-			payload.Binaries = append(payload.Binaries, plugin.BinaryResource{
-				Name: binary.Name, Tool: binary.Tool, Version: binary.Version,
-				Options: cloneRawOptions(binary.Options),
-			})
-		}
-		for _, env := range pkg.Extension.SessionEnv {
-			payload.SessionEnvs = append(payload.SessionEnvs, plugin.SessionEnvResource{
-				EnvVar: env.EnvVar, Source: env.Source, Required: env.Required,
-			})
-		}
-		for _, requirement := range pkg.Extension.OAuth {
-			converted := plugin.OAuthRequirement{Provider: requirement.Provider, Scopes: slices.Clone(requirement.Scopes)}
-			for _, binding := range requirement.Bindings {
-				converted.Bindings = append(converted.Bindings, plugin.OAuthBinding{
-					Credential: binding.Credential, EnvVar: binding.EnvVar, Connection: binding.Connection,
-				})
-			}
-			payload.OAuth = append(payload.OAuth, converted)
-		}
-		if len(payload.OAuth) == 1 {
-			payload.OAuthProvider = payload.OAuth[0].Provider
-		}
+	if pkg.Extension != nil && pkg.Extension.DisplayName != "" {
+		displayName = pkg.Extension.DisplayName
 	}
-	for _, server := range pkg.MCPServers {
-		transport, ok := agentMCPTransport(server.Type)
-		if !ok {
-			return builtinDefinition{}, fmt.Errorf("agent package %q MCP server %q uses unsupported transport %q", relative, server.Name, server.Type)
-		}
-		if payload.MCPServers == nil {
-			payload.MCPServers = make(map[string]plugin.MCPServerResource)
-		}
-		payload.MCPServers[server.Name] = plugin.MCPServerResource{
-			URL: server.URL, Transport: transport, AuthType: "none", CredentialMode: "shared",
-			Headers: cloneStringMap(server.Headers),
-		}
+	payload, err := plugin.ResourcePayloadFromAgentPackage(pkg)
+	if err != nil {
+		return builtinDefinition{}, fmt.Errorf("convert Agent package %q resources: %w", relative, err)
 	}
-	for _, skill := range pkg.Skills {
-		payload.Skills = append(payload.Skills, plugin.SkillResource{Name: skill.Name})
+	assetsDigest, err := agentpackage.DirectoryDigest(root)
+	if err != nil {
+		return builtinDefinition{}, fmt.Errorf("digest Agent package %q assets: %w", relative, err)
 	}
+	payload.Content = &plugin.ContentReference{Digest: assetsDigest}
 	spec, err := json.Marshal(payload)
 	if err != nil {
 		return builtinDefinition{}, fmt.Errorf("encode Agent package %q resources: %w", relative, err)
 	}
+	spec, err = plugin.PublishDefinitionSpec(spec)
+	if err != nil {
+		return builtinDefinition{}, fmt.Errorf("publish Agent package %q definition: %w", relative, err)
+	}
 	return builtinDefinition{
 		ID: pkg.Manifest.Name, DisplayName: displayName, DefaultEnabled: true, Revision: 1, Spec: spec,
 	}, nil
-}
-
-func cloneStringMap(in map[string]string) map[string]string {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	maps.Copy(out, in)
-	return out
-}
-
-func agentMCPTransport(transport string) (string, bool) {
-	switch transport {
-	case "streamable-http":
-		return "streamable_http", true
-	case "sse":
-		return "sse", true
-	default:
-		return "", false
-	}
-}
-
-func cloneRawOptions(options map[string]json.RawMessage) map[string]any {
-	if len(options) == 0 {
-		return nil
-	}
-	out := make(map[string]any, len(options))
-	for key, raw := range options {
-		var value any
-		if err := json.Unmarshal(raw, &value); err != nil {
-			continue
-		}
-		out[key] = value
-	}
-	return out
 }
 
 func validateBuiltinDefinitions(definitions []builtinDefinition, reservedRuntimeNames []string, oauthProviderIDs map[string]struct{}) error {

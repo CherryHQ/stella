@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/plugin"
 )
 
 func TestCommonAuthNoneCRUDWorksWithoutVault(t *testing.T) {
@@ -17,11 +18,15 @@ func TestCommonAuthNoneCRUDWorksWithoutVault(t *testing.T) {
 	svc.bindVault = nil
 	configID := uuid.NewString()
 	pluginID := "mcp-" + configID[:8]
+	spec, err := plugin.PublishDefinitionSpec([]byte(`{"origin":"remote_mcp","mcp_servers":{"main":{}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := svc.pool.Exec(t.Context(), `
 		INSERT INTO plugin_definition(id, display_name, source,
 			spec, default_enabled, revision, creator_user_id)
-		VALUES ($1, $2, 'custom', '{"mcp_servers":{}}'::jsonb, false, 1, $3::uuid)`,
-		pluginID, "Auth None", userID); err != nil {
+		VALUES ($1, $2, 'custom', $4::jsonb, false, 1, $3::uuid)`,
+		pluginID, "Auth None", userID, spec); err != nil {
 		t.Fatalf("seed common definition: %v", err)
 	}
 	authority, err := authz.NewUserAuthority(authz.UserID(userID), true)
@@ -191,7 +196,11 @@ func seedCommonConfig(t *testing.T, pool *pgxpool.Pool, userID string, revision 
 	configID := uuid.NewString()
 	pluginID := "mcp-" + configID[:8]
 	ctx := context.Background()
-	if _, err := pool.Exec(ctx, `INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision, creator_user_id) VALUES($1,$2,'custom','{"mcp_servers":{}}',false,1,$3)`, pluginID, "MCP "+configID[:8], userID); err != nil {
+	spec, err := plugin.PublishDefinitionSpec([]byte(`{"origin":"remote_mcp","mcp_servers":{"main":{}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision, creator_user_id) VALUES($1,$2,'custom',$4::jsonb,false,1,$3)`, pluginID, "MCP "+configID[:8], userID, spec); err != nil {
 		t.Fatal(err)
 	}
 	payload := `{"mcp_servers":{"main":{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"` + authType + `"}}}`

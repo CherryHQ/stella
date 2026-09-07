@@ -74,7 +74,11 @@ func setup(t *testing.T) (svc *mcp.Service, q *sqlc.Queries, userID, agentID str
 	svc.SetPluginService(plugin.NewService(db, agents, plugin.NewCatalog(), mcp.NewMCPBackendPolicy(policy), func(_ context.Context, fn func() error) error {
 		return fn()
 	}))
-	if _, err := db.Exec(ctx, `INSERT INTO plugin_definition(id,display_name,source,spec,default_enabled,revision,creator_user_id) VALUES($1,'MCP integration','custom','{"mcp_servers":{}}',false,1,$2)`, integrationPluginID, user.ID); err != nil {
+	spec, err := plugin.PublishDefinitionSpec([]byte(`{"origin":"remote_mcp","mcp_servers":{"main":{}}}`))
+	if err != nil {
+		t.Fatalf("publish MCP definition: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO plugin_definition(id,display_name,source,spec,default_enabled,revision,creator_user_id) VALUES($1,'MCP integration','custom',$3::jsonb,false,1,$2)`, integrationPluginID, user.ID, spec); err != nil {
 		t.Fatalf("Create common MCP definition: %v", err)
 	}
 	if _, err := db.Exec(ctx, `
@@ -151,10 +155,14 @@ func TestCredentialEncryptedAtRest(t *testing.T) {
 func TestUpdateRedactsMalformedLegacyEndpoint(t *testing.T) {
 	ctx := context.Background()
 	const raw = "https://legacy-user:legacy-pass@example.test/%zz?token=legacy-query#legacy-fragment"
-	def := plugin.Definition{ID: integrationPluginID, DisplayName: "MCP integration", Source: plugin.SourceCustom, Spec: json.RawMessage(`{"mcp_servers":{}}`), Revision: 1}
+	spec, err := plugin.PublishDefinitionSpec(json.RawMessage(`{"origin":"remote_mcp","mcp_servers":{"main":{}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := plugin.Definition{ID: integrationPluginID, DisplayName: "MCP integration", Source: plugin.SourceCustom, Spec: spec, Revision: 1}
 	enabled := true
 	cfg := plugin.Config{ID: uuid.NewString(), PluginID: def.ID, Scope: plugin.ScopeUser, UserID: "user", Enabled: &enabled, Payload: json.RawMessage(`{"mcp_servers":{"main":{"url":"` + raw + `","transport":"streamable_http","auth_type":"none","credential_mode":"shared"}}}`), CredentialRefs: json.RawMessage(`{"mcp_servers":{"main":{}}}`), Revision: 1}
-	err := mcp.ValidateMCPPayload(ctx, mcp.EndpointPolicy{AllowPrivate: true}, def, cfg, nil)
+	err = mcp.ValidateMCPPayload(ctx, mcp.EndpointPolicy{AllowPrivate: true}, def, cfg, nil)
 	if err == nil {
 		t.Fatal("malformed common URL succeeded validation")
 	}

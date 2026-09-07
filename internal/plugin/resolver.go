@@ -8,6 +8,9 @@ func Resolve(def Definition, configs []Config, userID, agentID string) (Effectiv
 	if err := def.Validate(); err != nil {
 		return Effective{}, err
 	}
+	if !def.RetiredAt.IsZero() {
+		return Effective{PluginID: def.ID, IsEffectivelyEnabled: false, AvailabilityReason: "retired", Payload: cloneRaw(def.Spec)}, nil
+	}
 	byScope := make(map[Scope]Config, len(configs))
 	for _, config := range configs {
 		if config.PluginID != def.ID {
@@ -72,7 +75,7 @@ func effectiveFrom(def Definition, config Config) Effective {
 	}
 	payload := cloneRaw(config.Payload)
 	if len(config.Payload) != 0 {
-		if resolved, err := mergeObjects(def.Spec, config.Payload); err == nil {
+		if resolved, err := MergeDefinitionConfig(def.Spec, config.Payload); err == nil {
 			payload = resolved
 		}
 	}

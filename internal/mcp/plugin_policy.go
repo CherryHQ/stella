@@ -266,6 +266,12 @@ func mcpExecutionIdentities(def plugin.Definition, cfg plugin.Config) (map[strin
 	if len(cfg.Payload) == 0 {
 		return map[string]mcpConnectionIdentity{}, nil
 	}
+	// Non-resource plugin parameters do not participate in MCP credential
+	// identity. Ignore them before the formal MCP resolver rejects unrelated
+	// legacy fields such as prompt text.
+	if !payloadHasMCP(def.Spec) && !payloadHasMCP(cfg.Payload) {
+		return map[string]mcpConnectionIdentity{}, nil
+	}
 	merged, err := mergeMCPJSONObjects(def.Spec, cfg.Payload)
 	if err != nil {
 		return nil, err

@@ -106,9 +106,6 @@ func oauthProviderRequiredBy(snapshot plugin.Snapshot) (map[string][]string, err
 			return nil, err
 		}
 		providers := make(map[string]bool)
-		if payload.OAuthProvider != "" {
-			providers[payload.OAuthProvider] = true
-		}
 		for _, requirement := range payload.OAuth {
 			providers[requirement.Provider] = true
 		}

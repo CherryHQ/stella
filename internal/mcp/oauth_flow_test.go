@@ -26,8 +26,8 @@ func seedOAuthRegistration(t *testing.T, pool *pgxpool.Pool, scope, userID, agen
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO plugin_definition(id, display_name, source,
 			spec, default_enabled, revision, creator_user_id)
-		VALUES ($1, $2, 'custom', '{"mcp_servers":{}}'::jsonb, false, 1, NULLIF($3, '')::uuid)`,
-		pluginID, "oauth-"+id[:8], nullableTestText(userID)); err != nil {
+		VALUES ($1, $2, 'custom', $4::jsonb, false, 1, NULLIF($3, '')::uuid)`,
+		pluginID, "oauth-"+id[:8], nullableTestText(userID), mustPublishedMCPTestSpec(`{"origin":"remote_mcp","mcp_servers":{"main":{}}}`)); err != nil {
 		t.Fatalf("seed oauth definition: %v", err)
 	}
 	payload := `{"mcp_servers":{"main":{"url":"` + rawURL + `","transport":"streamable_http","auth_type":"oauth","credential_mode":"shared"}}}`

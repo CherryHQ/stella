@@ -80,9 +80,7 @@ test("create stores a safe config and explicit probe persists its catalog", asyn
   );
   expect(list.configs.some((config) => config.id === body.config.id && config.plugin_id === body.plugin.id)).toBe(true);
   const definitions = expectStatus(await admin.get<{ plugins: PluginDefinition[]; }>("/api/plugins"), 200, "list plugins");
-  expect(definitions.plugins.some((plugin) => plugin.id === body.plugin.id && plugin.spec && Object.keys(plugin.spec).length === 0)).toBe(
-    true,
-  );
+  expect(definitions.plugins.find((plugin) => plugin.id === body.plugin.id)?.spec).toEqual({ origin: "remote_mcp" });
 });
 
 test("probe endpoint re-lists tools and refreshes probed_at", async ({ admin, db }) => {

@@ -5,7 +5,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,11 +19,18 @@ import (
 
 type managementRegressionStore struct {
 	ManagementStore
-	identities []Skill
-	current    ManagedRevision
-	loaded     int
-	created    ManagedCreate
-	updated    ManagedSkillUpdate
+	identities     []Skill
+	current        ManagedRevision
+	exact          ManagedRevision
+	loaded         int
+	created        ManagedCreate
+	updated        ManagedSkillUpdate
+	loadedIdentity Skill
+	exactIdentity  Skill
+	exactLoads     int
+	reflectCreates int
+	reflectPatches int
+	reflectDeletes int
 }
 
 func (s *managementRegressionStore) ListIdentityByScope(context.Context, string, string, string) ([]Skill, error) {
@@ -32,8 +42,18 @@ func (s *managementRegressionStore) GetIdentity(context.Context, string) (*Skill
 	return &sk, nil
 }
 
-func (s *managementRegressionStore) LoadCurrentRevision(context.Context, Skill) (ManagedRevision, error) {
+func (s *managementRegressionStore) LoadCurrentRevision(_ context.Context, identity Skill) (ManagedRevision, error) {
 	s.loaded++
+	s.loadedIdentity = identity
+	return s.current, nil
+}
+
+func (s *managementRegressionStore) LoadExactRevision(_ context.Context, identity Skill, _ string) (ManagedRevision, error) {
+	s.exactLoads++
+	s.exactIdentity = identity
+	if s.exact.Skill.ID != "" {
+		return s.exact, nil
+	}
 	return s.current, nil
 }
 
@@ -50,6 +70,25 @@ func (s *managementRegressionStore) CreateManagedSkill(_ context.Context, sk Ski
 	return SkillSnapshot{Skill: sk, Files: []string{MainFile, "references/o2.md"}}, nil
 }
 
+func (s *managementRegressionStore) ListActiveReflectOwnedUserAgentSkills(context.Context, string, string) ([]Skill, error) {
+	return nil, nil
+}
+
+func (s *managementRegressionStore) CreateReflectOwnedUserAgentSkill(context.Context, ReflectSkillCreate) (Skill, error) {
+	s.reflectCreates++
+	return s.current.Skill, nil
+}
+
+func (s *managementRegressionStore) PatchReflectOwnedUserAgentSkill(context.Context, ReflectSkillPatch) (Skill, error) {
+	s.reflectPatches++
+	return s.current.Skill, nil
+}
+
+func (s *managementRegressionStore) DeleteReflectOwnedUserAgentSkill(context.Context, ReflectSkillDelete) (Skill, error) {
+	s.reflectDeletes++
+	return s.current.Skill, nil
+}
+
 type managementRegressionAccess struct{ ManagementAccess }
 
 func (managementRegressionAccess) ManageScope(context.Context, authz.Authority, string, string) (string, string, error) {
@@ -58,6 +97,123 @@ func (managementRegressionAccess) ManageScope(context.Context, authz.Authority, 
 
 func (managementRegressionAccess) ManageByID(context.Context, authz.Authority, string, authz.Action) (Skill, error) {
 	return Skill{}, nil
+}
+
+type managementDeniedAccess struct {
+	err error
+}
+
+func (a managementDeniedAccess) ManageScope(context.Context, authz.Authority, string, string) (string, string, error) {
+	return "", "", a.err
+}
+
+func (managementDeniedAccess) ManageByID(context.Context, authz.Authority, string, authz.Action) (Skill, error) {
+	return Skill{}, nil
+}
+
+type managementIdentityAccess struct {
+	identity Skill
+}
+
+func (managementIdentityAccess) ManageScope(context.Context, authz.Authority, string, string) (string, string, error) {
+	return "user-1", "", nil
+}
+
+func (a managementIdentityAccess) ManageByID(context.Context, authz.Authority, string, authz.Action) (Skill, error) {
+	return a.identity, nil
+}
+
+type managementWorkerAccess struct {
+	err   error
+	calls int
+}
+
+func (managementWorkerAccess) ManageScope(context.Context, authz.Authority, string, string) (string, string, error) {
+	return "user-1", "", nil
+}
+
+func (managementWorkerAccess) ManageByID(context.Context, authz.Authority, string, authz.Action) (Skill, error) {
+	return Skill{}, nil
+}
+
+func (a *managementWorkerAccess) AuthorizeWorkerWrite(context.Context, string, string, string, bool) error {
+	a.calls++
+	return a.err
+}
+
+func TestManagementInstallAuthorizesBeforeFetchingSource(t *testing.T) {
+	wantErr := errors.New("install denied")
+	m := NewManagement(&managementRegressionStore{}, managementDeniedAccess{err: wantErr})
+
+	_, err := m.Install(t.Context(), authz.Authority{}, ManagedInstall{
+		Source: filepath.Join(t.TempDir(), "source-does-not-exist"), Scope: "user",
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("denied install error = %v, want authorization error before fetch", err)
+	}
+}
+
+func TestManagementUpgradeUsesCurrentRevisionSourceAndSkipsFetchOnStaleDigest(t *testing.T) {
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, MainFile), []byte("---\nname: upgraded\ndescription: upgraded\n---\n\n# upgraded\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	digest := strings.Repeat("a", 64)
+	staleDigest := strings.Repeat("b", 64)
+	current := Skill{
+		ID: "skill-1", Scope: "user", Name: "upgraded", ContentDigest: digest,
+		Metadata: json.RawMessage(`{"source":"` + source + `","version":"old"}`),
+	}
+	identity := current
+	identity.Metadata = nil
+	store := &managementRegressionStore{current: ManagedRevision{Skill: current, Files: map[string][]byte{MainFile: []byte("old")}}}
+	m := NewManagement(store, managementIdentityAccess{identity: identity})
+
+	result, err := m.Upgrade(t.Context(), authz.Authority{}, ManagedUpgrade{ID: current.ID, ExpectedVersion: current.ContentDigest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Updated || store.loadedIdentity.Metadata != nil || store.updated.ExpectedDigest != current.ContentDigest {
+		t.Fatalf("upgrade result/store state = %#v/%#v, want current revision source and CAS update", result, store)
+	}
+	if store.updated.Patch.Metadata == nil || !strings.Contains(string(store.updated.Patch.Metadata), `"source"`) {
+		t.Fatalf("upgrade metadata patch = %s, want preserved source", store.updated.Patch.Metadata)
+	}
+
+	if err := os.RemoveAll(source); err != nil {
+		t.Fatal(err)
+	}
+	store.updated = ManagedSkillUpdate{}
+	if _, err := m.Upgrade(t.Context(), authz.Authority{}, ManagedUpgrade{ID: current.ID, ExpectedVersion: staleDigest}); !errors.Is(err, ErrSkillDigestConflict) {
+		t.Fatalf("stale upgrade error = %v, want ErrSkillDigestConflict before fetch", err)
+	}
+	if store.updated.ID != "" {
+		t.Fatalf("stale upgrade reached store update: %#v", store.updated)
+	}
+}
+
+func TestReflectWorkerAuthorizesWritesAndReadsExactRevisionDirectly(t *testing.T) {
+	store := &managementRegressionStore{
+		current: ManagedRevision{Skill: Skill{ID: "skill-1", ContentDigest: "current"}},
+		exact:   ManagedRevision{Skill: Skill{ID: "skill-1", ContentDigest: "old"}},
+	}
+	wantErr := errors.New("worker write denied")
+	access := &managementWorkerAccess{err: wantErr}
+	worker := NewManagement(store, access).NewReflectWorker()
+
+	_, err := worker.PatchReflectOwnedUserAgentSkill(t.Context(), ReflectSkillPatch{ID: "skill-1", UserID: "user-1", AgentID: "agent-1"})
+	if !errors.Is(err, wantErr) || access.calls != 1 || store.reflectPatches != 0 {
+		t.Fatalf("denied worker patch = %v, auth calls=%d, store patches=%d", err, access.calls, store.reflectPatches)
+	}
+
+	old := Skill{ID: "skill-1", ContentDigest: "old"}
+	revision, err := worker.LoadExactRevision(t.Context(), old, old.ContentDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision.Skill.ContentDigest != "old" || store.exactLoads != 1 || access.calls != 1 {
+		t.Fatalf("exact revision read = %#v, exact loads=%d, auth calls=%d; want direct store read", revision, store.exactLoads, access.calls)
+	}
 }
 
 func TestManagementListReadsOnlyBoundedIdentityMetadata(t *testing.T) {
@@ -112,6 +268,59 @@ func TestManagementUpdatePreservesVersionAndEmptyDescription(t *testing.T) {
 	}
 	if len(store.updated.DeleteFiles) != 1 || store.updated.DeleteFiles[0] != "references/stale.md" {
 		t.Fatalf("deleted files = %#v, want stale package resource", store.updated.DeleteFiles)
+	}
+}
+
+func TestManagementMutationsKeepRequiredAndStaleDigestErrorsDistinct(t *testing.T) {
+	current := Skill{ID: "skill-1", Scope: "user", ContentDigest: "digest"}
+	store := &managementRegressionStore{current: ManagedRevision{Skill: current, Files: map[string][]byte{MainFile: []byte("old")}}}
+	m := NewManagement(store, managementRegressionAccess{})
+
+	if _, err := m.Update(t.Context(), authz.Authority{}, ManagedUpdate{ID: current.ID}); !errors.Is(err, ErrSkillDigestRequired) {
+		t.Fatalf("empty update digest = %v, want ErrSkillDigestRequired", err)
+	}
+	if _, err := m.Update(t.Context(), authz.Authority{}, ManagedUpdate{ID: current.ID, ExpectedVersion: "stale"}); !errors.Is(err, ErrSkillDigestConflict) {
+		t.Fatalf("stale update digest = %v, want ErrSkillDigestConflict", err)
+	}
+	if err := m.Delete(t.Context(), authz.Authority{}, current.ID, ""); !errors.Is(err, ErrSkillDigestRequired) {
+		t.Fatalf("empty delete digest = %v, want ErrSkillDigestRequired", err)
+	}
+	if err := m.Delete(t.Context(), authz.Authority{}, current.ID, "stale"); !errors.Is(err, ErrSkillDigestConflict) {
+		t.Fatalf("stale delete digest = %v, want ErrSkillDigestConflict", err)
+	}
+	if _, err := m.Upgrade(t.Context(), authz.Authority{}, ManagedUpgrade{ID: current.ID}); !errors.Is(err, ErrSkillDigestRequired) {
+		t.Fatalf("empty upgrade digest = %v, want ErrSkillDigestRequired", err)
+	}
+	if _, err := m.Upgrade(t.Context(), authz.Authority{}, ManagedUpgrade{ID: current.ID, ExpectedVersion: "stale"}); !errors.Is(err, ErrSkillDigestConflict) {
+		t.Fatalf("stale upgrade digest = %v, want ErrSkillDigestConflict", err)
+	}
+	if _, err := m.DeleteFile(t.Context(), authz.Authority{}, current.ID, "references/old.md", ""); !errors.Is(err, ErrSkillDigestRequired) {
+		t.Fatalf("empty file-delete digest = %v, want ErrSkillDigestRequired", err)
+	}
+	if _, err := m.DeleteFile(t.Context(), authz.Authority{}, current.ID, "references/old.md", "stale"); !errors.Is(err, ErrSkillDigestConflict) {
+		t.Fatalf("stale file-delete digest = %v, want ErrSkillDigestConflict", err)
+	}
+}
+
+func TestManagementDeleteFileRoutesDeprecatedAndDeleteFilesThroughUpdate(t *testing.T) {
+	current := Skill{ID: "skill-1", Scope: "user", ContentDigest: "digest", Status: SkillStatusActive}
+	store := &managementRegressionStore{current: ManagedRevision{Skill: current, Files: map[string][]byte{MainFile: []byte("old")}}}
+	m := NewManagement(store, managementRegressionAccess{})
+
+	if _, err := m.DeleteFile(t.Context(), authz.Authority{}, current.ID, "references/old.md", current.ContentDigest); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.updated.DeleteFiles) != 1 || store.updated.DeleteFiles[0] != "references/old.md" {
+		t.Fatalf("deleted files = %#v, want one requested path", store.updated.DeleteFiles)
+	}
+
+	store.current.Skill.Status = SkillStatusDeprecated
+	store.updated = ManagedSkillUpdate{}
+	if _, err := m.DeleteFile(t.Context(), authz.Authority{}, current.ID, "references/old.md", current.ContentDigest); !errors.Is(err, ErrSkillNotMutable) {
+		t.Fatalf("deprecated file delete = %v, want ErrSkillNotMutable", err)
+	}
+	if store.updated.ID != "" {
+		t.Fatalf("deprecated file delete reached store update: %#v", store.updated)
 	}
 }
 

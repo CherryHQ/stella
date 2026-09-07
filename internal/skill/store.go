@@ -91,11 +91,6 @@ type ManagedSkillDelete struct {
 	ExpectedDigest string
 }
 
-type ManagedSkillFileDelete struct {
-	ManagedSkillDelete
-	Path string
-}
-
 // ManagedRevision is one fully verified immutable Home revision. Files and
 // Modes are the complete bounded file tree and ContentDigest identifies these
 // exact bytes and modes.

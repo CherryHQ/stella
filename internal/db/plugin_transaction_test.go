@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -64,7 +63,7 @@ func TestUnifiedPluginWithMutationTxRollbackRestoresConfigAndPolicies(t *testing
 		t.Fatal(err)
 	}
 	definition, config, err := access.CreateCustom(ctx, plugin.Definition{
-		ID: "tx-delete", DisplayName: "Transactional delete", Spec: json.RawMessage(`{}`),
+		ID: "tx-delete", DisplayName: "Transactional delete", Spec: publishedPluginSpec(`{}`),
 	}, plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(false)})
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +197,7 @@ func TestUnifiedPluginWithMutationTxExpiresAccessBeforeFenceUnlock(t *testing.T)
 
 func transactionDefinition() plugin.Definition {
 	return plugin.Definition{
-		ID: "tx-custom", DisplayName: "Transactional custom", Spec: json.RawMessage(`{}`),
+		ID: "tx-custom", DisplayName: "Transactional custom", Spec: publishedPluginSpec(`{}`),
 	}
 }
 

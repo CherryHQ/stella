@@ -59,12 +59,11 @@ test("admin can open the bare email guide and persist its config", async ({ page
     const configSwitch = page.getByRole("switch").first();
     await expect(configSwitch).toBeChecked({ checked: original.is_enabled === true });
 
-    const edit = page.getByRole("button", { name: "Edit", exact: true }).first();
-    await edit.click();
-    const editor = page.getByRole("dialog").last();
-    const saveResponse = page.waitForResponse(isEmailConfigMutation);
-    await editor.getByRole("button", { name: "Save", exact: true }).click();
-    expect((await saveResponse).status()).toBe(200);
+    // The email package declares skills only, so there is no editable binary
+    // or MCP parameter form. Keep the guide on the enable/inherit persistence
+    // path instead of inventing an empty editor for a fixed package.
+    await expect(page.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Add MCP server", exact: true })).toHaveCount(0);
 
     const toggledResponse = page.waitForResponse(isEmailConfigMutation);
     await configSwitch.click();
@@ -82,7 +81,7 @@ test("admin can open the bare email guide and persist its config", async ({ page
     }
     await expect.poll(async () => (await systemEmailConfig(admin)).is_enabled).toBe(original.is_enabled);
 
-    expect(configRequests.length).toBeGreaterThanOrEqual(3);
+    expect(configRequests.length).toBeGreaterThanOrEqual(2);
     expect(configRequests.every((path) => /^\/api\/plugins\/email\/configs(?:\/|$)/.test(path))).toBe(true);
     expect(config404s).toEqual([]);
   } finally {

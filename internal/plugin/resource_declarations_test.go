@@ -25,7 +25,6 @@ func TestResourceDeclarations(t *testing.T) {
 
 func TestResourceDeclarationsCheckProviderReferences(t *testing.T) {
 	for _, payload := range []ResourcePayload{
-		{OAuthProvider: "missing"},
 		{OAuth: []OAuthRequirement{{Provider: "missing"}}},
 	} {
 		if err := ValidateResourceDeclarations(payload, "release", nil); err != nil {

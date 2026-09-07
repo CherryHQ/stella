@@ -30,8 +30,11 @@ configuration in its existing store.
 Native mutations use the runner admission fence. An acknowledged commit, or a
 write whose commit outcome is unknown, retires old runners and reconciles
 channel listeners. A failed response therefore does not preserve stale access.
-The Native management API requires administrator authentication; OAuth access
-tokens cannot reach it.
+Native management methods require a trusted administrator authority, including
+calls made outside HTTP. Per-Agent restrictions also pass through the Agent
+authorization service. OAuth access tokens cannot reach the management API.
+The Host reads configuration through `ConfigStore.Get`; it has no configuration
+write or enable-switch shortcut around the management service.
 
 ## Native Go contract
 

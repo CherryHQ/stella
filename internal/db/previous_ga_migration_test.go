@@ -42,7 +42,7 @@ const (
 	// plugin scheduler columns are checked explicitly, followed by native Agent
 	// deny admission and plugin tool identity cutover migrations.
 	currentMigrationVersion = sequentialAnchor + 40
-	latestMigrationVersion  = sequentialAnchor + 43
+	latestMigrationVersion  = sequentialAnchor + 44
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"

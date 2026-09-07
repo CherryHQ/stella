@@ -16,7 +16,7 @@ func TestSessionPluginViewRejectsCrossPackageEnvironmentCollision(t *testing.T) 
 	for _, id := range []string{"first", "second"} {
 		def := plugin.Definition{
 			ID: id, DisplayName: id, Source: plugin.SourceBuiltin, DefaultEnabled: true, Revision: 1,
-			Spec: []byte(`{"oauth":[{"provider":"` + id + `","bindings":[{"credential":"access_token","env_var":"SHARED_TOKEN"}]}]}`),
+			Spec: publishedRuntimeSpec(t, `{"oauth":[{"provider":"`+id+`","bindings":[{"credential":"access_token","env_var":"SHARED_TOKEN"}]}]}`),
 		}
 		if err := catalog.Register(def); err != nil {
 			t.Fatal(err)

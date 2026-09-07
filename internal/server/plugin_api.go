@@ -85,8 +85,19 @@ func (s *Server) CreatePlugin(w http.ResponseWriter, r *http.Request) {
 		writePluginError(w, errPluginCapabilityUnavailable)
 		return
 	}
-	definition := pluginpkg.Definition{ID: request.Name, DisplayName: request.DisplayName, Spec: mustJSON(request.DefinitionSpec)}
-	config := pluginpkg.Config{Scope: pluginpkg.Scope(request.InitialConfig.Scope), Enabled: request.InitialConfig.IsEnabled, Payload: mustJSONPtr(request.InitialConfig.Config)}
+	legacyConfig := mustJSONPtr(request.InitialConfig.Config)
+	definitionSpec, err := pluginpkg.NormalizeHTTPDefinitionSpec(mustJSON(request.DefinitionSpec), legacyConfig)
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
+	configPayload, err := pluginpkg.NormalizeHTTPConfigParameters(definitionSpec, legacyConfig)
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
+	definition := pluginpkg.Definition{ID: request.Name, DisplayName: request.DisplayName, Spec: definitionSpec}
+	config := pluginpkg.Config{Scope: pluginpkg.Scope(request.InitialConfig.Scope), Enabled: request.InitialConfig.IsEnabled, Payload: configPayload}
 	if request.InitialConfig.AgentId != nil {
 		config.AgentID = *request.InitialConfig.AgentId
 	}
@@ -178,7 +189,7 @@ func (s *Server) CreatePluginConfig(w http.ResponseWriter, r *http.Request, plug
 		writePluginError(w, pluginpkg.ErrInvalidConfig)
 		return
 	}
-	config := pluginpkg.Config{PluginID: pluginID, Scope: pluginpkg.Scope(request.Scope), Enabled: request.IsEnabled, Payload: mustJSONPtr(request.Config)}
+	config := pluginpkg.Config{PluginID: pluginID, Scope: pluginpkg.Scope(request.Scope), Enabled: request.IsEnabled}
 	if request.AgentId != nil {
 		config.AgentID = *request.AgentId
 	}
@@ -203,6 +214,11 @@ func (s *Server) CreatePluginConfig(w http.ResponseWriter, r *http.Request, plug
 	}
 	if request.Credentials != nil {
 		writePluginError(w, errPluginCapabilityUnavailable)
+		return
+	}
+	config.Payload, err = pluginpkg.NormalizeHTTPConfigParameters(definition.Spec, mustJSONPtr(request.Config))
+	if err != nil {
+		writePluginError(w, err)
 		return
 	}
 	created, err := access.CreateConfig(r.Context(), config)
@@ -250,6 +266,11 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, plug
 		writePluginError(w, errPluginCapabilityUnavailable)
 		return
 	}
+	definition, err := access.GetDefinition(r.Context(), pluginID)
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
 	patch := pluginpkg.ConfigPatch{}
 	if value, exists := raw["is_enabled"]; exists {
 		patch.EnabledSet = true
@@ -260,7 +281,11 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, plug
 	if value, exists := raw["config"]; exists {
 		patch.PayloadSet = true
 		if !bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			patch.Payload = value
+			patch.Payload, err = pluginpkg.NormalizeHTTPConfigParameters(definition.Spec, value)
+			if err != nil {
+				writePluginError(w, err)
+				return
+			}
 		}
 	}
 	if value, exists := raw["binary_versions"]; exists {
@@ -279,7 +304,7 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, plug
 		writePluginError(w, err)
 		return
 	}
-	definition, err := access.GetDefinition(r.Context(), updated.PluginID)
+	definition, err = access.GetDefinition(r.Context(), updated.PluginID)
 	if err != nil {
 		writePluginError(w, err)
 		return

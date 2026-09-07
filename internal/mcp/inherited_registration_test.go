@@ -18,7 +18,7 @@ func TestMCPListUsesInheritedDefinitionForEveryChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, parent, err := plugins.CreateCustom(ctx, plugin.Definition{ID: "inherited-mcp", DisplayName: "Inherited MCP", Spec: []byte(`{"mcp_servers":{"main":{"url":"https://main.example.test","transport":"streamable_http","auth_type":"none"},"search":{"url":"https://search.example.test","transport":"streamable_http","auth_type":"none"}}}`)}, plugin.Config{Scope: plugin.ScopeUser, Payload: []byte(`{}`)})
+	_, parent, err := plugins.CreateCustom(ctx, plugin.Definition{ID: "inherited-mcp", DisplayName: "Inherited MCP", Spec: mustPublishedMCPTestSpec(`{"mcp_servers":{"main":{"url":"https://main.example.test","transport":"streamable_http","auth_type":"none"},"search":{"url":"https://search.example.test","transport":"streamable_http","auth_type":"none"}}}`)}, plugin.Config{Scope: plugin.ScopeUser, Payload: []byte(`{}`)})
 	if err != nil {
 		t.Fatal(err)
 	}

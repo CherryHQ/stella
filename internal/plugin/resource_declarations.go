@@ -10,6 +10,9 @@ import (
 // supplied, the release-owned OAuth provider index. Scoped configuration
 // ownership is enforced separately by ValidatePayload.
 func ValidateResourceDeclarations(payload ResourcePayload, name string, providerIDs map[string]struct{}) error {
+	if payload.Origin != "" && payload.Origin != "package" && payload.Origin != "remote_mcp" {
+		return fmt.Errorf("%s: unsupported origin %q", name, payload.Origin)
+	}
 	if err := validateResources(payload, name, true, true); err != nil {
 		return err
 	}
@@ -17,11 +20,6 @@ func ValidateResourceDeclarations(payload ResourcePayload, name string, provider
 		return nil
 	}
 	var errs []error
-	if payload.OAuthProvider != "" {
-		if _, ok := providerIDs[payload.OAuthProvider]; !ok {
-			errs = append(errs, fmt.Errorf("%s: unknown oauth_provider %q", name, payload.OAuthProvider))
-		}
-	}
 	for _, requirement := range payload.OAuth {
 		if _, ok := providerIDs[requirement.Provider]; !ok {
 			errs = append(errs, fmt.Errorf("%s: unknown OAuth provider %q", name, requirement.Provider))
@@ -52,8 +50,8 @@ func validateCompleteResources(payload ResourcePayload, name string) error {
 		if env.Source == "" {
 			errs = append(errs, fmt.Errorf("%s session_env[%d]: source is required", name, i))
 		}
-		if strings.HasPrefix(env.Source, "oauth.") && payload.OAuthProvider == "" && !hasOAuthEnvBinding(payload.OAuth, env.EnvVar) {
-			errs = append(errs, fmt.Errorf("%s session_env[%d]: oauth source requires oauth_provider", name, i))
+		if strings.HasPrefix(env.Source, "oauth.") && !hasOAuthEnvBinding(payload.OAuth, env.EnvVar) {
+			errs = append(errs, fmt.Errorf("%s session_env[%d]: oauth source requires an explicit OAuth binding", name, i))
 		}
 	}
 	return errors.Join(errs...)

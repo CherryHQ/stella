@@ -14,7 +14,7 @@ import (
 )
 
 func TestPreviewLegacyImportIsReadOnlyAndDoesNotWriteMarker(t *testing.T) {
-	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+	db := newTestDB(t)
 	ctx := t.Context()
 	if _, err := db.Exec(ctx, `
 		INSERT INTO plugin (id, kind, name, enabled, config)
@@ -24,7 +24,7 @@ func TestPreviewLegacyImportIsReadOnlyAndDoesNotWriteMarker(t *testing.T) {
 	}
 	catalog := plugin.NewCatalog()
 	if err := catalog.Register(plugin.Definition{
-		ID: "test", DisplayName: "Test", Source: plugin.SourceBuiltin, Spec: []byte(`{"name":"test"}`), DefaultEnabled: true, Revision: 1,
+		ID: "test", DisplayName: "Test", Source: plugin.SourceBuiltin, Spec: publishedPluginSpec(`{"name":"test"}`), DefaultEnabled: true, Revision: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestPreviewLegacyImportIsReadOnlyAndDoesNotWriteMarker(t *testing.T) {
 }
 
 func TestPreviewLegacyImportReportsUnexpectedMarkerAndMCPOverride(t *testing.T) {
-	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+	db := newTestDB(t)
 	ctx := t.Context()
 	catalog := plugin.NewCatalog()
 	if _, err := db.Exec(ctx, `INSERT INTO app_setting (key, value) VALUES ('plugin_cutover_v1', 'future')`); err != nil {
@@ -110,7 +110,7 @@ func TestPreviewLegacyImportDerivesOAuthSecretLocatorFromVaultPresence(t *testin
 		{name: "stale metadata locator without secret", metadata: `{"oauth":{"client_id":"public-client","client_secret_ref":"MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF"}}`, wantSecretRef: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+			db := newTestDB(t)
 			ctx := t.Context()
 			if _, err := db.Exec(ctx, `
 				INSERT INTO mcp_server (id, scope, name, url, transport, auth_type,
@@ -144,7 +144,7 @@ func TestPreviewLegacyImportDerivesOAuthSecretLocatorFromVaultPresence(t *testin
 }
 
 func TestImportLegacyStateRejectsOAuthSecretWithoutClientID(t *testing.T) {
-	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+	db := newTestDB(t)
 	ctx := t.Context()
 	const registrationID = "0198f9a4-1b2c-7def-8123-456789abcdef"
 	const secretName = "MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF"
@@ -187,7 +187,7 @@ func TestImportLegacyStateRejectsUnexpectedCredentialRefsBeforeMarker(t *testing
 		{name: "bearer locator", authType: "bearer", credential: "MCP_TOKEN_legacy"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+			db := newTestDB(t)
 			ctx := t.Context()
 			if _, err := db.Exec(ctx, `
 				INSERT INTO mcp_server (id, scope, name, url, transport, auth_type,
@@ -233,7 +233,7 @@ func (test legacyMCPCredentialRefTest) metadataOrEmpty() string {
 }
 
 func TestImportLegacyStateWritesDefinitionsConfigsAndSharedObservation(t *testing.T) {
-	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+	db := newTestDB(t)
 	ctx := t.Context()
 	preparePluginPolicyCutoverSchema(t, db)
 	catalog := plugin.NewCatalog()
@@ -316,7 +316,7 @@ func TestImportLegacyStateWritesDefinitionsConfigsAndSharedObservation(t *testin
 }
 
 func TestImportLegacyStateDoesNotImportOwnerlessPerUserObservation(t *testing.T) {
-	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+	db := newTestDB(t)
 	ctx := t.Context()
 	preparePluginPolicyCutoverSchema(t, db)
 	user := insertPluginUser(t, db, "legacy-import-user@example.test", false)
@@ -355,7 +355,7 @@ func TestImportLegacyStateDoesNotImportOwnerlessPerUserObservation(t *testing.T)
 }
 
 func TestImportLegacyStateRollsBackBeforeMarkerOnPolicyDependency(t *testing.T) {
-	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+	db := newTestDB(t)
 	ctx := t.Context()
 	catalog := plugin.NewCatalog()
 	if err := catalog.Register(pluginDefinition("import", true)); err != nil {
@@ -398,7 +398,7 @@ func TestImportLegacyStateRollsBackBeforeMarkerOnPolicyDependency(t *testing.T) 
 }
 
 func TestImportLegacyStateWritesPluginToolOverrideWithExactIdentity(t *testing.T) {
-	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+	db := newTestDB(t)
 	ctx := t.Context()
 	preparePluginPolicyCutoverSchema(t, db)
 	catalog := plugin.NewCatalog()
@@ -452,7 +452,7 @@ func TestImportLegacyStateWritesPluginToolOverrideWithExactIdentity(t *testing.T
 }
 
 func TestImportLegacyStateRollsBackAmbiguousPluginToolOverride(t *testing.T) {
-	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+	db := newTestDB(t)
 	ctx := t.Context()
 	preparePluginPolicyCutoverSchema(t, db)
 	catalog := plugin.NewCatalog()
@@ -502,7 +502,7 @@ func TestImportLegacyStateRollsBackAmbiguousPluginToolOverride(t *testing.T) {
 }
 
 func TestImportLegacyStateVerifiesKnownCoreAndKeepsRow(t *testing.T) {
-	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+	db := newTestDB(t)
 	ctx := t.Context()
 	preparePluginPolicyCutoverSchema(t, db)
 	if _, err := db.Exec(ctx, `
@@ -529,7 +529,7 @@ func TestImportLegacyStateVerifiesKnownCoreAndKeepsRow(t *testing.T) {
 }
 
 func TestImportLegacyStateRejectsUnknownCoreBeforeWrites(t *testing.T) {
-	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+	db := newTestDB(t)
 	ctx := t.Context()
 	preparePluginPolicyCutoverSchema(t, db)
 	if _, err := db.Exec(ctx, `
@@ -559,7 +559,7 @@ func TestImportLegacyStateRejectsUnknownCoreBeforeWrites(t *testing.T) {
 }
 
 func TestImportLegacyStateRejectsCoreWithoutTrustedMetadata(t *testing.T) {
-	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+	db := newTestDB(t)
 	ctx := t.Context()
 	preparePluginPolicyCutoverSchema(t, db)
 	if _, err := db.Exec(ctx, `
@@ -575,7 +575,7 @@ func TestImportLegacyStateRejectsCoreWithoutTrustedMetadata(t *testing.T) {
 }
 
 func TestImportLegacyStateRejectsCoreRowWithPluginIdentity(t *testing.T) {
-	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+	db := newTestDB(t)
 	ctx := t.Context()
 	preparePluginPolicyCutoverSchema(t, db)
 	if _, err := db.Exec(ctx, `
@@ -834,6 +834,9 @@ func TestImportLegacyStateValidatesRetargetedOAuthFlowAfterUUIDConfigImport(t *t
 	if _, err := provider.UpTo(ctx, pluginCutoverMigration41); err != nil {
 		t.Fatalf("apply embedded migration 41: %v", err)
 	}
+	if _, err := provider.UpTo(ctx, pluginCutoverMigration44); err != nil {
+		t.Fatalf("apply embedded migrations through 44: %v", err)
+	}
 	preparePluginPolicyCutoverSchema(t, db)
 	if err := plugin.ImportLegacyState(ctx, db, catalog, nil, nil); err != nil {
 		t.Fatal(err)
@@ -864,7 +867,7 @@ func TestImportLegacyStateValidatesRetargetedOAuthFlowAfterUUIDConfigImport(t *t
 }
 
 func TestImportLegacyStateRejectsStaleToolOverrideSnapshot(t *testing.T) {
-	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
+	db := newTestDB(t)
 	ctx := t.Context()
 	preparePluginPolicyCutoverSchema(t, db)
 	const registrationID = "0198f9a4-1b2c-7def-8123-456789abcdea"
@@ -962,6 +965,9 @@ func TestImportLegacyStateRollsBackWhenRetargetedOAuthValidationFindsOrphan(t *t
 	}
 	if _, err := provider.UpTo(ctx, pluginCutoverMigration41); err != nil {
 		t.Fatalf("apply embedded migration 41: %v", err)
+	}
+	if _, err := provider.UpTo(ctx, pluginCutoverMigration44); err != nil {
+		t.Fatalf("apply embedded migrations through 44: %v", err)
 	}
 	preparePluginPolicyCutoverSchema(t, db)
 	err := plugin.ImportLegacyState(ctx, db, catalog, nil, nil)

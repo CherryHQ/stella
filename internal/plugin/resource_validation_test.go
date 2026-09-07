@@ -17,10 +17,14 @@ func testCLIDefinition(t *testing.T) Definition {
 			Name: "demo", Tool: "github:owner/demo", Version: "1.0.0",
 			Options: map[string]any{"asset_pattern": "demo_*", "future_option": "published"},
 		}},
-		Skills:        []SkillResource{{Name: "demo"}},
-		SessionEnvs:   []SessionEnvResource{{EnvVar: "DEMO_TOKEN", Source: "oauth.access_token", Required: true}},
-		OAuthProvider: "demo",
+		Skills:      []SkillResource{{Name: "demo"}},
+		SessionEnvs: []SessionEnvResource{{EnvVar: "DEMO_TOKEN", Source: "oauth.access_token", Required: true}},
+		OAuth:       []OAuthRequirement{{Provider: "demo", Bindings: []OAuthBinding{{Credential: "access_token", EnvVar: "DEMO_TOKEN"}}}},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err = PublishDefinitionSpec(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +61,7 @@ func TestBuiltinPackagePayloadsFollowScopes(t *testing.T) {
 func TestValidatePayloadAllowsMetadataOnlyBuiltinWithoutRuntimeIdentity(t *testing.T) {
 	definition := Definition{
 		ID: "metadata-only", DisplayName: "Metadata only", Source: SourceBuiltin,
-		Spec: json.RawMessage(`{"description":"release metadata"}`), DefaultEnabled: true, Revision: 1,
+		Spec: publishedSpec(t, `{"description":"release metadata"}`), DefaultEnabled: true, Revision: 1,
 	}
 	config := Config{
 		ID: "config", PluginID: definition.ID, Scope: ScopeSystem,
@@ -75,7 +79,7 @@ func TestValidatePayloadAllowsMetadataOnlyBuiltinWithoutRuntimeIdentity(t *testi
 func TestValidatePayloadAllowsCustomEmptyDefinitionWithCLIConfig(t *testing.T) {
 	definition := Definition{
 		ID: "custom-cli", DisplayName: "Custom CLI", Source: SourceCustom,
-		Spec: json.RawMessage(`{}`), Revision: 1,
+		Spec: publishedSpec(t, `{}`), Revision: 1,
 	}
 	config := Config{
 		ID: "config", PluginID: definition.ID, Scope: ScopeSystem,
@@ -96,9 +100,9 @@ func testUserPayload(t *testing.T, version string) json.RawMessage {
 			Name: "demo", Tool: "github:owner/demo", Version: version,
 			Options: map[string]any{"asset_pattern": "demo_*", "future_option": "published"},
 		}},
-		Skills:        []SkillResource{{Name: "demo"}},
-		SessionEnvs:   []SessionEnvResource{{EnvVar: "DEMO_TOKEN", Source: "oauth.refresh_token", Required: true}},
-		OAuthProvider: "demo",
+		Skills:      []SkillResource{{Name: "demo"}},
+		SessionEnvs: []SessionEnvResource{{EnvVar: "DEMO_TOKEN", Source: "oauth.access_token", Required: true}},
+		OAuth:       []OAuthRequirement{{Provider: "demo", Bindings: []OAuthBinding{{Credential: "access_token", EnvVar: "DEMO_TOKEN"}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +154,7 @@ func TestValidatePayloadRejectsUserResourceIdentityChanges(t *testing.T) {
 		{"prompt", func(p *ResourcePayload) { p.Prompt = "run anything" }, nil},
 		{"session env identity", func(p *ResourcePayload) { p.SessionEnvs[0].EnvVar = "OTHER" }, nil},
 		{"session env required", func(p *ResourcePayload) { p.SessionEnvs[0].Required = false }, nil},
-		{"provider", func(p *ResourcePayload) { p.OAuthProvider = "other" }, nil},
+		{"provider", func(p *ResourcePayload) { p.OAuth[0].Provider = "other" }, nil},
 		{"oauth binding injection", func(p *ResourcePayload) {
 			p.OAuth = []OAuthRequirement{{Provider: "demo", Bindings: []OAuthBinding{{Credential: "access_token", EnvVar: "OTHER_TOKEN"}}}}
 		}, nil},

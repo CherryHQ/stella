@@ -18,11 +18,7 @@ import (
 const maxNativePolicyBodyBytes = 16 << 10
 
 func (s *Server) ListNativePlugins(w http.ResponseWriter, r *http.Request, params apiserver.ListNativePluginsParams) {
-	if requireAdmin(w, r) == nil {
-		return
-	}
-	if s.nativePolicy == nil {
-		writeError(w, http.StatusServiceUnavailable, "native plugin policy unavailable")
+	if _, ok := s.nativeAdmin(w, r, ""); !ok {
 		return
 	}
 	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
@@ -51,19 +47,25 @@ func nativePluginID(kind, name string) string {
 	return strings.TrimSpace(kind) + "/" + strings.TrimSpace(name)
 }
 
-func (s *Server) nativeAdmin(w http.ResponseWriter, r *http.Request, id string) bool {
-	if requireAdmin(w, r) == nil {
-		return false
+func (s *Server) nativeAdmin(w http.ResponseWriter, r *http.Request, id string) (authz.Authority, bool) {
+	info := requireAdmin(w, r)
+	if info == nil {
+		return authz.Authority{}, false
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return authz.Authority{}, false
 	}
 	if s.nativePolicy == nil {
 		writeError(w, http.StatusServiceUnavailable, "native plugin policy unavailable")
-		return false
+		return authz.Authority{}, false
 	}
-	if !s.nativePolicy.IsRegistered(id) {
+	if id != "" && !s.nativePolicy.IsRegistered(id) {
 		writeError(w, http.StatusNotFound, "native plugin not found")
-		return false
+		return authz.Authority{}, false
 	}
-	return true
+	return authority, true
 }
 
 func nativePluginView(id string, enabled bool) apitypes.NativePlugin {
@@ -86,7 +88,7 @@ func nativeDenyView(deny pluginpkg.NativeAgentDeny) apitypes.NativeAgentDeny {
 
 func (s *Server) GetNativePlugin(w http.ResponseWriter, r *http.Request, kind, name string) {
 	id := nativePluginID(kind, name)
-	if !s.nativeAdmin(w, r, id) {
+	if _, ok := s.nativeAdmin(w, r, id); !ok {
 		return
 	}
 	enabled, err := s.nativePolicy.GlobalEnabled(r.Context(), id)
@@ -99,7 +101,8 @@ func (s *Server) GetNativePlugin(w http.ResponseWriter, r *http.Request, kind, n
 
 func (s *Server) UpdateNativePlugin(w http.ResponseWriter, r *http.Request, kind, name string) {
 	id := nativePluginID(kind, name)
-	if !s.nativeAdmin(w, r, id) {
+	authority, ok := s.nativeAdmin(w, r, id)
+	if !ok {
 		return
 	}
 	var request struct {
@@ -109,7 +112,7 @@ func (s *Server) UpdateNativePlugin(w http.ResponseWriter, r *http.Request, kind
 		writeError(w, http.StatusBadRequest, "is_enabled is required and must be boolean")
 		return
 	}
-	if err := s.nativePolicy.SetGlobalEnabled(r.Context(), id, *request.IsEnabled); err != nil {
+	if err := s.nativePolicy.SetGlobalEnabled(r.Context(), authority, id, *request.IsEnabled); err != nil {
 		writeNativePolicyError(w, err)
 		return
 	}
@@ -134,7 +137,7 @@ func decodeNativeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 
 func (s *Server) ListNativePluginAgentDenials(w http.ResponseWriter, r *http.Request, kind, name string, params apiserver.ListNativePluginAgentDenialsParams) {
 	id := nativePluginID(kind, name)
-	if !s.nativeAdmin(w, r, id) {
+	if _, ok := s.nativeAdmin(w, r, id); !ok {
 		return
 	}
 	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
@@ -157,7 +160,8 @@ func (s *Server) ListNativePluginAgentDenials(w http.ResponseWriter, r *http.Req
 
 func (s *Server) CreateNativePluginAgentDeny(w http.ResponseWriter, r *http.Request, kind, name string) {
 	id := nativePluginID(kind, name)
-	if !s.nativeAdmin(w, r, id) {
+	authority, ok := s.nativeAdmin(w, r, id)
+	if !ok {
 		return
 	}
 	var request struct {
@@ -172,21 +176,7 @@ func (s *Server) CreateNativePluginAgentDeny(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "agent_id is required")
 		return
 	}
-	info := UserFromContext(r.Context())
-	authority, err := info.authority()
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
-	if err := s.agentAccess.Authorize(r.Context(), authority, agentID, authz.ActionRead); err != nil {
-		if errors.Is(err, agentaccess.ErrNotFound) || errors.Is(err, agentaccess.ErrForbidden) {
-			writeError(w, http.StatusNotFound, "Agent not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "Agent lookup failed")
-		return
-	}
-	if err := s.nativePolicy.SetAgentDeny(r.Context(), id, agentID); err != nil {
+	if err := s.nativePolicy.SetAgentDeny(r.Context(), authority, id, agentID); err != nil {
 		writeNativePolicyError(w, err)
 		return
 	}
@@ -195,7 +185,7 @@ func (s *Server) CreateNativePluginAgentDeny(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) GetNativePluginAgentDeny(w http.ResponseWriter, r *http.Request, kind, name, agentID string) {
 	id := nativePluginID(kind, name)
-	if !s.nativeAdmin(w, r, id) {
+	if _, ok := s.nativeAdmin(w, r, id); !ok {
 		return
 	}
 	denied, err := s.nativePolicy.AgentDenied(r.Context(), id, agentID)
@@ -212,10 +202,11 @@ func (s *Server) GetNativePluginAgentDeny(w http.ResponseWriter, r *http.Request
 
 func (s *Server) AllowNativePluginAgent(w http.ResponseWriter, r *http.Request, kind, name, agentID string) {
 	id := nativePluginID(kind, name)
-	if !s.nativeAdmin(w, r, id) {
+	authority, ok := s.nativeAdmin(w, r, id)
+	if !ok {
 		return
 	}
-	if err := s.nativePolicy.DeleteAgentDeny(r.Context(), id, agentID); err != nil {
+	if err := s.nativePolicy.DeleteAgentDeny(r.Context(), authority, id, agentID); err != nil {
 		writeNativePolicyError(w, err)
 		return
 	}
@@ -232,6 +223,10 @@ func writeNativePolicyError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "native plugin Agent deny already exists")
 	case errors.Is(err, pluginpkg.ErrNativeAgentNotFound):
 		writeError(w, http.StatusNotFound, "Agent not found")
+	case errors.Is(err, agentaccess.ErrNotFound), errors.Is(err, agentaccess.ErrForbidden), errors.Is(err, authz.ErrNotFound):
+		writeError(w, http.StatusNotFound, "Agent not found")
+	case errors.Is(err, authz.ErrForbidden):
+		writeError(w, http.StatusForbidden, "forbidden")
 	default:
 		writeError(w, http.StatusInternalServerError, "native plugin policy error")
 	}

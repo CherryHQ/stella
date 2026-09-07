@@ -82,7 +82,7 @@ func TestSessionPluginViewRejectsIncompletePayloadAfterCapabilityLift(t *testing
 	definition := plugin.Definition{
 		ID: "lift", DisplayName: "Lift",
 		Source: plugin.SourceBuiltin, DefaultEnabled: false, Revision: 1,
-		Spec: json.RawMessage(`{"binaries":[{"name":"lift","tool":"github:owner/lift","version":"1.0.0"}]}`),
+		Spec: publishedRuntimeSpec(t, `{"binaries":[{"name":"lift","tool":"github:owner/lift","version":"1.0.0"}]}`),
 	}
 	catalog := plugin.NewCatalog()
 	if err := catalog.Register(definition); err != nil {
@@ -417,7 +417,7 @@ func insertConfig(t *testing.T, db *pgxpool.Pool, id string, definition plugin.D
 func TestPromptUsesFrozenCLIConfig(t *testing.T) {
 	db := dbtest.New(t)
 	ctx := t.Context()
-	def := plugin.Definition{ID: "prompted", DisplayName: "Prompted", Source: plugin.SourceBuiltin, DefaultEnabled: true, Revision: 1, Spec: []byte(`{"prompt":"shipped guidance"}`)}
+	def := plugin.Definition{ID: "prompted", DisplayName: "Prompted", Source: plugin.SourceBuiltin, DefaultEnabled: true, Revision: 1, Spec: publishedRuntimeSpec(t, `{"prompt":"shipped guidance"}`)}
 	catalog := plugin.NewCatalog()
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)
@@ -458,4 +458,13 @@ func TestPromptUsesFrozenCLIConfig(t *testing.T) {
 func sessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPluginView, error) {
 	context, err := agentruntime.NewPluginContext(snapshot)
 	return context.SessionPluginView(), err
+}
+
+func publishedRuntimeSpec(t *testing.T, raw string) json.RawMessage {
+	t.Helper()
+	spec, err := plugin.PublishDefinitionSpec(json.RawMessage(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return spec
 }

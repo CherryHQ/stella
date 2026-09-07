@@ -15,7 +15,11 @@ import (
 func TestPluginEffectiveIncludesAdministrativeCapsForOrdinaryUser(t *testing.T) {
 	env := setupAdmin(t)
 	catalog := plugin.NewCatalog()
-	def := plugin.Definition{ID: "capped", DisplayName: "Capped", Source: plugin.SourceBuiltin, DefaultEnabled: true, Revision: 1, Spec: []byte(`{"prompt":"private system guidance"}`)}
+	spec, err := plugin.PublishDefinitionSpec([]byte(`{"prompt":"private system guidance"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := plugin.Definition{ID: "capped", DisplayName: "Capped", Source: plugin.SourceBuiltin, DefaultEnabled: true, Revision: 1, Spec: spec}
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)
 	}

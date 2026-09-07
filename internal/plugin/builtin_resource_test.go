@@ -46,8 +46,8 @@ func TestBuiltinLarkCLIUsesManagedFeishuOAuth(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if payload.OAuthProvider != "feishu" {
-			t.Fatalf("OAuthProvider = %q, want feishu", payload.OAuthProvider)
+		if len(payload.OAuth) != 1 || payload.OAuth[0].Provider != "feishu" {
+			t.Fatalf("OAuth = %#v, want feishu requirement", payload.OAuth)
 		}
 		if len(payload.SessionEnvs) != 3 {
 			t.Fatalf("SessionEnvs = %#v, want token, app ID, and brand injection", payload.SessionEnvs)

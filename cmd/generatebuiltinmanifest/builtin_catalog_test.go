@@ -60,7 +60,7 @@ func TestGenerateBuiltinDefinitionsEmptyDirectoryIsNotPlugin(t *testing.T) {
 
 func TestGenerateBuiltinDefinitionsRejectsDuplicateIDsAndResources(t *testing.T) {
 	first := makeBuiltinDefinition(t, "demo", plugin.ResourcePayload{
-		SessionEnvs: []plugin.SessionEnvResource{{EnvVar: "TOKEN", Source: "oauth.access_token"}}, OAuthProvider: "demo",
+		SessionEnvs: []plugin.SessionEnvResource{{EnvVar: "TOKEN", Source: "oauth.access_token"}}, OAuth: []plugin.OAuthRequirement{{Provider: "demo", Bindings: []plugin.OAuthBinding{{Credential: "access_token", EnvVar: "TOKEN"}}}},
 	})
 	second := first
 	if err := validateBuiltinDefinitions([]builtinDefinition{first, second}, testReservedRuntimeNames, map[string]struct{}{"demo": {}}); err == nil || !strings.Contains(err.Error(), "duplicate builtin plugin ID") {

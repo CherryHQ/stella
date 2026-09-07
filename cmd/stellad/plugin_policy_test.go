@@ -47,7 +47,14 @@ func TestPluginBackendPolicyRejectsCoreRuntimeBinaryNames(t *testing.T) {
 	}
 
 	definition, _ = testCLIBackendDefinition(t, "ordinary-tool")
-	_, reservedPayload := testCLIBackendDefinition(t, systemplugins.EmbeddedRuntimeResources()[0].Name)
+	reservedPayload, err := json.Marshal(map[string]any{
+		"binaries": map[string]any{
+			systemplugins.EmbeddedRuntimeResources()[0].Name: map[string]string{"version": "1.0.0"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	config = plugin.Config{
 		ID: "config", PluginID: definition.ID,
 		Scope: plugin.ScopeSystem, Enabled: &enabled, Payload: reservedPayload, Revision: 1,
@@ -59,23 +66,32 @@ func TestPluginBackendPolicyRejectsCoreRuntimeBinaryNames(t *testing.T) {
 
 func testCLIBackendDefinition(t *testing.T, binaryName string) (plugin.Definition, json.RawMessage) {
 	t.Helper()
-	payload, err := json.Marshal(map[string]any{
+	spec, err := json.Marshal(map[string]any{
 		"description": "test",
 		"binaries":    []map[string]string{{"name": binaryName, "tool": "github:owner/tool", "version": "1.0.0"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	spec, err = plugin.PublishDefinitionSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return plugin.Definition{
 		ID: "test", DisplayName: "Test",
-		Source: plugin.SourceBuiltin, Spec: payload, Revision: 1,
-	}, payload
+		Source: plugin.SourceBuiltin, Spec: spec, Revision: 1,
+	}, spec
 }
 
 func TestPluginPolicyValidatesEveryComposableResource(t *testing.T) {
 	const parentID = "10000000-0000-0000-0000-000000000001"
-	payload := json.RawMessage(`{"binaries":[{"name":"demo-cli","tool":"github:example/demo","version":"1"}],"skills":[{"name":"demo-guide"}],"mcp_servers":{"main":{"url":"https://example.com/mcp","transport":"streamable_http","auth_type":"none"},"search":{"url":"https://example.org/mcp","transport":"streamable_http","auth_type":"none"}}}`)
-	def := plugin.Definition{ID: "demo", DisplayName: "Demo", Source: plugin.SourceBuiltin, Spec: payload, DefaultEnabled: true, Revision: 1}
+	spec := json.RawMessage(`{"binaries":[{"name":"demo-cli","tool":"github:example/demo","version":"1"}],"skills":[{"name":"demo-guide"}],"mcp_servers":{"main":{"url":"https://example.com/mcp","transport":"streamable_http","auth_type":"none"},"search":{"url":"https://example.org/mcp","transport":"streamable_http","auth_type":"none"}}}`)
+	spec, err := plugin.PublishDefinitionSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := spec
+	def := plugin.Definition{ID: "demo", DisplayName: "Demo", Source: plugin.SourceBuiltin, Spec: spec, DefaultEnabled: true, Revision: 1}
 	enabled := true
 	cfg := plugin.Config{ID: parentID, PluginID: def.ID, Scope: plugin.ScopeSystem, Enabled: &enabled, Payload: payload, CredentialRefs: json.RawMessage(`{}`), Revision: 1, MCPServers: []plugin.MCPServerChild{
 		{ID: "10000000-0000-0000-0000-000000000002", ParentConfigID: parentID, ServerKey: "main"},
@@ -103,7 +119,7 @@ func TestPluginPolicyValidatesEveryComposableResource(t *testing.T) {
 	}
 	cfg.Payload = payload
 	unsafe["mcp_servers"].(map[string]any)["search"].(map[string]any)["url"] = "https://example.org/mcp"
-	unsafe["binaries"].([]any)[0].(map[string]any)["name"] = systemplugins.EmbeddedRuntimeResources()[0].Name
+	unsafe["binaries"] = append(unsafe["binaries"].([]any), map[string]any{"name": systemplugins.EmbeddedRuntimeResources()[0].Name, "tool": "github:owner/tool", "version": "1"})
 	unsafePayload, err = json.Marshal(unsafe)
 	if err != nil {
 		t.Fatal(err)
@@ -126,10 +142,14 @@ func TestPluginPolicyCLIPayloadResetDoesNotRequireMCP(t *testing.T) {
 func TestPluginPolicyCustomMCPResourcesLiveInConfig(t *testing.T) {
 	const parentID = "10000000-0000-0000-0000-000000000001"
 	enabled := true
-	def := plugin.Definition{ID: "custom-demo", DisplayName: "Demo", Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1}
+	spec, err := plugin.PublishDefinitionSpec(json.RawMessage(`{"mcp_servers":{"main":{"url":"https://example.com/mcp","transport":"streamable_http","auth_type":"none"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := plugin.Definition{ID: "custom-demo", DisplayName: "Demo", Source: plugin.SourceCustom, Spec: spec, Revision: 1}
 	cfg := plugin.Config{ID: parentID, PluginID: def.ID, Scope: plugin.ScopeSystem, Enabled: &enabled, Revision: 1, CredentialRefs: json.RawMessage(`{}`)}
 	policy := pluginBackendPolicy(false)
-	cfg.Payload = json.RawMessage(`{"mcp_servers":{"main":{"url":"https://example.com/mcp","transport":"streamable_http","auth_type":"none"}}}`)
+	cfg.Payload = spec
 	cfg.MCPServers = []plugin.MCPServerChild{{ID: "10000000-0000-0000-0000-000000000002", ParentConfigID: parentID, ServerKey: "main"}}
 	if err := policy.Validate(t.Context(), def, cfg, nil); err != nil {
 		t.Fatalf("custom MCP config: %v", err)

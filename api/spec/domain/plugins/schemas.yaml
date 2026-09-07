@@ -74,6 +74,12 @@ components:
         resource_summary:
           $ref: "#/components/schemas/PluginResourceSummary"
         revision: { type: integer, format: int64, readOnly: true }
+        retired_at: {
+          type: string,
+          format: date-time,
+          nullable: true,
+          readOnly: true,
+        }
         created_at: { type: string, format: date-time, readOnly: true }
         updated_at: { type: string, format: date-time, readOnly: true }
     PluginList:

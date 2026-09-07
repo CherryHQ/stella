@@ -67,7 +67,7 @@ INSERT INTO plugin_definition (
     id, display_name, source,
     spec, default_enabled, revision, creator_user_id, updated_at
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, now())
-RETURNING id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at
+RETURNING id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at, retired_at
 `
 
 type CreatePluginDefinitionParams struct {
@@ -101,6 +101,7 @@ func (q *Queries) CreatePluginDefinition(ctx context.Context, arg CreatePluginDe
 		&i.CreatorUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RetiredAt,
 	)
 	return i, err
 }
@@ -249,7 +250,7 @@ func (q *Queries) GetPluginConfigForOwner(ctx context.Context, arg GetPluginConf
 
 const getPluginDefinition = `-- name: GetPluginDefinition :one
 
-SELECT id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at FROM plugin_definition WHERE id = $1
+SELECT id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at, retired_at FROM plugin_definition WHERE id = $1
 `
 
 // Unified plugin definitions and four-scope configuration records. These
@@ -267,6 +268,7 @@ func (q *Queries) GetPluginDefinition(ctx context.Context, id string) (PluginDef
 		&i.CreatorUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RetiredAt,
 	)
 	return i, err
 }
@@ -363,7 +365,7 @@ func (q *Queries) ListPluginConfigsOwned(ctx context.Context, arg ListPluginConf
 }
 
 const listPluginDefinitions = `-- name: ListPluginDefinitions :many
-SELECT id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at FROM plugin_definition ORDER BY id
+SELECT id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at, retired_at FROM plugin_definition ORDER BY id
 `
 
 func (q *Queries) ListPluginDefinitions(ctx context.Context) ([]PluginDefinition, error) {
@@ -385,6 +387,7 @@ func (q *Queries) ListPluginDefinitions(ctx context.Context) ([]PluginDefinition
 			&i.CreatorUserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RetiredAt,
 		); err != nil {
 			return nil, err
 		}
@@ -494,6 +497,38 @@ func (q *Queries) ResetBuiltinPluginConfig(ctx context.Context, arg ResetBuiltin
 	return i, err
 }
 
+const retirePluginDefinitionCAS = `-- name: RetirePluginDefinitionCAS :one
+UPDATE plugin_definition
+SET retired_at = now(),
+    revision = revision + 1,
+    updated_at = now()
+WHERE id = $1 AND revision = $2 AND source = 'custom' AND retired_at IS NULL
+RETURNING id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at, retired_at
+`
+
+type RetirePluginDefinitionCASParams struct {
+	ID       string `json:"id"`
+	Revision int64  `json:"revision"`
+}
+
+func (q *Queries) RetirePluginDefinitionCAS(ctx context.Context, arg RetirePluginDefinitionCASParams) (PluginDefinition, error) {
+	row := q.db.QueryRow(ctx, retirePluginDefinitionCAS, arg.ID, arg.Revision)
+	var i PluginDefinition
+	err := row.Scan(
+		&i.ID,
+		&i.DisplayName,
+		&i.Source,
+		&i.Spec,
+		&i.DefaultEnabled,
+		&i.Revision,
+		&i.CreatorUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RetiredAt,
+	)
+	return i, err
+}
+
 const updatePluginConfigCAS = `-- name: UpdatePluginConfigCAS :one
 UPDATE plugin_config
 SET enabled = $2,
@@ -545,7 +580,7 @@ SET display_name = $2,
     revision = revision + 1,
     updated_at = now()
 WHERE id = $1 AND revision = $3 AND source = 'custom'
-RETURNING id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at
+RETURNING id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at, retired_at
 `
 
 type UpdatePluginDefinitionCASParams struct {
@@ -573,6 +608,7 @@ func (q *Queries) UpdatePluginDefinitionCAS(ctx context.Context, arg UpdatePlugi
 		&i.CreatorUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RetiredAt,
 	)
 	return i, err
 }
@@ -593,7 +629,7 @@ ON CONFLICT (id) DO UPDATE SET
         IS DISTINCT FROM (excluded.display_name, excluded.spec, excluded.default_enabled)
         THEN now() ELSE plugin_definition.updated_at END
 WHERE plugin_definition.source = excluded.source
-RETURNING id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at
+RETURNING id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at, retired_at
 `
 
 type UpsertPluginDefinitionParams struct {
@@ -627,6 +663,7 @@ func (q *Queries) UpsertPluginDefinition(ctx context.Context, arg UpsertPluginDe
 		&i.CreatorUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RetiredAt,
 	)
 	return i, err
 }

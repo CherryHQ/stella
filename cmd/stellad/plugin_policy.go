@@ -37,29 +37,28 @@ func validateCLIBackendPayload(ctx context.Context, def plugin.Definition, cfg p
 	if err := plugin.ValidatePayload(ctx, def, cfg, resets); err != nil {
 		return err
 	}
+	payload := cfg.Payload
+	if len(payload) == 0 {
+		payload = def.Spec
+	}
+	return rejectReservedCLIBinaries(payload)
+}
+
+func rejectReservedCLIBinaries(raw []byte) error {
 	reserved := make(map[string]struct{}, len(systemplugins.EmbeddedRuntimeResources()))
 	for _, resource := range systemplugins.EmbeddedRuntimeResources() {
 		reserved[resource.Name] = struct{}{}
 	}
-	check := func(raw []byte, label string) error {
-		if len(raw) == 0 {
-			return nil
-		}
-		payload, err := plugin.DecodeResourcePayload(raw, label)
-		if err != nil {
-			return err
-		}
-		for _, binary := range payload.Binaries {
-			if _, exists := reserved[binary.Name]; exists {
-				return fmt.Errorf("%w: binary %q is reserved by the core runtime", plugin.ErrInvalidConfig, binary.Name)
-			}
-		}
-		return nil
-	}
-	if err := check(def.Spec, "definition spec"); err != nil {
+	payload, err := plugin.DecodeResourcePayload(raw, "effective plugin payload")
+	if err != nil {
 		return err
 	}
-	return check(cfg.Payload, "config payload")
+	for _, binary := range payload.Binaries {
+		if _, exists := reserved[binary.Name]; exists {
+			return fmt.Errorf("%w: binary %q is reserved by the core runtime", plugin.ErrInvalidConfig, binary.Name)
+		}
+	}
+	return nil
 }
 
 func pluginBackgroundGate(native *plugin.NativePolicy, agents *agentaccess.Service) scheduler.BackgroundCapabilityGate {
