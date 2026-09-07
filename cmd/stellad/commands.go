@@ -748,9 +748,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	// Seal the plugin host: all static plugin registrations and capability
 	// bindings are complete. This validates them once and refuses any late
-	// static registration; the dynamic desired-state surface (ApplyChannel /
-	// RegisterManifestPlugins, used by the background reconcile below and by
-	// runtime admin edits) stays available.
+	// static registration; Native runtime apply/stop remains available.
 	if err := phost.Seal(); err != nil {
 		return nil, fmt.Errorf("seal plugin host: %w", err)
 	}

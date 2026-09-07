@@ -75,3 +75,14 @@ hook 实现。扩展读取器没有进程执行或网络访问路径。
 Authoring 校验比客户端读取更严格：未知 manifest 字段、unsupported stdio、
 无效组件和错误的 Stella 声明都会成为 authoring error。容错读取会保留独
 立有效组件，并只对能够安全解释的问题返回诊断。
+
+## 发布与会话约束
+
+发布源码只接受 `plugin.json`，拒绝包根目录中的 `plugin.yaml` 和 `assets.yaml`。
+生成的 YAML 只是内嵌数据格式。历史数据库升级保留导入路径，不恢复旧作者格式
+或旧管理 API。
+
+同一会话选中的包必须使用不同的环境变量名。两个包声明同名变量时，即使
+指定同一个 provider，也会在注入凭据前拒绝准备会话。
+
+Plugin 定义和配置写入请求的 JSON 请求体上限为 1 MiB，超限返回 HTTP 400。

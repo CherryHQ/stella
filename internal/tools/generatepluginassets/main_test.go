@@ -9,14 +9,14 @@ import (
 
 func TestDiscoverAndWriteAssetsIsDeterministic(t *testing.T) {
 	pluginsRoot := t.TempDir()
-	owner := filepath.Join(pluginsRoot, "tools", "demo")
+	owner := filepath.Join(pluginsRoot, "agent", "demo")
 	if err := os.MkdirAll(filepath.Join(owner, "skills", "demo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(owner, "assets.yaml"), []byte("assets:\n  - name: demo\n    source: skills/demo\n    logical_root: plugins/tool/demo/demo\n    owner_plugin_id: demo\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(owner, "plugin.json"), []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"demo"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(owner, "skills", "demo", "SKILL.md"), []byte(""), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(owner, "skills", "demo", "SKILL.md"), []byte("---\nname: demo\ndescription: Demo skill\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	assets, err := discover(pluginsRoot)
@@ -34,7 +34,7 @@ func TestDiscoverAndWriteAssetsIsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(want), `//go:embed "tools/demo/skills/demo/SKILL.md"`) {
+	if !strings.Contains(string(want), `//go:embed "agent/demo/skills/demo/SKILL.md"`) {
 		t.Fatalf("generated output omits explicit file embed: %s", want)
 	}
 	if err := writeGenerated(output, assets); err != nil {
@@ -49,7 +49,7 @@ func TestDiscoverAndWriteAssetsIsDeterministic(t *testing.T) {
 	}
 }
 
-func TestDiscoverRejectsUnknownOwnerShape(t *testing.T) {
+func TestDiscoverRejectsLegacyAssetAuthoring(t *testing.T) {
 	pluginsRoot := t.TempDir()
 	dir := filepath.Join(pluginsRoot, "guidance")
 	if err := os.MkdirAll(filepath.Join(dir, "skills", "demo"), 0o755); err != nil {
@@ -61,8 +61,8 @@ func TestDiscoverRejectsUnknownOwnerShape(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "skills", "demo", "SKILL.md"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := discover(pluginsRoot); err == nil || !strings.Contains(err.Error(), "invalid bare owner") {
-		t.Fatalf("discover error = %v, want invalid bare owner", err)
+	if _, err := discover(pluginsRoot); err == nil || !strings.Contains(err.Error(), "unsupported legacy authoring") {
+		t.Fatalf("discover error = %v, want unsupported legacy authoring", err)
 	}
 }
 
@@ -129,8 +129,8 @@ func TestDiscoverRejectsAgentPackageLegacyComponents(t *testing.T) {
 		file string
 		want string
 	}{
-		{name: "legacy assets", file: "assets.yaml", want: "cannot also contain assets.yaml"},
-		{name: "legacy plugin", file: "plugin.yaml", want: "cannot also contain plugin.yaml"},
+		{name: "legacy assets", file: "assets.yaml", want: "unsupported legacy authoring"},
+		{name: "legacy plugin", file: "plugin.yaml", want: "unsupported legacy authoring"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	_ "github.com/CherryHQ/stella/plugins/channels/dingtalk"
@@ -342,22 +341,17 @@ func TestStartAllowedWhenRequiredCapabilityBacked(t *testing.T) {
 	}
 }
 
-// TestManifestPluginsReceiveNoPlatformCapabilities proves a user-editable
+// TestUnregisteredAgentPackagesReceiveNoPlatformCapabilities proves a user-editable
 // manifest cannot grant its plugin host ports after static composition seals.
-func TestManifestPluginsReceiveNoPlatformCapabilities(t *testing.T) {
+func TestUnregisteredAgentPackagesReceiveNoPlatformCapabilities(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}},
 		WithChannelRuntimeServices(NewChannelRuntimeServices()))
-	host.RegisterManifestPlugins(&manifest.Manifest{
-		Plugins: []manifest.ManifestPlugin{{
-			ID: "tool/manifest", Kind: "tool", Enabled: true,
-			ManifestPluginDefinition: manifest.ManifestPluginDefinition{Name: "manifest", Prompt: "Use this tool."},
-		}},
-	})
-	if host.platform("tool/manifest").ChannelPlatform() != nil {
+
+	if host.platform("agent-package").ChannelPlatform() != nil {
 		t.Fatal("manifest plugin must not receive a Platform capability")
 	}
 	for _, meta := range host.ListRegisteredPlugins() {
-		if meta.ID == "tool/manifest" && len(meta.RequiredCapabilities) != 0 {
+		if meta.ID == "agent-package" && len(meta.RequiredCapabilities) != 0 {
 			t.Fatalf("manifest mutated RequiredCapabilities: %#v", meta)
 		}
 	}

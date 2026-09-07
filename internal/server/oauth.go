@@ -8,7 +8,8 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/connections"
-	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 
 // credAccess derives the trusted Authority for the authenticated caller and
@@ -69,54 +70,54 @@ func (s *Server) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	requiredBy := s.oauthProviderRequiredBy()
+	_, authority, ok := s.beginPluginAccess(w, r)
+	if !ok {
+		return
+	}
+	snapshot, err := s.pluginSvc.ResolveSnapshot(r.Context(), authority, "")
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
+	requiredBy, err := oauthProviderRequiredBy(snapshot)
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
 	for i := range providers {
 		providers[i].RequiredBy = requiredBy[providers[i].Provider]
 	}
 	writeData(w, http.StatusOK, map[string]any{"providers": providers})
 }
 
-// oauthProviderRequiredBy maps each tool OAuth provider to the display names of
-// enabled tools that depend on it, derived from the plugin manifest's
-// session-env specs. The credentials page uses this to tell users which tool a
-// connection unlocks, since login no longer carries tool scopes — a user must
-// connect each tool provider explicitly.
-func (s *Server) oauthProviderRequiredBy() map[string][]string {
-	return oauthProviderRequiredBy(s.pluginHost)
-}
-
-func oauthProviderRequiredBy(host *pluginhost.Host) map[string][]string {
-	if host == nil {
-		return nil
-	}
-	displayByID := make(map[string]string)
-	for _, p := range host.ListRegisteredPlugins() {
-		name := p.DisplayName
-		if name == "" {
-			name = p.Name
-		}
-		displayByID[p.ID] = name
-	}
+// oauthProviderRequiredBy uses the caller's effective packages, including custom
+// user configurations, without exposing their payload or credential bindings.
+func oauthProviderRequiredBy(snapshot plugin.Snapshot) (map[string][]string, error) {
 	out := make(map[string][]string)
-	seen := make(map[string]map[string]struct{})
-	for _, spec := range host.AllSessionEnvSpecs() {
-		if spec.OAuthProviderID == "" {
+	for _, definition := range snapshot.Definitions() {
+		effective, err := snapshot.Resolve(definition.ID)
+		if err != nil {
+			return nil, err
+		}
+		if !effective.IsEffectivelyEnabled {
 			continue
 		}
-		name := displayByID[spec.PluginID]
-		if name == "" {
-			continue
+		payload, err := manifest.DecodeCLIPayload(effective.Payload, "OAuth requirements")
+		if err != nil {
+			return nil, err
 		}
-		if seen[spec.OAuthProviderID] == nil {
-			seen[spec.OAuthProviderID] = make(map[string]struct{})
+		providers := make(map[string]bool)
+		if payload.OAuthProvider != "" {
+			providers[payload.OAuthProvider] = true
 		}
-		if _, dup := seen[spec.OAuthProviderID][name]; dup {
-			continue
+		for _, requirement := range payload.OAuth {
+			providers[requirement.Provider] = true
 		}
-		seen[spec.OAuthProviderID][name] = struct{}{}
-		out[spec.OAuthProviderID] = append(out[spec.OAuthProviderID], name)
+		for provider := range providers {
+			out[provider] = append(out[provider], definition.DisplayName)
+		}
 	}
-	return out
+	return out, nil
 }
 
 // StartOAuthFlow handles POST /api/users/me/oauth/{provider}/start.

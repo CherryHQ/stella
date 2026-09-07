@@ -56,6 +56,12 @@ func (h *Host) SessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPl
 		}
 		return cmp.Compare(left.ConfigID, right.ConfigID)
 	})
+	for i := 1; i < len(view.SessionEnvSpecs); i++ {
+		previous, current := view.SessionEnvSpecs[i-1], view.SessionEnvSpecs[i]
+		if previous.EnvVar == current.EnvVar {
+			return pkgplugins.SessionPluginView{}, fmt.Errorf("session environment %q is declared by both %q and %q", current.EnvVar, previous.PluginID, current.PluginID)
+		}
+	}
 	slices.SortFunc(view.BinarySpecs, func(left, right pkgplugins.PluginBinarySpec) int {
 		if left.PluginID != right.PluginID {
 			return cmp.Compare(left.PluginID, right.PluginID)

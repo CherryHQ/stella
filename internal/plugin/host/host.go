@@ -38,57 +38,49 @@ type Host struct {
 	// bindings are complete. Once sealed, the static composition surface
 	// (LoadCatalog and the Set* capability binders) refuses further changes,
 	// while the dynamic desired-state surface (ApplyPlugin/ApplyChannel/
-	// SetEnabled/Stop/RegisterManifestPlugins) stays available.
-	sealed             bool
-	pluginIDs          map[string]struct{}
-	manifestIDs        map[string]struct{}
-	manifestEnabledIDs map[string]struct{}
-	manifestOwnedIDs   map[string]struct{}
-	metadataRegs       map[string]pkgplugins.PluginInfo
-	notifications      pkgplugins.Notifier
-	stateStore         StateStoreBackend
-	authService        pkgplugins.Auth
-	enrollment         AccountEnrollmentBackend
-	nativePolicy       *plugin.NativePolicy
-	channelRuntime     pkgplugins.ChannelPlatform
-	listenerCap        ListenerCap
-	toolRegs           map[string]pkgplugins.ToolSpec
-	hookRegs           map[string]pkgplugins.HookSpec
-	beforeRunRegs      map[string]pkgplugins.BeforeRunSpec
-	beforeToolRegs     map[string]pkgplugins.BeforeToolCallSpec
-	afterToolRegs      map[string]pkgplugins.AfterToolResultSpec
-	channelRegs        map[string]pkgplugins.ChannelSpec
-	runtimeRegs        map[string]pkgplugins.RuntimeSpec
-	configRegs         map[string]pkgplugins.AdminSpec
-	statusRegs         map[string]pkgplugins.AdminSpec
-	promptRegs         map[string]pkgplugins.PromptInventorySpec
-	systemPromptRegs   map[string]pkgplugins.SystemPromptSpec
-	manifestPrompts    map[string]pkgplugins.SystemPromptSection
-	sessionEnvRegs     map[string][]pkgplugins.SessionEnvSpec
+	// SetEnabled/Stop) stays available.
+	sealed           bool
+	pluginIDs        map[string]struct{}
+	metadataRegs     map[string]pkgplugins.PluginInfo
+	notifications    pkgplugins.Notifier
+	stateStore       StateStoreBackend
+	authService      pkgplugins.Auth
+	enrollment       AccountEnrollmentBackend
+	nativePolicy     *plugin.NativePolicy
+	channelRuntime   pkgplugins.ChannelPlatform
+	listenerCap      ListenerCap
+	toolRegs         map[string]pkgplugins.ToolSpec
+	hookRegs         map[string]pkgplugins.HookSpec
+	beforeRunRegs    map[string]pkgplugins.BeforeRunSpec
+	beforeToolRegs   map[string]pkgplugins.BeforeToolCallSpec
+	afterToolRegs    map[string]pkgplugins.AfterToolResultSpec
+	channelRegs      map[string]pkgplugins.ChannelSpec
+	runtimeRegs      map[string]pkgplugins.RuntimeSpec
+	configRegs       map[string]pkgplugins.AdminSpec
+	statusRegs       map[string]pkgplugins.AdminSpec
+	promptRegs       map[string]pkgplugins.PromptInventorySpec
+	systemPromptRegs map[string]pkgplugins.SystemPromptSpec
+	sessionEnvRegs   map[string][]pkgplugins.SessionEnvSpec
 }
 
 func New(store config.Store, opts ...Option) *Host {
 	h := &Host{
-		store:              store,
-		log:                slog.With("component", "plugin_host"),
-		pluginIDs:          map[string]struct{}{},
-		manifestIDs:        map[string]struct{}{},
-		manifestEnabledIDs: map[string]struct{}{},
-		manifestOwnedIDs:   map[string]struct{}{},
-		metadataRegs:       map[string]pkgplugins.PluginInfo{},
-		toolRegs:           map[string]pkgplugins.ToolSpec{},
-		hookRegs:           map[string]pkgplugins.HookSpec{},
-		beforeRunRegs:      map[string]pkgplugins.BeforeRunSpec{},
-		beforeToolRegs:     map[string]pkgplugins.BeforeToolCallSpec{},
-		afterToolRegs:      map[string]pkgplugins.AfterToolResultSpec{},
-		channelRegs:        map[string]pkgplugins.ChannelSpec{},
-		runtimeRegs:        map[string]pkgplugins.RuntimeSpec{},
-		configRegs:         map[string]pkgplugins.AdminSpec{},
-		statusRegs:         map[string]pkgplugins.AdminSpec{},
-		promptRegs:         map[string]pkgplugins.PromptInventorySpec{},
-		systemPromptRegs:   map[string]pkgplugins.SystemPromptSpec{},
-		manifestPrompts:    map[string]pkgplugins.SystemPromptSection{},
-		sessionEnvRegs:     map[string][]pkgplugins.SessionEnvSpec{},
+		store:            store,
+		log:              slog.With("component", "plugin_host"),
+		pluginIDs:        map[string]struct{}{},
+		metadataRegs:     map[string]pkgplugins.PluginInfo{},
+		toolRegs:         map[string]pkgplugins.ToolSpec{},
+		hookRegs:         map[string]pkgplugins.HookSpec{},
+		beforeRunRegs:    map[string]pkgplugins.BeforeRunSpec{},
+		beforeToolRegs:   map[string]pkgplugins.BeforeToolCallSpec{},
+		afterToolRegs:    map[string]pkgplugins.AfterToolResultSpec{},
+		channelRegs:      map[string]pkgplugins.ChannelSpec{},
+		runtimeRegs:      map[string]pkgplugins.RuntimeSpec{},
+		configRegs:       map[string]pkgplugins.AdminSpec{},
+		statusRegs:       map[string]pkgplugins.AdminSpec{},
+		promptRegs:       map[string]pkgplugins.PromptInventorySpec{},
+		systemPromptRegs: map[string]pkgplugins.SystemPromptSpec{},
+		sessionEnvRegs:   map[string][]pkgplugins.SessionEnvSpec{},
 	}
 	h.config = &configService{store: store}
 	h.runtimes = NewRuntimeHost(h)
@@ -162,7 +154,7 @@ func (h *Host) RegisterPluginID(id string) {
 // registrations fail here; duplicate static registrations already fail eagerly
 // at registration time (registerUnique). After Seal, LoadCatalog and the Set*
 // capability binders refuse late changes, while the dynamic desired-state
-// surface (ApplyPlugin/ApplyChannel/SetEnabled/RegisterManifestPlugins/Stop)
+// surface (ApplyPlugin/ApplyChannel/SetEnabled/Stop)
 // remains available. Seal is one-shot.
 func (h *Host) Seal() error {
 	if err := h.ValidateRegistrations(); err != nil {
@@ -214,108 +206,6 @@ func (h *Host) LoadCatalog(catalog *pkgplugins.Catalog) error {
 }
 
 func (h *Host) LoadDefaultCatalog() error { return h.LoadCatalog(defaultCatalog()) }
-
-// RegisterManifestPlugins registers plugins declared in a manifest. For each
-// enabled plugin:
-//   - New plugins (not already Go-registered) are fully registered with ID, info,
-//     and session envs.
-//   - Existing plugins (already Go-registered) get manifest session envs registered
-//     so the manifest is the single source of truth for env injection. Go code
-//     should no longer call AddSessionEnv for manifest-declared env vars.
-func (h *Host) RegisterManifestPlugins(m *manifest.Manifest) {
-	if m == nil {
-		return
-	}
-
-	// Collect which IDs are already registered without holding the lock across
-	// the public method calls (RegisterPluginID / SetInfo / AddSessionEnv each
-	// acquire the lock themselves). Also clear prior manifest registrations so
-	// admin UI manifest edits can be applied without accumulating stale env specs.
-	type toRegister struct {
-		plugin    manifest.ManifestPlugin
-		alreadyGo bool
-	}
-	var entries []toRegister
-
-	h.mu.Lock()
-	for id := range h.manifestEnabledIDs {
-		delete(h.sessionEnvRegs, id)
-		delete(h.manifestPrompts, id)
-	}
-	for id := range h.manifestOwnedIDs {
-		delete(h.pluginIDs, id)
-		delete(h.metadataRegs, id)
-		delete(h.sessionEnvRegs, id)
-	}
-	h.manifestIDs = map[string]struct{}{}
-	h.manifestEnabledIDs = map[string]struct{}{}
-	h.manifestOwnedIDs = map[string]struct{}{}
-
-	for _, p := range m.Plugins {
-		h.manifestIDs[p.ID] = struct{}{}
-		if !p.Enabled {
-			continue
-		}
-		_, alreadyGo := h.pluginIDs[p.ID]
-		h.manifestEnabledIDs[p.ID] = struct{}{}
-		if !alreadyGo {
-			h.manifestOwnedIDs[p.ID] = struct{}{}
-		}
-		entries = append(entries, toRegister{plugin: p, alreadyGo: alreadyGo})
-	}
-	h.mu.Unlock()
-
-	for _, e := range entries {
-		p := e.plugin
-		if !e.alreadyGo {
-			name := p.Name
-			if name == "" {
-				name = p.ID
-			}
-			displayName := p.DisplayName
-			if displayName == "" {
-				displayName = name
-			}
-			var caps []string
-			if p.Prompt != "" {
-				caps = append(caps, pkgplugins.CapabilityPrompt)
-			}
-			h.RegisterPluginID(p.ID)
-			h.SetInfo(pkgplugins.PluginInfo{
-				ID:           p.ID,
-				Kind:         p.Kind,
-				Name:         name,
-				DisplayName:  displayName,
-				Description:  p.Description,
-				AdminVisible: true,
-				Capabilities: caps,
-			})
-		}
-
-		// Register manifest session_envs for all enabled plugins, including
-		// Go-registered ones. The manifest is the source of truth.
-		for _, se := range p.SessionEnvs {
-			h.AddSessionEnv(pkgplugins.SessionEnvSpec{
-				PluginID:        p.ID,
-				EnvVar:          se.EnvVar,
-				Source:          pkgplugins.SessionEnvSource(se.Source),
-				Value:           se.Value,
-				Required:        se.Required,
-				OAuthProviderID: p.OAuthProvider,
-			})
-		}
-
-		if p.Prompt != "" {
-			promptName := p.Name
-			if promptName == "" {
-				promptName = p.ID
-			}
-			h.mu.Lock()
-			h.manifestPrompts[p.ID] = pkgplugins.SystemPromptSection{Title: promptName, Content: p.Prompt}
-			h.mu.Unlock()
-		}
-	}
-}
 
 func (h *Host) SetInfo(info pkgplugins.PluginInfo) {
 	info = normalizeMetadata(info)

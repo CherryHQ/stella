@@ -326,7 +326,7 @@ function ConfigRow({
               {t("common.edit")}
             </Button>
           )}
-          {onAddChild && children.length > 0 && (
+          {onAddChild && (
             <Button variant="outline" size="xs" onClick={onAddChild} disabled={busy}>
               {t("plugins.addMcpServer")}
             </Button>

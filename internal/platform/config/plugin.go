@@ -14,17 +14,6 @@ const (
 
 // Plugin represents a unified plugin entry stored in plugin.
 // IDs follow "kind/name" format, e.g. "channel/telegram" or "provider/openai".
-// ManifestPluginOverride is an override of a manifest-declared plugin.
-// Both Enabled and SessionEnvVaultKey are nullable / empty-as-sentinel so the
-// row can express "fallback to manifest default" without losing the row itself.
-type ManifestPluginOverride struct {
-	PluginID           string
-	Enabled            *bool  // nil = fallback to manifest default; non-nil = override
-	SessionEnvVaultKey string // empty = fallback; non-empty = vault blob with session_env override map
-	Config             string // JSON manifest plugin definition override; empty = fallback to builtin
-	UpdatedAt          string
-}
-
 type Plugin struct {
 	ID      string         `json:"id"`
 	Kind    string         `json:"kind"`

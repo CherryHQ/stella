@@ -13,12 +13,12 @@ func TestValidate_NoID(t *testing.T) {
 	}
 }
 
-func TestValidate_RequiresManifestContent(t *testing.T) {
+func TestValidate_AllowsMetadataOnlyPackage(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{ID: "empty"},
 	}}
-	if err := Validate(m); err == nil {
-		t.Error("expected error for plugin with no binaries/skills/session_env")
+	if err := Validate(m); err != nil {
+		t.Errorf("metadata-only standard package rejected: %v", err)
 	}
 }
 

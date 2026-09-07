@@ -86,14 +86,12 @@ func TestLarkCLIOverrideRepairMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load builtin manifest: %v", err)
 	}
-	resolved := manifest.Resolve(builtin, []manifest.StoredOverride{{
-		PluginID: "lark-cli",
-		Config:   repaired,
-	}}, nil)
+	// Released OAuth fields inherit the current release declaration. The current
+	// plugin importer owns the later cutover, not the retired override resolver.
 	var larkPlugin *manifest.ManifestPlugin
-	for i := range resolved.Plugins {
-		if resolved.Plugins[i].ID == "lark-cli" {
-			larkPlugin = &resolved.Plugins[i]
+	for i := range builtin.Plugins {
+		if builtin.Plugins[i].ID == "lark-cli" {
+			larkPlugin = &builtin.Plugins[i]
 			break
 		}
 	}

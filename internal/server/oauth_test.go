@@ -1,12 +1,16 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"testing"
 
-	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 
@@ -42,12 +46,10 @@ func TestRequestOriginUsesForwardedHeaders(t *testing.T) {
 // multiple session envs of one tool collapse to a single entry, and disabled
 // tools are excluded.
 func TestOAuthProviderRequiredBy(t *testing.T) {
-	host := pluginhost.New(nil)
-	host.RegisterManifestPlugins(&manifest.Manifest{
+	shipped := &manifest.Manifest{
 		Plugins: []manifest.ManifestPlugin{
 			{
 				ID:      "tool/acme-exporter",
-				Kind:    "tool",
 				Enabled: true,
 				ManifestPluginDefinition: manifest.ManifestPluginDefinition{
 					Name:          "acme-exporter",
@@ -61,7 +63,6 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 			},
 			{
 				ID:      "tool/gh",
-				Kind:    "tool",
 				Enabled: true,
 				ManifestPluginDefinition: manifest.ManifestPluginDefinition{
 					Name:          "gh",
@@ -74,7 +75,6 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 			},
 			{
 				ID:      "tool/disabled",
-				Kind:    "tool",
 				Enabled: false,
 				ManifestPluginDefinition: manifest.ManifestPluginDefinition{
 					Name:          "disabled",
@@ -85,9 +85,38 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 				},
 			},
 		},
-	})
-
-	got := oauthProviderRequiredBy(host)
+	}
+	db := dbtest.New(t)
+	catalog := plugin.NewCatalog()
+	for _, declared := range shipped.Plugins {
+		spec, err := json.Marshal(manifest.CLIPayload{OAuthProvider: declared.OAuthProvider, SessionEnvs: declared.SessionEnvs})
+		if err != nil {
+			t.Fatal(err)
+		}
+		def := plugin.Definition{ID: declared.Name, DisplayName: declared.DisplayName, Source: plugin.SourceBuiltin, Revision: 1, DefaultEnabled: declared.Enabled, Spec: spec}
+		if def.DisplayName == "" {
+			def.DisplayName = declared.Name
+		}
+		if err := catalog.Register(def); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{}, func(_ context.Context, mutate func() error) error { return mutate() })
+	if err := svc.SyncBuiltinDefaults(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := authz.NewSystemAuthority("oauth-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := svc.ResolveSnapshot(t.Context(), authority, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := oauthProviderRequiredBy(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if want := []string{"Acme Exporter"}; !reflect.DeepEqual(got["acme"], want) {
 		t.Errorf("acme RequiredBy = %v, want %v", got["acme"], want)
@@ -97,8 +126,42 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 	}
 }
 
-func TestOAuthProviderRequiredByNilHost(t *testing.T) {
-	if got := oauthProviderRequiredBy(nil); got != nil {
-		t.Errorf("RequiredBy(nil host) = %v, want nil", got)
+func TestOAuthProviderRequiredByUsesShippedCatalogWithoutHostRegistration(t *testing.T) {
+	db := dbtest.New(t)
+	definitions, err := manifest.BuiltinDefinitions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := plugin.NewCatalog()
+	for _, def := range definitions {
+		if err := catalog.Register(def); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{}, func(_ context.Context, mutate func() error) error { return mutate() })
+	if err := svc.SyncBuiltinDefaults(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := authz.NewSystemAuthority("oauth-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := svc.ResolveSnapshot(t.Context(), authority, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := oauthProviderRequiredBy(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got["github"]) == 0 || len(got["feishu"]) == 0 {
+		t.Fatalf("shipped CLI OAuth dependencies missing: %v", got)
+	}
+}
+
+func TestOAuthProviderRequiredByEmptySnapshot(t *testing.T) {
+	got, err := oauthProviderRequiredBy(plugin.Snapshot{})
+	if err != nil || len(got) != 0 {
+		t.Errorf("RequiredBy(empty snapshot) = %v, %v, want empty", got, err)
 	}
 }

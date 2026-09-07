@@ -294,6 +294,7 @@ func (s *Service) commonRegistrationsByScope(ctx context.Context, authority auth
 	}
 	configs := make([]plugin.Config, 0)
 	defsByID := make(map[string]plugin.Definition)
+	effectiveByID := make(map[string]plugin.Effective)
 	for _, def := range defs {
 		rows, err := access.ListConfigs(ctx, def.ID, plugin.Scope(scope), agentID)
 		if err != nil {
@@ -303,13 +304,14 @@ func (s *Service) commonRegistrationsByScope(ctx context.Context, authority auth
 			if len(cfg.Payload) == 0 {
 				continue // negative config disables this scope and has no registration
 			}
-			merged, err := mergeMCPJSONObjects(def.Spec, cfg.Payload)
+			effective, err := plugin.Resolve(def, []plugin.Config{cfg}, cfg.UserID, cfg.AgentID)
 			if err != nil {
 				return nil, err
 			}
-			if !payloadHasMCP(merged) {
+			if !payloadHasMCP(effective.Payload) {
 				continue
 			}
+			effectiveByID[cfg.ID] = effective
 			configs = append(configs, cfg)
 			defsByID[def.ID] = def
 		}
@@ -322,7 +324,7 @@ func (s *Service) commonRegistrationsByScope(ctx context.Context, authority auth
 	for _, cfg := range configs {
 		for _, child := range cfg.MCPServers {
 			ids = append(ids, child.ID)
-			payload, err := decodeMCPPluginPayloadForKey(cfg.Payload, child.ServerKey)
+			payload, err := decodeMCPPluginPayloadForKey(effectiveByID[cfg.ID].Payload, child.ServerKey)
 			if err != nil {
 				return nil, err
 			}
@@ -352,11 +354,8 @@ func (s *Service) commonRegistrationsByScope(ctx context.Context, authority auth
 	}
 	out := make([]Registration, 0, len(configs))
 	for _, cfg := range configs {
-		effective, err := plugin.Resolve(defsByID[cfg.PluginID], []plugin.Config{cfg}, cfg.UserID, cfg.AgentID)
-		if err != nil {
-			return nil, err
-		}
-		converted, err := registrationsFromResolvedConfig(defsByID[cfg.PluginID], cfg, effective, PluginMCPObservation{ConfigRevision: cfg.Revision}, observationMapForChildren(cfg, stateByKey, authority), authority)
+		effective := effectiveByID[cfg.ID]
+		converted, err := registrationsFromResolvedConfig(defsByID[cfg.PluginID], cfg, effective, PluginMCPObservation{ConfigRevision: cfg.Revision}, observationMapForChildren(cfg, effective.Payload, stateByKey, authority), authority)
 		if err != nil {
 			return nil, err
 		}
@@ -365,11 +364,11 @@ func (s *Service) commonRegistrationsByScope(ctx context.Context, authority auth
 	return out, nil
 }
 
-func observationMapForChildren(cfg plugin.Config, states map[observationKey]PluginMCPObservation, authority authz.Authority) map[string]PluginMCPObservation {
+func observationMapForChildren(cfg plugin.Config, payloadJSON json.RawMessage, states map[observationKey]PluginMCPObservation, authority authz.Authority) map[string]PluginMCPObservation {
 	result := make(map[string]PluginMCPObservation, len(cfg.MCPServers))
 	for _, child := range cfg.MCPServers {
 		ownerID := ""
-		payload, err := decodeMCPPluginPayloadForKey(cfg.Payload, child.ServerKey)
+		payload, err := decodeMCPPluginPayloadForKey(payloadJSON, child.ServerKey)
 		if err == nil && payload.CredentialMode == CredentialModePerUser && (authority.Kind() == authz.ActorUser || authority.Kind() == authz.ActorAgent) {
 			ownerID = string(authority.UserID())
 		}

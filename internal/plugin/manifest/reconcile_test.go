@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // makeMinimalManifest builds a Manifest with a single binary having explicit version
@@ -33,17 +35,22 @@ func makeMinimalManifest(pluginID string, enabled bool, binaryName, version stri
 // treats the binary as already installed.
 func seedState(t *testing.T, stellaHome, pluginID, binaryName, version string) {
 	t.Helper()
+	identity, err := pkgplugins.BinaryArtifactIdentity(pkgplugins.PluginBinarySpec{Name: binaryName, Tool: "github:owner/repo", Version: version})
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := &ManifestState{
 		UpdatedAt: time.Now(),
 		Plugins: map[string]PluginInstallState{
 			pluginID: {
 				Binaries: []BinaryInstallState{
 					{
-						Name:        binaryName,
-						Tool:        "github:owner/repo",
-						Spec:        version,
-						Version:     version,
-						InstalledAt: time.Now(),
+						ArtifactIdentity: identity,
+						Name:             binaryName,
+						Tool:             "github:owner/repo",
+						Spec:             version,
+						Version:          version,
+						InstalledAt:      time.Now(),
 					},
 				},
 			},
@@ -246,5 +253,35 @@ func TestStatePath(t *testing.T) {
 	got := StatePath("/home/user/.stella")
 	if got != want {
 		t.Errorf("StatePath = %q, want %q", got, want)
+	}
+}
+
+func TestReconcileCacheIncludesArtifactSourceAndOptions(t *testing.T) {
+	binary := ManifestBinary{Name: "demo", Tool: "github:owner/demo", Version: "1.2", Options: map[string]any{"bin_path": "bin"}}
+	identity, err := pkgplugins.BinaryArtifactIdentity(pkgplugins.PluginBinarySpec{Name: binary.Name, Tool: binary.Tool, Version: binary.Version, Options: binary.Options})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &ManifestState{Plugins: map[string]PluginInstallState{"demo": {Binaries: []BinaryInstallState{{Name: binary.Name, Tool: binary.Tool, Spec: binary.Version, ArtifactIdentity: identity}}}}}
+	if !isCacheHit(state, "demo", binary) {
+		t.Fatal("identical artifact missed")
+	}
+	for _, changed := range []ManifestBinary{
+		{Name: binary.Name, Tool: "npm:demo", Version: binary.Version, Options: binary.Options},
+		{Name: binary.Name, Tool: binary.Tool, Version: "2", Options: binary.Options},
+		{Name: binary.Name, Tool: binary.Tool, Version: binary.Version, Options: map[string]any{"bin_path": "other"}},
+		{Name: binary.Name, Tool: binary.Tool, Version: "", Options: binary.Options},
+	} {
+		if isCacheHit(state, "demo", changed) {
+			t.Fatalf("changed artifact hit: %+v", changed)
+		}
+	}
+}
+
+func TestReconcileCacheRejectsLegacyRecordWithoutArtifactIdentity(t *testing.T) {
+	binary := ManifestBinary{Name: "demo", Tool: "github:owner/demo", Version: "1.2"}
+	state := &ManifestState{Plugins: map[string]PluginInstallState{"demo": {Binaries: []BinaryInstallState{{Name: binary.Name, Tool: binary.Tool, Spec: binary.Version}}}}}
+	if isCacheHit(state, "demo", binary) {
+		t.Fatal("legacy record without installer options must be revalidated")
 	}
 }

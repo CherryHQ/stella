@@ -832,62 +832,6 @@ func (s *DBStore) DeletePlugin(ctx context.Context, id string) error {
 	return s.q.DeletePlugin(ctx, id)
 }
 
-// --- Manifest plugin overrides ---
-
-func (s *DBStore) GetManifestPluginOverride(ctx context.Context, pluginID string) (config.ManifestPluginOverride, bool, error) {
-	row, err := s.q.GetManifestPluginOverride(ctx, pluginID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return config.ManifestPluginOverride{}, false, nil
-	}
-	if err != nil {
-		return config.ManifestPluginOverride{}, false, fmt.Errorf("get manifest override %q: %w", pluginID, err)
-	}
-	return manifestOverrideFromDB(row), true, nil
-}
-
-func (s *DBStore) ListManifestPluginOverrides(ctx context.Context) ([]config.ManifestPluginOverride, error) {
-	rows, err := s.q.ListManifestPluginOverrides(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list manifest overrides: %w", err)
-	}
-	out := make([]config.ManifestPluginOverride, len(rows))
-	for i, r := range rows {
-		out[i] = manifestOverrideFromDB(r)
-	}
-	return out, nil
-}
-
-func (s *DBStore) UpsertManifestPluginOverride(ctx context.Context, ov config.ManifestPluginOverride) error {
-	var enabled pgtype.Bool
-	if ov.Enabled != nil {
-		enabled = pgtype.Bool{Bool: *ov.Enabled, Valid: true}
-	}
-	return s.q.UpsertManifestPluginOverride(ctx, sqlc.UpsertManifestPluginOverrideParams{
-		PluginID:           ov.PluginID,
-		Enabled:            enabled,
-		SessionEnvVaultKey: ov.SessionEnvVaultKey,
-		Config:             ov.Config,
-	})
-}
-
-func (s *DBStore) DeleteManifestPluginOverride(ctx context.Context, pluginID string) error {
-	return s.q.DeleteManifestPluginOverride(ctx, pluginID)
-}
-
-func manifestOverrideFromDB(r sqlc.PluginOverride) config.ManifestPluginOverride {
-	out := config.ManifestPluginOverride{
-		PluginID:           r.PluginID,
-		SessionEnvVaultKey: r.SessionEnvVaultKey,
-		Config:             r.Config,
-		UpdatedAt:          r.UpdatedAt.UTC().Format(time.RFC3339),
-	}
-	if r.Enabled.Valid {
-		enabled := r.Enabled.Bool
-		out.Enabled = &enabled
-	}
-	return out
-}
-
 // mergedPlugins returns builtins merged with DB overrides, optionally filtered.
 func (s *DBStore) mergedPlugins(ctx context.Context, filter func(config.Plugin) bool) ([]config.Plugin, error) {
 	rows, err := s.q.ListPluginOverrides(ctx)

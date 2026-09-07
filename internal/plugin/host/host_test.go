@@ -10,7 +10,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/platform/config"
 	internalplugin "github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -216,18 +215,7 @@ func (s *stubStore) SetChannelPluginConfig(_ context.Context, id, kind, name str
 }
 
 func (s *stubStore) DeletePlugin(context.Context, string) error { return nil }
-func (s *stubStore) GetManifestPluginOverride(context.Context, string) (config.ManifestPluginOverride, bool, error) {
-	return config.ManifestPluginOverride{}, false, nil
-}
 
-func (s *stubStore) ListManifestPluginOverrides(context.Context) ([]config.ManifestPluginOverride, error) {
-	return nil, nil
-}
-
-func (s *stubStore) UpsertManifestPluginOverride(context.Context, config.ManifestPluginOverride) error {
-	return nil
-}
-func (s *stubStore) DeleteManifestPluginOverride(context.Context, string) error { return nil }
 func (s *stubStore) GetChatAgent(context.Context, string, string, string) (string, error) {
 	return "", nil
 }
@@ -475,78 +463,14 @@ func TestValidateRegistrationsAcceptsToolLifecycleOnly(t *testing.T) {
 
 func TestSessionPluginViewUsesOnlySnapshot(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}})
-	host.RegisterManifestPlugins(&manifest.Manifest{Plugins: []manifest.ManifestPlugin{
-		{ID: "tool/xberg", Kind: "tool", Enabled: false, ManifestPluginDefinition: manifest.ManifestPluginDefinition{Name: "xberg", Binaries: []manifest.ManifestBinary{{Name: "xberg", Tool: "github:xberg-io/xberg"}}}},
-		{ID: "tool/enabled", Kind: "tool", Enabled: true, ManifestPluginDefinition: manifest.ManifestPluginDefinition{Name: "enabled", Prompt: "enabled"}},
-	}})
+	host.RegisterPluginID("native-example")
 
 	view, err := host.SessionPluginView(internalplugin.Snapshot{})
 	if err != nil {
 		t.Fatalf("SessionPluginView: %v", err)
 	}
 	if len(view.RegisteredPluginIDs) != 0 || len(view.ExposedPluginIDs) != 0 {
-		t.Fatalf("SessionPluginView = %+v, manifest registrations must not enter snapshot view", view)
-	}
-}
-
-func TestValidateRegistrationsAcceptsCLIBackedPromptOnlyTool(t *testing.T) {
-	store := &stubStore{plugins: map[string]config.Plugin{}}
-	host := New(store)
-
-	enabled := true
-	host.RegisterManifestPlugins(&manifest.Manifest{
-		Plugins: []manifest.ManifestPlugin{
-			{
-				ID:      "tool/mise",
-				Kind:    "tool",
-				Enabled: enabled,
-				ManifestPluginDefinition: manifest.ManifestPluginDefinition{
-					Name:        "mise",
-					DisplayName: "mise",
-					Prompt:      "Use mise to manage runtimes and tools.",
-				},
-			},
-		},
-	})
-
-	if err := host.ValidateRegistrations(); err != nil {
-		t.Fatalf("ValidateRegistrations: %v", err)
-	}
-}
-
-func TestManifestSessionEnvPropagatesOAuthProvider(t *testing.T) {
-	store := &stubStore{plugins: map[string]config.Plugin{}}
-	host := New(store)
-	manifest := &manifest.Manifest{
-		Plugins: []manifest.ManifestPlugin{{
-			ID:      "tool/acme-cli",
-			Kind:    "tool",
-			Enabled: true,
-			ManifestPluginDefinition: manifest.ManifestPluginDefinition{
-				Name: "acme-cli",
-				SessionEnvs: []manifest.ManifestSessionEnv{{
-					EnvVar: "ACME_ACCESS_TOKEN",
-					Source: "oauth.access_token",
-				}},
-				OAuthProvider: "acme",
-			},
-		}},
-	}
-	host.RegisterManifestPlugins(manifest)
-
-	specs := host.AllSessionEnvSpecs()
-	var found bool
-	for _, spec := range specs {
-		if spec.PluginID == "tool/acme-cli" && spec.EnvVar == "ACME_ACCESS_TOKEN" {
-			found = true
-			if spec.OAuthProviderID != "acme" {
-				t.Errorf("OAuthProviderID = %q, want acme", spec.OAuthProviderID)
-			}
-			break
-		}
-	}
-	if !found {
-		t.Error("acme-cli session env spec not found")
+		t.Fatalf("SessionPluginView = %+v, Native registrations must not enter the Agent snapshot view", view)
 	}
 }
 

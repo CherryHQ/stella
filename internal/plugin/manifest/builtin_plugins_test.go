@@ -10,29 +10,15 @@ import (
 	"testing"
 )
 
-const testBuiltinPluginYAML = `id: demo
-kind: tool
-name: demo
-display_name: Demo
-description: A demo plugin
-enabled: true
-binaries:
-  - name: demo
-    tool: demo
-skills:
-  - name: demo-skill
-oauth_provider: demo
-session_env:
-  - env_var: DEMO_TOKEN
-    source: oauth.access_token
-`
-
 var testReservedRuntimeNames = []string{"mise", "xberg"}
 
-func TestGenerateBuiltinPluginsNestedMovePreservesBytesAndIdentity(t *testing.T) {
-	root := t.TempDir()
-	writeBuiltinPlugin(t, root, "tools/first/plugin.yaml", testBuiltinPluginYAML)
-	first, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, []string{"demo"})
+const testBuiltinPluginJSON = `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"demo","description":"A demo plugin","extensions":{"com.cherryhq.stella":{"version":"1","binaries":[{"name":"demo","tool":"demo"}]}}}`
+
+func TestGenerateBuiltinPluginsRootMovePreservesBytesAndIdentity(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "first")
+	writeBuiltinPlugin(t, root, "agent/demo/plugin.json", testBuiltinPluginJSON)
+	first, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,13 +26,11 @@ func TestGenerateBuiltinPluginsNestedMovePreservesBytesAndIdentity(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, "nested"), 0o755); err != nil {
+	moved := filepath.Join(parent, "second")
+	if err := os.Rename(root, moved); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Rename(filepath.Join(root, "tools/first"), filepath.Join(root, "nested/second")); err != nil {
-		t.Fatal(err)
-	}
-	second, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, []string{"demo"})
+	second, err := GenerateBuiltinPlugins(moved, testReservedRuntimeNames, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +39,7 @@ func TestGenerateBuiltinPluginsNestedMovePreservesBytesAndIdentity(t *testing.T)
 		t.Fatal(err)
 	}
 	if !bytes.Equal(firstBytes, secondBytes) || second.Plugins[0].ID != "demo" {
-		t.Fatalf("moving declaration changed generated catalog or identity: first=%s second=%s", firstBytes, secondBytes)
+		t.Fatal("root move changed catalog")
 	}
 }
 
@@ -64,13 +48,104 @@ func TestGenerateBuiltinPluginsEmptyDirectoryIsNotPlugin(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "empty", "deeper"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeBuiltinPlugin(t, root, "tools/demo/plugin.yaml", testBuiltinPluginYAML)
-	plugins, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, []string{"demo"})
+	writeBuiltinPlugin(t, root, "agent/demo/plugin.json", testBuiltinPluginJSON)
+	result, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, nil)
+	if err != nil || len(result.Plugins) != 1 {
+		t.Fatalf("catalog = %+v, error = %v", result, err)
+	}
+}
+
+func TestGenerateBuiltinPluginsRejectsDuplicateIDsAndResources(t *testing.T) {
+	for _, duplicateID := range []bool{true, false} {
+		first := ManifestPlugin{ID: "demo", ManifestPluginDefinition: ManifestPluginDefinition{Name: "demo", DisplayName: "Demo", SessionEnvs: []ManifestSessionEnv{{EnvVar: "TOKEN", Source: "oauth.access_token"}}, OAuthProvider: "demo"}}
+		second := first
+		want := "duplicate builtin plugin ID"
+		if !duplicateID {
+			second.ID = "other"
+			second.Name = "other"
+			want = "duplicate builtin plugin resource"
+		}
+		if err := validateBuiltinPlugins([]ManifestPlugin{first, second}, testReservedRuntimeNames, []string{"demo"}); err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("error=%v, want %s", err, want)
+		}
+	}
+}
+
+func TestGenerateBuiltinPluginsRejectsSymlinkAndNonRegularManifest(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		root := t.TempDir()
+		writeBuiltinPlugin(t, root, "agent/demo/plugin.json", testBuiltinPluginJSON)
+		if err := os.Symlink(filepath.Join(root, "agent/demo"), filepath.Join(root, "alias")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, nil); err == nil || !strings.Contains(err.Error(), "symlink") {
+			t.Fatalf("error=%v, want symlink rejection", err)
+		}
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "bad", "plugin.yaml"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, nil); err == nil || !strings.Contains(err.Error(), "unsupported type directory") {
+		t.Fatalf("error=%v, want nonregular rejection", err)
+	}
+}
+
+func TestWriteBuiltinPluginsRefreshesGeneratedBytes(t *testing.T) {
+	root := t.TempDir()
+	pluginsRoot := filepath.Join(root, "plugins")
+	output := filepath.Join(root, "generated.go")
+	writeBuiltinPlugin(t, pluginsRoot, "agent/demo/plugin.json", testBuiltinPluginJSON)
+	if err := WriteBuiltinPlugins(pluginsRoot, output, testReservedRuntimeNames, nil); err != nil {
+		t.Fatal(err)
+	}
+	first, err := os.ReadFile(output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plugins.Plugins) != 1 || plugins.Plugins[0].ID != "demo" {
-		t.Fatalf("plugins = %#v, want only the declared plugin", plugins.Plugins)
+	writeBuiltinPlugin(t, pluginsRoot, "agent/demo/plugin.json", strings.Replace(testBuiltinPluginJSON, "A demo plugin", "Updated demo plugin", 1))
+	if err := WriteBuiltinPlugins(pluginsRoot, output, testReservedRuntimeNames, nil); err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(first, second) || !bytes.Contains(second, []byte("Updated demo plugin")) {
+		t.Fatal("generated output did not refresh")
+	}
+}
+
+func TestGenerateBuiltinPluginsRejectsInvalidAuthoring(t *testing.T) {
+	for _, tc := range []struct{ name, filename, content string }{
+		{"legacy plugin", "tools/demo/plugin.yaml", "id: demo"},
+		{"legacy assets", "tools/demo/assets.yaml", "assets: []"},
+		{"unknown field", "agent/demo/plugin.json", strings.TrimSuffix(testBuiltinPluginJSON, "}") + `,"unexpected":true}`},
+		{"multiple documents", "agent/demo/plugin.json", testBuiltinPluginJSON + "{}"},
+		{"remote skill source", "agent/demo/plugin.json", strings.TrimSuffix(testBuiltinPluginJSON, "}") + `,"skills":[{"name":"demo","repo":"github:example/demo"}]}`},
+		{"essential", "agent/demo/plugin.json", strings.TrimSuffix(testBuiltinPluginJSON, "}") + `,"essential":false}`},
+		{"bundled binaries", "agent/demo/plugin.json", strings.TrimSuffix(testBuiltinPluginJSON, "}") + `,"bundled_binaries":[]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeBuiltinPlugin(t, root, tc.filename, tc.content)
+			if _, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, nil); err == nil {
+				t.Fatal("invalid authoring accepted")
+			}
+		})
+	}
+}
+
+func TestGenerateBuiltinPluginsRejectsReservedCoreBinaryNames(t *testing.T) {
+	for _, name := range testReservedRuntimeNames {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			content := strings.Replace(testBuiltinPluginJSON, `"binaries":[{"name":"demo"`, `"binaries":[{"name":"`+name+`"`, 1)
+			writeBuiltinPlugin(t, root, "agent/demo/plugin.json", content)
+			if _, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, nil); err == nil || !strings.Contains(err.Error(), "reserved core binary name") {
+				t.Fatalf("error=%v, want reserved name rejection", err)
+			}
+		})
 	}
 }
 
@@ -102,131 +177,8 @@ func TestGenerateBuiltinPluginsIncludesStandardAgentPackage(t *testing.T) {
 		t.Fatalf("plugins = %#v, want one Agent package", plugins.Plugins)
 	}
 	got := plugins.Plugins[0]
-	if got.ID != "demo" || got.Kind != "agent" || got.Name != "demo" || len(got.Skills) != 1 || got.Skills[0].Name != "demo" {
+	if got.ID != "demo" || got.Name != "demo" || len(got.Skills) != 1 || got.Skills[0].Name != "demo" {
 		t.Fatalf("Agent plugin = %#v", got)
-	}
-}
-
-func TestGenerateBuiltinPluginsRejectsDuplicateIDsAndResources(t *testing.T) {
-	tests := []struct {
-		name  string
-		left  string
-		right string
-		want  string
-	}{
-		{name: "id", left: testBuiltinPluginYAML, right: testBuiltinPluginYAML, want: "duplicate builtin plugin ID"},
-		{name: "resource", left: testBuiltinPluginYAML, right: strings.Replace(strings.Replace(testBuiltinPluginYAML, "id: demo", "id: other", 1), "name: demo\n", "name: other\n", 1), want: "duplicate builtin plugin resource"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			root := t.TempDir()
-			writeBuiltinPlugin(t, root, "a/plugin.yaml", test.left)
-			writeBuiltinPlugin(t, root, "b/plugin.yaml", test.right)
-			if _, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, []string{"demo"}); err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("GenerateBuiltinPlugins() error = %v, want %q", err, test.want)
-			}
-		})
-	}
-}
-
-func TestGenerateBuiltinPluginsRejectsSymlinkAndNonRegularManifest(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		root := t.TempDir()
-		writeBuiltinPlugin(t, root, "real/plugin.yaml", testBuiltinPluginYAML)
-		if err := os.Symlink(filepath.Join(root, "real"), filepath.Join(root, "alias")); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, []string{"demo"}); err == nil || !strings.Contains(err.Error(), "symlink") {
-			t.Fatalf("GenerateBuiltinPlugins() error = %v, want symlink rejection", err)
-		}
-	}
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "bad", "plugin.yaml"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, []string{"demo"}); err == nil || !strings.Contains(err.Error(), "unsupported type directory") {
-		t.Fatalf("GenerateBuiltinPlugins() error = %v, want non-regular rejection", err)
-	}
-}
-
-func TestWriteBuiltinPluginsRefreshesGeneratedBytes(t *testing.T) {
-	root := t.TempDir()
-	pluginsRoot := filepath.Join(root, "plugins")
-	output := filepath.Join(root, "builtin_plugins_gen.go")
-	manifest := filepath.Join(pluginsRoot, "tools", "demo", "plugin.yaml")
-	writeBuiltinPlugin(t, pluginsRoot, "tools/demo/plugin.yaml", testBuiltinPluginYAML)
-	if err := WriteBuiltinPlugins(pluginsRoot, output, testReservedRuntimeNames, []string{"demo"}); err != nil {
-		t.Fatal(err)
-	}
-	first, err := os.ReadFile(output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	updated := strings.Replace(testBuiltinPluginYAML, "description: A demo plugin", "description: Updated demo plugin", 1)
-	if err := os.WriteFile(manifest, []byte(updated), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteBuiltinPlugins(pluginsRoot, output, testReservedRuntimeNames, []string{"demo"}); err != nil {
-		t.Fatal(err)
-	}
-	second, err := os.ReadFile(output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Equal(first, second) || !bytes.Contains(second, []byte("Updated demo plugin")) {
-		t.Fatalf("generated output did not refresh: %q", second)
-	}
-}
-
-func TestGenerateBuiltinPluginsRejectsUnknownFieldsAndMultipleDocuments(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		content string
-		want    string
-	}{
-		{name: "unknown field", content: testBuiltinPluginYAML + "unexpected: true\n", want: "field unexpected not found"},
-		{name: "remote skill source", content: strings.Replace(testBuiltinPluginYAML, "  - name: demo-skill\n", "  - name: demo-skill\n    repo: github:example/demo-skill\n", 1), want: "field repo not found"},
-		{name: "multiple documents", content: testBuiltinPluginYAML + "---\nid: other\n", want: "more than one YAML document"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			root := t.TempDir()
-			writeBuiltinPlugin(t, root, "plugin.yaml", test.content)
-			if _, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, []string{"demo"}); err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("GenerateBuiltinPlugins() error = %v, want %q", err, test.want)
-			}
-		})
-	}
-}
-
-func TestGenerateBuiltinPluginsRejectsCoreIDsAndReleaseFields(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		content string
-		want    string
-	}{
-		{name: "essential", content: testBuiltinPluginYAML + "essential: false\n", want: "cannot declare essential"},
-		{name: "empty bundled binaries", content: testBuiltinPluginYAML + "bundled_binaries: []\n", want: "bundled_binaries require kind system"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			root := t.TempDir()
-			writeBuiltinPlugin(t, root, "plugin.yaml", test.content)
-			if _, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, []string{"demo"}); err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("GenerateBuiltinPlugins() error = %v, want %q", err, test.want)
-			}
-		})
-	}
-}
-
-func TestGenerateBuiltinPluginsRejectsReservedCoreBinaryNames(t *testing.T) {
-	for _, name := range testReservedRuntimeNames {
-		t.Run(name, func(t *testing.T) {
-			root := t.TempDir()
-			content := strings.Replace(testBuiltinPluginYAML, "- name: demo\n    tool: demo", "- name: "+name+"\n    tool: demo", 1)
-			writeBuiltinPlugin(t, root, "plugin.yaml", content)
-			if _, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, []string{"demo"}); err == nil || !strings.Contains(err.Error(), "reserved core binary name") {
-				t.Fatalf("GenerateBuiltinPlugins() error = %v, want reserved binary rejection", err)
-			}
-		})
 	}
 }
 

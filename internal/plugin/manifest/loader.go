@@ -7,8 +7,8 @@ import (
 )
 
 // LoadBuiltin returns the manifest baked into the binary at build time. This is
-// the single source of truth for plugin defaults; overrides live in the
-// plugin_override DB table.
+// source for release defaults; the plugin service resolves scoped plugin_config
+// rows into an authorized snapshot.
 func LoadBuiltin() (*Manifest, error) {
 	oauth, err := parseRawYAML(resources.BuiltinOAuthYAML())
 	if err != nil {
@@ -67,10 +67,7 @@ func resolvePlugin(rp rawManifestPlugin) ManifestPlugin {
 	}
 	return ManifestPlugin{
 		ID:                       rp.ID,
-		Kind:                     rp.Kind,
 		Enabled:                  enabled,
-		Essential:                rp.Essential,
-		BundledBinaries:          append([]string(nil), rp.BundledBinaries...),
 		ManifestPluginDefinition: rp.ManifestPluginDefinition,
 	}
 }

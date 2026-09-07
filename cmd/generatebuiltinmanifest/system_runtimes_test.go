@@ -11,9 +11,9 @@ import (
 
 func TestSystemRuntimeGenerationUsesOnlyImmutableReleaseCommands(t *testing.T) {
 	catalog := &manifest.Manifest{Plugins: []manifest.ManifestPlugin{
-		{ID: "fd", Kind: "system", Enabled: true, ManifestPluginDefinition: manifest.ManifestPluginDefinition{Binaries: []manifest.ManifestBinary{{Name: "fd", Tool: "github:sharkdp/fd", Version: "10.4.2"}}}},
-		{ID: "injected", Kind: "system", Enabled: true, BundledBinaries: []string{"injected"}},
-		{ID: "xberg", Kind: "agent", Enabled: false, ManifestPluginDefinition: manifest.ManifestPluginDefinition{Skills: []manifest.ManifestSkill{{Name: "xberg"}}}},
+		{ID: "fd", Enabled: true, ManifestPluginDefinition: manifest.ManifestPluginDefinition{Binaries: []manifest.ManifestBinary{{Name: "fd", Tool: "github:sharkdp/fd", Version: "10.4.2"}}}},
+		{ID: "injected", Enabled: true, ManifestPluginDefinition: manifest.ManifestPluginDefinition{Binaries: []manifest.ManifestBinary{{Name: "injected", Tool: "npm:injected"}}}},
+		{ID: "xberg", Enabled: false, ManifestPluginDefinition: manifest.ManifestPluginDefinition{Skills: []manifest.ManifestSkill{{Name: "xberg"}}}},
 	}}
 	before, err := renderSystemRuntimes(catalog)
 	if err != nil {

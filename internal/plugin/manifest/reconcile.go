@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"time"
+
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // ReconcileResult summarizes one reconcile run.
@@ -66,23 +68,22 @@ func SaveState(path string, s *ManifestState) error {
 	return os.Rename(tmp, path)
 }
 
-// isCacheHit returns true if the state already records the binary at the given
-// version spec. It compares against the requested spec, not the resolved
-// version, so a partial spec (e.g. "2.40") still hits after resolving to a
-// concrete version. Returns false for an empty spec (latest) so mise always
-// verifies the install.
-func isCacheHit(state *ManifestState, pluginID, binaryName, spec string) bool {
-	if spec == "" {
+// isCacheHit compares the complete artifact declaration, including installer
+// options. Empty version specs always miss so mise can resolve latest again.
+func isCacheHit(state *ManifestState, pluginID string, binary ManifestBinary) bool {
+	if binary.Version == "" {
 		return false
 	}
-	ps, ok := state.Plugins[pluginID]
-	if !ok {
+	identity, err := pkgplugins.BinaryArtifactIdentity(pkgplugins.PluginBinarySpec{Name: binary.Name, Tool: binary.Tool, Version: binary.Version, Options: binary.Options})
+	if err != nil {
 		return false
 	}
-	for _, b := range ps.Binaries {
-		if b.Name == binaryName && b.Spec == spec {
-			return true
+	for _, installed := range state.Plugins[pluginID].Binaries {
+		if installed.Name != binary.Name {
+			continue
 		}
+		// Legacy records lack the identity and must be revalidated once.
+		return installed.ArtifactIdentity == identity
 	}
 	return false
 }
@@ -142,7 +143,7 @@ func Reconcile(ctx context.Context, m *Manifest, stellaHome string) ReconcileRes
 			continue
 		}
 		for _, binary := range plugin.Binaries {
-			if !isCacheHit(state, plugin.ID, binary.Name, binary.Version) {
+			if !isCacheHit(state, plugin.ID, binary) {
 				needInstall = true
 			}
 		}
@@ -203,7 +204,7 @@ func Reconcile(ctx context.Context, m *Manifest, stellaHome string) ReconcileRes
 
 			// Cache hit: state already records this version — report it without
 			// shelling out to mise.
-			if isCacheHit(state, plugin.ID, binary.Name, binary.Version) {
+			if isCacheHit(state, plugin.ID, binary) {
 				slog.Info("manifest binary cache hit",
 					"plugin", plugin.ID,
 					"binary", binary.Name,
@@ -219,8 +220,11 @@ func Reconcile(ctx context.Context, m *Manifest, stellaHome string) ReconcileRes
 			// Cache miss: resolve the concrete installed version via the shims
 			// config. Surface config/install/resolution failures per binary.
 			version := binary.Version
+			identity, identityErr := pkgplugins.BinaryArtifactIdentity(pkgplugins.PluginBinarySpec{Name: binary.Name, Tool: binary.Tool, Version: binary.Version, Options: binary.Options})
 			var binErr error
 			switch {
+			case identityErr != nil:
+				binErr = identityErr
 			case configErr != nil:
 				binErr = configErr
 			case installErr != nil:
@@ -260,11 +264,12 @@ func Reconcile(ctx context.Context, m *Manifest, stellaHome string) ReconcileRes
 			})
 
 			upsertBinaryState(state, plugin.ID, BinaryInstallState{
-				Name:        binary.Name,
-				Tool:        binary.Tool,
-				Spec:        binary.Version,
-				Version:     version,
-				InstalledAt: time.Now(),
+				Name:             binary.Name,
+				Tool:             binary.Tool,
+				ArtifactIdentity: identity,
+				Spec:             binary.Version,
+				Version:          version,
+				InstalledAt:      time.Now().UTC(),
 			})
 		}
 
@@ -272,7 +277,7 @@ func Reconcile(ctx context.Context, m *Manifest, stellaHome string) ReconcileRes
 	}
 
 done:
-	state.UpdatedAt = time.Now()
+	state.UpdatedAt = time.Now().UTC()
 	if saveErr := SaveState(statePath, state); saveErr != nil {
 		slog.Error("manifest plugin reconcile: failed to save state", "error", saveErr)
 	}

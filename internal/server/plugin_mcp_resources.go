@@ -238,11 +238,19 @@ func mcpServerStatus(status string) apitypes.MCPServerStatus {
 	}
 }
 
-func decodeStrictJSON(r *http.Request, out any) error {
+func readPluginBody(r *http.Request) ([]byte, error) {
 	const maxBody = 1 << 20
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxBody+1))
 	if err != nil || len(raw) > maxBody {
-		return fmt.Errorf("request body too large")
+		return nil, fmt.Errorf("request body too large")
+	}
+	return raw, nil
+}
+
+func decodeStrictJSON(r *http.Request, out any) error {
+	raw, err := readPluginBody(r)
+	if err != nil {
+		return err
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()

@@ -22,33 +22,9 @@ type ManifestPluginDefinition struct {
 }
 
 type ManifestPlugin struct {
-	ID      string `json:"id" yaml:"id"`
-	Kind    string `json:"kind" yaml:"kind"`
-	Enabled bool   `json:"enabled" yaml:"enabled"`
-
-	// Essential marks a plugin the runtime depends on (e.g. rg/fd back the
-	// Grep/Glob tools). It is shipped server policy, not editable definition.
-	Essential bool `json:"essential,omitempty" yaml:"essential,omitempty"`
-
-	// BundledBinaries are immutable release executables projected from the
-	// authored manifest. They are deliberately outside the editable definition
-	// and therefore cannot be enabled by a mutable plugin payload.
-	BundledBinaries []string `json:"bundled_binaries,omitempty" yaml:"bundled_binaries,omitempty"`
-
+	ID                       string `json:"id" yaml:"id"`
+	Enabled                  bool   `json:"enabled" yaml:"enabled"`
 	ManifestPluginDefinition `yaml:",inline"`
-
-	// Builtin marks a plugin that ships with the server. It is computed when the
-	// manifest is resolved, never read from a manifest or an override: a builtin
-	// definition can be customized or disabled, but only an admin-added plugin
-	// can be removed. `yaml:"-"` keeps it out of the shipped manifest.
-	Builtin bool `json:"builtin,omitempty" yaml:"-"`
-
-	// OverriddenFields names the definition fields an admin has taken ownership
-	// of, so the editor can mark them and offer to hand one back. Like Builtin it
-	// is computed at resolve time and never stored — the override row is what it
-	// reports on. A boolean here would be cheaper and useless: "customized" cannot
-	// tell an admin which of two pinned fields is the one they want released.
-	OverriddenFields []string `json:"overridden_fields,omitempty" yaml:"-"`
 }
 
 type ManifestBinary struct {
@@ -125,11 +101,8 @@ type Manifest struct {
 }
 
 type rawManifestPlugin struct {
-	ID                       string   `yaml:"id"`
-	Kind                     string   `yaml:"kind"`
-	Enabled                  *bool    `yaml:"enabled"`
-	Essential                bool     `yaml:"essential,omitempty"`
-	BundledBinaries          []string `yaml:"bundled_binaries,omitempty"`
+	ID                       string `yaml:"id"`
+	Enabled                  *bool  `yaml:"enabled"`
 	ManifestPluginDefinition `yaml:",inline"`
 }
 

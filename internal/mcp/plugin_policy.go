@@ -271,11 +271,7 @@ func mcpExecutionIdentities(def plugin.Definition, cfg plugin.Config) (map[strin
 		return nil, err
 	}
 	if !payloadHasMCP(merged) {
-		identity, err := mcpExecutionIdentity(def, cfg)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]mcpConnectionIdentity{"main": identity}, nil
+		return map[string]mcpConnectionIdentity{}, nil
 	}
 	object, err := decodeJSONObject(merged, "MCP config payload")
 	if err != nil {
@@ -286,6 +282,11 @@ func mcpExecutionIdentities(def plugin.Definition, cfg plugin.Config) (map[strin
 		return nil, err
 	}
 	if len(servers) == 0 {
+		// An empty composable set has no credential identity. Only a real
+		// legacy flat endpoint keeps the parent UUID as its namespace.
+		if _, hasURL := object["url"]; !hasURL {
+			return map[string]mcpConnectionIdentity{}, nil
+		}
 		identity, err := mcpExecutionIdentity(def, cfg)
 		if err != nil {
 			return nil, err

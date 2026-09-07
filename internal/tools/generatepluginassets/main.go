@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -11,8 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
@@ -30,17 +27,6 @@ type assetFile struct {
 	OwnerPluginID string
 	Files         []string
 	Bytes         int64
-}
-
-type assetDocument struct {
-	Assets []assetEntry `yaml:"assets"`
-}
-
-type assetEntry struct {
-	Name          string `yaml:"name"`
-	Source        string `yaml:"source"`
-	LogicalRoot   string `yaml:"logical_root"`
-	OwnerPluginID string `yaml:"owner_plugin_id"`
 }
 
 type discoveredAgentPackage struct {
@@ -63,7 +49,7 @@ func main() {
 }
 
 func discover(pluginsRoot string) ([]assetFile, error) {
-	var paths, agentPackages []string
+	var agentPackages []string
 	err := filepath.WalkDir(pluginsRoot, func(filename string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -71,11 +57,15 @@ func discover(pluginsRoot string) ([]assetFile, error) {
 		if entry.Type()&os.ModeSymlink != 0 {
 			return fmt.Errorf("plugin asset tree contains symlink %q", filename)
 		}
-		if entry.Name() == "assets.yaml" && !entry.Type().IsRegular() {
-			return fmt.Errorf("assets.yaml %q is not a regular file", filename)
-		}
-		if !entry.IsDir() && entry.Name() == "assets.yaml" {
-			paths = append(paths, filename)
+		if entry.Name() == "assets.yaml" || entry.Name() == "plugin.yaml" {
+			rel, err := filepath.Rel(pluginsRoot, filename)
+			if err != nil {
+				return err
+			}
+			parts := strings.Split(filepath.ToSlash(rel), "/")
+			if len(parts) <= 3 || parts[0] != "agent" {
+				return fmt.Errorf("unsupported legacy authoring file %q; use plugin.json", rel)
+			}
 		}
 		if !entry.IsDir() && entry.Name() == "plugin.json" {
 			rel, err := filepath.Rel(pluginsRoot, filename)
@@ -93,7 +83,6 @@ func discover(pluginsRoot string) ([]assetFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(paths)
 	sort.Strings(agentPackages)
 	discoveredAgents := make([]discoveredAgentPackage, 0, len(agentPackages))
 	for _, filename := range agentPackages {
@@ -111,67 +100,28 @@ func discover(pluginsRoot string) ([]assetFile, error) {
 	seenNames := map[string]struct{}{}
 	seenSources := map[string]struct{}{}
 	seenLogical := map[string]struct{}{}
-	for _, filename := range paths {
-		entries, err := decode(filename)
-		if err != nil {
-			return nil, err
-		}
-		dir := filepath.Dir(filename)
-		relDir, err := filepath.Rel(pluginsRoot, dir)
-		if err != nil {
-			return nil, err
-		}
-		relDir = filepath.ToSlash(relDir)
-		for _, entry := range entries {
-			if err := validateEntry(entry); err != nil {
-				return nil, fmt.Errorf("%s: %w", filename, err)
-			}
-			source := path.Join(relDir, entry.Source)
-			if relDir == "." {
-				source = entry.Source
-			}
-			if _, ok := seenNames[entry.Name]; ok {
-				return nil, fmt.Errorf("duplicate builtin skill name %q", entry.Name)
-			}
-			if _, ok := seenSources[source]; ok {
-				return nil, fmt.Errorf("duplicate builtin skill source root %q", source)
-			}
-			if _, ok := seenLogical[entry.LogicalRoot]; ok {
-				return nil, fmt.Errorf("duplicate builtin skill logical root %q", entry.LogicalRoot)
-			}
-			files, bytes, err := collectFiles(filepath.Join(pluginsRoot, filepath.FromSlash(source)))
-			if err != nil {
-				return nil, fmt.Errorf("asset %q: %w", entry.Name, err)
-			}
-			seenNames[entry.Name] = struct{}{}
-			seenSources[source] = struct{}{}
-			seenLogical[entry.LogicalRoot] = struct{}{}
-			assets = append(assets, assetFile{Name: entry.Name, SourceRoot: source, LogicalRoot: entry.LogicalRoot, OwnerPluginID: entry.OwnerPluginID, Files: files, Bytes: bytes})
-		}
-	}
 	for _, discovered := range discoveredAgents {
 		for _, skill := range discovered.pkg.Skills {
 			relDir := discovered.relDir
 			source := path.Join(relDir, skill.Directory)
 			logicalRoot := path.Join("plugins", "agent", discovered.pkg.Manifest.Name, skill.Name)
-			entry := assetEntry{Name: skill.Name, Source: skill.Directory, LogicalRoot: logicalRoot, OwnerPluginID: discovered.pkg.Manifest.Name}
-			if _, ok := seenNames[entry.Name]; ok {
-				return nil, fmt.Errorf("duplicate builtin skill name %q", entry.Name)
+			if _, ok := seenNames[skill.Name]; ok {
+				return nil, fmt.Errorf("duplicate builtin skill name %q", skill.Name)
 			}
 			if _, ok := seenSources[source]; ok {
 				return nil, fmt.Errorf("duplicate builtin skill source root %q", source)
 			}
-			if _, ok := seenLogical[entry.LogicalRoot]; ok {
-				return nil, fmt.Errorf("duplicate builtin skill logical root %q", entry.LogicalRoot)
+			if _, ok := seenLogical[logicalRoot]; ok {
+				return nil, fmt.Errorf("duplicate builtin skill logical root %q", logicalRoot)
 			}
 			files, bytes, err := collectFiles(filepath.Join(pluginsRoot, filepath.FromSlash(source)))
 			if err != nil {
-				return nil, fmt.Errorf("asset %q: %w", entry.Name, err)
+				return nil, fmt.Errorf("asset %q: %w", skill.Name, err)
 			}
-			seenNames[entry.Name] = struct{}{}
+			seenNames[skill.Name] = struct{}{}
 			seenSources[source] = struct{}{}
-			seenLogical[entry.LogicalRoot] = struct{}{}
-			assets = append(assets, assetFile{Name: entry.Name, SourceRoot: source, LogicalRoot: entry.LogicalRoot, OwnerPluginID: entry.OwnerPluginID, Files: files, Bytes: bytes})
+			seenLogical[logicalRoot] = struct{}{}
+			assets = append(assets, assetFile{Name: skill.Name, SourceRoot: source, LogicalRoot: logicalRoot, OwnerPluginID: discovered.pkg.Manifest.Name, Files: files, Bytes: bytes})
 		}
 	}
 	if len(assets) == 0 || len(assets) > maxAssets {
@@ -208,51 +158,7 @@ func loadAgentPackage(root string) (*agentpackage.Package, error) {
 	return pkg, nil
 }
 
-func decode(filename string) ([]assetEntry, error) {
-	f, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-	decoder := yaml.NewDecoder(f)
-	decoder.KnownFields(true)
-	var document assetDocument
-	if err := decoder.Decode(&document); err != nil {
-		return nil, fmt.Errorf("decode assets: %w", err)
-	}
-	var extra assetDocument
-	if err := decoder.Decode(&extra); errors.Is(err, io.EOF) {
-		return document.Assets, nil
-	} else if err != nil {
-		return nil, fmt.Errorf("assets must contain one YAML document: %w", err)
-	}
-	return nil, fmt.Errorf("assets must contain one YAML document")
-}
-
-func validateEntry(entry assetEntry) error {
-	if entry.Name == "" || !validPathComponent(entry.Name) || strings.Contains(entry.Name, "/") {
-		return fmt.Errorf("invalid asset name %q", entry.Name)
-	}
-	if !validRelativePath(entry.Source) || !validRelativePath(entry.LogicalRoot) {
-		return fmt.Errorf("invalid asset path for %q", entry.Name)
-	}
-	if path.Base(entry.LogicalRoot) != entry.Name {
-		return fmt.Errorf("logical root %q does not end in asset name %q", entry.LogicalRoot, entry.Name)
-	}
-	if !agentpackage.ValidName(entry.OwnerPluginID) {
-		if entry.OwnerPluginID == "" {
-			return fmt.Errorf("asset %q has no owner", entry.Name)
-		}
-		return fmt.Errorf("asset %q has invalid bare owner %q", entry.Name, entry.OwnerPluginID)
-	}
-	return nil
-}
-
 func validRelativePath(value string) bool {
-	return value != "" && value != "." && fs.ValidPath(value)
-}
-
-func validPathComponent(value string) bool {
 	return value != "" && value != "." && fs.ValidPath(value)
 }
 

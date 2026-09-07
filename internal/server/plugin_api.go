@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"net/http"
 	"slices"
 
@@ -50,7 +49,7 @@ func (s *Server) CreatePlugin(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	data, err := io.ReadAll(r.Body)
+	data, err := readPluginBody(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
@@ -114,7 +113,7 @@ func (s *Server) UpdatePlugin(w http.ResponseWriter, r *http.Request, pluginID s
 	if !ok {
 		return
 	}
-	data, err := io.ReadAll(r.Body)
+	data, err := readPluginBody(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
@@ -164,7 +163,7 @@ func (s *Server) CreatePluginConfig(w http.ResponseWriter, r *http.Request, plug
 	if !ok {
 		return
 	}
-	data, err := io.ReadAll(r.Body)
+	data, err := readPluginBody(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
@@ -228,7 +227,7 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, plug
 	if !ok {
 		return
 	}
-	data, err := io.ReadAll(r.Body)
+	data, err := readPluginBody(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return

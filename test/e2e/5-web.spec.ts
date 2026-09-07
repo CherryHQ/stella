@@ -662,6 +662,24 @@ test("multi-child MCP detail edits and deletes only the selected server", async 
   expect((await db`select revision::int as revision from plugin_config where id = ${config.id}`)[0].revision).toBe(revisionBeforeEdit + 2);
   await expect(childRow("main")).toHaveCount(1);
   await expect(childRow("search")).toHaveCount(0);
+
+  await childRow("main").getByRole("button", { name: "Delete", exact: true }).click();
+  const finalDeleteDialog = page.getByRole("dialog").filter({ hasText: "main" }).last();
+  await expect(finalDeleteDialog).toBeVisible();
+  await finalDeleteDialog.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect.poll(async () => (await mcpServers(admin, config.id)).length).toBe(0);
+  await expect(childRow("main")).toHaveCount(0);
+  const addChild = page.getByRole("button", { name: "Add MCP server", exact: true });
+  await expect(addChild).toBeVisible();
+  await addChild.click();
+  const addDialog = page.getByRole("dialog").last();
+  await expect(addDialog).toBeVisible();
+  await addDialog.getByPlaceholder("github", { exact: true }).fill("replacement");
+  await addDialog.getByPlaceholder("https://mcp.example.com/mcp", { exact: true }).fill(webMainMcp.url);
+  await addDialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(addDialog.getByRole("button", { name: "Save", exact: true })).toBeHidden();
+  await expect.poll(async () => (await mcpServers(admin, config.id)).map((child) => child.server_key)).toEqual(["replacement"]);
+  await expect(childRow("replacement")).toHaveCount(1);
 });
 
 test("agent-scoped install and MCP tool permission toggle persist", async ({ page, admin, db, loginAsAdmin }) => {

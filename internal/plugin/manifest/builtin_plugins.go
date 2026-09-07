@@ -6,14 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,8 +20,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
-
-var builtinPluginIdentifier = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // BuiltinOAuthProviderIDs returns the provider identities from the central
 // oauth.yaml document so plugin generation can validate cross-file references.
@@ -48,8 +44,8 @@ func BuiltinOAuthProviderIDs(data []byte) ([]string, error) {
 }
 
 // GenerateBuiltinPlugins recursively loads authored plugin declarations beneath
-// sourceRoot. YAML declarations describe CLI resources; standard Agent
-// packages use plugin.json and contribute their public metadata and Skills.
+// sourceRoot. Standard Agent packages use plugin.json; generated YAML is only
+// an embedded representation, not another authoring protocol.
 func GenerateBuiltinPlugins(sourceRoot string, reservedRuntimeNames, oauthProviderIDs []string) (*Manifest, error) {
 	info, err := os.Lstat(sourceRoot)
 	if err != nil {
@@ -89,12 +85,12 @@ func GenerateBuiltinPlugins(sourceRoot string, reservedRuntimeNames, oauthProvid
 			return fmt.Errorf("builtin plugin path %q has unsupported type %s", rel, fileInfo.Mode().Type())
 		}
 		switch path.Base(rel) {
-		case "plugin.yaml":
-			plugin, err := loadBuiltinPlugin(filename, rel)
-			if err != nil {
-				return err
+		case "plugin.yaml", "assets.yaml":
+			parts := strings.Split(rel, "/")
+			if len(parts) > 3 && parts[0] == "agent" {
+				return nil
 			}
-			rawPlugins = append(rawPlugins, plugin)
+			return fmt.Errorf("unsupported legacy authoring file %q; use plugin.json", rel)
 		case "plugin.json":
 			parts := strings.Split(rel, "/")
 			if len(parts) != 3 || parts[0] != "agent" || parts[2] != "plugin.json" {
@@ -112,7 +108,7 @@ func GenerateBuiltinPlugins(sourceRoot string, reservedRuntimeNames, oauthProvid
 		return nil, err
 	}
 	if len(rawPlugins) == 0 {
-		return nil, fmt.Errorf("builtin plugins root contains no plugin.yaml or plugin.json: %s", sourceRoot)
+		return nil, fmt.Errorf("builtin plugins root contains no plugin.json: %s", sourceRoot)
 	}
 
 	manifest := rawToManifest(rawManifest{Plugins: rawPlugins})
@@ -154,7 +150,7 @@ func loadAgentPlugin(root, relative string) (rawManifestPlugin, error) {
 		prompt = pkg.Extension.Prompt
 	}
 	result := rawManifestPlugin{
-		ID: pkg.Manifest.Name, Kind: "agent", Enabled: &enabled,
+		ID: pkg.Manifest.Name, Enabled: &enabled,
 		ManifestPluginDefinition: ManifestPluginDefinition{
 			Name: pkg.Manifest.Name, DisplayName: displayName,
 			Description: pkg.Manifest.Description, Prompt: prompt,
@@ -239,49 +235,6 @@ func cloneRawOptions(options map[string]json.RawMessage) map[string]any {
 	return out
 }
 
-func loadBuiltinPlugin(filename, relative string) (rawManifestPlugin, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return rawManifestPlugin{}, fmt.Errorf("read builtin plugin %q: %w", relative, err)
-	}
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	var plugin rawManifestPlugin
-	if err := decoder.Decode(&plugin); err != nil {
-		return rawManifestPlugin{}, fmt.Errorf("decode builtin plugin %q: %w", relative, err)
-	}
-	if yamlDocumentHasField(data, "essential") {
-		return rawManifestPlugin{}, fmt.Errorf("builtin plugin %q cannot declare essential; system CLI installation follows kind", relative)
-	}
-	if yamlDocumentHasField(data, "bundled_binaries") && plugin.Kind != "system" {
-		return rawManifestPlugin{}, fmt.Errorf("builtin plugin %q: bundled_binaries require kind system", relative)
-	}
-	var extra yaml.Node
-	if err := decoder.Decode(&extra); err == nil {
-		return rawManifestPlugin{}, fmt.Errorf("builtin plugin %q contains more than one YAML document", relative)
-	} else if !errors.Is(err, io.EOF) {
-		return rawManifestPlugin{}, fmt.Errorf("decode trailing builtin plugin document %q: %w", relative, err)
-	}
-	return plugin, nil
-}
-
-func yamlDocumentHasField(data []byte, field string) bool {
-	var document yaml.Node
-	if err := yaml.Unmarshal(data, &document); err != nil || len(document.Content) != 1 {
-		return false
-	}
-	node := document.Content[0]
-	if node.Kind != yaml.MappingNode {
-		return false
-	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == field {
-			return true
-		}
-	}
-	return false
-}
-
 func validateBuiltinPlugins(plugins []ManifestPlugin, reservedRuntimeNames, oauthProviderIDs []string) error {
 	reservedRuntimeNames = slices.Clone(reservedRuntimeNames)
 	providerIDs := make(map[string]struct{}, len(oauthProviderIDs))
@@ -299,8 +252,8 @@ func validateBuiltinPlugins(plugins []ManifestPlugin, reservedRuntimeNames, oaut
 		reservedBinaryNames[name] = struct{}{}
 	}
 	for _, plugin := range plugins {
-		if plugin.Kind == "" || !builtinPluginIdentifier.MatchString(plugin.Kind) || plugin.Name == "" || !agentpackage.ValidName(plugin.Name) || plugin.DisplayName == "" {
-			return fmt.Errorf("builtin plugin %q has invalid kind, namespace, or display_name", plugin.ID)
+		if !agentpackage.ValidName(plugin.Name) || plugin.DisplayName == "" {
+			return fmt.Errorf("builtin plugin %q has invalid name or display_name", plugin.ID)
 		}
 		if plugin.ID != plugin.Name {
 			return fmt.Errorf("builtin plugin %q must use canonical bare ID %s", plugin.ID, plugin.Name)
@@ -318,12 +271,6 @@ func validateBuiltinPlugins(plugins []ManifestPlugin, reservedRuntimeNames, oaut
 			}
 			seenBinaries[binary.Name] = binary
 			seenResources["binary:"+binary.Name] = plugin.ID
-		}
-		for _, name := range plugin.BundledBinaries {
-			if previous, exists := seenResources["binary:"+name]; exists {
-				return fmt.Errorf("duplicate builtin plugin resource binary %q in %q and %q", name, previous, plugin.ID)
-			}
-			seenResources["binary:"+name] = plugin.ID
 		}
 		for _, skill := range plugin.Skills {
 			if previous, exists := seenResources["skill:"+skill.Name]; exists {

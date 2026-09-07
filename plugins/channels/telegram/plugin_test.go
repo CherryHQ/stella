@@ -187,18 +187,7 @@ func (s *stubStore) SetChannelPluginConfig(_ context.Context, id, kind, name str
 }
 
 func (s *stubStore) DeletePlugin(context.Context, string) error { return nil }
-func (s *stubStore) GetManifestPluginOverride(context.Context, string) (config.ManifestPluginOverride, bool, error) {
-	return config.ManifestPluginOverride{}, false, nil
-}
 
-func (s *stubStore) ListManifestPluginOverrides(context.Context) ([]config.ManifestPluginOverride, error) {
-	return nil, nil
-}
-
-func (s *stubStore) UpsertManifestPluginOverride(context.Context, config.ManifestPluginOverride) error {
-	return nil
-}
-func (s *stubStore) DeleteManifestPluginOverride(context.Context, string) error { return nil }
 func (s *stubStore) GetChatAgent(context.Context, string, string, string) (string, error) {
 	return "", nil
 }

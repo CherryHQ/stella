@@ -3242,6 +3242,7 @@ components:
           additionalProperties: true
           description: Write-only credential material.
     CreatePluginConfigRequest:
+      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
       type: object
       additionalProperties: false
       required: [scope]
@@ -3265,6 +3266,7 @@ components:
           additionalProperties: true
           description: Write-only credential material.
     CreatePluginRequest:
+      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
       type: object
       additionalProperties: false
       required: [display_name, name, definition_spec, initial_config]
@@ -3293,6 +3295,7 @@ components:
         config:
           $ref: "#/components/schemas/PluginConfig"
     UpdatePluginRequest:
+      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
       type: object
       additionalProperties: false
       required: [expected_revision]
@@ -3307,6 +3310,7 @@ components:
           type: string
           nullable: true
     UpdatePluginConfigRequest:
+      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
       type: object
       additionalProperties: false
       required: [expected_revision]

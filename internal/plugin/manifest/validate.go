@@ -71,20 +71,12 @@ func validatePlugins(plugins []ManifestPlugin, providerIDs map[string]struct{}) 
 		if p.ID == "" {
 			errs = append(errs, fmt.Errorf("plugin[%d]: id is required", i))
 		}
-		if p.Kind != "agent" && len(p.Binaries) == 0 && len(p.BundledBinaries) == 0 && len(p.Skills) == 0 && len(p.SessionEnvs) == 0 && len(p.OAuth) == 0 && len(p.MCPServers) == 0 && p.Prompt == "" {
-			errs = append(errs, fmt.Errorf("plugin %q: must have at least one of binaries, bundled_binaries, skills, session_env, oauth, mcp_servers, or prompt", p.ID))
-		}
 		for j, b := range p.Binaries {
 			if b.Name == "" {
 				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: name is required", p.ID, j))
 			}
 			if b.Tool == "" {
 				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: tool is required (e.g. uv or github:owner/repo)", p.ID, j))
-			}
-		}
-		for j, name := range p.BundledBinaries {
-			if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\\`) {
-				errs = append(errs, fmt.Errorf("plugin %q bundled binary[%d]: unsafe name %q", p.ID, j, name))
 			}
 		}
 		for j, s := range p.Skills {

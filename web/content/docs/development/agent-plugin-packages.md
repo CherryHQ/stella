@@ -84,3 +84,17 @@ Authoring validation is stricter than client loading: unknown manifest fields,
 unsupported stdio, invalid components, and malformed Stella declarations are
 authoring errors. Tolerant loading keeps independent valid components and
 returns diagnostics for issues it can safely explain.
+
+## Release and session constraints
+
+Release authoring accepts only `plugin.json`; root `plugin.yaml` and `assets.yaml`
+are rejected. Generated YAML is an internal embedded representation. Historical
+database upgrades retain their import path and do not reopen the old authoring
+format or management API.
+
+Selected packages must use distinct environment variable names. If two packages
+declare the same variable, session preparation fails before credentials are
+injected, even if both declarations name the same provider.
+
+Plugin definition/configuration write requests have a 1 MiB JSON body limit;
+larger requests return HTTP 400.

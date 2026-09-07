@@ -284,7 +284,7 @@ func (s *Server) resetPluginConfig(w http.ResponseWriter, r *http.Request, plugi
 }
 
 func (s *Server) getPluginEffective(w http.ResponseWriter, r *http.Request, pluginID, agentID string) {
-	access, authority, ok := s.beginPluginAccess(w, r)
+	_, authority, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
 	}
@@ -292,29 +292,12 @@ func (s *Server) getPluginEffective(w http.ResponseWriter, r *http.Request, plug
 		writeError(w, http.StatusBadRequest, "agent_id is required")
 		return
 	}
-	definition, err := access.GetDefinition(r.Context(), pluginID)
+	snapshot, err := s.pluginSvc.ResolveSnapshot(r.Context(), authority, agentID)
 	if err != nil {
 		writePluginError(w, err)
 		return
 	}
-	userID := string(authority.UserID())
-	var configs []pluginpkg.Config
-	for _, scope := range []pluginpkg.Scope{pluginpkg.ScopeSystem, pluginpkg.ScopeSystemAgent, pluginpkg.ScopeUser, pluginpkg.ScopeUserAgent} {
-		requestedAgentID := agentID
-		if scope == pluginpkg.ScopeSystem || scope == pluginpkg.ScopeUser {
-			requestedAgentID = ""
-		}
-		items, err := access.ListConfigs(r.Context(), definition.ID, scope, requestedAgentID)
-		if err != nil {
-			if errors.Is(err, authz.ErrForbidden) && !authority.IsAdmin() {
-				continue
-			}
-			writePluginError(w, err)
-			return
-		}
-		configs = append(configs, items...)
-	}
-	effective, err := pluginpkg.Resolve(definition, configs, userID, agentID)
+	effective, err := snapshot.Resolve(pluginID)
 	if err != nil {
 		writePluginError(w, err)
 		return

@@ -395,7 +395,9 @@ func validateResetFields(scope plugin.Scope, fields []string) error {
 			return invalidPayload("reset_fields contains duplicate %q", field)
 		}
 		seen[field] = struct{}{}
-		if !IsOwnableField(field) {
+		switch field {
+		case "description", "category", "prompt", "binaries", "skills", "session_env", "oauth_provider", "oauth", "mcp_servers":
+		default:
 			return invalidPayload("reset_fields contains unknown field %q", field)
 		}
 		if scope == plugin.ScopeUser || scope == plugin.ScopeUserAgent {

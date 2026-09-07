@@ -141,6 +141,17 @@ func TestComposableChildCRUDUsesChildIdentity(t *testing.T) {
 	if len(children) != 0 {
 		t.Fatalf("final child delete left children = %#v", children)
 	}
+	replacement, err := access.CreateChild(ctx, parent.ID, "replacement", secondBearer.ConfigRevision+3, CreateInput{URL: "https://replacement.example.test", AuthType: AuthTypeNone})
+	if err != nil {
+		t.Fatalf("create child after deleting all children: %v", err)
+	}
+	if replacement.ID == main.ID || replacement.ID == child.ID {
+		t.Fatal("replacement reused a deleted credential namespace")
+	}
+	children, err = access.ListChildren(ctx, parent.ID)
+	if err != nil || len(children) != 1 || children[0].ID != replacement.ID {
+		t.Fatalf("replacement children = %#v, %v", children, err)
+	}
 }
 
 func TestComposableChildCredentialFamiliesAndParentDelete(t *testing.T) {
@@ -490,5 +501,16 @@ func TestComposableAddChildToDisabledEmptyScope(t *testing.T) {
 	enabled := true
 	if _, err := pluginAccess.UpdateConfig(ctx, def.ID, cfg.ID, child.ConfigRevision, plugin.ConfigPatch{EnabledSet: true, Enabled: &enabled}); err != nil {
 		t.Fatalf("enable configured parent: %v", err)
+	}
+}
+
+func TestMCPExecutionIdentitiesEmptyResources(t *testing.T) {
+	for _, raw := range []string{`{}`, `{"prompt":"CLI guidance"}`, `{"mcp_servers":{}}`} {
+		t.Run(raw, func(t *testing.T) {
+			identities, err := mcpExecutionIdentities(plugin.Definition{Spec: []byte(`{}`)}, plugin.Config{Payload: []byte(raw)})
+			if err != nil || len(identities) != 0 {
+				t.Fatalf("empty resources invented identities: %#v, %v", identities, err)
+			}
+		})
 	}
 }
