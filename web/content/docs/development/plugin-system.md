@@ -2,8 +2,35 @@
 title: Plugin System
 ---
 
-Plugins share configuration and permission rules. Their backends retain the
-contracts needed to execute a CLI, call an MCP server, or run compiled Go code.
+Agent Plugins configure CLI and MCP resources through scoped definitions.
+Compiled Stella Native Plugins use trusted Go registration and deployment-wide
+configuration, with an administrator's per-Agent deny policy.
+
+## Native administration
+
+Administrators manage Native switches under **Admin console > Integrations >
+Native capabilities**. The global switch applies to every Agent. A per-Agent deny
+blocks only the selected Agent; removing it restores access only while the
+global switch is enabled. User settings cannot override these limits.
+
+`NativePolicy` reads the global `plugin` row and `native_agent_deny` together.
+A missing global row inherits its default from the trusted Native registry.
+An unknown registration or failed policy read refuses new admission. Native
+hooks, channel listeners and background work use this policy; channel instances
+retain their own enabled state and credentials.
+
+Native tools keep their static exported names in `tool_override.tool_name`.
+The existing four-scope tool restrictions apply at discovery and on every
+invocation, including calls from an already-built runner. Native identities
+do not require an Agent Plugin definition foreign key. The importer uses the
+same explicit Native registry as runtime admission and leaves Native global
+configuration in its existing store.
+
+Native mutations use the runner admission fence. An acknowledged commit, or a
+write whose commit outcome is unknown, retires old runners and reconciles
+channel listeners. A failed response therefore does not preserve stale access.
+The Native management API requires administrator authentication; OAuth access
+tokens cannot reach it.
 
 ## Definition and configuration
 
@@ -27,7 +54,7 @@ explicit system or matching system agent `false` is an independent upper bound.
 A narrower `true` cannot override either restriction. `null` follows the shipped
 default of the selected definition.
 
-This is the complete configuration model: one `PluginDefinition` plus at most
+This is the Agent Plugin configuration model: one `PluginDefinition` plus at most
 one `PluginConfig` for each of the four scope tuples. `user_id` and `agent_id`
 come from the trusted authority and are never accepted as caller-owned identity.
 The definition owns stable implementation and namespace identity; the selected
@@ -41,8 +68,8 @@ Builtin plugins follow the same rules and administrators can disable them.
 ## One execution snapshot
 
 The common service resolves a snapshot from trusted user, Agent or group
-identity. A runner captures that snapshot once. Tools, Skills, prompt sections,
-environment and lifecycle hooks consume that same generation.
+identity. A runner captures that snapshot once for Agent Plugin resources,
+Skills and environment. Native tools and hooks read their separate policy.
 
 Public resources follow the namespace winner. A custom MCP integration that
 wins a namespace cannot acquire the shadowed builtin's Go hooks or credentials.
@@ -94,11 +121,11 @@ channel instance, with its own exact ID, credentials, active state and persisten
 Agent binding. Saving one account cannot replace another account's credentials
 or re-enable an administrator-disabled platform.
 
-Listeners use the system and matching system agent upper bounds plus instance
-active state. A user's restriction does not stop a listener shared with other
-users. Event admission also checks the trusted actor's four scopes and existing
-Agent access or guest policy. Channel signatures, enrollment and platform identity
-checks remain in their owning adapters.
+Listeners use the Native global switch and per-Agent deny plus instance active
+state. A user's tool restriction does not stop a listener shared with other
+users. Event admission also checks existing Agent access or guest policy.
+Channel signatures, enrollment and platform identity checks remain in their
+owning adapters.
 
 The existing uniqueness rule, `UNIQUE(agent_id, type)`, permits at most one
 instance of a platform per Agent. Each instance has its own credentials, so
@@ -142,6 +169,6 @@ sandbox adapters depend on public `pkg/**` contracts, not `internal/**`.
 The legacy cutover is a maintenance upgrade: stop every old writer before
 starting the new runtime. One transaction imports and validates configurations,
 credential relationships and tool policies before recording completion. Legacy
-rows remain for inspection, but runtime code does not read both old and new
-configuration stores. Rolling old and new writers against that database is not
-supported during this cutover.
+Agent Plugin rows remain for inspection after import. Native global configuration
+continues to use its existing store. Rolling old and new writers against that
+database is not supported during this cutover.

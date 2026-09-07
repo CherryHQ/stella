@@ -91,6 +91,56 @@ func (h *Host) SessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPl
 	return view, nil
 }
 
+// SessionPluginViewForAgent extends the authority-bound snapshot projection
+// with trusted native identities. Native IDs are deliberately absent from the
+// Agent snapshot, so their visibility is admitted from NativePolicy for this
+// concrete Agent instead of from persisted plugin state.
+func (h *Host) SessionPluginViewForAgent(ctx context.Context, agentID string, snapshot plugin.Snapshot) (pkgplugins.SessionPluginView, error) {
+	view, err := h.SessionPluginView(snapshot)
+	if err != nil {
+		return pkgplugins.SessionPluginView{}, err
+	}
+	h.mu.RLock()
+	policy := h.nativePolicy
+	h.mu.RUnlock()
+	if policy == nil || agentID == "" {
+		return pkgplugins.SessionPluginView{}, plugin.ErrNativePolicyUnavailable
+	}
+	registered := make(map[string]struct{}, len(view.RegisteredPluginIDs))
+	for _, id := range view.RegisteredPluginIDs {
+		registered[id] = struct{}{}
+	}
+	exposed := make(map[string]struct{}, len(view.ExposedPluginIDs))
+	for _, id := range view.ExposedPluginIDs {
+		exposed[id] = struct{}{}
+	}
+	for _, nativeID := range policy.NativeIDs() {
+		// A stale or same-name Agent definition must never grant native
+		// visibility. Replace both snapshot projections with policy admission.
+		delete(registered, nativeID)
+		delete(exposed, nativeID)
+		registered[nativeID] = struct{}{}
+		allowed, err := policy.Allows(ctx, nativeID, agentID)
+		if err != nil {
+			return pkgplugins.SessionPluginView{}, err
+		}
+		if allowed {
+			exposed[nativeID] = struct{}{}
+		}
+	}
+	view.RegisteredPluginIDs = view.RegisteredPluginIDs[:0]
+	for id := range registered {
+		view.RegisteredPluginIDs = append(view.RegisteredPluginIDs, id)
+	}
+	view.ExposedPluginIDs = view.ExposedPluginIDs[:0]
+	for id := range exposed {
+		view.ExposedPluginIDs = append(view.ExposedPluginIDs, id)
+	}
+	slices.Sort(view.RegisteredPluginIDs)
+	slices.Sort(view.ExposedPluginIDs)
+	return view, nil
+}
+
 // validateResolvedCLIPayload re-runs the backend boundary after resolution.
 // A config saved while disabled may be structurally valid but incomplete; a
 // capability lift must not turn that dormant payload into an executable one.

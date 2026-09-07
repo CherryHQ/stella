@@ -1,4 +1,229 @@
 paths:
+  /api/native-plugins:
+    get:
+      tags: [plugins]
+      summary: List native plugins
+      operationId: listNativePlugins
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            required: false,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - {
+            name: page_token,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/NativePluginList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/native-plugins/{kind}/{name}:
+    parameters:
+      - { name: kind, in: path, required: true, schema: { type: string } }
+      - { name: name, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [plugins]
+      summary: Get a native plugin global switch
+      operationId: getNativePlugin
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/NativePlugin",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    patch:
+      tags: [plugins]
+      summary: Update a native plugin global switch
+      operationId: updateNativePlugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateNativePluginRequest",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/NativePlugin",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/native-plugins/{kind}/{name}/agent-denials:
+    parameters:
+      - { name: kind, in: path, required: true, schema: { type: string } }
+      - { name: name, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [plugins]
+      summary: List native plugin Agent denies
+      operationId: listNativePluginAgentDenials
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            required: false,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - {
+            name: page_token,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/NativeAgentDenyList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    post:
+      tags: [plugins]
+      summary: Deny one Agent native plugin access
+      operationId: createNativePluginAgentDeny
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/CreateNativeAgentDenyRequest",
+            }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/NativeAgentDeny",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/native-plugins/{kind}/{name}/agent-denials/{agent_id}:
+    parameters:
+      - { name: kind, in: path, required: true, schema: { type: string } }
+      - { name: name, in: path, required: true, schema: { type: string } }
+      - { name: agent_id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [plugins]
+      summary: Get one Agent native plugin deny
+      operationId: getNativePluginAgentDeny
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/NativeAgentDeny",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    delete:
+      tags: [plugins]
+      summary: Remove one Agent native plugin deny
+      operationId: allowNativePluginAgent
+      responses:
+        "204": { description: deleted }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
   /api/plugins:
     get:
       tags: [plugins]

@@ -208,7 +208,7 @@ func (s *Server) agentTools(ctx context.Context, agentID string, includeSettings
 	}
 
 	if s.pluginHost != nil && s.pluginSvc != nil {
-		specs, err := s.pluginHost.EnabledToolSpecs(ctx, pluginSnapshot)
+		specs, err := s.pluginHost.EnabledToolSpecs(ctx, agentID)
 		if err != nil {
 			return nil, err
 		}
@@ -216,10 +216,11 @@ func (s *Server) agentTools(ctx context.Context, agentID string, includeSettings
 			if agent.IsCoreToolName(spec.Name) {
 				continue
 			}
-			identity, name, ok := pluginToolProjection(s.toolMeta, spec, pluginSnapshot)
+			identity, ok := nativeToolIdentity(s.toolMeta, s.nativePolicy, spec)
 			if !ok {
 				continue
 			}
+			name := spec.Name
 			decision := agent.ResolveToolOverride(true, identity, overrides)
 			items = append(items, overrideAgentTool(name, spec.Description, agentToolSourcePlugin, s.toolFamily(name, agentToolSourcePlugin), decision, nil))
 		}
@@ -380,17 +381,13 @@ func (s *Server) agentToolOverrideAllowed(ctx context.Context, userID, agentID, 
 		if info == nil {
 			return agent.ToolIdentity{}, false, nil
 		}
-		snapshot, err := s.toolSnapshot(ctx, info, agentID)
-		if err != nil {
-			return agent.ToolIdentity{}, false, err
-		}
-		specs, err := s.pluginHost.EnabledToolSpecs(ctx, snapshot)
+		specs, err := s.pluginHost.EnabledToolSpecs(ctx, agentID)
 		if err != nil {
 			return agent.ToolIdentity{}, false, err
 		}
 		for _, spec := range specs {
-			identity, projectedName, ok := pluginToolProjection(s.toolMeta, spec, snapshot)
-			if ok && projectedName == name {
+			identity, ok := nativeToolIdentity(s.toolMeta, s.nativePolicy, spec)
+			if ok && spec.Name == name {
 				return identity, ok, nil
 			}
 		}
@@ -410,10 +407,10 @@ func (s *Server) toolSnapshot(ctx context.Context, info *AuthInfo, agentID strin
 }
 
 func (s *Server) toolIdentity(name string) (agent.ToolIdentity, error) {
-	return trustedToolIdentity(s.toolMeta, name)
+	return trustedToolIdentityWithPolicy(s.toolMeta, s.nativePolicy, name)
 }
 
-func trustedToolIdentity(meta *toolmeta.Registry, name string) (agent.ToolIdentity, error) {
+func trustedToolIdentityWithPolicy(meta *toolmeta.Registry, native *pluginpkg.NativePolicy, name string) (agent.ToolIdentity, error) {
 	if spec, ok := meta.Lookup(name); ok {
 		if spec.PluginID == "" {
 			if spec.Namespace != "" || spec.LocalName != "" {
@@ -421,40 +418,27 @@ func trustedToolIdentity(meta *toolmeta.Registry, name string) (agent.ToolIdenti
 			}
 			return agent.ToolIdentity{CoreToolName: name}, nil
 		}
-		identity := agent.ToolIdentity{PluginID: spec.PluginID, LocalToolName: spec.LocalName}
-		if err := identity.Validate(); err != nil {
-			return agent.ToolIdentity{}, err
+		if native == nil {
+			return agent.ToolIdentity{}, pluginpkg.ErrNativePolicyUnavailable
 		}
-		exported, err := pluginpkg.ExportedToolName(spec.Namespace, spec.LocalName)
-		if err != nil {
-			return agent.ToolIdentity{}, err
+		if !native.IsRegistered(spec.PluginID) {
+			return agent.ToolIdentity{}, pluginpkg.ErrUnknownNativeID
 		}
-		if exported != name {
-			return agent.ToolIdentity{}, fmt.Errorf("tool %q metadata exports %q", name, exported)
-		}
-		return identity, nil
+		return agent.ToolIdentity{CoreToolName: name}, nil
 	}
 	return agent.ToolIdentity{CoreToolName: name}, nil
 }
 
-func pluginToolProjection(meta *toolmeta.Registry, spec pkgplugins.ToolSpec, snapshot pluginpkg.Snapshot) (agent.ToolIdentity, string, bool) {
-	if meta != nil {
-		if identity, err := trustedToolIdentity(meta, spec.Name); err == nil && identity.PluginID != "" {
-			return identity, spec.Name, true
-		}
+func nativeToolIdentity(meta *toolmeta.Registry, native *pluginpkg.NativePolicy, spec pkgplugins.ToolSpec) (agent.ToolIdentity, bool) {
+	if meta == nil {
+		return agent.ToolIdentity{}, false
 	}
-	identity := agent.ToolIdentity{PluginID: spec.PluginID, LocalToolName: spec.Name}
-	if err := identity.Validate(); err != nil {
-		return agent.ToolIdentity{}, "", false
+	metadata, ok := meta.Lookup(spec.Name)
+	if !ok || metadata.PluginID != spec.PluginID {
+		return agent.ToolIdentity{}, false
 	}
-	if resolved, ok := snapshot.Get(spec.PluginID); ok {
-		name, err := pluginpkg.ExportedToolName(resolved.Definition.Namespace, spec.Name)
-		if err != nil {
-			return agent.ToolIdentity{}, "", false
-		}
-		return identity, name, true
-	}
-	return identity, spec.Name, true
+	identity, err := trustedToolIdentityWithPolicy(meta, native, spec.Name)
+	return identity, err == nil
 }
 
 func mcpToolName(reg mcp.Registration, tool mcp.CatalogTool) (string, bool) {

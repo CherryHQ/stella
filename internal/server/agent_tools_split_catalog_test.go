@@ -8,12 +8,14 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/agent"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/library/recally"
 	"github.com/CherryHQ/stella/internal/memory"
+	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
@@ -54,9 +56,17 @@ func TestListAgentToolsServesEverySplitActionWithAnExactSchema(t *testing.T) {
 	_, sessionID := newNonAdmin(t, env, "split-catalog-user")
 	agentID := createAgentAsUser(t, env, sessionID, "split-catalog-agent")
 	meta := splitCatalogToolMeta()
+	nativeIDs := pluginpkg.NativeRegistryMap{}
+	for _, spec := range meta.Tools() {
+		if spec.PluginID != "" {
+			nativeIDs[spec.PluginID] = true
+		}
+	}
+	nativePolicy := pluginpkg.NewNativePolicy(store.NewDBStore(env.db), nativeIDs)
 	env.rebuild(t, func(deps *server.Deps) {
 		deps.BuiltinTools = splitCatalogBuiltins()
 		deps.ToolMeta = meta
+		deps.NativePolicy = nativePolicy
 	})
 
 	rr := doRequestWithSession(t, env.srv, sessionID, http.MethodGet, "/api/agents/"+agentID+"/tools", nil)

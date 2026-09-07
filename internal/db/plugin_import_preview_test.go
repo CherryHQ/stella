@@ -29,7 +29,7 @@ func TestPreviewLegacyImportIsReadOnlyAndDoesNotWriteMarker(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := plugin.PreviewLegacyImport(ctx, db, catalog, nil)
+	plan, err := plugin.PreviewLegacyImport(ctx, db, catalog, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestPreviewLegacyImportReportsUnexpectedMarkerAndMCPOverride(t *testing.T) 
 	if _, err := db.Exec(ctx, `INSERT INTO app_setting (key, value) VALUES ('plugin_cutover_v1', 'future')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := plugin.PreviewLegacyImport(ctx, db, catalog, nil); !errors.Is(err, plugin.ErrLegacyMigrationConflict) {
+	if _, err := plugin.PreviewLegacyImport(ctx, db, catalog, nil, nil); !errors.Is(err, plugin.ErrLegacyMigrationConflict) {
 		t.Fatalf("unexpected marker error = %v", err)
 	}
 
@@ -78,7 +78,7 @@ func TestPreviewLegacyImportReportsUnexpectedMarkerAndMCPOverride(t *testing.T) 
 	`); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := plugin.PreviewLegacyImport(ctx, db, catalog, nil)
+	plan, err := plugin.PreviewLegacyImport(ctx, db, catalog, nil, nil)
 	if err != nil {
 		t.Fatalf("MCP override preview error = %v", err)
 	}
@@ -129,7 +129,7 @@ func TestPreviewLegacyImportDerivesOAuthSecretLocatorFromVaultPresence(t *testin
 					t.Fatal(err)
 				}
 			}
-			plan, err := plugin.PreviewLegacyImport(ctx, db, plugin.NewCatalog(), nil)
+			plan, err := plugin.PreviewLegacyImport(ctx, db, plugin.NewCatalog(), nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -163,7 +163,7 @@ func TestImportLegacyStateRejectsOAuthSecretWithoutClientID(t *testing.T) {
 	`, secretName); err != nil {
 		t.Fatal(err)
 	}
-	err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil)
+	err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil)
 	if !errors.Is(err, plugin.ErrLegacyMigrationConflict) || !strings.Contains(err.Error(), "client_id") {
 		t.Fatalf("OAuth secret without client_id import error = %v", err)
 	}
@@ -198,7 +198,7 @@ func TestImportLegacyStateRejectsUnexpectedCredentialRefsBeforeMarker(t *testing
 			`, test.authType, test.credential, test.metadataOrEmpty()); err != nil {
 				t.Fatal(err)
 			}
-			err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil)
+			err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil)
 			if !errors.Is(err, plugin.ErrLegacyMigrationConflict) {
 				t.Fatalf("unexpected credential ref error = %v", err)
 			}
@@ -257,7 +257,7 @@ func TestPreviewLegacyImportMigratesChannelCapabilityWithoutCredentials(t *testi
 		t.Fatal(err)
 	}
 
-	plan, err := plugin.PreviewLegacyImport(ctx, db, catalog, nil)
+	plan, err := plugin.PreviewLegacyImport(ctx, db, catalog, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestPreviewLegacyImportRejectsChannelPayloadWithoutInstance(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := plugin.PreviewLegacyImport(ctx, db, catalog, nil)
+	_, err := plugin.PreviewLegacyImport(ctx, db, catalog, nil, nil)
 	if !errors.Is(err, plugin.ErrLegacyMigrationConflict) || !strings.Contains(err.Error(), "channel/feishu") {
 		t.Fatalf("missing channel instance error = %v", err)
 	}
@@ -337,7 +337,7 @@ func TestImportLegacyStateWritesDefinitionsConfigsAndSharedObservation(t *testin
 	`); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, catalog, nil); errors.Is(err, plugin.ErrOAuthForeignKeySchema) {
+	if err := plugin.ImportLegacyState(ctx, db, catalog, nil, nil); errors.Is(err, plugin.ErrOAuthForeignKeySchema) {
 		t.Skip("OAuth FK final cutover migration is not present in this preparation schema")
 	} else if err != nil {
 		t.Fatal(err)
@@ -384,7 +384,7 @@ func TestImportLegacyStateWritesDefinitionsConfigsAndSharedObservation(t *testin
 	if err := json.Unmarshal([]byte(gotMirror), &gotMirrorObject); err != nil || gotMirrorObject["provider"] != "legacy" || len(gotMirrorObject) != 1 {
 		t.Fatalf("legacy plugin row changed: %q", gotMirror)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, catalog, nil); !errors.Is(err, plugin.ErrImportComplete) {
+	if err := plugin.ImportLegacyState(ctx, db, catalog, nil, nil); !errors.Is(err, plugin.ErrImportComplete) {
 		t.Fatalf("second import = %v", err)
 	}
 }
@@ -407,7 +407,7 @@ func TestImportLegacyStateDoesNotImportOwnerlessPerUserObservation(t *testing.T)
 	`, mcpID, user.UserID()); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, catalog, nil); errors.Is(err, plugin.ErrOAuthForeignKeySchema) {
+	if err := plugin.ImportLegacyState(ctx, db, catalog, nil, nil); errors.Is(err, plugin.ErrOAuthForeignKeySchema) {
 		t.Skip("OAuth FK final cutover migration is not present in this preparation schema")
 	} else if err != nil {
 		t.Fatal(err)
@@ -453,7 +453,7 @@ func TestImportLegacyStateRollsBackBeforeMarkerOnPolicyDependency(t *testing.T) 
 	`); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, catalog, nil); err != nil {
+	if err := plugin.ImportLegacyState(ctx, db, catalog, nil, nil); err != nil {
 		t.Fatalf("import legacy policy = %v", err)
 	}
 	var definitions, configs, markers int
@@ -498,7 +498,7 @@ func TestImportLegacyStateWritesPluginToolOverrideWithExactIdentity(t *testing.T
 	`, user.UserID()); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, catalog, nil); err != nil {
+	if err := plugin.ImportLegacyState(ctx, db, catalog, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	var toolName pgtype.Text
@@ -556,7 +556,7 @@ func TestImportLegacyStateRollsBackAmbiguousPluginToolOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := plugin.ImportLegacyState(ctx, db, catalog, nil)
+	err := plugin.ImportLegacyState(ctx, db, catalog, nil, nil)
 	if !errors.Is(err, plugin.ErrLegacyMigrationConflict) {
 		t.Fatalf("ambiguous plugin policy error = %v", err)
 	}
@@ -586,7 +586,7 @@ func TestImportLegacyStateVerifiesKnownCoreAndKeepsRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	metadata := toolmeta.NewRegistry(toolmeta.ActionTool{Name: "goal_create"})
-	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), metadata); err != nil {
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, metadata); err != nil {
 		t.Fatalf("known core policy import = %v", err)
 	}
 	var toolName, scope string
@@ -613,7 +613,7 @@ func TestImportLegacyStateRejectsUnknownCoreBeforeWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	metadata := toolmeta.NewRegistry(toolmeta.ActionTool{Name: "goal_create"})
-	err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), metadata)
+	err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, metadata)
 	if !errors.Is(err, plugin.ErrLegacyMigrationConflict) {
 		t.Fatalf("reserved-but-not-executable core name should be rejected, got %v", err)
 	}
@@ -642,7 +642,7 @@ func TestImportLegacyStateRejectsCoreWithoutTrustedMetadata(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
-	err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil)
+	err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil)
 	if !errors.Is(err, plugin.ErrToolOverrideSchema) {
 		t.Fatalf("nil core metadata should be rejected, got %v", err)
 	}
@@ -682,7 +682,7 @@ func TestImportLegacyStateRejectsCoreRowWithPluginIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	metadata := toolmeta.NewRegistry(toolmeta.ActionTool{Name: "goal_create"})
-	err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), metadata)
+	err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, metadata)
 	if !errors.Is(err, plugin.ErrLegacyMigrationConflict) {
 		t.Fatalf("dual core/plugin identity should be rejected, got %v", err)
 	}
@@ -729,7 +729,7 @@ func TestImportLegacyStateRequiresAppliedMigration41Ledger(t *testing.T) {
 	if _, err := db.Exec(ctx, `DELETE FROM goose_db_version WHERE version_id = 90000000000041`); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); !errors.Is(err, plugin.ErrToolOverrideSchema) {
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); !errors.Is(err, plugin.ErrToolOverrideSchema) {
 		t.Fatalf("missing migration ledger error = %v", err)
 	}
 }
@@ -744,7 +744,7 @@ func TestImportLegacyStateRejectsUnappliedLatestMigration41Ledger(t *testing.T) 
 	`); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); !errors.Is(err, plugin.ErrToolOverrideSchema) {
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); !errors.Is(err, plugin.ErrToolOverrideSchema) {
 		t.Fatalf("unapplied latest migration ledger error = %v", err)
 	}
 }
@@ -752,7 +752,7 @@ func TestImportLegacyStateRejectsUnappliedLatestMigration41Ledger(t *testing.T) 
 func TestImportLegacyStateAcceptsAppliedMigration41WithLaterMigrations(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
-	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); err != nil {
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); err != nil {
 		t.Fatalf("fresh database import: %v", err)
 	}
 
@@ -778,7 +778,7 @@ func TestImportLegacyStateRefusesPreparationSchema(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
-	err := plugin.ImportLegacyState(ctx, db, catalog, nil)
+	err := plugin.ImportLegacyState(ctx, db, catalog, nil, nil)
 	if !errors.Is(err, plugin.ErrToolOverrideSchema) {
 		t.Fatalf("preparation schema error = %v", err)
 	}
@@ -804,7 +804,7 @@ func TestImportLegacyStateRequiresNamedPolicyIndexesWithNoLegacyPolicies(t *test
 	if _, err := db.Exec(ctx, `DROP INDEX uniq_tool_override_plugin_identity`); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); !errors.Is(err, plugin.ErrToolOverrideSchema) {
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); !errors.Is(err, plugin.ErrToolOverrideSchema) {
 		t.Fatalf("missing plugin policy index error = %v", err)
 	}
 	var markers int
@@ -830,7 +830,7 @@ func TestImportLegacyStateRejectsNonUniqueNamedPolicyIndexWithNoLegacyPolicies(t
 	`); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); !errors.Is(err, plugin.ErrToolOverrideSchema) {
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); !errors.Is(err, plugin.ErrToolOverrideSchema) {
 		t.Fatalf("non-unique plugin policy index error = %v", err)
 	}
 	var markers int
@@ -854,7 +854,7 @@ func TestImportLegacyStateRequiresExactOAuthForeignKey(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); !errors.Is(err, plugin.ErrOAuthForeignKeySchema) {
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); !errors.Is(err, plugin.ErrOAuthForeignKeySchema) {
 		t.Fatalf("wrong OAuth foreign key error = %v", err)
 	}
 }
@@ -870,7 +870,7 @@ func TestImportLegacyStateRejectsAdditionalOAuthForeignKey(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); !errors.Is(err, plugin.ErrOAuthForeignKeySchema) {
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); !errors.Is(err, plugin.ErrOAuthForeignKeySchema) {
 		t.Fatalf("additional OAuth foreign key error = %v", err)
 	}
 	var markers int
@@ -910,7 +910,7 @@ func TestImportLegacyStateValidatesRetargetedOAuthFlowAfterUUIDConfigImport(t *t
 		t.Fatalf("apply embedded migration 41: %v", err)
 	}
 	preparePluginPolicyCutoverSchema(t, db)
-	if err := plugin.ImportLegacyState(ctx, db, catalog, nil); err != nil {
+	if err := plugin.ImportLegacyState(ctx, db, catalog, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	var marker string
@@ -975,7 +975,7 @@ func TestImportLegacyStateRejectsStaleToolOverrideSnapshot(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); !errors.Is(err, plugin.ErrLegacyMigrationConflict) {
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); !errors.Is(err, plugin.ErrLegacyMigrationConflict) {
 		t.Fatalf("stale tool override error = %v", err)
 	}
 	var enabled bool
@@ -1039,7 +1039,7 @@ func TestImportLegacyStateRollsBackWhenRetargetedOAuthValidationFindsOrphan(t *t
 		t.Fatalf("apply embedded migration 41: %v", err)
 	}
 	preparePluginPolicyCutoverSchema(t, db)
-	err := plugin.ImportLegacyState(ctx, db, catalog, nil)
+	err := plugin.ImportLegacyState(ctx, db, catalog, nil, nil)
 	if err == nil || errors.Is(err, plugin.ErrOAuthForeignKeySchema) {
 		t.Fatalf("orphan OAuth validation error = %v", err)
 	}

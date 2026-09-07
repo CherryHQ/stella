@@ -478,6 +478,14 @@ paths:
   /api/groups/{groupId}/turns/{agentId}/abort:
     $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups~1{groupId}~1turns~1{agentId}~1abort"
   # ── Plugins ────────────────────────────────────────────────────────────────
+  /api/native-plugins:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1native-plugins"
+  /api/native-plugins/{kind}/{name}:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1native-plugins~1{kind}~1{name}"
+  /api/native-plugins/{kind}/{name}/agent-denials:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1native-plugins~1{kind}~1{name}~1agent-denials"
+  /api/native-plugins/{kind}/{name}/agent-denials/{agent_id}:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1native-plugins~1{kind}~1{name}~1agent-denials~1{agent_id}"
   /api/plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"
   /api/plugins/{kind}/{name}:

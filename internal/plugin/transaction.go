@@ -76,6 +76,15 @@ func mutationInProgress(ctx context.Context) bool {
 }
 
 func classifyCommitError(err error) error {
+	return ClassifyMutationError(err)
+}
+
+// ClassifyMutationError applies the conservative outcome rule to writes whose
+// completion boundary returned an error. Only errors known to happen before
+// sending data, or PostgreSQL's explicit rollback signal, are definitive.
+// Server errors remain conservative because transaction_resolution_unknown and
+// statement_completion_unknown are valid PostgreSQL errors too.
+func ClassifyMutationError(err error) error {
 	if err == nil || errors.Is(err, pgx.ErrTxCommitRollback) || pgconn.SafeToRetry(err) {
 		return err
 	}

@@ -5,6 +5,49 @@ info:
 paths: {}
 components:
   schemas:
+    NativePlugin:
+      type: object
+      additionalProperties: false
+      required: [id, is_enabled]
+      properties:
+        id: { type: string }
+        is_enabled: { type: boolean }
+    NativePluginList:
+      type: object
+      required: [native_plugins, next_page_token]
+      properties:
+        native_plugins:
+          type: array
+          items: { $ref: "#/components/schemas/NativePlugin" }
+        next_page_token: { type: string, nullable: true }
+    NativeAgentDeny:
+      type: object
+      additionalProperties: false
+      required: [native_id, agent_id, is_denied]
+      properties:
+        native_id: { type: string }
+        agent_id: { type: string }
+        is_denied: { type: boolean }
+    NativeAgentDenyList:
+      type: object
+      required: [denials, next_page_token]
+      properties:
+        denials:
+          type: array
+          items: { $ref: "#/components/schemas/NativeAgentDeny" }
+        next_page_token: { type: string, nullable: true }
+    CreateNativeAgentDenyRequest:
+      type: object
+      additionalProperties: false
+      required: [agent_id]
+      properties:
+        agent_id: { type: string }
+    UpdateNativePluginRequest:
+      type: object
+      additionalProperties: false
+      required: [is_enabled]
+      properties:
+        is_enabled: { type: boolean }
     PluginDefinition:
       type: object
       additionalProperties: false

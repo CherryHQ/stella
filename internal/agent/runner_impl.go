@@ -61,7 +61,8 @@ type runnerConfig struct {
 	MCPToolProvider      MCPToolProvider
 	ToolOverrideFetcher  ToolOverrideFetcher
 	ToolMetaRegistry     *toolmeta.Registry
-	PluginTools          func(context.Context, pkgplugins.ToolBuildContext, plugin.Snapshot) ([]tools.Tool, error)
+	NativePolicy         *plugin.NativePolicy
+	PluginTools          func(context.Context, pkgplugins.ToolBuildContext) ([]tools.Tool, error)
 	HookPlugins          []hooks.HookPlugin // hook plugins for the engine loop
 	PluginHookPlugins    []hooks.HookPlugin // runner-owned plugin hooks, closed with this runner
 	ToolLifecycle        *coreagent.ToolLifecycle
@@ -250,6 +251,7 @@ type toolCandidate struct {
 	tool       tools.Tool
 	source     string
 	identity   ToolIdentity
+	nativeID   string
 	ownedIndex int
 }
 
@@ -292,6 +294,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	// Runtime capabilities are injected from the active runner session.
 	bc := pkgplugins.ToolBuildContext{
 		Runtime: session,
+		AgentID: cfg.BuiltinParams.AgentID,
 	}
 
 	coreTools := buildSandboxCoreTools(session, cfg.Sandbox.SessionSecretValues, cfg.Vision)
@@ -341,6 +344,10 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 			owned[index].transferred = true
 			return nil
 		}
+		nativeID := ""
+		if spec, ok := cfg.ToolMetaRegistry.Lookup(name); ok && spec.PluginID != "" {
+			nativeID = spec.PluginID
+		}
 		if err := identity.Validate(); err != nil {
 			return fmt.Errorf("runner: tool %q has invalid identity: %w", name, err)
 		}
@@ -351,7 +358,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 				return nil
 			}
 		}
-		nonCoreCandidates = append(nonCoreCandidates, toolCandidate{tool: t, source: source, identity: identity, ownedIndex: index})
+		nonCoreCandidates = append(nonCoreCandidates, toolCandidate{tool: t, source: source, identity: identity, nativeID: nativeID, ownedIndex: index})
 		return nil
 	}
 
@@ -364,9 +371,26 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 			knownBuiltinNames[definition.Name] = struct{}{}
 		}
 	}
+	// Host registrations are trusted static names even when native admission
+	// hides their implementation for this Agent. Keep them reserved so an MCP
+	// proxy cannot claim the name during that gap.
+	knownHostToolNames := make(map[string]struct{})
+	if cfg.ToolMetaRegistry != nil {
+		for _, spec := range cfg.ToolMetaRegistry.Tools() {
+			if spec.PluginID != "" && spec.Namespace == "" {
+				knownHostToolNames[spec.Name] = struct{}{}
+			}
+		}
+	}
 	knownIdentities := make(map[ToolIdentity]struct{}, len(knownBuiltinNames))
 	for name := range knownBuiltinNames {
-		identity, err := runnerToolIdentity(cfg.ToolMetaRegistry, name)
+		identity, err := runnerToolIdentity(cfg.ToolMetaRegistry, cfg.NativePolicy, name)
+		if err == nil {
+			knownIdentities[identity] = struct{}{}
+		}
+	}
+	for name := range knownHostToolNames {
+		identity, err := runnerToolIdentity(cfg.ToolMetaRegistry, cfg.NativePolicy, name)
 		if err == nil {
 			knownIdentities[identity] = struct{}{}
 		}
@@ -411,7 +435,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 				return nil, nil, nil, fmt.Errorf("runner: built builtin tool name %q does not match static definition %q", definition.Name, entry.Spec.Name)
 			}
 		}
-		identity, err := runnerToolIdentity(cfg.ToolMetaRegistry, tool.Definition().Name)
+		identity, err := runnerToolIdentity(cfg.ToolMetaRegistry, cfg.NativePolicy, tool.Definition().Name)
 		if err != nil {
 			closeTool(tool)
 			return nil, nil, nil, err
@@ -464,7 +488,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		}
 	}
 	if cfg.PluginTools != nil {
-		pluginTools, err := cfg.PluginTools(ctx, bc, cfg.PluginContext.Snapshot())
+		pluginTools, err := cfg.PluginTools(ctx, bc)
 		pluginOwned := make([]int, len(pluginTools))
 		for i, t := range pluginTools {
 			pluginOwned[i] = own(t)
@@ -473,7 +497,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 			return nil, nil, nil, fmt.Errorf("runner: build plugin tools: %w", err)
 		}
 		for i, t := range pluginTools {
-			identity, err := runnerToolIdentity(cfg.ToolMetaRegistry, t.Definition().Name)
+			identity, err := runnerToolIdentity(cfg.ToolMetaRegistry, cfg.NativePolicy, t.Definition().Name)
 			if err != nil {
 				owned[pluginOwned[i]].transferred = true
 				closeTool(t)
@@ -501,6 +525,10 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		if _, reserved := knownBuiltinNames[name]; reserved && c.source != toolSourceBuiltin {
 			return nil, nil, nil, fmt.Errorf("runner: %s tool %q collides with the %s tool of the same name (not available for this run)",
 				c.source, name, toolSourceBuiltin)
+		}
+		if _, reserved := knownHostToolNames[name]; reserved && c.source != toolSourcePlugin {
+			return nil, nil, nil, fmt.Errorf("runner: %s tool %q collides with the %s tool of the same name (not available for this run)",
+				c.source, name, toolSourcePlugin)
 		}
 		sourceByName[name] = c.source
 	}
@@ -542,7 +570,9 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		}
 		// Names were settled above, so this only fires if that pass and the
 		// registry ever disagree.
-		if err := registry.Register(c.tool); err != nil {
+		guarded := wrapAuthorizedTool(c.tool, c.identity, c.nativeID, cfg.NativePolicy,
+			cfg.ToolOverrideFetcher, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID)
+		if err := registry.Register(guarded); err != nil {
 			return nil, nil, nil, fmt.Errorf("runner: register %s tool: %w", c.source, err)
 		}
 		// Registration transfers ownership to the registry. If a later
@@ -607,10 +637,9 @@ func runnerMCPToolIdentity(snapshot plugin.Snapshot, tool tools.Tool) (ToolIdent
 	return identity, nil
 }
 
-// runnerToolIdentity accepts ownership only from the generated registry. An
-// unknown tool remains a core-owned runtime capability; plugin metadata that
-// is present must be complete and must reproduce the declared exported name.
-func runnerToolIdentity(meta *toolmeta.Registry, name string) (ToolIdentity, error) {
+// runnerToolIdentity uses static names for Go tools. Native ownership must
+// also exist in the trusted registry; Agent MCP identity is checked separately.
+func runnerToolIdentity(meta *toolmeta.Registry, native *plugin.NativePolicy, name string) (ToolIdentity, error) {
 	if spec, ok := meta.Lookup(name); ok {
 		if spec.PluginID == "" {
 			if spec.Namespace != "" || spec.LocalName != "" {
@@ -618,18 +647,13 @@ func runnerToolIdentity(meta *toolmeta.Registry, name string) (ToolIdentity, err
 			}
 			return ToolIdentity{CoreToolName: name}, nil
 		}
-		identity := ToolIdentity{PluginID: spec.PluginID, LocalToolName: spec.LocalName}
-		if err := identity.Validate(); err != nil {
-			return ToolIdentity{}, fmt.Errorf("runner: tool %q: %w", name, err)
+		if native == nil {
+			return ToolIdentity{}, fmt.Errorf("runner: native tool %q: %w", name, plugin.ErrNativePolicyUnavailable)
 		}
-		exported, err := plugin.ExportedToolName(spec.Namespace, spec.LocalName)
-		if err != nil {
-			return ToolIdentity{}, fmt.Errorf("runner: tool %q: %w", name, err)
+		if !native.IsRegistered(spec.PluginID) {
+			return ToolIdentity{}, fmt.Errorf("runner: native tool %q: %w", name, plugin.ErrUnknownNativeID)
 		}
-		if exported != name {
-			return ToolIdentity{}, fmt.Errorf("runner: tool %q metadata exports %q", name, exported)
-		}
-		return identity, nil
+		return ToolIdentity{CoreToolName: name}, nil
 	}
 	return ToolIdentity{CoreToolName: name}, nil
 }

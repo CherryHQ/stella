@@ -17,6 +17,7 @@ type ToolContext struct {
 // ToolBuildContext carries the active runtime for per-session tool construction.
 type ToolBuildContext struct {
 	Runtime sandbox.Session
+	AgentID string
 }
 
 // HookContext is the narrow build context for hook capabilities.

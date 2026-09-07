@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/notify"
@@ -17,6 +18,7 @@ import (
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -25,6 +27,34 @@ type pluginSetup struct {
 	host                   *pluginhost.Host
 	channelRuntimeServices *pluginhost.ChannelPlatform
 	oauthRegistry          *oauth.ProviderRegistry
+	nativePolicy           *plugin.NativePolicy
+	nativeRegistry         plugin.NativeRegistry
+}
+
+// nativeRegistry is composed only from Go-owned registration and generated
+// tool metadata. Manifest IDs deliberately never enter this set.
+func nativeRegistry(code *pkgplugins.Catalog, families ...[]toolmeta.ActionTool) plugin.NativeRegistry {
+	registered := make(plugin.NativeRegistryMap)
+	if code != nil {
+		for _, id := range code.Names() {
+			defaultEnabled := true
+			if builtin, ok := config.BuiltinPluginByID(id); ok {
+				defaultEnabled = builtin.DefaultEnabled
+			}
+			registered[id] = defaultEnabled
+		}
+	}
+	for _, family := range families {
+		for _, tool := range family {
+			if tool.PluginID == "" {
+				continue
+			}
+			if _, ok := registered[tool.PluginID]; !ok {
+				registered[tool.PluginID] = true
+			}
+		}
+	}
+	return registered
 }
 
 func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
@@ -54,26 +84,25 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 	}
 
 	catalog := plugin.NewCatalog()
-	codeDefinitions, err := phost.BuiltinDefinitions(code)
-	if err != nil {
-		return nil, err
-	}
 	cliDefinitions, err := manifest.BuiltinDefinitions()
 	if err != nil {
 		return nil, err
 	}
-	toolDefinitions, err := pluginhost.BuiltinToolDefinitions(newToolMetaRegistry(generatedFamilies()...))
-	if err != nil {
-		return nil, err
-	}
+	nativeIDs := nativeRegistry(code, generatedFamilies()...)
 	owners := make(map[string]struct{})
-	for _, definitions := range [][]plugin.Definition{codeDefinitions, cliDefinitions, toolDefinitions} {
-		for _, definition := range definitions {
+	for _, definition := range cliDefinitions {
+		// Native implementations are discovered from Go registrations and
+		// static tool metadata. They do not become Agent-scoped plugin
+		// definitions, even when a release manifest carries their skills.
+		if _, native := nativeIDs.NativeDefaultEnabled(definition.ID); !native {
 			if err := catalog.Register(definition); err != nil {
 				return nil, err
 			}
-			owners[definition.ID] = struct{}{}
 		}
+		owners[definition.ID] = struct{}{}
+	}
+	for _, id := range nativeIDs.NativeIDs() {
+		owners[id] = struct{}{}
 	}
 	bundled, err := resources.Default()
 	if err != nil {
@@ -89,11 +118,16 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 	}
 	oauthRegistry := buildOAuthRegistry(builtinManifest)
 
+	nativeStore := cfgstore.NewDBStore(db)
+	nativePolicy := plugin.NewNativePolicy(nativeStore, nativeIDs)
+	phost.SetNativePolicy(nativePolicy)
 	return &pluginSetup{
 		catalog:                catalog,
 		host:                   phost,
 		channelRuntimeServices: channelRuntimeServices,
 		oauthRegistry:          oauthRegistry,
+		nativePolicy:           nativePolicy,
+		nativeRegistry:         nativeIDs,
 	}, nil
 }
 

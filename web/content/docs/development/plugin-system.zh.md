@@ -2,7 +2,28 @@
 title: 插件系统
 ---
 
-插件共享配置和权限规则。CLI、MCP 与 Go 后端保留执行各自能力所需的接口。
+Agent Plugins 通过带范围的定义配置 CLI 和 MCP 资源。编译进程序的 Stella Native
+Plugins 使用可信 Go 注册、部署级配置，以及管理员设置的逐 Agent 禁用策略。
+
+## Native 管理
+
+管理员在 **管理控制台 > 集成 > 原生能力** 中管理开关。全局开关影响所有 Agent，
+逐 Agent 禁用只限制选中的 Agent。移除逐 Agent 禁用后，全局开关仍需开启才能访问。
+用户设置不能解除这些限制。
+
+`NativePolicy` 在一次读取中检查全局 `plugin` 行和 `native_agent_deny`。
+全局行不存在时，只使用可信 Native 注册表的默认值。未注册身份或策略读取失败时，
+拒绝新的执行准入。Native hooks、频道 listener 和后台任务共用此策略；
+频道实例继续保留自己的开关及凭据。
+
+Native 工具使用静态导出名称，将权限保存在 `tool_override.tool_name`。
+现有四层工具限制同时应用于发现和每次调用，已构建的 runner 也会重新检查。
+Native 工具身份不依赖 Agent Plugin 定义外键。导入流程与运行时共用显式 Native
+注册表，Native 全局配置留在现有存储中。
+
+Native 写入经过 runner 准入屏障。提交成功或提交结果未知时，都会回收旧 runner，
+并重新协调频道 listener，避免一次报错响应留下旧权限。
+Native 管理 API 只接受管理员认证，OAuth access token 无法访问。
 
 ## 定义与配置
 
@@ -23,7 +44,7 @@ Builtin 定义来自可信的发行声明，数据库中的 builtin 行只是投
 agent、system。System 或匹配的 system agent 显式设为 `false`，分别构成独立上限，
 更窄范围的 `true` 不能解除其中任何一个限制。`null` 使用所选定义的发行默认值。
 
-这就是完整的配置模型：一份 `PluginDefinition`，加上四种范围元组各自至多一份
+Agent Plugin 的配置模型是一份 `PluginDefinition`，加上四种范围元组各自至多一份
 `PluginConfig`。`user_id` 和 `agent_id` 由可信 authority 推导，不能接受调用方自填身份。
 Definition 拥有稳定的实现和 namespace 身份；所选 Config 拥有该范围的后端 payload 与凭据。
 
@@ -32,8 +53,8 @@ Definition 拥有稳定的实现和 namespace 身份；所选 Config 拥有该�
 
 ## 一份执行快照
 
-公共服务从可信用户、Agent 或群组身份解析快照。Runner 在创建时捕获一次，工具、
-Skills、提示、环境变量和生命周期钩子使用同一代配置。
+公共服务从可信用户、Agent 或群组身份解析快照。Runner 在创建时捕获一次，Agent
+Plugin 资源、Skills 和环境变量使用这一代配置。Native 工具和 hooks 读取独立策略。
 
 公开资源遵循命名空间的胜出定义。自定义 MCP 即使占用了 builtin 的命名空间，也不能
 取得被遮蔽 builtin 的 Go 钩子或凭据。内部能力检查使用精确 plugin ID，因此命名空间
@@ -70,9 +91,9 @@ Stella 提供的资源；`none` 后端不提供文件系统隔离。
 凭据、active 状态和持久 Agent 绑定。保存一个账号不能覆盖另一个账号的凭据，也不能
 重新启用管理员已禁用的平台。
 
-Listener 检查 system、匹配的 system agent 上限和实例 active 状态。某个用户禁用插件，
-不会停止其他用户共享的 listener。事件准入还检查可信执行者的四层范围，以及已有
-Agent 访问权限或访客策略。渠道签名、开户和平台身份校验保留在所属 adapter。
+Listener 检查 Native 全局开关、逐 Agent 禁用和实例 active 状态。某个用户的工具限制
+不会停止其他用户共享的 listener。事件准入还检查已有 Agent 访问权限或访客策略。
+渠道签名、开户和平台身份校验保留在所属 adapter。
 
 现有 `UNIQUE(agent_id, type)` 唯一约束仍规定一个 Agent 每个平台最多绑定一个实例。
 每个实例有自己独立的凭据，即使平台相同也不会互相覆盖。多个账号可以绑定不同 Agent。
@@ -103,5 +124,5 @@ Library 通过显式路径调用的内部解析器依赖仍可用。
 Provider 与沙箱 adapter 的生产代码依赖 `pkg/**` 公开契约，不依赖 `internal/**`。
 
 旧数据切换需要维护升级：先停止所有旧写入进程，再启动新运行态。一个事务导入并验证
-配置、凭据关联与工具策略，最后记录完成。旧行保留供检查，运行态不同时读取新旧配置。
-这次切换不支持新旧进程对同一数据库滚动写入。
+配置、凭据关联与工具策略，最后记录完成。导入后的旧 Agent Plugin 行保留供检查，
+Native 全局配置继续使用现有存储。这次切换不支持新旧进程对同一数据库滚动写入。

@@ -755,6 +755,13 @@ type ModelCatalog struct {
 	UpdatedAt time.Time       `json:"updated_at"`
 }
 
+type NativeAgentDeny struct {
+	NativeID  string    `json:"native_id"`
+	AgentID   string    `json:"agent_id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type OauthAccessToken struct {
 	ID              string             `json:"id"`
 	PublicID        string             `json:"public_id"`

@@ -9,6 +9,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/plugin"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -48,14 +49,18 @@ func noopBackendTransition(context.Context, pgx.Tx, authz.Authority, plugin.Muta
 }
 
 func TestRequiredHookCannotBypassSnapshotDenial(t *testing.T) {
-	host := New(nil)
+	store := &stubStore{
+		plugins:      map[string]config.Plugin{"tool/denied": {ID: "tool/denied", Enabled: true}},
+		nativeDenies: map[string]map[string]bool{"tool/denied": {"agent": true}},
+	}
+	host := New(store)
 	host.RegisterPluginID("tool/denied")
+	bindNativePolicy(t, host, store, "tool/denied")
 	host.AddBeforeRun(pkgplugins.BeforeRunSpec{PluginID: "tool/denied", Name: "denied", Required: true, Run: func(context.Context, pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
 		t.Fatal("disabled required hook ran")
 		return pkgplugins.BeforeRunResult{}, nil
 	}})
-	snapshot := testHostSnapshot(t, map[string]bool{"tool/denied": false})
-	got, err := host.BeforeRun(t.Context(), pkgplugins.BeforeRunContext{SystemPrompt: "base"}, snapshot)
+	got, err := host.BeforeRun(t.Context(), pkgplugins.BeforeRunContext{SystemPrompt: "base", AgentID: "agent"})
 	if err != nil || got.SystemPrompt != "base" {
 		t.Fatalf("result = %+v, %v", got, err)
 	}

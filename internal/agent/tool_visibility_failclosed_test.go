@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
-	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -107,7 +106,7 @@ func TestBuildToolRegistryRejectsDuplicateNonCoreName(t *testing.T) {
 func TestBuildToolRegistryRejectsDuplicateNameWhileIncumbentIsDisabled(t *testing.T) {
 	cfg := failClosedConfig(t)
 	cfg.BuiltinTools = []BuiltinTool{{Tool: staticTool{name: "share"}}}
-	cfg.PluginTools = func(context.Context, pkgplugins.ToolBuildContext, plugin.Snapshot) ([]pkgtools.Tool, error) {
+	cfg.PluginTools = func(context.Context, pkgplugins.ToolBuildContext) ([]pkgtools.Tool, error) {
 		return []pkgtools.Tool{staticTool{name: "share"}}, nil
 	}
 	cfg.ToolOverrideFetcher = func(context.Context, string, string) ([]ToolOverride, error) {
@@ -132,7 +131,7 @@ func TestBuildToolRegistryReservesUnavailableBuiltinNames(t *testing.T) {
 		Tool:      staticTool{name: "email"},
 		Available: func(context.Context, RunnerParams) (bool, error) { return false, nil },
 	}}
-	cfg.PluginTools = func(context.Context, pkgplugins.ToolBuildContext, plugin.Snapshot) ([]pkgtools.Tool, error) {
+	cfg.PluginTools = func(context.Context, pkgplugins.ToolBuildContext) ([]pkgtools.Tool, error) {
 		return []pkgtools.Tool{staticTool{name: "email"}}, nil
 	}
 

@@ -62,6 +62,7 @@ type Server struct {
 	poolManager     *agent.PoolManager
 	pluginHost      *host.Host
 	pluginSvc       *pluginpkg.Service
+	nativePolicy    *pluginpkg.NativePolicy
 	weixinRegistrar WeixinRegistrar
 	// pinger is the narrow database-liveness port backing the /healthz, /readyz,
 	// and admin status probes. It is the injected pool viewed as DBPinger, so the
@@ -184,6 +185,7 @@ type Deps struct {
 	// PluginService is the unified definition/configuration authority. It is
 	// optional during the staged cutover; its API returns 503 when absent.
 	PluginService *pluginpkg.Service
+	NativePolicy  *pluginpkg.NativePolicy
 	BuiltinTools  []agent.BuiltinTool
 	// ToolMeta is the generated declaration registry already assembled by the
 	// composition root. Profile catalog rows use it for family metadata; plugins
@@ -340,6 +342,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		pinger:               deps.Pinger,
 		pluginHost:           deps.PluginHost,
 		pluginSvc:            deps.PluginService,
+		nativePolicy:         deps.NativePolicy,
 		weixinRegistrar:      deps.WeixinRegistrar,
 		mux:                  http.NewServeMux(),
 		log:                  log,

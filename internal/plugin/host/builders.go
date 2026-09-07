@@ -7,13 +7,12 @@ import (
 	"io"
 	"sort"
 
-	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildContext, snapshot plugin.Snapshot) (_ []tools.Tool, resultErr error) {
+func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildContext) (_ []tools.Tool, resultErr error) {
 	h.mu.RLock()
 	regs := make([]pkgplugins.ToolSpec, 0, len(h.toolRegs))
 	for _, reg := range h.toolRegs {
@@ -36,7 +35,7 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildCon
 		if reg.Build == nil {
 			continue
 		}
-		_, enabled, err := snapshotState(snapshot, reg.PluginID)
+		_, enabled, err := h.nativeState(ctx, reg.PluginID, bc.AgentID)
 		if err != nil {
 			return nil, err
 		}
@@ -49,6 +48,9 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildCon
 		})
 		if t != nil {
 			out = append(out, t)
+			if err == nil && t.Definition().Name != reg.Name {
+				return nil, fmt.Errorf("plugin tool %q built as %q", reg.Name, t.Definition().Name)
+			}
 		}
 		if err != nil {
 			return nil, fmt.Errorf("build plugin tool %q: %w", reg.Name, err)
@@ -57,7 +59,7 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildCon
 	return out, nil
 }
 
-func (h *Host) BuildEnabledHooks(ctx context.Context, toolsBinDir string, snapshot plugin.Snapshot) (_ []hooks.HookPlugin, resultErr error) {
+func (h *Host) BuildEnabledHooks(ctx context.Context, toolsBinDir, agentID string) (_ []hooks.HookPlugin, resultErr error) {
 	h.mu.RLock()
 	regs := make([]pkgplugins.HookSpec, 0, len(h.hookRegs))
 	for _, reg := range h.hookRegs {
@@ -77,7 +79,7 @@ func (h *Host) BuildEnabledHooks(ctx context.Context, toolsBinDir string, snapsh
 		}
 	}()
 	for _, reg := range regs {
-		state, enabled, err := snapshotState(snapshot, reg.PluginID)
+		state, enabled, err := h.nativeState(ctx, reg.PluginID, agentID)
 		if err != nil {
 			return nil, err
 		}

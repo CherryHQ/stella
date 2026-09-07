@@ -9,7 +9,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/platform/config"
-	"github.com/CherryHQ/stella/internal/plugin"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -76,7 +75,7 @@ func TestBuildToolRegistryClosesFilteredCandidateAndLaterError(t *testing.T) {
 	invalid := &cleanupTool{name: "broken"}
 	cfg := failClosedConfig(t)
 	cfg.PluginContext = PluginContext{}
-	cfg.PluginTools = func(context.Context, pkgplugins.ToolBuildContext, plugin.Snapshot) ([]pkgtools.Tool, error) {
+	cfg.PluginTools = func(context.Context, pkgplugins.ToolBuildContext) ([]pkgtools.Tool, error) {
 		return []pkgtools.Tool{filtered, invalid}, nil
 	}
 	cfg.ToolMetaRegistry = toolmeta.NewRegistry(
@@ -100,7 +99,7 @@ func TestBuildToolRegistryClosesAllPluginToolsWhenIdentityFails(t *testing.T) {
 	first := &cleanupTool{name: "broken-one"}
 	second := &cleanupTool{name: "broken-two"}
 	cfg := failClosedConfig(t)
-	cfg.PluginTools = func(context.Context, pkgplugins.ToolBuildContext, plugin.Snapshot) ([]pkgtools.Tool, error) {
+	cfg.PluginTools = func(context.Context, pkgplugins.ToolBuildContext) ([]pkgtools.Tool, error) {
 		return []pkgtools.Tool{first, second}, nil
 	}
 	cfg.ToolMetaRegistry = toolmeta.NewRegistry(
@@ -208,10 +207,10 @@ func TestNewRunnerFuncClosesHooksWhenLifecycleBuildFails(t *testing.T) {
 		PluginContextBuilder: func(context.Context, authz.Authority, string) (PluginContext, error) {
 			return PluginContext{}, nil
 		},
-		PluginHooksBuilder: func(context.Context, plugin.Snapshot) ([]hooks.HookPlugin, error) {
+		PluginHooksBuilder: func(context.Context, string) ([]hooks.HookPlugin, error) {
 			return []hooks.HookPlugin{hook}, nil
 		},
-		ToolLifecycleBuilder: func(context.Context, plugin.Snapshot) (*coreagent.ToolLifecycle, error) {
+		ToolLifecycleBuilder: func(context.Context) (*coreagent.ToolLifecycle, error) {
 			return nil, lifeErr
 		},
 	}))

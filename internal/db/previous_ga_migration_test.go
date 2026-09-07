@@ -39,9 +39,10 @@ const (
 	// cutover evidence schema, retired RTK plugin cleanup, retired Settings tool
 	// override cleanup, the built-in Stella Settings default, retired
 	// webfetch override cleanup, retired tap-web plugin cleanup, and the dropped
-	// plugin scheduler columns are checked explicitly.
+	// plugin scheduler columns are checked explicitly, followed by native Agent
+	// deny admission and plugin tool identity cutover migrations.
 	currentMigrationVersion = sequentialAnchor + 40
-	latestMigrationVersion  = sequentialAnchor + 42
+	latestMigrationVersion  = sequentialAnchor + 43
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"

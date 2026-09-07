@@ -172,6 +172,7 @@ type runnerBuilderConfig struct {
 	Snap                  *config.Snapshot
 	BuiltinTools          []BuiltinTool
 	ToolMetaRegistry      *toolmeta.Registry
+	NativePolicy          *plugin.NativePolicy
 	PluginToolsBuilder    PluginToolsBuilder
 	ProviderStreamBuilder ProviderStreamBuilder
 	SandboxBackends       *sandbox.BackendRegistry
@@ -471,7 +472,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		// Resolve hooks from RunnerParams — injected by Pool, not the builder.
 		if hasPluginAuthority && cfg.PluginHooksBuilder != nil {
-			pluginHooks, err = cfg.PluginHooksBuilder(ctx, pluginContext.Snapshot())
+			pluginHooks, err = cfg.PluginHooksBuilder(ctx, params.AgentID)
 			if err != nil {
 				return nil, fmt.Errorf("runner: build plugin hooks: %w", err)
 			}
@@ -489,7 +490,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			toolLifecycle = nil
 		}
 		if hasPluginAuthority && cfg.ToolLifecycleBuilder != nil {
-			toolLifecycle, err = cfg.ToolLifecycleBuilder(ctx, pluginContext.Snapshot())
+			toolLifecycle, err = cfg.ToolLifecycleBuilder(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("runner: build tool lifecycle: %w", err)
 			}
@@ -556,6 +557,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			PluginContext:        pluginContext,
 			ToolOverrideFetcher:  cfg.ToolOverrideFetcher,
 			ToolMetaRegistry:     cfg.ToolMetaRegistry,
+			NativePolicy:         cfg.NativePolicy,
 			PluginTools:          pluginToolsBuilder,
 			HookPlugins:          hookPlugins,
 			PluginHookPlugins:    pluginHooks,

@@ -62,7 +62,7 @@ func TestMCPConverterMatchesNormalizedLegacyOAuthShape(t *testing.T) {
 			"registry": map[string]any{"source": "official", "id": "github", "version": "1"},
 		},
 		OAuthClientSecretExists: true,
-	}}}, plugin.NewCatalog(), nil)
+	}}}, plugin.NewCatalog(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

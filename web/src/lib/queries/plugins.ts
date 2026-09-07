@@ -1,8 +1,22 @@
 import { queryOptions } from "@tanstack/react-query";
-import { listPluginConfigs, listPlugins } from "@/lib/api-client";
-import type { PluginConfig, PluginDefinition } from "@/lib/api-client";
+import {
+  listNativePluginAgentDenials,
+  listNativePlugins,
+  listPluginConfigs,
+  listPlugins,
+} from "@/lib/api-client";
+import type {
+  NativeAgentDeny,
+  NativePlugin,
+  PluginConfig,
+  PluginDefinition,
+} from "@/lib/api-client";
 
 export type PluginScope = PluginConfig["scope"];
+
+function nativePageQuery(pageToken?: string) {
+  return pageToken ? { page_size: 500, page_token: pageToken } : { page_size: 500 };
+}
 
 async function fetchAllPlugins(): Promise<PluginDefinition[]> {
   const plugins: PluginDefinition[] = [];
@@ -25,6 +39,49 @@ export const pluginsQueryOptions = queryOptions({
   queryKey: ["plugins"],
   queryFn: fetchAllPlugins,
 });
+
+async function fetchAllNativePlugins(): Promise<NativePlugin[]> {
+  const nativePlugins: NativePlugin[] = [];
+  let pageToken: string | undefined;
+  do {
+    const { data } = await listNativePlugins({
+      query: nativePageQuery(pageToken),
+      throwOnError: true,
+    });
+    nativePlugins.push(...(data?.native_plugins ?? []));
+    pageToken = data?.next_page_token ?? undefined;
+  } while (pageToken);
+  return nativePlugins;
+}
+
+export const nativePluginsQueryOptions = queryOptions({
+  queryKey: ["native-plugins"],
+  queryFn: fetchAllNativePlugins,
+});
+
+export const nativePluginDenialsQueryOptions = (nativeID: string, enabled: boolean) => {
+  const slash = nativeID.indexOf("/");
+  const kind = slash === -1 ? "" : nativeID.slice(0, slash);
+  const name = slash === -1 ? nativeID : nativeID.slice(slash + 1);
+  return queryOptions({
+    queryKey: ["native-plugin-denials", nativeID],
+    enabled: enabled && !!kind && !!name,
+    queryFn: async () => {
+      const denials: NativeAgentDeny[] = [];
+      let pageToken: string | undefined;
+      do {
+        const { data } = await listNativePluginAgentDenials({
+          path: { kind, name },
+          query: nativePageQuery(pageToken),
+          throwOnError: true,
+        });
+        denials.push(...(data?.denials ?? []));
+        pageToken = data?.next_page_token ?? undefined;
+      } while (pageToken);
+      return denials;
+    },
+  });
+};
 
 export const pluginConfigsQueryOptions = (
   kind: string,

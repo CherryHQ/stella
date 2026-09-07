@@ -1,9 +1,11 @@
 package server
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/mcp"
+	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 )
 
@@ -56,5 +58,14 @@ func TestToolInputSchema(t *testing.T) {
 	}
 	if (*got)["type"] != "object" {
 		t.Errorf("schema content not preserved: %v", *got)
+	}
+}
+
+func TestTrustedHostToolIdentityRequiresNativePolicy(t *testing.T) {
+	meta := toolmeta.NewRegistry(toolmeta.ActionTool{
+		Name: "host__owned", PluginID: "tool/host", LocalName: "host__owned",
+	})
+	if _, err := trustedToolIdentityWithPolicy(meta, nil, "host__owned"); !errors.Is(err, pluginpkg.ErrNativePolicyUnavailable) {
+		t.Fatalf("missing native policy error = %v, want ErrNativePolicyUnavailable", err)
 	}
 }

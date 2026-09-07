@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/platform/config"
+	internalplugin "github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -41,6 +42,7 @@ type ManagementTool struct {
 	management   func() *agentaccess.Management
 	overrides    *ToolOverrideStore
 	registry     func() *toolmeta.Registry
+	nativePolicy *internalplugin.NativePolicy
 	mcpCatalog   MCPCatalogFunc
 }
 
@@ -61,8 +63,8 @@ func NewManagementTool(spec SettingsAgentActionTool, management func() *agentacc
 	return &ManagementTool{agentSpec: &spec, management: management}
 }
 
-func NewToolOverrideManagementTool(spec SettingsAgentToolActionTool, management func() *agentaccess.Management, overrides *ToolOverrideStore, registry func() *toolmeta.Registry, mcpCatalog MCPCatalogFunc) *ManagementTool {
-	return &ManagementTool{overrideSpec: &spec, management: management, overrides: overrides, registry: registry, mcpCatalog: mcpCatalog}
+func NewToolOverrideManagementTool(spec SettingsAgentToolActionTool, management func() *agentaccess.Management, overrides *ToolOverrideStore, registry func() *toolmeta.Registry, mcpCatalog MCPCatalogFunc, nativePolicy *internalplugin.NativePolicy) *ManagementTool {
+	return &ManagementTool{overrideSpec: &spec, management: management, overrides: overrides, registry: registry, mcpCatalog: mcpCatalog, nativePolicy: nativePolicy}
 }
 
 func (t *ManagementTool) Definition() tools.Definition {
@@ -92,7 +94,7 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 		if t.overrides == nil || t.registry == nil || t.registry() == nil {
 			return "", fmt.Errorf("agent tool override management is unavailable — try again later")
 		}
-		out, err = SettingsAgentToolDispatch(ctx, agentOverrideHandler{management: management, authority: authority, overrides: t.overrides, registry: t.registry(), mcpCatalog: t.mcpCatalog}, t.overrideSpec.Action, args)
+		out, err = SettingsAgentToolDispatch(ctx, agentOverrideHandler{management: management, authority: authority, overrides: t.overrides, registry: t.registry(), mcpCatalog: t.mcpCatalog, nativePolicy: t.nativePolicy}, t.overrideSpec.Action, args)
 	}
 	if err != nil {
 		return "", authz.MapToolError(t.toolName(), agentToolListSibling, err)
@@ -219,11 +221,12 @@ func (h agentManagementHandler) Delete(ctx context.Context, in SettingsAgentDele
 }
 
 type agentOverrideHandler struct {
-	management *agentaccess.Management
-	authority  authz.Authority
-	overrides  *ToolOverrideStore
-	registry   *toolmeta.Registry
-	mcpCatalog MCPCatalogFunc
+	management   *agentaccess.Management
+	authority    authz.Authority
+	overrides    *ToolOverrideStore
+	registry     *toolmeta.Registry
+	mcpCatalog   MCPCatalogFunc
+	nativePolicy *internalplugin.NativePolicy
 }
 
 func (h agentOverrideHandler) List(ctx context.Context, in SettingsAgentToolListInput) (any, error) {
@@ -373,7 +376,10 @@ func (h agentOverrideHandler) registryToolIdentity(name string) (ToolIdentity, b
 		if spec.Namespace == "" || spec.LocalName == "" {
 			return ToolIdentity{}, false
 		}
-		identity = ToolIdentity{PluginID: spec.PluginID, LocalToolName: spec.LocalName}
+		if h.nativePolicy == nil || !h.nativePolicy.IsRegistered(spec.PluginID) {
+			return ToolIdentity{}, false
+		}
+		identity = ToolIdentity{CoreToolName: name}
 	} else if spec.Namespace != "" || spec.LocalName != "" {
 		return ToolIdentity{}, false
 	}

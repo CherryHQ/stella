@@ -39,21 +39,18 @@ import (
 // plugin snapshot.
 type PromptSectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext, snapshot plugin.Snapshot) ([]pkgplugins.SystemPromptSection, error)
 
-// PluginHooksBuilder creates hooks from the runner's authority-bound plugin
-// snapshot. Hooks belong to the runner generation that built them.
-type PluginHooksBuilder func(ctx context.Context, snapshot plugin.Snapshot) ([]hooks.HookPlugin, error)
+// PluginHooksBuilder creates hooks for one Agent. Native hook admission reads
+// the current deployment policy at build time.
+type PluginHooksBuilder func(ctx context.Context, agentID string) ([]hooks.HookPlugin, error)
 
-// ToolLifecycleBuilder creates the per-run core tool lifecycle from the same
-// authority-bound snapshot as tools and hooks.
-type ToolLifecycleBuilder func(ctx context.Context, snapshot plugin.Snapshot) (*coreagent.ToolLifecycle, error)
+// ToolLifecycleBuilder creates the per-run core tool lifecycle.
+type ToolLifecycleBuilder func(ctx context.Context) (*coreagent.ToolLifecycle, error)
 
-// PluginToolsBuilder creates tools from the runner's authority-bound plugin
-// snapshot. The snapshot is the final argument so callers cannot accidentally
-// use an ambient or independently resolved plugin state.
-type PluginToolsBuilder func(ctx context.Context, build pkgplugins.ToolBuildContext, snapshot plugin.Snapshot) ([]tools.Tool, error)
+// PluginToolsBuilder creates tools for the runner's explicit Agent context.
+type PluginToolsBuilder func(ctx context.Context, build pkgplugins.ToolBuildContext) ([]tools.Tool, error)
 
 type (
-	BeforeRunBuilder      func(ctx context.Context, build pkgplugins.BeforeRunContext, snapshot plugin.Snapshot) (pkgplugins.BeforeRunResult, error)
+	BeforeRunBuilder      func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error)
 	ProviderStreamBuilder func(api, apiKey, baseURL string) (providers.StreamFunc, error)
 )
 
@@ -103,6 +100,13 @@ func WithBuiltinTools(tools []BuiltinTool) PoolManagerOption {
 // family from the underscores in a name.
 func WithToolMetaRegistry(reg *toolmeta.Registry) PoolManagerOption {
 	return func(pm *PoolManager) { pm.toolMetaRegistry = reg }
+}
+
+// WithNativePolicy supplies trusted static native identities to runner
+// discovery. Native generated tools persist overrides by exported tool name,
+// while user/MCP plugin tools retain their plugin/local identity.
+func WithNativePolicy(policy *plugin.NativePolicy) PoolManagerOption {
+	return func(pm *PoolManager) { pm.nativePolicy = policy }
 }
 
 func WithPluginToolsBuilder(b PluginToolsBuilder) PoolManagerOption {
@@ -220,6 +224,7 @@ type PoolManager struct {
 	compaction            CompactionConfig
 	builtinTools          []BuiltinTool
 	toolMetaRegistry      *toolmeta.Registry
+	nativePolicy          *plugin.NativePolicy
 	pluginToolsBuilder    PluginToolsBuilder
 	hookPlugins           []hooks.HookPlugin
 	coreHooks             []hooks.HookPlugin
@@ -606,7 +611,7 @@ func (pm *PoolManager) runtimeBeforeRunFunc(_ *config.Snapshot) agentruntime.Bef
 			MessageText:  msgText,
 			SystemPrompt: system,
 			History:      slices.Clone(history),
-		}, pluginContext.Snapshot())
+		})
 		if err != nil {
 			return "", err
 		}
@@ -695,16 +700,12 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	pm.mu.RUnlock()
 	sort.Strings(ids)
 	if len(ids) == 0 {
-		// Keep the pre-start hook generation available for a manager that has no
-		// services yet. It is never exposed to a runner; once services exist,
-		// each runner receives hooks from its own snapshot.
-		hookPlugins, err := pm.pluginHooksBuilder(ctx, plugin.Snapshot{})
-		if err != nil {
-			return fmt.Errorf("build plugin hooks: %w", err)
-		}
+		// Native hooks require a concrete Agent identity. With no live service
+		// there is no safe admission target, and the cached generation is never
+		// exposed to a runner, so retire it without rebuilding.
 		pm.mu.Lock()
 		oldPlugins := pm.hookPlugins
-		pm.hookPlugins = hookPlugins
+		pm.hookPlugins = nil
 		pm.mu.Unlock()
 		closeHookPlugins(oldPlugins)
 		return nil
@@ -879,6 +880,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		Snap:                  snap,
 		BuiltinTools:          builtinTools,
 		ToolMetaRegistry:      pm.toolMetaRegistry,
+		NativePolicy:          pm.nativePolicy,
 		PluginToolsBuilder:    pm.pluginToolsBuilder,
 		ProviderStreamBuilder: pm.providerStreamBuilder,
 		SandboxBackends:       pm.sandboxBackends,

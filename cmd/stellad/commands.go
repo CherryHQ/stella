@@ -121,6 +121,7 @@ type setupResult struct {
 	skillAccess            *access.Service
 	pluginHost             *pluginhost.Host
 	pluginService          *plugin.Service
+	nativePolicy           *plugin.NativePolicy
 	providerRegistry       *providers.Registry
 	channelRuntimeServices *pluginhost.ChannelPlatform
 	poolManager            *agent.PoolManager
@@ -223,20 +224,35 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		}
 		return err
 	})
-	if err := plugin.ImportLegacyState(parent, db, ps.catalog, newToolMetaRegistry(generatedFamilies()...)); err != nil && !errors.Is(err, plugin.ErrImportComplete) {
+	ps.nativePolicy.SetMutationFence(func(ctx context.Context, mutate func() error) error {
+		if poolMgr == nil {
+			return mutate()
+		}
+		err := poolMgr.ApplyPluginMutation(ctx, mutate)
+		if err == nil || errors.Is(err, plugin.ErrCommitOutcomeUnknown) {
+			reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			defer cancel()
+			if reconcileErr := phost.ReconcileChannels(reconcileCtx); reconcileErr != nil {
+				slog.Error("reconcile channels after committed native plugin change", "error", reconcileErr)
+			}
+		}
+		return err
+	})
+	if err := plugin.ImportLegacyState(parent, db, ps.catalog, ps.nativeRegistry, newToolMetaRegistry(generatedFamilies()...)); err != nil && !errors.Is(err, plugin.ErrImportComplete) {
 		return nil, fmt.Errorf("import plugin configuration: %w", err)
 	}
 	if err := pluginSvc.SyncBuiltinDefaults(parent); err != nil {
 		return nil, fmt.Errorf("sync builtin plugins: %w", err)
 	}
-	phost.SetListenerCap(pluginSvc.AdministrativeCap)
-	backgroundCapabilityGate := pluginBackgroundGate(pluginSvc)
+	nativeCap := nativeAdministrativeCap(ps.nativePolicy)
+	phost.SetListenerCap(nativeCap)
+	backgroundCapabilityGate := pluginBackgroundGate(ps.nativePolicy, agentAccess)
 	pluginContextBuilder := func(ctx context.Context, authority authz.Authority, agentID string) (agent.PluginContext, error) {
 		snapshot, err := pluginSvc.ResolveSnapshot(ctx, authority, agentID)
 		if err != nil {
 			return agent.PluginContext{}, err
 		}
-		view, err := phost.SessionPluginView(snapshot)
+		view, err := phost.SessionPluginViewForAgent(ctx, agentID, snapshot)
 		if err != nil {
 			return agent.PluginContext{}, err
 		}
@@ -463,8 +479,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, err
 	}
 
-	pluginHooksBuilder := func(ctx context.Context, snapshot plugin.Snapshot) ([]hooks.HookPlugin, error) {
-		return phost.BuildEnabledHooks(ctx, binaries.BinDir(config.StellaHome()), snapshot)
+	pluginHooksBuilder := func(ctx context.Context, agentID string) ([]hooks.HookPlugin, error) {
+		return phost.BuildEnabledHooks(ctx, binaries.BinDir(config.StellaHome()), agentID)
 	}
 
 	// The trace hook is server-level infrastructure, not a user-managed plugin:
@@ -474,7 +490,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// plugin reloads never rebuild or close it out from under in-flight runners.
 	// Its constructor starts no goroutine (#708 D); the composition root starts
 	// its idle-session reaper here, bound to the daemon lifecycle context.
-	toolMetaRegistry := newToolMetaRegistry(generatedFamilies()...)
+	toolMetaFamilies := generatedFamilies()
+	toolMetaFamilies = append(toolMetaFamilies, phost.ToolMetadata())
+	toolMetaRegistry := newToolMetaRegistry(toolMetaFamilies...)
 	traceHook := tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO,
 		tracehook.WithToolMeta(toolMetaRegistry))
 	traceHook.Start(parent)
@@ -486,8 +504,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	usageHook.Start()
 	coreHooks := []hooks.HookPlugin{traceHook, usageHook, metricHook}
 
-	toolLifecycleBuilder := func(ctx context.Context, snapshot plugin.Snapshot) (*coreagent.ToolLifecycle, error) {
-		return buildToolLifecycle(phost, snapshot), nil
+	toolLifecycleBuilder := func(ctx context.Context) (*coreagent.ToolLifecycle, error) {
+		return buildToolLifecycle(phost), nil
 	}
 
 	// A goal worker must not reach the orchestration surface that scheduled it:
@@ -610,6 +628,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		SettingsAgents:  store,
 		ControlPlane:    func() *controlplane.Service { return controlPlaneSvc },
 		PluginService:   func() *plugin.Service { return pluginSvc },
+		NativePolicy:    ps.nativePolicy,
 		MCPAccess:       func() *mcp.Access { return mcpAccess },
 		MCPCatalog:      mcpCatalogFunc(mcpSvc),
 	})
@@ -632,6 +651,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithGroupRosterLoader(channel.NewGroupRosterPromptLoader(db)),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithToolMetaRegistry(toolMetaRegistry),
+		agent.WithNativePolicy(ps.nativePolicy),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
 		agent.WithCoreHooks(coreHooks),
@@ -761,6 +781,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		skillAccess:            skillAccess,
 		pluginHost:             phost,
 		pluginService:          pluginSvc,
+		nativePolicy:           ps.nativePolicy,
 		providerRegistry:       providerRegistry,
 		channelRuntimeServices: ps.channelRuntimeServices,
 		poolManager:            poolMgr,

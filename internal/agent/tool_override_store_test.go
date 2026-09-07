@@ -125,6 +125,31 @@ func TestToolOverrideStoreConditionalWrites(t *testing.T) {
 	}
 }
 
+func TestToolOverrideStoreNativeToolUsesTrustedCoreName(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	store := NewToolOverrideStore(db)
+	identity := ToolIdentity{CoreToolName: "scheduler__job_list"}
+	created, err := store.SetIfVersion(ctx, ToolOverrideWrite{
+		Identity: identity,
+		Scope:    ToolOverrideScopeSystem,
+		Enabled:  false,
+	}, ToolOverrideAbsentVersion)
+	if err != nil {
+		t.Fatalf("create native core override: %v", err)
+	}
+	if created.Identity != nil || created.ToolName != identity.CoreToolName {
+		t.Fatalf("native override projection = %+v, want trusted core name", created)
+	}
+	var toolName, pluginID, localToolName *string
+	if err := db.QueryRow(ctx, `SELECT tool_name, plugin_id, local_tool_name FROM tool_override WHERE tool_name = $1 AND scope = $2`, identity.CoreToolName, ToolOverrideScopeSystem).Scan(&toolName, &pluginID, &localToolName); err != nil {
+		t.Fatalf("read native core override: %v", err)
+	}
+	if toolName == nil || *toolName != identity.CoreToolName || pluginID != nil || localToolName != nil {
+		t.Fatalf("native override storage = %v/%v/%v, want core-only identity", toolName, pluginID, localToolName)
+	}
+}
+
 // TestToolOverrideStoreRejectsUnknownScope proves the Agent domain owns the
 // scope-vocabulary invariant on write: an unrecognized scope fails before any
 // query runs, so the transport can never persist an override under a bogus scope.
@@ -144,12 +169,18 @@ func TestToolOverrideStorePluginIdentityCRUDAndCAS(t *testing.T) {
 	applyToolOverrideIdentityDDL(t, db)
 	if _, err := db.Exec(ctx, `
 		INSERT INTO plugin_definition (id, namespace, display_name, backend, source, implementation_key, spec, default_enabled, revision)
-		VALUES ('system/email', 'email', 'Email', 'go', 'builtin', 'email', '{}'::jsonb, true, 1)
+		VALUES ('custom/email', 'email', 'Email', 'mcp', 'user', 'email', '{}'::jsonb, true, 1)
 	`); err != nil {
 		t.Fatalf("insert plugin definition: %v", err)
 	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO tool_override (tool_name, plugin_id, local_tool_name, scope, enabled)
+		VALUES (NULL, 'custom/missing', 'read', 'system', false)
+	`); err == nil {
+		t.Fatal("unknown plugin override insert succeeded, want FK rejection")
+	}
 
-	identity := ToolIdentity{PluginID: "system/email", LocalToolName: "message_send"}
+	identity := ToolIdentity{PluginID: "custom/email", LocalToolName: "message_send"}
 	key := ToolOverrideKey{Identity: identity, Scope: ToolOverrideScopeSystem}
 	store := NewToolOverrideStore(db)
 	absent, err := store.Get(ctx, key)
@@ -170,6 +201,9 @@ func TestToolOverrideStorePluginIdentityCRUDAndCAS(t *testing.T) {
 	}
 	if err := store.ClearIfVersion(ctx, key, created.Version); !errors.Is(err, config.ErrAgentVersionConflict) {
 		t.Fatalf("stale plugin clear = %v, want conflict", err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM plugin_definition WHERE id = 'custom/email'`); err == nil {
+		t.Fatal("plugin definition delete unexpectedly bypassed tool override FK")
 	}
 	if err := store.ClearIfVersion(ctx, key, updated.Version); err != nil {
 		t.Fatalf("fresh plugin clear: %v", err)
@@ -196,7 +230,7 @@ func applyToolOverrideIdentityDDL(t *testing.T, db *pgxpool.Pool) {
 func TestToolOverrideStoreRejectsMalformedIdentity(t *testing.T) {
 	s := &ToolOverrideStore{}
 	_, err := s.Get(context.Background(), ToolOverrideKey{
-		Identity: ToolIdentity{PluginID: "system/email"},
+		Identity: ToolIdentity{PluginID: "custom/email"},
 		Scope:    ToolOverrideScopeSystem,
 	})
 	if err == nil {
@@ -207,20 +241,20 @@ func TestToolOverrideStoreRejectsMalformedIdentity(t *testing.T) {
 func TestPersistedToolIdentityUsesStoredPluginPair(t *testing.T) {
 	row := sqlc.ToolOverride{
 		ToolName:      pgnull.Text("email__send"),
-		PluginID:      pgnull.Text("system/email"),
+		PluginID:      pgnull.Text("custom/email"),
 		LocalToolName: pgnull.Text("send"),
 	}
 	identity, err := persistedToolIdentity(row)
 	if err != nil {
 		t.Fatalf("persistedToolIdentity: %v", err)
 	}
-	if identity != (ToolIdentity{PluginID: "system/email", LocalToolName: "send"}) {
+	if identity != (ToolIdentity{PluginID: "custom/email", LocalToolName: "send"}) {
 		t.Fatalf("identity = %+v, want trusted plugin/local pair", identity)
 	}
 }
 
 func TestPersistedToolIdentityRejectsPartialPluginPair(t *testing.T) {
-	row := sqlc.ToolOverride{PluginID: pgnull.Text("system/email")}
+	row := sqlc.ToolOverride{PluginID: pgnull.Text("custom/email")}
 	if _, err := persistedToolIdentity(row); err == nil {
 		t.Fatal("partial persisted plugin identity = nil, want error")
 	}

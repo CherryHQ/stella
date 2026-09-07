@@ -41,7 +41,7 @@ func TestPluginImportPreservesIndependentChannelCredentialsAndDisable(t *testing
 	if err := catalog.Register(definition); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, database, catalog, nil); err != nil {
+	if err := plugin.ImportLegacyState(ctx, database, catalog, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if after := snapshotChannels(); after != before {

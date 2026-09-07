@@ -39,7 +39,7 @@ func TestPluginCutoverMigrationThroughGoose(t *testing.T) {
 	if _, err := provider.UpTo(ctx, pluginCutoverMigration41); err != nil {
 		t.Fatalf("apply embedded migration 41: %v", err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); err != nil {
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); err != nil {
 		t.Fatalf("import legacy state after candidate migration: %v", err)
 	}
 

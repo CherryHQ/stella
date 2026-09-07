@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ import (
 
 	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
 	"github.com/CherryHQ/stella/internal/platform/config"
+	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 	skillpolicy "github.com/CherryHQ/stella/internal/skill/policy"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -32,6 +34,8 @@ type DBStore struct {
 	// transaction via Queries.WithTx.
 	pool *pgxpool.Pool
 }
+
+var _ pluginpkg.NativeStore = (*DBStore)(nil)
 
 // ReadAgentSkillPolicy explicitly reads and decodes the policy column. Decode
 // failures are surfaced to callers; treating bad bytes as an empty policy would
@@ -715,6 +719,81 @@ func (s *DBStore) SetPluginEnabled(ctx context.Context, id string, enabled bool)
 		Name:    p.Name,
 		Enabled: enabled,
 	})
+}
+
+// SetNativePluginEnabled updates only the native global switch. It may create
+// the trusted row when absent, but never rewrites the JSON config column used
+// by channel credentials.
+func (s *DBStore) SetNativePluginEnabled(ctx context.Context, id string, enabled bool) error {
+	parts := strings.SplitN(id, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("invalid native plugin id %q", id)
+	}
+	err := s.q.UpsertPluginEnabled(ctx, sqlc.UpsertPluginEnabledParams{ID: id, Kind: parts[0], Name: parts[1], Enabled: enabled})
+	return pluginpkg.ClassifyMutationError(err)
+}
+
+// IsNativeAgentDenied reads the narrow system-agent veto relation used by the
+// native policy. Native IDs are validated by that policy before reaching this
+// persistence port.
+func (s *DBStore) IsNativeAgentDenied(ctx context.Context, nativeID, agentID string) (bool, error) {
+	denied, err := s.q.IsNativeAgentDenied(ctx, sqlc.IsNativeAgentDeniedParams{NativeID: nativeID, AgentID: agentID})
+	if err != nil {
+		return false, fmt.Errorf("read native Agent deny %q/%q: %w", nativeID, agentID, err)
+	}
+	return denied, nil
+}
+
+func (s *DBStore) GetNativeAdmission(ctx context.Context, nativeID, agentID string) (enabled, present, denied bool, err error) {
+	row, err := s.q.GetNativeAdmission(ctx, sqlc.GetNativeAdmissionParams{ID: nativeID, AgentID: agentID})
+	if err != nil {
+		return false, false, false, fmt.Errorf("read native admission %q/%q: %w", nativeID, agentID, err)
+	}
+	return row.GlobalEnabled, row.GlobalPresent, row.Denied, nil
+}
+
+func (s *DBStore) SetNativeAgentDeny(ctx context.Context, nativeID, agentID string) error {
+	inserted, err := s.q.SetNativeAgentDeny(ctx, sqlc.SetNativeAgentDenyParams{NativeID: nativeID, AgentID: agentID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pluginpkg.ErrNativeAgentDenyExists
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return pluginpkg.ErrNativeAgentNotFound
+		}
+		return pluginpkg.ClassifyMutationError(fmt.Errorf("set native Agent deny %q/%q: %w", nativeID, agentID, err))
+	}
+	if !inserted {
+		return pluginpkg.ErrNativeAgentDenyExists
+	}
+	return nil
+}
+
+func (s *DBStore) DeleteNativeAgentDeny(ctx context.Context, nativeID, agentID string) error {
+	deleted, err := s.q.DeleteNativeAgentDeny(ctx, sqlc.DeleteNativeAgentDenyParams{NativeID: nativeID, AgentID: agentID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pluginpkg.ErrNativeAgentNotFound
+		}
+		return pluginpkg.ClassifyMutationError(fmt.Errorf("delete native Agent deny %q/%q: %w", nativeID, agentID, err))
+	}
+	if !deleted {
+		return pluginpkg.ErrNativeAgentNotFound
+	}
+	return nil
+}
+
+func (s *DBStore) ListNativeAgentDenials(ctx context.Context, nativeID string) ([]pluginpkg.NativeAgentDeny, error) {
+	rows, err := s.q.ListNativeAgentDenials(ctx, nativeID)
+	if err != nil {
+		return nil, fmt.Errorf("list native Agent denies %q: %w", nativeID, err)
+	}
+	out := make([]pluginpkg.NativeAgentDeny, len(rows))
+	for i, row := range rows {
+		out[i] = pluginpkg.NativeAgentDeny{NativeID: row.NativeID, AgentID: row.AgentID}
+	}
+	return out, nil
 }
 
 func (s *DBStore) SetChannelPluginConfig(ctx context.Context, id, kind, name string, cfg map[string]any) error {

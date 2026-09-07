@@ -56,6 +56,7 @@ type builtinToolDeps struct {
 	SettingsAgents  settingspolicy.AgentLookup
 	ControlPlane    func() *controlplane.Service
 	PluginService   func() *pluginpkg.Service
+	NativePolicy    *pluginpkg.NativePolicy
 	MCPAccess       func() *mcp.Access
 	MCPCatalog      agent.MCPCatalogFunc
 }
@@ -107,6 +108,21 @@ type builtinToolGroup struct {
 
 func settingsToolAvailable(d builtinToolDeps, adminOnly bool) toolAvailable {
 	return settingspolicy.Available(adminOnly, d.SettingsAdmin, d.SettingsAgents)
+}
+
+func nativeToolAvailable(policy *pluginpkg.NativePolicy, nativeID string, base toolAvailable) toolAvailable {
+	return func(ctx context.Context, params agent.RunnerParams) (bool, error) {
+		if base != nil {
+			available, err := base(ctx, params)
+			if err != nil || !available {
+				return available, err
+			}
+		}
+		if policy == nil {
+			return false, pluginpkg.ErrNativePolicyUnavailable
+		}
+		return policy.Allows(ctx, nativeID, params.AgentID)
+	}
 }
 
 // builtinToolGroups keeps family membership in one list. The runtime
@@ -196,7 +212,7 @@ func builtinToolGroups() []builtinToolGroup {
 			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
 				return splitBuiltins(scheduler.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 					return scheduler.NewTool(d.Scheduler, spec)
-				}, agent.BuiltinToolAvailable)
+				}, nativeToolAvailable(d.NativePolicy, scheduler.SchedulerPluginID, agent.BuiltinToolAvailable))
 			},
 		},
 		{
@@ -220,7 +236,7 @@ func builtinToolGroups() []builtinToolGroup {
 			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
 				builtins := splitBuiltins(email.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 					return email.NewTool(d.Email, spec, d.EmailTool)
-				}, emailToolAvailable(d.Vault))
+				}, nativeToolAvailable(d.NativePolicy, "system/email", emailToolAvailable(d.Vault)))
 				for i := range builtins {
 					// This declaration follows the same EMAIL_CONFIG check as
 					// Available. The Profile only exposes it after that
@@ -245,7 +261,7 @@ func builtinToolGroups() []builtinToolGroup {
 					return recally.NewRuntimeTool(d.Recally, build.Runtime, spec)
 				}, func(spec toolmeta.ActionTool) pkgtools.Tool {
 					return recally.NewTool(d.Recally, spec)
-				}, agent.BuiltinToolAvailable)
+				}, nativeToolAvailable(d.NativePolicy, "system/recally", agent.BuiltinToolAvailable))
 			},
 		},
 		{
@@ -271,7 +287,7 @@ func builtinToolGroups() []builtinToolGroup {
 			metadata: agent.SettingsAgentToolActionTools(),
 			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
 				return splitBuiltins(agent.SettingsAgentToolActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-					return settingspolicy.Wrap(agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta, d.MCPCatalog), d.SettingsAgents, d.SettingsAdmin)
+					return settingspolicy.Wrap(agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta, d.MCPCatalog, d.NativePolicy), d.SettingsAgents, d.SettingsAdmin)
 				}, settingsToolAvailable(d, false))
 			},
 		},

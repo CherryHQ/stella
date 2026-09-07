@@ -93,10 +93,13 @@ type LegacyMCPRegistration struct {
 type LegacyToolOverride struct {
 	ID       string
 	ToolName string
-	Scope    string
-	UserID   string
-	AgentID  string
-	Enabled  bool
+	// NewToolName is set only for trusted native Go tools whose old exported
+	// name must be retained in this table as a core identity.
+	NewToolName string
+	Scope       string
+	UserID      string
+	AgentID     string
+	Enabled     bool
 }
 
 // LegacySnapshot is read while the cutover transaction holds the advisory
@@ -139,7 +142,7 @@ type ImportPlan struct {
 // NormalizeLegacySnapshot converts all supported old state into the new
 // definition/config model. It does not mutate a catalog or a database. Any
 // ambiguity is returned before a caller can write a marker.
-func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, metadata *toolmeta.Registry) (ImportPlan, error) {
+func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, native NativeRegistry, metadata *toolmeta.Registry) (ImportPlan, error) {
 	if catalog == nil {
 		return ImportPlan{}, ErrInvalidDefinition
 	}
@@ -156,6 +159,9 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, metadata
 	legacyIDs := make(map[string]string)
 	configIDs := make(map[string]string)
 	for _, override := range snapshot.ManifestOverrides {
+		if isTrustedLegacyNativePlugin(override.PluginID, native) {
+			continue
+		}
 		if _, exists := overrides[override.PluginID]; exists {
 			return ImportPlan{}, fmt.Errorf("%w: duplicate manifest override %q", ErrLegacyMigrationConflict, override.PluginID)
 		}
@@ -178,9 +184,16 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, metadata
 
 	configs := make(map[string]ConfigAccumulator)
 	for _, legacy := range snapshot.Plugins {
-		id := legacyIDs[legacyPluginID(legacy)]
+		legacyID := legacyPluginID(legacy)
+		if isTrustedLegacyNativePlugin(legacyID, native) {
+			// Native global rows remain in the legacy plugin table. NativePolicy
+			// reads that table directly, and importing them as Agent definitions
+			// would turn a deployment switch into an Agent-scoped plugin config.
+			continue
+		}
+		id := legacyIDs[legacyID]
 		if id == "" {
-			id = legacyPluginID(legacy)
+			id = legacyID
 		}
 		def, ok := defs[id]
 		if !ok {
@@ -194,6 +207,11 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, metadata
 	}
 
 	for _, override := range snapshot.ManifestOverrides {
+		if isTrustedLegacyNativePlugin(override.PluginID, native) {
+			// Keep native global overrides in their source table for the same
+			// reason as the plugin row above.
+			continue
+		}
 		pluginID := legacyIDs[override.PluginID]
 		if pluginID == "" {
 			pluginID = override.PluginID
@@ -259,7 +277,7 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, metadata
 
 	seenToolOverrides := make(map[string]string, len(snapshot.ToolOverrides))
 	for _, override := range snapshot.ToolOverrides {
-		migration, err := ConvertLegacyToolOverride(override, snapshot.MCP, metadata)
+		migration, err := ConvertLegacyToolOverride(override, snapshot.MCP, native, metadata)
 		if err != nil {
 			return ImportPlan{}, err
 		}
@@ -284,6 +302,9 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, metadata
 			seenToolOverrides[key] = override.ID
 			plan.ToolOverrides = append(plan.ToolOverrides, migration)
 		} else {
+			if migration.NewName != "" {
+				override.NewToolName = migration.NewName
+			}
 			plan.CoreOverrides = append(plan.CoreOverrides, override)
 		}
 	}
@@ -298,7 +319,7 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, metadata
 // advisory transaction lock that the eventual cutover will use. It deliberately
 // performs no writes, including the durable marker. The final importer belongs
 // to the cutover phase after all target identity columns exist.
-func PreviewLegacyImport(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, metadata *toolmeta.Registry) (ImportPlan, error) {
+func PreviewLegacyImport(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, native NativeRegistry, metadata *toolmeta.Registry) (ImportPlan, error) {
 	if db == nil || catalog == nil {
 		return ImportPlan{}, ErrInvalidDefinition
 	}
@@ -327,7 +348,7 @@ func PreviewLegacyImport(ctx context.Context, db *pgxpool.Pool, catalog *Catalog
 	if err != nil {
 		return ImportPlan{}, err
 	}
-	plan, err := NormalizeLegacySnapshot(snapshot, catalog, metadata)
+	plan, err := NormalizeLegacySnapshot(snapshot, catalog, native, metadata)
 	if err != nil {
 		return plan, err
 	}
@@ -341,7 +362,7 @@ func PreviewLegacyImport(ctx context.Context, db *pgxpool.Pool, catalog *Catalog
 //
 // Tool-policy rows are written only after their trusted identity mapping has
 // been validated. The MCP OAuth FK retarget remains a schema prerequisite.
-func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, metadata *toolmeta.Registry) error {
+func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, native NativeRegistry, metadata *toolmeta.Registry) error {
 	if db == nil || catalog == nil {
 		return ErrInvalidDefinition
 	}
@@ -373,14 +394,14 @@ func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, 
 	if err != nil {
 		return err
 	}
-	plan, err := NormalizeLegacySnapshot(snapshot, catalog, metadata)
+	plan, err := NormalizeLegacySnapshot(snapshot, catalog, native, metadata)
 	if err != nil {
 		return err
 	}
 	if err := legacyImportSchemaReady(ctx, tx); err != nil {
 		return err
 	}
-	if err := verifyCoreOverrides(ctx, tx, plan.CoreOverrides, metadata); err != nil {
+	if err := verifyCoreOverrides(ctx, tx, plan.CoreOverrides, native, metadata); err != nil {
 		return err
 	}
 
@@ -581,7 +602,7 @@ func legacyImportSchemaReady(ctx context.Context, tx pgx.Tx) error {
 // space is both a trusted current core name and the same source row read by the
 // import plan. Unknown names must not silently fall through to core: a missing
 // plugin metadata entry is a mapping failure, not evidence of core ownership.
-func verifyCoreOverrides(ctx context.Context, tx pgx.Tx, overrides []LegacyToolOverride, metadata *toolmeta.Registry) error {
+func verifyCoreOverrides(ctx context.Context, tx pgx.Tx, overrides []LegacyToolOverride, native NativeRegistry, metadata *toolmeta.Registry) error {
 	if len(overrides) == 0 {
 		return nil
 	}
@@ -592,12 +613,19 @@ func verifyCoreOverrides(ctx context.Context, tx pgx.Tx, overrides []LegacyToolO
 		if override.ToolName == "" || !validLegacyScope(override.Scope) || !legacyOwnerMatches(override.Scope, override.UserID, override.AgentID) {
 			return fmt.Errorf("%w: invalid core override identity %s", ErrLegacyMigrationConflict, override.ID)
 		}
-		spec, known := metadata.Lookup(override.ToolName)
+		targetName := override.NewToolName
+		if targetName == "" {
+			targetName = override.ToolName
+		}
+		spec, known := metadata.Lookup(targetName)
 		if known {
-			if spec.Name != override.ToolName || spec.PluginID != "" || spec.Namespace != "" || spec.LocalName != "" {
+			if spec.Name != targetName || (override.NewToolName == "" && (spec.PluginID != "" || spec.Namespace != "" || spec.LocalName != "")) {
 				return fmt.Errorf("%w: legacy override %s is not a trusted core tool", ErrLegacyMigrationConflict, override.ToolName)
 			}
-		} else if !toolmeta.HandWritten(override.ToolName) {
+			if override.NewToolName != "" && !isTrustedLegacyNativePlugin(spec.PluginID, native) {
+				return fmt.Errorf("%w: native override %s is not trusted", ErrLegacyMigrationConflict, override.ToolName)
+			}
+		} else if override.NewToolName == "" && !toolmeta.HandWritten(override.ToolName) {
 			for _, candidate := range metadata.Tools() {
 				if candidate.PluginID != "" && candidate.Family != "" && candidate.LocalName != "" && candidate.Family+"_"+candidate.LocalName == override.ToolName {
 					return fmt.Errorf("%w: legacy plugin tool %s was not mapped", ErrLegacyMigrationConflict, override.ToolName)
@@ -635,13 +663,39 @@ func importToolOverrides(ctx context.Context, tx pgx.Tx, plan ImportPlan) error 
 		if override.ToolName == "" {
 			return fmt.Errorf("%w: incomplete core identity for legacy override %s", ErrLegacyMigrationConflict, override.ID)
 		}
-		key := legacyOverrideTargetKey("core", override.ToolName, override.Scope, override.UserID, override.AgentID)
+		targetName := override.NewToolName
+		if targetName == "" {
+			targetName = override.ToolName
+		}
+		key := legacyOverrideTargetKey("core", targetName, override.Scope, override.UserID, override.AgentID)
 		if prior, exists := seen[key]; exists {
 			return fmt.Errorf("%w: tool overrides %s and %s target the same identity", ErrLegacyMigrationConflict, prior, override.ID)
 		}
 		seen[key] = override.ID
-		// Core rows already live in tool_override. They retain their durable
-		// tool_name and need no second row during the same-table cutover.
+		if override.NewToolName == "" {
+			// Core rows already live in tool_override. They retain their durable
+			// tool_name and need no second row during the same-table cutover.
+			continue
+		}
+		var updatedID string
+		err := tx.QueryRow(ctx, `
+			UPDATE tool_override
+			SET tool_name = $2, updated_at = now()
+			WHERE id = $1::uuid
+			  AND tool_name IS NOT DISTINCT FROM $3::text
+			  AND scope IS NOT DISTINCT FROM $4::text
+			  AND user_id::text IS NOT DISTINCT FROM NULLIF($5::text, '')
+			  AND agent_id IS NOT DISTINCT FROM NULLIF($6::text, '')
+			  AND enabled IS NOT DISTINCT FROM $7::boolean
+			  AND plugin_id IS NULL AND local_tool_name IS NULL
+			RETURNING id::text
+		`, override.ID, override.NewToolName, override.ToolName, override.Scope, override.UserID, override.AgentID, override.Enabled).Scan(&updatedID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: source native tool override %s disappeared or was already migrated", ErrLegacyMigrationConflict, override.ID)
+		}
+		if err != nil {
+			return fmt.Errorf("import native tool override %s (%s): %w", override.ID, override.NewToolName, err)
+		}
 	}
 	for _, override := range plan.ToolOverrides {
 		if override.PluginID == "" || override.LocalTool == "" || override.NewName == "" {
@@ -1375,10 +1429,20 @@ func normalizeMCPMetadataRegistry(value any) (map[string]any, error) {
 	return result, nil
 }
 
+// Migration and runtime admission share the same Go-owned registry. Tool
+// metadata and familiar names alone cannot register a Native implementation.
+func isTrustedLegacyNativePlugin(id string, native NativeRegistry) bool {
+	if native == nil {
+		return false
+	}
+	_, registered := native.NativeDefaultEnabled(id)
+	return registered
+}
+
 // ConvertLegacyToolOverride resolves the old mcp__server__tool key against the
 // exact legacy registration owner. Core overrides are returned as zero-value
 // migrations and are written with their durable core tool name by the importer.
-func ConvertLegacyToolOverride(override LegacyToolOverride, registrations []LegacyMCPRegistration, metadata *toolmeta.Registry) (ToolOverrideMigration, error) {
+func ConvertLegacyToolOverride(override LegacyToolOverride, registrations []LegacyMCPRegistration, native NativeRegistry, metadata *toolmeta.Registry) (ToolOverrideMigration, error) {
 	if !validLegacyScope(override.Scope) || !legacyOwnerMatches(override.Scope, override.UserID, override.AgentID) {
 		return ToolOverrideMigration{}, ErrLegacyMigrationConflict
 	}
@@ -1401,11 +1465,13 @@ func ConvertLegacyToolOverride(override LegacyToolOverride, registrations []Lega
 			match, matched = spec, true
 		}
 		if matched {
-			return ToolOverrideMigration{
-				LegacyID: override.ID, OldName: override.ToolName,
-				NewName: match.Name, PluginID: match.PluginID, Namespace: match.Namespace, LocalTool: match.LocalName,
-				Scope: Scope(override.Scope), UserID: override.UserID, AgentID: override.AgentID, Enabled: override.Enabled,
-			}, nil
+			if isTrustedLegacyNativePlugin(match.PluginID, native) {
+				return ToolOverrideMigration{
+					LegacyID: override.ID, OldName: override.ToolName, NewName: match.Name,
+					Scope: Scope(override.Scope), UserID: override.UserID, AgentID: override.AgentID, Enabled: override.Enabled,
+				}, nil
+			}
+			return ToolOverrideMigration{}, fmt.Errorf("%w: native tool %q has no registered owner", ErrLegacyMigrationConflict, override.ToolName)
 		}
 	}
 

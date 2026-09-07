@@ -78,3 +78,8 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    InternalServerError:
+      description: unexpected server-side failure
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }

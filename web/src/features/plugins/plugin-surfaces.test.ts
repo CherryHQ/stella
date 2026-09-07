@@ -25,6 +25,8 @@ import { personalSettingsGroups } from "@/features/settings/SettingsLayout";
 import { Route as PersonalPluginsRoute } from "@/routes/_app/settings/plugins.lazy";
 import { Route as PersonalPluginDetailRoute } from "@/routes/_app/settings/plugins.$pluginId";
 import { Route as AdminPluginsRoute } from "@/routes/_app/admin/integrations/plugins.lazy";
+import { Route as AdminNativePluginsRoute } from "@/routes/_app/admin/integrations/native.lazy";
+import { NativePluginsPage } from "./NativePluginsPage";
 import { Route as AdminMCPRoute } from "@/routes/_app/admin/resources/mcp.lazy";
 import { Route as PersonalSkillsRoute } from "@/routes/_app/settings/skills.lazy";
 import { Route as AdminSkillsRoute } from "@/routes/_app/admin/resources/skills.lazy";
@@ -67,9 +69,11 @@ describe("plugin surface ownership", () => {
     const adminLinks = adminSettingsNav.flatMap((group) => group.items.map((item) => item.href));
 
     expect(adminLinks).toContain("/admin/integrations/plugins");
+    expect(adminLinks).toContain("/admin/integrations/native");
     expect(adminLinks).toContain("/admin/resources/mcp");
     expect(adminLinks).not.toContain("/settings/plugins");
     expect(AdminPluginsRoute.options.component).toBe(UnifiedPluginsPage);
+    expect(AdminNativePluginsRoute.options.component).toBe(NativePluginsPage);
     expect(AdminMCPRoute.options.component).toBe(GlobalMCPPage);
     expect(AdminSkillsRoute.options.component).toBe(GlobalSkillsPage);
     expect(AdminCredentialsRoute.options.component).toBe(SystemCredentialsPage);

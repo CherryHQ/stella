@@ -24,7 +24,7 @@ func TestPluginImportBoundsInitialCatalogLock(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	err = plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil)
+	err = plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil)
 	var databaseError *pgconn.PgError
 	if !errors.As(err, &databaseError) || databaseError.Code != "55P03" {
 		t.Fatalf("initial lock error = %v, want PostgreSQL lock timeout before context cancellation", err)

@@ -66,9 +66,8 @@ func TestAgentToolOverridesExcludeSettingsPolicyActions(t *testing.T) {
 	if _, ok, err := h.managedTool(ctx, "", "vault_secret_list"); err != nil || !ok {
 		t.Fatal("ordinary generated action must remain override-managed")
 	}
-	identity, ok := h.registryToolIdentity("email__send")
-	if !ok || identity != (ToolIdentity{PluginID: "system/email", LocalToolName: "send"}) {
-		t.Fatalf("plugin registry identity = %+v, %v", identity, ok)
+	if identity, ok := h.registryToolIdentity("email__send"); ok {
+		t.Fatalf("native registry identity without policy = %+v, want fail closed", identity)
 	}
 	// A legacy MCP name has no trusted plugin/local identity. The catalog keeps
 	// it visible for inventory, but the settings handler must not persist a

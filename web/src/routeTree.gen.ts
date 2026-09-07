@@ -65,6 +65,7 @@ import { Route as AppAdminResourcesMcpRouteImport } from './routes/_app/admin/re
 import { Route as AppAdminResourcesLibraryRouteImport } from './routes/_app/admin/resources/library'
 import { Route as AppAdminResourcesCredentialsRouteImport } from './routes/_app/admin/resources/credentials'
 import { Route as AppAdminIntegrationsPluginsRouteImport } from './routes/_app/admin/integrations/plugins'
+import { Route as AppAdminIntegrationsNativeRouteImport } from './routes/_app/admin/integrations/native'
 import { Route as AppAdminAiVisionRouteImport } from './routes/_app/admin/ai/vision'
 import { Route as AppAdminAiProvidersRouteImport } from './routes/_app/admin/ai/providers'
 import { Route as AppAdminAiModelsRouteImport } from './routes/_app/admin/ai/models'
@@ -456,6 +457,14 @@ const AppAdminIntegrationsPluginsRoute =
       (d) => d.Route,
     ),
   )
+const AppAdminIntegrationsNativeRoute =
+  AppAdminIntegrationsNativeRouteImport.update({
+    id: '/integrations/native',
+    path: '/integrations/native',
+    getParentRoute: () => AppAdminRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/admin/integrations/native.lazy').then((d) => d.Route),
+  )
 const AppAdminAiVisionRoute = AppAdminAiVisionRouteImport.update({
   id: '/ai/vision',
   path: '/ai/vision',
@@ -703,6 +712,7 @@ export interface FileRoutesByFullPath {
   '/admin/ai/models': typeof AppAdminAiModelsRoute
   '/admin/ai/providers': typeof AppAdminAiProvidersRouteWithChildren
   '/admin/ai/vision': typeof AppAdminAiVisionRoute
+  '/admin/integrations/native': typeof AppAdminIntegrationsNativeRoute
   '/admin/integrations/plugins': typeof AppAdminIntegrationsPluginsRouteWithChildren
   '/admin/resources/credentials': typeof AppAdminResourcesCredentialsRoute
   '/admin/resources/library': typeof AppAdminResourcesLibraryRoute
@@ -781,6 +791,7 @@ export interface FileRoutesByTo {
   '/admin/ai/models': typeof AppAdminAiModelsRoute
   '/admin/ai/providers': typeof AppAdminAiProvidersRouteWithChildren
   '/admin/ai/vision': typeof AppAdminAiVisionRoute
+  '/admin/integrations/native': typeof AppAdminIntegrationsNativeRoute
   '/admin/integrations/plugins': typeof AppAdminIntegrationsPluginsRouteWithChildren
   '/admin/resources/credentials': typeof AppAdminResourcesCredentialsRoute
   '/admin/resources/library': typeof AppAdminResourcesLibraryRoute
@@ -866,6 +877,7 @@ export interface FileRoutesById {
   '/_app/admin/ai/models': typeof AppAdminAiModelsRoute
   '/_app/admin/ai/providers': typeof AppAdminAiProvidersRouteWithChildren
   '/_app/admin/ai/vision': typeof AppAdminAiVisionRoute
+  '/_app/admin/integrations/native': typeof AppAdminIntegrationsNativeRoute
   '/_app/admin/integrations/plugins': typeof AppAdminIntegrationsPluginsRouteWithChildren
   '/_app/admin/resources/credentials': typeof AppAdminResourcesCredentialsRoute
   '/_app/admin/resources/library': typeof AppAdminResourcesLibraryRoute
@@ -951,6 +963,7 @@ export interface FileRouteTypes {
     | '/admin/ai/models'
     | '/admin/ai/providers'
     | '/admin/ai/vision'
+    | '/admin/integrations/native'
     | '/admin/integrations/plugins'
     | '/admin/resources/credentials'
     | '/admin/resources/library'
@@ -1029,6 +1042,7 @@ export interface FileRouteTypes {
     | '/admin/ai/models'
     | '/admin/ai/providers'
     | '/admin/ai/vision'
+    | '/admin/integrations/native'
     | '/admin/integrations/plugins'
     | '/admin/resources/credentials'
     | '/admin/resources/library'
@@ -1113,6 +1127,7 @@ export interface FileRouteTypes {
     | '/_app/admin/ai/models'
     | '/_app/admin/ai/providers'
     | '/_app/admin/ai/vision'
+    | '/_app/admin/integrations/native'
     | '/_app/admin/integrations/plugins'
     | '/_app/admin/resources/credentials'
     | '/_app/admin/resources/library'
@@ -1557,6 +1572,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminIntegrationsPluginsRouteImport
       parentRoute: typeof AppAdminRoute
     }
+    '/_app/admin/integrations/native': {
+      id: '/_app/admin/integrations/native'
+      path: '/integrations/native'
+      fullPath: '/admin/integrations/native'
+      preLoaderRoute: typeof AppAdminIntegrationsNativeRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
     '/_app/admin/ai/vision': {
       id: '/_app/admin/ai/vision'
       path: '/ai/vision'
@@ -1789,6 +1811,7 @@ interface AppAdminRouteChildren {
   AppAdminAiModelsRoute: typeof AppAdminAiModelsRoute
   AppAdminAiProvidersRoute: typeof AppAdminAiProvidersRouteWithChildren
   AppAdminAiVisionRoute: typeof AppAdminAiVisionRoute
+  AppAdminIntegrationsNativeRoute: typeof AppAdminIntegrationsNativeRoute
   AppAdminIntegrationsPluginsRoute: typeof AppAdminIntegrationsPluginsRouteWithChildren
   AppAdminResourcesCredentialsRoute: typeof AppAdminResourcesCredentialsRoute
   AppAdminResourcesLibraryRoute: typeof AppAdminResourcesLibraryRoute
@@ -1805,6 +1828,7 @@ const AppAdminRouteChildren: AppAdminRouteChildren = {
   AppAdminAiModelsRoute: AppAdminAiModelsRoute,
   AppAdminAiProvidersRoute: AppAdminAiProvidersRouteWithChildren,
   AppAdminAiVisionRoute: AppAdminAiVisionRoute,
+  AppAdminIntegrationsNativeRoute: AppAdminIntegrationsNativeRoute,
   AppAdminIntegrationsPluginsRoute:
     AppAdminIntegrationsPluginsRouteWithChildren,
   AppAdminResourcesCredentialsRoute: AppAdminResourcesCredentialsRoute,

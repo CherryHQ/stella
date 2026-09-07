@@ -19,6 +19,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -51,7 +52,7 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); err != nil {
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); err != nil {
 		t.Fatalf("import legacy MCP state: %v", err)
 	}
 	// Import preserves the catalog and status but intentionally leaves the
@@ -108,6 +109,60 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 	}
 }
 
+func TestDisabledHostToolNameRemainsReservedFromMCP(t *testing.T) {
+	db := dbtest.NewAtMigration(t, runnerImportMigration41)
+	ctx := t.Context()
+	userID := uuid.NewString()
+	agentID := "host-name-reservation-agent"
+	registrationID := uuid.NewString()
+	seedRunnerIdentity(t, db, userID, agentID)
+	if _, err := db.Exec(ctx, `
+		INSERT INTO mcp_server (id, scope, name, url, transport, auth_type,
+			enabled, metadata, tools, status, status_error, credential_mode, probed_at)
+		VALUES ($1, 'system', 'remote', 'https://mcp.example.test', 'sse', 'none',
+			true, '{}'::jsonb,
+			'[{"name":"list","description":"list","inputSchema":{"type":"object"}}]'::jsonb,
+			'ok', '', 'shared', now())
+	`, registrationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); err != nil {
+		t.Fatalf("import legacy MCP state: %v", err)
+	}
+
+	authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugins := plugin.NewService(db, nil, plugin.NewCatalog(), plugin.BackendPolicy{Transition: noopBackendTransition}, noOpMutationFence)
+	snapshot, err := plugins.ResolveSnapshot(ctx, authority, "")
+	if err != nil {
+		t.Fatalf("resolve plugin snapshot: %v", err)
+	}
+	view := pkgplugins.SessionPluginView{
+		RegisteredPluginIDs: []string{"custom/" + registrationID},
+		ExposedPluginIDs:    []string{"custom/" + registrationID},
+	}
+	_, _, _, err = buildToolRegistry(ctx, runnerConfig{
+		Sandbox: sandbox.Config{Paths: sandbox.Paths{
+			StellaHome: t.TempDir(),
+			AgentRoot:  filepath.Join(t.TempDir(), "agents", agentID),
+			UserRoot:   filepath.Join(t.TempDir(), "users", userID),
+		}},
+		BuiltinParams: RunnerParams{UserID: userID, AgentID: agentID},
+		PluginContext: agentruntime.NewPluginContext(snapshot, view),
+		ToolMetaRegistry: toolmeta.NewRegistry(toolmeta.ActionTool{
+			Name: "remote__list", PluginID: "tool/host", LocalName: "remote__list",
+		}),
+		MCPToolProvider:     migratedMCPToolProvider{pluginID: "custom/" + registrationID},
+		SkillRevisionReader: emptySkillRuntime{},
+		SkillReadAuthorizer: allowSkillReads{},
+	}, &fakeSession{alive: true}, nil, ai.Model{}, "")
+	if err == nil || !strings.Contains(err.Error(), "collides with the plugin tool") {
+		t.Fatalf("MCP claimed a disabled Host tool name: %v", err)
+	}
+}
+
 // TestMigratedMCPNamespaceDenyDoesNotFallThrough proves that a more-specific
 // disabled definition wins its namespace over an enabled system definition.
 // The system definition is the imported registration; the user definition is
@@ -127,7 +182,7 @@ func TestMigratedMCPNamespaceDenyDoesNotFallThrough(t *testing.T) {
 	`, registrationID); err != nil {
 		t.Fatal(err)
 	}
-	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); err != nil {
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); err != nil {
 		t.Fatalf("import legacy MCP state: %v", err)
 	}
 

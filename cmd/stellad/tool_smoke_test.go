@@ -1286,11 +1286,11 @@ func deploymentAndMCPSmokeCases() []smokeCase {
 		}, check: captureVersion("settings_embedding_setting_update", "embedding_setting_version")},
 		{tool: "settings_plugin_list", args: noArgs},
 		{tool: "settings_plugin_disable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"kind": "channel", "name": "telegram"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("telegram", false)}},
+			return map[string]any{"kind": "system", "name": "stella"}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("stella", false)}},
 		{tool: "settings_plugin_enable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"kind": "channel", "name": "telegram"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("telegram", true)}},
+			return map[string]any{"kind": "system", "name": "stella"}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("stella", true)}},
 		{tool: "settings_mcp_server_list", args: noArgs},
 		{tool: "settings_mcp_server_create", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"scope": "user", "name": "tool-smoke-mcp-" + s.values["runID"], "url": "https://mcp.example.test"}
@@ -1627,7 +1627,7 @@ const toolSmokeImportMigration41 = int64(90000000000041)
 func prepareToolSmokeCutover(t *testing.T, db *pgxpool.Pool) {
 	t.Helper()
 	ctx := t.Context()
-	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil); err != nil {
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); err != nil {
 		t.Fatalf("tool smoke: import migration-41 fixture: %v", err)
 	}
 	upgraded, err := appdb.OpenDB(db.Config().ConnString())

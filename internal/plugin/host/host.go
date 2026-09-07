@@ -49,6 +49,7 @@ type Host struct {
 	stateStore         StateStoreBackend
 	authService        pkgplugins.Auth
 	enrollment         AccountEnrollmentBackend
+	nativePolicy       *plugin.NativePolicy
 	channelRuntime     pkgplugins.ChannelPlatform
 	listenerCap        ListenerCap
 	toolRegs           map[string]pkgplugins.ToolSpec
@@ -100,6 +101,44 @@ func New(store config.Store, opts ...Option) *Host {
 func (h *Host) Logger(pluginID string) *slog.Logger { return h.log.With("plugin", pluginID) }
 func (h *Host) Config() ConfigBackend               { return h.config }
 func (h *Host) Runtime() pkgplugins.RuntimeLookup   { return h.runtimes }
+
+// SetNativePolicy binds the trusted native admission policy before the host is
+// sealed. Every capability registered through this Go host uses this policy;
+// only manifest prompt sections use Agent snapshot state.
+func (h *Host) SetNativePolicy(policy *plugin.NativePolicy) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.requireUnsealedLocked("SetNativePolicy")
+	h.nativePolicy = policy
+}
+
+func (h *Host) nativeState(ctx context.Context, pluginID, agentID string) (pkgplugins.PluginState, bool, error) {
+	h.mu.RLock()
+	policy := h.nativePolicy
+	h.mu.RUnlock()
+	if policy == nil {
+		return pkgplugins.PluginState{}, false, plugin.ErrNativePolicyUnavailable
+	}
+	allowed, err := policy.Allows(ctx, pluginID, agentID)
+	if err != nil {
+		return pkgplugins.PluginState{}, false, err
+	}
+	if !allowed {
+		return pkgplugins.PluginState{}, false, nil
+	}
+	global, err := policy.GlobalPlugin(ctx, pluginID)
+	if err != nil {
+		return pkgplugins.PluginState{}, false, err
+	}
+	if !global.Enabled {
+		return pkgplugins.PluginState{}, false, nil
+	}
+	var stateConfig map[string]any
+	if global.Config != nil {
+		stateConfig = cloneMap(global.Config)
+	}
+	return pkgplugins.PluginState{ID: pluginID, Enabled: true, Config: stateConfig}, true, nil
+}
 
 // ListChannelChats returns the group chats currently joined by a channel bot.
 func (h *Host) ListChannelChats(ctx context.Context, channelID string, pageSize int, pageToken string) (pkgchannel.JoinedChatPage, error) {
@@ -487,7 +526,7 @@ func (h *Host) Quiesce(ctx context.Context) { h.runtimes.Quiesce(ctx) }
 
 func (h *Host) Stop(ctx context.Context) error { return h.runtimes.Stop(ctx) }
 
-func (h *Host) PromptTools(ctx context.Context, pluginID string, snapshot plugin.Snapshot) ([]pkgplugins.PromptToolInfo, error) {
+func (h *Host) PromptTools(ctx context.Context, pluginID, agentID string) ([]pkgplugins.PromptToolInfo, error) {
 	h.mu.RLock()
 	regs := make([]pkgplugins.PromptInventorySpec, 0, len(h.promptRegs))
 	for _, reg := range h.promptRegs {
@@ -504,7 +543,7 @@ func (h *Host) PromptTools(ctx context.Context, pluginID string, snapshot plugin
 		if reg.GetTools == nil {
 			continue
 		}
-		state, enabled, err := snapshotState(snapshot, reg.PluginID)
+		state, enabled, err := h.nativeState(ctx, reg.PluginID, agentID)
 		if err != nil {
 			return nil, err
 		}
@@ -532,13 +571,12 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 	sort.Slice(regs, func(i, j int) bool {
 		return promptKey(regs[i].PluginID, regs[i].Name) < promptKey(regs[j].PluginID, regs[j].Name)
 	})
-
 	var out []pkgplugins.SystemPromptSection
 	for _, reg := range regs {
 		if reg.Build == nil {
 			continue
 		}
-		state, enabled, err := snapshotState(snapshot, reg.PluginID)
+		state, enabled, err := h.nativeState(ctx, reg.PluginID, build.AgentID)
 		if err != nil {
 			return nil, err
 		}
@@ -593,7 +631,7 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 	return out, nil
 }
 
-func (h *Host) BeforeRun(ctx context.Context, build pkgplugins.BeforeRunContext, snapshot plugin.Snapshot) (pkgplugins.BeforeRunResult, error) {
+func (h *Host) BeforeRun(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
 	h.mu.RLock()
 	regs := make([]pkgplugins.BeforeRunSpec, 0, len(h.beforeRunRegs))
 	for _, reg := range h.beforeRunRegs {
@@ -616,7 +654,7 @@ func (h *Host) BeforeRun(ctx context.Context, build pkgplugins.BeforeRunContext,
 			continue
 		}
 
-		state, enabled, err := snapshotState(snapshot, reg.PluginID)
+		state, enabled, err := h.nativeState(ctx, reg.PluginID, build.AgentID)
 		if err != nil {
 			return pkgplugins.BeforeRunResult{}, err
 		}

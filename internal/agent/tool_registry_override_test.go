@@ -87,6 +87,45 @@ func TestBuildToolRegistryAppliesToolOverrides(t *testing.T) {
 	}
 }
 
+func TestBuiltToolRechecksEveryOverrideScopeAtInvocation(t *testing.T) {
+	ctx := context.Background()
+	var rows []ToolOverride
+	calls := 0
+	tool := countingTool{name: "share", calls: &calls}
+	cfg := failClosedConfig(t)
+	cfg.BuiltinTools = []BuiltinTool{{Tool: tool}}
+	cfg.ToolOverrideFetcher = func(context.Context, string, string) ([]ToolOverride, error) {
+		return slices.Clone(rows), nil
+	}
+	reg, _, _, err := buildToolRegistry(ctx, cfg, &fakeSession{alive: true}, nil, ai.Model{}, "")
+	if err != nil {
+		t.Fatalf("buildToolRegistry: %v", err)
+	}
+	for _, scope := range []string{ToolOverrideScopeSystem, ToolOverrideScopeSystemAgent, ToolOverrideScopeUser, ToolOverrideScopeUserAgent} {
+		rows = []ToolOverride{{Identity: ToolIdentity{CoreToolName: "share"}, Scope: scope, Enabled: false}}
+		if _, err := reg.Execute(ctx, "share", nil); err == nil {
+			t.Fatalf("scope %q allowed a call after the runner was built", scope)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("inner tool calls = %d, want 0", calls)
+	}
+}
+
+type countingTool struct {
+	name  string
+	calls *int
+}
+
+func (t countingTool) Definition() pkgtools.Definition {
+	return pkgtools.Definition{Name: t.name, Description: t.name}
+}
+
+func (t countingTool) Execute(context.Context, map[string]any) (string, error) {
+	*t.calls++
+	return "called", nil
+}
+
 func TestBuildToolRegistryRejectsEveryReservedCoreName(t *testing.T) {
 	var logs bytes.Buffer
 	previous := slog.Default()
