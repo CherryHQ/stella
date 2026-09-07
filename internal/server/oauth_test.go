@@ -11,7 +11,6 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 
 func TestRequestOriginUsesOriginHeader(t *testing.T) {
@@ -46,57 +45,33 @@ func TestRequestOriginUsesForwardedHeaders(t *testing.T) {
 // multiple session envs of one tool collapse to a single entry, and disabled
 // tools are excluded.
 func TestOAuthProviderRequiredBy(t *testing.T) {
-	shipped := &manifest.Manifest{
-		Plugins: []manifest.ManifestPlugin{
-			{
-				ID:      "tool/acme-exporter",
-				Enabled: true,
-				ManifestPluginDefinition: manifest.ManifestPluginDefinition{
-					Name:          "acme-exporter",
-					DisplayName:   "Acme Exporter",
-					OAuthProvider: "acme",
-					SessionEnvs: []manifest.ManifestSessionEnv{
-						{EnvVar: "ACME_EXPORTER_TOKEN", Source: "oauth.access_token"},
-						{EnvVar: "ACME_EXPORTER_APP_ID", Source: "oauth.client_id"},
-					},
-				},
+	shipped := []struct {
+		name        string
+		displayName string
+		enabled     bool
+		payload     plugin.ResourcePayload
+	}{
+		{name: "acme-exporter", displayName: "Acme Exporter", enabled: true, payload: plugin.ResourcePayload{
+			OAuthProvider: "acme", SessionEnvs: []plugin.SessionEnvResource{
+				{EnvVar: "ACME_EXPORTER_TOKEN", Source: "oauth.access_token"},
+				{EnvVar: "ACME_EXPORTER_APP_ID", Source: "oauth.client_id"},
 			},
-			{
-				ID:      "tool/gh",
-				Enabled: true,
-				ManifestPluginDefinition: manifest.ManifestPluginDefinition{
-					Name:          "gh",
-					DisplayName:   "GitHub CLI",
-					OAuthProvider: "github",
-					SessionEnvs: []manifest.ManifestSessionEnv{
-						{EnvVar: "GH_TOKEN", Source: "oauth.access_token"},
-					},
-				},
-			},
-			{
-				ID:      "tool/disabled",
-				Enabled: false,
-				ManifestPluginDefinition: manifest.ManifestPluginDefinition{
-					Name:          "disabled",
-					OAuthProvider: "acme",
-					SessionEnvs: []manifest.ManifestSessionEnv{
-						{EnvVar: "X", Source: "oauth.access_token"},
-					},
-				},
-			},
-		},
+		}},
+		{name: "gh", displayName: "GitHub CLI", enabled: true, payload: plugin.ResourcePayload{
+			OAuthProvider: "github", SessionEnvs: []plugin.SessionEnvResource{{EnvVar: "GH_TOKEN", Source: "oauth.access_token"}},
+		}},
+		{name: "disabled", displayName: "disabled", enabled: false, payload: plugin.ResourcePayload{
+			OAuthProvider: "acme", SessionEnvs: []plugin.SessionEnvResource{{EnvVar: "X", Source: "oauth.access_token"}},
+		}},
 	}
 	db := dbtest.New(t)
 	catalog := plugin.NewCatalog()
-	for _, declared := range shipped.Plugins {
-		spec, err := json.Marshal(manifest.CLIPayload{OAuthProvider: declared.OAuthProvider, SessionEnvs: declared.SessionEnvs})
+	for _, declared := range shipped {
+		spec, err := json.Marshal(declared.payload)
 		if err != nil {
 			t.Fatal(err)
 		}
-		def := plugin.Definition{ID: declared.Name, DisplayName: declared.DisplayName, Source: plugin.SourceBuiltin, Revision: 1, DefaultEnabled: declared.Enabled, Spec: spec}
-		if def.DisplayName == "" {
-			def.DisplayName = declared.Name
-		}
+		def := plugin.Definition{ID: declared.name, DisplayName: declared.displayName, Source: plugin.SourceBuiltin, Revision: 1, DefaultEnabled: declared.enabled, Spec: spec}
 		if err := catalog.Register(def); err != nil {
 			t.Fatal(err)
 		}
@@ -128,7 +103,7 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 
 func TestOAuthProviderRequiredByUsesShippedCatalogWithoutHostRegistration(t *testing.T) {
 	db := dbtest.New(t)
-	definitions, err := manifest.BuiltinDefinitions()
+	definitions, err := plugin.BuiltinDefinitions()
 	if err != nil {
 		t.Fatal(err)
 	}

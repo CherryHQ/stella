@@ -17,7 +17,6 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/plugin"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	skillpkg "github.com/CherryHQ/stella/internal/skill"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/resources"
@@ -25,7 +24,7 @@ import (
 
 func TestEmbeddedCompanionPackagesHaveNoScopedBinaries(t *testing.T) {
 	db := dbtest.New(t)
-	definitions, err := manifest.BuiltinDefinitions()
+	definitions, err := plugin.BuiltinDefinitions()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +123,7 @@ func TestSessionPluginViewRejectsIncompletePayloadAfterCapabilityLift(t *testing
 
 func TestAgentGuideVisibilityIsIndependentFromNativeAdmission(t *testing.T) {
 	db := dbtest.New(t)
-	definitions, err := manifest.BuiltinDefinitions()
+	definitions, err := plugin.BuiltinDefinitions()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +225,7 @@ func TestAgentGuideVisibilityIsIndependentFromNativeAdmission(t *testing.T) {
 
 func TestWebAgentRetainsSkillAndBinariesWhenBunAgentIsDisabled(t *testing.T) {
 	db := dbtest.New(t)
-	definitions, err := manifest.BuiltinDefinitions()
+	definitions, err := plugin.BuiltinDefinitions()
 	if err != nil {
 		t.Fatal(err)
 	}

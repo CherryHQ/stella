@@ -1,4 +1,4 @@
-package manifest
+package toolinstall
 
 import (
 	"context"
@@ -113,8 +113,8 @@ func RuntimeMiseEnv(stellaHome, userToolsDir, userConfigDir, workspaceDir string
 	return env
 }
 
-// miseTool is a single entry rendered into a mise config.
-type miseTool struct {
+// Tool is a single entry rendered into a mise config.
+type Tool struct {
 	Key        string         // mise tool key, e.g. "github:cli/cli", "npm:serve", "uv"
 	Version    string         // version spec; empty means "latest"
 	Options    map[string]any // extra mise tool options (mise.toml option names)
@@ -122,11 +122,23 @@ type miseTool struct {
 	PublicName string         // manifest name published in a native selection bin
 }
 
-// renderMiseTOML builds a mise.toml [tools] table from the given tools. On a
+// LookupName returns the binary exposed by a mise tool. Archive options may
+// rename the executable; callers use this when adapting resource declarations.
+func LookupName(name string, options map[string]any) string {
+	if renameExe, ok := stringOption(options, "rename_exe"); ok {
+		return renameExe
+	}
+	if bin, ok := stringOption(options, "bin"); ok {
+		return bin
+	}
+	return name
+}
+
+// RenderTOML builds a mise.toml [tools] table from the given tools. On a
 // duplicate key the last entry wins. Two different keys exposing the same shim
 // name (Lookup) are rejected: shims live in one shared directory, so the
 // collision would non-deterministically shadow one tool with the other.
-func renderMiseTOML(tools []miseTool) (string, error) {
+func RenderTOML(tools []Tool) (string, error) {
 	out := make(map[string]any, len(tools))
 	lookupKey := make(map[string]string, len(tools))
 	for _, t := range tools {
@@ -171,27 +183,4 @@ func runMise(ctx context.Context, miseBin string, env []string, dir string, args
 		return closedMiseError(ctx, args[0], err)
 	}
 	return nil
-}
-
-// BinaryLookupName returns the name used to verify a manifest binary via
-// `mise which`. rename_exe wins (archive rename), then bin, then the tool name.
-func BinaryLookupName(b ManifestBinary) string {
-	if renameExe, ok := stringOption(b.Options, "rename_exe"); ok {
-		return renameExe
-	}
-	if bin, ok := stringOption(b.Options, "bin"); ok {
-		return bin
-	}
-	return b.Name
-}
-
-// miseToolFromBinary maps a manifest binary to a renderable mise tool entry.
-func miseToolFromBinary(b ManifestBinary) miseTool {
-	return miseTool{
-		Key:        b.Tool,
-		Version:    b.Version,
-		Options:    b.Options,
-		Lookup:     BinaryLookupName(b),
-		PublicName: b.Name,
-	}
 }

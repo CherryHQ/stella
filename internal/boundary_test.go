@@ -33,7 +33,7 @@ type boundary struct {
 var boundaries = []boundary{
 	{root: "pkg", allowed: []string{"pkg/"}},
 	{root: "plugins", allowed: []string{"pkg/", "plugins/"}, testOnly: []string{"internal/agent/prompt"}, skipDirs: []string{"channels", "system"}},
-	{root: "plugins/system", allowed: []string{"internal/plugin/manifest", "resources/binaries"}, testOnly: []string{"resources"}},
+	{root: "plugins/system", allowed: []string{"internal/platform/toolinstall", "resources/binaries"}, testOnly: []string{"resources"}},
 	// Channel tests use the host and notifier fixtures to exercise registration;
 	// production channel adapters remain under the same pkg-only guard.
 	{root: "plugins/channels", allowed: []string{"pkg/", "plugins/"}, testOnly: []string{"internal/notify", "internal/platform/config", "internal/plugin/host"}},
@@ -211,7 +211,7 @@ func TestCoreRuntimeBoundaryIsExact(t *testing.T) {
 			coreBoundary = b
 		}
 	}
-	for name, rejected := range map[string]bool{"internal/plugin/manifest": false, "resources/binaries": false, "internal/plugin/manifest/other": true, "internal/agent": true, "resources": true} {
+	for name, rejected := range map[string]bool{"internal/platform/toolinstall": false, "resources/binaries": false, "internal/platform/toolinstall/other": true, "internal/agent": true, "resources": true} {
 		f, err := parser.ParseFile(token.NewFileSet(), "core.go", "package core\nimport _ \""+modulePrefix+name+"\"", parser.ImportsOnly)
 		if err != nil {
 			t.Fatal(err)

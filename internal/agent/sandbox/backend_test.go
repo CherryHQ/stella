@@ -14,7 +14,6 @@ import (
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
@@ -442,7 +441,7 @@ func TestRunnerFilesystemPolicyKeepsCoreAndOptionalSelectionsSeparate(t *testing
 	}
 	cfg := Config{
 		SystemRuntimePlan: corePlan,
-		ContextBinaryPlan: &manifest.BinaryInstallPlan{
+		ContextBinaryPlan: &BinaryInstallPlan{
 			PublicDir: optionalDir, PublicBinDir: optionalDir,
 		},
 	}
@@ -470,13 +469,11 @@ func TestCreateSessionForBackendOverlaysCoreWithoutClobberingOptionalState(t *te
 			t.Fatal(err)
 		}
 	}
-	contextPlan := &manifest.BinaryInstallPlan{
-		Identity: "context", ConfigPath: filepath.Join(optionalDir, "system.toml"),
-		ShimsDir: filepath.Join(optionalDir, "shims"), PublicDir: optionalDir, PublicBinDir: optionalDir,
+	contextPlan := &BinaryInstallPlan{
+		Identity: "context", PublicDir: optionalDir, PublicBinDir: optionalDir,
 	}
-	userPlan := &manifest.BinaryInstallPlan{
-		Identity: "user", ConfigPath: filepath.Join(userDir, "global.toml"),
-		ShimsDir: filepath.Join(userDir, "shims"), PublicDir: userDir, PublicBinDir: userDir,
+	userPlan := &BinaryInstallPlan{
+		Identity: "user", PublicDir: userDir, PublicBinDir: userDir,
 	}
 	workspace := t.TempDir()
 	userRoot := canonicalTempDir(t)
@@ -516,12 +513,14 @@ func TestCreateSessionForBackendOverlaysCoreWithoutClobberingOptionalState(t *te
 	if got := env["MISE_YES"]; got != "1" {
 		t.Fatalf("MISE_YES = %q, want 1", got)
 	}
-	if got, want := env["MISE_GLOBAL_CONFIG_FILE"], userPlan.ConfigPath; got != want {
-		t.Fatalf("MISE_GLOBAL_CONFIG_FILE = %q, want %q", got, want)
+	if got, want := env["MISE_GLOBAL_CONFIG_FILE"], filepath.Join(dataDir, "config.toml"); got != want {
+		t.Fatalf("MISE_GLOBAL_CONFIG_FILE = %q, want baseline %q", got, want)
 	}
-	trusted := env["MISE_TRUSTED_CONFIG_PATHS"]
-	if !strings.Contains(trusted, userPlan.ConfigPath) {
-		t.Fatalf("MISE_TRUSTED_CONFIG_PATHS lost user config: %q", trusted)
+	if strings.Contains(env["MISE_TRUSTED_CONFIG_PATHS"], userDir) {
+		t.Fatalf("private user selection leaked into trusted config paths: %q", env["MISE_TRUSTED_CONFIG_PATHS"])
+	}
+	if _, ok := env["MISE_SHIMS_DIR"]; ok {
+		t.Fatalf("private selection shims leaked into final runner: %q", env["MISE_SHIMS_DIR"])
 	}
 	if got, want := env[pkgsandbox.EnvUserNativeSelectionDir], userPlan.PublicBinDir; got != want {
 		t.Fatalf("user optional marker = %q, want %q", got, want)

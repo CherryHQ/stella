@@ -82,9 +82,15 @@ Native 工具保留已注册的静态名称。
 ## CLI 与 Skill 资源
 
 CLI 集成可以包含二进制、Skills、环境声明和提示。CLI 版本与 Skill 来源是独立字段，
-更新一个不要求更新另一个。Manifest 只是发行输入的加载器，不再拥有独立权限规则。
+更新一个不要求更新另一个。`agentpackage` 在构建时读取标准包文件，生成器直接把
+规范化的 Definition 目录内嵌为 JSON。启动时直接读取该目录，不再经过中间 Manifest
+或 YAML 转换。`internal/plugin` 统一拥有资源 payload 与作用域配置校验；
+OAuth provider 文档由 `internal/connections/oauth` 加载和校验。
+
 只有 mise 和 Xberg 是同步准备的内嵌发行运行时。其他 CLI，包括 fd 和 rg，
-都在后台通过会话选择共用的安装器预装。预热使用临时私有配置填充 mise artifact 缓存，
+都在后台通过会话选择共用的安装器预装。`internal/platform/toolinstall` 负责 mise 执行、
+私有配置和 artifact 原子发布，只接收具体工具与路径；作用域、修订号和选择身份
+由 Agent sandbox 代码负责。预热使用临时私有配置填充 mise artifact 缓存，
 不发布会话选择，也不维护第二份安装状态文件。Runner 从匹配缓存准备选中的 snapshot，
 缺失版本在对应沙箱边界内安装。
 

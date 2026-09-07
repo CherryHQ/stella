@@ -9,7 +9,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 
 // credAccess derives the trusted Authority for the authenticated caller and
@@ -102,7 +101,7 @@ func oauthProviderRequiredBy(snapshot plugin.Snapshot) (map[string][]string, err
 		if !effective.IsEffectivelyEnabled {
 			continue
 		}
-		payload, err := manifest.DecodeCLIPayload(effective.Payload, "OAuth requirements")
+		payload, err := plugin.DecodeResourcePayload(effective.Payload, "OAuth requirements")
 		if err != nil {
 			return nil, err
 		}

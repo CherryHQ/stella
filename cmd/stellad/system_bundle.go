@@ -9,7 +9,8 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
-	pluginmanifest "github.com/CherryHQ/stella/internal/plugin/manifest"
+	"github.com/CherryHQ/stella/internal/platform/toolinstall"
+	"github.com/CherryHQ/stella/internal/plugin"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
 	"github.com/CherryHQ/stella/resources"
@@ -88,16 +89,20 @@ func prepareBuiltinArtifacts(ctx context.Context, stellaHome string) error {
 	if stellaHome == "" {
 		return fmt.Errorf("stella home is required")
 	}
-	builtin, err := pluginmanifest.LoadBuiltin()
+	definitions, err := plugin.BuiltinDefinitions()
 	if err != nil {
-		return fmt.Errorf("load builtin manifest: %w", err)
+		return fmt.Errorf("load builtin plugin catalog: %w", err)
 	}
 	artifactRoot := filepath.Join(stellaHome, ".mise-tools", "builtin-artifacts")
 	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
 		return fmt.Errorf("create builtin artifact directory: %w", err)
 	}
-	for _, plugin := range builtin.Plugins {
-		for _, binary := range plugin.Binaries {
+	for _, definition := range definitions {
+		payload, err := plugin.DecodeResourcePayload(definition.Spec, "builtin plugin "+definition.ID)
+		if err != nil {
+			return fmt.Errorf("decode builtin plugin %q: %w", definition.ID, err)
+		}
+		for _, binary := range payload.Binaries {
 			spec := pkgplugins.PluginBinarySpec{
 				Name: binary.Name, Tool: binary.Tool, Version: binary.Version, Options: binary.Options,
 			}
@@ -106,12 +111,12 @@ func prepareBuiltinArtifacts(ctx context.Context, stellaHome string) error {
 				return fmt.Errorf("identity for builtin binary %q: %w", binary.Name, err)
 			}
 			artifactDir := filepath.Join(artifactRoot, fingerprint)
-			if err := pluginmanifest.InstallNativeMiseSelection(ctx, stellaHome, pluginmanifest.NativeSelectionPlan{
+			if err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
 				DataDir:   filepath.Join(stellaHome, ".mise-tools"),
 				PublicDir: artifactDir, PublicBinDir: artifactDir,
-			}, []pluginmanifest.NativeMiseTool{{
+			}, []toolinstall.Tool{{
 				Key: binary.Tool, Version: binary.Version, Options: binary.Options,
-				Lookup: pluginmanifest.BinaryLookupName(binary), PublicName: binary.Name,
+				Lookup: toolinstall.LookupName(binary.Name, binary.Options), PublicName: binary.Name,
 			}}); err != nil {
 				return fmt.Errorf("install builtin binary %q: %w", binary.Name, err)
 			}

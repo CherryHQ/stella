@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -36,10 +35,10 @@ func TestAppendCLIResourcesCarriesIdentityAndClonesOptions(t *testing.T) {
 	options := map[string]any{"extras": "x"}
 	view := pkgplugins.SessionPluginView{}
 	identity := pkgplugins.PluginResourceIdentity{PluginID: "demo", ConfigID: "cfg-1", Scope: "user", Revision: 3}
-	appendCLIResources(&view, identity, manifest.CLIPayload{
-		Binaries: []manifest.ManifestBinary{{Name: "demo", Tool: "github:demo/demo", Version: "1.2.3", Options: options}},
-		Skills:   []manifest.ManifestSkill{{Name: "demo"}},
-		SessionEnvs: []manifest.ManifestSessionEnv{{
+	appendCLIResources(&view, identity, plugin.ResourcePayload{
+		Binaries: []plugin.BinaryResource{{Name: "demo", Tool: "github:demo/demo", Version: "1.2.3", Options: options}},
+		Skills:   []plugin.SkillResource{{Name: "demo"}},
+		SessionEnvs: []plugin.SessionEnvResource{{
 			EnvVar: "DEMO_TOKEN", Source: "oauth", Required: true,
 		}},
 		OAuthProvider: "demo-oauth",
@@ -61,7 +60,7 @@ func TestAppendCLIResourcesCarriesIdentityAndClonesOptions(t *testing.T) {
 	}
 }
 
-func TestValidateResolvedCLIPayloadRejectsIncompleteCapabilityLift(t *testing.T) {
+func TestValidateResolvedResourcePayloadRejectsIncompleteCapabilityLift(t *testing.T) {
 	definition := plugin.Definition{
 		ID: "demo", DisplayName: "Demo",
 		Source:         plugin.SourceBuiltin,
@@ -77,7 +76,7 @@ func TestValidateResolvedCLIPayloadRejectsIncompleteCapabilityLift(t *testing.T)
 		},
 		Effective: plugin.Effective{Payload: json.RawMessage(`{}`)},
 	}
-	if err := validateResolvedCLIPayload(definition, resolved); err == nil {
-		t.Fatal("validateResolvedCLIPayload accepted an incomplete payload after capability lift")
+	if err := validateResolvedResourcePayload(definition, resolved); err == nil {
+		t.Fatal("validateResolvedResourcePayload accepted an incomplete payload after capability lift")
 	}
 }

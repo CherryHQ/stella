@@ -12,7 +12,7 @@ import (
 
 	connections "github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
+	"github.com/CherryHQ/stella/internal/platform/toolinstall"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -230,7 +230,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 		managedToolsDir = cfg.ManagedBinaryRoot
 		env["STELLA_NATIVE_PREP"] = "true"
 	}
-	maps.Copy(env, manifest.RuntimeMiseEnv(
+	maps.Copy(env, toolinstall.RuntimeMiseEnv(
 		paths.StellaHome,
 		managedToolsDir,
 		userConfigDir,

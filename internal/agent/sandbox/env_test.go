@@ -9,7 +9,6 @@ import (
 	"time"
 
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
@@ -24,7 +23,7 @@ func TestRunnerFilesystemPolicyMountsCoreAndSelectedMiseContext(t *testing.T) {
 		}
 	}
 	corePlan := fixtureSystemRuntimePlan(t, stellaHome)
-	plan := &manifest.BinaryInstallPlan{
+	plan := &BinaryInstallPlan{
 		Identity:     "selected",
 		PublicDir:    publicRoot,
 		PublicBinDir: publicRoot,

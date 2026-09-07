@@ -7,7 +7,6 @@ import (
 	"slices"
 
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -35,10 +34,10 @@ func projectSessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPlugi
 		}
 		view.ExposedPluginIDs = append(view.ExposedPluginIDs, definition.ID)
 
-		if err := validateResolvedCLIPayload(definition, resolved); err != nil {
+		if err := validateResolvedResourcePayload(definition, resolved); err != nil {
 			return pkgplugins.SessionPluginView{}, err
 		}
-		payload, err := manifest.DecodeCLIPayload(resolved.Effective.Payload, "selected resource payload")
+		payload, err := plugin.DecodeResourcePayload(resolved.Effective.Payload, "selected resource payload")
 		if err != nil {
 			return pkgplugins.SessionPluginView{}, fmt.Errorf("plugin %q: %w", definition.ID, err)
 		}
@@ -77,10 +76,10 @@ func projectSessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPlugi
 	return view, nil
 }
 
-// validateResolvedCLIPayload re-runs the backend boundary after resolution.
+// validateResolvedResourcePayload re-runs the backend boundary after resolution.
 // A config saved while disabled may be structurally valid but incomplete; a
 // capability lift must not turn that dormant payload into an executable one.
-func validateResolvedCLIPayload(definition plugin.Definition, resolved plugin.ResolvedPlugin) error {
+func validateResolvedResourcePayload(definition plugin.Definition, resolved plugin.ResolvedPlugin) error {
 	if resolved.Config == nil {
 		return fmt.Errorf("plugin %q is enabled without a selected config", definition.ID)
 	}
@@ -88,7 +87,7 @@ func validateResolvedCLIPayload(definition plugin.Definition, resolved plugin.Re
 	enabled := true
 	config.Enabled = &enabled
 	config.Payload = resolved.Effective.Payload
-	if err := manifest.ValidatePayload(context.Background(), definition, config, nil); err != nil {
+	if err := plugin.ValidatePayload(context.Background(), definition, config, nil); err != nil {
 		return fmt.Errorf("validate selected CLI payload for plugin %q: %w", definition.ID, err)
 	}
 	return nil
@@ -106,7 +105,7 @@ func selectedResourceIdentity(definition plugin.Definition, resolved plugin.Reso
 	}, nil
 }
 
-func appendCLIResources(view *pkgplugins.SessionPluginView, identity pkgplugins.PluginResourceIdentity, payload manifest.CLIPayload) {
+func appendCLIResources(view *pkgplugins.SessionPluginView, identity pkgplugins.PluginResourceIdentity, payload plugin.ResourcePayload) {
 	oauthScopes := make(map[string][]string, len(payload.OAuth))
 	for _, requirement := range payload.OAuth {
 		oauthScopes[requirement.Provider] = append(oauthScopes[requirement.Provider], requirement.Scopes...)

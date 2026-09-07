@@ -66,7 +66,6 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/plugins/email"
@@ -1602,7 +1601,7 @@ func disableSmokeCLIPlugins(ctx context.Context, service *plugin.Service, author
 	}
 	disabled := false
 	for _, definition := range definitions {
-		payload, err := manifest.DecodeCLIPayload(definition.Spec, "smoke CLI definition")
+		payload, err := plugin.DecodeResourcePayload(definition.Spec, "smoke CLI definition")
 		if err != nil || len(payload.Binaries) == 0 {
 			continue
 		}

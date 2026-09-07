@@ -55,7 +55,6 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/version"
 	"github.com/CherryHQ/stella/internal/plugin"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
@@ -754,12 +753,12 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Warm the release cache without delaying admission. A session still
 	// publishes only its authorized snapshot, and shutdown cancels and joins us.
 	backgroundTasks.Go(func() {
-		catalog, err := manifest.LoadBuiltin()
+		catalog, err := plugin.BuiltinDefinitions()
 		if err != nil {
 			slog.Error("load Agent package preinstallation catalog", "error", err)
 			return
 		}
-		if err := manifest.WarmBuiltinArtifacts(parent, catalog, config.StellaHome()); err != nil {
+		if err := warmAgentPackageArtifacts(parent, config.StellaHome(), catalog); err != nil {
 			slog.Error("preinstall Agent package artifacts", "error", err)
 		}
 	})

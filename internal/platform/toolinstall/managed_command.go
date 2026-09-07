@@ -1,4 +1,4 @@
-package manifest
+package toolinstall
 
 import "time"
 

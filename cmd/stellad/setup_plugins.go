@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"golang.org/x/oauth2"
-
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
@@ -16,7 +14,6 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/version"
 	"github.com/CherryHQ/stella/internal/plugin"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/resources"
@@ -84,7 +81,7 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 	}
 
 	catalog := plugin.NewCatalog()
-	cliDefinitions, err := manifest.BuiltinDefinitions()
+	cliDefinitions, err := plugin.BuiltinDefinitions()
 	if err != nil {
 		return nil, err
 	}
@@ -104,11 +101,10 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 		return nil, err
 	}
 
-	builtinManifest, err := manifest.LoadBuiltin()
+	oauthRegistry, err := oauth.NewBuiltinRegistry(resources.BuiltinOAuthYAML())
 	if err != nil {
 		return nil, fmt.Errorf("load shipped OAuth definitions: %w", err)
 	}
-	oauthRegistry := buildOAuthRegistry(builtinManifest)
 
 	nativeStore := cfgstore.NewDBStore(db)
 	nativePolicy := plugin.NewNativePolicy(nativeStore, nativeIDs)
@@ -121,40 +117,4 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 		nativePolicy:           nativePolicy,
 		nativeRegistry:         nativeIDs,
 	}, nil
-}
-
-func buildOAuthRegistry(merged *manifest.Manifest) *oauth.ProviderRegistry {
-	registry := oauth.NewProviderRegistry()
-	for _, op := range merged.OAuthProviders {
-		flows := make([]oauth.ProviderFlowConfig, 0, len(op.Flows))
-		for _, f := range op.Flows {
-			var authStyle oauth2.AuthStyle
-			switch f.AuthStyle {
-			case "in_params":
-				authStyle = oauth2.AuthStyleInParams
-			case "in_header":
-				authStyle = oauth2.AuthStyleInHeader
-			default:
-				authStyle = oauth2.AuthStyleAutoDetect
-			}
-			flows = append(flows, oauth.ProviderFlowConfig{
-				Type:          f.Type,
-				AuthURL:       f.AuthURL,
-				DeviceAuthURL: f.DeviceAuthURL,
-				TokenURL:      f.TokenURL,
-				AuthStyle:     authStyle,
-				PKCE:          f.PKCE,
-			})
-		}
-		registry.Register(oauth.ProviderConfig{
-			ID:           op.ID,
-			Icon:         op.Icon,
-			Scopes:       op.Scopes,
-			VaultKey:     op.VaultKey,
-			Flows:        flows,
-			ClientID:     op.ClientID,
-			ClientSecret: op.ClientSecret,
-		})
-	}
-	return registry
 }

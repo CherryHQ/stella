@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
+	"github.com/CherryHQ/stella/internal/plugin"
 	builtinplugins "github.com/CherryHQ/stella/plugins"
 	"github.com/CherryHQ/stella/resources"
 	"github.com/CherryHQ/stella/resources/binaries"
@@ -30,19 +30,19 @@ func main() {
 			OwnerPluginID: asset.OwnerPluginID,
 		})
 	}
-	oauthProviderIDs, err := manifest.BuiltinOAuthProviderIDs(resources.BuiltinOAuthYAML())
+	providerIDs, err := parseOAuthProviderIDs(resources.BuiltinOAuthYAML())
 	if err != nil {
 		fatal(err)
 	}
-	builtinManifest, err := manifest.GenerateBuiltinPlugins(filepath.Join(root, "plugins"), binaries.KnownRuntimeNames(), oauthProviderIDs)
+	catalog, err := generateBuiltinDefinitions(filepath.Join(root, "plugins"), binaries.KnownRuntimeNames(), providerIDs)
 	if err != nil {
 		fatal(err)
 	}
-	owners := make(map[string]struct{}, len(builtinManifest.Plugins))
-	for _, plugin := range builtinManifest.Plugins {
-		owners[plugin.ID] = struct{}{}
+	owners := make(map[string]struct{}, len(catalog))
+	for _, definition := range catalog {
+		owners[definition.ID] = struct{}{}
 	}
-	if err := validateBuiltinSkillDeclarations(assets, builtinManifest.Plugins); err != nil {
+	if err := validateBuiltinSkillDeclarations(assets, catalog); err != nil {
 		fatal(err)
 	}
 	for _, asset := range assets {
@@ -56,20 +56,20 @@ func main() {
 	if err := resources.WriteBuiltinManifestFromAssets(root, filepath.Join(root, "resources", "builtin_manifest_gen.go"), sources); err != nil {
 		fatal(err)
 	}
-	if err := manifest.WriteBuiltinPlugins(filepath.Join(root, "plugins"), filepath.Join(root, "resources", "builtin_plugins_gen.go"), binaries.KnownRuntimeNames(), oauthProviderIDs); err != nil {
+	if err := writeBuiltinDefinitions(filepath.Join(root, "plugins"), filepath.Join(root, "resources", "builtin_plugins_gen.go"), binaries.KnownRuntimeNames(), providerIDs); err != nil {
 		fatal(err)
 	}
-	if err := writeSystemRuntimes(filepath.Join(root, "plugins", "system", "runtime_gen.go"), builtinManifest); err != nil {
+	if err := writeSystemRuntimes(filepath.Join(root, "plugins", "system", "runtime_gen.go"), catalog); err != nil {
 		fatal(err)
 	}
 }
 
 func fatal(err error) {
-	fmt.Fprintln(os.Stderr, "generate builtin manifest:", err)
+	fmt.Fprintln(os.Stderr, "generate builtin catalog:", err)
 	os.Exit(1)
 }
 
-func validateBuiltinSkillDeclarations(assets []builtinplugins.BuiltinSkillAsset, plugins []manifest.ManifestPlugin) error {
+func validateBuiltinSkillDeclarations(assets []builtinplugins.BuiltinSkillAsset, definitions []builtinDefinition) error {
 	expected := make(map[string][]string)
 	for _, asset := range assets {
 		if asset.OwnerPluginID != "" {
@@ -79,14 +79,30 @@ func validateBuiltinSkillDeclarations(assets []builtinplugins.BuiltinSkillAsset,
 	for owner := range expected {
 		sort.Strings(expected[owner])
 	}
-	for _, plugin := range plugins {
-		if _, ok := expected[plugin.ID]; !ok && len(plugin.Skills) == 0 {
+	for _, definition := range definitions {
+		payload, err := plugin.DecodeResourcePayload(definition.Spec, "plugin "+definition.ID)
+		if err != nil {
+			return err
+		}
+		if _, ok := expected[definition.ID]; !ok && len(payload.Skills) == 0 {
 			continue
 		}
-		if err := manifest.ValidateBundledSkillNames(plugin.Skills, expected[plugin.ID]); err != nil {
-			return fmt.Errorf("builtin plugin %q skill declarations: %w", plugin.ID, err)
+		if err := plugin.ValidateBundledSkillNames(payload.Skills, expected[definition.ID]); err != nil {
+			return fmt.Errorf("builtin plugin %q skill declarations: %w", definition.ID, err)
 		}
-		delete(expected, plugin.ID)
+		delete(expected, definition.ID)
+	}
+	if len(expected) != 0 {
+		return fmt.Errorf("builtin skill declarations have unknown owners: %v", sortedKeys(expected))
 	}
 	return nil
+}
+
+func sortedKeys(values map[string][]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }

@@ -3,19 +3,20 @@ package runtime
 import (
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
+	"github.com/CherryHQ/stella/internal/plugin"
+
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func TestAppendCLIResourcesCombinesOAuthDeclarations(t *testing.T) {
 	view := pkgplugins.SessionPluginView{}
 	identity := pkgplugins.PluginResourceIdentity{PluginID: "combined", ConfigID: "parent", Scope: "user", Revision: 9}
-	appendCLIResources(&view, identity, manifest.CLIPayload{
-		Binaries:    []manifest.ManifestBinary{{Name: "demo", Tool: "github:example/demo"}},
-		SessionEnvs: []manifest.ManifestSessionEnv{{EnvVar: "DEMO_TOKEN", Source: "oauth.access_token", Required: true}},
-		OAuth: []manifest.ManifestOAuthRequirement{{
+	appendCLIResources(&view, identity, plugin.ResourcePayload{
+		Binaries:    []plugin.BinaryResource{{Name: "demo", Tool: "github:example/demo"}},
+		SessionEnvs: []plugin.SessionEnvResource{{EnvVar: "DEMO_TOKEN", Source: "oauth.access_token", Required: true}},
+		OAuth: []plugin.OAuthRequirement{{
 			Provider: "demo", Scopes: []string{"read"},
-			Bindings: []manifest.ManifestOAuthBinding{
+			Bindings: []plugin.OAuthBinding{
 				{Credential: "access_token", EnvVar: "DEMO_TOKEN"},
 			},
 		}},

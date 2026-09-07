@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
+	"github.com/CherryHQ/stella/internal/plugin"
 )
 
 func TestQueryTracerIsOptIn(t *testing.T) {
@@ -82,27 +82,31 @@ func TestLarkCLIOverrideRepairMigration(t *testing.T) {
 		}
 	}
 
-	builtin, err := manifest.LoadBuiltin()
+	builtin, err := plugin.BuiltinDefinitions()
 	if err != nil {
-		t.Fatalf("load builtin manifest: %v", err)
+		t.Fatalf("load builtin definitions: %v", err)
 	}
 	// Released OAuth fields inherit the current release declaration. The current
 	// plugin importer owns the later cutover, not the retired override resolver.
-	var larkPlugin *manifest.ManifestPlugin
-	for i := range builtin.Plugins {
-		if builtin.Plugins[i].ID == "lark-cli" {
-			larkPlugin = &builtin.Plugins[i]
+	var larkDefinition *plugin.Definition
+	for i := range builtin {
+		if builtin[i].ID == "lark-cli" {
+			larkDefinition = &builtin[i]
 			break
 		}
 	}
-	if larkPlugin == nil {
-		t.Fatal("repaired manifest has no lark-cli plugin")
+	if larkDefinition == nil {
+		t.Fatal("repaired definitions have no lark-cli plugin")
 	}
-	if larkPlugin.OAuthProvider != "feishu" {
-		t.Fatalf("repaired Lark OAuth provider = %q, want feishu", larkPlugin.OAuthProvider)
+	larkPayload, err := plugin.DecodeResourcePayload(larkDefinition.Spec, "lark-cli definition")
+	if err != nil {
+		t.Fatalf("decode lark-cli definition: %v", err)
 	}
-	gotSessionEnvs := make(map[string]string, len(larkPlugin.SessionEnvs))
-	for _, spec := range larkPlugin.SessionEnvs {
+	if larkPayload.OAuthProvider != "feishu" {
+		t.Fatalf("repaired Lark OAuth provider = %q, want feishu", larkPayload.OAuthProvider)
+	}
+	gotSessionEnvs := make(map[string]string, len(larkPayload.SessionEnvs))
+	for _, spec := range larkPayload.SessionEnvs {
 		gotSessionEnvs[spec.EnvVar] = spec.Source
 	}
 	wantSessionEnvs := map[string]string{

@@ -110,10 +110,18 @@ not revoke an existing OAuth grant or erase a previously loaded Skill.
 
 A CLI integration can contain binaries, Skills, environment declarations and
 prompt guidance. A CLI version pin and a Skill source are independent fields;
-changing one need not change the other. The manifest is a release input loader,
-not a separate permission system. Only mise and Xberg are embedded release
-runtimes prepared synchronously. Other CLIs, including fd and rg, are preinstalled
+changing one need not change the other. `agentpackage` reads standard package
+files at build time; the generator embeds a normalized definition catalog as
+JSON. Startup reads that catalog directly, without an intermediate manifest or
+YAML conversion. `internal/plugin` owns the shared resource payload and scoped
+configuration validation. OAuth provider documents are loaded and validated by
+`internal/connections/oauth`.
+
+Only mise and Xberg are embedded release runtimes prepared synchronously. Other CLIs, including fd and rg, are preinstalled
 in the background through the same installer used for session selection.
+`internal/platform/toolinstall` owns mise execution, private configuration and
+atomic artifact publication. It receives concrete tools and paths; Agent
+sandbox code owns scope, revision and selection identity.
 Prewarming fills the mise artifact cache using temporary private configuration;
 it neither publishes a session selection nor maintains a second installation
 state file. A runner prepares its selected snapshot from matching cached

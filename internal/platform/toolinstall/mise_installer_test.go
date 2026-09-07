@@ -1,4 +1,4 @@
-package manifest
+package toolinstall
 
 import (
 	"os"
@@ -11,10 +11,10 @@ import (
 )
 
 func TestGenerateMiseTOMLSimpleForm(t *testing.T) {
-	got, err := renderBinaryTOML(ManifestBinary{
-		Name:    "mytool",
-		Tool:    "github:owner/repo",
-		Version: "1.0.0",
+	got, err := renderToolTOML(Tool{
+		PublicName: "mytool",
+		Key:        "github:owner/repo",
+		Version:    "1.0.0",
 	})
 	if err != nil {
 		t.Fatalf("generateMiseTOML: %v", err)
@@ -26,9 +26,9 @@ func TestGenerateMiseTOMLSimpleForm(t *testing.T) {
 }
 
 func TestGenerateMiseTOMLRegistryTool(t *testing.T) {
-	got, err := renderBinaryTOML(ManifestBinary{
-		Name: "uv",
-		Tool: "uv",
+	got, err := renderToolTOML(Tool{
+		PublicName: "uv",
+		Key:        "uv",
 	})
 	if err != nil {
 		t.Fatalf("generateMiseTOML: %v", err)
@@ -40,10 +40,10 @@ func TestGenerateMiseTOMLRegistryTool(t *testing.T) {
 }
 
 func TestGenerateMiseTOMLTableFormDefaultsVersion(t *testing.T) {
-	got, err := renderBinaryTOML(ManifestBinary{
-		Name:    "gh",
-		Tool:    "github:cli/cli",
-		Options: map[string]any{"bin_path": "bin"},
+	got, err := renderToolTOML(Tool{
+		PublicName: "gh",
+		Key:        "github:cli/cli",
+		Options:    map[string]any{"bin_path": "bin"},
 	})
 	if err != nil {
 		t.Fatalf("generateMiseTOML: %v", err)
@@ -60,11 +60,11 @@ func TestGenerateMiseTOMLTableFormDefaultsVersion(t *testing.T) {
 }
 
 func TestGenerateMiseTOMLAssetPatternAloneTriggersTableForm(t *testing.T) {
-	got, err := renderBinaryTOML(ManifestBinary{
-		Name:    "gh",
-		Tool:    "github:cli/cli",
-		Version: "2.40.1",
-		Options: map[string]any{"asset_pattern": "gh_*_linux_x64.tar.gz"},
+	got, err := renderToolTOML(Tool{
+		PublicName: "gh",
+		Key:        "github:cli/cli",
+		Version:    "2.40.1",
+		Options:    map[string]any{"asset_pattern": "gh_*_linux_x64.tar.gz"},
 	})
 	if err != nil {
 		t.Fatalf("generateMiseTOML: %v", err)
@@ -81,10 +81,10 @@ func TestGenerateMiseTOMLAssetPatternAloneTriggersTableForm(t *testing.T) {
 }
 
 func TestGenerateMiseTOMLAdvancedOptions(t *testing.T) {
-	got, err := renderBinaryTOML(ManifestBinary{
-		Name:    "pandoc",
-		Tool:    "github:jgm/pandoc",
-		Version: "3.1.0",
+	got, err := renderToolTOML(Tool{
+		PublicName: "pandoc",
+		Key:        "github:jgm/pandoc",
+		Version:    "3.1.0",
 		Options: map[string]any{
 			"asset_pattern":    "pandoc-*-linux-amd64.tar.gz",
 			"version_prefix":   "release-",
@@ -122,11 +122,11 @@ func TestGenerateMiseTOMLAdvancedOptions(t *testing.T) {
 }
 
 func TestGenerateMiseTOMLBinField(t *testing.T) {
-	got, err := renderBinaryTOML(ManifestBinary{
-		Name:    "docker-compose",
-		Tool:    "github:docker/compose",
-		Version: "2.29.1",
-		Options: map[string]any{"bin": "docker-compose"},
+	got, err := renderToolTOML(Tool{
+		PublicName: "docker-compose",
+		Key:        "github:docker/compose",
+		Version:    "2.29.1",
+		Options:    map[string]any{"bin": "docker-compose"},
 	})
 	if err != nil {
 		t.Fatalf("generateMiseTOML: %v", err)
@@ -142,11 +142,11 @@ func TestGenerateMiseTOMLBinField(t *testing.T) {
 }
 
 func TestGenerateMiseTOMLHTTPBackend(t *testing.T) {
-	got, err := renderBinaryTOML(ManifestBinary{
-		Name:    "sentinel",
-		Tool:    "http:sentinel",
-		Version: "0.26.3",
-		Options: map[string]any{"url": "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_linux_amd64.zip"},
+	got, err := renderToolTOML(Tool{
+		PublicName: "sentinel",
+		Key:        "http:sentinel",
+		Version:    "0.26.3",
+		Options:    map[string]any{"url": "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_linux_amd64.zip"},
 	})
 	if err != nil {
 		t.Fatalf("generateMiseTOML: %v", err)
@@ -163,10 +163,10 @@ func TestGenerateMiseTOMLHTTPBackend(t *testing.T) {
 }
 
 func TestGenerateMiseTOMLHTTPWithFormat(t *testing.T) {
-	got, err := renderBinaryTOML(ManifestBinary{
-		Name:    "mytool",
-		Tool:    "http:mytool",
-		Version: "1.2.0",
+	got, err := renderToolTOML(Tool{
+		PublicName: "mytool",
+		Key:        "http:mytool",
+		Version:    "1.2.0",
 		Options: map[string]any{
 			"url":    "https://example.com/mytool-{{version}}-linux-amd64.tar.gz",
 			"format": "tar.gz",
@@ -186,10 +186,10 @@ func TestGenerateMiseTOMLHTTPWithFormat(t *testing.T) {
 }
 
 func TestGenerateMiseTOMLPipxSimple(t *testing.T) {
-	got, err := renderBinaryTOML(ManifestBinary{
-		Name:    "mypy",
-		Tool:    "pipx:mypy",
-		Version: "1.8.0",
+	got, err := renderToolTOML(Tool{
+		PublicName: "mypy",
+		Key:        "pipx:mypy",
+		Version:    "1.8.0",
 	})
 	if err != nil {
 		t.Fatalf("generateMiseTOML: %v", err)
@@ -201,10 +201,10 @@ func TestGenerateMiseTOMLPipxSimple(t *testing.T) {
 }
 
 func TestGenerateMiseTOMLPipxWithExtras(t *testing.T) {
-	got, err := renderBinaryTOML(ManifestBinary{
-		Name:    "pylint",
-		Tool:    "pipx:pylint",
-		Options: map[string]any{"extras": "spelling"},
+	got, err := renderToolTOML(Tool{
+		PublicName: "pylint",
+		Key:        "pipx:pylint",
+		Options:    map[string]any{"extras": "spelling"},
 	})
 	if err != nil {
 		t.Fatalf("generateMiseTOML: %v", err)
@@ -220,10 +220,10 @@ func TestGenerateMiseTOMLPipxWithExtras(t *testing.T) {
 }
 
 func TestGenerateMiseTOMLNPM(t *testing.T) {
-	got, err := renderBinaryTOML(ManifestBinary{
-		Name:    "serve",
-		Tool:    "npm:serve",
-		Version: "14.2.0",
+	got, err := renderToolTOML(Tool{
+		PublicName: "serve",
+		Key:        "npm:serve",
+		Version:    "14.2.0",
 	})
 	if err != nil {
 		t.Fatalf("generateMiseTOML: %v", err)
@@ -235,14 +235,14 @@ func TestGenerateMiseTOMLNPM(t *testing.T) {
 }
 
 func TestGenerateMiseTOMLNoToolErrors(t *testing.T) {
-	_, err := renderBinaryTOML(ManifestBinary{Name: "x"})
+	_, err := renderToolTOML(Tool{PublicName: "x"})
 	if err == nil {
 		t.Fatal("expected error for binary with no tool")
 	}
 }
 
 func TestGenerateMiseTOMLLeavesToolKeyToMise(t *testing.T) {
-	got, err := renderBinaryTOML(ManifestBinary{Name: "x", Tool: "github:repo"})
+	got, err := renderToolTOML(Tool{PublicName: "x", Key: "github:repo"})
 	if err != nil {
 		t.Fatalf("generateMiseTOML: %v", err)
 	}
@@ -252,9 +252,9 @@ func TestGenerateMiseTOMLLeavesToolKeyToMise(t *testing.T) {
 	}
 }
 
-// renderBinaryTOML renders a single manifest binary the way the installer does.
-func renderBinaryTOML(b ManifestBinary) (string, error) {
-	return renderMiseTOML([]miseTool{miseToolFromBinary(b)})
+// renderToolTOML renders one tool through the production config writer.
+func renderToolTOML(b Tool) (string, error) {
+	return RenderTOML([]Tool{b})
 }
 
 func TestWarmBuiltinArtifactsIsolatesHostEnvAndLeavesNoSelection(t *testing.T) {
@@ -281,8 +281,8 @@ set -eu
   printf 'MISE_PROJECT_ROOT=%s\n' "${MISE_PROJECT_ROOT-}"
   printf 'HOME=%s\n' "${HOME-}"
   printf 'XDG_CONFIG_HOME=%s\n' "${XDG_CONFIG_HOME-}"
-} >> ` + shellQuote(logPath) + `
-cat "$MISE_GLOBAL_CONFIG_FILE" > ` + shellQuote(capturedConfig) + `
+} >> ` + shellQuotePOSIX(logPath) + `
+cat "$MISE_GLOBAL_CONFIG_FILE" > ` + shellQuotePOSIX(capturedConfig) + `
 case "$1" in
   trust|install)
     exit 0
@@ -303,8 +303,8 @@ esac
 	t.Setenv("XDG_CONFIG_HOME", "/danger/xdg")
 	t.Setenv("HOME", "/danger/home")
 
-	declaration := makeMinimalManifest("tool", true, "mytool", "1.2.3")
-	err := WarmBuiltinArtifacts(t.Context(), declaration, stellaHome)
+	declaration := []Tool{{PublicName: "mytool", Key: "github:owner/repo", Version: "1.2.3", Lookup: "mytool"}}
+	err := Warm(t.Context(), stellaHome, declaration)
 	if err != nil {
 		t.Fatalf("WarmBuiltinArtifacts: %v", err)
 	}
@@ -353,9 +353,9 @@ esac
 	}
 	// A new release source or option must reach mise even when name/version
 	// stay the same; there is no second state index that can suppress it.
-	declaration.Plugins[0].Binaries[0].Tool = "github:new/repo"
-	declaration.Plugins[0].Binaries[0].Options = map[string]any{"asset_pattern": "new-asset"}
-	if err := WarmBuiltinArtifacts(t.Context(), declaration, stellaHome); err != nil {
+	declaration[0].Key = "github:new/repo"
+	declaration[0].Options = map[string]any{"asset_pattern": "new-asset"}
+	if err := Warm(t.Context(), stellaHome, declaration); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err = os.ReadFile(capturedConfig)
@@ -480,8 +480,4 @@ func TestRelinkShims_skipsWithoutLocalMise(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(stellaHome, "bin", "mise")); !os.IsNotExist(err) {
 		t.Error("mise should not have been copied into $STELLA_HOME/bin/")
 	}
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

@@ -81,7 +81,7 @@ resources, independently of Agent Plugin enablement. Every other CLI, including
 fd and rg, belongs to a standard Agent package and uses background installation
 and snapshot selection. Package declarations never grant embedded status.
 The runtime package may import only the exact repository packages
-`internal/plugin/manifest` (shared installation primitives) and
+`internal/platform/toolinstall` (shared installation primitives) and
 `resources/binaries` (embedded assets); its tests may also read `resources`.
 Internal runtime consumers may import the exact `plugins/system` package.
 This exception does not let internal callers import `plugins/system`

@@ -13,7 +13,6 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/mcp"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 
 // pluginResourceSummary is the only response projection of plugin.Config.Payload.
@@ -107,7 +106,7 @@ func cliBackendSummary(definitionSpec, configPayload json.RawMessage, enabled *b
 	if err != nil {
 		return result, fmt.Errorf("resolved CLI payload: %w", err)
 	}
-	payload, err := manifest.DecodeCLIPayload(filteredRaw, "resolved CLI payload")
+	payload, err := pluginpkg.DecodeResourcePayload(filteredRaw, "resolved CLI payload")
 	if err != nil {
 		return result, err
 	}

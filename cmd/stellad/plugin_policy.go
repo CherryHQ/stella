@@ -10,7 +10,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
@@ -31,11 +30,11 @@ func pluginBackendPolicy(allowPrivate bool) plugin.BackendPolicy {
 }
 
 // validateCLIBackendPayload keeps core-owned commands out of every CLI CRUD
-// path. The manifest validator remains responsible for the full payload
+// path. The resource validator remains responsible for the full payload
 // contract; this composition check uses the same release declaration that the
 // runtime and sandbox adapters consume.
 func validateCLIBackendPayload(ctx context.Context, def plugin.Definition, cfg plugin.Config, resets []string) error {
-	if err := manifest.ValidatePayload(ctx, def, cfg, resets); err != nil {
+	if err := plugin.ValidatePayload(ctx, def, cfg, resets); err != nil {
 		return err
 	}
 	reserved := make(map[string]struct{}, len(systemplugins.EmbeddedRuntimeResources()))
@@ -46,7 +45,7 @@ func validateCLIBackendPayload(ctx context.Context, def plugin.Definition, cfg p
 		if len(raw) == 0 {
 			return nil
 		}
-		payload, err := manifest.DecodeCLIPayload(raw, label)
+		payload, err := plugin.DecodeResourcePayload(raw, label)
 		if err != nil {
 			return err
 		}

@@ -8,7 +8,6 @@ import (
 
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/platform/config"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
@@ -37,8 +36,8 @@ type Config struct {
 	ProjectID         string
 	SessionEnvSpecs   []pkgplugins.SessionEnvSpec
 	BinarySpecs       []pkgplugins.PluginBinarySpec
-	ContextBinaryPlan *manifest.BinaryInstallPlan
-	UserBinaryPlan    *manifest.BinaryInstallPlan
+	ContextBinaryPlan *BinaryInstallPlan
+	UserBinaryPlan    *BinaryInstallPlan
 	SystemRuntimePlan *systemplugins.RuntimePlan
 	// ManagedBinaryRoot is used only by the short preparation session. The final
 	// session receives UserBinaryPlan and never mounts this private tree.

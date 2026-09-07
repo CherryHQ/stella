@@ -1,4 +1,4 @@
-package manifest
+package plugin
 
 import (
 	"bytes"
@@ -10,11 +10,9 @@ import (
 	"reflect"
 	"strings"
 	"unicode"
-
-	"github.com/CherryHQ/stella/internal/plugin"
 )
 
-// ValidatePayload validates the package's CLI, Skill and environment resources. Definition
+// ValidatePayload validates resources against their configuration owner. Definition
 // resources are trusted release input; a config is an overlay, so a user may
 // pin a release version or select an OAuth source but cannot replace the
 // executable, its install location, or the skill that belongs to it.
@@ -22,9 +20,7 @@ import (
 // The plugin service calls this with the resolved definition plus overlay. The
 // reset list is checked here as well because reset is an ownership operation,
 // even when the resulting value happens to equal the release definition.
-var _ plugin.PayloadValidator = ValidatePayload
-
-func ValidatePayload(_ context.Context, definition plugin.Definition, config plugin.Config, resetFields []string) error {
+func ValidatePayload(_ context.Context, definition Definition, config Config, resetFields []string) error {
 	if err := config.Validate(); err != nil {
 		return err
 	}
@@ -38,7 +34,7 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 		return err
 	}
 
-	shipped, err := decodeCLIPayload(definition.Spec, "definition spec")
+	shipped, err := decodeResourcePayload(definition.Spec, "definition spec")
 	if err != nil {
 		return err
 	}
@@ -46,7 +42,7 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 	// contract. Only the selected config's completeness is suppressed by false.
 	// Custom definitions may leave all resources to their scoped configs,
 	// including an empty MCP set after the last child is removed.
-	allowEmpty := definition.Source == plugin.SourceCustom || payloadHasNoResources(shipped)
+	allowEmpty := definition.Source == SourceCustom || payloadHasNoResources(shipped)
 	if err := validateResources(shipped, "definition spec", true, allowEmpty); err != nil {
 		return err
 	}
@@ -56,11 +52,11 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 		}
 		return nil
 	}
-	resolved, err := decodeCLIPayload(config.Payload, "config payload")
+	resolved, err := decodeResourcePayload(config.Payload, "config payload")
 	if err != nil {
 		return err
 	}
-	if definition.Source == plugin.SourceBuiltin && payloadHasNoResources(shipped) && len(resolved.Binaries) > 0 {
+	if definition.Source == SourceBuiltin && payloadHasNoResources(shipped) && len(resolved.Binaries) > 0 {
 		return invalidPayload("a metadata-only package cannot add CLI binaries")
 	}
 	complete := definition.DefaultEnabled
@@ -73,7 +69,7 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 	if err := validateConfigEnvValues(resolved); err != nil {
 		return err
 	}
-	if config.Scope == plugin.ScopeUser || config.Scope == plugin.ScopeUserAgent {
+	if config.Scope == ScopeUser || config.Scope == ScopeUserAgent {
 		if err := validateUserOverlay(shipped, resolved, config); err != nil {
 			return err
 		}
@@ -81,50 +77,29 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 	return nil
 }
 
-func payloadHasNoResources(payload cliPayload) bool {
+func payloadHasNoResources(payload ResourcePayload) bool {
 	return len(payload.Binaries) == 0 && len(payload.Skills) == 0 &&
 		len(payload.SessionEnvs) == 0 && len(payload.OAuth) == 0 &&
 		len(payload.MCPServers) == 0 && payload.Prompt == ""
 }
 
-// cliPayload intentionally mirrors only the fields projected by
-// BuiltinDefinitions. Keeping this decoder narrower than ManifestPlugin also
-// prevents identity and server-owned metadata from entering plugin_config.
-type cliPayload struct {
-	Description   string                       `json:"description,omitempty"`
-	Category      string                       `json:"category,omitempty"`
-	Prompt        string                       `json:"prompt,omitempty"`
-	Binaries      []ManifestBinary             `json:"binaries,omitempty"`
-	Skills        []ManifestSkill              `json:"skills,omitempty"`
-	SessionEnvs   []ManifestSessionEnv         `json:"session_env,omitempty"`
-	OAuthProvider string                       `json:"oauth_provider,omitempty"`
-	OAuth         []ManifestOAuthRequirement   `json:"oauth,omitempty"`
-	MCPServers    map[string]ManifestMCPServer `json:"mcp_servers,omitempty"`
+// DecodeResourcePayload rejects identity fields and unknown resource fields.
+// Callers must validate ownership before executing any decoded resource.
+func DecodeResourcePayload(raw json.RawMessage, name string) (ResourcePayload, error) {
+	return decodeResourcePayload(raw, name)
 }
 
-// CLIPayload is the validated definition/config projection consumed by the
-// runtime adapter. It intentionally aliases the narrow decoder shape rather
-// than exposing ManifestPlugin, which also contains server-owned state.
-type CLIPayload = cliPayload
-
-// DecodeCLIPayload decodes the fields projected into a CLI plugin definition or
-// config. Callers must still apply the common validation boundary before using
-// the result as an executable resource description.
-func DecodeCLIPayload(raw json.RawMessage, name string) (CLIPayload, error) {
-	return decodeCLIPayload(raw, name)
-}
-
-func decodeCLIPayload(raw json.RawMessage, name string) (cliPayload, error) {
+func decodeResourcePayload(raw json.RawMessage, name string) (ResourcePayload, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
-		return cliPayload{}, invalidPayload("%s is empty", name)
+		return ResourcePayload{}, invalidPayload("%s is empty", name)
 	}
 	if trimmed[0] != '{' {
-		return cliPayload{}, invalidPayload("%s must be an object", name)
+		return ResourcePayload{}, invalidPayload("%s must be an object", name)
 	}
-	var payload cliPayload
+	var payload ResourcePayload
 	if err := decodeStrictJSON(trimmed, &payload); err != nil {
-		return cliPayload{}, invalidPayload("%s: %v", name, err)
+		return ResourcePayload{}, invalidPayload("%s: %v", name, err)
 	}
 	return payload, nil
 }
@@ -145,7 +120,7 @@ func decodeStrictJSON(raw json.RawMessage, dst any) error {
 	return nil
 }
 
-func validateResources(payload cliPayload, name string, complete, allowEmpty bool) error {
+func validateResources(payload ResourcePayload, name string, complete, allowEmpty bool) error {
 	seenBinaries := make(map[string]struct{}, len(payload.Binaries))
 	for i, binary := range payload.Binaries {
 		if _, ok := seenBinaries[binary.Name]; ok {
@@ -207,18 +182,16 @@ func validateResources(payload cliPayload, name string, complete, allowEmpty boo
 			}
 		}
 	}
-	if err := errors.Join(validateOAuthBindings(ManifestPluginDefinition{
-		OAuth: payload.OAuth, SessionEnvs: payload.SessionEnvs, MCPServers: payload.MCPServers,
-	}, nil)...); err != nil {
+	if err := errors.Join(validateOAuthBindings(payload)...); err != nil {
 		return invalidPayload("%s: %v", name, err)
 	}
 
 	// An embedded-only system plugin can have no configurable capabilities.
-	// Its executable is still installed from the immutable release manifest.
-	empty := len(payload.Binaries) == 0 && len(payload.Skills) == 0 && len(payload.SessionEnvs) == 0 && len(payload.OAuth) == 0 && len(payload.MCPServers) == 0 && payload.Prompt == ""
+	// Its executable belongs to the independent embedded runtime catalog.
+	empty := payloadHasNoResources(payload)
 	if complete && (!allowEmpty || !empty) {
-		if err := validateCompleteManifest(payload, name); err != nil {
-			return err
+		if err := validateCompleteResources(payload, name); err != nil {
+			return invalidPayload("%v", err)
 		}
 	}
 	return nil
@@ -227,7 +200,7 @@ func validateResources(payload cliPayload, name string, complete, allowEmpty boo
 // ValidateBundledSkillNames checks the immutable skill membership declared by
 // a plugin against the release descriptor owned by that plugin. Configs may
 // pin mutable CLI fields, but they cannot add, remove, or redirect skills.
-func ValidateBundledSkillNames(declared []ManifestSkill, expected []string) error {
+func ValidateBundledSkillNames(declared []SkillResource, expected []string) error {
 	declaredSet := make(map[string]struct{}, len(declared))
 	for i, skill := range declared {
 		if err := validateString(skill.Name, "skill name"); err != nil {
@@ -259,37 +232,7 @@ func ValidateBundledSkillNames(declared []ManifestSkill, expected []string) erro
 	return nil
 }
 
-// validateCompleteManifest delegates required resource checks to the existing
-// manifest validator used by the installer. This adapter only supplies the
-// provider ID because Definition.Spec intentionally carries no provider flow
-// definitions.
-func validateCompleteManifest(payload cliPayload, name string) error {
-	definition := ManifestPluginDefinition{
-		Description: payload.Description, Category: payload.Category, Prompt: payload.Prompt,
-		Binaries: payload.Binaries, Skills: payload.Skills, SessionEnvs: payload.SessionEnvs,
-		OAuthProvider: payload.OAuthProvider, OAuth: payload.OAuth, MCPServers: payload.MCPServers,
-	}
-	manifest := &Manifest{Plugins: []ManifestPlugin{{ID: "validated", ManifestPluginDefinition: definition}}}
-	providerIDs := make(map[string]struct{})
-	if payload.OAuthProvider != "" {
-		providerIDs[payload.OAuthProvider] = struct{}{}
-	}
-	for _, requirement := range payload.OAuth {
-		providerIDs[requirement.Provider] = struct{}{}
-	}
-	for providerID := range providerIDs {
-		manifest.OAuthProviders = append(manifest.OAuthProviders, ManifestOAuthProvider{
-			ID: providerID, VaultKey: "validated",
-			Flows: []ManifestOAuthFlow{{Type: "device_code", DeviceAuthURL: "https://validated.invalid/device", TokenURL: "https://validated.invalid/token"}},
-		})
-	}
-	if err := Validate(manifest); err != nil {
-		return invalidPayload("%s: %v", name, err)
-	}
-	return nil
-}
-
-func validateConfigEnvValues(payload cliPayload) error {
+func validateConfigEnvValues(payload ResourcePayload) error {
 	for i, env := range payload.SessionEnvs {
 		if env.Value != "" {
 			return invalidPayload("config payload session_env[%d].value must be empty; use credential_refs", i)
@@ -298,7 +241,7 @@ func validateConfigEnvValues(payload cliPayload) error {
 	return nil
 }
 
-func validateUserOverlay(shipped, resolved cliPayload, config plugin.Config) error {
+func validateUserOverlay(shipped, resolved ResourcePayload, config Config) error {
 	if resolved.Description != shipped.Description || resolved.Category != shipped.Category ||
 		resolved.Prompt != shipped.Prompt || resolved.OAuthProvider != shipped.OAuthProvider ||
 		!reflect.DeepEqual(resolved.Skills, shipped.Skills) || !reflect.DeepEqual(resolved.OAuth, shipped.OAuth) {
@@ -313,7 +256,7 @@ func validateUserOverlay(shipped, resolved cliPayload, config plugin.Config) err
 			return invalidPayload("user scope cannot change binary[%d] name or tool", i)
 		}
 		if err := validateUserOptions(want.Options, got.Options, got.Version); err != nil {
-			return fmt.Errorf("%w: binary[%d] options: %w", plugin.ErrInvalidConfig, i, err)
+			return fmt.Errorf("%w: binary[%d] options: %w", ErrInvalidConfig, i, err)
 		}
 		if err := validateVersion(got.Version); err != nil {
 			return err
@@ -388,7 +331,7 @@ func validateVersion(version string) error {
 	return nil
 }
 
-func validateResetFields(scope plugin.Scope, fields []string) error {
+func validateResetFields(scope Scope, fields []string) error {
 	seen := make(map[string]struct{}, len(fields))
 	for _, field := range fields {
 		if _, ok := seen[field]; ok {
@@ -400,7 +343,7 @@ func validateResetFields(scope plugin.Scope, fields []string) error {
 		default:
 			return invalidPayload("reset_fields contains unknown field %q", field)
 		}
-		if scope == plugin.ScopeUser || scope == plugin.ScopeUserAgent {
+		if scope == ScopeUser || scope == ScopeUserAgent {
 			if field != "binaries" && field != "session_env" {
 				return invalidPayload("user scope cannot reset %q", field)
 			}
@@ -409,7 +352,7 @@ func validateResetFields(scope plugin.Scope, fields []string) error {
 	return nil
 }
 
-func validateCredentialRefs(config plugin.Config) error {
+func validateCredentialRefs(config Config) error {
 	if len(config.CredentialRefs) == 0 {
 		return nil
 	}
@@ -443,15 +386,15 @@ type cliCredentialRefs struct {
 }
 
 type cliCredentialRef struct {
-	Name    string       `json:"name"`
-	Scope   plugin.Scope `json:"scope"`
-	UserID  string       `json:"user_id,omitempty"`
-	AgentID string       `json:"agent_id,omitempty"`
-	Mode    string       `json:"mode,omitempty"`
-	Owner   string       `json:"owner,omitempty"`
+	Name    string `json:"name"`
+	Scope   Scope  `json:"scope"`
+	UserID  string `json:"user_id,omitempty"`
+	AgentID string `json:"agent_id,omitempty"`
+	Mode    string `json:"mode,omitempty"`
+	Owner   string `json:"owner,omitempty"`
 }
 
-func validateCredentialRef(ref cliCredentialRef, config plugin.Config) error {
+func validateCredentialRef(ref cliCredentialRef, config Config) error {
 	if ref.Name == "" {
 		return invalidPayload("credential_refs.session_env.name is required")
 	}
@@ -471,16 +414,16 @@ func validateCredentialRef(ref cliCredentialRef, config plugin.Config) error {
 	return nil
 }
 
-func credentialOwnerMatches(scope plugin.Scope, refUserID, refAgentID string, config plugin.Config) bool {
+func credentialOwnerMatches(scope Scope, refUserID, refAgentID string, config Config) bool {
 	switch scope {
-	case plugin.ScopeSystem:
-		return config.Scope == plugin.ScopeSystem && refUserID == "" && refAgentID == "" && config.UserID == "" && config.AgentID == ""
-	case plugin.ScopeSystemAgent:
-		return config.Scope == plugin.ScopeSystemAgent && refUserID == "" && refAgentID == config.AgentID && config.UserID == "" && config.AgentID != ""
-	case plugin.ScopeUser:
-		return (config.Scope == plugin.ScopeUser || config.Scope == plugin.ScopeUserAgent) && refUserID == config.UserID && refAgentID == "" && config.UserID != ""
-	case plugin.ScopeUserAgent:
-		return config.Scope == plugin.ScopeUserAgent && refUserID == config.UserID && refAgentID == config.AgentID && config.UserID != "" && config.AgentID != ""
+	case ScopeSystem:
+		return config.Scope == ScopeSystem && refUserID == "" && refAgentID == "" && config.UserID == "" && config.AgentID == ""
+	case ScopeSystemAgent:
+		return config.Scope == ScopeSystemAgent && refUserID == "" && refAgentID == config.AgentID && config.UserID == "" && config.AgentID != ""
+	case ScopeUser:
+		return (config.Scope == ScopeUser || config.Scope == ScopeUserAgent) && refUserID == config.UserID && refAgentID == "" && config.UserID != ""
+	case ScopeUserAgent:
+		return config.Scope == ScopeUserAgent && refUserID == config.UserID && refAgentID == config.AgentID && config.UserID != "" && config.AgentID != ""
 	default:
 		return false
 	}
@@ -537,5 +480,5 @@ func validateJSONValue(value any, field string) error {
 }
 
 func invalidPayload(format string, args ...any) error {
-	return fmt.Errorf("%w: %s", plugin.ErrInvalidConfig, fmt.Sprintf(format, args...))
+	return fmt.Errorf("%w: %s", ErrInvalidConfig, fmt.Sprintf(format, args...))
 }

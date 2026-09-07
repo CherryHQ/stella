@@ -18,9 +18,9 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/resources"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -604,13 +604,13 @@ func TestBuiltinOAuthVaultKeysAreNotAmbientWhenRegistryWired(t *testing.T) {
 	svc, oidc, userID, q := testServiceWithQueries(t)
 	ctx := context.Background()
 
-	manifest, err := manifest.LoadBuiltin()
+	providers, err := oauth.ParseProviders(resources.BuiltinOAuthYAML())
 	if err != nil {
-		t.Fatalf("LoadBuiltin: %v", err)
+		t.Fatalf("ParseProviders: %v", err)
 	}
 	registry := oauth.NewProviderRegistry()
-	wantBlocked := make([]string, 0, len(manifest.OAuthProviders))
-	for _, provider := range manifest.OAuthProviders {
+	wantBlocked := make([]string, 0, len(providers))
+	for _, provider := range providers {
 		if provider.VaultKey == "" {
 			continue
 		}

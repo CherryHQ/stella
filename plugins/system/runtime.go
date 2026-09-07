@@ -16,7 +16,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
+	"github.com/CherryHQ/stella/internal/platform/toolinstall"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
 
@@ -129,7 +129,7 @@ func Prepare(ctx context.Context, stellaHome string) (RuntimePlan, error) {
 	dataDir := filepath.Join(stellaHome, ".mise-tools")
 	publicDir := filepath.Join(dataDir, "public", identity)
 	embeddedResources := EmbeddedRuntimeResources()
-	tools := make([]manifest.NativeMiseTool, 0, len(embeddedResources))
+	tools := make([]toolinstall.Tool, 0, len(embeddedResources))
 	embeddedNames := make([]string, 0, len(embeddedResources))
 	for _, resource := range embeddedResources {
 		embeddedNames = append(embeddedNames, resource.Name)
@@ -140,12 +140,12 @@ func Prepare(ctx context.Context, stellaHome string) (RuntimePlan, error) {
 		if runtime.GOOS == "windows" {
 			publicName += ".exe"
 		}
-		tools = append(tools, manifest.NativeMiseTool{
+		tools = append(tools, toolinstall.Tool{
 			Key: resource.MiseTool, Version: resource.Version, Options: resource.Options,
-			Lookup: manifest.BinaryLookupName(manifest.ManifestBinary{Name: resource.Name, Options: resource.Options}), PublicName: publicName,
+			Lookup: toolinstall.LookupName(resource.Name, resource.Options), PublicName: publicName,
 		})
 	}
-	if err := manifest.InstallNativeMiseSelection(ctx, stellaHome, manifest.NativeSelectionPlan{
+	if err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
 		DataDir: dataDir, PublicDir: publicDir, PublicBinDir: publicDir, EmbeddedNames: embeddedNames,
 	}, tools); err != nil {
 		return RuntimePlan{}, fmt.Errorf("system: prepare native selection: %w", err)

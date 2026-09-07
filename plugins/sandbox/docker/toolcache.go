@@ -55,7 +55,7 @@ const (
 
 // ToolBinary describes a user-configured CLI that must be installed in a Linux
 // container context before docker sandbox sessions can execute it.
-// Fields mirror manifest.ManifestBinary 1:1; keep them in sync.
+// Selection identity belongs to the runner; tool options are passed to mise.
 type ToolBinary struct {
 	PluginID string
 	ConfigID string

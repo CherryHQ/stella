@@ -14,7 +14,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
@@ -29,8 +28,8 @@ type BackendRequest struct {
 	GroupID      string
 	// Plugin plans capture authorized optional tools; SystemRuntimePlan contains
 	// required release runtimes independently of plugin configuration.
-	ContextBinaryPlan *manifest.BinaryInstallPlan
-	UserBinaryPlan    *manifest.BinaryInstallPlan
+	ContextBinaryPlan *BinaryInstallPlan
+	UserBinaryPlan    *BinaryInstallPlan
 	SystemRuntimePlan *systemplugins.RuntimePlan
 	BinarySpecs       []pkgplugins.PluginBinarySpec
 }
@@ -181,7 +180,7 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 			recordSandboxError(span, err)
 			return nil, fmt.Errorf("verify core runtimes: %w", err)
 		}
-		plan, err := manifest.InstallContextBinaries(ctx, cfg.Paths.StellaHome, cfg.BinarySpecs)
+		plan, err := InstallContextBinaries(ctx, cfg.Paths.StellaHome, cfg.BinarySpecs)
 		if err != nil {
 			recordSandboxError(span, err)
 			return nil, fmt.Errorf("install context plugin binaries: %w", err)
@@ -213,7 +212,7 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 			if err != nil {
 				return nil, err
 			}
-			userPlan, err := manifest.InstallSandboxBinaries(ctx, prep, cfg.BinarySpecs)
+			userPlan, err := InstallSandboxBinaries(ctx, prep, cfg.BinarySpecs)
 			if err != nil {
 				_ = prep.Close()
 				_ = cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
@@ -276,10 +275,10 @@ func createSessionForBackend(ctx context.Context, cfg Config, name string) (pkgs
 		return nil, err
 	}
 	if cfg.ContextBinaryPlan != nil {
-		policy.Env = manifest.OverlayBinaryInstallPlan(policy.Env, *cfg.ContextBinaryPlan, manifest.BinarySystemLayer)
+		policy.Env = OverlayBinaryInstallPlan(policy.Env, *cfg.ContextBinaryPlan, BinarySystemLayer)
 	}
 	if cfg.UserBinaryPlan != nil {
-		policy.Env = manifest.OverlayBinaryInstallPlan(policy.Env, *cfg.UserBinaryPlan, manifest.BinaryUserLayer)
+		policy.Env = OverlayBinaryInstallPlan(policy.Env, *cfg.UserBinaryPlan, BinaryUserLayer)
 	}
 	if cfg.SystemRuntimePlan != nil {
 		// Core adds executable paths without replacing optional selection or mise state.

@@ -1,6 +1,6 @@
 //go:build !windows
 
-package manifest
+package toolinstall
 
 import (
 	"context"
@@ -31,7 +31,7 @@ case "$1" in
     ;;
   install)
     sleep 30 &
-    printf '%s\n' "$!" > ` + shellQuote(childPIDPath) + `
+	    printf '%s\n' "$!" > ` + shellQuotePOSIX(childPIDPath) + `
     wait
     ;;
   *)
@@ -46,7 +46,7 @@ esac
 	ctx, cancel := context.WithCancel(t.Context())
 	errCh := make(chan error, 1)
 	go func() {
-		err := WarmBuiltinArtifacts(ctx, makeMinimalManifest("tool", true, "mytool", "1.2.3"), stellaHome)
+		err := Warm(ctx, stellaHome, []Tool{{Key: "mytool", Version: "1.2.3", Lookup: "mytool", PublicName: "mytool"}})
 		errCh <- err
 	}()
 

@@ -1,34 +1,32 @@
-package manifest
+package plugin
 
 import (
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
-
-	"github.com/CherryHQ/stella/internal/plugin"
 )
 
-func testCLIDefinition(t *testing.T) plugin.Definition {
+func testCLIDefinition(t *testing.T) Definition {
 	t.Helper()
-	spec, err := json.Marshal(cliPayload{
+	spec, err := json.Marshal(ResourcePayload{
 		Description: "release",
 		Category:    "system",
 		Prompt:      "use the cli",
-		Binaries: []ManifestBinary{{
+		Binaries: []BinaryResource{{
 			Name: "demo", Tool: "github:owner/demo", Version: "1.0.0",
 			Options: map[string]any{"asset_pattern": "demo_*", "future_option": "published"},
 		}},
-		Skills:        []ManifestSkill{{Name: "demo"}},
-		SessionEnvs:   []ManifestSessionEnv{{EnvVar: "DEMO_TOKEN", Source: "oauth.access_token", Required: true}},
+		Skills:        []SkillResource{{Name: "demo"}},
+		SessionEnvs:   []SessionEnvResource{{EnvVar: "DEMO_TOKEN", Source: "oauth.access_token", Required: true}},
 		OAuthProvider: "demo",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return plugin.Definition{
+	return Definition{
 		ID: "demo", DisplayName: "Demo",
-		Source: plugin.SourceBuiltin,
+		Source: SourceBuiltin,
 		Spec:   spec, DefaultEnabled: true, Revision: 1,
 	}
 }
@@ -40,9 +38,9 @@ func TestBuiltinPackagePayloadsFollowScopes(t *testing.T) {
 	}
 	for _, definition := range definitions {
 		t.Run(definition.ID, func(t *testing.T) {
-			for _, scope := range []plugin.Scope{plugin.ScopeSystem, plugin.ScopeUser} {
-				config := plugin.Config{ID: "config", PluginID: definition.ID, Scope: scope, Revision: 1, Payload: definition.Spec}
-				if scope == plugin.ScopeUser {
+			for _, scope := range []Scope{ScopeSystem, ScopeUser} {
+				config := Config{ID: "config", PluginID: definition.ID, Scope: scope, Revision: 1, Payload: definition.Spec}
+				if scope == ScopeUser {
 					config.UserID = "user-1"
 				}
 				for _, enabled := range []bool{true, false} {
@@ -57,30 +55,30 @@ func TestBuiltinPackagePayloadsFollowScopes(t *testing.T) {
 }
 
 func TestValidatePayloadAllowsMetadataOnlyBuiltinWithoutRuntimeIdentity(t *testing.T) {
-	definition := plugin.Definition{
-		ID: "metadata-only", DisplayName: "Metadata only", Source: plugin.SourceBuiltin,
+	definition := Definition{
+		ID: "metadata-only", DisplayName: "Metadata only", Source: SourceBuiltin,
 		Spec: json.RawMessage(`{"description":"release metadata"}`), DefaultEnabled: true, Revision: 1,
 	}
-	config := plugin.Config{
-		ID: "config", PluginID: definition.ID, Scope: plugin.ScopeSystem,
+	config := Config{
+		ID: "config", PluginID: definition.ID, Scope: ScopeSystem,
 		Enabled: boolPtr(true), Payload: definition.Spec, Revision: 1,
 	}
 	if err := ValidatePayload(t.Context(), definition, config, nil); err != nil {
 		t.Fatalf("metadata-only package: %v", err)
 	}
 	config.Payload = json.RawMessage(`{"description":"release metadata","binaries":[{"name":"unexpected","tool":"uv","version":"1"}]}`)
-	if err := ValidatePayload(t.Context(), definition, config, nil); !errors.Is(err, plugin.ErrInvalidConfig) {
+	if err := ValidatePayload(t.Context(), definition, config, nil); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("metadata-only binary injection = %v, want invalid config", err)
 	}
 }
 
 func TestValidatePayloadAllowsCustomEmptyDefinitionWithCLIConfig(t *testing.T) {
-	definition := plugin.Definition{
-		ID: "custom-cli", DisplayName: "Custom CLI", Source: plugin.SourceCustom,
+	definition := Definition{
+		ID: "custom-cli", DisplayName: "Custom CLI", Source: SourceCustom,
 		Spec: json.RawMessage(`{}`), Revision: 1,
 	}
-	config := plugin.Config{
-		ID: "config", PluginID: definition.ID, Scope: plugin.ScopeSystem,
+	config := Config{
+		ID: "config", PluginID: definition.ID, Scope: ScopeSystem,
 		Enabled: boolPtr(true), Payload: json.RawMessage(`{"binaries":[{"name":"custom","tool":"uv","version":"1"}]}`), Revision: 1,
 	}
 	if err := ValidatePayload(t.Context(), definition, config, nil); err != nil {
@@ -90,16 +88,16 @@ func TestValidatePayloadAllowsCustomEmptyDefinitionWithCLIConfig(t *testing.T) {
 
 func testUserPayload(t *testing.T, version string) json.RawMessage {
 	t.Helper()
-	payload, err := json.Marshal(cliPayload{
+	payload, err := json.Marshal(ResourcePayload{
 		Description: "release",
 		Category:    "system",
 		Prompt:      "use the cli",
-		Binaries: []ManifestBinary{{
+		Binaries: []BinaryResource{{
 			Name: "demo", Tool: "github:owner/demo", Version: version,
 			Options: map[string]any{"asset_pattern": "demo_*", "future_option": "published"},
 		}},
-		Skills:        []ManifestSkill{{Name: "demo"}},
-		SessionEnvs:   []ManifestSessionEnv{{EnvVar: "DEMO_TOKEN", Source: "oauth.refresh_token", Required: true}},
+		Skills:        []SkillResource{{Name: "demo"}},
+		SessionEnvs:   []SessionEnvResource{{EnvVar: "DEMO_TOKEN", Source: "oauth.refresh_token", Required: true}},
 		OAuthProvider: "demo",
 	})
 	if err != nil {
@@ -110,16 +108,16 @@ func testUserPayload(t *testing.T, version string) json.RawMessage {
 
 func TestValidatePayloadAcceptsSystemAndUserOwnership(t *testing.T) {
 	definition := testCLIDefinition(t)
-	system := plugin.Config{ID: "system", PluginID: definition.ID, Scope: plugin.ScopeSystem, Revision: 1, Enabled: boolPtr(true), Payload: definition.Spec}
+	system := Config{ID: "system", PluginID: definition.ID, Scope: ScopeSystem, Revision: 1, Enabled: boolPtr(true), Payload: definition.Spec}
 	if err := ValidatePayload(t.Context(), definition, system, nil); err != nil {
 		t.Fatalf("system payload: %v", err)
 	}
 
-	user := plugin.Config{ID: "user", PluginID: definition.ID, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(true), Payload: testUserPayload(t, "2.0.0"), CredentialRefs: json.RawMessage(`{"session_env":{"name":"DEMO_OAUTH","scope":"user","user_id":"user-1"}}`)}
+	user := Config{ID: "user", PluginID: definition.ID, Scope: ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(true), Payload: testUserPayload(t, "2.0.0"), CredentialRefs: json.RawMessage(`{"session_env":{"name":"DEMO_OAUTH","scope":"user","user_id":"user-1"}}`)}
 	if err := ValidatePayload(t.Context(), definition, user, nil); err != nil {
 		t.Fatalf("user payload: %v", err)
 	}
-	var userPayload cliPayload
+	var userPayload ResourcePayload
 	if err := json.Unmarshal(testUserPayload(t, "2.0.0"), &userPayload); err != nil {
 		t.Fatal(err)
 	}
@@ -138,29 +136,29 @@ func TestValidatePayloadRejectsUserResourceIdentityChanges(t *testing.T) {
 	definition := testCLIDefinition(t)
 	cases := []struct {
 		name   string
-		mutate func(*cliPayload)
+		mutate func(*ResourcePayload)
 		resets []string
 	}{
-		{"binary name", func(p *cliPayload) { p.Binaries[0].Name = "other" }, nil},
-		{"binary tool", func(p *cliPayload) { p.Binaries[0].Tool = "github:other/demo" }, nil},
-		{"binary options", func(p *cliPayload) { p.Binaries[0].Options = map[string]any{"bin_path": "/tmp"} }, nil},
-		{"published option changed", func(p *cliPayload) { p.Binaries[0].Options["future_option"] = "changed" }, nil},
-		{"published option removed", func(p *cliPayload) { delete(p.Binaries[0].Options, "future_option") }, nil},
-		{"extras type", func(p *cliPayload) { p.Binaries[0].Options["extras"] = true }, nil},
-		{"unknown binary option", func(p *cliPayload) { p.Binaries[0].Options["new_hook"] = true }, nil},
-		{"skill", func(p *cliPayload) { p.Skills[0].Name = "other" }, nil},
-		{"prompt", func(p *cliPayload) { p.Prompt = "run anything" }, nil},
-		{"session env identity", func(p *cliPayload) { p.SessionEnvs[0].EnvVar = "OTHER" }, nil},
-		{"session env required", func(p *cliPayload) { p.SessionEnvs[0].Required = false }, nil},
-		{"provider", func(p *cliPayload) { p.OAuthProvider = "other" }, nil},
-		{"oauth binding injection", func(p *cliPayload) {
-			p.OAuth = []ManifestOAuthRequirement{{Provider: "demo", Bindings: []ManifestOAuthBinding{{Credential: "access_token", EnvVar: "OTHER_TOKEN"}}}}
+		{"binary name", func(p *ResourcePayload) { p.Binaries[0].Name = "other" }, nil},
+		{"binary tool", func(p *ResourcePayload) { p.Binaries[0].Tool = "github:other/demo" }, nil},
+		{"binary options", func(p *ResourcePayload) { p.Binaries[0].Options = map[string]any{"bin_path": "/tmp"} }, nil},
+		{"published option changed", func(p *ResourcePayload) { p.Binaries[0].Options["future_option"] = "changed" }, nil},
+		{"published option removed", func(p *ResourcePayload) { delete(p.Binaries[0].Options, "future_option") }, nil},
+		{"extras type", func(p *ResourcePayload) { p.Binaries[0].Options["extras"] = true }, nil},
+		{"unknown binary option", func(p *ResourcePayload) { p.Binaries[0].Options["new_hook"] = true }, nil},
+		{"skill", func(p *ResourcePayload) { p.Skills[0].Name = "other" }, nil},
+		{"prompt", func(p *ResourcePayload) { p.Prompt = "run anything" }, nil},
+		{"session env identity", func(p *ResourcePayload) { p.SessionEnvs[0].EnvVar = "OTHER" }, nil},
+		{"session env required", func(p *ResourcePayload) { p.SessionEnvs[0].Required = false }, nil},
+		{"provider", func(p *ResourcePayload) { p.OAuthProvider = "other" }, nil},
+		{"oauth binding injection", func(p *ResourcePayload) {
+			p.OAuth = []OAuthRequirement{{Provider: "demo", Bindings: []OAuthBinding{{Credential: "access_token", EnvVar: "OTHER_TOKEN"}}}}
 		}, nil},
-		{"reset prompt", func(*cliPayload) {}, []string{"prompt"}},
+		{"reset prompt", func(*ResourcePayload) {}, []string{"prompt"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var payload cliPayload
+			var payload ResourcePayload
 			if err := json.Unmarshal(testUserPayload(t, "2.0.0"), &payload); err != nil {
 				t.Fatal(err)
 			}
@@ -169,8 +167,8 @@ func TestValidatePayloadRejectsUserResourceIdentityChanges(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			config := plugin.Config{ID: "user", PluginID: definition.ID, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(true), Payload: raw}
-			if err := ValidatePayload(t.Context(), definition, config, tc.resets); !errors.Is(err, plugin.ErrInvalidConfig) {
+			config := Config{ID: "user", PluginID: definition.ID, Scope: ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(true), Payload: raw}
+			if err := ValidatePayload(t.Context(), definition, config, tc.resets); !errors.Is(err, ErrInvalidConfig) {
 				t.Fatalf("error = %v, want invalid config", err)
 			}
 		})
@@ -194,7 +192,7 @@ func TestValidatePayloadRejectsSecretsUnknownFieldsAndBadRefs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			payload := tc.payload
 			if tc.name == "secret session env value" {
-				var decoded cliPayload
+				var decoded ResourcePayload
 				if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 					t.Fatal(err)
 				}
@@ -205,9 +203,9 @@ func TestValidatePayloadRejectsSecretsUnknownFieldsAndBadRefs(t *testing.T) {
 				}
 				payload = string(encoded)
 			}
-			config := plugin.Config{ID: "user", PluginID: definition.ID, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false), Payload: json.RawMessage(payload), CredentialRefs: json.RawMessage(tc.refs)}
+			config := Config{ID: "user", PluginID: definition.ID, Scope: ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false), Payload: json.RawMessage(payload), CredentialRefs: json.RawMessage(tc.refs)}
 			err := ValidatePayload(t.Context(), definition, config, nil)
-			if !errors.Is(err, plugin.ErrInvalidConfig) || !contains(err.Error(), tc.wantError) {
+			if !errors.Is(err, ErrInvalidConfig) || !contains(err.Error(), tc.wantError) {
 				t.Fatalf("error = %v, want invalid config containing %q", err, tc.wantError)
 			}
 		})
@@ -216,14 +214,14 @@ func TestValidatePayloadRejectsSecretsUnknownFieldsAndBadRefs(t *testing.T) {
 
 func TestValidatePayloadChecksDisabledPayloadAndResetFields(t *testing.T) {
 	definition := testCLIDefinition(t)
-	disabled := plugin.Config{ID: "user", PluginID: definition.ID, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false), Payload: json.RawMessage(`{"unexpected":true}`)}
-	if err := ValidatePayload(t.Context(), definition, disabled, nil); !errors.Is(err, plugin.ErrInvalidConfig) {
+	disabled := Config{ID: "user", PluginID: definition.ID, Scope: ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false), Payload: json.RawMessage(`{"unexpected":true}`)}
+	if err := ValidatePayload(t.Context(), definition, disabled, nil); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("disabled malformed payload = %v, want invalid config", err)
 	}
-	if err := ValidatePayload(t.Context(), definition, plugin.Config{ID: "user", PluginID: definition.ID, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false), Payload: testUserPayload(t, "2.0.0")}, []string{"description"}); !errors.Is(err, plugin.ErrInvalidConfig) {
+	if err := ValidatePayload(t.Context(), definition, Config{ID: "user", PluginID: definition.ID, Scope: ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false), Payload: testUserPayload(t, "2.0.0")}, []string{"description"}); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("disabled unauthorized reset = %v, want invalid config", err)
 	}
-	var malformed cliPayload
+	var malformed ResourcePayload
 	if err := json.Unmarshal(definition.Spec, &malformed); err != nil {
 		t.Fatal(err)
 	}
@@ -233,12 +231,10 @@ func TestValidatePayloadChecksDisabledPayloadAndResetFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	definition.Spec = encoded
-	if err := ValidatePayload(t.Context(), definition, plugin.Config{ID: "negative", PluginID: definition.ID, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false)}, nil); !errors.Is(err, plugin.ErrInvalidConfig) {
+	if err := ValidatePayload(t.Context(), definition, Config{ID: "negative", PluginID: definition.ID, Scope: ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false)}, nil); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("nil payload with malformed definition = %v, want invalid config", err)
 	}
 }
-
-func boolPtr(value bool) *bool { return &value }
 
 func contains(value, want string) bool {
 	return strings.Contains(value, want)

@@ -23,7 +23,7 @@ const (
 )
 
 // ProviderFlowConfig holds the static configuration for one OAuth flow type
-// (authorization_code or device_code) read from manifest YAML.
+// (authorization_code or device_code) read from the OAuth resource YAML.
 type ProviderFlowConfig struct {
 	Type          string
 	AuthURL       string
@@ -34,8 +34,8 @@ type ProviderFlowConfig struct {
 }
 
 // ProviderConfig holds the static configuration for an OAuth provider read
-// from manifest YAML. ClientID and ClientSecret are YAML defaults; DB overrides
-// take precedence at flow-start time.
+// from the OAuth resource YAML. ClientID and ClientSecret are YAML defaults;
+// DB overrides take precedence at flow-start time.
 type ProviderConfig struct {
 	ID           string
 	Icon         string
@@ -47,7 +47,7 @@ type ProviderConfig struct {
 }
 
 // ProviderRegistry maps OAuth provider IDs to their static ProviderConfig.
-// It is populated from manifest oauth_providers at runtime.
+// It is populated from the OAuth resource providers at runtime.
 type ProviderRegistry struct {
 	mu          sync.RWMutex
 	entries     map[string]ProviderConfig
