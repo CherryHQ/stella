@@ -8,7 +8,7 @@ import (
 func TestBuiltinSkillsUseSequentialSessionSurface(t *testing.T) {
 	for _, logicalPath := range []string{
 		"skills/plugins/agent/recally/recally/references/rss-workflow.md",
-		"skills/core/skill-creator/SKILL.md",
+		"skills/plugins/agent/skill-creator/skill-creator/SKILL.md",
 	} {
 		text := readBuiltinSkillPath(t, logicalPath)
 		if !strings.Contains(text, "session_create") || !strings.Contains(strings.ToLower(text), "sequential") {

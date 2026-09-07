@@ -197,6 +197,12 @@ func Verify(plan RuntimePlan) error {
 			if !resource.Embedded {
 				continue
 			}
+			// Xberg is unsupported on Windows. Its declaration remains in the
+			// release catalog so skill availability can fail closed, but the
+			// platform must not require a nonexistent embedded asset.
+			if runtime.GOOS == "windows" && resource.Name == "xberg" {
+				continue
+			}
 			assetName := resource.Name
 			if resource.Name == "mise" && runtime.GOOS == "windows" {
 				assetName = "mise.exe"

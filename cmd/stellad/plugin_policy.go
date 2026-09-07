@@ -38,9 +38,6 @@ func validateCLIBackendPayload(ctx context.Context, def plugin.Definition, cfg p
 	if err := manifest.ValidatePayload(ctx, def, cfg, resets); err != nil {
 		return err
 	}
-	if manifest.IsSystemPlugin(def) {
-		return nil
-	}
 	reserved := make(map[string]struct{}, len(systemplugins.EmbeddedRuntimeResources()))
 	for _, resource := range systemplugins.EmbeddedRuntimeResources() {
 		reserved[resource.Name] = struct{}{}

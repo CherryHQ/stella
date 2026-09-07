@@ -81,7 +81,9 @@ Native 工具保留已注册的静态名称。
 
 CLI 集成可以包含二进制、Skills、环境声明和提示。CLI 版本与 Skill 来源是独立字段，
 更新一个不要求更新另一个。Manifest 只是发行输入的加载器，不再拥有独立权限规则。
-CLI 按选中的 snapshot 惰性安装，runner 需要时才物化，没有独立 sync endpoint。
+只有 mise 和 Xberg 是同步准备的内嵌发行运行时。其他 CLI，包括 fd 和 rg，
+都在后台预装和协调。Runner 从匹配缓存准备选中的 snapshot，缺失版本在对应
+沙箱边界内安装。
 
 Builtin Skill 的归属由发行包声明生成，用户 frontmatter 不能认领 owner。
 提示列表、搜索与直接加载都在选定资源后检查同一归属限制。
@@ -91,8 +93,10 @@ email、recally、scheduler 指南是位于 `plugins/agent/<name>/` 的标准 Ag
 禁用指南只隐藏它的 Skill，不改变对应 Native 能力。加载指南不会启用 Native 工具；
 指南的 compatibility 说明会指出，对应 Native 能力需要单独可用。
 
-其余内置包暂时沿用现有 YAML 声明。Web 当前归 Bun 所有，Python Script 归 uv 所有，
-禁用所属包会隐藏对应 Skill。Lightpanda 仅影响 Web 中的渲染能力，不影响普通抓取和搜索。
+所有内置 Agent 包使用 `plugins/agent/<name>/plugin.json`。Web 拥有自己的 Skill，
+并声明 Bun 与 Lightpanda；禁用独立的 Bun 包不会禁用 Web。Python Script 归 uv 所有。
+禁用包会隐藏该包控制的资源，但不删除共享的二进制缓存。Lightpanda 提供 Web 渲染，
+Bun 运行抓取与搜索脚本。
 
 每个 runner 只获得选中的 CLI 文件及入口。可信 system 安装的私有参数不进入 runner
 可读的文件系统；Docker 在现有工具缓存内按一个解析后的 image ID 和完整四层范围选择

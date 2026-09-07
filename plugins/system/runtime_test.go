@@ -7,37 +7,31 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
+	"github.com/CherryHQ/stella/resources/binaries"
 )
 
-func TestRuntimeResourcesMatchEverySystemPlugin(t *testing.T) {
+func TestRuntimeResourcesAreIndependentDeclarations(t *testing.T) {
 	resources := RuntimeResources()
-	catalog, err := manifest.LoadBuiltin()
-	if err != nil {
-		t.Fatal(err)
+	if len(resources) != len(binaries.KnownRuntimeNames()) {
+		t.Fatal("runtime declaration differs from immutable release command count")
 	}
-	wantCount := 0
-	for _, definition := range catalog.Plugins {
-		if definition.Kind != "system" {
-			continue
+	seen := make(map[string]struct{}, len(resources))
+	for _, resource := range resources {
+		if !slices.Contains(binaries.KnownRuntimeNames(), resource.Name) {
+			t.Fatalf("non-release command %q entered core", resource.Name)
 		}
-		for _, name := range definition.BundledBinaries {
-			wantCount++
-			if !slices.ContainsFunc(resources, func(r RuntimeResource) bool { return r.Name == name && r.Embedded }) {
-				t.Errorf("system plugin %s is missing embedded CLI %s", definition.ID, name)
-			}
+		if !resource.Embedded {
+			t.Fatalf("non-embedded runtime %q leaked into the immutable core map", resource.Name)
 		}
-		for _, binary := range definition.Binaries {
-			wantCount++
-			if !slices.ContainsFunc(resources, func(r RuntimeResource) bool {
-				return r.Name == binary.Name && r.MiseTool == binary.Tool && r.Version == binary.Version && !r.Embedded
-			}) {
-				t.Errorf("system plugin %s is missing reconciled CLI %s", definition.ID, binary.Name)
-			}
+		if _, exists := seen[resource.Name]; exists {
+			t.Fatalf("release runtime declaration duplicates %q", resource.Name)
 		}
+		seen[resource.Name] = struct{}{}
 	}
-	if len(resources) != wantCount || wantCount == 0 {
-		t.Fatalf("runtime resource count = %d, want %d from system plugins", len(resources), wantCount)
+	for _, embedded := range EmbeddedRuntimeResources() {
+		if !embedded.Embedded {
+			t.Fatalf("non-embedded resource %q returned by EmbeddedRuntimeResources", embedded.Name)
+		}
 	}
 	first := resources[0].Name
 	resources[0].Name = "mutated"

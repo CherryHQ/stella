@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-const siteScriptsSkillDir = "skills/core/web"
+const siteScriptsSkillDir = "skills/plugins/agent/web/web"
 
 var siteScriptMeta = regexp.MustCompile(`(?s)^\s*/\*\s*@meta\s*(\{.*?\})\s*\*/\s*async\s+function\b`)
 
@@ -214,7 +214,7 @@ func webSkillDir(t *testing.T) string {
 	if !ok {
 		t.Fatal("locate web skill")
 	}
-	return filepath.Join(filepath.Dir(filename), "..", "plugins", "tools", "bun", "skills", "web")
+	return filepath.Join(filepath.Dir(filename), "..", "plugins", "agent", "web", "skills", "web")
 }
 
 func builtinSkillFile(t *testing.T, skill BuiltinSkillDescriptor, name string) ([]byte, BuiltinSkillFile, error) {

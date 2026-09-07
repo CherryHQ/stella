@@ -205,12 +205,6 @@ func loadAgentPackage(root string) (*agentpackage.Package, error) {
 			return nil, fmt.Errorf("stat Agent package %q %s: %w", root, legacy, err)
 		}
 	}
-	if len(pkg.MCPServers) > 0 {
-		return nil, fmt.Errorf("agent package %q declares MCP servers; guide-only packages cannot declare runtime components", root)
-	}
-	if pkg.Extension != nil && (len(pkg.Extension.Binaries) > 0 || len(pkg.Extension.SessionEnv) > 0 || len(pkg.Extension.OAuth) > 0) {
-		return nil, fmt.Errorf("agent package %q declares Stella runtime requirements; guide-only packages cannot declare runtime components", root)
-	}
 	return pkg, nil
 }
 

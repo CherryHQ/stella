@@ -63,7 +63,7 @@ func Validate(m *Manifest) error {
 }
 
 // validatePlugins checks plugin declarations without requiring the provider
-// document. Generators use this for the separate plugin.yaml tree; Validate
+// document. Standard packages may contain metadata alone; Validate
 // passes the central provider index so the full manifest still checks refs.
 func validatePlugins(plugins []ManifestPlugin, providerIDs map[string]struct{}) []error {
 	var errs []error
@@ -71,7 +71,7 @@ func validatePlugins(plugins []ManifestPlugin, providerIDs map[string]struct{}) 
 		if p.ID == "" {
 			errs = append(errs, fmt.Errorf("plugin[%d]: id is required", i))
 		}
-		if len(p.Binaries) == 0 && len(p.BundledBinaries) == 0 && len(p.Skills) == 0 && len(p.SessionEnvs) == 0 && len(p.OAuth) == 0 && len(p.MCPServers) == 0 && p.Prompt == "" {
+		if p.Kind != "agent" && len(p.Binaries) == 0 && len(p.BundledBinaries) == 0 && len(p.Skills) == 0 && len(p.SessionEnvs) == 0 && len(p.OAuth) == 0 && len(p.MCPServers) == 0 && p.Prompt == "" {
 			errs = append(errs, fmt.Errorf("plugin %q: must have at least one of binaries, bundled_binaries, skills, session_env, oauth, mcp_servers, or prompt", p.ID))
 		}
 		for j, b := range p.Binaries {

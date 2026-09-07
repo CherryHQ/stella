@@ -97,9 +97,6 @@ func prepareBuiltinArtifacts(ctx context.Context, stellaHome string) error {
 		return fmt.Errorf("create builtin artifact directory: %w", err)
 	}
 	for _, plugin := range builtin.Plugins {
-		if plugin.Kind == "system" {
-			continue
-		}
 		for _, binary := range plugin.Binaries {
 			spec := pkgplugins.PluginBinarySpec{
 				Name: binary.Name, Tool: binary.Tool, Version: binary.Version, Options: binary.Options,

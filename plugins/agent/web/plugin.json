@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "web",
+  "version": "1.0.0",
+  "description": "Read public web pages and run site scripts through Stella's managed web tooling.",
+  "extensions": {
+    "com.cherryhq.stella": {
+      "version": "1",
+      "binaries": [
+        { "name": "bun", "tool": "bun" },
+        { "name": "lightpanda", "tool": "github:lightpanda-io/browser", "version": "nightly" }
+      ]
+    }
+  }
+}

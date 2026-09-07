@@ -269,6 +269,17 @@ func embeddedArchiveDigest(path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+// KnownRuntimeNames returns the immutable release command names, including
+// commands unavailable on this platform. Generation must not depend on its host.
+func KnownRuntimeNames() []string {
+	runtimes := knownRuntimes()
+	names := make([]string, 0, len(runtimes))
+	for _, runtime := range runtimes {
+		names = append(names, strings.TrimSuffix(runtime.name, ".exe"))
+	}
+	return names
+}
+
 func knownRuntimes() []embeddedRuntime {
 	mise := embeddedRuntime{name: "mise", archive: "mise.gz", extract: extractSingleFile}
 	if runtime.GOOS == "windows" {

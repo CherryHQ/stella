@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	builtinplugins "github.com/CherryHQ/stella/plugins"
 	"github.com/CherryHQ/stella/resources"
+	"github.com/CherryHQ/stella/resources/binaries"
 )
 
 func main() {
@@ -33,7 +34,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	builtinManifest, err := manifest.GenerateBuiltinPlugins(filepath.Join(root, "plugins"), nil, oauthProviderIDs)
+	builtinManifest, err := manifest.GenerateBuiltinPlugins(filepath.Join(root, "plugins"), binaries.KnownRuntimeNames(), oauthProviderIDs)
 	if err != nil {
 		fatal(err)
 	}
@@ -55,7 +56,7 @@ func main() {
 	if err := resources.WriteBuiltinManifestFromAssets(root, filepath.Join(root, "resources", "builtin_manifest_gen.go"), sources); err != nil {
 		fatal(err)
 	}
-	if err := manifest.WriteBuiltinPlugins(filepath.Join(root, "plugins"), filepath.Join(root, "resources", "builtin_plugins_gen.go"), nil, oauthProviderIDs); err != nil {
+	if err := manifest.WriteBuiltinPlugins(filepath.Join(root, "plugins"), filepath.Join(root, "resources", "builtin_plugins_gen.go"), binaries.KnownRuntimeNames(), oauthProviderIDs); err != nil {
 		fatal(err)
 	}
 	if err := writeSystemRuntimes(filepath.Join(root, "plugins", "system", "runtime_gen.go"), builtinManifest); err != nil {

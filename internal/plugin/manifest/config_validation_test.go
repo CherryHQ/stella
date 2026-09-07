@@ -33,15 +33,12 @@ func testCLIDefinition(t *testing.T) plugin.Definition {
 	}
 }
 
-func TestSystemPluginRuntimeOwnership(t *testing.T) {
+func TestBuiltinPackagePayloadsFollowScopes(t *testing.T) {
 	definitions, err := BuiltinDefinitions()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, definition := range definitions {
-		if !IsSystemPlugin(definition) {
-			continue
-		}
 		t.Run(definition.ID, func(t *testing.T) {
 			for _, scope := range []plugin.Scope{plugin.ScopeSystem, plugin.ScopeUser} {
 				config := plugin.Config{ID: "config", PluginID: definition.ID, Scope: scope, Revision: 1, Payload: definition.Spec}
@@ -53,43 +50,41 @@ func TestSystemPluginRuntimeOwnership(t *testing.T) {
 					if err := ValidatePayload(t.Context(), definition, config, nil); err != nil {
 						t.Fatalf("scope=%s enabled=%v: %v", scope, enabled, err)
 					}
-					payload, err := DecodeCLIPayload(definition.Spec, "test spec")
-					if err != nil {
-						t.Fatal(err)
-					}
-					payload.Binaries = []ManifestBinary{{Name: "replacement", Tool: "github:owner/replacement", Version: "1.0.0"}}
-					changed := config
-					changed.Payload, err = json.Marshal(payload)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if err := ValidatePayload(t.Context(), definition, changed, nil); !errors.Is(err, plugin.ErrInvalidConfig) {
-						t.Fatalf("scope=%s enabled=%v override accepted: %v", scope, enabled, err)
-					}
 				}
 			}
 		})
 	}
 }
 
-func TestSystemPluginIdentityCannotBeSpoofed(t *testing.T) {
-	definition := testCLIDefinition(t)
-	if IsSystemPlugin(definition) {
-		t.Fatal("editable category granted system runtime ownership")
+func TestValidatePayloadAllowsMetadataOnlyBuiltinWithoutRuntimeIdentity(t *testing.T) {
+	definition := plugin.Definition{
+		ID: "metadata-only", DisplayName: "Metadata only", Source: plugin.SourceBuiltin,
+		Spec: json.RawMessage(`{"description":"release metadata"}`), DefaultEnabled: true, Revision: 1,
 	}
-	definition.ID = "stella"
-	if !IsSystemPlugin(definition) {
-		t.Fatal("canonical builtin system CLI was not recognized")
+	config := plugin.Config{
+		ID: "config", PluginID: definition.ID, Scope: plugin.ScopeSystem,
+		Enabled: boolPtr(true), Payload: definition.Spec, Revision: 1,
 	}
-	for _, mutate := range []func(*plugin.Definition){
-		func(d *plugin.Definition) { d.Source = plugin.SourceCustom },
-		func(d *plugin.Definition) { d.ID = "other" },
-	} {
-		spoof := definition
-		mutate(&spoof)
-		if IsSystemPlugin(spoof) {
-			t.Fatalf("spoofed definition granted system runtime ownership: %+v", spoof)
-		}
+	if err := ValidatePayload(t.Context(), definition, config, nil); err != nil {
+		t.Fatalf("metadata-only package: %v", err)
+	}
+	config.Payload = json.RawMessage(`{"description":"release metadata","binaries":[{"name":"unexpected","tool":"uv","version":"1"}]}`)
+	if err := ValidatePayload(t.Context(), definition, config, nil); !errors.Is(err, plugin.ErrInvalidConfig) {
+		t.Fatalf("metadata-only binary injection = %v, want invalid config", err)
+	}
+}
+
+func TestValidatePayloadAllowsCustomEmptyDefinitionWithCLIConfig(t *testing.T) {
+	definition := plugin.Definition{
+		ID: "custom-cli", DisplayName: "Custom CLI", Source: plugin.SourceCustom,
+		Spec: json.RawMessage(`{}`), Revision: 1,
+	}
+	config := plugin.Config{
+		ID: "config", PluginID: definition.ID, Scope: plugin.ScopeSystem,
+		Enabled: boolPtr(true), Payload: json.RawMessage(`{"binaries":[{"name":"custom","tool":"uv","version":"1"}]}`), Revision: 1,
+	}
+	if err := ValidatePayload(t.Context(), definition, config, nil); err != nil {
+		t.Fatalf("custom CLI config: %v", err)
 	}
 }
 

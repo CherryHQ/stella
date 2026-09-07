@@ -123,7 +123,7 @@ func TestDiscoverReadsStandardAgentPackageSkills(t *testing.T) {
 	}
 }
 
-func TestDiscoverRejectsAgentPackageRuntimeAndLegacyComponents(t *testing.T) {
+func TestDiscoverRejectsAgentPackageLegacyComponents(t *testing.T) {
 	tests := []struct {
 		name string
 		file string
@@ -131,8 +131,6 @@ func TestDiscoverRejectsAgentPackageRuntimeAndLegacyComponents(t *testing.T) {
 	}{
 		{name: "legacy assets", file: "assets.yaml", want: "cannot also contain assets.yaml"},
 		{name: "legacy plugin", file: "plugin.yaml", want: "cannot also contain plugin.yaml"},
-		{name: "MCP", file: "mcp.json", want: "declares MCP servers"},
-		{name: "Stella extension", want: "declares Stella runtime requirements"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -142,19 +140,10 @@ func TestDiscoverRejectsAgentPackageRuntimeAndLegacyComponents(t *testing.T) {
 				t.Fatal(err)
 			}
 			manifest := `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"demo"}`
-			switch test.name {
-			case "MCP":
-				manifest = `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"demo"}`
-				if err := os.WriteFile(filepath.Join(root, "mcp.json"), []byte(`{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"remote":{"type":"sse","url":"https://mcp.example.test/sse"}}}`), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			case "Stella extension":
-				manifest = `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"demo","extensions":{"com.cherryhq.stella":{"version":"1","binaries":[{"name":"bun","tool":"mise","version":"1.2.3"}]}}}`
-			}
 			if err := os.WriteFile(filepath.Join(root, "plugin.json"), []byte(manifest), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if test.file != "" && test.name != "MCP" {
+			if test.file != "" {
 				if err := os.WriteFile(filepath.Join(root, test.file), []byte("assets: []\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
@@ -163,5 +152,29 @@ func TestDiscoverRejectsAgentPackageRuntimeAndLegacyComponents(t *testing.T) {
 				t.Fatalf("discover error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestDiscoverAcceptsSkillsWithRuntimeRequirements(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "demo")
+	if err := os.MkdirAll(filepath.Join(root, "skills", "demo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"plugin.json":          `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"demo","extensions":{"com.cherryhq.stella":{"version":"1","binaries":[{"name":"bun","tool":"bun"}],"oauth":[{"provider":"github","bindings":[{"credential":"access_token","env_var":"GH_TOKEN"}]}]}}}`,
+		"mcp.json":             `{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"remote":{"type":"streamable-http","url":"https://mcp.example.test/mcp"}}}`,
+		"skills/demo/SKILL.md": "---\nname: demo\ndescription: Demo skill\n---\n",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pkg, err := loadAgentPackage(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pkg.Skills) != 1 || len(pkg.MCPServers) != 1 || pkg.Extension == nil || len(pkg.Extension.Binaries) != 1 || len(pkg.Extension.OAuth) != 1 {
+		t.Fatalf("lost composed resources: %+v", pkg)
 	}
 }

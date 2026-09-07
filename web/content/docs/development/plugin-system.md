@@ -108,8 +108,10 @@ not revoke an existing OAuth grant or erase a previously loaded Skill.
 A CLI integration can contain binaries, Skills, environment declarations and
 prompt guidance. A CLI version pin and a Skill source are independent fields;
 changing one need not change the other. The manifest is a release input loader,
-not a separate permission system. CLI installation is lazy: a runner materializes
-the selected snapshot when it needs it, and there is no standalone sync endpoint.
+not a separate permission system. Only mise and Xberg are embedded release
+runtimes prepared synchronously. Other CLIs, including fd and rg, are preinstalled
+and reconciled in the background. A runner prepares its selected snapshot from
+matching cached artifacts, installing missing versions within its sandbox boundary.
 
 Builtin Skill ownership is generated from the release package declarations.
 User frontmatter cannot claim an owner. Prompt listing, search and direct loading
@@ -122,10 +124,11 @@ Disabling a guide hides its Skill without changing the corresponding Native
 capability. Loading a guide does not enable Native tools; its compatibility text
 states that the Native capability must be available separately.
 
-The remaining shipped packages still use their existing YAML declarations.
-Web currently belongs to Bun and Python Script to uv; disabling the owning
-package suppresses its Skill. Lightpanda affects rendering within Web, not plain
-fetch or search.
+All shipped Agent packages use `plugins/agent/<name>/plugin.json`. Web owns its
+Skill and declares both Bun and Lightpanda; disabling the separate Bun package
+does not disable Web. Python Script belongs to uv. Disabling a package suppresses
+its controlled resources but does not delete shared cached binaries. Lightpanda
+provides rendering within Web, while Bun runs its fetch and search scripts.
 
 Each runner receives only the selected CLI artifacts and their entry points.
 Trusted system installations keep private options out of the runner filesystem;

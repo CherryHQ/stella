@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -144,11 +145,19 @@ func loadAgentPlugin(root, relative string) (rawManifestPlugin, error) {
 		}
 	}
 	enabled := true
+	displayName := pkg.Manifest.Name
+	prompt := ""
+	if pkg.Extension != nil {
+		if pkg.Extension.DisplayName != "" {
+			displayName = pkg.Extension.DisplayName
+		}
+		prompt = pkg.Extension.Prompt
+	}
 	result := rawManifestPlugin{
 		ID: pkg.Manifest.Name, Kind: "agent", Enabled: &enabled,
 		ManifestPluginDefinition: ManifestPluginDefinition{
-			Name: pkg.Manifest.Name, DisplayName: pkg.Manifest.Name,
-			Description: pkg.Manifest.Description,
+			Name: pkg.Manifest.Name, DisplayName: displayName,
+			Description: pkg.Manifest.Description, Prompt: prompt,
 		},
 	}
 	if pkg.Extension != nil {
@@ -171,6 +180,9 @@ func loadAgentPlugin(root, relative string) (rawManifestPlugin, error) {
 				})
 			}
 			result.OAuth = append(result.OAuth, converted)
+		}
+		if len(result.OAuth) == 1 {
+			result.OAuthProvider = result.OAuth[0].Provider
 		}
 	}
 	for _, server := range pkg.MCPServers {
@@ -281,22 +293,9 @@ func validateBuiltinPlugins(plugins []ManifestPlugin, reservedRuntimeNames, oaut
 	}
 	seenIDs := make(map[string]struct{}, len(plugins))
 	seenResources := make(map[string]string)
-	reservedIDs := make(map[string]struct{}, len(reservedRuntimeNames))
+	seenBinaries := make(map[string]ManifestBinary)
 	reservedBinaryNames := make(map[string]struct{}, len(reservedRuntimeNames))
-	for _, plugin := range plugins {
-		if plugin.Kind != "system" {
-			continue
-		}
-		for _, binary := range plugin.Binaries {
-			reservedRuntimeNames = append(reservedRuntimeNames, binary.Name)
-			if binary.Version == "" || binary.Version == "latest" {
-				return fmt.Errorf("system plugin %q binary %q must pin a release version", plugin.ID, binary.Name)
-			}
-		}
-		reservedRuntimeNames = append(reservedRuntimeNames, plugin.BundledBinaries...)
-	}
 	for _, name := range reservedRuntimeNames {
-		reservedIDs[name] = struct{}{}
 		reservedBinaryNames[name] = struct{}{}
 	}
 	for _, plugin := range plugins {
@@ -306,22 +305,18 @@ func validateBuiltinPlugins(plugins []ManifestPlugin, reservedRuntimeNames, oaut
 		if plugin.ID != plugin.Name {
 			return fmt.Errorf("builtin plugin %q must use canonical bare ID %s", plugin.ID, plugin.Name)
 		}
-		if plugin.Kind != "system" {
-			if _, reserved := reservedIDs[plugin.ID]; reserved {
-				return fmt.Errorf("builtin plugin %q uses reserved core ID %q", plugin.ID, plugin.ID)
-			}
-		}
 		if _, exists := seenIDs[plugin.ID]; exists {
 			return fmt.Errorf("duplicate builtin plugin ID %q", plugin.ID)
 		}
 		seenIDs[plugin.ID] = struct{}{}
 		for _, binary := range plugin.Binaries {
-			if _, reserved := reservedBinaryNames[binary.Name]; reserved && plugin.Kind != "system" {
+			if _, reserved := reservedBinaryNames[binary.Name]; reserved {
 				return fmt.Errorf("builtin plugin %q uses reserved core binary name %q", plugin.ID, binary.Name)
 			}
-			if previous, exists := seenResources["binary:"+binary.Name]; exists {
-				return fmt.Errorf("duplicate builtin plugin resource binary %q in %q and %q", binary.Name, previous, plugin.ID)
+			if previous, exists := seenBinaries[binary.Name]; exists && !reflect.DeepEqual(previous, binary) {
+				return fmt.Errorf("conflicting builtin plugin resource binary %q in %q and %q", binary.Name, seenResources["binary:"+binary.Name], plugin.ID)
 			}
+			seenBinaries[binary.Name] = binary
 			seenResources["binary:"+binary.Name] = plugin.ID
 		}
 		for _, name := range plugin.BundledBinaries {

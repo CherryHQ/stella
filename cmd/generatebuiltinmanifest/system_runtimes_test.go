@@ -6,30 +6,31 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
+	"github.com/CherryHQ/stella/resources/binaries"
 )
 
-func TestSystemRuntimeGenerationIncludesDisabledAndNewCLIs(t *testing.T) {
+func TestSystemRuntimeGenerationUsesOnlyImmutableReleaseCommands(t *testing.T) {
 	catalog := &manifest.Manifest{Plugins: []manifest.ManifestPlugin{
-		{ID: "system/new-cli", Kind: "system", Enabled: false, ManifestPluginDefinition: manifest.ManifestPluginDefinition{
-			Binaries: []manifest.ManifestBinary{{Name: "new-cli", Tool: "github:example/new-cli", Version: "1.2.3", Options: map[string]any{"exe": "real-cli"}}},
-			Skills:   []manifest.ManifestSkill{{Name: "one"}, {Name: "two"}},
-		}},
-		{ID: "system/embedded", Kind: "system", Enabled: false, BundledBinaries: []string{"embedded"}},
-		{ID: "tool/optional", Kind: "tool", Enabled: true, ManifestPluginDefinition: manifest.ManifestPluginDefinition{
-			Binaries: []manifest.ManifestBinary{{Name: "optional", Tool: "optional"}},
-		}},
+		{ID: "fd", Kind: "system", Enabled: true, ManifestPluginDefinition: manifest.ManifestPluginDefinition{Binaries: []manifest.ManifestBinary{{Name: "fd", Tool: "github:sharkdp/fd", Version: "10.4.2"}}}},
+		{ID: "injected", Kind: "system", Enabled: true, BundledBinaries: []string{"injected"}},
+		{ID: "xberg", Kind: "agent", Enabled: false, ManifestPluginDefinition: manifest.ManifestPluginDefinition{Skills: []manifest.ManifestSkill{{Name: "xberg"}}}},
 	}}
 	before, err := renderSystemRuntimes(catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`Name: "new-cli"`, `MiseTool: "github:example/new-cli"`, `Version: "1.2.3"`, `"exe": "real-cli"`, `"builtin:one", "builtin:two"`, `Name: "embedded", Embedded: true`} {
-		if !strings.Contains(string(before), want) {
-			t.Errorf("runtime projection missing %s", want)
+	for _, name := range binaries.KnownRuntimeNames() {
+		if !strings.Contains(string(before), `Name: "`+name+`", Embedded: true`) {
+			t.Fatalf("missing embedded release command %s", name)
 		}
 	}
-	if strings.Contains(string(before), `Name: "optional"`) {
-		t.Fatal("optional CLI entered the required runtime projection")
+	for _, name := range []string{"fd", "injected"} {
+		if strings.Contains(string(before), `Name: "`+name+`"`) {
+			t.Fatalf("authored command %s changed the embedded release map", name)
+		}
+	}
+	if !strings.Contains(string(before), `"builtin:xberg"`) {
+		t.Fatal("lost Xberg skill platform restriction")
 	}
 	for i := range catalog.Plugins {
 		catalog.Plugins[i].Enabled = !catalog.Plugins[i].Enabled
@@ -39,6 +40,6 @@ func TestSystemRuntimeGenerationIncludesDisabledAndNewCLIs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(before, after) {
-		t.Fatal("plugin enablement changed the required runtime projection")
+		t.Fatal("plugin enablement changed the embedded release map")
 	}
 }

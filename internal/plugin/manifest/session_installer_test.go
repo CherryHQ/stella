@@ -169,6 +169,17 @@ func TestContextBinaryInstallRejectsConflictingMiseToolSelections(t *testing.T) 
 	}
 }
 
+func TestRenderMiseTOMLDeduplicatesIdenticalMiseToolSelections(t *testing.T) {
+	tool := miseTool{Key: "bun", Version: "1.3.14", Lookup: "bun", PublicName: "bun"}
+	got, err := renderMiseTOML([]miseTool{tool, tool})
+	if err != nil {
+		t.Fatalf("renderMiseTOML: %v", err)
+	}
+	if strings.Count(got, "bun =") != 1 {
+		t.Fatalf("duplicate bun declaration was not collapsed: %q", got)
+	}
+}
+
 func TestInstallContextBinariesUsesSelectionLocalConfigAndShims(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake mise script uses POSIX shell")

@@ -22,7 +22,7 @@ import (
 	"github.com/CherryHQ/stella/resources"
 )
 
-func TestSystemCLIResourcesStayOutsideScopedSelections(t *testing.T) {
+func TestEmbeddedCompanionPackagesHaveNoScopedBinaries(t *testing.T) {
 	db := dbtest.New(t)
 	definitions, err := manifest.BuiltinDefinitions()
 	if err != nil {
@@ -33,7 +33,7 @@ func TestSystemCLIResourcesStayOutsideScopedSelections(t *testing.T) {
 	catalog := plugin.NewCatalog()
 	var systemIDs []string
 	for _, definition := range definitions {
-		if !manifest.IsSystemPlugin(definition) {
+		if !slices.Contains([]string{"mise", "xberg", "stella"}, definition.ID) {
 			continue
 		}
 		if err := catalog.Register(definition); err != nil {
@@ -221,6 +221,53 @@ func TestAgentGuideVisibilityIsIndependentFromNativeAdmission(t *testing.T) {
 	if err != nil || !allowed {
 		t.Fatalf("native policy changed after email Agent disable = %v, %v", allowed, err)
 	}
+}
+
+func TestWebAgentRetainsSkillAndBinariesWhenBunAgentIsDisabled(t *testing.T) {
+	db := dbtest.New(t)
+	definitions, err := manifest.BuiltinDefinitions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := plugin.NewCatalog()
+	for _, definition := range definitions {
+		if err := catalog.Register(definition); err != nil {
+			t.Fatal(err)
+		}
+		insertDefinition(t, db, definition)
+	}
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Transition: noopBackendTransition}, inlinePluginMutationFence)
+	if err := service.SyncBuiltinDefaults(t.Context()); err != nil {
+		t.Fatalf("SyncBuiltinDefaults: %v", err)
+	}
+	if _, err := db.Exec(t.Context(), `UPDATE plugin_config SET enabled = FALSE, revision = revision + 1 WHERE plugin_id = 'bun'`); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := authz.NewUserAuthority("10000000-0000-0000-0000-000000000094", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := service.ResolveSnapshot(t.Context(), authority, "")
+	if err != nil {
+		t.Fatalf("ResolveSnapshot: %v", err)
+	}
+	view, err := pluginhost.New(nil).SessionPluginView(snapshot)
+	if err != nil {
+		t.Fatalf("SessionPluginView: %v", err)
+	}
+	if slices.Contains(view.ExposedPluginIDs, "bun") || !slices.Contains(view.ExposedPluginIDs, "web") {
+		t.Fatalf("bun/web exposure = %v, want bun hidden and web exposed", view.ExposedPluginIDs)
+	}
+	var names []string
+	for _, spec := range view.BinarySpecs {
+		if spec.PluginID == "web" {
+			names = append(names, spec.Name)
+		}
+	}
+	if !slices.Equal(names, []string{"bun", "lightpanda"}) {
+		t.Fatalf("web binaries = %v, want bun and lightpanda", names)
+	}
+	assertBuiltinGuides(t, view, true)
 }
 
 func assertNoNativeIDs(t *testing.T, view pkgplugins.SessionPluginView) {

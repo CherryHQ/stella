@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"slices"
 	"strings"
 	"unicode"
 
@@ -45,10 +44,9 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 	}
 	// A nil config payload is still checked against the release resource
 	// contract. Only the selected config's completeness is suppressed by false.
-	embedded := IsEmbeddedSystemPlugin(definition)
 	// Custom definitions may leave all resources to their scoped configs,
 	// including an empty MCP set after the last child is removed.
-	allowEmpty := embedded || definition.Source == plugin.SourceCustom
+	allowEmpty := definition.Source == plugin.SourceCustom || payloadHasNoResources(shipped)
 	if err := validateResources(shipped, "definition spec", true, allowEmpty); err != nil {
 		return err
 	}
@@ -62,8 +60,8 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 	if err != nil {
 		return err
 	}
-	if embedded && !slices.EqualFunc(resolved.Binaries, shipped.Binaries, func(a, b ManifestBinary) bool { return reflect.DeepEqual(a, b) }) {
-		return invalidPayload("system CLI binaries are release-owned and cannot be overridden")
+	if definition.Source == plugin.SourceBuiltin && payloadHasNoResources(shipped) && len(resolved.Binaries) > 0 {
+		return invalidPayload("a metadata-only package cannot add CLI binaries")
 	}
 	complete := definition.DefaultEnabled
 	if config.Enabled != nil {
@@ -81,6 +79,12 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 		}
 	}
 	return nil
+}
+
+func payloadHasNoResources(payload cliPayload) bool {
+	return len(payload.Binaries) == 0 && len(payload.Skills) == 0 &&
+		len(payload.SessionEnvs) == 0 && len(payload.OAuth) == 0 &&
+		len(payload.MCPServers) == 0 && payload.Prompt == ""
 }
 
 // cliPayload intentionally mirrors only the fields projected by

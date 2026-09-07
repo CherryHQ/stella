@@ -141,10 +141,12 @@ type OAuthBinding struct {
 // requirements and presentation only. It has no field for executable code,
 // native implementations, secrets, or scoped database state.
 type StellaExtension struct {
-	Version    string
-	Binaries   []BinaryRequirement
-	SessionEnv []SessionEnvRequirement
-	OAuth      []OAuthRequirement
+	Version     string
+	DisplayName string
+	Prompt      string
+	Binaries    []BinaryRequirement
+	SessionEnv  []SessionEnvRequirement
+	OAuth       []OAuthRequirement
 }
 
 // Load reads a package using client-tolerant semantics. Fatal package issues
@@ -816,7 +818,7 @@ func parseStellaExtension(data json.RawMessage, strict bool, diagnostics *Diagno
 		diagnostics.add(componentSeverity(strict), "extension.invalid", "plugin.json", "Stella extension must be an object and is ignored")
 		return nil
 	}
-	known := map[string]bool{"version": true, "binaries": true, "session_env": true, "oauth": true}
+	known := map[string]bool{"version": true, "display_name": true, "prompt": true, "binaries": true, "session_env": true, "oauth": true}
 	for key := range values {
 		if !known[key] {
 			severity := SeverityWarning
@@ -830,6 +832,12 @@ func parseStellaExtension(data json.RawMessage, strict bool, diagnostics *Diagno
 	if err := unmarshalField(values, "version", &extension.Version); err != nil || extension.Version != StellaExtensionV1 {
 		diagnostics.add(componentSeverity(strict), "extension.version", "plugin.json", "Stella extension version is unsupported or missing; want %q", StellaExtensionV1)
 		return nil
+	}
+	for key, target := range map[string]any{"display_name": &extension.DisplayName, "prompt": &extension.Prompt} {
+		if raw, exists := values[key]; exists && (isJSONNull(raw) || unmarshalField(values, key, target) != nil) {
+			diagnostics.add(componentSeverity(strict), "extension.field", "plugin.json", "Stella extension %s must be a string", key)
+			return nil
+		}
 	}
 	if raw, exists := values["binaries"]; exists && (validateArrayObjects(raw, map[string]bool{"name": true, "tool": true, "version": true, "options": true}) != nil || json.Unmarshal(raw, &extension.Binaries) != nil) {
 		diagnostics.add(componentSeverity(strict), "extension.binaries", "plugin.json", "invalid Stella binaries declaration; extension is ignored")

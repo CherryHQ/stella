@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,7 +27,7 @@ session_env:
     source: oauth.access_token
 `
 
-var testReservedRuntimeNames = []string{"mise", "xberg", "fd", "rg"}
+var testReservedRuntimeNames = []string{"mise", "xberg"}
 
 func TestGenerateBuiltinPluginsNestedMovePreservesBytesAndIdentity(t *testing.T) {
 	root := t.TempDir()
@@ -203,7 +204,6 @@ func TestGenerateBuiltinPluginsRejectsCoreIDsAndReleaseFields(t *testing.T) {
 		content string
 		want    string
 	}{
-		{name: "reserved core ID", content: strings.Replace(strings.Replace(testBuiltinPluginYAML, "id: demo", "id: rg", 1), "name: demo\n", "name: rg\n", 1), want: "reserved core ID"},
 		{name: "essential", content: testBuiltinPluginYAML + "essential: false\n", want: "cannot declare essential"},
 		{name: "empty bundled binaries", content: testBuiltinPluginYAML + "bundled_binaries: []\n", want: "bundled_binaries require kind system"},
 	} {
@@ -238,5 +238,43 @@ func writeBuiltinPlugin(t *testing.T, root, relative, content string) {
 	}
 	if err := os.WriteFile(filename, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGenerateBuiltinPluginsSharesOnlyIdenticalCLIRequirements(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*ManifestBinary)
+	}{
+		{name: "identical"},
+		{name: "source", change: func(b *ManifestBinary) { b.Tool = "npm:bun" }},
+		{name: "version", change: func(b *ManifestBinary) { b.Version = "2" }},
+		{name: "options", change: func(b *ManifestBinary) { b.Options = map[string]any{"bin_path": "other"} }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			for _, name := range []string{"bun", "web"} {
+				binary := ManifestBinary{Name: "bun", Tool: "bun", Version: "1", Options: map[string]any{"bin_path": "bin"}}
+				if name == "web" && test.change != nil {
+					test.change(&binary)
+				}
+				descriptor, err := json.Marshal(map[string]any{"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", "name": name, "extensions": map[string]any{"com.cherryhq.stella": map[string]any{"version": "1", "binaries": []ManifestBinary{binary}}}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeBuiltinPlugin(t, root, "agent/"+name+"/plugin.json", string(descriptor))
+			}
+			catalog, err := GenerateBuiltinPlugins(root, testReservedRuntimeNames, nil)
+			if test.change == nil {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(catalog.Plugins) != 2 {
+					t.Fatalf("got %d packages, want both owners", len(catalog.Plugins))
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "conflicting builtin plugin resource binary") {
+				t.Fatalf("got %v, want conflicting binary rejection", err)
+			}
+		})
 	}
 }

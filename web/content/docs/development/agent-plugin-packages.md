@@ -30,11 +30,13 @@ Stella-specific declarations live under
 `plugin.json.extensions["com.cherryhq.stella"]` and require an explicit
 extension `version`. The supported declaration groups are:
 
-| Field         | Meaning                                                                                                                                                                  |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `binaries`    | Public command, installer/tool, optional version, and installer options.                                                                                                 |
-| `session_env` | Runtime variable, public source identifier, and whether the binding is required.                                                                                         |
-| `oauth`       | Public provider identifier, requested scopes, and credential-to-environment bindings. Connection bindings are not supported; configure MCP authentication on each child. |
+| Field          | Meaning                                                                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `display_name` | Optional public label shown in the Web UI.                                                                                                                               |
+| `prompt`       | Optional public guidance included for a selected package.                                                                                                                |
+| `binaries`     | Public command, installer/tool, optional version, and installer options.                                                                                                 |
+| `session_env`  | Runtime variable, public source identifier, and whether the binding is required.                                                                                         |
+| `oauth`        | Public provider identifier, requested scopes, and credential-to-environment bindings. Connection bindings are not supported; configure MCP authentication on each child. |
 
 The extension `version` is currently exactly `"1"`. A Skill's standard
 `compatibility` field can describe an environment or native-capability need in

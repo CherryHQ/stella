@@ -325,9 +325,9 @@ names).
 Tool names are strings in places no compiler checks. When you add, rename or
 remove one, walk this list:
 
-- `plugins/<category>/<plugin>/skills/<skill>/SKILL.md` — examples must use real names and
+- `plugins/agent/<plugin>/skills/<skill>/SKILL.md` — examples must use real names and
   real fields.
-- `plugins/system/stella/skills/stella/SKILL.md` — the tool inventory.
+- `plugins/agent/stella/skills/stella/SKILL.md` — the tool inventory.
 - `internal/agent/prompt/template/system_prompt.tmpl`.
 - Scheduler built-in job templates, which name tools in their prompts.
 - `web/content/docs/development/architecture.md` (EN + ZH) tool tables.

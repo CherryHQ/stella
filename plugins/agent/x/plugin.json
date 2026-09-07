@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "x",
+  "version": "1.0.0",
+  "description": "X API integration with OAuth 2.0-backed session auth.",
+  "extensions": {
+    "com.cherryhq.stella": {
+      "version": "1",
+      "display_name": "X (Twitter)",
+      "session_env": [{ "env_var": "X_ACCESS_TOKEN", "source": "oauth.access_token" }],
+      "oauth": [{ "provider": "x", "bindings": [{ "credential": "access_token", "env_var": "X_ACCESS_TOKEN" }] }]
+    }
+  }
+}

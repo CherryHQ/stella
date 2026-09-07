@@ -55,6 +55,7 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/version"
 	"github.com/CherryHQ/stella/internal/plugin"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
@@ -755,6 +756,17 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 
 	backgroundTasks := &sync.WaitGroup{}
+
+	// Warm the release cache without delaying admission. A session still
+	// publishes only its authorized snapshot, and shutdown cancels and joins us.
+	backgroundTasks.Go(func() {
+		catalog, err := manifest.LoadBuiltin()
+		if err != nil {
+			slog.Error("load Agent package preinstallation catalog", "error", err)
+			return
+		}
+		manifest.Reconcile(parent, catalog, config.StellaHome())
+	})
 
 	reconcileProjectCoordinatesInBackground(parent, backgroundTasks, homeRegistry)
 	// Close runtime entry points before setup returns and traffic can beat the

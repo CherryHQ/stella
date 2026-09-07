@@ -3,7 +3,6 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
-	"sync"
 
 	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
@@ -44,43 +43,4 @@ func BuiltinDefinitions() ([]plugin.Definition, error) {
 		definitions = append(definitions, definition)
 	}
 	return definitions, nil
-}
-
-var builtinSystemPluginIDs struct {
-	sync.Once
-	ids map[string]struct{}
-}
-
-// IsSystemPlugin identifies a release-owned system CLI definition by the
-// immutable shipped declaration. A bare canonical ID carries no installation
-// mode information, so neither its spelling nor editable config can classify it.
-func IsSystemPlugin(definition plugin.Definition) bool {
-	if definition.Source != plugin.SourceBuiltin {
-		return false
-	}
-	builtinSystemPluginIDs.Do(func() {
-		builtinSystemPluginIDs.ids = make(map[string]struct{})
-		builtin, err := LoadBuiltin()
-		if err != nil {
-			return
-		}
-		for _, authored := range builtin.Plugins {
-			if authored.Kind == "system" {
-				builtinSystemPluginIDs.ids[authored.ID] = struct{}{}
-			}
-		}
-	})
-	_, ok := builtinSystemPluginIDs.ids[definition.ID]
-	return ok
-}
-
-// IsEmbeddedSystemPlugin identifies the two release-owned runtimes whose
-// package metadata may be empty because their executable and skill assets are
-// supplied by the immutable release. Mise-managed CLIs such as fd and rg are
-// ordinary Agent package binaries and must follow the normal installer path.
-func IsEmbeddedSystemPlugin(definition plugin.Definition) bool {
-	if definition.Source != plugin.SourceBuiltin {
-		return false
-	}
-	return definition.ID == "mise" || definition.ID == "xberg"
 }

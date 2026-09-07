@@ -242,6 +242,8 @@ func TestStellaExtensionIsDeclarationsOnly(t *testing.T) {
   "extensions": {
     "com.cherryhq.stella": {
       "version": "1",
+      "display_name": "Stella declarations",
+      "prompt": "Use the declared runtime safely.",
       "binaries": [{"name":"bun","tool":"mise","version":"1.2.3","options":{"channel":"stable"}}],
       "session_env": [{"env_var":"GH_TOKEN","source":"oauth.github","required":true}],
       "oauth": [{"provider":"github","scopes":["repo"],"bindings":[{"credential":"access_token","env_var":"GH_TOKEN"}]}]
@@ -252,7 +254,7 @@ func TestStellaExtensionIsDeclarationsOnly(t *testing.T) {
 	if pkg == nil || pkg.Extension == nil || diagnostics.HasErrors() {
 		t.Fatalf("package=%#v diagnostics=%+v", pkg, diagnostics)
 	}
-	if len(pkg.Extension.Binaries) != 1 || len(pkg.Extension.OAuth) != 1 {
+	if pkg.Extension.DisplayName != "Stella declarations" || pkg.Extension.Prompt == "" || len(pkg.Extension.Binaries) != 1 || len(pkg.Extension.OAuth) != 1 {
 		t.Fatalf("Stella extension = %#v", pkg.Extension)
 	}
 	if got := strings.Join([]string{pkg.Extension.Binaries[0].Name, pkg.Extension.SessionEnv[0].EnvVar}, ":"); got != "bun:GH_TOKEN" {

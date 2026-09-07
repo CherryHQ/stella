@@ -76,9 +76,10 @@ one row:
    twenty packages and imports twenty-five, the types other packages actually
    need belong in `internal/core`, not in `A/<leaf>`.
 
-`plugins/system` prepares every CLI declared by release-owned system plugins,
-independently of their configurable capability enablement. Each plugin owns its
-CLI and skill declarations; generation projects the required runtime catalog.
+`plugins/system` prepares mise and Xberg from the immutable embedded release
+resources, independently of Agent Plugin enablement. Every other CLI, including
+fd and rg, belongs to a standard Agent package and uses background installation
+and snapshot selection. Package declarations never grant embedded status.
 The runtime package may import only the exact repository packages
 `internal/plugin/manifest` (shared installation primitives) and
 `resources/binaries` (embedded assets); its tests may also read `resources`.

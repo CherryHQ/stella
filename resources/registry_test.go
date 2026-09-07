@@ -56,7 +56,7 @@ func TestDefaultLoadsBuiltinResources(t *testing.T) {
 		"scheduler":     {},
 		"stella":        {},
 		"xberg":         {},
-		"bun":           {},
+		"web":           {},
 		"lark-cli":      {},
 		"html-artifact": {},
 		"skill-creator": {},
