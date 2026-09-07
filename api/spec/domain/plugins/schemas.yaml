@@ -54,10 +54,10 @@ components:
       required: [
         id,
         display_name,
-        backend,
         is_builtin,
         is_default_enabled,
         spec,
+        resource_summary,
         revision,
         created_at,
         updated_at,
@@ -65,13 +65,14 @@ components:
       properties:
         id: { type: string }
         display_name: { type: string }
-        backend: { type: string, enum: [cli, mcp] }
         is_builtin: { type: boolean, readOnly: true }
         is_default_enabled: { type: boolean, readOnly: true }
         spec:
           type: object
           additionalProperties: true
-          description: Safe non-secret resource summaries. Private endpoints and credentials are omitted.
+          description: Safe package metadata. Private endpoints and credentials are omitted.
+        resource_summary:
+          $ref: "#/components/schemas/PluginResourceSummary"
         revision: { type: integer, format: int64, readOnly: true }
         created_at: { type: string, format: date-time, readOnly: true }
         updated_at: { type: string, format: date-time, readOnly: true }
@@ -92,7 +93,7 @@ components:
         plugin_id,
         scope,
         is_enabled,
-        backend_summary,
+        resource_summary,
         revision,
         created_at,
         updated_at,
@@ -104,31 +105,22 @@ components:
         user_id: { type: string, format: uuid, readOnly: true }
         agent_id: { type: string }
         is_enabled: { type: boolean, nullable: true }
-        backend_summary:
-          oneOf:
-            - $ref: "#/components/schemas/PluginCLIBackendSummary"
-            - $ref: "#/components/schemas/PluginMCPBackendSummary"
-          discriminator:
-            propertyName: backend
-            mapping:
-              cli: "#/components/schemas/PluginCLIBackendSummary"
-              mcp: "#/components/schemas/PluginMCPBackendSummary"
-          description: Typed non-secret backend summary. Raw backend payload and credential references are never returned.
+        resource_summary:
+          $ref: "#/components/schemas/PluginResourceSummary"
         revision: { type: integer, format: int64, readOnly: true }
         created_at: { type: string, format: date-time, readOnly: true }
         updated_at: { type: string, format: date-time, readOnly: true }
-    PluginCLIBackendSummary:
+    PluginResourceSummary:
       type: object
       additionalProperties: false
       required: [
-        backend,
         binaries,
         skills,
         session_env,
+        mcp_servers,
         oauth_provider_configured,
       ]
       properties:
-        backend: { type: string, enum: [cli] }
         binaries:
           type: array
           items: { $ref: "#/components/schemas/PluginCLIBackendBinarySummary" }
@@ -141,6 +133,9 @@ components:
             $ref: "#/components/schemas/PluginCLIBackendSessionEnvSummary",
           }
         oauth_provider_configured: { type: boolean }
+        mcp_servers:
+          type: array
+          items: { $ref: "#/components/schemas/PluginMCPServerSummary" }
     PluginCLIBackendBinarySummary:
       type: object
       additionalProperties: false
@@ -162,21 +157,21 @@ components:
         env_var: { type: string }
         source: { type: string }
         required: { type: boolean }
-    PluginMCPBackendSummary:
+    PluginMCPServerSummary:
       type: object
       additionalProperties: false
       required: [
-        backend,
-        transport,
-        auth_type,
-        credential_mode,
+        server_key,
         endpoint_configured,
         bearer_configured,
         oauth_client_id_configured,
         oauth_client_secret_configured,
       ]
       properties:
-        backend: { type: string, enum: [mcp] }
+        server_key: { type: string }
+        child_id: { type: string, format: uuid, readOnly: true }
+        parent_config_id: { type: string, format: uuid, readOnly: true }
+        parent_revision: { type: integer, format: int64, readOnly: true }
         transport: { type: string, enum: [streamable_http, sse] }
         auth_type: { type: string, enum: [none, bearer, oauth] }
         credential_mode: { type: string, enum: [shared, per_user] }
@@ -247,7 +242,6 @@ components:
       required: [
         display_name,
         name,
-        backend,
         definition_spec,
         initial_config,
       ]
@@ -262,7 +256,6 @@ components:
             Canonical immutable plugin ID. It uses lowercase letters, digits,
             dots, and hyphens, starts and ends with a letter or digit, and
             cannot contain consecutive dots or hyphens.
-        backend: { type: string, enum: [cli, mcp] }
         definition_spec: { type: object, additionalProperties: true }
         initial_config: { $ref: "#/components/schemas/PluginConfigInput" }
     CreatePluginResponse:

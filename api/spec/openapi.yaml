@@ -142,6 +142,16 @@ paths:
   /api/library-files/{id}:
     $ref: "./domain/library/paths.yaml#/paths/~1api~1library-files~1{id}"
   # ── MCP ────────────────────────────────────────────────────────────────────
+  /api/mcp/servers:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers"
+  /api/mcp/servers/{id}:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}"
+  /api/mcp/servers/{id}/probe:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1probe"
+  /api/mcp/servers/{id}/oauth/start:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1oauth~1start"
+  /api/mcp/servers/{id}/oauth/disconnect:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1oauth~1disconnect"
   /api/mcp/oauth/callback:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1oauth~1callback"
   /api/mcp/registry/servers:
@@ -496,12 +506,6 @@ paths:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs~1{config_id}"
   /api/plugins/{plugin_id}/configs/{config_id}/reset:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs~1{config_id}~1reset"
-  /api/plugins/{plugin_id}/configs/{config_id}/oauth/start:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs~1{config_id}~1oauth~1start"
-  /api/plugins/{plugin_id}/configs/{config_id}/oauth/disconnect:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs~1{config_id}~1oauth~1disconnect"
-  /api/plugins/{plugin_id}/configs/{config_id}/probe:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs~1{config_id}~1probe"
   /api/plugins/{plugin_id}/effective:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1effective"
   /api/cli-tools/registry:

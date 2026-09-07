@@ -131,6 +131,12 @@ func (a *Access) GetVisible(ctx context.Context, id string) (Registration, error
 	if a == nil || a.svc == nil || a.svc.plugins == nil || a.svc.pool == nil || a.authority.Kind() != authz.ActorUser {
 		return Registration{}, authz.ErrForbidden
 	}
+	// Child IDs are runtime identities, while the authored row and revision
+	// live on their parent config. The common resolver already verifies that
+	// relation and projects the child with its own observation/credential key.
+	if reg, err := a.svc.commonRegistration(ctx, a.authority, id); err == nil && reg.ID == id {
+		return reg, nil
+	}
 	pluginAccess, err := a.svc.plugins.Begin(a.authority)
 	if err != nil {
 		return Registration{}, err
@@ -139,15 +145,18 @@ func (a *Access) GetVisible(ctx context.Context, id string) (Registration, error
 	var enabled pgtype.Bool
 	var userID, agentID pgtype.Text
 	var payload, refs []byte
-	var scope string
+	var scope, childKey string
 	var createdAt, updatedAt time.Time
 	var pluginID string
 	err = a.svc.pool.QueryRow(ctx, `
-		SELECT id, plugin_id, scope, user_id, agent_id, enabled, config,
-		       credential_refs, revision, created_at, updated_at
-		FROM plugin_config WHERE id = $1::uuid`, id).Scan(
+		SELECT c.id, c.plugin_id, c.scope, c.user_id, c.agent_id, c.enabled, c.config,
+		       c.credential_refs, c.revision, c.created_at, c.updated_at,
+		       COALESCE(ch.server_key, '')
+		FROM plugin_config c
+		LEFT JOIN plugin_config_mcp_server ch ON ch.config_id = c.id AND ch.id = $1::uuid
+		WHERE c.id = $1::uuid OR ch.id IS NOT NULL`, id).Scan(
 		&cfg.ID, &pluginID, &scope, &userID, &agentID, &enabled,
-		&payload, &refs, &cfg.Revision, &createdAt, &updatedAt)
+		&payload, &refs, &cfg.Revision, &createdAt, &updatedAt, &childKey)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Registration{}, authz.ErrNotFound
 	}
@@ -165,6 +174,12 @@ func (a *Access) GetVisible(ctx context.Context, id string) (Registration, error
 		cfg.Enabled = &enabled.Bool
 	}
 	cfg.CreatedAt, cfg.UpdatedAt = createdAt.UTC(), updatedAt.UTC()
+	if childKey != "" {
+		// The direct child lookup is needed for system rows that ordinary users
+		// may use but cannot read through plugin.Access.GetConfig. Reconstruct
+		// the trusted child identity returned by the join before projecting it.
+		cfg.MCPServers = []plugin.MCPServerChild{{ID: id, ParentConfigID: cfg.ID, ServerKey: childKey}}
+	}
 	if (cfg.Scope == plugin.ScopeUser || cfg.Scope == plugin.ScopeUserAgent) && cfg.UserID != string(a.authority.UserID()) {
 		return Registration{}, authz.ErrForbidden
 	}
@@ -176,18 +191,44 @@ func (a *Access) GetVisible(ctx context.Context, id string) (Registration, error
 			return Registration{}, err
 		}
 	}
-	if len(cfg.Payload) == 0 {
+	if len(cfg.Payload) == 0 && len(cfg.MCPServers) == 0 {
 		return Registration{}, authz.ErrNotFound
 	}
 	def, err := pluginAccess.GetDefinition(ctx, cfg.PluginID)
 	if err != nil {
 		return Registration{}, err
 	}
-	reg, err := a.svc.registrationFromCommonConfig(ctx, a.authority, def, cfg)
-	if err != nil {
-		return Registration{}, err
+	if childKey != "" {
+		effective, resolveErr := plugin.Resolve(def, []plugin.Config{cfg}, cfg.UserID, cfg.AgentID)
+		if resolveErr != nil {
+			return Registration{}, resolveErr
+		}
+		for _, child := range cfg.MCPServers {
+			if child.ID == id && child.ServerKey == childKey {
+				observation, observationErr := a.svc.commonObservation(ctx, cfg, effective.Payload, child.ID, a.authority)
+				if observationErr != nil {
+					return Registration{}, observationErr
+				}
+				return RegistrationFromPluginChild(def, cfg, effective, child, observation, a.authority)
+			}
+		}
+		return Registration{}, authz.ErrNotFound
 	}
-	return reg, nil
+	reg, err := a.svc.registrationFromCommonConfig(ctx, a.authority, def, cfg)
+	if err == nil {
+		return reg, nil
+	}
+	// A composable parent has no single endpoint. Return an identity-only
+	// parent summary so callers creating/listing children can authorize the
+	// parent without accidentally selecting one sibling as its identity.
+	if len(cfg.MCPServers) > 0 {
+		effective, resolveErr := plugin.Resolve(def, []plugin.Config{cfg}, cfg.UserID, cfg.AgentID)
+		if resolveErr != nil {
+			return Registration{}, resolveErr
+		}
+		return Registration{ID: cfg.ID, ParentConfigID: cfg.ID, ServerKey: "", PluginID: def.ID, ConfigRevision: cfg.Revision, Scope: string(cfg.Scope), UserID: cfg.UserID, AgentID: cfg.AgentID, Name: def.DisplayName, Enabled: effective.IsEffectivelyEnabled, CreatedAt: cfg.CreatedAt.UTC(), UpdatedAt: cfg.UpdatedAt.UTC()}, nil
+	}
+	return Registration{}, err
 }
 
 // StartOAuth is the PEP for oauth-start. shared: the caller needs owner
@@ -261,7 +302,7 @@ func (a *Access) Create(ctx context.Context, in CreateInput) (Registration, erro
 			return Registration{}, fmt.Errorf("invalid plugin name %q", in.Name)
 		}
 		def, config, err := a.svc.CreateCustom(authz.WithAuthority(ctx, a.authority), plugin.Definition{
-			ID: in.Name, DisplayName: in.Name, Backend: plugin.BackendMCP,
+			ID: in.Name, DisplayName: in.Name,
 			Spec: []byte(`{}`),
 		}, in)
 		if err != nil {
@@ -278,6 +319,15 @@ func (a *Access) Update(ctx context.Context, in UpdateInput) (Registration, erro
 		return Registration{}, err
 	}
 	in.UserID, in.AgentID = uid, aid
+	if reg, lookupErr := a.svc.commonRegistration(ctx, a.authority, in.ID); lookupErr == nil && reg.ServerKey != "" && in.NewScope == nil && in.NewUserID == "" && in.NewAgentID == "" {
+		// The legacy settings endpoint addresses a child UUID. Reuse the
+		// child-aware mutation so payload and credential refs stay nested under
+		// the authored server key.
+		if in.ExpectedVersion != "" && reg.Version() != in.ExpectedVersion {
+			return Registration{}, ErrVersionConflict
+		}
+		return a.UpdateChild(ctx, in.ID, reg.ConfigRevision, in)
+	}
 	reg, err := a.svc.updateCommon(ctx, a.authority, in, in.ExpectedVersion)
 	if err != nil {
 		return Registration{}, err
@@ -298,6 +348,12 @@ func (a *Access) UpdateIfVersion(ctx context.Context, in UpdateInput, expectedVe
 		return Registration{}, err
 	}
 	in.UserID, in.AgentID = uid, aid
+	if reg, lookupErr := a.svc.commonRegistration(ctx, a.authority, in.ID); lookupErr == nil && reg.ServerKey != "" && in.NewScope == nil && in.NewUserID == "" && in.NewAgentID == "" {
+		if reg.Version() != expectedVersion {
+			return Registration{}, ErrVersionConflict
+		}
+		return a.UpdateChild(ctx, in.ID, reg.ConfigRevision, in)
+	}
 	reg, err := a.svc.updateCommon(ctx, a.authority, in, expectedVersion)
 	if err != nil {
 		return Registration{}, err
@@ -318,6 +374,9 @@ func (a *Access) Delete(ctx context.Context, id, scope, agentID string) error {
 	}
 	if reg.Scope != scope || reg.UserID != uid || reg.AgentID != aid {
 		return authz.ErrNotFound
+	}
+	if reg.ServerKey != "" {
+		return a.DeleteChild(ctx, reg.ID, reg.ConfigRevision)
 	}
 	return a.svc.DeleteCommonConfig(ctx, a.authority, reg.PluginID, reg.ID, reg.ConfigRevision, a.svc.CredentialOwner(reg, string(a.authority.UserID())))
 }
@@ -340,6 +399,9 @@ func (a *Access) DeleteIfVersion(ctx context.Context, id, scope, agentID, expect
 	}
 	if reg.Version() != expectedVersion {
 		return ErrVersionConflict
+	}
+	if reg.ServerKey != "" {
+		return a.DeleteChild(ctx, reg.ID, reg.ConfigRevision)
 	}
 	return a.svc.DeleteCommonConfig(ctx, a.authority, reg.PluginID, reg.ID, reg.ConfigRevision, a.svc.CredentialOwner(reg, string(a.authority.UserID())))
 }

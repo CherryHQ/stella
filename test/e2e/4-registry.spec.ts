@@ -2,7 +2,7 @@
 import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
 import { expectStatus } from "./lib/api.ts";
 import { expect, test } from "./lib/fixtures.ts";
-import { createMcpPlugin, exportedMcpName, pluginConfigPath, pluginDefinitionPath } from "./lib/mcp-fixture.ts";
+import { createMcpPlugin, exportedMcpName, mcpServer, pluginConfigPath, pluginDefinitionPath } from "./lib/mcp-fixture.ts";
 import { ensureProvider } from "./lib/provider.ts";
 import { loadRegistryFixtureState } from "./lib/registry-fixture.ts";
 import { type CreatePluginResponse, type PluginConfig, RegistryServer } from "./lib/types.ts";
@@ -62,21 +62,23 @@ test("install persists provenance, probes the catalog, and rejects a duplicate p
     displayName: "registry-add",
     metadata: { registry: { source: "official", id: "com.stella/registry-add", version: "1.0.0" } },
   });
+  const child = await mcpServer(admin, installed.config.id);
   const probe = expectStatus(
-    await admin.post<PluginConfig>(`${pluginConfigPath(installed.plugin, installed.config)}/probe`),
+    await admin.post(`/api/mcp/servers/${child.id}/probe`),
     200,
     "probe registry server",
   );
-  expect(probe.backend_summary).toMatchObject({ backend: "mcp", endpoint_configured: true });
+  expect(probe).toMatchObject({ endpoint_configured: true });
   const row = (await db`select config::jsonb as payload from plugin_config where id = ${installed.config.id}`)[0];
-  expect(row.payload).toMatchObject({ metadata: { registry: { source: "official", id: "com.stella/registry-add", version: "1.0.0" } } });
-  const observation = (await db`select status, tools from mcp_connection_state where config_id = ${installed.config.id}`)[0];
+  expect(row.payload).toMatchObject({
+    mcp_servers: { main: { metadata: { registry: { source: "official", id: "com.stella/registry-add", version: "1.0.0" } } } },
+  });
+  const observation = (await db`select status, tools from mcp_connection_state where child_id = ${child.id}`)[0];
   expect(observation.status).toBe("ok");
   expect((observation.tools as { name: string; }[]).map((tool) => tool.name).sort()).toEqual(["add", "echo"]);
   const twin = await admin.post("/api/plugins", {
     name: registryPlugin,
     display_name: "registry-twin",
-    backend: "mcp",
     definition_spec: {},
     initial_config: { scope: "user", config: { url: state.mcpUrl, transport: "streamable_http", auth_type: "none" } },
   });

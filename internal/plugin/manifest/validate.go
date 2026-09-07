@@ -71,8 +71,8 @@ func validatePlugins(plugins []ManifestPlugin, providerIDs map[string]struct{}) 
 		if p.ID == "" {
 			errs = append(errs, fmt.Errorf("plugin[%d]: id is required", i))
 		}
-		if len(p.Binaries) == 0 && len(p.BundledBinaries) == 0 && len(p.Skills) == 0 && len(p.SessionEnvs) == 0 && p.Prompt == "" {
-			errs = append(errs, fmt.Errorf("plugin %q: must have at least one of binaries, bundled_binaries, skills, session_env, or prompt", p.ID))
+		if len(p.Binaries) == 0 && len(p.BundledBinaries) == 0 && len(p.Skills) == 0 && len(p.SessionEnvs) == 0 && len(p.OAuth) == 0 && len(p.MCPServers) == 0 && p.Prompt == "" {
+			errs = append(errs, fmt.Errorf("plugin %q: must have at least one of binaries, bundled_binaries, skills, session_env, oauth, mcp_servers, or prompt", p.ID))
 		}
 		for j, b := range p.Binaries {
 			if b.Name == "" {
@@ -101,16 +101,76 @@ func validatePlugins(plugins []ManifestPlugin, providerIDs map[string]struct{}) 
 			} else if !isValidSource(se.Source, providerIDs) {
 				errs = append(errs, fmt.Errorf("plugin %q session_env[%d]: unknown source %q", p.ID, j, se.Source))
 			}
-			if strings.HasPrefix(se.Source, "oauth.") && p.OAuthProvider == "" {
+			if strings.HasPrefix(se.Source, "oauth.") && p.OAuthProvider == "" && !hasOAuthEnvBinding(p.OAuth, se.EnvVar) {
 				errs = append(errs, fmt.Errorf("plugin %q session_env[%d]: oauth source requires oauth_provider", p.ID, j))
 			}
 		}
+		errs = append(errs, validateOAuthBindings(p.ManifestPluginDefinition, providerIDs)...)
 		if p.OAuthProvider != "" && providerIDs != nil {
 			if _, ok := providerIDs[p.OAuthProvider]; !ok {
 				errs = append(errs, fmt.Errorf("plugin %q: unknown oauth_provider %q", p.ID, p.OAuthProvider))
 			}
 		}
 
+	}
+	return errs
+}
+
+func hasOAuthEnvBinding(requirements []ManifestOAuthRequirement, envVar string) bool {
+	for _, requirement := range requirements {
+		for _, binding := range requirement.Bindings {
+			if binding.EnvVar == envVar {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func validateOAuthBindings(p ManifestPluginDefinition, providers map[string]struct{}) []error {
+	var errs []error
+	envBindings := make(map[string]struct{})
+	for _, requirement := range p.OAuth {
+		if requirement.Provider == "" {
+			errs = append(errs, fmt.Errorf("oauth requirement needs a provider"))
+		} else if providers != nil {
+			if _, ok := providers[requirement.Provider]; !ok {
+				errs = append(errs, fmt.Errorf("unknown OAuth provider %q", requirement.Provider))
+			}
+		}
+		for _, scope := range requirement.Scopes {
+			if scope == "" {
+				errs = append(errs, fmt.Errorf("oauth requirement contains an empty scope"))
+			}
+			if err := validateString(scope, "OAuth scope"); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		for _, binding := range requirement.Bindings {
+			if (binding.EnvVar == "") == (binding.Connection == "") {
+				errs = append(errs, fmt.Errorf("oauth binding requires exactly one env_var or connection"))
+				continue
+			}
+			if !knownOAuthField(binding.Credential) {
+				errs = append(errs, fmt.Errorf("unknown OAuth credential %q", binding.Credential))
+			}
+			if binding.EnvVar != "" {
+				if err := validateString(binding.EnvVar, "OAuth env var"); err != nil {
+					errs = append(errs, err)
+				}
+				if _, duplicate := envBindings[binding.EnvVar]; duplicate {
+					errs = append(errs, fmt.Errorf("duplicate OAuth env binding %q", binding.EnvVar))
+				}
+				envBindings[binding.EnvVar] = struct{}{}
+				for _, env := range p.SessionEnvs {
+					if env.EnvVar == binding.EnvVar && env.Source != "oauth."+binding.Credential {
+						errs = append(errs, fmt.Errorf("oauth binding for %q does not match session_env source", binding.EnvVar))
+					}
+				}
+			} else {
+				errs = append(errs, fmt.Errorf("OAuth connection bindings are not supported; configure authentication on the MCP child"))
+			}
+		}
 	}
 	return errs
 }

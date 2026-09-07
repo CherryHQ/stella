@@ -2,7 +2,8 @@
 title: 插件系统
 ---
 
-Agent Plugins 通过带范围的定义配置 CLI 和 MCP 资源。编译进程序的 Stella Native
+Agent Plugins 通过一份带范围的包定义组合 Skills、CLI 依赖、环境绑定和 MCP 服务。
+编译进程序的 Stella Native
 Plugins 使用可信 Go 注册、部署级配置，以及管理员设置的逐 Agent 禁用策略。
 
 ## Native 管理
@@ -27,12 +28,13 @@ Native 管理 API 只接受管理员认证，OAuth access token 无法访问。
 
 ## 定义与配置
 
-`PluginDefinition.ID` 是唯一的规范包名，定义还包含后端、发行资源与默认启用状态。
+`PluginDefinition.ID` 是唯一的规范包名，定义还包含发行资源与默认启用状态。
 Builtin 定义来自可信的发行声明，数据库中的 builtin 行只是投影。
-Agent 定义只包含 CLI 或 MCP 资源。编译进程序的 Go 实现通过独立 Native 路径注册和管理。
+同一 Agent 定义可以同时包含多种资源。传输和安装方式由各自的资源消费者选择，
+定义不再具有根级后端分类。编译进程序的 Go 实现通过独立 Native 路径注册和管理。
 
 管理路由使用 `/api/plugins/{plugin_id}` 及其子资源。将目录返回的完整 ID 编码为一个
-URL 路径段；后端类型和源码目录分类不参与请求寻址。
+URL 路径段；源码目录分类不参与请求寻址。
 名称由 1–64 个小写字母、数字、点和短横线组成，首尾必须是字母或数字，不能包含
 `..` 或 `--`。重名创建失败，不自动添加后缀。创建后身份不可修改，显示名称可以修改。
 
@@ -51,7 +53,7 @@ agent、system。System 或匹配的 system agent 显式设为 `false`，分别�
 
 Agent Plugin 的配置模型是一份 `PluginDefinition`，加上四种范围元组各自至多一份
 `PluginConfig`。`user_id` 和 `agent_id` 由可信 authority 推导，不能接受调用方自填身份。
-Definition 拥有稳定的包身份和实现；所选 Config 拥有该范围的后端 payload 与凭据。
+Definition 拥有稳定的包身份和资源声明；所选 Config 拥有该范围的资源 payload 与凭据引用。
 
 所选范围独立拥有配置，可以覆盖发行定义中的字段，但不同范围之间不合并字段或凭据。
 所选配置禁用或不完整时，不回退到更宽范围。Builtin 使用相同规则，管理员可以禁用。
@@ -65,8 +67,9 @@ Plugin 资源、Skills 和环境变量使用这一代配置。Native 工具和 h
 不进入这份快照；同名 Agent 包不能获得 Native 准入，Native 仍使用可信注册 ID 和独立策略。
 
 MCP 导出名由包名、server key 和远端工具名适配为最多 64 字符的 ASCII 名称，
-带确定性的 12 位十六进制哈希后缀。当前单服务器配置使用 `main` 作为 server key，
-实际暴露前检查整组工具是否重名。授权使用可信包身份与本地工具身份，不解析展示名称。
+带确定性的 12 位十六进制哈希后缀。Server key 使用包中声明的 MCP 条目名，
+导入的旧单服务器使用 `main`。实际暴露前检查整组工具是否重名。
+授权使用包身份、server key 和远端原始工具名，不解析展示名称。
 Native 工具保留已注册的静态名称。
 
 配置写入在执行准入屏障内原子提交。空闲 runner 被回收，已经开始的 turn 可以结束后
@@ -113,15 +116,22 @@ Listener 检查 Native 全局开关、逐 Agent 禁用和实例 active 状态。
 
 ## MCP 凭据与观测
 
-MCP 是插件后端。端点设置和凭据引用属于所选配置，token 保留在 Vault。
-Shared 与 per-user 凭据互不回退。
+每个 MCP 服务都是 Agent Plugin 内的一项资源。所选父配置用 `mcp_servers`
+按声明的服务名保存端点设置，凭据引用使用相同的 key。每个子服务在父配置下具有稳定
+UUID，`(config_id, server_key)` 唯一。子关系只保存身份，不复制第二份端点或认证配置。
+Token 保留在 Vault，shared 与 per-user 凭据互不回退。
 
-OAuth 客户端注册属于配置所有者。System 和 system agent 配置缺少客户端时，
+凭据、OAuth flow 和连接观测使用子服务 UUID；范围、调用者授权与版本屏障属于父配置。
+子服务写入必须验证归属，并只消费一次父版本。修改端点或认证身份只清理受影响子服务
+的状态；移动或删除父配置时，全部子服务在一个事务内处理。一个子服务失败不会隐藏
+正常的兄弟服务或包内 Skill。
+
+OAuth 客户端注册属于各个子服务，由父配置所有者管理。System 和 system agent 配置缺少客户端时，
 管理员先通过 OAuth start 初始化，随后用户授权自己的账号。User 和 user agent
 配置的所有者可以自行初始化。旧系统级配置若没有 client ID，升级后需要这一次管理员
 操作；各用户的 token 仍独立保存。禁用和 reset 保留 grant，删除配置才原子清理其 grant。
 
-远端工具目录和连接状态属于后端观测，以配置及凭据所有者为键，并检查配置版本。
+远端工具目录和连接状态以子服务 UUID 及凭据所有者为键，并检查父配置版本。
 某个用户的工具目录不能成为另一个用户的工具列表。旧 per-user 目录没有可信 owner
 来源，迁移后必须冷探测。内部 OAuth bundle 不允许通过公开 Vault 接口访问，也不进入
 通用环境变量。

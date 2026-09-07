@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -22,8 +23,7 @@ func TestAccessUpdateConfigUsesExpectedRevision(t *testing.T) {
 	catalog := NewCatalog()
 	definition := Definition{
 		ID: "cas", DisplayName: "CAS",
-		Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "cas",
-		Spec: []byte(`{}`), DefaultEnabled: true, Revision: 1,
+		Source: SourceBuiltin, Spec: []byte(`{}`), DefaultEnabled: true, Revision: 1,
 	}
 	if err := catalog.Register(definition); err != nil {
 		t.Fatal(err)
@@ -64,6 +64,91 @@ func TestAccessUpdateConfigUsesExpectedRevision(t *testing.T) {
 		Enabled:    &disabled,
 	}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale update error = %v, want ErrConflict", err)
+	}
+}
+
+func TestSyncBuiltinDefaultsReconcilesMCPChildrenFromDefinition(t *testing.T) {
+	db := dbtest.New(t)
+	catalog := NewCatalog()
+	definition := Definition{
+		ID: "mcp-bundle", DisplayName: "MCP bundle", Source: SourceBuiltin,
+		Spec:           []byte(`{"mcp_servers":{"alpha":{"url":"https://alpha.example","transport":"sse"},"beta":{"url":"https://beta.example","transport":"sse"}}}`),
+		DefaultEnabled: true, Revision: 1,
+	}
+	if err := catalog.Register(definition); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(db, nil, catalog, BackendPolicy{Transition: inlineBackendPolicyTransition}, inlineBackendPolicyFence)
+	if err := service.SyncBuiltinDefaults(t.Context()); err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+	authority, err := authz.NewUserAuthority("10000000-0000-0000-0000-000000000001", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	access, err := service.Begin(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configs, err := access.ListConfigs(t.Context(), definition.ID, ScopeSystem, "")
+	if err != nil || len(configs) != 1 {
+		t.Fatalf("system configs = %d/%v, want one", len(configs), err)
+	}
+	if len(configs[0].MCPServers) != 2 {
+		t.Fatalf("first sync MCP children = %#v, want two", configs[0].MCPServers)
+	}
+	ids := map[string]string{}
+	for _, child := range configs[0].MCPServers {
+		ids[child.ServerKey] = child.ID
+	}
+	// The returned projection is caller-owned. A forged child must not become
+	// durable state or alter the next read.
+	configs[0].MCPServers = append(configs[0].MCPServers, MCPServerChild{ID: "forged", ServerKey: "forged"})
+	if err := service.SyncBuiltinDefaults(t.Context()); err != nil {
+		t.Fatalf("second sync: %v", err)
+	}
+	configs, err = access.ListConfigs(t.Context(), definition.ID, ScopeSystem, "")
+	if err != nil || len(configs) != 1 {
+		t.Fatalf("second system configs = %d/%v, want one", len(configs), err)
+	}
+	if len(configs[0].MCPServers) != 2 {
+		t.Fatalf("second sync MCP children = %#v, want two", configs[0].MCPServers)
+	}
+	for _, child := range configs[0].MCPServers {
+		if child.ID != ids[child.ServerKey] {
+			t.Fatalf("child %q ID changed from %q to %q", child.ServerKey, ids[child.ServerKey], child.ID)
+		}
+	}
+}
+
+func TestAccessCreateCustomMCPResourceContentBoundary(t *testing.T) {
+	db := dbtest.New(t)
+	userID := seedMoveUser(t, db)
+	authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(db, nil, NewCatalog(), BackendPolicy{
+		Validate:   func(context.Context, Definition, Config, []string) error { return nil },
+		Transition: inlineBackendPolicyTransition,
+	}, func(_ context.Context, fn func() error) error { return fn() })
+	access, err := service.Begin(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := Definition{ID: "remote-boundary", DisplayName: "Remote", Spec: json.RawMessage(`{}`)}
+	for _, payload := range []string{`{"binaries":[]}`, `{"session_env":[]}`} {
+		_, _, err := access.CreateCustom(t.Context(), base, Config{Scope: ScopeUser, Enabled: boolPtr(true), Payload: json.RawMessage(payload)})
+		if !errors.Is(err, ErrForbidden) {
+			t.Fatalf("payload %s error = %v, want ErrForbidden", payload, err)
+		}
+	}
+	createdDef, createdConfig, err := access.CreateCustom(t.Context(), base, Config{Scope: ScopeUser, Enabled: boolPtr(true), Payload: json.RawMessage(`{"url":"https://example.test","transport":"sse","auth_type":"none","credential_mode":"shared"}`)})
+	if err != nil {
+		t.Fatalf("valid remote MCP create: %v", err)
+	}
+	if createdDef.ID != base.ID || createdConfig.PluginID != base.ID {
+		t.Fatalf("created identities = %q/%q", createdDef.ID, createdConfig.PluginID)
 	}
 }
 
@@ -221,7 +306,7 @@ func TestAccessMoveConfigValidatesBeforeMutation(t *testing.T) {
 func newMoveService(t *testing.T, db *pgxpool.Pool, agents *agentaccess.Service, validate PayloadValidator) (*Service, Definition) {
 	t.Helper()
 	catalog := NewCatalog()
-	definition := Definition{ID: "move", DisplayName: "Move", Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "move", Spec: []byte(`{}`), DefaultEnabled: false, Revision: 1}
+	definition := Definition{ID: "move", DisplayName: "Move", Source: SourceBuiltin, Spec: []byte(`{}`), DefaultEnabled: false, Revision: 1}
 	if err := catalog.Register(definition); err != nil {
 		t.Fatal(err)
 	}
@@ -406,8 +491,8 @@ func sameBackendPolicyBool(left, right *bool) bool {
 
 func backendPolicyDefinition(id string, defaultEnabled bool) Definition {
 	return Definition{
-		ID: id, DisplayName: id, Backend: BackendCLI, Source: SourceBuiltin,
-		ImplementationKey: id, Spec: []byte(`{}`), DefaultEnabled: defaultEnabled, Revision: 1,
+		ID: id, DisplayName: id, Source: SourceBuiltin,
+		Spec: []byte(`{}`), DefaultEnabled: defaultEnabled, Revision: 1,
 	}
 }
 

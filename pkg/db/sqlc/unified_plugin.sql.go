@@ -64,31 +64,27 @@ func (q *Queries) CreatePluginConfig(ctx context.Context, arg CreatePluginConfig
 
 const createPluginDefinition = `-- name: CreatePluginDefinition :one
 INSERT INTO plugin_definition (
-    id, display_name, backend, source, implementation_key,
+    id, display_name, source,
     spec, default_enabled, revision, creator_user_id, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
-RETURNING id, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+RETURNING id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at
 `
 
 type CreatePluginDefinitionParams struct {
-	ID                string          `json:"id"`
-	DisplayName       string          `json:"display_name"`
-	Backend           string          `json:"backend"`
-	Source            string          `json:"source"`
-	ImplementationKey string          `json:"implementation_key"`
-	Spec              json.RawMessage `json:"spec"`
-	DefaultEnabled    bool            `json:"default_enabled"`
-	Revision          int64           `json:"revision"`
-	CreatorUserID     pgtype.Text     `json:"creator_user_id"`
+	ID             string          `json:"id"`
+	DisplayName    string          `json:"display_name"`
+	Source         string          `json:"source"`
+	Spec           json.RawMessage `json:"spec"`
+	DefaultEnabled bool            `json:"default_enabled"`
+	Revision       int64           `json:"revision"`
+	CreatorUserID  pgtype.Text     `json:"creator_user_id"`
 }
 
 func (q *Queries) CreatePluginDefinition(ctx context.Context, arg CreatePluginDefinitionParams) (PluginDefinition, error) {
 	row := q.db.QueryRow(ctx, createPluginDefinition,
 		arg.ID,
 		arg.DisplayName,
-		arg.Backend,
 		arg.Source,
-		arg.ImplementationKey,
 		arg.Spec,
 		arg.DefaultEnabled,
 		arg.Revision,
@@ -98,9 +94,7 @@ func (q *Queries) CreatePluginDefinition(ctx context.Context, arg CreatePluginDe
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
-		&i.Backend,
 		&i.Source,
-		&i.ImplementationKey,
 		&i.Spec,
 		&i.DefaultEnabled,
 		&i.Revision,
@@ -166,7 +160,7 @@ const ensureSystemPluginConfig = `-- name: EnsureSystemPluginConfig :one
 WITH inserted AS (
     INSERT INTO plugin_config (
         plugin_id, scope, enabled, config, credential_refs, revision, updated_at
-    ) VALUES ($1, 'system', NULL, '{}'::jsonb, '{}'::jsonb, 1, now())
+    ) VALUES ($1, 'system', NULL, $2::jsonb, '{}'::jsonb, 1, now())
     ON CONFLICT (plugin_id, scope, user_id, agent_id) DO NOTHING
     RETURNING id, plugin_id, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at
 )
@@ -176,6 +170,11 @@ SELECT id, plugin_id, scope, user_id, agent_id, enabled, config, credential_refs
 WHERE plugin_id = $1 AND scope = 'system'
 LIMIT 1
 `
+
+type EnsureSystemPluginConfigParams struct {
+	PluginID string          `json:"plugin_id"`
+	Config   json.RawMessage `json:"config"`
+}
 
 type EnsureSystemPluginConfigRow struct {
 	ID             string          `json:"id"`
@@ -191,8 +190,8 @@ type EnsureSystemPluginConfigRow struct {
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
-func (q *Queries) EnsureSystemPluginConfig(ctx context.Context, pluginID string) (EnsureSystemPluginConfigRow, error) {
-	row := q.db.QueryRow(ctx, ensureSystemPluginConfig, pluginID)
+func (q *Queries) EnsureSystemPluginConfig(ctx context.Context, arg EnsureSystemPluginConfigParams) (EnsureSystemPluginConfigRow, error) {
+	row := q.db.QueryRow(ctx, ensureSystemPluginConfig, arg.PluginID, arg.Config)
 	var i EnsureSystemPluginConfigRow
 	err := row.Scan(
 		&i.ID,
@@ -250,7 +249,7 @@ func (q *Queries) GetPluginConfigForOwner(ctx context.Context, arg GetPluginConf
 
 const getPluginDefinition = `-- name: GetPluginDefinition :one
 
-SELECT id, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at FROM plugin_definition WHERE id = $1
+SELECT id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at FROM plugin_definition WHERE id = $1
 `
 
 // Unified plugin definitions and four-scope configuration records. These
@@ -261,9 +260,7 @@ func (q *Queries) GetPluginDefinition(ctx context.Context, id string) (PluginDef
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
-		&i.Backend,
 		&i.Source,
-		&i.ImplementationKey,
 		&i.Spec,
 		&i.DefaultEnabled,
 		&i.Revision,
@@ -366,7 +363,7 @@ func (q *Queries) ListPluginConfigsOwned(ctx context.Context, arg ListPluginConf
 }
 
 const listPluginDefinitions = `-- name: ListPluginDefinitions :many
-SELECT id, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at FROM plugin_definition ORDER BY id
+SELECT id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at FROM plugin_definition ORDER BY id
 `
 
 func (q *Queries) ListPluginDefinitions(ctx context.Context) ([]PluginDefinition, error) {
@@ -381,9 +378,7 @@ func (q *Queries) ListPluginDefinitions(ctx context.Context) ([]PluginDefinition
 		if err := rows.Scan(
 			&i.ID,
 			&i.DisplayName,
-			&i.Backend,
 			&i.Source,
-			&i.ImplementationKey,
 			&i.Spec,
 			&i.DefaultEnabled,
 			&i.Revision,
@@ -550,7 +545,7 @@ SET display_name = $2,
     revision = revision + 1,
     updated_at = now()
 WHERE id = $1 AND revision = $3 AND source = 'custom'
-RETURNING id, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at
+RETURNING id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at
 `
 
 type UpdatePluginDefinitionCASParams struct {
@@ -571,9 +566,7 @@ func (q *Queries) UpdatePluginDefinitionCAS(ctx context.Context, arg UpdatePlugi
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
-		&i.Backend,
 		&i.Source,
-		&i.ImplementationKey,
 		&i.Spec,
 		&i.DefaultEnabled,
 		&i.Revision,
@@ -586,9 +579,9 @@ func (q *Queries) UpdatePluginDefinitionCAS(ctx context.Context, arg UpdatePlugi
 
 const upsertPluginDefinition = `-- name: UpsertPluginDefinition :one
 INSERT INTO plugin_definition (
-    id, display_name, backend, source, implementation_key,
+    id, display_name, source,
     spec, default_enabled, revision, creator_user_id, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, now())
 ON CONFLICT (id) DO UPDATE SET
     display_name = excluded.display_name,
     spec = excluded.spec,
@@ -599,31 +592,25 @@ ON CONFLICT (id) DO UPDATE SET
     updated_at = CASE WHEN (plugin_definition.display_name, plugin_definition.spec, plugin_definition.default_enabled)
         IS DISTINCT FROM (excluded.display_name, excluded.spec, excluded.default_enabled)
         THEN now() ELSE plugin_definition.updated_at END
-WHERE plugin_definition.backend = excluded.backend
-  AND plugin_definition.source = excluded.source
-  AND plugin_definition.implementation_key = excluded.implementation_key
-RETURNING id, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at
+WHERE plugin_definition.source = excluded.source
+RETURNING id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at
 `
 
 type UpsertPluginDefinitionParams struct {
-	ID                string          `json:"id"`
-	DisplayName       string          `json:"display_name"`
-	Backend           string          `json:"backend"`
-	Source            string          `json:"source"`
-	ImplementationKey string          `json:"implementation_key"`
-	Spec              json.RawMessage `json:"spec"`
-	DefaultEnabled    bool            `json:"default_enabled"`
-	Revision          int64           `json:"revision"`
-	CreatorUserID     pgtype.Text     `json:"creator_user_id"`
+	ID             string          `json:"id"`
+	DisplayName    string          `json:"display_name"`
+	Source         string          `json:"source"`
+	Spec           json.RawMessage `json:"spec"`
+	DefaultEnabled bool            `json:"default_enabled"`
+	Revision       int64           `json:"revision"`
+	CreatorUserID  pgtype.Text     `json:"creator_user_id"`
 }
 
 func (q *Queries) UpsertPluginDefinition(ctx context.Context, arg UpsertPluginDefinitionParams) (PluginDefinition, error) {
 	row := q.db.QueryRow(ctx, upsertPluginDefinition,
 		arg.ID,
 		arg.DisplayName,
-		arg.Backend,
 		arg.Source,
-		arg.ImplementationKey,
 		arg.Spec,
 		arg.DefaultEnabled,
 		arg.Revision,
@@ -633,9 +620,7 @@ func (q *Queries) UpsertPluginDefinition(ctx context.Context, arg UpsertPluginDe
 	err := row.Scan(
 		&i.ID,
 		&i.DisplayName,
-		&i.Backend,
 		&i.Source,
-		&i.ImplementationKey,
 		&i.Spec,
 		&i.DefaultEnabled,
 		&i.Revision,

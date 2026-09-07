@@ -28,8 +28,8 @@ func testCLIDefinition(t *testing.T) plugin.Definition {
 	}
 	return plugin.Definition{
 		ID: "demo", DisplayName: "Demo",
-		Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin,
-		ImplementationKey: "demo", Spec: spec, DefaultEnabled: true, Revision: 1,
+		Source: plugin.SourceBuiltin,
+		Spec:   spec, DefaultEnabled: true, Revision: 1,
 	}
 }
 
@@ -78,15 +78,12 @@ func TestSystemPluginIdentityCannotBeSpoofed(t *testing.T) {
 		t.Fatal("editable category granted system runtime ownership")
 	}
 	definition.ID = "stella"
-	definition.ImplementationKey = definition.ID
 	if !IsSystemPlugin(definition) {
 		t.Fatal("canonical builtin system CLI was not recognized")
 	}
 	for _, mutate := range []func(*plugin.Definition){
 		func(d *plugin.Definition) { d.Source = plugin.SourceCustom },
-		func(d *plugin.Definition) { d.Backend = plugin.BackendMCP },
 		func(d *plugin.Definition) { d.ID = "other" },
-		func(d *plugin.Definition) { d.ImplementationKey = "other" },
 	} {
 		spoof := definition
 		mutate(&spoof)
@@ -161,6 +158,9 @@ func TestValidatePayloadRejectsUserResourceIdentityChanges(t *testing.T) {
 		{"session env identity", func(p *cliPayload) { p.SessionEnvs[0].EnvVar = "OTHER" }, nil},
 		{"session env required", func(p *cliPayload) { p.SessionEnvs[0].Required = false }, nil},
 		{"provider", func(p *cliPayload) { p.OAuthProvider = "other" }, nil},
+		{"oauth binding injection", func(p *cliPayload) {
+			p.OAuth = []ManifestOAuthRequirement{{Provider: "demo", Bindings: []ManifestOAuthBinding{{Credential: "access_token", EnvVar: "OTHER_TOKEN"}}}}
+		}, nil},
 		{"reset prompt", func(*cliPayload) {}, []string{"prompt"}},
 	}
 	for _, tc := range cases {

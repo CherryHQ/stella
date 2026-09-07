@@ -4,11 +4,15 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import {
   createPlugin,
   createPluginConfig,
-  disconnectPluginConfigOAuth,
+  createMcpServer,
   deletePluginConfig,
   deletePlugin,
+  deleteMcpServer,
+  probeMcpServer,
   resetPluginConfig,
-  startPluginConfigOAuth,
+  disconnectMcpServerOAuth,
+  startMcpServerOAuth,
+  updateMcpServer,
   updatePluginConfig,
 } from "@/lib/api-client/sdk.gen";
 import type {
@@ -56,7 +60,12 @@ import {
   type PluginConfigPayload,
 } from "@/features/plugins/PluginConfigEditor";
 import { McpInstallSheet } from "@/features/mcp/McpInstallSheet";
-import { Cable, Package, Plus, RotateCcw, Trash2 } from "lucide-react";
+import {
+  McpServerFields,
+  type McpAuthType,
+  type McpTransport,
+} from "@/features/mcp/McpServerFields";
+import { Package, Plus, RotateCcw, Trash2 } from "lucide-react";
 
 export type Translate = ReturnType<typeof useI18n>["t"];
 
@@ -71,101 +80,128 @@ export function pluginErrorMessage(error: unknown, t: Translate): string {
   return message;
 }
 
-function backendIcon(plugin: PluginDefinition) {
-  if (plugin.backend === "mcp") return <Cable className="size-4" />;
-  return <Package className="size-4" />;
-}
-
-function backendTitle(plugin: PluginDefinition, t: Translate): string {
-  if (plugin.backend === "mcp") return t("plugins.backend.mcp");
-  return t("plugins.backend.cli");
-}
-
 function scopeLabel(scope: PluginScope, t: Translate): string {
   return t(`plugins.scope.${scope}`);
 }
 
+export function configHasMcpOAuth(config: Pick<PluginConfig, "resource_summary">): boolean {
+  return config.resource_summary.mcp_servers.some((server) => server.auth_type === "oauth");
+}
+
+function oauthChildID(config: PluginConfig, serverKey?: string): string {
+  const children = config.resource_summary.mcp_servers.filter(
+    (server) => server.auth_type === "oauth",
+  );
+  const selected = serverKey
+    ? children.find((server) => server.server_key === serverKey)
+    : children.length === 1
+      ? children[0]
+      : undefined;
+  if (!selected?.child_id) throw new Error("select one MCP OAuth server before connecting");
+  return selected.child_id;
+}
+
 function BackendSummary({ config, t }: { config: PluginConfig; t: Translate }) {
-  const summary = config.backend_summary;
-  if (summary.backend === "mcp") {
-    return (
-      <div className="flex flex-wrap gap-1.5">
-        <Badge variant="outline" size="sm">
-          {summary.transport}
-        </Badge>
-        <Badge variant="outline" size="sm">
-          {summary.auth_type}
-        </Badge>
-        <Badge variant="outline" size="sm">
-          {summary.credential_mode}
-        </Badge>
-        <Badge variant={summary.endpoint_configured ? "success" : "warning"} size="sm">
-          {t(
-            summary.endpoint_configured
-              ? "plugins.summary.endpointReady"
-              : "plugins.summary.endpointMissing",
-          )}
-        </Badge>
-        {summary.auth_type === "bearer" && (
-          <Badge variant={summary.bearer_configured ? "success" : "warning"} size="sm">
-            {t(
-              summary.bearer_configured
-                ? "plugins.summary.bearerReady"
-                : "plugins.summary.bearerMissing",
-            )}
-          </Badge>
-        )}
-        {summary.auth_type === "oauth" && (
-          <>
-            <Badge variant={summary.oauth_client_id_configured ? "success" : "warning"} size="sm">
-              {t(
-                summary.oauth_client_id_configured
-                  ? "plugins.summary.oauthClientReady"
-                  : "plugins.summary.oauthClientMissing",
+  const summary = config.resource_summary;
+  const servers = summary.mcp_servers;
+  const binaries = summary.binaries.map((binary) => `${binary.name} ${binary.version}`.trim());
+  const skills = summary.skills.map((skill) => (
+    <Badge key={skill.name} variant="outline" size="sm">
+      {skill.name}
+    </Badge>
+  ));
+  if (
+    servers.length === 0 &&
+    binaries.length === 0 &&
+    skills.length === 0 &&
+    summary.session_env.length === 0 &&
+    !summary.oauth_provider_configured
+  )
+    return null;
+  return (
+    <div className="space-y-1">
+      {servers.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {servers.map((server) => (
+            <span key={server.server_key} className="flex gap-1.5">
+              <Badge variant="outline" size="sm">
+                {server.server_key}
+              </Badge>
+              {server.transport && (
+                <Badge variant="outline" size="sm">
+                  {server.transport}
+                </Badge>
               )}
-            </Badge>
-            <Badge
-              variant={summary.oauth_client_secret_configured ? "success" : "warning"}
-              size="sm"
-            >
-              {t(
-                summary.oauth_client_secret_configured
-                  ? "plugins.summary.oauthClientSecretReady"
-                  : "plugins.summary.oauthClientSecretMissing",
+              {server.auth_type && (
+                <Badge variant="outline" size="sm">
+                  {server.auth_type}
+                </Badge>
               )}
-            </Badge>
-          </>
-        )}
-      </div>
-    );
-  }
-  if (summary.backend === "cli") {
-    const binaries = summary.binaries.map((binary) => `${binary.name} ${binary.version}`.trim());
-    const skills = summary.skills.map((skill) => (
-      <Badge key={skill.name} variant="outline" size="sm">
-        {skill.name}
-      </Badge>
-    ));
-    return (
-      <div className="space-y-1">
-        {binaries.length > 0 && (
-          <p className="text-xs text-muted-foreground">{binaries.join(", ")}</p>
-        )}
-        {skills.length > 0 && <div className="flex flex-wrap gap-1.5">{skills}</div>}
-        {summary.session_env.length > 0 && (
-          <p className="text-xs text-muted-foreground">
-            {t("plugins.summary.env", { count: summary.session_env.length })}
-          </p>
-        )}
-        {summary.oauth_provider_configured && (
-          <Badge variant="info" size="sm">
-            {t("plugins.summary.oauthConfigured")}
-          </Badge>
-        )}
-      </div>
-    );
-  }
-  return null;
+              {server.credential_mode && (
+                <Badge variant="outline" size="sm">
+                  {server.credential_mode}
+                </Badge>
+              )}
+              <Badge variant={server.endpoint_configured ? "success" : "warning"} size="sm">
+                {t(
+                  server.endpoint_configured
+                    ? "plugins.summary.endpointReady"
+                    : "plugins.summary.endpointMissing",
+                )}
+              </Badge>
+              {server.auth_type === "bearer" && (
+                <Badge variant={server.bearer_configured ? "success" : "warning"} size="sm">
+                  {t(
+                    server.bearer_configured
+                      ? "plugins.summary.bearerReady"
+                      : "plugins.summary.bearerMissing",
+                  )}
+                </Badge>
+              )}
+              {server.auth_type === "oauth" && (
+                <>
+                  <Badge
+                    variant={server.oauth_client_id_configured ? "success" : "warning"}
+                    size="sm"
+                  >
+                    {t(
+                      server.oauth_client_id_configured
+                        ? "plugins.summary.oauthClientReady"
+                        : "plugins.summary.oauthClientMissing",
+                    )}
+                  </Badge>
+                  <Badge
+                    variant={server.oauth_client_secret_configured ? "success" : "warning"}
+                    size="sm"
+                  >
+                    {t(
+                      server.oauth_client_secret_configured
+                        ? "plugins.summary.oauthClientSecretReady"
+                        : "plugins.summary.oauthClientSecretMissing",
+                    )}
+                  </Badge>
+                </>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+      {binaries.length > 0 && (
+        <p className="text-xs text-muted-foreground">{binaries.join(", ")}</p>
+      )}
+      {skills.length > 0 && <div className="flex flex-wrap gap-1.5">{skills}</div>}
+      {summary.session_env.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {t("plugins.summary.env", { count: summary.session_env.length })}
+        </p>
+      )}
+      {summary.oauth_provider_configured && (
+        <Badge variant="info" size="sm">
+          {t("plugins.summary.oauthConfigured")}
+        </Badge>
+      )}
+    </div>
+  );
 }
 
 function ConfigRow({
@@ -173,6 +209,9 @@ function ConfigRow({
   onEnabled,
   onInherit,
   onEdit,
+  onAddChild,
+  onProbe,
+  onDeleteChild,
   onReset,
   onDelete,
   onOAuthConnect,
@@ -183,14 +222,18 @@ function ConfigRow({
   config: PluginConfig;
   onEnabled: (enabled: boolean) => void;
   onInherit: () => void;
-  onEdit: () => void;
+  onEdit: (serverKey?: string) => void;
+  onAddChild?: () => void;
+  onProbe?: (serverKey: string) => void;
+  onDeleteChild?: (serverKey: string) => void;
   onReset?: () => void;
   onDelete?: () => void;
-  onOAuthConnect?: () => void;
-  onOAuthDisconnect?: () => void;
+  onOAuthConnect?: (serverKey?: string) => void;
+  onOAuthDisconnect?: (serverKey?: string) => void;
   busy: boolean;
   t: Translate;
 }) {
+  const children = config.resource_summary.mcp_servers;
   const enabledLabel =
     config.is_enabled === null
       ? t("plugins.inherited")
@@ -216,19 +259,76 @@ function ConfigRow({
             {config.agent_id ? `${t("plugins.agent")}: ${config.agent_id}` : t("plugins.allAgents")}
           </p>
           <BackendSummary config={config} t={t} />
+          {children.length > 0 && (
+            <div className="space-y-1.5 pt-1">
+              {children.map((child) => (
+                <div
+                  key={child.server_key}
+                  className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/60 px-2 py-1"
+                >
+                  <span className="mr-auto text-xs font-medium">{child.server_key}</span>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => onEdit(child.server_key)}
+                    disabled={busy}
+                  >
+                    {t("common.edit")}
+                  </Button>
+                  {onProbe && child.child_id && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => onProbe(child.server_key)}
+                      disabled={busy}
+                    >
+                      {t("mcp.server.probe")}
+                    </Button>
+                  )}
+                  {child.auth_type === "oauth" && onOAuthConnect && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => onOAuthConnect(child.server_key)}
+                      disabled={busy}
+                    >
+                      {t("plugins.oauthAuthorize")}
+                    </Button>
+                  )}
+                  {child.auth_type === "oauth" && onOAuthDisconnect && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => onOAuthDisconnect(child.server_key)}
+                      disabled={busy}
+                    >
+                      {t("plugins.oauthDisconnect")}
+                    </Button>
+                  )}
+                  {onDeleteChild && child.child_id && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => onDeleteChild(child.server_key)}
+                      disabled={busy}
+                    >
+                      {t("common.delete")}
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="xs" onClick={onEdit} disabled={busy}>
-            {t("common.edit")}
-          </Button>
-          {onOAuthConnect && (
-            <Button variant="outline" size="xs" onClick={onOAuthConnect} disabled={busy}>
-              {t("plugins.oauthAuthorize")}
+          {config.resource_summary.binaries.length > 0 && (
+            <Button variant="ghost" size="xs" onClick={() => onEdit()} disabled={busy}>
+              {t("common.edit")}
             </Button>
           )}
-          {onOAuthDisconnect && (
-            <Button variant="ghost" size="xs" onClick={onOAuthDisconnect} disabled={busy}>
-              {t("plugins.oauthDisconnect")}
+          {onAddChild && children.length > 0 && (
+            <Button variant="outline" size="xs" onClick={onAddChild} disabled={busy}>
+              {t("plugins.addMcpServer")}
             </Button>
           )}
           <Switch
@@ -298,8 +398,26 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
       : [],
   });
   const [pendingDelete, setPendingDelete] = useState<PluginConfig | null>(null);
+  const [pendingChildDelete, setPendingChildDelete] = useState<{
+    config: PluginConfig;
+    serverKey: string;
+  } | null>(null);
   const [pendingPluginDelete, setPendingPluginDelete] = useState<PluginDefinition | null>(null);
-  const [editingConfig, setEditingConfig] = useState<PluginConfig | null>(null);
+  const [editingConfig, setEditingConfig] = useState<{
+    config: PluginConfig;
+    serverKey?: string;
+  } | null>(null);
+  const [addingChildConfig, setAddingChildConfig] = useState<PluginConfig | null>(null);
+  const [newChildKey, setNewChildKey] = useState("");
+  const [newChildURL, setNewChildURL] = useState("");
+  const [newChildTransport, setNewChildTransport] = useState<McpTransport>("streamable_http");
+  const [newChildAuthType, setNewChildAuthType] = useState<McpAuthType>("none");
+  const [newChildCredentialMode, setNewChildCredentialMode] = useState<"shared" | "per_user">(
+    "shared",
+  );
+  const [newChildToken, setNewChildToken] = useState("");
+  const [newChildOAuthClientID, setNewChildOAuthClientID] = useState("");
+  const [newChildOAuthSecret, setNewChildOAuthSecret] = useState("");
   const [newMcpOpen, setNewMcpOpen] = useState(false);
   const [registryOpen, setRegistryOpen] = useState(false);
   const [newMcpName, setNewMcpName] = useState("");
@@ -311,6 +429,14 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
   const closeNewMcp = () => {
     setNewMcpOpen(false);
     setNewMcpURL("");
+  };
+  const closeAddChild = () => {
+    setAddingChildConfig(null);
+    setNewChildKey("");
+    setNewChildURL("");
+    setNewChildToken("");
+    setNewChildOAuthClientID("");
+    setNewChildOAuthSecret("");
   };
   const invalidate = () => {
     if (selectedPluginID)
@@ -394,10 +520,33 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
   const editMutation = useMutation({
     mutationFn: async (input: {
       config: PluginConfig;
+      serverKey?: string;
       payload: PluginConfigPayload;
       credentials: PluginConfigCredentials;
     }) => {
       if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
+      if (input.serverKey !== undefined) {
+        const child = input.config.resource_summary.mcp_servers.find(
+          (server) => server.server_key === input.serverKey,
+        );
+        if (!child?.child_id) throw new Error("select one MCP server before editing");
+        const childID = child.child_id;
+        if (!childID) throw new Error("MCP child server was not returned");
+        const payload = input.payload.config ?? {};
+        const { data } = await updateMcpServer({
+          path: { id: childID },
+          body: {
+            expected_parent_revision: input.config.revision,
+            url: typeof payload.url === "string" ? payload.url : undefined,
+            transport: payload.transport as "streamable_http" | "sse" | undefined,
+            auth_type: payload.auth_type as "none" | "bearer" | "oauth" | undefined,
+            credential_mode: payload.credential_mode as "shared" | "per_user" | undefined,
+            credentials: Object.keys(input.credentials).length > 0 ? input.credentials : undefined,
+          },
+          throwOnError: true,
+        });
+        return data;
+      }
       const body: ComponentsUpdatePluginConfigRequestWritable = {
         expected_revision: input.config.revision,
       };
@@ -418,11 +567,77 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     },
     onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
   });
+  const createChildMutation = useMutation({
+    mutationFn: async () => {
+      if (!addingChildConfig) throw new Error(t("plugins.noSelection"));
+      const key = newChildKey.trim();
+      const url = newChildURL.trim();
+      if (!key || !url) throw new Error(t("plugins.mcpChildRequired"));
+      const credentials: Record<string, string> = {};
+      if (newChildAuthType === "bearer" && newChildToken.trim())
+        credentials.token = newChildToken.trim();
+      if (newChildAuthType === "oauth") {
+        if (newChildOAuthClientID.trim())
+          credentials.oauth_client_id = newChildOAuthClientID.trim();
+        if (newChildOAuthSecret) credentials.oauth_client_secret = newChildOAuthSecret;
+      }
+      return createMcpServer({
+        body: {
+          parent_config_id: addingChildConfig.id,
+          server_key: key,
+          expected_parent_revision: addingChildConfig.revision ?? 1,
+          url,
+          transport: newChildTransport,
+          auth_type: newChildAuthType,
+          credential_mode: newChildCredentialMode,
+          credentials: Object.keys(credentials).length > 0 ? credentials : undefined,
+        },
+        throwOnError: true,
+      });
+    },
+    onSuccess: () => {
+      invalidate();
+      closeAddChild();
+      showToast(t("plugins.mcpChildCreated"));
+    },
+    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
+  });
+  const probeChildMutation = useMutation({
+    mutationFn: async (input: { config: PluginConfig; serverKey: string }) => {
+      const child = input.config.resource_summary.mcp_servers.find(
+        (server) => server.server_key === input.serverKey,
+      );
+      if (!child?.child_id) throw new Error(t("plugins.noSelection"));
+      return probeMcpServer({ path: { id: child.child_id }, throwOnError: true });
+    },
+    onSuccess: () => {
+      invalidate();
+      showToast(t("mcp.server.probed", { time: new Date().toISOString() }));
+    },
+    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
+  });
+  const deleteChildMutation = useMutation({
+    mutationFn: async (input: { config: PluginConfig; serverKey: string }) => {
+      const child = input.config.resource_summary.mcp_servers.find(
+        (server) => server.server_key === input.serverKey,
+      );
+      if (!child?.child_id) throw new Error(t("plugins.noSelection"));
+      await deleteMcpServer({
+        path: { id: child.child_id },
+        query: { expected_parent_revision: input.config.revision ?? 1 },
+        throwOnError: true,
+      });
+    },
+    onSuccess: () => {
+      invalidate();
+      showToast(t("plugins.configUpdated"));
+    },
+    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
+  });
   const oauthStartMutation = useMutation({
-    mutationFn: async (config: PluginConfig) => {
-      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
-      const { data } = await startPluginConfigOAuth({
-        path: { plugin_id: selectedPluginID, config_id: config.id },
+    mutationFn: async (input: { config: PluginConfig; serverKey?: string }) => {
+      const { data } = await startMcpServerOAuth({
+        path: { id: oauthChildID(input.config, input.serverKey) },
         throwOnError: true,
       });
       return data;
@@ -433,10 +648,9 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
   });
   const oauthDisconnectMutation = useMutation({
-    mutationFn: async (config: PluginConfig) => {
-      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
-      await disconnectPluginConfigOAuth({
-        path: { plugin_id: selectedPluginID, config_id: config.id },
+    mutationFn: async (input: { config: PluginConfig; serverKey?: string }) => {
+      await disconnectMcpServerOAuth({
+        path: { id: oauthChildID(input.config, input.serverKey) },
         throwOnError: true,
       });
     },
@@ -468,7 +682,6 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
       const body: ComponentsCreatePluginRequestWritable = {
         display_name: displayName,
         name: pluginID,
-        backend: "mcp",
         definition_spec: newMcpDescription.trim() ? { description: newMcpDescription.trim() } : {},
         initial_config: initialConfig,
       };
@@ -503,14 +716,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     },
     onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
   });
-  const groups = useMemo(() => {
-    const cli = plugins.filter((plugin) => plugin.backend === "cli");
-    const mcp = plugins.filter((plugin) => plugin.backend === "mcp");
-    return [
-      { title: t("plugins.group.cli"), items: cli },
-      { title: t("plugins.group.mcp"), items: mcp },
-    ];
-  }, [plugins, t]);
+  const groups = useMemo(() => [{ title: t("plugins.title"), items: plugins }], [plugins, t]);
   if (pluginsQuery.isPending)
     return (
       <div className="flex h-full items-center justify-center">
@@ -531,9 +737,6 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
         title={selectedPlugin.display_name}
         subtitle={
           <div className="flex flex-wrap items-center gap-1.5">
-            <Badge variant="outline" size="sm">
-              {backendTitle(selectedPlugin, t)}
-            </Badge>
             {selectedPlugin.is_builtin && (
               <Badge variant="secondary" size="sm">
                 {t("plugins.builtin")}
@@ -597,12 +800,25 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                       configMutation.isPending ||
                       resetMutation.isPending ||
                       deleteMutation.isPending ||
+                      probeChildMutation.isPending ||
+                      deleteChildMutation.isPending ||
                       oauthStartMutation.isPending ||
                       oauthDisconnectMutation.isPending
                     }
                     onEnabled={(enabled) => configMutation.mutate({ config, enabled })}
                     onInherit={() => configMutation.mutate({ config, enabled: null })}
-                    onEdit={() => setEditingConfig(config)}
+                    onEdit={(serverKey) => setEditingConfig({ config, serverKey })}
+                    onAddChild={() => setAddingChildConfig(config)}
+                    onProbe={
+                      config.resource_summary.mcp_servers.length > 0
+                        ? (serverKey) => probeChildMutation.mutate({ config, serverKey })
+                        : undefined
+                    }
+                    onDeleteChild={
+                      config.resource_summary.mcp_servers.length > 0
+                        ? (serverKey) => setPendingChildDelete({ config, serverKey })
+                        : undefined
+                    }
                     onReset={
                       selectedPlugin.is_builtin && scope === "system"
                         ? () => resetMutation.mutate(config)
@@ -614,17 +830,13 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                         : () => setPendingDelete(config)
                     }
                     onOAuthConnect={
-                      selectedPlugin.backend === "mcp" &&
-                      config.backend_summary.backend === "mcp" &&
-                      config.backend_summary.auth_type === "oauth"
-                        ? () => oauthStartMutation.mutate(config)
+                      configHasMcpOAuth(config)
+                        ? (serverKey) => oauthStartMutation.mutate({ config, serverKey })
                         : undefined
                     }
                     onOAuthDisconnect={
-                      selectedPlugin.backend === "mcp" &&
-                      config.backend_summary.backend === "mcp" &&
-                      config.backend_summary.auth_type === "oauth"
-                        ? () => oauthDisconnectMutation.mutate(config)
+                      configHasMcpOAuth(config)
+                        ? (serverKey) => oauthDisconnectMutation.mutate({ config, serverKey })
                         : undefined
                     }
                     t={t}
@@ -703,8 +915,22 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     </DetailPanel>
   ) : null;
   const newMcpPlugin = {
-    backend: "mcp" as const,
     display_name: newMcpName || t("plugins.newMcp"),
+    resource_summary: {
+      binaries: [],
+      skills: [],
+      session_env: [],
+      oauth_provider_configured: false,
+      mcp_servers: [
+        {
+          server_key: "main",
+          endpoint_configured: false,
+          bearer_configured: false,
+          oauth_client_id_configured: false,
+          oauth_client_secret_configured: false,
+        },
+      ],
+    },
   };
   return (
     <>
@@ -750,7 +976,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                     >
                       <div className="flex items-start gap-3">
                         <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-muted text-muted-foreground">
-                          {backendIcon(plugin)}
+                          <Package className="size-4" />
                         </span>
                         <div className="min-w-0 flex-1 space-y-1">
                           <div className="flex flex-wrap items-center gap-1.5">
@@ -869,6 +1095,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
             <PluginConfigEditor
               plugin={newMcpPlugin}
               initialMcpUrl={newMcpURL}
+              mcpServerKey="main"
               onSave={(payload, credentials) => {
                 const url = payload.config?.url;
                 if (typeof url !== "string" || !url.trim()) {
@@ -888,13 +1115,19 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
           <DetailPanel>
             <DetailPanelHeader
               title={t("plugins.editConfiguration")}
-              subtitle={scopeLabel(editingConfig.scope, t)}
+              subtitle={scopeLabel(editingConfig.config.scope, t)}
             />
             <PluginConfigEditor
               plugin={selectedPlugin}
-              config={editingConfig}
+              config={editingConfig.config}
+              mcpServerKey={editingConfig.serverKey}
               onSave={(payload, credentials) => {
-                editMutation.mutate({ config: editingConfig, payload, credentials });
+                editMutation.mutate({
+                  config: editingConfig.config,
+                  serverKey: editingConfig.serverKey,
+                  payload,
+                  credentials,
+                });
               }}
               onCancel={() => setEditingConfig(null)}
               busy={editMutation.isPending}
@@ -902,6 +1135,60 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
           </DetailPanel>
         )}
       </SettingsDetailSheet>
+      <SettingsDetailSheet open={addingChildConfig !== null} onClose={closeAddChild}>
+        <DetailPanel>
+          <DetailPanelHeader title={t("plugins.addMcpServer")} />
+          <div className="space-y-4">
+            <McpServerFields
+              name={newChildKey}
+              onNameChange={setNewChildKey}
+              url={newChildURL}
+              onUrlChange={setNewChildURL}
+              transport={newChildTransport}
+              onTransportChange={setNewChildTransport}
+              authType={newChildAuthType}
+              onAuthTypeChange={setNewChildAuthType}
+              token={newChildToken}
+              onTokenChange={setNewChildToken}
+              editing={false}
+              oauthClientId={newChildOAuthClientID}
+              onOauthClientIdChange={setNewChildOAuthClientID}
+              oauthClientSecret={newChildOAuthSecret}
+              onOauthClientSecretChange={setNewChildOAuthSecret}
+              credentialMode={newChildCredentialMode}
+              onCredentialModeChange={setNewChildCredentialMode}
+              showCredentialMode
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={closeAddChild}
+                disabled={createChildMutation.isPending}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => createChildMutation.mutate()}
+                loading={createChildMutation.isPending}
+              >
+                {t("common.save")}
+              </Button>
+            </div>
+          </div>
+        </DetailPanel>
+      </SettingsDetailSheet>
+      <ConfirmDialog
+        open={pendingChildDelete !== null}
+        onOpenChange={(open) => !open && setPendingChildDelete(null)}
+        title={t("plugins.deleteMcpServer")}
+        message={pendingChildDelete ? pendingChildDelete.serverKey : ""}
+        onConfirm={() => {
+          if (pendingChildDelete) deleteChildMutation.mutate(pendingChildDelete);
+          setPendingChildDelete(null);
+        }}
+      />
       <ConfirmDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => !open && setPendingDelete(null)}

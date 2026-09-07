@@ -15,7 +15,7 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin"
 )
 
-// ValidatePayload is the CLI backend's configuration boundary. Definition
+// ValidatePayload validates the package's CLI, Skill and environment resources. Definition
 // resources are trusted release input; a config is an overlay, so a user may
 // pin a release version or select an OAuth source but cannot replace the
 // executable, its install location, or the skill that belongs to it.
@@ -28,9 +28,6 @@ var _ plugin.PayloadValidator = ValidatePayload
 func ValidatePayload(_ context.Context, definition plugin.Definition, config plugin.Config, resetFields []string) error {
 	if err := config.Validate(); err != nil {
 		return err
-	}
-	if definition.Backend != plugin.BackendCLI {
-		return invalidPayload("backend %q is not CLI", definition.Backend)
 	}
 	if err := definition.Validate(); err != nil {
 		return invalidPayload("definition: %v", err)
@@ -49,7 +46,10 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 	// A nil config payload is still checked against the release resource
 	// contract. Only the selected config's completeness is suppressed by false.
 	system := IsSystemPlugin(definition)
-	if err := validateResources(shipped, "definition spec", true, system); err != nil {
+	// Custom definitions may leave all resources to their scoped configs,
+	// including an empty MCP set after the last child is removed.
+	allowEmpty := system || definition.Source == plugin.SourceCustom
+	if err := validateResources(shipped, "definition spec", true, allowEmpty); err != nil {
 		return err
 	}
 	if len(config.Payload) == 0 {
@@ -69,7 +69,7 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 	if config.Enabled != nil {
 		complete = *config.Enabled
 	}
-	if err := validateResources(resolved, "config payload", complete, system); err != nil {
+	if err := validateResources(resolved, "config payload", complete, allowEmpty); err != nil {
 		return err
 	}
 	if err := validateConfigEnvValues(resolved); err != nil {
@@ -87,13 +87,15 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 // BuiltinDefinitions. Keeping this decoder narrower than ManifestPlugin also
 // prevents identity and server-owned metadata from entering plugin_config.
 type cliPayload struct {
-	Description   string               `json:"description,omitempty"`
-	Category      string               `json:"category,omitempty"`
-	Prompt        string               `json:"prompt,omitempty"`
-	Binaries      []ManifestBinary     `json:"binaries,omitempty"`
-	Skills        []ManifestSkill      `json:"skills,omitempty"`
-	SessionEnvs   []ManifestSessionEnv `json:"session_env,omitempty"`
-	OAuthProvider string               `json:"oauth_provider,omitempty"`
+	Description   string                       `json:"description,omitempty"`
+	Category      string                       `json:"category,omitempty"`
+	Prompt        string                       `json:"prompt,omitempty"`
+	Binaries      []ManifestBinary             `json:"binaries,omitempty"`
+	Skills        []ManifestSkill              `json:"skills,omitempty"`
+	SessionEnvs   []ManifestSessionEnv         `json:"session_env,omitempty"`
+	OAuthProvider string                       `json:"oauth_provider,omitempty"`
+	OAuth         []ManifestOAuthRequirement   `json:"oauth,omitempty"`
+	MCPServers    map[string]ManifestMCPServer `json:"mcp_servers,omitempty"`
 }
 
 // CLIPayload is the validated definition/config projection consumed by the
@@ -201,9 +203,15 @@ func validateResources(payload cliPayload, name string, complete, allowEmpty boo
 			}
 		}
 	}
+	if err := errors.Join(validateOAuthBindings(ManifestPluginDefinition{
+		OAuth: payload.OAuth, SessionEnvs: payload.SessionEnvs, MCPServers: payload.MCPServers,
+	}, nil)...); err != nil {
+		return invalidPayload("%s: %v", name, err)
+	}
+
 	// An embedded-only system plugin can have no configurable capabilities.
 	// Its executable is still installed from the immutable release manifest.
-	empty := len(payload.Binaries) == 0 && len(payload.Skills) == 0 && len(payload.SessionEnvs) == 0 && payload.Prompt == ""
+	empty := len(payload.Binaries) == 0 && len(payload.Skills) == 0 && len(payload.SessionEnvs) == 0 && len(payload.OAuth) == 0 && len(payload.MCPServers) == 0 && payload.Prompt == ""
 	if complete && (!allowEmpty || !empty) {
 		if err := validateCompleteManifest(payload, name); err != nil {
 			return err
@@ -255,14 +263,21 @@ func validateCompleteManifest(payload cliPayload, name string) error {
 	definition := ManifestPluginDefinition{
 		Description: payload.Description, Category: payload.Category, Prompt: payload.Prompt,
 		Binaries: payload.Binaries, Skills: payload.Skills, SessionEnvs: payload.SessionEnvs,
-		OAuthProvider: payload.OAuthProvider,
+		OAuthProvider: payload.OAuthProvider, OAuth: payload.OAuth, MCPServers: payload.MCPServers,
 	}
 	manifest := &Manifest{Plugins: []ManifestPlugin{{ID: "validated", ManifestPluginDefinition: definition}}}
+	providerIDs := make(map[string]struct{})
 	if payload.OAuthProvider != "" {
-		manifest.OAuthProviders = []ManifestOAuthProvider{{
-			ID: payload.OAuthProvider, VaultKey: "validated",
+		providerIDs[payload.OAuthProvider] = struct{}{}
+	}
+	for _, requirement := range payload.OAuth {
+		providerIDs[requirement.Provider] = struct{}{}
+	}
+	for providerID := range providerIDs {
+		manifest.OAuthProviders = append(manifest.OAuthProviders, ManifestOAuthProvider{
+			ID: providerID, VaultKey: "validated",
 			Flows: []ManifestOAuthFlow{{Type: "device_code", DeviceAuthURL: "https://validated.invalid/device", TokenURL: "https://validated.invalid/token"}},
-		}}
+		})
 	}
 	if err := Validate(manifest); err != nil {
 		return invalidPayload("%s: %v", name, err)
@@ -282,7 +297,7 @@ func validateConfigEnvValues(payload cliPayload) error {
 func validateUserOverlay(shipped, resolved cliPayload, config plugin.Config) error {
 	if resolved.Description != shipped.Description || resolved.Category != shipped.Category ||
 		resolved.Prompt != shipped.Prompt || resolved.OAuthProvider != shipped.OAuthProvider ||
-		!reflect.DeepEqual(resolved.Skills, shipped.Skills) {
+		!reflect.DeepEqual(resolved.Skills, shipped.Skills) || !reflect.DeepEqual(resolved.OAuth, shipped.OAuth) {
 		return invalidPayload("user scope may only change binary version/options and OAuth session env source")
 	}
 	if len(resolved.Binaries) != len(shipped.Binaries) {
@@ -417,6 +432,8 @@ func validateCredentialRefs(config plugin.Config) error {
 
 type cliCredentialRefs struct {
 	SessionEnv *cliCredentialRef `json:"session_env,omitempty"`
+	// MCP validates its own locator map at the same parent mutation boundary.
+	MCPServers json.RawMessage `json:"mcp_servers,omitempty"`
 }
 
 type cliCredentialRef struct {

@@ -3,7 +3,6 @@ export type PluginScope = "system" | "system_agent" | "user" | "user_agent";
 export interface PluginDefinition {
   id: string;
   display_name: string;
-  backend: "cli" | "mcp";
   is_builtin: boolean;
   is_default_enabled: boolean;
   spec: Record<string, unknown>;
@@ -12,8 +11,7 @@ export interface PluginDefinition {
   updated_at: string;
 }
 
-export interface PluginMCPBackendSummary {
-  backend: "mcp";
+export interface PluginMCPServerSummary {
   transport: "streamable_http" | "sse";
   auth_type: "none" | "bearer" | "oauth";
   credential_mode: "shared" | "per_user";
@@ -30,10 +28,38 @@ export interface PluginConfig {
   user_id?: string;
   agent_id?: string;
   is_enabled: boolean | null;
-  backend_summary: PluginMCPBackendSummary;
+  resource_summary: {
+    mcp_servers: PluginMCPServerSummary[];
+    binaries?: unknown[];
+    skills?: unknown[];
+    session_env?: unknown[];
+    oauth_provider_configured?: boolean;
+  };
   revision: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface McpServer {
+  id: string;
+  plugin_id: string;
+  parent_config_id: string;
+  parent_revision: number;
+  server_key: string;
+  scope: PluginScope;
+  enabled: boolean;
+  credential_mode: "shared" | "per_user";
+  auth_type?: "none" | "bearer" | "oauth";
+  transport?: "streamable_http" | "sse";
+  endpoint_configured?: boolean;
+  bearer_configured?: boolean;
+  oauth_client_id_configured?: boolean;
+  oauth_client_secret_configured?: boolean;
+  needs_auth: boolean;
+  status: string;
+  status_error?: string;
+  tools: Array<{ name: string; }>;
+  revision: number;
 }
 
 export interface CreatePluginResponse {

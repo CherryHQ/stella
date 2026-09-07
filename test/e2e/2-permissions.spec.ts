@@ -3,7 +3,7 @@
 import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
 import { expectStatus } from "./lib/api.ts";
 import { expect, test } from "./lib/fixtures.ts";
-import { exportedMcpName, type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
+import { exportedMcpName, type McpFixture, mcpServer, startMcpFixture } from "./lib/mcp-fixture.ts";
 import { ensureProvider } from "./lib/provider.ts";
 import type { AgentTool } from "./lib/types.ts";
 
@@ -12,6 +12,7 @@ test.describe.configure({ mode: "serial" });
 let fixture: McpFixture;
 let pluginId = "";
 let configId = "";
+let childId = "";
 let configRevision = 0;
 let pluginRevision = 0;
 let agentId = "";
@@ -83,7 +84,6 @@ test("catalog endpoint exposes effective MCP registration and tools", async ({ a
     await admin.post<PluginCreate>("/api/plugins", {
       name: "permissions",
       display_name: "permissions",
-      backend: "mcp",
       definition_spec: {},
       initial_config: {
         scope: "user",
@@ -100,11 +100,12 @@ test("catalog endpoint exposes effective MCP registration and tools", async ({ a
   );
   pluginId = created.plugin.id;
   configId = created.config.id;
+  childId = (await mcpServer(admin, configId)).id;
   configRevision = created.config.revision ?? 1;
   pluginRevision = created.plugin.revision ?? 1;
   const probed = expectStatus(
     await admin.post<{ status?: string; }>(
-      `${pluginPath()}/configs/${configId}/probe`,
+      `/api/mcp/servers/${childId}/probe`,
     ),
     200,
     "probe permissions plugin",
@@ -119,7 +120,7 @@ test("catalog endpoint exposes effective MCP registration and tools", async ({ a
     "list agent MCP servers",
   );
   const registration = servers.servers.find(
-    (server) => server.config_id === configId,
+    (server) => server.config_id === childId,
   );
   expect(registration).toMatchObject({
     plugin_id: "permissions",
@@ -148,7 +149,8 @@ test("catalog endpoint exposes effective MCP registration and tools", async ({ a
     select d.display_name as name, c.scope, c.enabled, s.status, s.tools
     from plugin_config c
     join plugin_definition d on d.id = c.plugin_id
-    left join mcp_connection_state s on s.config_id = c.id
+    left join plugin_config_mcp_server child on child.config_id = c.id
+    left join mcp_connection_state s on s.child_id = child.id
     where c.id = ${configId}`;
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({
@@ -283,7 +285,6 @@ test.describe("real model permissions turn", () => {
         await admin.post<PluginCreate>("/api/plugins", {
           name: "permissions",
           display_name: "permissions",
-          backend: "mcp",
           definition_spec: {},
           initial_config: {
             scope: "user",
@@ -300,9 +301,10 @@ test.describe("real model permissions turn", () => {
       );
       pluginId = setup.plugin.id;
       configId = setup.config.id;
+      childId = (await mcpServer(admin, configId)).id;
       configRevision = setup.config.revision ?? 1;
       pluginRevision = setup.plugin.revision ?? 1;
-      await admin.post(`${pluginPath()}/configs/${configId}/probe`);
+      await admin.post(`/api/mcp/servers/${childId}/probe`);
     }
     const add = permissionsAdd;
     const echo = permissionsEcho;

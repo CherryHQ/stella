@@ -11,11 +11,27 @@
 -- fail and be retried, rather than wait behind an old writer indefinitely.
 SET LOCAL lock_timeout = '5s';
 
+-- Stable child identity for each authored MCP server entry. Endpoint and
+-- credential locators remain on plugin_config; this relation owns only the
+-- child UUID, parent config and authored server key.
+CREATE TABLE plugin_config_mcp_server (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    config_id UUID NOT NULL REFERENCES plugin_config(id) ON DELETE CASCADE,
+    server_key TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT plugin_config_mcp_server_key_check CHECK (server_key <> ''),
+    CONSTRAINT plugin_config_mcp_server_config_key_unique UNIQUE (config_id, server_key)
+);
+
+CREATE INDEX idx_plugin_config_mcp_server_config_id
+    ON plugin_config_mcp_server (config_id);
+
 -- Remote MCP observations are separate from authored plugin configuration.
 -- Legacy mcp_server rows remain untouched until the runtime cutover.
 CREATE TABLE mcp_connection_state (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
-    config_id UUID NOT NULL REFERENCES plugin_config(id) ON DELETE CASCADE,
+    child_id UUID NOT NULL REFERENCES plugin_config_mcp_server(id) ON DELETE CASCADE,
     credential_user_id UUID REFERENCES auth_user(id) ON DELETE CASCADE,
     tools JSONB NOT NULL DEFAULT '[]'::jsonb,
     status TEXT NOT NULL DEFAULT 'unknown',
@@ -26,12 +42,16 @@ CREATE TABLE mcp_connection_state (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT mcp_connection_state_tools_array_check CHECK (jsonb_typeof(tools) = 'array'),
     CONSTRAINT mcp_connection_state_revision_check CHECK (config_revision > 0),
-    CONSTRAINT mcp_connection_state_identity_key UNIQUE NULLS NOT DISTINCT (config_id, credential_user_id)
+    CONSTRAINT mcp_connection_state_identity_key UNIQUE NULLS NOT DISTINCT (child_id, credential_user_id)
 );
 
 CREATE INDEX idx_mcp_connection_state_credential_user_id
     ON mcp_connection_state (credential_user_id)
     WHERE credential_user_id IS NOT NULL;
+
+-- The child key is nullable for native Agent plugin rows. MCP rows populate it
+-- during legacy import, while core rows keep all plugin identity columns NULL.
+ALTER TABLE tool_override ADD COLUMN server_key TEXT;
 
 -- +goose StatementBegin
 DO $$
@@ -51,6 +71,10 @@ BEGIN
         SELECT 1 FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = 'tool_override'
           AND column_name = 'local_tool_name'
+    ) OR NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'tool_override'
+          AND column_name = 'server_key'
     ) THEN
         RAISE EXCEPTION 'plugin cutover requires tool identity columns from migration 40';
     END IF;
@@ -92,11 +116,13 @@ BEGIN
         SELECT 1
         FROM tool_override
         WHERE NOT (
-            (plugin_id IS NULL AND local_tool_name IS NULL
+            (plugin_id IS NULL AND server_key IS NULL AND local_tool_name IS NULL
              AND tool_name IS NOT NULL AND tool_name <> '')
             OR
             (plugin_id IS NOT NULL AND local_tool_name IS NOT NULL
-             AND plugin_id <> '' AND local_tool_name <> '' AND tool_name IS NULL)
+             AND plugin_id <> '' AND local_tool_name <> ''
+             AND (server_key IS NULL OR server_key <> '')
+             AND tool_name IS NULL)
         )
     ) THEN
         RAISE EXCEPTION 'tool_override contains an invalid dual identity row';
@@ -111,18 +137,20 @@ ALTER TABLE tool_override DROP CONSTRAINT IF EXISTS tool_override_plugin_identit
 ALTER TABLE tool_override DROP CONSTRAINT IF EXISTS tool_override_identity_check;
 ALTER TABLE tool_override
     ADD CONSTRAINT tool_override_identity_check CHECK (
-        (plugin_id IS NULL AND local_tool_name IS NULL
+        (plugin_id IS NULL AND server_key IS NULL AND local_tool_name IS NULL
          AND tool_name IS NOT NULL AND tool_name <> '')
         OR
         (plugin_id IS NOT NULL AND local_tool_name IS NOT NULL
-         AND plugin_id <> '' AND local_tool_name <> '' AND tool_name IS NULL)
+         AND plugin_id <> '' AND local_tool_name <> ''
+         AND (server_key IS NULL OR server_key <> '')
+         AND tool_name IS NULL)
     );
 
 CREATE UNIQUE INDEX uniq_tool_override_core_identity
     ON tool_override (tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
     WHERE tool_name IS NOT NULL AND plugin_id IS NULL AND local_tool_name IS NULL;
 CREATE UNIQUE INDEX uniq_tool_override_plugin_identity
-    ON tool_override (plugin_id, local_tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
+    ON tool_override (plugin_id, server_key, local_tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
     WHERE tool_name IS NULL;
 
 -- The old FK names the legacy mcp_server table. Remove that writer-era edge,
@@ -133,7 +161,7 @@ ALTER TABLE public.mcp_oauth_flow DROP CONSTRAINT IF EXISTS mcp_oauth_flow_serve
 ALTER TABLE public.mcp_oauth_flow DROP CONSTRAINT IF EXISTS mcp_oauth_flow_server_id_plugin_config_fkey;
 ALTER TABLE public.mcp_oauth_flow
     ADD CONSTRAINT mcp_oauth_flow_server_id_plugin_config_fkey
-    FOREIGN KEY (server_id) REFERENCES public.plugin_config(id)
+    FOREIGN KEY (server_id) REFERENCES public.plugin_config_mcp_server(id)
     ON DELETE CASCADE NOT VALID;
 
 -- +goose Down

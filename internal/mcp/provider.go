@@ -85,22 +85,23 @@ func (s *Service) observationsForSnapshot(ctx context.Context, snapshot plugin.S
 	modes := make(map[string]string)
 	seen := make(map[string]struct{})
 	for _, def := range snapshot.Definitions() {
-		if def.Backend != plugin.BackendMCP {
+		resolved, ok := snapshot.Get(def.ID)
+		if !ok || !resolved.Effective.IsEffectivelyEnabled || resolved.Effective.ConfigID == "" || !payloadHasMCP(resolved.Effective.Payload) || resolved.Config == nil {
 			continue
 		}
-		effective, err := snapshot.Resolve(def.ID)
-		if err != nil || !effective.IsEffectivelyEnabled || effective.ConfigID == "" || len(effective.Payload) == 0 {
-			continue
+		cfg := *resolved.Config
+		for _, child := range cfg.MCPServers {
+			payload, err := decodeMCPPluginPayloadForKey(resolved.Effective.Payload, child.ServerKey)
+			if err != nil {
+				slog.Warn("invalid MCP child skipped during observation lookup", "child_id", child.ID)
+				continue
+			}
+			if _, exists := seen[child.ID]; !exists {
+				seen[child.ID] = struct{}{}
+				ids = append(ids, child.ID)
+			}
+			modes[child.ID] = payload.CredentialMode
 		}
-		payload, err := decodeMCPPluginPayload(effective.Payload)
-		if err != nil {
-			return nil, fmt.Errorf("decode MCP config %q for observation lookup: %w", effective.ConfigID, err)
-		}
-		if _, ok := seen[effective.ConfigID]; !ok {
-			seen[effective.ConfigID] = struct{}{}
-			ids = append(ids, effective.ConfigID)
-		}
-		modes[effective.ConfigID] = payload.CredentialMode
 	}
 	var userID *string
 	if authority.Kind() == authz.ActorUser || authority.Kind() == authz.ActorAgent {
@@ -115,7 +116,7 @@ func (s *Service) observationsForSnapshot(ctx context.Context, snapshot plugin.S
 	}
 	out := make(map[string]PluginMCPObservation, len(states))
 	for _, state := range states {
-		mode := modes[state.ConfigID]
+		mode := modes[state.ChildID]
 		if mode == CredentialModePerUser {
 			if userID == nil || state.CredentialUserID == nil || *state.CredentialUserID != *userID {
 				continue
@@ -126,7 +127,8 @@ func (s *Service) observationsForSnapshot(ctx context.Context, snapshot plugin.S
 		var tools []CatalogTool
 		if len(state.Tools) != 0 {
 			if err := json.Unmarshal(state.Tools, &tools); err != nil {
-				return nil, fmt.Errorf("decode MCP observation %q: %w", state.ConfigID, err)
+				slog.Warn("invalid MCP observation skipped", "child_id", state.ChildID)
+				continue
 			}
 		}
 		observation := PluginMCPObservation{
@@ -139,7 +141,7 @@ func (s *Service) observationsForSnapshot(ctx context.Context, snapshot plugin.S
 		if state.CredentialUserID != nil {
 			observation.CredentialUserID = *state.CredentialUserID
 		}
-		out[state.ConfigID] = observation
+		out[state.ChildID] = observation
 	}
 	return out, nil
 }
@@ -151,9 +153,6 @@ func mcpRegistrationsFromSnapshot(snapshot plugin.Snapshot, observations map[str
 	registrations := make([]Registration, 0, len(defs))
 	exportedNames := make(map[string]string)
 	for _, def := range defs {
-		if def.Backend != plugin.BackendMCP {
-			continue
-		}
 		effective, err := snapshot.Resolve(def.ID)
 		if errors.Is(err, plugin.ErrNotFound) {
 			continue
@@ -168,23 +167,57 @@ func mcpRegistrationsFromSnapshot(snapshot plugin.Snapshot, observations map[str
 		if resolved.Definition.ID != def.ID || resolved.Effective.PluginID != def.ID || resolved.Effective.ConfigID != effective.ConfigID {
 			return nil, fmt.Errorf("resolve MCP package %q returned inconsistent entry", def.ID)
 		}
-		if !effective.IsEffectivelyEnabled || resolved.Definition.Backend != plugin.BackendMCP || resolved.Config == nil || len(resolved.Config.Payload) == 0 {
+		if !effective.IsEffectivelyEnabled || !payloadHasMCP(effective.Payload) || resolved.Config == nil {
 			continue
 		}
 		observation := observations[resolved.Config.ID]
-		registration, err := RegistrationFromPluginConfig(resolved.Definition, *resolved.Config, resolved.Effective, observation, authority)
+		converted, err := registrationsFromResolvedConfig(resolved.Definition, *resolved.Config, resolved.Effective, observation, observations, authority)
 		if err != nil {
 			return nil, fmt.Errorf("convert MCP config %q: %w", resolved.Config.ID, err)
 		}
-		for _, catalogTool := range registration.Tools {
-			name, err := agentpackage.ExportedToolName(registration.PluginID, "main", catalogTool.Name)
-			if err != nil {
-				return nil, fmt.Errorf("convert MCP config %q tool %q: %w", resolved.Config.ID, catalogTool.Name, err)
+		for _, registration := range converted {
+			for _, catalogTool := range registration.Tools {
+				name, err := agentpackage.ExportedToolName(registration.PluginID, registration.ServerKey, catalogTool.Name)
+				if err != nil {
+					return nil, fmt.Errorf("convert MCP config %q tool %q: %w", resolved.Config.ID, catalogTool.Name, err)
+				}
+				if prior, duplicate := exportedNames[name]; duplicate {
+					return nil, fmt.Errorf("MCP configs %q and %q collide on exported tool name %q", prior, resolved.Config.ID, name)
+				}
+				exportedNames[name] = resolved.Config.ID
 			}
-			if prior, duplicate := exportedNames[name]; duplicate {
-				return nil, fmt.Errorf("MCP configs %q and %q collide on exported tool name %q", prior, resolved.Config.ID, name)
-			}
-			exportedNames[name] = resolved.Config.ID
+		}
+		registrations = append(registrations, converted...)
+	}
+	return registrations, nil
+}
+
+// registrationsFromResolvedConfig expands one package config into one runtime
+// registration per authored MCP child. Nested resources need persisted child
+// identities and only consume observations keyed by those identities.
+func registrationsFromResolvedConfig(def plugin.Definition, cfg plugin.Config, effective plugin.Effective, parentObservation PluginMCPObservation, observations map[string]PluginMCPObservation, authority authz.Authority) ([]Registration, error) {
+	if len(cfg.MCPServers) == 0 {
+		if payloadHasMCP(effective.Payload) {
+			return nil, nil
+		}
+		registration, err := RegistrationFromPluginConfig(def, cfg, effective, parentObservation, authority)
+		if err != nil {
+			return nil, err
+		}
+		return []Registration{registration}, nil
+	}
+	registrations := make([]Registration, 0, len(cfg.MCPServers))
+	for _, child := range cfg.MCPServers {
+		observation := PluginMCPObservation{ConfigRevision: cfg.Revision}
+		if childObservation, ok := observations[child.ID]; ok {
+			observation = childObservation
+		}
+		registration, err := RegistrationFromPluginChild(def, cfg, effective, child, observation, authority)
+		if err != nil {
+			// A malformed resource cannot hide independent siblings. The
+			// adapter validates identity and credentials before returning it.
+			slog.Warn("invalid MCP child skipped", "child_id", child.ID)
+			continue
 		}
 		registrations = append(registrations, registration)
 	}
@@ -324,7 +357,7 @@ func (p *ToolProvider) catalogProxies(reg Registration, catalog []CatalogTool, o
 }
 
 func exportedToolName(reg Registration, remoteName string) string {
-	name, _ := agentpackage.ExportedToolName(reg.PluginID, "main", remoteName)
+	name, _ := agentpackage.ExportedToolName(reg.PluginID, reg.ServerKey, remoteName)
 	return name
 }
 

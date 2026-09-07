@@ -32,8 +32,8 @@ func (identifiedMCPTool) Definition() tools.Definition {
 
 func (identifiedMCPTool) Execute(context.Context, map[string]any) (string, error) { return "", nil }
 
-func (identifiedMCPTool) PluginToolIdentity() (string, string, bool) {
-	return "custom/settings", "list", true
+func (identifiedMCPTool) PluginToolIdentity() (string, string, string, bool) {
+	return "custom/settings", "main", "list", true
 }
 
 func TestRunnerMCPToolIdentityRequiresSnapshotOwner(t *testing.T) {

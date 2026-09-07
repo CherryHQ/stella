@@ -10,6 +10,7 @@ package mcp
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -130,7 +131,12 @@ type CatalogTool struct {
 
 // Registration is one MCP server registration (metadata only, no secret).
 type Registration struct {
+	// ID is the child server UUID. ParentConfigID and ServerKey identify the
+	// package resource that owns this child; keeping all three fields here
+	// prevents a child registration from being mistaken for its parent.
 	ID             string
+	ParentConfigID string
+	ServerKey      string
 	PluginID       string
 	ConfigRevision int64
 	Scope          string
@@ -147,8 +153,11 @@ type Registration struct {
 	ProbedAt       time.Time // zero when never probed
 	Tools          []CatalogTool
 	CredentialMode string
-	Metadata       map[string]any
-	Description    string
+	// Headers are public, non-credential request headers authored by the
+	// package. Credential-bearing headers are rejected at config boundaries.
+	Headers     map[string]string
+	Metadata    map[string]any
+	Description string
 	// OAuthClientID is the public pre-registered client id from
 	// metadata.oauth.client_id; the client secret never leaves the vault.
 	OAuthClientID        string
@@ -184,10 +193,11 @@ func sanitizeIdent(s, fallback string) string {
 // (Status, StatusError, ProbedAt, Tools) are observations, so a probe must
 // never change Version() and invalidate a client's If-Match.
 func registrationHash(r Registration) [32]byte {
+	headers, _ := json.Marshal(r.Headers)
 	return sha256.Sum256([]byte(strings.Join([]string{
-		r.ID, r.Scope, r.UserID, r.AgentID, r.Name, r.URL, r.Transport,
+		r.ID, r.ParentConfigID, r.ServerKey, fmt.Sprintf("%d", r.ConfigRevision), r.Scope, r.UserID, r.AgentID, r.Name, r.URL, r.Transport,
 		r.AuthType, r.CredentialRef, fmt.Sprintf("%t", r.Enabled),
-		r.CredentialMode, r.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		r.CredentialMode, string(headers), r.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}, "\x00")))
 }
 

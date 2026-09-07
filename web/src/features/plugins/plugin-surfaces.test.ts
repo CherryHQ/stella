@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { PluginConfig } from "@/lib/api-client";
 
 vi.hoisted(() => {
   Object.defineProperty(globalThis, "localStorage", {
@@ -8,6 +9,7 @@ vi.hoisted(() => {
 });
 
 import {
+  configHasMcpOAuth,
   pluginErrorMessage,
   UnifiedPluginsPage,
   PersonalUnifiedPluginsPage,
@@ -36,6 +38,28 @@ import { Route as PersonalLibraryRoute } from "@/routes/_app/settings/library.la
 import { Route as AdminLibraryRoute } from "@/routes/_app/admin/resources/library.lazy";
 
 describe("plugin surface ownership", () => {
+  it("detects OAuth from the selected config resources", () => {
+    const config = {
+      resource_summary: {
+        binaries: [],
+        skills: [],
+        session_env: [],
+        oauth_provider_configured: false,
+        mcp_servers: [
+          {
+            server_key: "main",
+            auth_type: "oauth",
+            endpoint_configured: true,
+            bearer_configured: false,
+            oauth_client_id_configured: true,
+            oauth_client_secret_configured: true,
+          },
+        ],
+      },
+    } as Pick<PluginConfig, "resource_summary">;
+    expect(configHasMcpOAuth(config)).toBe(true);
+  });
+
   it("turns the OAuth initialization conflict into an actionable prompt", () => {
     const translate = ((key: string) => key) as unknown as Translate;
     expect(

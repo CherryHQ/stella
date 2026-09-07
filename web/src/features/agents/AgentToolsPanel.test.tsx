@@ -323,6 +323,8 @@ describe("AgentToolsPanel control contract", () => {
 const healthyServer = {
   plugin_id: "github",
   config_id: "srv-1",
+  parent_config_id: "parent-1",
+  parent_revision: 1,
   scope: "user",
   enabled: true,
   status: "ok",
@@ -364,10 +366,8 @@ describe("McpServerGroup", () => {
         isAdmin={false}
         busyToolName={null}
         familyBusy={false}
-        toggleBusy={false}
         onToggle={vi.fn()}
         onSetFamilyEnabled={vi.fn()}
-        onToggleServer={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onConnect={vi.fn()}
@@ -393,10 +393,8 @@ describe("McpServerGroup", () => {
         isAdmin={false}
         busyToolName={null}
         familyBusy={false}
-        toggleBusy={false}
         onToggle={vi.fn()}
         onSetFamilyEnabled={vi.fn()}
-        onToggleServer={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onConnect={vi.fn()}
@@ -419,10 +417,8 @@ describe("McpServerGroup", () => {
         isAdmin={false}
         busyToolName={null}
         familyBusy={false}
-        toggleBusy={false}
         onToggle={vi.fn()}
         onSetFamilyEnabled={vi.fn()}
-        onToggleServer={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onConnect={vi.fn()}

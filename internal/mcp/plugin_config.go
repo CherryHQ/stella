@@ -41,8 +41,8 @@ func RegistrationFromPluginConfig(def plugin.Definition, cfg plugin.Config, effe
 	if err := def.Validate(); err != nil {
 		return Registration{}, fmt.Errorf("mcp plugin definition: %w", err)
 	}
-	if def.Backend != plugin.BackendMCP {
-		return Registration{}, errors.New("mcp plugin definition has a non-MCP backend")
+	if !definitionHasMCP(def) && !payloadHasMCP(cfg.Payload) {
+		return Registration{}, errors.New("plugin definition has no MCP resources")
 	}
 	if err := cfg.Validate(); err != nil {
 		return Registration{}, fmt.Errorf("mcp plugin config: %w", err)
@@ -59,8 +59,14 @@ func RegistrationFromPluginConfig(def plugin.Definition, cfg plugin.Config, effe
 	if _, err := uuid.Parse(cfg.ID); err != nil {
 		return Registration{}, errors.New("mcp plugin config id is not a UUID")
 	}
+	if len(cfg.MCPServers) != 0 {
+		if len(cfg.MCPServers) != 1 {
+			return Registration{}, errors.New("mcp package has multiple servers; resolve a child registration")
+		}
+		return RegistrationFromPluginChild(def, cfg, effective, cfg.MCPServers[0], observation, authority)
+	}
 
-	payload, err := decodeMCPPluginPayload(effective.Payload)
+	payload, err := decodeMCPPluginPayloadSingle(effective.Payload)
 	if err != nil {
 		return Registration{}, err
 	}
@@ -75,9 +81,10 @@ func RegistrationFromPluginConfig(def plugin.Definition, cfg plugin.Config, effe
 	if err != nil {
 		return Registration{}, err
 	}
-
 	return Registration{
 		ID:                   cfg.ID,
+		ParentConfigID:       cfg.ID,
+		ServerKey:            "main",
 		PluginID:             def.ID,
 		ConfigRevision:       cfg.Revision,
 		Scope:                string(cfg.Scope),
@@ -94,6 +101,7 @@ func RegistrationFromPluginConfig(def plugin.Definition, cfg plugin.Config, effe
 		ProbedAt:             observedAt,
 		Tools:                tools,
 		CredentialMode:       credentialMode,
+		Headers:              cloneHeaders(payload.Headers),
 		Metadata:             payload.Metadata,
 		Description:          payload.Description,
 		OAuthClientID:        metadataOAuthClientID(payload.Metadata),
@@ -103,13 +111,262 @@ func RegistrationFromPluginConfig(def plugin.Definition, cfg plugin.Config, effe
 	}, nil
 }
 
+// decodeMCPPluginPayloadSingle accepts the legacy flat shape and a nested
+// package only when it has one authored server. Older single-server callers
+// must not accidentally decode the parent envelope as server metadata.
+func decodeMCPPluginPayloadSingle(raw json.RawMessage) (mcpPluginPayload, error) {
+	payload, err := decodeMCPPluginPayload(raw)
+	if err == nil {
+		return payload, nil
+	}
+	payloads, nestedErr := decodeMCPPluginPayloads(raw)
+	if nestedErr != nil {
+		return mcpPluginPayload{}, err
+	}
+	if len(payloads) != 1 {
+		return mcpPluginPayload{}, errors.New("MCP package has multiple servers; select a child")
+	}
+	for _, payload := range payloads {
+		return payload, nil
+	}
+	return mcpPluginPayload{}, errors.New("MCP package has no servers")
+}
+
+// RegistrationFromPluginChild adapts one child entry from a composable MCP
+// package. The parent config remains the only revision authority; the child
+// UUID is the runtime, Vault, OAuth and observation identity.
+func RegistrationFromPluginChild(def plugin.Definition, cfg plugin.Config, effective plugin.Effective, child plugin.MCPServerChild, observation PluginMCPObservation, authority authz.Authority) (Registration, error) {
+	if !authority.Valid() {
+		return Registration{}, authz.ErrForbidden
+	}
+	if err := def.Validate(); err != nil {
+		return Registration{}, fmt.Errorf("mcp plugin definition: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return Registration{}, fmt.Errorf("mcp plugin config: %w", err)
+	}
+	if cfg.PluginID != def.ID || effective.PluginID != def.ID || effective.ConfigID != cfg.ID {
+		return Registration{}, errors.New("mcp child config does not match its parent definition")
+	}
+	if effective.SourceScope != cfg.Scope || child.ParentConfigID != cfg.ID || child.ID == "" || child.ServerKey == "" {
+		return Registration{}, errors.New("mcp child identity does not match its parent config")
+	}
+	if _, err := uuid.Parse(child.ID); err != nil {
+		return Registration{}, errors.New("mcp child id is not a UUID")
+	}
+	if _, err := uuid.Parse(cfg.ID); err != nil {
+		return Registration{}, errors.New("mcp parent config id is not a UUID")
+	}
+	payload, err := decodeMCPPluginPayloadForKey(effective.Payload, child.ServerKey)
+	if err != nil && child.ID == cfg.ID {
+		// Imported legacy flat configs may have a compatibility child row
+		// whose UUID equals the parent. Keep their flat payload readable while
+		// newly authored children remain strictly nested.
+		payload, err = decodeMCPPluginPayloadSingle(effective.Payload)
+	}
+	if err != nil {
+		return Registration{}, err
+	}
+	childCfg := cfg
+	childCfg.ID = child.ID
+	credentialRef, credentialMode, oauthClientSecretRef, err := decodeMCPPluginCredentialRefsForKey(cfg.CredentialRefs, childCfg, child.ServerKey, payload.AuthType, payload.CredentialMode)
+	if err != nil {
+		return Registration{}, err
+	}
+	if oauthClientSecretRef != "" && metadataOAuthClientID(payload.Metadata) == "" {
+		return Registration{}, errors.New("MCP OAuth client secret requires a client id")
+	}
+	status, statusError, observedAt, tools, err := safeMCPObservation(observation, childCfg, credentialMode, authority)
+	if err != nil {
+		return Registration{}, err
+	}
+	createdAt, updatedAt := cfg.CreatedAt.UTC(), cfg.UpdatedAt.UTC()
+	if !child.CreatedAt.IsZero() {
+		createdAt = child.CreatedAt.UTC()
+	}
+	if !child.UpdatedAt.IsZero() {
+		updatedAt = child.UpdatedAt.UTC()
+	}
+	return Registration{
+		ID: child.ID, ParentConfigID: cfg.ID, ServerKey: child.ServerKey,
+		PluginID: def.ID, ConfigRevision: cfg.Revision,
+		Scope: string(cfg.Scope), UserID: cfg.UserID, AgentID: cfg.AgentID,
+		Name: def.DisplayName, URL: payload.URL, Transport: payload.Transport,
+		AuthType: payload.AuthType, CredentialRef: credentialRef,
+		Enabled: effective.IsEffectivelyEnabled, Status: status, StatusError: statusError,
+		ProbedAt: observedAt, Tools: tools, CredentialMode: credentialMode,
+		Headers: cloneHeaders(payload.Headers), Metadata: payload.Metadata, Description: payload.Description,
+		OAuthClientID: metadataOAuthClientID(payload.Metadata), OAuthClientSecretRef: oauthClientSecretRef,
+		CreatedAt: createdAt, UpdatedAt: updatedAt,
+	}, nil
+}
+
 type mcpPluginPayload struct {
 	URL            string
 	Transport      string
 	AuthType       string
 	CredentialMode string
+	Headers        map[string]string
 	Description    string
 	Metadata       map[string]any
+}
+
+// decodeMCPPluginPayloadForKey selects one authored child from the parent's
+// mcp_servers map. The parent map is configuration data; stable child UUIDs
+// come from plugin.Config.MCPServers and are never synthesized here.
+func decodeMCPPluginPayloadForKey(raw json.RawMessage, key string) (mcpPluginPayload, error) {
+	if strings.TrimSpace(key) == "" {
+		return mcpPluginPayload{}, errors.New("MCP server key is required")
+	}
+	object, err := decodeJSONObject(raw, "MCP config payload")
+	if err != nil {
+		return mcpPluginPayload{}, err
+	}
+	serversRaw, ok := object["mcp_servers"]
+	if !ok {
+		if key == "main" {
+			return decodeMCPPluginPayloadSingle(raw)
+		}
+		return mcpPluginPayload{}, errors.New("MCP config payload is missing mcp_servers")
+	}
+	servers, err := decodeJSONObject(serversRaw, "MCP mcp_servers payload")
+	if err != nil {
+		return mcpPluginPayload{}, err
+	}
+	childRaw, ok := servers[key]
+	if !ok {
+		if len(servers) == 0 && key == "main" {
+			return decodeMCPPluginPayloadSingle(raw)
+		}
+		return mcpPluginPayload{}, fmt.Errorf("MCP config payload has no server %q", key)
+	}
+	return decodeMCPPluginChildPayload(childRaw)
+}
+
+// decodeMCPPluginPayloads returns the authored server payloads keyed by their
+// package key. The legacy flat shape is exposed as the synthetic "main"
+// child so callers can share one projection path during the transition.
+func decodeMCPPluginPayloads(raw json.RawMessage) (map[string]mcpPluginPayload, error) {
+	object, err := decodeJSONObject(raw, "MCP config payload")
+	if err != nil {
+		return nil, err
+	}
+	if nested, ok := object["mcp_servers"]; ok {
+		servers, err := decodeJSONObject(nested, "MCP mcp_servers payload")
+		if err != nil {
+			return nil, err
+		}
+		// Legacy configs over an empty MCP marker keep the one server flat.
+		if len(servers) == 0 {
+			if _, hasURL := object["url"]; hasURL {
+				// A legacy flat config may overlay a definition's empty
+				// composable marker. Remove that marker before applying the flat
+				// decoder, which intentionally rejects envelope fields.
+				flatObject := make(map[string]json.RawMessage, len(object))
+				for key, value := range object {
+					if key != "mcp_servers" {
+						flatObject[key] = value
+					}
+				}
+				flatRaw, marshalErr := json.Marshal(flatObject)
+				if marshalErr != nil {
+					return nil, marshalErr
+				}
+				payload, err := decodeMCPPluginPayload(flatRaw)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]mcpPluginPayload{"main": payload}, nil
+			}
+		}
+		result := make(map[string]mcpPluginPayload, len(servers))
+		for key, child := range servers {
+			if strings.TrimSpace(key) == "" {
+				return nil, errors.New("MCP server key must not be empty")
+			}
+			payload, err := decodeMCPPluginChildPayload(child)
+			if err != nil {
+				return nil, fmt.Errorf("MCP server %q: %w", key, err)
+			}
+			result[key] = payload
+		}
+		return result, nil
+	}
+	payload, err := decodeMCPPluginPayload(raw)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]mcpPluginPayload{"main": payload}, nil
+}
+
+// decodeMCPPluginObservationPayload gives the observation reader a credential
+// mode only when it is unambiguous. A parent with several children has no
+// parent-level observation row that can safely be applied to every child.
+func decodeMCPPluginObservationPayload(raw json.RawMessage) (mcpPluginPayload, bool, error) {
+	payloads, err := decodeMCPPluginPayloads(raw)
+	if err != nil {
+		return mcpPluginPayload{}, false, err
+	}
+	if len(payloads) != 1 {
+		return mcpPluginPayload{}, false, nil
+	}
+	for _, payload := range payloads {
+		return payload, true, nil
+	}
+	return mcpPluginPayload{}, false, nil
+}
+
+func decodeMCPPluginChildPayload(raw json.RawMessage) (mcpPluginPayload, error) {
+	object, err := decodeJSONObject(raw, "MCP server payload")
+	if err != nil {
+		return mcpPluginPayload{}, err
+	}
+	for key := range object {
+		switch key {
+		case "url", "transport", "auth_type", "credential_mode", "headers", "metadata", "description":
+		default:
+			return mcpPluginPayload{}, fmt.Errorf("mcp server payload contains unsupported field %q", key)
+		}
+	}
+	payload := mcpPluginPayload{CredentialMode: CredentialModeShared, Metadata: map[string]any{}}
+	if payload.URL, err = requiredJSONString(object, "url"); err != nil {
+		return mcpPluginPayload{}, err
+	}
+	if payload.Transport, err = requiredJSONString(object, "transport"); err != nil {
+		return mcpPluginPayload{}, err
+	}
+	if !ValidTransport(payload.Transport) {
+		return mcpPluginPayload{}, errors.New("mcp server payload has unsupported transport")
+	}
+	if payload.AuthType, err = requiredJSONString(object, "auth_type"); err != nil {
+		return mcpPluginPayload{}, err
+	}
+	if !ValidAuthType(payload.AuthType) {
+		return mcpPluginPayload{}, errors.New("mcp server payload has unsupported auth type")
+	}
+	if value, ok := object["credential_mode"]; ok {
+		if isJSONNull(value) || json.Unmarshal(value, &payload.CredentialMode) != nil || !ValidCredentialMode(payload.CredentialMode) {
+			return mcpPluginPayload{}, errors.New("mcp server payload has unsupported credential mode")
+		}
+	}
+	if payload.CredentialMode == CredentialModePerUser && payload.AuthType != AuthTypeOAuth {
+		return mcpPluginPayload{}, errors.New("mcp server payload has per-user credentials without OAuth")
+	}
+	if err := decodePublicHeaders(object, &payload.Headers); err != nil {
+		return mcpPluginPayload{}, err
+	}
+	if value, ok := object["metadata"]; ok {
+		payload.Metadata, err = decodeMCPPluginMetadata(value)
+		if err != nil {
+			return mcpPluginPayload{}, err
+		}
+	}
+	if value, ok := object["description"]; ok {
+		if isJSONNull(value) || json.Unmarshal(value, &payload.Description) != nil {
+			return mcpPluginPayload{}, errors.New("MCP server payload description must be a string")
+		}
+	}
+	return payload, nil
 }
 
 // NewMCPPayloadValidator returns the plugin service validator for MCP configs.
@@ -125,20 +382,17 @@ func NewMCPPayloadValidator(policy EndpointPolicy) plugin.PayloadValidator {
 // A negative config has no backend payload; its empty credential refs are still
 // checked by Config.Validate. A disabled payload is fully safety-validated.
 func ValidateMCPPayload(_ context.Context, policy EndpointPolicy, definition plugin.Definition, config plugin.Config, resetFields []string) error {
-	if definition.Backend != plugin.BackendMCP {
-		return errors.New("MCP payload validator requires an MCP definition")
-	}
 	if err := definition.Validate(); err != nil {
 		return fmt.Errorf("MCP definition: %w", err)
-	}
-	if len(resetFields) != 0 {
-		return errors.New("MCP configs do not support reset fields")
 	}
 	if err := config.Validate(); err != nil {
 		return fmt.Errorf("MCP config: %w", err)
 	}
 	if config.PluginID != definition.ID {
 		return errors.New("MCP config does not match its definition")
+	}
+	if !definitionHasMCP(definition) && !payloadHasMCP(config.Payload) {
+		return nil
 	}
 	if err := validateMCPDefinitionSpec(definition.Spec); err != nil {
 		return err
@@ -152,21 +406,53 @@ func ValidateMCPPayload(_ context.Context, policy EndpointPolicy, definition plu
 	if err != nil {
 		return err
 	}
-	payload, err := decodeMCPPluginPayload(merged)
+	payloads, err := decodeMCPPluginPayloads(merged)
 	if err != nil {
 		return err
 	}
-	if err := policy.validateEndpointURL(payload.URL); err != nil {
-		return errors.New("MCP config endpoint is not allowed by endpoint policy")
-	}
-	_, _, oauthClientSecretRef, err := decodeMCPPluginCredentialRefs(config.CredentialRefs, config, payload.AuthType, payload.CredentialMode)
-	if err != nil {
-		return err
-	}
-	if oauthClientSecretRef != "" && metadataOAuthClientID(payload.Metadata) == "" {
-		return errors.New("MCP OAuth client secret requires a client id")
+	nestedPayload := payloadHasMCP(merged)
+	for key, payload := range payloads {
+		if err := policy.validateEndpointURL(payload.URL); err != nil {
+			return errors.New("MCP config endpoint is not allowed by endpoint policy")
+		}
+		childCfg := config
+		refsDecoder := decodeMCPPluginCredentialRefs
+		if nestedPayload {
+			for _, child := range config.MCPServers {
+				if child.ServerKey == key {
+					childCfg.ID = child.ID
+					break
+				}
+			}
+			refsDecoder = func(raw json.RawMessage, cfg plugin.Config, authType, mode string) (string, string, string, error) {
+				return decodeMCPPluginCredentialRefsForKey(raw, cfg, key, authType, mode)
+			}
+		}
+		_, _, oauthClientSecretRef, err := refsDecoder(config.CredentialRefs, childCfg, payload.AuthType, payload.CredentialMode)
+		if err != nil {
+			return err
+		}
+		if oauthClientSecretRef != "" && metadataOAuthClientID(payload.Metadata) == "" {
+			return errors.New("MCP OAuth client secret requires a client id")
+		}
 	}
 	return nil
+}
+
+func definitionHasMCP(def plugin.Definition) bool { return payloadHasMCP(def.Spec) }
+func payloadHasMCP(raw json.RawMessage) bool {
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) != nil || object == nil {
+		return false
+	}
+	if _, ok := object["mcp_servers"]; ok {
+		return true
+	}
+	// Legacy one-server configs are flat. Keep them inside the MCP boundary
+	// while new composable packages use the explicit mcp_servers map.
+	_, hasURL := object["url"]
+	_, hasTransport := object["transport"]
+	return hasURL && hasTransport
 }
 
 func validateMCPDefinitionSpec(raw json.RawMessage) error {
@@ -175,15 +461,33 @@ func validateMCPDefinitionSpec(raw json.RawMessage) error {
 		return err
 	}
 	for key, value := range object {
-		if key != "description" {
+		switch key {
+		case "description":
+			if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+				return errors.New("MCP definition description must not be null")
+			}
+			var description string
+			if err := json.Unmarshal(value, &description); err != nil {
+				return errors.New("MCP definition description must be a string")
+			}
+		case "category", "prompt", "binaries", "skills", "session_env", "oauth_provider", "oauth":
+			// These are validated by the CLI/manifest backend. MCP must accept
+			// a composed package and inspect only its own resource section.
+		case "mcp_servers":
+			servers, err := decodeJSONObject(value, "MCP definition mcp_servers")
+			if err != nil {
+				return err
+			}
+			for name, child := range servers {
+				if strings.TrimSpace(name) == "" {
+					return errors.New("MCP definition server key must not be empty")
+				}
+				if _, err := decodeMCPPluginChildPayload(child); err != nil {
+					return fmt.Errorf("MCP definition server %q: %w", name, err)
+				}
+			}
+		default:
 			return fmt.Errorf("MCP definition spec contains unsupported field %q", key)
-		}
-		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return errors.New("MCP definition description must not be null")
-		}
-		var description string
-		if err := json.Unmarshal(value, &description); err != nil {
-			return errors.New("MCP definition description must be a string")
 		}
 	}
 	return nil
@@ -209,7 +513,7 @@ func decodeMCPPluginPayload(raw json.RawMessage) (mcpPluginPayload, error) {
 	}
 	for key := range object {
 		switch key {
-		case "url", "transport", "auth_type", "credential_mode", "metadata", "description":
+		case "url", "transport", "auth_type", "credential_mode", "headers", "metadata", "description":
 		default:
 			return mcpPluginPayload{}, fmt.Errorf("mcp config payload contains unsupported field %q", key)
 		}
@@ -241,6 +545,9 @@ func decodeMCPPluginPayload(raw json.RawMessage) (mcpPluginPayload, error) {
 	if payload.CredentialMode == CredentialModePerUser && payload.AuthType != AuthTypeOAuth {
 		return mcpPluginPayload{}, errors.New("mcp config payload has per-user credentials without OAuth")
 	}
+	if err := decodePublicHeaders(object, &payload.Headers); err != nil {
+		return mcpPluginPayload{}, err
+	}
 	if value, ok := object["metadata"]; ok {
 		payload.Metadata, err = decodeMCPPluginMetadata(value)
 		if err != nil {
@@ -256,6 +563,58 @@ func decodeMCPPluginPayload(raw json.RawMessage) (mcpPluginPayload, error) {
 		}
 	}
 	return payload, nil
+}
+
+func cloneHeaders(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	maps.Copy(out, in)
+	return out
+}
+
+func decodePublicHeaders(object map[string]json.RawMessage, dst *map[string]string) error {
+	raw, ok := object["headers"]
+	if !ok {
+		return nil
+	}
+	if isJSONNull(raw) || json.Unmarshal(raw, dst) != nil || !validPublicHeaders(*dst) {
+		return errors.New("MCP server payload headers must be a valid public header map")
+	}
+	return nil
+}
+
+func validPublicHeaders(headers map[string]string) bool {
+	seen := make(map[string]struct{}, len(headers))
+	for name, value := range headers {
+		canonical := strings.ToLower(name)
+		if _, exists := seen[canonical]; exists || !validHeaderName(name) || !validHeaderValue(value) {
+			return false
+		}
+		switch canonical {
+		case "authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key":
+			return false
+		}
+		seen[canonical] = struct{}{}
+	}
+	return true
+}
+
+func validHeaderName(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r <= 0x20 || r >= 0x7f || strings.ContainsRune(`()<>@,;:\"/[]?={} \t`, r) {
+			return false
+		}
+	}
+	return true
+}
+
+func validHeaderValue(value string) bool {
+	return !strings.ContainsAny(value, "\r\n") && !strings.ContainsRune(value, 0)
 }
 
 func decodeMCPPluginCredentialRefs(raw json.RawMessage, cfg plugin.Config, authType, mode string) (string, string, string, error) {
@@ -341,6 +700,34 @@ func decodeMCPPluginCredentialRefs(raw json.RawMessage, cfg plugin.Config, authT
 		secretRef = decoded.Name
 	}
 	return "", mode, secretRef, nil
+}
+
+// decodeMCPPluginCredentialRefsForKey selects the credential locator family
+// belonging to one child. The child UUID is supplied through cfg.ID, so every
+// Vault locator remains independently namespaced while the parent JSON stays
+// the sole authored credential-ref authority.
+func decodeMCPPluginCredentialRefsForKey(raw json.RawMessage, cfg plugin.Config, serverKey, authType, mode string) (string, string, string, error) {
+	object, err := decodeJSONObject(raw, "MCP credential refs")
+	if err != nil {
+		return "", "", "", err
+	}
+	if nested, ok := object["mcp_servers"]; ok {
+		servers, err := decodeJSONObject(nested, "MCP credential refs mcp_servers")
+		if err != nil {
+			return "", "", "", err
+		}
+		child, ok := servers[serverKey]
+		if !ok {
+			if authType == AuthTypeNone {
+				return "", CredentialModeShared, "", nil
+			}
+			return "", "", "", fmt.Errorf("MCP credential refs have no server %q", serverKey)
+		}
+		return decodeMCPPluginCredentialRefs(child, cfg, authType, mode)
+	}
+	// Keep the one-child compatibility shape readable while all new child
+	// registrations use the nested map.
+	return decodeMCPPluginCredentialRefs(raw, cfg, authType, mode)
 }
 
 type mcpCredentialLocator struct {

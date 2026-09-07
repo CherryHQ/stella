@@ -145,7 +145,7 @@ func (s *ToolOverrideStore) Set(ctx context.Context, w ToolOverrideWrite) error 
 	}
 	if identity.isPlugin() {
 		_, err = s.q.UpsertPluginToolOverride(ctx, sqlc.UpsertPluginToolOverrideParams{
-			PluginID: pgnull.Text(identity.PluginID), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: w.Scope,
+			PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: w.Scope,
 			UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), Enabled: w.Enabled,
 		})
 	} else {
@@ -171,7 +171,7 @@ func (s *ToolOverrideStore) SetIfVersion(ctx context.Context, w ToolOverrideWrit
 		var row sqlc.ToolOverride
 		if identity.isPlugin() {
 			row, err = s.q.InsertPluginToolOverrideIfAbsent(ctx, sqlc.InsertPluginToolOverrideIfAbsentParams{
-				PluginID: pgnull.Text(identity.PluginID), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: w.Scope,
+				PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: w.Scope,
 				UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), Enabled: w.Enabled,
 			})
 		} else {
@@ -194,7 +194,7 @@ func (s *ToolOverrideStore) SetIfVersion(ctx context.Context, w ToolOverrideWrit
 	var row sqlc.ToolOverride
 	if identity.isPlugin() {
 		row, err = s.q.UpdatePluginToolOverrideIfVersion(ctx, sqlc.UpdatePluginToolOverrideIfVersionParams{
-			Enabled: w.Enabled, PluginID: pgnull.Text(identity.PluginID), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: w.Scope,
+			Enabled: w.Enabled, PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: w.Scope,
 			UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), ExpectedUpdatedAt: expectedAt,
 		})
 	} else {
@@ -222,7 +222,7 @@ func (s *ToolOverrideStore) Clear(ctx context.Context, k ToolOverrideKey) error 
 	}
 	if identity.isPlugin() {
 		return s.q.DeletePluginToolOverride(ctx, sqlc.DeletePluginToolOverrideParams{
-			PluginID: pgnull.Text(identity.PluginID), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: k.Scope,
+			PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: k.Scope,
 			UserID: pgnull.Text(k.UserID), AgentID: pgnull.Text(k.AgentID),
 		})
 	}
@@ -246,7 +246,7 @@ func (s *ToolOverrideStore) ClearIfVersion(ctx context.Context, k ToolOverrideKe
 	}
 	if identity.isPlugin() {
 		_, err = s.q.DeletePluginToolOverrideIfVersion(ctx, sqlc.DeletePluginToolOverrideIfVersionParams{
-			PluginID: pgnull.Text(identity.PluginID), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: k.Scope,
+			PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: k.Scope,
 			UserID: pgnull.Text(k.UserID), AgentID: pgnull.Text(k.AgentID), ExpectedUpdatedAt: expectedAt,
 		})
 	} else {
@@ -262,7 +262,7 @@ func (s *ToolOverrideStore) ClearIfVersion(ctx context.Context, k ToolOverrideKe
 
 func identityParams(identity ToolIdentity, scope, userID, agentID string) sqlc.GetToolOverrideByIdentityParams {
 	return sqlc.GetToolOverrideByIdentityParams{
-		ToolName: pgnull.Text(identity.CoreToolName), PluginID: pgnull.Text(identity.PluginID), LocalToolName: pgnull.Text(identity.LocalToolName),
+		ToolName: pgnull.Text(identity.CoreToolName), PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName),
 		Scope: scope, UserID: pgnull.Text(userID), AgentID: pgnull.Text(agentID),
 	}
 }
@@ -285,7 +285,7 @@ func overrideVersion(row sqlc.ToolOverride) ToolOverrideVersion {
 // are display values and cannot identify a policy row on their own.
 func toolOverrideVersionKey(identity ToolIdentity) string {
 	if identity.isPlugin() {
-		return "plugin:" + identity.PluginID + "\x00" + identity.LocalToolName
+		return "plugin:" + identity.PluginID + "\x00" + identity.ServerKey + "\x00" + identity.LocalToolName
 	}
 	return identity.CoreToolName
 }
@@ -305,8 +305,8 @@ func (k ToolOverrideKey) toolIdentity() (ToolIdentity, error) {
 }
 
 func persistedToolIdentity(row sqlc.ToolOverride) (ToolIdentity, error) {
-	if row.PluginID.Valid || row.LocalToolName.Valid {
-		identity := ToolIdentity{PluginID: row.PluginID.String, LocalToolName: row.LocalToolName.String}
+	if row.PluginID.Valid || row.ServerKey.Valid || row.LocalToolName.Valid {
+		identity := ToolIdentity{PluginID: row.PluginID.String, ServerKey: row.ServerKey.String, LocalToolName: row.LocalToolName.String}
 		if err := identity.Validate(); err != nil {
 			return ToolIdentity{}, err
 		}

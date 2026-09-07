@@ -9,16 +9,11 @@ import {
   DrawerPopup,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { probePluginConfig } from "@/lib/api-client/sdk.gen";
+import { probeMcpServer } from "@/lib/api-client/sdk.gen";
 import type { AgentMcpServer } from "@/lib/api-client/types.gen";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useI18n } from "@/lib/i18n";
 import { SCOPE_LABEL_KEY } from "@/lib/skill-scope";
-
-function pluginPath(pluginID: string) {
-  if (!pluginID) throw new Error("invalid plugin id");
-  return { plugin_id: pluginID };
-}
 
 function statusBadgeVariant(status: string) {
   if (status === "ok") return "success";
@@ -49,8 +44,8 @@ export function McpServerDrawer({
   const queryClient = useQueryClient();
   const probe = useMutation({
     mutationFn: (target: AgentMcpServer) =>
-      probePluginConfig({
-        path: { ...pluginPath(target.plugin_id), config_id: target.config_id },
+      probeMcpServer({
+        path: { id: target.config_id },
         throwOnError: true,
       }),
     onSuccess: async () => {

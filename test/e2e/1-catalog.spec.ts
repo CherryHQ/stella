@@ -7,6 +7,7 @@ import {
   createMcpPlugin,
   exportedMcpName,
   type McpFixture,
+  mcpServer,
   pluginConfigPath,
   pluginDefinitionPath,
   startMcpFixture,
@@ -20,6 +21,12 @@ let open: McpFixture;
 let guarded: McpFixture;
 const created: CreatePluginResponse[] = [];
 const e2eAdd = exportedMcpName("e2e", "add");
+
+function mcpSummary(config: PluginConfig) {
+  const summary = config.resource_summary.mcp_servers[0];
+  if (!summary) throw new Error(`MCP summary missing from config ${config.id}`);
+  return summary;
+}
 
 test.beforeAll(async () => {
   open = await startMcpFixture();
@@ -42,22 +49,22 @@ test.afterAll(async ({ admin }) => {
 test("create stores a safe config and explicit probe persists its catalog", async ({ admin, db }) => {
   const body = await createMcpPlugin(admin, open);
   created.push(body);
-  expect(body.config.backend_summary).toMatchObject({
-    backend: "mcp",
+  const child = await mcpServer(admin, body.config.id);
+  expect(mcpSummary(body.config)).toMatchObject({
     endpoint_configured: true,
     auth_type: "none",
     bearer_configured: false,
   });
   const probed = expectStatus(
-    await admin.post<PluginConfig>(`${pluginConfigPath(body.plugin, body.config)}/probe`),
+    await admin.post(`/api/mcp/servers/${child.id}/probe`),
     200,
     "probe created plugin",
   );
-  expect(probed.backend_summary).toMatchObject({ backend: "mcp", endpoint_configured: true });
+  expect(probed).toMatchObject({ endpoint_configured: true });
   expect(open.methods.get("initialize")).toBeGreaterThanOrEqual(1);
   expect(open.methods.get("tools/list")).toBeGreaterThanOrEqual(1);
 
-  const rows = await db`select status, status_error, probed_at, tools from mcp_connection_state where config_id = ${body.config.id}`;
+  const rows = await db`select status, status_error, probed_at, tools from mcp_connection_state where child_id = ${child.id}`;
   expect(rows).toHaveLength(1);
   expect(rows[0].status).toBe("ok");
   expect(rows[0].status_error).toBe("");
@@ -65,7 +72,7 @@ test("create stores a safe config and explicit probe persists its catalog", asyn
   expect((rows[0].tools as { name: string; }[]).map((t) => t.name).sort()).toEqual(["add", "echo"]);
 
   const fetched = expectStatus(await admin.get<PluginConfig>(pluginConfigPath(body.plugin, body.config)), 200, "get plugin config");
-  expect(fetched.backend_summary).toMatchObject({ backend: "mcp", endpoint_configured: true });
+  expect(mcpSummary(fetched)).toMatchObject({ endpoint_configured: true });
   const list = expectStatus(
     await admin.get<{ configs: PluginConfig[]; }>(`${pluginDefinitionPath(body.plugin)}/configs`),
     200,
@@ -80,22 +87,24 @@ test("create stores a safe config and explicit probe persists its catalog", asyn
 
 test("probe endpoint re-lists tools and refreshes probed_at", async ({ admin, db }) => {
   const item = created[0];
-  const before = (await db`select probed_at from mcp_connection_state where config_id = ${item.config.id}`)[0].probed_at as Date;
+  const child = await mcpServer(admin, item.config.id);
+  const before = (await db`select probed_at from mcp_connection_state where child_id = ${child.id}`)[0].probed_at as Date;
   const lists = open.methods.get("tools/list") ?? 0;
   await new Promise((r) => setTimeout(r, 20));
-  const body = expectStatus(await admin.post<PluginConfig>(`${pluginConfigPath(item.plugin, item.config)}/probe`), 200, "probe");
-  expect(body.backend_summary).toMatchObject({ backend: "mcp", endpoint_configured: true });
+  const body = expectStatus(await admin.post(`/api/mcp/servers/${child.id}/probe`), 200, "probe");
+  expect(body).toMatchObject({ endpoint_configured: true });
   expect(open.methods.get("tools/list")).toBe(lists + 1);
-  const after = (await db`select probed_at from mcp_connection_state where config_id = ${item.config.id}`)[0].probed_at as Date;
+  const after = (await db`select probed_at from mcp_connection_state where child_id = ${child.id}`)[0].probed_at as Date;
   expect(after.getTime()).toBeGreaterThan(before.getTime());
 });
 
 test("unreachable endpoint records an error and an empty catalog after explicit probe", async ({ admin, db }) => {
   const body = await createMcpPlugin(admin, open, { name: "e2e-dead", displayName: "e2e-dead", url: "http://127.0.0.1:9/mcp" });
   created.push(body);
-  expect(body.config.backend_summary).toMatchObject({ backend: "mcp", endpoint_configured: true, auth_type: "none" });
-  expectStatus(await admin.post<PluginConfig>(`${pluginConfigPath(body.plugin, body.config)}/probe`), 200, "probe dead plugin");
-  const row = (await db`select status, status_error, tools from mcp_connection_state where config_id = ${body.config.id}`)[0];
+  const child = await mcpServer(admin, body.config.id);
+  expect(mcpSummary(body.config)).toMatchObject({ endpoint_configured: true, auth_type: "none" });
+  expectStatus(await admin.post(`/api/mcp/servers/${child.id}/probe`), 200, "probe dead plugin");
+  const row = (await db`select status, status_error, tools from mcp_connection_state where child_id = ${child.id}`)[0];
   expect(row.status).toBe("error");
   expect(String(row.status_error)).toBeTruthy();
   expect(String(row.status_error)).not.toMatch(/127\.0\.0\.1|connection refused|dial tcp/);
@@ -110,31 +119,34 @@ test("bearer token lives in the vault and an explicit probe reports needs_auth",
     token: "wrong-token",
   });
   created.push(body);
-  expect(body.config.backend_summary).toMatchObject({ backend: "mcp", auth_type: "bearer", bearer_configured: true });
+  const child = await mcpServer(admin, body.config.id);
+  expect(mcpSummary(body.config)).toMatchObject({ auth_type: "bearer", bearer_configured: true });
   expect(JSON.stringify(body)).not.toContain("wrong-token");
-  expectStatus(await admin.post<PluginConfig>(`${pluginConfigPath(body.plugin, body.config)}/probe`), 200, "probe guarded plugin");
+  expectStatus(await admin.post(`/api/mcp/servers/${child.id}/probe`), 200, "probe guarded plugin");
 
   const row = (await db`select credential_refs::text as refs from plugin_config where id = ${body.config.id}`)[0];
   expect(row.refs).toBeTruthy();
-  expect(String(row.refs)).toContain(body.config.id.replaceAll("-", "_").toUpperCase());
+  expect(String(row.refs)).toContain(child.id.replaceAll("-", "_").toUpperCase());
   expect(String(row.refs)).not.toContain("wrong-token");
   const vault = await db`select count(*)::int as n from vault_entry where name = ${`MCP_TOKEN_${
-    body.config.id.replaceAll("-", "_").toUpperCase()
+    child.id.replaceAll("-", "_").toUpperCase()
   }`}`;
   expect(vault[0].n).toBe(1);
 
   const fixed = expectStatus(
-    await admin.patch<PluginConfig>(pluginConfigPath(body.plugin, body.config), {
-      expected_revision: body.config.revision,
-      config: { url: guarded.url, transport: "streamable_http", auth_type: "bearer" },
+    await admin.patch(`/api/mcp/servers/${child.id}`, {
+      expected_parent_revision: body.config.revision,
+      url: guarded.url,
+      transport: "streamable_http",
+      auth_type: "bearer",
       credentials: { token: "s3cret-token" },
     }),
     200,
     "patch token",
   );
-  expect(fixed.backend_summary).toMatchObject({ backend: "mcp", auth_type: "bearer", bearer_configured: true });
-  expectStatus(await admin.post<PluginConfig>(`${pluginConfigPath(body.plugin, body.config)}/probe`), 200, "probe fixed token");
-  expect((await db`select status from mcp_connection_state where config_id = ${body.config.id}`)[0].status).toBe("ok");
+  expect(fixed).toMatchObject({ auth_type: "bearer", bearer_configured: true });
+  expectStatus(await admin.post(`/api/mcp/servers/${child.id}/probe`), 200, "probe fixed token");
+  expect((await db`select status from mcp_connection_state where child_id = ${child.id}`)[0].status).toBe("ok");
 });
 
 test("expected_revision enforces optimistic concurrency on PATCH and DELETE", async ({ admin }) => {

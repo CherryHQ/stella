@@ -15,7 +15,7 @@ import (
 const deleteCoreToolOverride = `-- name: DeleteCoreToolOverride :exec
 DELETE FROM tool_override
 WHERE tool_name = $1
-  AND plugin_id IS NULL AND local_tool_name IS NULL
+  AND plugin_id IS NULL AND server_key IS NULL AND local_tool_name IS NULL
   AND scope = $2
   AND coalesce(user_id::text, '') = coalesce($3::text, '')
   AND coalesce(agent_id, '') = coalesce($4, '')
@@ -41,12 +41,12 @@ func (q *Queries) DeleteCoreToolOverride(ctx context.Context, arg DeleteCoreTool
 const deleteCoreToolOverrideIfVersion = `-- name: DeleteCoreToolOverrideIfVersion :one
 DELETE FROM tool_override
 WHERE tool_name = $1
-  AND plugin_id IS NULL AND local_tool_name IS NULL
+  AND plugin_id IS NULL AND server_key IS NULL AND local_tool_name IS NULL
   AND scope = $2
   AND coalesce(user_id::text, '') = coalesce($3::text, '')
   AND coalesce(agent_id, '') = coalesce($4, '')
   AND updated_at = $5
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key
 `
 
 type DeleteCoreToolOverrideIfVersionParams struct {
@@ -77,6 +77,7 @@ func (q *Queries) DeleteCoreToolOverrideIfVersion(ctx context.Context, arg Delet
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }
@@ -85,14 +86,16 @@ const deletePluginToolOverride = `-- name: DeletePluginToolOverride :exec
 DELETE FROM tool_override
 WHERE tool_name IS NULL
   AND plugin_id = $1
-  AND local_tool_name = $2
-  AND scope = $3
-  AND coalesce(user_id::text, '') = coalesce($4::text, '')
-  AND coalesce(agent_id, '') = coalesce($5, '')
+  AND server_key IS NOT DISTINCT FROM $2
+  AND local_tool_name = $3
+  AND scope = $4
+  AND coalesce(user_id::text, '') = coalesce($5::text, '')
+  AND coalesce(agent_id, '') = coalesce($6, '')
 `
 
 type DeletePluginToolOverrideParams struct {
 	PluginID      pgtype.Text `json:"plugin_id"`
+	ServerKey     pgtype.Text `json:"server_key"`
 	LocalToolName pgtype.Text `json:"local_tool_name"`
 	Scope         string      `json:"scope"`
 	UserID        pgtype.Text `json:"user_id"`
@@ -102,6 +105,7 @@ type DeletePluginToolOverrideParams struct {
 func (q *Queries) DeletePluginToolOverride(ctx context.Context, arg DeletePluginToolOverrideParams) error {
 	_, err := q.db.Exec(ctx, deletePluginToolOverride,
 		arg.PluginID,
+		arg.ServerKey,
 		arg.LocalToolName,
 		arg.Scope,
 		arg.UserID,
@@ -114,16 +118,18 @@ const deletePluginToolOverrideIfVersion = `-- name: DeletePluginToolOverrideIfVe
 DELETE FROM tool_override
 WHERE tool_name IS NULL
   AND plugin_id = $1
-  AND local_tool_name = $2
-  AND scope = $3
-  AND coalesce(user_id::text, '') = coalesce($4::text, '')
-  AND coalesce(agent_id, '') = coalesce($5, '')
-  AND updated_at = $6
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+  AND server_key IS NOT DISTINCT FROM $2
+  AND local_tool_name = $3
+  AND scope = $4
+  AND coalesce(user_id::text, '') = coalesce($5::text, '')
+  AND coalesce(agent_id, '') = coalesce($6, '')
+  AND updated_at = $7
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key
 `
 
 type DeletePluginToolOverrideIfVersionParams struct {
 	PluginID          pgtype.Text `json:"plugin_id"`
+	ServerKey         pgtype.Text `json:"server_key"`
 	LocalToolName     pgtype.Text `json:"local_tool_name"`
 	Scope             string      `json:"scope"`
 	UserID            pgtype.Text `json:"user_id"`
@@ -134,6 +140,7 @@ type DeletePluginToolOverrideIfVersionParams struct {
 func (q *Queries) DeletePluginToolOverrideIfVersion(ctx context.Context, arg DeletePluginToolOverrideIfVersionParams) (ToolOverride, error) {
 	row := q.db.QueryRow(ctx, deletePluginToolOverrideIfVersion,
 		arg.PluginID,
+		arg.ServerKey,
 		arg.LocalToolName,
 		arg.Scope,
 		arg.UserID,
@@ -152,6 +159,7 @@ func (q *Queries) DeletePluginToolOverrideIfVersion(ctx context.Context, arg Del
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }
@@ -188,7 +196,7 @@ WHERE tool_name = $1
   AND coalesce(user_id::text, '') = coalesce($3::text, '')
   AND coalesce(agent_id, '') = coalesce($4, '')
   AND updated_at = $5
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key
 `
 
 type DeleteToolOverrideIfVersionParams struct {
@@ -219,6 +227,7 @@ func (q *Queries) DeleteToolOverrideIfVersion(ctx context.Context, arg DeleteToo
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }
@@ -237,7 +246,7 @@ func (q *Queries) DeleteToolOverridesByPrefix(ctx context.Context, prefix string
 }
 
 const getToolOverride = `-- name: GetToolOverride :one
-SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name FROM tool_override
+SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key FROM tool_override
 WHERE tool_name = $1
   AND scope = $2
   AND coalesce(user_id::text, '') = coalesce($3::text, '')
@@ -271,24 +280,27 @@ func (q *Queries) GetToolOverride(ctx context.Context, arg GetToolOverrideParams
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }
 
 const getToolOverrideByIdentity = `-- name: GetToolOverrideByIdentity :one
-SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name FROM tool_override
+SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key FROM tool_override
 WHERE tool_name IS NOT DISTINCT FROM $1
   AND plugin_id IS NOT DISTINCT FROM $2
-  AND local_tool_name IS NOT DISTINCT FROM $3
-  AND scope = $4
-  AND coalesce(user_id::text, '') = coalesce($5::text, '')
-  AND coalesce(agent_id, '') = coalesce($6, '')
+  AND server_key IS NOT DISTINCT FROM $3
+  AND local_tool_name IS NOT DISTINCT FROM $4
+  AND scope = $5
+  AND coalesce(user_id::text, '') = coalesce($6::text, '')
+  AND coalesce(agent_id, '') = coalesce($7, '')
 LIMIT 1
 `
 
 type GetToolOverrideByIdentityParams struct {
 	ToolName      pgtype.Text `json:"tool_name"`
 	PluginID      pgtype.Text `json:"plugin_id"`
+	ServerKey     pgtype.Text `json:"server_key"`
 	LocalToolName pgtype.Text `json:"local_tool_name"`
 	Scope         string      `json:"scope"`
 	UserID        pgtype.Text `json:"user_id"`
@@ -299,6 +311,7 @@ func (q *Queries) GetToolOverrideByIdentity(ctx context.Context, arg GetToolOver
 	row := q.db.QueryRow(ctx, getToolOverrideByIdentity,
 		arg.ToolName,
 		arg.PluginID,
+		arg.ServerKey,
 		arg.LocalToolName,
 		arg.Scope,
 		arg.UserID,
@@ -316,15 +329,16 @@ func (q *Queries) GetToolOverrideByIdentity(ctx context.Context, arg GetToolOver
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }
 
 const insertCoreToolOverrideIfAbsent = `-- name: InsertCoreToolOverrideIfAbsent :one
-INSERT INTO tool_override (tool_name, plugin_id, local_tool_name, scope, user_id, agent_id, enabled)
-VALUES ($1, NULL, NULL, $2, $3, $4, $5)
+INSERT INTO tool_override (tool_name, plugin_id, server_key, local_tool_name, scope, user_id, agent_id, enabled)
+VALUES ($1, NULL, NULL, NULL, $2, $3, $4, $5)
 ON CONFLICT DO NOTHING
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key
 `
 
 type InsertCoreToolOverrideIfAbsentParams struct {
@@ -355,19 +369,21 @@ func (q *Queries) InsertCoreToolOverrideIfAbsent(ctx context.Context, arg Insert
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }
 
 const insertPluginToolOverrideIfAbsent = `-- name: InsertPluginToolOverrideIfAbsent :one
-INSERT INTO tool_override (tool_name, plugin_id, local_tool_name, scope, user_id, agent_id, enabled)
-VALUES (NULL, $1, $2, $3, $4, $5, $6)
+INSERT INTO tool_override (tool_name, plugin_id, server_key, local_tool_name, scope, user_id, agent_id, enabled)
+VALUES (NULL, $1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT DO NOTHING
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key
 `
 
 type InsertPluginToolOverrideIfAbsentParams struct {
 	PluginID      pgtype.Text `json:"plugin_id"`
+	ServerKey     pgtype.Text `json:"server_key"`
 	LocalToolName pgtype.Text `json:"local_tool_name"`
 	Scope         string      `json:"scope"`
 	UserID        pgtype.Text `json:"user_id"`
@@ -378,6 +394,7 @@ type InsertPluginToolOverrideIfAbsentParams struct {
 func (q *Queries) InsertPluginToolOverrideIfAbsent(ctx context.Context, arg InsertPluginToolOverrideIfAbsentParams) (ToolOverride, error) {
 	row := q.db.QueryRow(ctx, insertPluginToolOverrideIfAbsent,
 		arg.PluginID,
+		arg.ServerKey,
 		arg.LocalToolName,
 		arg.Scope,
 		arg.UserID,
@@ -396,6 +413,7 @@ func (q *Queries) InsertPluginToolOverrideIfAbsent(ctx context.Context, arg Inse
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }
@@ -404,7 +422,7 @@ const insertToolOverrideIfAbsent = `-- name: InsertToolOverrideIfAbsent :one
 INSERT INTO tool_override (tool_name, scope, user_id, agent_id, enabled)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT DO NOTHING
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key
 `
 
 type InsertToolOverrideIfAbsentParams struct {
@@ -435,12 +453,13 @@ func (q *Queries) InsertToolOverrideIfAbsent(ctx context.Context, arg InsertTool
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }
 
 const listToolOverridesForAgentContext = `-- name: ListToolOverridesForAgentContext :many
-SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name FROM tool_override
+SELECT id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key FROM tool_override
 WHERE scope = 'system'
    OR (scope = 'system_agent' AND agent_id = $1)
    OR (scope = 'user'         AND user_id = $2)
@@ -479,6 +498,7 @@ func (q *Queries) ListToolOverridesForAgentContext(ctx context.Context, arg List
 			&i.UpdatedAt,
 			&i.PluginID,
 			&i.LocalToolName,
+			&i.ServerKey,
 		); err != nil {
 			return nil, err
 		}
@@ -515,12 +535,12 @@ const updateCoreToolOverrideIfVersion = `-- name: UpdateCoreToolOverrideIfVersio
 UPDATE tool_override
 SET enabled = $1, updated_at = now()
 WHERE tool_name = $2
-  AND plugin_id IS NULL AND local_tool_name IS NULL
+  AND plugin_id IS NULL AND server_key IS NULL AND local_tool_name IS NULL
   AND scope = $3
   AND coalesce(user_id::text, '') = coalesce($4::text, '')
   AND coalesce(agent_id, '') = coalesce($5, '')
   AND updated_at = $6
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key
 `
 
 type UpdateCoreToolOverrideIfVersionParams struct {
@@ -553,6 +573,7 @@ func (q *Queries) UpdateCoreToolOverrideIfVersion(ctx context.Context, arg Updat
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }
@@ -562,17 +583,19 @@ UPDATE tool_override
 SET enabled = $1, updated_at = now()
 WHERE tool_name IS NULL
   AND plugin_id = $2
-  AND local_tool_name = $3
-  AND scope = $4
-  AND coalesce(user_id::text, '') = coalesce($5::text, '')
-  AND coalesce(agent_id, '') = coalesce($6, '')
-  AND updated_at = $7
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+  AND server_key IS NOT DISTINCT FROM $3
+  AND local_tool_name = $4
+  AND scope = $5
+  AND coalesce(user_id::text, '') = coalesce($6::text, '')
+  AND coalesce(agent_id, '') = coalesce($7, '')
+  AND updated_at = $8
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key
 `
 
 type UpdatePluginToolOverrideIfVersionParams struct {
 	Enabled           bool        `json:"enabled"`
 	PluginID          pgtype.Text `json:"plugin_id"`
+	ServerKey         pgtype.Text `json:"server_key"`
 	LocalToolName     pgtype.Text `json:"local_tool_name"`
 	Scope             string      `json:"scope"`
 	UserID            pgtype.Text `json:"user_id"`
@@ -584,6 +607,7 @@ func (q *Queries) UpdatePluginToolOverrideIfVersion(ctx context.Context, arg Upd
 	row := q.db.QueryRow(ctx, updatePluginToolOverrideIfVersion,
 		arg.Enabled,
 		arg.PluginID,
+		arg.ServerKey,
 		arg.LocalToolName,
 		arg.Scope,
 		arg.UserID,
@@ -602,6 +626,7 @@ func (q *Queries) UpdatePluginToolOverrideIfVersion(ctx context.Context, arg Upd
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }
@@ -614,7 +639,7 @@ WHERE tool_name = $2
   AND coalesce(user_id::text, '') = coalesce($4::text, '')
   AND coalesce(agent_id, '') = coalesce($5, '')
   AND updated_at = $6
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key
 `
 
 type UpdateToolOverrideIfVersionParams struct {
@@ -647,17 +672,18 @@ func (q *Queries) UpdateToolOverrideIfVersion(ctx context.Context, arg UpdateToo
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }
 
 const upsertCoreToolOverride = `-- name: UpsertCoreToolOverride :one
-INSERT INTO tool_override (tool_name, plugin_id, local_tool_name, scope, user_id, agent_id, enabled)
-VALUES ($1, NULL, NULL, $2, $3, $4, $5)
+INSERT INTO tool_override (tool_name, plugin_id, server_key, local_tool_name, scope, user_id, agent_id, enabled)
+VALUES ($1, NULL, NULL, NULL, $2, $3, $4, $5)
 ON CONFLICT (tool_name, scope, user_id, agent_id)
-  WHERE tool_name IS NOT NULL AND plugin_id IS NULL AND local_tool_name IS NULL
+  WHERE tool_name IS NOT NULL AND plugin_id IS NULL AND server_key IS NULL AND local_tool_name IS NULL
 DO UPDATE SET enabled = excluded.enabled, updated_at = now()
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key
 `
 
 type UpsertCoreToolOverrideParams struct {
@@ -688,21 +714,23 @@ func (q *Queries) UpsertCoreToolOverride(ctx context.Context, arg UpsertCoreTool
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }
 
 const upsertPluginToolOverride = `-- name: UpsertPluginToolOverride :one
-INSERT INTO tool_override (tool_name, plugin_id, local_tool_name, scope, user_id, agent_id, enabled)
-VALUES (NULL, $1, $2, $3, $4, $5, $6)
-ON CONFLICT (plugin_id, local_tool_name, scope, user_id, agent_id)
+INSERT INTO tool_override (tool_name, plugin_id, server_key, local_tool_name, scope, user_id, agent_id, enabled)
+VALUES (NULL, $1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (plugin_id, server_key, local_tool_name, scope, user_id, agent_id)
   WHERE tool_name IS NULL
 DO UPDATE SET enabled = excluded.enabled, updated_at = now()
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key
 `
 
 type UpsertPluginToolOverrideParams struct {
 	PluginID      pgtype.Text `json:"plugin_id"`
+	ServerKey     pgtype.Text `json:"server_key"`
 	LocalToolName pgtype.Text `json:"local_tool_name"`
 	Scope         string      `json:"scope"`
 	UserID        pgtype.Text `json:"user_id"`
@@ -713,6 +741,7 @@ type UpsertPluginToolOverrideParams struct {
 func (q *Queries) UpsertPluginToolOverride(ctx context.Context, arg UpsertPluginToolOverrideParams) (ToolOverride, error) {
 	row := q.db.QueryRow(ctx, upsertPluginToolOverride,
 		arg.PluginID,
+		arg.ServerKey,
 		arg.LocalToolName,
 		arg.Scope,
 		arg.UserID,
@@ -731,6 +760,7 @@ func (q *Queries) UpsertPluginToolOverride(ctx context.Context, arg UpsertPlugin
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }
@@ -740,7 +770,7 @@ INSERT INTO tool_override (tool_name, scope, user_id, agent_id, enabled)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (tool_name, scope, user_id, agent_id)
 DO UPDATE SET enabled = excluded.enabled, updated_at = now()
-RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name
+RETURNING id, tool_name, scope, user_id, agent_id, enabled, created_at, updated_at, plugin_id, local_tool_name, server_key
 `
 
 type UpsertToolOverrideParams struct {
@@ -771,6 +801,7 @@ func (q *Queries) UpsertToolOverride(ctx context.Context, arg UpsertToolOverride
 		&i.UpdatedAt,
 		&i.PluginID,
 		&i.LocalToolName,
+		&i.ServerKey,
 	)
 	return i, err
 }

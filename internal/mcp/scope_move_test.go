@@ -186,6 +186,159 @@ func TestMoveConfigScopeRejectsOAuthBeforeMutation(t *testing.T) {
 	assertMoveRow(t, svc, configID, string(plugin.ScopeUser), userID, "", 7)
 }
 
+func TestMoveConfigScopeMovesAllChildrenWithPerServerReplacements(t *testing.T) {
+	svc, _, userID, agentID := setupInternal(t)
+	authority := mustMoveAuthority(t, userID, true)
+	ctx := authz.WithAuthority(t.Context(), authority)
+	def, parent, err := svc.CreateCustom(ctx, plugin.Definition{
+		ID: "scope-move-bearer-multi", DisplayName: "Scope move bearer multi", Spec: []byte(`{}`),
+	}, CreateInput{
+		Scope: ScopeUser, URL: "https://main.scope-move.example.test", AuthType: AuthTypeBearer,
+		Transport: TransportStreamableHTTP, Token: "old-main",
+	})
+	if err != nil {
+		t.Fatalf("CreateCustom: %v", err)
+	}
+	access, err := NewAccess(svc, nil, nil).Begin(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	search, err := access.CreateChild(ctx, parent.ID, "search", parent.Revision, CreateInput{
+		URL: "https://search.scope-move.example.test", AuthType: AuthTypeBearer,
+		Transport: TransportStreamableHTTP, Token: "old-search",
+	})
+	if err != nil {
+		t.Fatalf("CreateChild: %v", err)
+	}
+	if _, err := svc.pool.Exec(ctx, `UPDATE plugin_config SET credential_refs = jsonb_set(credential_refs, '{session_env}', '{"name":"session-ref"}'::jsonb) WHERE id = $1::uuid`, parent.ID); err != nil {
+		t.Fatalf("seed non-MCP credential ref: %v", err)
+	}
+	mainChild := parent.MCPServers[0]
+	_, err = svc.MoveConfigScope(ctx, authority, ScopeMoveRequest{
+		PluginID: def.ID, ConfigID: parent.ID, ExpectedRevision: search.ConfigRevision,
+		TargetScope: plugin.ScopeUserAgent, TargetAgentID: agentID,
+		Replacements: map[string]string{"main": "new-main"},
+	})
+	if !errors.Is(err, ErrScopeMoveBearerReplacement) {
+		t.Fatalf("missing multi-child replacement error = %v, want %v", err, ErrScopeMoveBearerReplacement)
+	}
+	assertMoveRow(t, svc, parent.ID, string(plugin.ScopeUser), userID, "", search.ConfigRevision)
+	if got, err := svc.vault.GetScoped(ctx, ScopeUser, userID, "", credentialName(mainChild.ID)); err != nil || got != "old-main" {
+		t.Fatalf("main source bearer after rejected move = %q, err = %v", got, err)
+	}
+	if got, err := svc.vault.GetScoped(ctx, ScopeUser, userID, "", credentialName(search.ID)); err != nil || got != "old-search" {
+		t.Fatalf("search source bearer after rejected move = %q, err = %v", got, err)
+	}
+	reg, err := svc.MoveConfigScope(ctx, authority, ScopeMoveRequest{
+		PluginID: def.ID, ConfigID: parent.ID, ExpectedRevision: search.ConfigRevision,
+		TargetScope: plugin.ScopeUserAgent, TargetAgentID: agentID,
+		Replacements: map[string]string{"main": "new-main", "search": "new-search"},
+	})
+	if err != nil {
+		t.Fatalf("MoveConfigScope: %v", err)
+	}
+	if reg.ID != parent.ID || reg.ParentConfigID != parent.ID || reg.ServerKey != "" {
+		t.Fatalf("moved registration = %#v", reg)
+	}
+	assertMoveRow(t, svc, parent.ID, string(plugin.ScopeUserAgent), userID, agentID, search.ConfigRevision+1)
+	var hasSessionEnv bool
+	if err := svc.pool.QueryRow(ctx, `SELECT credential_refs ? 'session_env' FROM plugin_config WHERE id = $1::uuid`, parent.ID).Scan(&hasSessionEnv); err != nil {
+		t.Fatal(err)
+	}
+	if !hasSessionEnv {
+		t.Fatal("scope move dropped non-MCP credential refs")
+	}
+	if got, err := svc.vault.GetScoped(ctx, ScopeUserAgent, userID, agentID, credentialName(mainChild.ID)); err != nil || got != "new-main" {
+		t.Fatalf("main target bearer = %q, err = %v", got, err)
+	}
+	if got, err := svc.vault.GetScoped(ctx, ScopeUserAgent, userID, agentID, credentialName(search.ID)); err != nil || got != "new-search" {
+		t.Fatalf("search target bearer = %q, err = %v", got, err)
+	}
+	if got, err := svc.vault.GetScoped(ctx, ScopeUser, userID, "", credentialName(mainChild.ID)); err == nil && got != "" {
+		t.Fatalf("main source bearer still present: %q", got)
+	}
+	if got, err := svc.vault.GetScoped(ctx, ScopeUser, userID, "", credentialName(search.ID)); err == nil && got != "" {
+		t.Fatalf("search source bearer still present: %q", got)
+	}
+}
+
+func TestMoveConfigScopeMovesAllAuthNoneChildrenWithoutVault(t *testing.T) {
+	svc, _, userID, agentID := setupInternal(t)
+	svc.bindVault = nil
+	svc.vault = nil
+	authority := mustMoveAuthority(t, userID, true)
+	ctx := authz.WithAuthority(t.Context(), authority)
+	def, parent, err := svc.CreateCustom(ctx, plugin.Definition{
+		ID: "scope-move-none-multi", DisplayName: "Scope move none multi", Spec: []byte(`{}`),
+	}, CreateInput{
+		Scope: ScopeUser, URL: "https://main.scope-move-none.example.test", AuthType: AuthTypeNone,
+		Transport: TransportStreamableHTTP,
+	})
+	if err != nil {
+		t.Fatalf("CreateCustom: %v", err)
+	}
+	access, err := NewAccess(svc, nil, nil).Begin(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	search, err := access.CreateChild(ctx, parent.ID, "search", parent.Revision, CreateInput{
+		URL: "https://search.scope-move-none.example.test", AuthType: AuthTypeNone,
+		Transport: TransportStreamableHTTP,
+	})
+	if err != nil {
+		t.Fatalf("CreateChild: %v", err)
+	}
+	reg, err := svc.MoveConfigScope(ctx, authority, ScopeMoveRequest{
+		PluginID: def.ID, ConfigID: parent.MCPServers[0].ID, ExpectedRevision: search.ConfigRevision,
+		TargetScope: plugin.ScopeUserAgent, TargetAgentID: agentID,
+	})
+	if err != nil {
+		t.Fatalf("MoveConfigScope: %v", err)
+	}
+	if reg.ParentConfigID != parent.ID || reg.ServerKey != "main" {
+		t.Fatalf("moved registration = %#v", reg)
+	}
+	assertMoveRow(t, svc, parent.ID, string(plugin.ScopeUserAgent), userID, agentID, search.ConfigRevision+1)
+}
+
+func TestMoveConfigScopeRejectsOAuthSiblingBeforeAnyMutation(t *testing.T) {
+	svc, _, userID, agentID := setupInternal(t)
+	authority := mustMoveAuthority(t, userID, true)
+	ctx := authz.WithAuthority(t.Context(), authority)
+	def, parent, err := svc.CreateCustom(ctx, plugin.Definition{
+		ID: "scope-move-oauth-sibling", DisplayName: "Scope move OAuth sibling", Spec: []byte(`{}`),
+	}, CreateInput{
+		Scope: ScopeUser, URL: "https://main.scope-move-oauth.example.test", AuthType: AuthTypeBearer,
+		Transport: TransportStreamableHTTP, Token: "old-main",
+	})
+	if err != nil {
+		t.Fatalf("CreateCustom: %v", err)
+	}
+	access, err := NewAccess(svc, nil, nil).Begin(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oauth, err := access.CreateChild(ctx, parent.ID, "oauth", parent.Revision, CreateInput{
+		URL: "https://oauth.scope-move.example.test", AuthType: AuthTypeOAuth,
+		Transport: TransportStreamableHTTP,
+	})
+	if err != nil {
+		t.Fatalf("CreateChild OAuth: %v", err)
+	}
+	_, err = svc.MoveConfigScope(ctx, authority, ScopeMoveRequest{
+		PluginID: def.ID, ConfigID: parent.ID, ExpectedRevision: oauth.ConfigRevision,
+		TargetScope: plugin.ScopeUserAgent, TargetAgentID: agentID,
+		Replacements: map[string]string{"main": "new-main"},
+	})
+	if !errors.Is(err, ErrScopeMoveOAuth) {
+		t.Fatalf("OAuth sibling move error = %v, want %v", err, ErrScopeMoveOAuth)
+	}
+	assertMoveRow(t, svc, parent.ID, string(plugin.ScopeUser), userID, "", oauth.ConfigRevision)
+	if got, err := svc.vault.GetScoped(ctx, ScopeUser, userID, "", credentialName(parent.MCPServers[0].ID)); err != nil || got != "old-main" {
+		t.Fatalf("source bearer after OAuth rejection = %q, err = %v", got, err)
+	}
+}
+
 func TestUpdateAndUpdateIfVersionReachCommonScopeMove(t *testing.T) {
 	svc, _, userID, agentID := setupInternal(t)
 	svc.bindVault = nil

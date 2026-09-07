@@ -80,16 +80,21 @@ func pluginDefinitionView(def pluginpkg.Definition) (apitypes.PluginDefinition, 
 	isBuiltin, isDefault := def.Source == pluginpkg.SourceBuiltin, def.DefaultEnabled
 	revision := def.Revision
 	createdAt, updatedAt := def.CreatedAt.UTC(), def.UpdatedAt.UTC()
+	resources, err := pluginResourceSummary(def, pluginpkg.Config{})
+	if err != nil {
+		return apitypes.PluginDefinition{}, err
+	}
 	return apitypes.PluginDefinition{
 		Id: def.ID, DisplayName: def.DisplayName,
-		Backend: apitypes.PluginDefinitionBackend(def.Backend), IsBuiltin: &isBuiltin,
+		IsBuiltin:        &isBuiltin,
 		IsDefaultEnabled: &isDefault, Spec: spec, Revision: &revision,
-		CreatedAt: &createdAt, UpdatedAt: &updatedAt,
+		ResourceSummary: resources,
+		CreatedAt:       &createdAt, UpdatedAt: &updatedAt,
 	}, nil
 }
 
 func pluginConfigView(definition pluginpkg.Definition, config pluginpkg.Config) (apitypes.PluginConfig, error) {
-	backendSummary, err := pluginBackendSummary(definition, config)
+	resourceSummary, err := pluginResourceSummary(definition, config)
 	if err != nil {
 		return apitypes.PluginConfig{}, err
 	}
@@ -113,7 +118,7 @@ func pluginConfigView(definition pluginpkg.Definition, config pluginpkg.Config) 
 	createdAt, updatedAt := config.CreatedAt.UTC(), config.UpdatedAt.UTC()
 	return apitypes.PluginConfig{
 		Id: parsedID, PluginId: config.PluginID, Scope: apitypes.PluginConfigScope(config.Scope),
-		UserId: userID, AgentId: agentID, IsEnabled: config.Enabled, BackendSummary: backendSummary,
+		UserId: userID, AgentId: agentID, IsEnabled: config.Enabled, ResourceSummary: resourceSummary,
 		Revision: &revision, CreatedAt: &createdAt, UpdatedAt: &updatedAt,
 	}, nil
 }

@@ -700,7 +700,7 @@ type LibraryFile struct {
 
 type McpConnectionState struct {
 	ID               string             `json:"id"`
-	ConfigID         string             `json:"config_id"`
+	ChildID          string             `json:"child_id"`
 	CredentialUserID pgtype.Text        `json:"credential_user_id"`
 	Tools            json.RawMessage    `json:"tools"`
 	Status           string             `json:"status"`
@@ -869,18 +869,24 @@ type PluginConfig struct {
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
+type PluginConfigMcpServer struct {
+	ID        string    `json:"id"`
+	ConfigID  string    `json:"config_id"`
+	ServerKey string    `json:"server_key"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type PluginDefinition struct {
-	ID                string          `json:"id"`
-	DisplayName       string          `json:"display_name"`
-	Backend           string          `json:"backend"`
-	Source            string          `json:"source"`
-	ImplementationKey string          `json:"implementation_key"`
-	Spec              json.RawMessage `json:"spec"`
-	DefaultEnabled    bool            `json:"default_enabled"`
-	Revision          int64           `json:"revision"`
-	CreatorUserID     pgtype.Text     `json:"creator_user_id"`
-	CreatedAt         time.Time       `json:"created_at"`
-	UpdatedAt         time.Time       `json:"updated_at"`
+	ID             string          `json:"id"`
+	DisplayName    string          `json:"display_name"`
+	Source         string          `json:"source"`
+	Spec           json.RawMessage `json:"spec"`
+	DefaultEnabled bool            `json:"default_enabled"`
+	Revision       int64           `json:"revision"`
+	CreatorUserID  pgtype.Text     `json:"creator_user_id"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 type PluginOauthProvider struct {
@@ -1156,6 +1162,7 @@ type ToolOverride struct {
 	UpdatedAt     time.Time   `json:"updated_at"`
 	PluginID      pgtype.Text `json:"plugin_id"`
 	LocalToolName pgtype.Text `json:"local_tool_name"`
+	ServerKey     pgtype.Text `json:"server_key"`
 }
 
 type VaultEntry struct {

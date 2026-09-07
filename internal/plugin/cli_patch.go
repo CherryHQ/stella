@@ -12,9 +12,6 @@ import (
 // payload overlay. The definition and the target config are the only inputs;
 // resolving another scope here would let a caller edit data it cannot see.
 func applyCLIWriteOnlyPatch(def Definition, current json.RawMessage, patch ConfigPatch, _ bool) (json.RawMessage, error) {
-	if def.Backend != BackendCLI {
-		return nil, fmt.Errorf("%w: CLI write-only fields require a CLI backend", ErrInvalidConfig)
-	}
 	var shipped map[string]json.RawMessage
 	if err := decodeJSONObject(def.Spec, &shipped); err != nil {
 		return nil, fmt.Errorf("%w: definition spec must be an object", ErrInvalidConfig)

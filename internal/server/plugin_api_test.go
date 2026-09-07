@@ -9,6 +9,7 @@ import (
 	"time"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
+	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/mcp"
@@ -40,7 +41,7 @@ func TestWritePluginErrorMapsOAuthClientInitialization(t *testing.T) {
 	}
 }
 
-func TestPluginMCPRegistrationViewDoesNotEchoEndpoint(t *testing.T) {
+func TestMCPServerViewDoesNotEchoEndpoint(t *testing.T) {
 	reg := mcp.Registration{
 		ID: "0190b2c2-6f8e-7c62-9f7e-ff9f7d0c7a11", PluginID: "custom/github",
 		Scope: mcp.ScopeUser, UserID: "0190b2c2-6f8e-7c62-9f9f-7d0c7a110001",
@@ -51,10 +52,7 @@ func TestPluginMCPRegistrationViewDoesNotEchoEndpoint(t *testing.T) {
 		CreatedAt: time.Date(2026, 9, 6, 0, 0, 0, 0, time.FixedZone("CST", 8*60*60)),
 		UpdatedAt: time.Date(2026, 9, 6, 0, 0, 1, 0, time.FixedZone("CST", 8*60*60)),
 	}
-	view, err := pluginMCPRegistrationView(reg)
-	if err != nil {
-		t.Fatalf("pluginMCPRegistrationView: %v", err)
-	}
+	view := mcpServerView(reg)
 	encoded, err := json.Marshal(view)
 	if err != nil {
 		t.Fatalf("marshal view: %v", err)
@@ -88,10 +86,32 @@ func TestPluginAccessAuthenticationPrecedesUnavailableService(t *testing.T) {
 	}
 }
 
+func TestCompactMCPInputDoesNotClassifyParentResourceOverlays(t *testing.T) {
+	for name, payload := range map[string]map[string]any{
+		"empty CLI overlay": {"binaries": []any{}},
+		"MCP envelope": {"mcp_servers": map[string]any{"main": map[string]any{
+			"url": "https://mcp.example.test", "transport": "streamable_http", "auth_type": "none",
+		}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if hasCompactMCPInput(&payload, nil) {
+				t.Fatal("parent resource overlay selected compact MCP adapter")
+			}
+		})
+	}
+	compact := map[string]any{"auth_type": "none"}
+	if !hasCompactMCPInput(&compact, nil) {
+		t.Fatal("compact MCP auth field did not select MCP adapter")
+	}
+	if !hasCompactMCPInput(nil, &map[string]any{"token": "secret"}) {
+		t.Fatal("MCP credentials did not select MCP adapter")
+	}
+}
+
 func TestPluginDefinitionViewProjectsOnlySafeSummary(t *testing.T) {
 	definition := pluginpkg.Definition{
 		ID: "custom/plugin", DisplayName: "Plugin",
-		Backend: pluginpkg.BackendMCP, Source: pluginpkg.SourceCustom, Revision: 1,
+		Source: pluginpkg.SourceCustom, Revision: 1,
 		Spec: json.RawMessage(`{"description":"safe","category":"utility","capabilities":["read"],"url":"https://private.example/path?token=secret","credential_refs":{"token":"vault://secret"}}`),
 	}
 	view, err := pluginDefinitionView(definition)
@@ -114,22 +134,22 @@ func TestPluginConfigViewProjectsTypedSummary(t *testing.T) {
 	config := pluginpkg.Config{
 		ID: "0190b2c2-6f8e-7c62-9f7e-ff9f7d0c7a11", PluginID: "custom/plugin",
 		Scope: pluginpkg.ScopeUser, Enabled: &enabled,
-		Payload:        json.RawMessage(`{"url":"https://user:secret@private.example/path?token=secret#fragment","transport":"sse","auth_type":"bearer"}`),
-		CredentialRefs: json.RawMessage(`{"bearer":{"name":"vault-secret"}}`), Revision: 1,
+		Payload:        json.RawMessage(`{"mcp_servers":{"main":{"url":"https://user:secret@private.example/path?token=secret#fragment","transport":"sse","auth_type":"bearer"}}}`),
+		CredentialRefs: json.RawMessage(`{"mcp_servers":{"main":{"bearer":{"name":"vault-secret"}}}}`), Revision: 1,
 	}
-	definition := pluginpkg.Definition{ID: "custom/plugin", Backend: pluginpkg.BackendMCP, Spec: json.RawMessage(`{}`)}
+	definition := pluginpkg.Definition{ID: "custom/plugin", Spec: json.RawMessage(`{"mcp_servers":{"main":{}}}`)}
 	view, err := pluginConfigView(definition, config)
 	if err != nil {
 		t.Fatalf("pluginConfigView: %v", err)
 	}
-	mcpSummary, err := view.BackendSummary.AsPluginMCPBackendSummary()
-	if err != nil {
-		t.Fatalf("decode backend summary: %v", err)
+	if len(view.ResourceSummary.McpServers) != 1 {
+		t.Fatalf("MCP summaries = %#v, want one", view.ResourceSummary.McpServers)
 	}
+	mcpSummary := view.ResourceSummary.McpServers[0]
 	if !mcpSummary.EndpointConfigured || !mcpSummary.BearerConfigured {
 		t.Fatalf("MCP summary flags = %#v, want endpoint and bearer configured", mcpSummary)
 	}
-	encoded, err := json.Marshal(view.BackendSummary)
+	encoded, err := json.Marshal(view.ResourceSummary)
 	if err != nil {
 		t.Fatalf("marshal backend summary: %v", err)
 	}
@@ -160,10 +180,14 @@ func TestPluginMCPBackendSummaryProjectsOnlyConfigurationFlags(t *testing.T) {
 		"oauth_client_secret":"vault://config-secret"
 	}`)
 
-	summary, err := mcpBackendSummary(definition, config, refs)
+	summaries, err := mcpResourceSummaries(definition, config, refs, nil, 1)
 	if err != nil {
-		t.Fatalf("mcpBackendSummary: %v", err)
+		t.Fatalf("mcpResourceSummaries: %v", err)
 	}
+	if len(summaries) != 1 {
+		t.Fatalf("MCP summaries = %#v, want one", summaries)
+	}
+	summary := summaries[0]
 	if !summary.EndpointConfigured || !summary.BearerConfigured || !summary.OauthClientIdConfigured || !summary.OauthClientSecretConfigured {
 		t.Fatalf("MCP summary flags = %#v, want all configured flags true", summary)
 	}
@@ -180,10 +204,58 @@ func TestPluginMCPBackendSummaryProjectsOnlyConfigurationFlags(t *testing.T) {
 	}
 }
 
+func TestPluginMCPBackendSummaryProjectsCredentialFlagsPerChild(t *testing.T) {
+	definition := json.RawMessage(`{
+		"mcp_servers": {
+			"alpha": {"url":"https://alpha.example.test","transport":"streamable_http","auth_type":"bearer"},
+			"beta": {"url":"https://beta.example.test","transport":"sse","auth_type":"oauth","metadata":{"oauth":{"client_id":"beta-client"}}}
+		}
+	}`)
+	refs := json.RawMessage(`{
+		"mcp_servers": {
+			"alpha": {"bearer":{"name":"alpha-bearer"}},
+			"beta": {"oauth_client_secret":{"name":"beta-secret"}}
+		}
+	}`)
+
+	summaries, err := mcpResourceSummaries(definition, nil, refs, nil, 1)
+	if err != nil {
+		t.Fatalf("mcpResourceSummaries: %v", err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("MCP summaries = %#v, want two", summaries)
+	}
+	alpha, beta := summaries[0], summaries[1]
+	if alpha.ServerKey != "alpha" || !alpha.EndpointConfigured || !alpha.BearerConfigured || alpha.OauthClientIdConfigured || alpha.OauthClientSecretConfigured {
+		t.Fatalf("alpha summary flags = %#v", alpha)
+	}
+	if beta.ServerKey != "beta" || !beta.EndpointConfigured || beta.BearerConfigured || !beta.OauthClientIdConfigured || !beta.OauthClientSecretConfigured {
+		t.Fatalf("beta summary flags = %#v", beta)
+	}
+}
+
+func TestPluginResourceSummaryOmitsInheritedResourcesForDisabledEmptyConfig(t *testing.T) {
+	definition := pluginpkg.Definition{Spec: json.RawMessage(`{
+		"binaries":[{"name":"tool","tool":"uv","version":"1.0"}],
+		"mcp_servers":{"main":{"url":"https://mcp.example.test","auth_type":"none"}}
+	}`)}
+	disabled := false
+	for _, payload := range []json.RawMessage{nil, json.RawMessage(`{}`)} {
+		config := pluginpkg.Config{Enabled: &disabled, Payload: payload}
+		summary, err := pluginResourceSummary(definition, config)
+		if err != nil {
+			t.Fatalf("pluginResourceSummary(%s): %v", payload, err)
+		}
+		if len(summary.Binaries) != 0 || len(summary.McpServers) != 0 {
+			t.Fatalf("disabled empty config summary = %#v, want no inherited resources", summary)
+		}
+	}
+}
+
 func TestPluginCLIBackendSummaryOmitsResourceSecrets(t *testing.T) {
-	definition := pluginpkg.Definition{Backend: pluginpkg.BackendCLI}
+	definition := pluginpkg.Definition{}
 	config := pluginpkg.Config{Payload: json.RawMessage(`{"prompt":"static secret","binaries":[{"name":"tool","tool":"private/repo","version":"1.2.3","options":{"token":"secret"}}],"skills":[{"name":"skill"}],"session_env":[{"env_var":"TOKEN","source":"literal","value":"secret","required":true}],"oauth_provider":"github"}`)}
-	summary, err := pluginBackendSummary(definition, config)
+	summary, err := cliBackendSummary(definition.Spec, config.Payload, config.Enabled)
 	if err != nil {
 		t.Fatalf("pluginBackendSummary: %v", err)
 	}
@@ -200,59 +272,72 @@ func TestPluginCLIBackendSummaryOmitsResourceSecrets(t *testing.T) {
 
 func TestPluginCLIBackendSummaryUsesDefinitionForDefaultConfig(t *testing.T) {
 	definition := pluginpkg.Definition{
-		Backend: pluginpkg.BackendCLI,
-		Spec:    json.RawMessage(`{"binaries":[{"name":"tool","tool":"uv","version":"1.0"}],"skills":[{"name":"docs"}],"session_env":[{"env_var":"STELLA_TOKEN","source":"oauth.token","required":true}]}`),
+		Spec: json.RawMessage(`{"binaries":[{"name":"tool","tool":"uv","version":"1.0"}],"skills":[{"name":"docs"}],"session_env":[{"env_var":"STELLA_TOKEN","source":"oauth.token","required":true}]}`),
 	}
-	summary, err := pluginBackendSummary(definition, pluginpkg.Config{Enabled: nil, Payload: json.RawMessage(`{}`)})
+	summary, err := cliBackendSummary(definition.Spec, json.RawMessage(`{}`), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cli, err := summary.AsPluginCLIBackendSummary()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cli := summary
 	if len(cli.Binaries) != 1 || cli.Binaries[0].Version != "1.0" || len(cli.Skills) != 1 || len(cli.SessionEnv) != 1 {
 		t.Fatalf("default summary = %#v, want shipped resources", cli)
 	}
 }
 
+func TestPluginCLISummaryProjectsOAuthBindingsAsRequiredEnv(t *testing.T) {
+	summary, err := cliBackendSummary(json.RawMessage(`{
+		"oauth": [{"provider":"github","bindings":[
+			{"credential":"access_token","env_var":"GH_TOKEN"},
+			{"credential":"refresh_token","env_var":"GH_REFRESH"}
+		]}]
+	}`), json.RawMessage(`{"session_env":[{"env_var":"GH_TOKEN","source":"legacy.oauth","required":false}]}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !summary.OauthProviderConfigured {
+		t.Fatal("OAuth requirement did not mark provider as configured")
+	}
+	byVar := make(map[string]apitypes.PluginCLIBackendSessionEnvSummary, len(summary.SessionEnv))
+	for _, env := range summary.SessionEnv {
+		byVar[env.EnvVar] = env
+	}
+	if got := byVar["GH_TOKEN"]; got.Source != "legacy.oauth" || got.Required {
+		t.Fatalf("existing session env was overwritten: %#v", got)
+	}
+	if got := byVar["GH_REFRESH"]; got.Source != "oauth.refresh_token" || !got.Required {
+		t.Fatalf("OAuth binding projection = %#v", got)
+	}
+}
+
 func TestPluginCLIBackendSummaryHonorsScopeOverlayAndNegativeConfig(t *testing.T) {
 	definition := pluginpkg.Definition{
-		Backend: pluginpkg.BackendCLI,
-		Spec:    json.RawMessage(`{"binaries":[{"name":"tool","tool":"uv","version":"1.0"},{"name":"other","tool":"bun","version":"1.0"}],"skills":[{"name":"docs"}]}`),
+		Spec: json.RawMessage(`{"binaries":[{"name":"tool","tool":"uv","version":"1.0"},{"name":"other","tool":"bun","version":"1.0"}],"skills":[{"name":"docs"}]}`),
 	}
 	enabled := true
-	summary, err := pluginBackendSummary(definition, pluginpkg.Config{Enabled: &enabled, Payload: json.RawMessage(`{"binaries":[{"name":"tool","version":"2.0"}]}`)})
+	summary, err := cliBackendSummary(definition.Spec, json.RawMessage(`{"binaries":[{"name":"tool","version":"2.0"}]}`), &enabled)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cli, err := summary.AsPluginCLIBackendSummary()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cli := summary
 	if len(cli.Binaries) != 1 || cli.Binaries[0].Name != "tool" || cli.Binaries[0].Version != "2.0" {
 		t.Fatalf("overlay summary = %#v, want target scope payload", cli)
 	}
 
 	disabled := false
-	summary, err = pluginBackendSummary(definition, pluginpkg.Config{Enabled: &disabled})
+	summary, err = cliBackendSummary(definition.Spec, nil, &disabled)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cli, err = summary.AsPluginCLIBackendSummary()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cli = summary
 	if len(cli.Binaries) != 0 || len(cli.Skills) != 0 {
 		t.Fatalf("negative summary = %#v, want no selected resources", cli)
 	}
 }
 
-func TestPluginBackendSummaryRejectsUnsupportedBackend(t *testing.T) {
-	definition := pluginpkg.Definition{ID: "channel/telegram/bot", Backend: pluginpkg.Backend("go")}
-	config := pluginpkg.Config{Payload: json.RawMessage(`{"token":"channel-secret","endpoint":"private.example"}`)}
-	if _, err := pluginBackendSummary(definition, config); err == nil {
-		t.Fatal("pluginBackendSummary accepted unsupported backend")
+func TestPluginResourceSummaryRejectsMalformedPayload(t *testing.T) {
+	definition := pluginpkg.Definition{ID: "channel/telegram/bot", Spec: json.RawMessage(`{"binaries":`)}
+	if _, err := pluginResourceSummary(definition, pluginpkg.Config{}); err == nil {
+		t.Fatal("pluginResourceSummary accepted malformed payload")
 	}
 }
 

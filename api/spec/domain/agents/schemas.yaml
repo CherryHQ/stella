@@ -200,6 +200,9 @@ components:
             agent_management; generated builtin actions use their toolmeta
             family; hand-written core and plugin tools use stable fallback
             families. Clients must not infer this value from the tool name.
+        plugin_server_key:
+          type: string
+          description: Authored MCP server key for plugin-owned tools.
         policy_reason:
           type: string
           enum: [
@@ -396,6 +399,8 @@ components:
       required: [
         plugin_id,
         config_id,
+        parent_config_id,
+        parent_revision,
         scope,
         enabled,
         credential_mode,
@@ -411,6 +416,8 @@ components:
       properties:
         plugin_id: { type: string }
         config_id: { type: string }
+        parent_config_id: { type: string, format: uuid }
+        parent_revision: { type: integer, format: int64 }
         scope:
           type: string
           enum: [user, user_agent, system, system_agent]

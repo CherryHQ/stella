@@ -128,7 +128,7 @@ func TestOAuthRefreshInvalidGrantFailsClosed(t *testing.T) {
 	var commonStatus, statusErr string
 	if err := svc.pool.QueryRow(context.Background(), `
 		SELECT status, status_error FROM mcp_connection_state
-		WHERE config_id = $1::uuid AND credential_user_id IS NULL`, reg.ID).Scan(&commonStatus, &statusErr); err != nil {
+		WHERE child_id = $1::uuid AND credential_user_id IS NULL`, reg.ID).Scan(&commonStatus, &statusErr); err != nil {
 		t.Fatalf("read common observation: %v", err)
 	}
 	if commonStatus != StatusNeedsAuth {

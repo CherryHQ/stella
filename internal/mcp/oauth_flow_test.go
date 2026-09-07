@@ -24,16 +24,16 @@ func seedOAuthRegistration(t *testing.T, pool *pgxpool.Pool, scope, userID, agen
 	id := uuid.NewString()
 	pluginID := "oauth-" + id[:8]
 	if _, err := pool.Exec(context.Background(), `
-		INSERT INTO plugin_definition(id, display_name, backend, source,
-			implementation_key, spec, default_enabled, revision, creator_user_id)
-		VALUES ($1, $2, 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1, NULLIF($3, '')::uuid)`,
+		INSERT INTO plugin_definition(id, display_name, source,
+			spec, default_enabled, revision, creator_user_id)
+		VALUES ($1, $2, 'custom', '{"mcp_servers":{}}'::jsonb, false, 1, NULLIF($3, '')::uuid)`,
 		pluginID, "oauth-"+id[:8], nullableTestText(userID)); err != nil {
 		t.Fatalf("seed oauth definition: %v", err)
 	}
-	payload := `{"url":"` + rawURL + `","transport":"streamable_http","auth_type":"oauth","credential_mode":"shared"}`
-	refs := `{"oauth_bundle":{"name":"` + oauthBundleName(id) + `","mode":"shared","scope":"` + scope + `","user_id":"` + userID + `","agent_id":"` + agentID + `"}}`
+	payload := `{"mcp_servers":{"main":{"url":"` + rawURL + `","transport":"streamable_http","auth_type":"oauth","credential_mode":"shared"}}}`
+	refs := `{"mcp_servers":{"main":{"oauth_bundle":{"name":"` + oauthBundleName(id) + `","mode":"shared","scope":"` + scope + `","user_id":"` + userID + `","agent_id":"` + agentID + `"}}}}`
 	if scope == ScopeSystemAgent || scope == ScopeSystem {
-		refs = `{"oauth_bundle":{"name":"` + oauthBundleName(id) + `","mode":"shared","scope":"` + scope + `","user_id":"` + userID + `","agent_id":"` + agentID + `"}}`
+		refs = `{"mcp_servers":{"main":{"oauth_bundle":{"name":"` + oauthBundleName(id) + `","mode":"shared","scope":"` + scope + `","user_id":"` + userID + `","agent_id":"` + agentID + `"}}}}`
 	}
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO plugin_config(id, plugin_id, scope, user_id, agent_id,
@@ -42,8 +42,11 @@ func seedOAuthRegistration(t *testing.T, pool *pgxpool.Pool, scope, userID, agen
 		id, pluginID, scope, userID, agentID, payload, refs); err != nil {
 		t.Fatalf("seed oauth config: %v", err)
 	}
+	if _, err := pool.Exec(context.Background(), `INSERT INTO plugin_config_mcp_server(id, config_id, server_key) VALUES($1::uuid, $2::uuid, 'main')`, id, id); err != nil {
+		t.Fatalf("seed oauth child: %v", err)
+	}
 	return Registration{
-		ID: id, PluginID: pluginID, ConfigRevision: 1,
+		ID: id, ParentConfigID: id, ServerKey: "main", PluginID: pluginID, ConfigRevision: 1,
 		Scope: scope, UserID: userID, AgentID: agentID, Name: "oauth-" + id[:8], URL: rawURL,
 		Transport: TransportStreamableHTTP, AuthType: AuthTypeOAuth, Enabled: true,
 		CredentialMode: CredentialModeShared,
@@ -61,7 +64,7 @@ func commonOAuthClientID(t *testing.T, pool *pgxpool.Pool, configID string) stri
 	t.Helper()
 	var clientID pgtype.Text
 	if err := pool.QueryRow(context.Background(), `
-		SELECT config #>> '{metadata,oauth,client_id}'
+		SELECT config #>> '{mcp_servers,main,metadata,oauth,client_id}'
 		FROM plugin_config WHERE id = $1::uuid`, configID).Scan(&clientID); err != nil {
 		t.Fatalf("read common OAuth client id: %v", err)
 	}
@@ -75,7 +78,7 @@ func commonOAuthTokenEndpointAuthMethod(t *testing.T, pool *pgxpool.Pool, config
 	t.Helper()
 	var method pgtype.Text
 	if err := pool.QueryRow(context.Background(), `
-		SELECT config #>> '{metadata,oauth,token_endpoint_auth_method}'
+		SELECT config #>> '{mcp_servers,main,metadata,oauth,token_endpoint_auth_method}'
 		FROM plugin_config WHERE id = $1::uuid`, configID).Scan(&method); err != nil {
 		t.Fatalf("read common OAuth token endpoint auth method: %v", err)
 	}
@@ -299,7 +302,7 @@ func TestAdminDCRUserAgentUsesConfigCredentialOwner(t *testing.T) {
 	mcpSrv := fakeMCPServer(t, as.ts.URL)
 	as.resource = mcpSrv.URL
 	reg := seedOAuthRegistration(t, svc.pool, ScopeUserAgent, userID, agentID, mcpSrv.URL)
-	if _, err := svc.pool.Exec(t.Context(), `UPDATE plugin_config SET config = jsonb_set(config, '{credential_mode}', '"per_user"'::jsonb), credential_refs = jsonb_set(credential_refs, '{oauth_bundle}', '{"name":"`+oauthBundleName(reg.ID)+`","mode":"per_user","owner":"per_user"}'::jsonb) WHERE id = $1::uuid`, reg.ID); err != nil {
+	if _, err := svc.pool.Exec(t.Context(), `UPDATE plugin_config SET config = jsonb_set(config, '{mcp_servers,main,credential_mode}', '"per_user"'::jsonb), credential_refs = jsonb_set(credential_refs, '{mcp_servers,main,oauth_bundle}', '{"name":"`+oauthBundleName(reg.ID)+`","mode":"per_user","owner":"per_user"}'::jsonb) WHERE id = $1::uuid`, reg.ID); err != nil {
 		t.Fatalf("seed user-agent per-user config: %v", err)
 	}
 	reg.CredentialMode = CredentialModePerUser
@@ -365,8 +368,8 @@ func TestClearingOAuthClientIDAtomicallyRevokesCredentials(t *testing.T) {
 	as.resource = mcpSrv.URL
 	reg := seedOAuthRegistration(t, svc.pool, ScopeUser, userID, "", mcpSrv.URL)
 	secretRef := oauthClientSecretName(reg.ID)
-	refs := `{"oauth_bundle":{"name":"` + oauthBundleName(reg.ID) + `","mode":"shared","scope":"user","user_id":"` + userID + `","agent_id":""},"oauth_client_secret":{"name":"` + secretRef + `","scope":"user","user_id":"` + userID + `","agent_id":""}}`
-	if _, err := svc.pool.Exec(t.Context(), `UPDATE plugin_config SET config = jsonb_set(config, '{metadata}', '{"oauth":{"client_id":"old-client"}}'::jsonb), credential_refs = $2::jsonb WHERE id = $1::uuid`, reg.ID, refs); err != nil {
+	refs := `{"mcp_servers":{"main":{"oauth_bundle":{"name":"` + oauthBundleName(reg.ID) + `","mode":"shared","scope":"user","user_id":"` + userID + `","agent_id":""},"oauth_client_secret":{"name":"` + secretRef + `","scope":"user","user_id":"` + userID + `","agent_id":""}}}}`
+	if _, err := svc.pool.Exec(t.Context(), `UPDATE plugin_config SET config = jsonb_set(config, '{mcp_servers,main,metadata}', '{"oauth":{"client_id":"old-client"}}'::jsonb), credential_refs = $2::jsonb WHERE id = $1::uuid`, reg.ID, refs); err != nil {
 		t.Fatalf("seed client secret ref: %v", err)
 	}
 	if err := svc.vault.SetScoped(t.Context(), ScopeUser, userID, "", secretRef, "old-secret"); err != nil {
@@ -382,7 +385,7 @@ func TestClearingOAuthClientIDAtomicallyRevokesCredentials(t *testing.T) {
 		t.Fatalf("atomic clear: %v", err)
 	}
 	var storedRef string
-	if err := svc.pool.QueryRow(t.Context(), `SELECT config #>> '{metadata,oauth,client_id}' FROM plugin_config WHERE id = $1::uuid`, reg.ID).Scan(&storedRef); err != nil {
+	if err := svc.pool.QueryRow(t.Context(), `SELECT config #>> '{mcp_servers,main,metadata,oauth,client_id}' FROM plugin_config WHERE id = $1::uuid`, reg.ID).Scan(&storedRef); err != nil {
 		t.Fatal(err)
 	}
 	if storedRef != "" {
@@ -396,7 +399,7 @@ func TestClearingOAuthClientIDAtomicallyRevokesCredentials(t *testing.T) {
 		t.Fatalf("atomic clear retained %d credentials", remaining)
 	}
 	var hasRef bool
-	if err := svc.pool.QueryRow(ctx, `SELECT credential_refs ? 'oauth_client_secret' FROM plugin_config WHERE id=$1`, reg.ID).Scan(&hasRef); err != nil {
+	if err := svc.pool.QueryRow(ctx, `SELECT (credential_refs #> '{mcp_servers,main}') ? 'oauth_client_secret' FROM plugin_config WHERE id=$1`, reg.ID).Scan(&hasRef); err != nil {
 		t.Fatal(err)
 	}
 	if hasRef {
@@ -433,8 +436,8 @@ func TestOAuthPerUserBundlesAreIsolated(t *testing.T) {
 	// credential-owner isolation without requiring an HTTP/API fixture.
 	if _, err := svc.pool.Exec(context.Background(), `
 		UPDATE plugin_config
-		SET config = jsonb_set(config, '{credential_mode}', '"per_user"'::jsonb),
-		    credential_refs = jsonb_set(credential_refs, '{oauth_bundle}',
+		SET config = jsonb_set(config, '{mcp_servers,main,credential_mode}', '"per_user"'::jsonb),
+		    credential_refs = jsonb_set(credential_refs, '{mcp_servers,main,oauth_bundle}',
 		      '{"name":"`+oauthBundleName(reg.ID)+`","mode":"per_user","owner":"per_user"}'::jsonb)
 		WHERE id = $1::uuid`, reg.ID); err != nil {
 		t.Fatalf("set per_user: %v", err)

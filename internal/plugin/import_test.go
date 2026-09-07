@@ -28,8 +28,8 @@ func TestNormalizeLegacyMCPKeepsIdentityAndSecretBoundaries(t *testing.T) {
 	if definition.ID != "github-cloud" {
 		t.Fatalf("MCP identity = %q", definition.ID)
 	}
-	if string(definition.Spec) != `{}` || definition.ImplementationKey != "mcp" || definition.CreatorUserID != "user-1" {
-		t.Fatalf("MCP definition safety fields = spec=%s key=%q creator=%q", definition.Spec, definition.ImplementationKey, definition.CreatorUserID)
+	if string(definition.Spec) != `{}` || definition.CreatorUserID != "user-1" {
+		t.Fatalf("MCP definition safety fields = spec=%s creator=%q", definition.Spec, definition.CreatorUserID)
 	}
 	if strings.Contains(string(definition.Spec), "example.test") || strings.Contains(string(definition.Spec), "secret") {
 		t.Fatalf("definition contains endpoint or secret material: %s", definition.Spec)
@@ -111,7 +111,7 @@ func TestNormalizeLegacyRejectsNameAndPayloadCollisions(t *testing.T) {
 		t.Fatalf("namespace collision error = %v", err)
 	}
 
-	def := Definition{ID: "test", DisplayName: "Test", Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "test", Spec: json.RawMessage(`{"name":"test"}`), DefaultEnabled: true, Revision: 1}
+	def := Definition{ID: "test", DisplayName: "Test", Source: SourceBuiltin, Spec: json.RawMessage(`{"name":"test"}`), DefaultEnabled: true, Revision: 1}
 	catalog := NewCatalog()
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)
@@ -136,7 +136,7 @@ func TestNormalizeLegacyRejectsUnsupportedMCPMetadata(t *testing.T) {
 }
 
 func TestNormalizeLegacyRejectsManifestIdentityChange(t *testing.T) {
-	def := Definition{ID: "test", DisplayName: "Test", Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "test", Spec: json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1}
+	def := Definition{ID: "test", DisplayName: "Test", Source: SourceBuiltin, Spec: json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1}
 	catalog := NewCatalog()
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)
@@ -150,7 +150,7 @@ func TestNormalizeLegacyRejectsManifestIdentityChange(t *testing.T) {
 }
 
 func TestNormalizeLegacyRejectsLiteralSessionEnv(t *testing.T) {
-	def := Definition{ID: "test", DisplayName: "Test", Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "test", Spec: json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1}
+	def := Definition{ID: "test", DisplayName: "Test", Source: SourceBuiltin, Spec: json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1}
 	catalog := NewCatalog()
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)
@@ -194,7 +194,7 @@ func TestConvertLegacyToolOverrideResolvesExactMCPRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if migration.PluginID != "github" || migration.LocalTool != "create-issue" || migration.NewName == "" || migration.ConfigID != registration.ID || migration.Enabled {
+	if migration.PluginID != "github" || migration.ServerKey != "main" || migration.LocalTool != "create-issue" || migration.NewName == "" || migration.ConfigID != registration.ID || migration.Enabled {
 		t.Fatalf("migration = %#v", migration)
 	}
 }
@@ -219,8 +219,8 @@ func testLegacyNativeRegistry() NativeRegistry {
 func TestNormalizeLegacyMainEraToolIDsMapToBareBuiltin(t *testing.T) {
 	catalog := NewCatalog()
 	if err := catalog.Register(Definition{
-		ID: "lark-cli", DisplayName: "Lark CLI", Backend: BackendCLI,
-		Source: SourceBuiltin, ImplementationKey: "cli", Spec: json.RawMessage(`{}`),
+		ID: "lark-cli", DisplayName: "Lark CLI",
+		Source: SourceBuiltin, Spec: json.RawMessage(`{}`),
 		DefaultEnabled: true, Revision: 1,
 	}); err != nil {
 		t.Fatal(err)

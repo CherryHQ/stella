@@ -21,3 +21,9 @@ func DeleteMCPConfigCredentialsTx(ctx context.Context, tx pgx.Tx, configID uuid.
 	}
 	return sqlc.New(tx).DeleteMCPConfigCredentials(ctx, configID.String())
 }
+
+// DeleteMCPChildCredentialsTx applies the same reserved-name cleanup to one
+// child UUID. Child identity is deliberately the namespace for MCP secrets.
+func DeleteMCPChildCredentialsTx(ctx context.Context, tx pgx.Tx, childID uuid.UUID) error {
+	return DeleteMCPConfigCredentialsTx(ctx, tx, childID)
+}

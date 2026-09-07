@@ -3,9 +3,10 @@ import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMess
 import { expectStatus } from "./lib/api.ts";
 import type { ApiClient } from "./lib/api.ts";
 import { expect, loginWithPassword, test } from "./lib/fixtures.ts";
-import { exportedMcpName, type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
+import { exportedMcpName, type McpFixture, mcpServer, startMcpFixture } from "./lib/mcp-fixture.ts";
 import { expireAccessToken, type OAuthFixture, setTokenFailure, startOAuthFixture, tokenHits } from "./lib/oauth-fixture.ts";
 import { ensureProvider } from "./lib/provider.ts";
+import type { McpServer } from "./lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -14,7 +15,7 @@ let mcp: McpFixture;
 type PluginConfig = {
   id: string;
   revision?: number;
-  backend_summary?: Record<string, unknown>;
+  resource_summary: { mcp_servers: McpServer[]; };
 };
 type PluginCreate = {
   plugin: { id: string; revision?: number; };
@@ -24,6 +25,7 @@ type PluginDefinition = { id: string; revision?: number; };
 type OAuthServer = {
   pluginId: string;
   configId: string;
+  childId: string;
   configRevision: number;
   pluginRevision: number;
 };
@@ -32,6 +34,12 @@ type ConnectionState = {
   status_error: string;
   tools: { name: string; }[];
 };
+
+function mcpSummary(config: PluginConfig): McpServer {
+  const summary = config.resource_summary.mcp_servers[0];
+  if (!summary) throw new Error(`MCP summary missing from config ${config.id}`);
+  return summary;
+}
 
 const created: OAuthServer[] = [];
 let oauthServer: OAuthServer;
@@ -50,7 +58,6 @@ async function createOAuthPlugin(
     await api.post<PluginCreate>("/api/plugins", {
       name,
       display_name: name,
-      backend: "mcp",
       definition_spec: {},
       initial_config: {
         scope,
@@ -66,12 +73,18 @@ async function createOAuthPlugin(
     201,
     `create ${name} plugin`,
   );
+  const child = await mcpServer(api, created.config.id);
   return {
     pluginId: created.plugin.id,
     configId: created.config.id,
+    childId: child.id,
     configRevision: created.config.revision ?? 1,
     pluginRevision: created.plugin.revision ?? 1,
   };
+}
+
+function childPath(server: OAuthServer, suffix = ""): string {
+  return `/api/mcp/servers/${server.childId}${suffix}`;
 }
 
 function configPath(server: OAuthServer, suffix = ""): string {
@@ -84,7 +97,7 @@ async function connect(
 ): Promise<{ flowID: string; callback: Response; }> {
   const started = expectStatus(
     await api.post<{ authorization_url: string; flow_id: string; }>(
-      configPath(server, "/oauth/start"),
+      childPath(server, "/oauth/start"),
     ),
     201,
     "start OAuth",
@@ -126,9 +139,9 @@ async function getDefinition(
 async function probe(
   api: ApiClient,
   server: OAuthServer,
-): Promise<PluginConfig> {
+): Promise<McpServer> {
   return expectStatus(
-    await api.post<PluginConfig>(configPath(server, "/probe")),
+    await api.post<McpServer>(childPath(server, "/probe")),
     200,
     "probe OAuth config",
   );
@@ -140,11 +153,11 @@ async function connectionState(
   userID: string | null = null,
 ): Promise<ConnectionState> {
   const rows = userID === null
-    ? await db`select status, status_error, tools from mcp_connection_state where config_id = ${server.configId}`
-    : await db`select status, status_error, tools from mcp_connection_state where config_id = ${server.configId} and credential_user_id = ${userID}`;
+    ? await db`select status, status_error, tools from mcp_connection_state where child_id = ${server.childId}`
+    : await db`select status, status_error, tools from mcp_connection_state where child_id = ${server.childId} and credential_user_id = ${userID}`;
   if (rows.length !== 1) {
     throw new Error(
-      `missing MCP state for ${server.configId}: ${JSON.stringify(rows)}`,
+      `missing MCP state for ${server.childId}: ${JSON.stringify(rows)}`,
     );
   }
   return rows[0] as ConnectionState;
@@ -191,7 +204,7 @@ test("API + DB complete the PKCE flow and persist only a vault bundle", async ({
   oauthServer = await createOAuthPlugin(admin, "oauth-e2e", "user", mcp.url);
   created.push(oauthServer);
   const initial = await probe(admin, oauthServer);
-  expect(initial.backend_summary).toMatchObject({
+  expect(initial).toMatchObject({
     auth_type: "oauth",
     oauth_client_id_configured: false,
   });
@@ -202,14 +215,14 @@ test("API + DB complete the PKCE flow and persist only a vault bundle", async ({
       authorization_url: string;
       flow_id: string;
       expires_at: string;
-    }>(configPath(oauthServer, "/oauth/start")),
+    }>(childPath(oauthServer, "/oauth/start")),
     201,
     "start OAuth",
   );
   expect(started.authorization_url).toContain("code_challenge=");
   const flows = await db`select server_id, user_id, pkce_verifier, consumed_at from mcp_oauth_flow where id = ${started.flow_id}`;
   expect(flows).toHaveLength(1);
-  expect(flows[0].server_id).toBe(oauthServer.configId);
+  expect(flows[0].server_id).toBe(oauthServer.childId);
   expect(flows[0].pkce_verifier).toBeTruthy();
   expect(flows[0].consumed_at).toBeNull();
 
@@ -225,7 +238,7 @@ test("API + DB complete the PKCE flow and persist only a vault bundle", async ({
   expect(callback.headers.get("location")).toContain("connected=");
 
   const connected = await getConfig(admin, oauthServer);
-  expect(connected.backend_summary).toMatchObject({
+  expect(mcpSummary(connected)).toMatchObject({
     auth_type: "oauth",
     oauth_client_id_configured: true,
     oauth_client_secret_configured: true,
@@ -237,10 +250,10 @@ test("API + DB complete the PKCE flow and persist only a vault bundle", async ({
   expect(JSON.stringify(connected)).not.toContain("e2e-access");
   expect(JSON.stringify(connected)).not.toContain("e2e-refresh");
   expect(
-    await vaultCount(db, vaultName("MCP_OAUTH_", oauthServer.configId)),
+    await vaultCount(db, vaultName("MCP_OAUTH_", oauthServer.childId)),
   ).toBe(1);
   expect(
-    await vaultCount(db, vaultName("MCP_OAUTH_CLIENT_", oauthServer.configId)),
+    await vaultCount(db, vaultName("MCP_OAUTH_CLIENT_", oauthServer.childId)),
   ).toBe(1);
   const flow = (
     await db`select consumed_at from mcp_oauth_flow where id = ${started.flow_id}`
@@ -256,7 +269,7 @@ test("API + DB complete the PKCE flow and persist only a vault bundle", async ({
 test("expired flow is rejected and refresh is single-shot", async ({ admin, db }) => {
   const started = expectStatus(
     await admin.post<{ authorization_url: string; flow_id: string; }>(
-      configPath(oauthServer, "/oauth/start"),
+      childPath(oauthServer, "/oauth/start"),
     ),
     201,
     "start second OAuth",
@@ -284,7 +297,7 @@ test("expired flow is rejected and refresh is single-shot", async ({ admin, db }
 test("rejected access and refresh failure fail closed without a retry loop", async ({ admin, db }) => {
   expireAccessToken(as);
   const rejected = await probe(admin, oauthServer);
-  expect(rejected.backend_summary).toMatchObject({ auth_type: "oauth" });
+  expect(rejected).toMatchObject({ auth_type: "oauth" });
   const rejectedState = await connectionState(db, oauthServer);
   expect(rejectedState.status).toBe("needs_auth");
   expect(rejectedState.status_error).not.toContain("e2e-access");
@@ -312,22 +325,22 @@ test("rejected access and refresh failure fail closed without a retry loop", asy
 test("disconnect removes the bundle and the UI reconnects OAuth", async ({ admin, db, page, loginAsAdmin }) => {
   const connected = await getConfig(admin, oauthServer);
   const disconnected = expectStatus(
-    await admin.post<PluginConfig>(
-      configPath(oauthServer, "/oauth/disconnect"),
+    await admin.post<McpServer>(
+      childPath(oauthServer, "/oauth/disconnect"),
     ),
     200,
     "disconnect OAuth",
   );
-  expect(disconnected.backend_summary).toMatchObject({
+  expect(disconnected).toMatchObject({
     auth_type: "oauth",
     oauth_client_secret_configured: true,
   });
   expect((await connectionState(db, oauthServer)).status).toBe("needs_auth");
   expect(
-    await vaultCount(db, vaultName("MCP_OAUTH_", oauthServer.configId)),
+    await vaultCount(db, vaultName("MCP_OAUTH_", oauthServer.childId)),
   ).toBe(0);
   expect(
-    await vaultCount(db, vaultName("MCP_OAUTH_CLIENT_", oauthServer.configId)),
+    await vaultCount(db, vaultName("MCP_OAUTH_CLIENT_", oauthServer.childId)),
   ).toBe(1);
 
   await loginAsAdmin();
@@ -339,7 +352,7 @@ test("disconnect removes the bundle and the UI reconnects OAuth", async ({ admin
   await expect(
     page.getByRole("button", { name: /Authorize account|授权/ }),
   ).toBeVisible();
-  expect(connected.backend_summary).toMatchObject({ auth_type: "oauth" });
+  expect(mcpSummary(connected)).toMatchObject({ auth_type: "oauth" });
   const fresh = await createOAuthPlugin(
     admin,
     "oauth-ui-connect",
@@ -375,15 +388,16 @@ test("disconnect removes the bundle and the UI reconnects OAuth", async ({ admin
     .poll(
       async () =>
         (
-          await db`select s.status, c.credential_refs #>> '{oauth_bundle,name}' as bundle
+          await db`select s.status, c.credential_refs #>> '{mcp_servers,main,oauth_bundle,name}' as bundle
       from mcp_connection_state s
-      join plugin_config c on c.id = s.config_id
-      where s.config_id = ${oauthServer.configId}`
+      join plugin_config_mcp_server child on child.id = s.child_id
+      join plugin_config c on c.id = child.config_id
+      where s.child_id = ${oauthServer.childId}`
         )[0],
     )
     .toMatchObject({ status: "ok" });
   const bundle = (
-    await db`select c.credential_refs #>> '{oauth_bundle,name}' as bundle
+    await db`select c.credential_refs #>> '{mcp_servers,main,oauth_bundle,name}' as bundle
       from plugin_config c where c.id = ${oauthServer.configId}`
   )[0]?.bundle;
   expect(bundle).toBeTruthy();
@@ -408,7 +422,7 @@ test("per-user bundles isolate users and a real agent calls OAuth MCP @model", a
     "per_user",
   );
   created.push(perUser);
-  expect((await getConfig(admin, perUser)).backend_summary).toMatchObject({
+  expect(mcpSummary(await getConfig(admin, perUser))).toMatchObject({
     auth_type: "oauth",
     credential_mode: "per_user",
   });
@@ -435,7 +449,7 @@ test("per-user bundles isolate users and a real agent calls OAuth MCP @model", a
   const userStart = await connect(user, perUser);
   expect(userStart.callback.status).toBe(302);
   const bundleRows = await db`select scope, user_id from vault_entry where name = ${
-    vaultName("MCP_OAUTH_", perUser.configId)
+    vaultName("MCP_OAUTH_", perUser.childId)
   } order by user_id`;
   expect(bundleRows).toHaveLength(2);
   expect(new Set(bundleRows.map((row) => String(row.user_id))).size).toBe(2);

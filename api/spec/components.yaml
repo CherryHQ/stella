@@ -252,6 +252,9 @@ components:
           type: string
           description: >-
             Stable backend-owned family identifier for grouping a non-MCP tool. Settings policy actions use display families such as agent_management; generated builtin actions use their toolmeta family; hand-written core and plugin tools use stable fallback families. Clients must not infer this value from the tool name.
+        plugin_server_key:
+          type: string
+          description: Authored MCP server key for plugin-owned tools.
         policy_reason:
           type: string
           enum: [core_sandbox, settings_policy, runtime_unavailable]
@@ -482,6 +485,8 @@ components:
       required: [
         plugin_id,
         config_id,
+        parent_config_id,
+        parent_revision,
         scope,
         enabled,
         credential_mode,
@@ -498,6 +503,12 @@ components:
           type: string
         config_id:
           type: string
+        parent_config_id:
+          type: string
+          format: uuid
+        parent_revision:
+          type: integer
+          format: int64
         scope:
           type: string
           enum: [user, user_agent, system, system_agent]
@@ -2524,6 +2535,158 @@ components:
         annotations:
           type: object
           additionalProperties: true
+    MCPServer:
+      type: object
+      additionalProperties: false
+      required: [
+        id,
+        plugin_id,
+        parent_config_id,
+        parent_revision,
+        server_key,
+        scope,
+        enabled,
+        credential_mode,
+        needs_auth,
+        status,
+        tools,
+      ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        plugin_id:
+          type: string
+          readOnly: true
+        parent_config_id:
+          type: string
+          format: uuid
+          readOnly: true
+        parent_revision:
+          type: integer
+          format: int64
+          readOnly: true
+        server_key:
+          type: string
+        url:
+          type: string
+          format: uri
+          readOnly: true
+        scope:
+          type: string
+          enum: [system, system_agent, user, user_agent]
+          readOnly: true
+        enabled:
+          type: boolean
+          readOnly: true
+        credential_mode:
+          type: string
+          enum: [shared, per_user]
+        auth_type:
+          type: string
+          enum: [none, bearer, oauth]
+        transport:
+          type: string
+          enum: [streamable_http, sse]
+        endpoint_configured:
+          type: boolean
+        bearer_configured:
+          type: boolean
+        oauth_client_id_configured:
+          type: boolean
+        oauth_client_secret_configured:
+          type: boolean
+        needs_auth:
+          type: boolean
+        status:
+          type: string
+          enum: [unknown, ready, needs_auth, error]
+        status_error:
+          type: string
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/MCPTool"
+        revision:
+          type: integer
+          format: int64
+          readOnly: true
+    MCPServerList:
+      type: object
+      required: [servers, next_page_token]
+      properties:
+        servers:
+          type: array
+          items:
+            $ref: "#/components/schemas/MCPServer"
+        next_page_token:
+          type: string
+          nullable: true
+    CreateMCPServerRequest:
+      type: object
+      additionalProperties: false
+      required: [parent_config_id, server_key, expected_parent_revision, url]
+      properties:
+        parent_config_id:
+          type: string
+          format: uuid
+        server_key:
+          type: string
+          minLength: 1
+        expected_parent_revision:
+          type: integer
+          format: int64
+          minimum: 1
+        url:
+          type: string
+          format: uri
+        transport:
+          type: string
+          enum: [streamable_http, sse]
+        auth_type:
+          type: string
+          enum: [none, bearer, oauth]
+        credential_mode:
+          type: string
+          enum: [shared, per_user]
+        metadata:
+          type: object
+          additionalProperties: true
+        credentials:
+          type: object
+          nullable: true
+          writeOnly: true
+          additionalProperties: true
+    UpdateMCPServerRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_parent_revision]
+      properties:
+        expected_parent_revision:
+          type: integer
+          format: int64
+          minimum: 1
+        url:
+          type: string
+          format: uri
+        transport:
+          type: string
+          enum: [streamable_http, sse]
+        auth_type:
+          type: string
+          enum: [none, bearer, oauth]
+        credential_mode:
+          type: string
+          enum: [shared, per_user]
+        metadata:
+          type: object
+          additionalProperties: true
+        credentials:
+          type: object
+          nullable: true
+          writeOnly: true
+          additionalProperties: true
     MCPRegistryServer:
       type: object
       required: [source, id, name, url, transport, auth]
@@ -2826,10 +2989,10 @@ components:
       required: [
         id,
         display_name,
-        backend,
         is_builtin,
         is_default_enabled,
         spec,
+        resource_summary,
         revision,
         created_at,
         updated_at,
@@ -2839,9 +3002,6 @@ components:
           type: string
         display_name:
           type: string
-        backend:
-          type: string
-          enum: [cli, mcp]
         is_builtin:
           type: boolean
           readOnly: true
@@ -2851,7 +3011,9 @@ components:
         spec:
           type: object
           additionalProperties: true
-          description: Safe non-secret resource summaries. Private endpoints and credentials are omitted.
+          description: Safe package metadata. Private endpoints and credentials are omitted.
+        resource_summary:
+          $ref: "#/components/schemas/PluginResourceSummary"
         revision:
           type: integer
           format: int64
@@ -2883,7 +3045,7 @@ components:
         plugin_id,
         scope,
         is_enabled,
-        backend_summary,
+        resource_summary,
         revision,
         created_at,
         updated_at,
@@ -2906,16 +3068,8 @@ components:
         is_enabled:
           type: boolean
           nullable: true
-        backend_summary:
-          oneOf:
-            - $ref: "#/components/schemas/PluginCLIBackendSummary"
-            - $ref: "#/components/schemas/PluginMCPBackendSummary"
-          discriminator:
-            propertyName: backend
-            mapping:
-              cli: "#/components/schemas/PluginCLIBackendSummary"
-              mcp: "#/components/schemas/PluginMCPBackendSummary"
-          description: Typed non-secret backend summary. Raw backend payload and credential references are never returned.
+        resource_summary:
+          $ref: "#/components/schemas/PluginResourceSummary"
         revision:
           type: integer
           format: int64
@@ -2928,20 +3082,17 @@ components:
           type: string
           format: date-time
           readOnly: true
-    PluginCLIBackendSummary:
+    PluginResourceSummary:
       type: object
       additionalProperties: false
       required: [
-        backend,
         binaries,
         skills,
         session_env,
+        mcp_servers,
         oauth_provider_configured,
       ]
       properties:
-        backend:
-          type: string
-          enum: [cli]
         binaries:
           type: array
           items:
@@ -2956,6 +3107,10 @@ components:
             $ref: "#/components/schemas/PluginCLIBackendSessionEnvSummary"
         oauth_provider_configured:
           type: boolean
+        mcp_servers:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginMCPServerSummary"
     PluginCLIBackendBinarySummary:
       type: object
       additionalProperties: false
@@ -2983,23 +3138,31 @@ components:
           type: string
         required:
           type: boolean
-    PluginMCPBackendSummary:
+    PluginMCPServerSummary:
       type: object
       additionalProperties: false
       required: [
-        backend,
-        transport,
-        auth_type,
-        credential_mode,
+        server_key,
         endpoint_configured,
         bearer_configured,
         oauth_client_id_configured,
         oauth_client_secret_configured,
       ]
       properties:
-        backend:
+        server_key:
           type: string
-          enum: [mcp]
+        child_id:
+          type: string
+          format: uuid
+          readOnly: true
+        parent_config_id:
+          type: string
+          format: uuid
+          readOnly: true
+        parent_revision:
+          type: integer
+          format: int64
+          readOnly: true
         transport:
           type: string
           enum: [streamable_http, sse]
@@ -3104,7 +3267,7 @@ components:
     CreatePluginRequest:
       type: object
       additionalProperties: false
-      required: [display_name, name, backend, definition_spec, initial_config]
+      required: [display_name, name, definition_spec, initial_config]
       properties:
         display_name:
           type: string
@@ -3115,9 +3278,6 @@ components:
           pattern: "^(?!.*(?:--|\\.\\.))[a-z0-9](?:[a-z0-9.-]{0,62}[a-z0-9])?$"
           description: >-
             Canonical immutable plugin ID. It uses lowercase letters, digits, dots, and hyphens, starts and ends with a letter or digit, and cannot contain consecutive dots or hyphens.
-        backend:
-          type: string
-          enum: [cli, mcp]
         definition_spec:
           type: object
           additionalProperties: true

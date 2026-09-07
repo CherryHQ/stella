@@ -10,14 +10,6 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
 
-// Backend identifies the implementation that supplies a plugin's capabilities.
-type Backend string
-
-const (
-	BackendCLI Backend = "cli"
-	BackendMCP Backend = "mcp"
-)
-
 // Source identifies whether a definition ships with Stella or was installed.
 type Source string
 
@@ -41,17 +33,15 @@ var scopePrecedence = [...]Scope{ScopeUserAgent, ScopeUser, ScopeSystemAgent, Sc
 
 // Definition is the authored, non-secret identity of a plugin.
 type Definition struct {
-	ID                string
-	DisplayName       string
-	Backend           Backend
-	Source            Source
-	ImplementationKey string
-	Spec              json.RawMessage
-	DefaultEnabled    bool
-	Revision          int64
-	CreatorUserID     string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID             string
+	DisplayName    string
+	Source         Source
+	Spec           json.RawMessage
+	DefaultEnabled bool
+	Revision       int64
+	CreatorUserID  string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // Config is one complete scope record. Enabled is nullable: nil inherits the
@@ -66,6 +56,21 @@ type Config struct {
 	Payload        json.RawMessage
 	CredentialRefs json.RawMessage
 	Revision       int64
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	// MCPServers contains stable child identities for the authored MCP server
+	// entries in Payload.mcp_servers. It is loaded from the relation table and
+	// is never persisted as part of the JSON payload.
+	MCPServers []MCPServerChild
+}
+
+// MCPServerChild is the durable identity of one MCP resource in a package
+// config. Endpoint/auth data remains in the parent config payload; this row
+// only binds a child UUID to its authored key.
+type MCPServerChild struct {
+	ID             string
+	ParentConfigID string
+	ServerKey      string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
@@ -87,14 +92,11 @@ var (
 )
 
 func (d Definition) Validate() error {
-	if d.DisplayName == "" || d.ImplementationKey == "" || d.Revision < 1 {
+	if d.DisplayName == "" || d.Revision < 1 {
 		return fmt.Errorf("%w: identity or revision", ErrInvalidDefinition)
 	}
 	if err := ValidateName(d.ID); err != nil {
 		return err
-	}
-	if d.Backend != BackendCLI && d.Backend != BackendMCP {
-		return fmt.Errorf("%w: backend %q", ErrInvalidDefinition, d.Backend)
 	}
 	if d.Source != SourceBuiltin && d.Source != SourceCustom {
 		return fmt.Errorf("%w: source %q", ErrInvalidDefinition, d.Source)
@@ -208,5 +210,8 @@ func cloneConfig(config Config) Config {
 	config.Enabled = cloneBool(config.Enabled)
 	config.Payload = cloneRaw(config.Payload)
 	config.CredentialRefs = cloneRaw(config.CredentialRefs)
+	if config.MCPServers != nil {
+		config.MCPServers = append([]MCPServerChild(nil), config.MCPServers...)
+	}
 	return config
 }

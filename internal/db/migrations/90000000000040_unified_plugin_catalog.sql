@@ -5,9 +5,7 @@
 CREATE TABLE "plugin_definition" (
     "id" TEXT PRIMARY KEY,
     "display_name" TEXT NOT NULL,
-    "backend" TEXT NOT NULL,
     "source" TEXT NOT NULL,
-    "implementation_key" TEXT NOT NULL,
     "spec" JSONB NOT NULL DEFAULT '{}',
     "default_enabled" BOOLEAN NOT NULL DEFAULT false,
     "revision" BIGINT NOT NULL DEFAULT 1,

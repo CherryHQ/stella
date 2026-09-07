@@ -24,6 +24,7 @@ LIMIT 1;
 SELECT * FROM tool_override
 WHERE tool_name IS NOT DISTINCT FROM sqlc.narg(tool_name)
   AND plugin_id IS NOT DISTINCT FROM sqlc.narg(plugin_id)
+  AND server_key IS NOT DISTINCT FROM sqlc.narg(server_key)
   AND local_tool_name IS NOT DISTINCT FROM sqlc.narg(local_tool_name)
   AND scope = sqlc.arg(scope)
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
@@ -31,30 +32,30 @@ WHERE tool_name IS NOT DISTINCT FROM sqlc.narg(tool_name)
 LIMIT 1;
 
 -- name: UpsertCoreToolOverride :one
-INSERT INTO tool_override (tool_name, plugin_id, local_tool_name, scope, user_id, agent_id, enabled)
-VALUES (sqlc.arg(tool_name), NULL, NULL, sqlc.arg(scope), sqlc.narg(user_id), sqlc.narg(agent_id), sqlc.arg(enabled))
+INSERT INTO tool_override (tool_name, plugin_id, server_key, local_tool_name, scope, user_id, agent_id, enabled)
+VALUES (sqlc.arg(tool_name), NULL, NULL, NULL, sqlc.arg(scope), sqlc.narg(user_id), sqlc.narg(agent_id), sqlc.arg(enabled))
 ON CONFLICT (tool_name, scope, user_id, agent_id)
-  WHERE tool_name IS NOT NULL AND plugin_id IS NULL AND local_tool_name IS NULL
+  WHERE tool_name IS NOT NULL AND plugin_id IS NULL AND server_key IS NULL AND local_tool_name IS NULL
 DO UPDATE SET enabled = excluded.enabled, updated_at = now()
 RETURNING *;
 
 -- name: UpsertPluginToolOverride :one
-INSERT INTO tool_override (tool_name, plugin_id, local_tool_name, scope, user_id, agent_id, enabled)
-VALUES (NULL, sqlc.arg(plugin_id), sqlc.arg(local_tool_name), sqlc.arg(scope), sqlc.narg(user_id), sqlc.narg(agent_id), sqlc.arg(enabled))
-ON CONFLICT (plugin_id, local_tool_name, scope, user_id, agent_id)
+INSERT INTO tool_override (tool_name, plugin_id, server_key, local_tool_name, scope, user_id, agent_id, enabled)
+VALUES (NULL, sqlc.arg(plugin_id), sqlc.narg(server_key), sqlc.arg(local_tool_name), sqlc.arg(scope), sqlc.narg(user_id), sqlc.narg(agent_id), sqlc.arg(enabled))
+ON CONFLICT (plugin_id, server_key, local_tool_name, scope, user_id, agent_id)
   WHERE tool_name IS NULL
 DO UPDATE SET enabled = excluded.enabled, updated_at = now()
 RETURNING *;
 
 -- name: InsertCoreToolOverrideIfAbsent :one
-INSERT INTO tool_override (tool_name, plugin_id, local_tool_name, scope, user_id, agent_id, enabled)
-VALUES (sqlc.arg(tool_name), NULL, NULL, sqlc.arg(scope), sqlc.narg(user_id), sqlc.narg(agent_id), sqlc.arg(enabled))
+INSERT INTO tool_override (tool_name, plugin_id, server_key, local_tool_name, scope, user_id, agent_id, enabled)
+VALUES (sqlc.arg(tool_name), NULL, NULL, NULL, sqlc.arg(scope), sqlc.narg(user_id), sqlc.narg(agent_id), sqlc.arg(enabled))
 ON CONFLICT DO NOTHING
 RETURNING *;
 
 -- name: InsertPluginToolOverrideIfAbsent :one
-INSERT INTO tool_override (tool_name, plugin_id, local_tool_name, scope, user_id, agent_id, enabled)
-VALUES (NULL, sqlc.arg(plugin_id), sqlc.arg(local_tool_name), sqlc.arg(scope), sqlc.narg(user_id), sqlc.narg(agent_id), sqlc.arg(enabled))
+INSERT INTO tool_override (tool_name, plugin_id, server_key, local_tool_name, scope, user_id, agent_id, enabled)
+VALUES (NULL, sqlc.arg(plugin_id), sqlc.narg(server_key), sqlc.arg(local_tool_name), sqlc.arg(scope), sqlc.narg(user_id), sqlc.narg(agent_id), sqlc.arg(enabled))
 ON CONFLICT DO NOTHING
 RETURNING *;
 
@@ -62,7 +63,7 @@ RETURNING *;
 UPDATE tool_override
 SET enabled = sqlc.arg(enabled), updated_at = now()
 WHERE tool_name = sqlc.arg(tool_name)
-  AND plugin_id IS NULL AND local_tool_name IS NULL
+  AND plugin_id IS NULL AND server_key IS NULL AND local_tool_name IS NULL
   AND scope = sqlc.arg(scope)
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
@@ -74,6 +75,7 @@ UPDATE tool_override
 SET enabled = sqlc.arg(enabled), updated_at = now()
 WHERE tool_name IS NULL
   AND plugin_id = sqlc.arg(plugin_id)
+  AND server_key IS NOT DISTINCT FROM sqlc.narg(server_key)
   AND local_tool_name = sqlc.arg(local_tool_name)
   AND scope = sqlc.arg(scope)
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
@@ -84,7 +86,7 @@ RETURNING *;
 -- name: DeleteCoreToolOverride :exec
 DELETE FROM tool_override
 WHERE tool_name = sqlc.arg(tool_name)
-  AND plugin_id IS NULL AND local_tool_name IS NULL
+  AND plugin_id IS NULL AND server_key IS NULL AND local_tool_name IS NULL
   AND scope = sqlc.arg(scope)
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '');
@@ -93,6 +95,7 @@ WHERE tool_name = sqlc.arg(tool_name)
 DELETE FROM tool_override
 WHERE tool_name IS NULL
   AND plugin_id = sqlc.arg(plugin_id)
+  AND server_key IS NOT DISTINCT FROM sqlc.narg(server_key)
   AND local_tool_name = sqlc.arg(local_tool_name)
   AND scope = sqlc.arg(scope)
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
@@ -101,7 +104,7 @@ WHERE tool_name IS NULL
 -- name: DeleteCoreToolOverrideIfVersion :one
 DELETE FROM tool_override
 WHERE tool_name = sqlc.arg(tool_name)
-  AND plugin_id IS NULL AND local_tool_name IS NULL
+  AND plugin_id IS NULL AND server_key IS NULL AND local_tool_name IS NULL
   AND scope = sqlc.arg(scope)
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
@@ -112,6 +115,7 @@ RETURNING *;
 DELETE FROM tool_override
 WHERE tool_name IS NULL
   AND plugin_id = sqlc.arg(plugin_id)
+  AND server_key IS NOT DISTINCT FROM sqlc.narg(server_key)
   AND local_tool_name = sqlc.arg(local_tool_name)
   AND scope = sqlc.arg(scope)
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')

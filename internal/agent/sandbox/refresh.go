@@ -3,10 +3,11 @@ package sandbox
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"strings"
 	"time"
 
-	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -57,55 +58,51 @@ func RefreshSessionEnv(ctx context.Context, session pkgsandbox.Session, cfg Conf
 	}
 
 	minValidity := oauthMinValidity(cfg)
-	// bundles caches one resolution per provider so multiple env vars sourced
-	// from the same provider trigger a single reload/refresh. A nil entry records
-	// a resolution that failed, so we don't retry it within one turn.
-	bundles := make(map[string]*oauth.OAuthBundle)
-	updates := make(map[string]string)
-	var rotatedSecrets []string
+	// Group bound specs by provider in declaration order. Each provider is
+	// staged independently so a scope failure or token error never contributes
+	// a partial credential set, while another provider can still refresh.
+	providerSpecs := make(map[string][]pkgplugins.SessionEnvSpec)
+	var providerOrder []string
 	for _, spec := range cfg.SessionEnvSpecs {
 		src := string(spec.Source)
-		if !strings.HasPrefix(src, "oauth.") {
+		if !strings.HasPrefix(src, "oauth.") || !cfg.OAuthEnvBindings.Has(spec.EnvVar) || spec.OAuthProviderID == "" {
 			continue
 		}
-		// Only vars injected from OAuth at creation are refreshable; anything the
-		// vault explicitly provided (or that was never connected) is left alone.
-		if !cfg.OAuthEnvBindings.Has(spec.EnvVar) {
+		if _, exists := providerSpecs[spec.OAuthProviderID]; !exists {
+			providerOrder = append(providerOrder, spec.OAuthProviderID)
+		}
+		providerSpecs[spec.OAuthProviderID] = append(providerSpecs[spec.OAuthProviderID], spec)
+	}
+
+	updates := make(map[string]string)
+	var rotatedSecrets []string
+	for _, providerID := range providerOrder {
+		specs := providerSpecs[providerID]
+		bundle, err := cfg.TokenManager.GetOAuthToken(ctx, providerID, cfg.UserID, minValidity)
+		if err != nil {
+			// Preserve the old env: log and skip rather than clear a value
+			// that may still work until it truly expires.
+			slog.Warn("session env refresh skipped: oauth token unavailable",
+				"component", "runner_sandbox",
+				"user_id", cfg.UserID,
+				"provider", providerID,
+				"error", err,
+			)
 			continue
 		}
-		providerID := spec.OAuthProviderID
-		if providerID == "" {
+		providerUpdates, ok := oauthSessionEnvValues(specs, bundle)
+		if !ok {
+			slog.Debug("session env refresh skipped: OAuth requirements unavailable", "component", "runner_sandbox", "provider", providerID)
 			continue
 		}
-		bundle, seen := bundles[providerID]
-		if !seen {
-			var err error
-			bundle, err = cfg.TokenManager.GetOAuthToken(ctx, providerID, cfg.UserID, minValidity)
-			if err != nil {
-				// Preserve the old env: log and skip rather than clear a value
-				// that may still work until it truly expires.
-				slog.Warn("session env refresh skipped: oauth token unavailable",
-					"component", "runner_sandbox",
-					"user_id", cfg.UserID,
-					"provider", providerID,
-					"env_var", spec.EnvVar,
-					"error", err,
-				)
-				bundle = nil
-			}
-			bundles[providerID] = bundle
-		}
-		if bundle == nil {
-			continue
-		}
-		field := strings.TrimPrefix(src, "oauth.")
-		value, known := oauthBundleField(bundle, field)
-		if known && value != "" {
-			updates[spec.EnvVar] = value
-			if oauthSessionEnvFieldSecret(field) {
-				rotatedSecrets = append(rotatedSecrets, value)
+		var providerSecrets []string
+		for _, spec := range specs {
+			if value, present := providerUpdates[spec.EnvVar]; present && oauthSessionEnvFieldSecret(strings.TrimPrefix(string(spec.Source), "oauth.")) {
+				providerSecrets = append(providerSecrets, value)
 			}
 		}
+		maps.Copy(updates, providerUpdates)
+		rotatedSecrets = append(rotatedSecrets, providerSecrets...)
 	}
 	if len(updates) > 0 {
 		// Register rotated values before making them executable so an overlapping

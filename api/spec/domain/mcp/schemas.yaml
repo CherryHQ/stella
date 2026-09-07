@@ -29,6 +29,94 @@ components:
           type: object
           additionalProperties: true
 
+    MCPServer:
+      type: object
+      additionalProperties: false
+      required: [
+        id,
+        plugin_id,
+        parent_config_id,
+        parent_revision,
+        server_key,
+        scope,
+        enabled,
+        credential_mode,
+        needs_auth,
+        status,
+        tools,
+      ]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        plugin_id: { type: string, readOnly: true }
+        parent_config_id: { type: string, format: uuid, readOnly: true }
+        parent_revision: { type: integer, format: int64, readOnly: true }
+        server_key: { type: string }
+        url: { type: string, format: uri, readOnly: true }
+        scope:
+          type: string
+          enum: [system, system_agent, user, user_agent]
+          readOnly: true
+        enabled: { type: boolean, readOnly: true }
+        credential_mode: { type: string, enum: [shared, per_user] }
+        auth_type: { type: string, enum: [none, bearer, oauth] }
+        transport: { type: string, enum: [streamable_http, sse] }
+        endpoint_configured: { type: boolean }
+        bearer_configured: { type: boolean }
+        oauth_client_id_configured: { type: boolean }
+        oauth_client_secret_configured: { type: boolean }
+        needs_auth: { type: boolean }
+        status: { type: string, enum: [unknown, ready, needs_auth, error] }
+        status_error: { type: string }
+        tools:
+          type: array
+          items: { $ref: "#/components/schemas/MCPTool" }
+        revision: { type: integer, format: int64, readOnly: true }
+
+    MCPServerList:
+      type: object
+      required: [servers, next_page_token]
+      properties:
+        servers:
+          type: array
+          items: { $ref: "#/components/schemas/MCPServer" }
+        next_page_token: { type: string, nullable: true }
+
+    CreateMCPServerRequest:
+      type: object
+      additionalProperties: false
+      required: [parent_config_id, server_key, expected_parent_revision, url]
+      properties:
+        parent_config_id: { type: string, format: uuid }
+        server_key: { type: string, minLength: 1 }
+        expected_parent_revision: { type: integer, format: int64, minimum: 1 }
+        url: { type: string, format: uri }
+        transport: { type: string, enum: [streamable_http, sse] }
+        auth_type: { type: string, enum: [none, bearer, oauth] }
+        credential_mode: { type: string, enum: [shared, per_user] }
+        metadata: { type: object, additionalProperties: true }
+        credentials:
+          type: object
+          nullable: true
+          writeOnly: true
+          additionalProperties: true
+
+    UpdateMCPServerRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_parent_revision]
+      properties:
+        expected_parent_revision: { type: integer, format: int64, minimum: 1 }
+        url: { type: string, format: uri }
+        transport: { type: string, enum: [streamable_http, sse] }
+        auth_type: { type: string, enum: [none, bearer, oauth] }
+        credential_mode: { type: string, enum: [shared, per_user] }
+        metadata: { type: object, additionalProperties: true }
+        credentials:
+          type: object
+          nullable: true
+          writeOnly: true
+          additionalProperties: true
+
     MCPRegistryServer:
       type: object
       required: [source, id, name, url, transport, auth]

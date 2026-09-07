@@ -255,6 +255,11 @@ func (s *Server) agentTools(ctx context.Context, agentID string, includeSettings
 				}
 				decision := agent.ResolveToolOverride(true, identity, overrides)
 				item := overrideAgentTool(name, tool.Description, agentToolSourceMCP, "mcp:"+reg.Name, decision, toolInputSchema(tool.InputSchema))
+				serverKey := reg.ServerKey
+				if serverKey == "" {
+					serverKey = "main"
+				}
+				item.PluginServerKey = &serverKey
 				if reason != "" {
 					availability := types.AgentToolAvailabilityReason(reason)
 					item.AvailabilityReason = &availability
@@ -443,7 +448,13 @@ func nativeToolIdentity(meta *toolmeta.Registry, native *pluginpkg.NativePolicy,
 }
 
 func mcpToolName(reg mcp.Registration, tool mcp.CatalogTool) (string, bool) {
-	name, err := agentpackage.ExportedToolName(reg.PluginID, "main", tool.Name)
+	serverKey := reg.ServerKey
+	if serverKey == "" {
+		// Legacy single-server registrations predate composable child identity.
+		// Keep their stable exported names while all new rows carry ServerKey.
+		serverKey = "main"
+	}
+	name, err := agentpackage.ExportedToolName(reg.PluginID, serverKey, tool.Name)
 	return name, err == nil
 }
 
@@ -451,7 +462,11 @@ func mcpToolIdentity(reg mcp.Registration, tool mcp.CatalogTool) (agent.ToolIden
 	if reg.PluginID == "" || tool.Name == "" {
 		return agent.ToolIdentity{}, false
 	}
-	identity := agent.ToolIdentity{PluginID: reg.PluginID, LocalToolName: tool.Name}
+	serverKey := reg.ServerKey
+	if serverKey == "" {
+		serverKey = "main"
+	}
+	identity := agent.ToolIdentity{PluginID: reg.PluginID, ServerKey: serverKey, LocalToolName: tool.Name}
 	return identity, identity.Validate() == nil
 }
 

@@ -346,9 +346,9 @@ func commonMCPTestService(t *testing.T) (*Service, string, string, context.Conte
 	svc, _, userID, _ := setupInternal(t)
 	pluginID := "mcp-test-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
 	if _, err := svc.pool.Exec(t.Context(), `
-		INSERT INTO plugin_definition(id, display_name, backend, source,
-			implementation_key, spec, default_enabled, revision, creator_user_id)
-		VALUES ($1, $2, 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1, $3::uuid)`,
+		INSERT INTO plugin_definition(id, display_name, source,
+			spec, default_enabled, revision, creator_user_id)
+		VALUES ($1, $2, 'custom', '{"mcp_servers":{}}'::jsonb, false, 1, $3::uuid)`,
 		pluginID, "MCP test", userID); err != nil {
 		t.Fatalf("seed common MCP definition: %v", err)
 	}
@@ -526,6 +526,28 @@ func TestAuthRoundTripperOmitsEmptyBearer(t *testing.T) {
 	}
 	if got := base.request.Header.Get("Authorization"); got != "" {
 		t.Fatalf("outbound authorization = %q, want none", got)
+	}
+}
+
+func TestAuthRoundTripperAddsPublicHeadersWithoutMutatingCaller(t *testing.T) {
+	request, err := http.NewRequest(http.MethodGet, "https://example.com/mcp", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	base := &recordingRoundTripper{}
+	response, err := (&authRoundTripper{base: base, headers: map[string]string{"X-Client-Version": "1"}}).RoundTrip(request)
+	if err != nil {
+		t.Fatalf("round trip: %v", err)
+	}
+	_ = response.Body.Close()
+	if base.request == request {
+		t.Fatal("outbound request must be cloned before adding package headers")
+	}
+	if got := base.request.Header.Get("X-Client-Version"); got != "1" {
+		t.Fatalf("outbound package header = %q, want 1", got)
+	}
+	if got := request.Header.Get("X-Client-Version"); got != "" {
+		t.Fatalf("original request package header = %q, want unchanged", got)
 	}
 }
 
@@ -787,7 +809,7 @@ func catalogRow(d *fakeDB, id, name string, toolNames ...string) {
 
 func providerRegistration(d *fakeDB, id, pluginID string) Registration {
 	reg := registrationFromRow(d.rows[id])
-	reg.PluginID = pluginID
+	reg.ParentConfigID, reg.ServerKey, reg.PluginID = id, "main", pluginID
 	return reg
 }
 
@@ -842,7 +864,7 @@ func TestToolProviderStaleCatalogTriggersColdDiscovery(t *testing.T) {
 		t.Fatalf("tools = %#v, want tools from the refreshed catalog", tools)
 	}
 	stateCount := 0
-	if err := svc.pool.QueryRow(t.Context(), `SELECT count(*) FROM mcp_connection_state WHERE config_id = $1::uuid`, reg.ID).Scan(&stateCount); err != nil {
+	if err := svc.pool.QueryRow(t.Context(), `SELECT count(*) FROM mcp_connection_state WHERE child_id = $1::uuid`, reg.ID).Scan(&stateCount); err != nil {
 		t.Fatal(err)
 	}
 	if stateCount != 1 {
@@ -927,7 +949,7 @@ func TestToolProviderFailedDiscoveryPersistsErrorAndSkips(t *testing.T) {
 		t.Fatalf("tools = %d, want none after discovery failure", len(tools))
 	}
 	var status string
-	if err := svc.pool.QueryRow(t.Context(), `SELECT status FROM mcp_connection_state WHERE config_id = $1::uuid`, reg.ID).Scan(&status); err != nil {
+	if err := svc.pool.QueryRow(t.Context(), `SELECT status FROM mcp_connection_state WHERE child_id = $1::uuid`, reg.ID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status != StatusError {
@@ -1179,7 +1201,7 @@ func TestCredentialRejectionMarksNeedsAuth(t *testing.T) {
 		t.Fatalf("Execute error = %v, want credential-rejection guidance", err)
 	}
 	var status string
-	if err := svc.pool.QueryRow(t.Context(), `SELECT status FROM mcp_connection_state WHERE config_id = $1::uuid AND credential_user_id IS NULL`, reg.ID).Scan(&status); err != nil {
+	if err := svc.pool.QueryRow(t.Context(), `SELECT status FROM mcp_connection_state WHERE child_id = $1::uuid AND credential_user_id IS NULL`, reg.ID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status != StatusNeedsAuth {

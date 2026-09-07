@@ -152,7 +152,8 @@ type SessionEnvSpec struct {
 	Revision        int64
 	EnvVar          string
 	Source          SessionEnvSource
-	Value           string // used only when Source == SessionEnvSourceStatic
-	Required        bool   // if true, session creation fails when this env cannot be resolved
-	OAuthProviderID string // set when source is oauth.*; identifies which provider bundle to load
+	Value           string   // used only when Source == SessionEnvSourceStatic
+	Required        bool     // missing OAuth values suppress this provider binding group
+	OAuthProviderID string   // set when source is oauth.*; identifies which provider bundle to load
+	OAuthScopes     []string // scopes required from the provider before OAuth values are injected
 }

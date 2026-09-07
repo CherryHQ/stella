@@ -18,45 +18,38 @@ func TestUnifiedPluginSnapshotFiltersDormantAndForeignDefinitions(t *testing.T) 
 	dormant := pluginDefinition("dormant", true)
 	custom := plugin.Definition{
 		ID: "shared-a", DisplayName: "Shared A",
-		Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp-a",
-		Spec: json.RawMessage(`{"schema":1}`), Revision: 1, CreatorUserID: string(userA.UserID()),
+		Source: plugin.SourceCustom, Spec: json.RawMessage(`{"schema":1}`), Revision: 1, CreatorUserID: string(userA.UserID()),
 	}
 	hidden := plugin.Definition{
 		ID: "hidden", DisplayName: "Hidden",
-		Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp-hidden",
-		Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
+		Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
 	}
 	foreign := plugin.Definition{
 		ID: "foreign", DisplayName: "Foreign",
-		Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp-foreign",
-		Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userB.UserID()),
+		Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userB.UserID()),
 	}
 	negative := plugin.Definition{
 		ID: "negative", DisplayName: "Negative",
-		Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp-negative",
-		Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
+		Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
 	}
 	negativePayload := plugin.Definition{
 		ID: "negative-payload", DisplayName: "Negative Payload",
-		Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp-negative-payload",
-		Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
+		Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
 	}
 	privateNegative := plugin.Definition{
 		ID: "private-negative", DisplayName: "Private Negative",
-		Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp-private-negative",
-		Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userB.UserID()),
+		Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userB.UserID()),
 	}
 	sharedDenied := plugin.Definition{
 		ID: "shared-denied", DisplayName: "Shared Denied",
-		Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp-shared-denied",
-		Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
+		Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1, CreatorUserID: string(userA.UserID()),
 	}
 
 	for _, def := range []plugin.Definition{builtin, dormant, custom, hidden, foreign, negative, negativePayload, privateNegative, sharedDenied} {
 		if _, err := db.Exec(ctx, `
-			INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, '')::uuid)
-		`, def.ID, def.DisplayName, def.Backend, def.Source, def.ImplementationKey, def.Spec, def.DefaultEnabled, def.Revision, def.CreatorUserID); err != nil {
+			INSERT INTO plugin_definition (id, display_name, source, spec, default_enabled, revision, creator_user_id)
+			VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, '')::uuid)
+		`, def.ID, def.DisplayName, def.Source, def.Spec, def.DefaultEnabled, def.Revision, def.CreatorUserID); err != nil {
 			t.Fatalf("insert definition %s: %v", def.ID, err)
 		}
 	}

@@ -128,6 +128,9 @@ func (s *Service) ResolveSnapshot(ctx context.Context, authority authz.Authority
 			continue // Configs for dormant definitions are not part of a snapshot.
 		}
 		config := cloneConfig(fromSQLConfig(row))
+		if err := loadMCPServerChildren(ctx, q, &config); err != nil {
+			return Snapshot{}, err
+		}
 		if config.PluginID != def.ID || !matchesContext(config, userID, resolvedAgentID) {
 			return Snapshot{}, fmt.Errorf("%w: definition or owner mismatch", ErrInvalidConfig)
 		}

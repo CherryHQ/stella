@@ -18,9 +18,9 @@ func TestCommonAuthNoneCRUDWorksWithoutVault(t *testing.T) {
 	configID := uuid.NewString()
 	pluginID := "mcp-" + configID[:8]
 	if _, err := svc.pool.Exec(t.Context(), `
-		INSERT INTO plugin_definition(id, display_name, backend, source,
-			implementation_key, spec, default_enabled, revision, creator_user_id)
-		VALUES ($1, $2, 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1, $3::uuid)`,
+		INSERT INTO plugin_definition(id, display_name, source,
+			spec, default_enabled, revision, creator_user_id)
+		VALUES ($1, $2, 'custom', '{"mcp_servers":{}}'::jsonb, false, 1, $3::uuid)`,
 		pluginID, "Auth None", userID); err != nil {
 		t.Fatalf("seed common definition: %v", err)
 	}
@@ -123,13 +123,18 @@ func TestCommonTransportRejectsLegacyRegistrationBeforeCredentialRead(t *testing
 func TestCommonCredentialSnapshotFencesRevision(t *testing.T) {
 	svc, _, userID, _ := setupInternal(t)
 	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeBearer)
-	reg := Registration{ID: configID, PluginID: pluginID, ConfigRevision: 7, Scope: ScopeUser, UserID: userID, AuthType: AuthTypeBearer, CredentialRef: credentialName(configID)}
+	reg := Registration{ID: configID, ParentConfigID: configID, ServerKey: "main", PluginID: pluginID, ConfigRevision: 7, Scope: ScopeUser, UserID: userID, AuthType: AuthTypeBearer, CredentialRef: credentialName(configID)}
 	if err := svc.vault.SetScoped(t.Context(), ScopeUser, userID, "", reg.CredentialRef, "old-token"); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := svc.loadCredentialSnapshot(t.Context(), reg, CredentialOwner{Scope: ScopeUser, UserID: userID})
 	if err != nil || snapshot.BearerToken != "old-token" {
 		t.Fatalf("snapshot = %#v, err = %v", snapshot, err)
+	}
+	forged := reg
+	forged.ServerKey = "forged"
+	if _, err := svc.loadCredentialSnapshot(t.Context(), forged, CredentialOwner{Scope: ScopeUser, UserID: userID}); !errors.Is(err, errPluginConfigIdentity) {
+		t.Fatalf("forged child key with equal IDs = %v, want identity fence", err)
 	}
 	if _, err := svc.pool.Exec(t.Context(), `UPDATE plugin_config SET revision = 8 WHERE id = $1`, configID); err != nil {
 		t.Fatal(err)
@@ -142,7 +147,7 @@ func TestCommonCredentialSnapshotFencesRevision(t *testing.T) {
 func TestOAuthBundleCASFencesRevisionAndDigest(t *testing.T) {
 	svc, _, userID, _ := setupInternal(t)
 	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeOAuth)
-	reg := Registration{ID: configID, PluginID: pluginID, ConfigRevision: 7, Scope: ScopeUser, UserID: userID, AuthType: AuthTypeOAuth, CredentialMode: CredentialModeShared}
+	reg := Registration{ID: configID, ParentConfigID: configID, ServerKey: "main", PluginID: pluginID, ConfigRevision: 7, Scope: ScopeUser, UserID: userID, AuthType: AuthTypeOAuth, CredentialMode: CredentialModeShared}
 	owner := CredentialOwner{Scope: ScopeUser, UserID: userID}
 	old := OAuthBundle{Version: 1, ClientID: "client", TokenEndpoint: "https://issuer.example.test/token", AccessToken: "old", RefreshToken: "refresh"}
 	oldRaw, _ := json.Marshal(old)
@@ -172,7 +177,7 @@ func TestOAuthBundleCASFencesRevisionAndDigest(t *testing.T) {
 func TestOAuthCallbackRevisionFence(t *testing.T) {
 	svc, _, userID, _ := setupInternal(t)
 	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 3, AuthTypeOAuth)
-	reg := Registration{ID: configID, PluginID: pluginID, ConfigRevision: 3, Scope: ScopeUser, UserID: userID, AuthType: AuthTypeOAuth, CredentialMode: CredentialModeShared}
+	reg := Registration{ID: configID, ParentConfigID: configID, ServerKey: "main", PluginID: pluginID, ConfigRevision: 3, Scope: ScopeUser, UserID: userID, AuthType: AuthTypeOAuth, CredentialMode: CredentialModeShared}
 	if _, err := svc.pool.Exec(t.Context(), `UPDATE plugin_config SET revision = 4 WHERE id = $1`, configID); err != nil {
 		t.Fatal(err)
 	}
@@ -186,18 +191,21 @@ func seedCommonConfig(t *testing.T, pool *pgxpool.Pool, userID string, revision 
 	configID := uuid.NewString()
 	pluginID := "mcp-" + configID[:8]
 	ctx := context.Background()
-	if _, err := pool.Exec(ctx, `INSERT INTO plugin_definition(id, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id) VALUES($1,$2,'mcp','custom','mcp','{}',false,1,$3)`, pluginID, "MCP "+configID[:8], userID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision, creator_user_id) VALUES($1,$2,'custom','{"mcp_servers":{}}',false,1,$3)`, pluginID, "MCP "+configID[:8], userID); err != nil {
 		t.Fatal(err)
 	}
-	payload := `{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"` + authType + `"}`
-	refs := `{}`
+	payload := `{"mcp_servers":{"main":{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"` + authType + `"}}}`
+	refs := `{"mcp_servers":{"main":{}}}`
 	if authType == AuthTypeBearer {
-		refs = `{"bearer":{"name":"` + credentialName(configID) + `","scope":"user","user_id":"` + userID + `","agent_id":""}}`
+		refs = `{"mcp_servers":{"main":{"bearer":{"name":"` + credentialName(configID) + `","scope":"user","user_id":"` + userID + `","agent_id":""}}}}`
 	}
 	if authType == AuthTypeOAuth {
-		refs = `{"oauth_bundle":{"name":"` + oauthBundleName(configID) + `","scope":"user","user_id":"` + userID + `","agent_id":""}}`
+		refs = `{"mcp_servers":{"main":{"oauth_bundle":{"name":"` + oauthBundleName(configID) + `","scope":"user","user_id":"` + userID + `","agent_id":""}}}}`
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO plugin_config(id,plugin_id,scope,user_id,enabled,config,credential_refs,revision) VALUES($1,$2,'user',$3,true,$4::jsonb,$5::jsonb,$6)`, configID, pluginID, userID, payload, refs, revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO plugin_config_mcp_server(id, config_id, server_key) VALUES($1::uuid, $2::uuid, 'main')`, configID, configID); err != nil {
 		t.Fatal(err)
 	}
 	return configID, pluginID

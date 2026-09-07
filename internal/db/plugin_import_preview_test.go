@@ -24,8 +24,7 @@ func TestPreviewLegacyImportIsReadOnlyAndDoesNotWriteMarker(t *testing.T) {
 	}
 	catalog := plugin.NewCatalog()
 	if err := catalog.Register(plugin.Definition{
-		ID: "test", DisplayName: "Test", Backend: plugin.BackendCLI,
-		Source: plugin.SourceBuiltin, ImplementationKey: "test", Spec: []byte(`{"name":"test"}`), DefaultEnabled: true, Revision: 1,
+		ID: "test", DisplayName: "Test", Source: plugin.SourceBuiltin, Spec: []byte(`{"name":"test"}`), DefaultEnabled: true, Revision: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +295,7 @@ func TestImportLegacyStateWritesDefinitionsConfigsAndSharedObservation(t *testin
 	var status, statusError, tools string
 	if err := db.QueryRow(ctx, `
 		SELECT status, status_error, tools::text FROM mcp_connection_state
-		WHERE config_id = $1::uuid AND credential_user_id IS NULL
+		WHERE child_id = $1::uuid AND credential_user_id IS NULL
 	`, mcpID).Scan(&status, &statusError, &tools); err != nil {
 		t.Fatal(err)
 	}
@@ -581,9 +580,8 @@ func TestImportLegacyStateRejectsCoreRowWithPluginIdentity(t *testing.T) {
 	preparePluginPolicyCutoverSchema(t, db)
 	if _, err := db.Exec(ctx, `
 		INSERT INTO plugin_definition (
-			id, display_name, backend, source, implementation_key,
-			spec, default_enabled, revision
-		) VALUES ('dual-row', 'Dual row fixture', 'go', 'builtin', 'dual-row', '{}', false, 1)
+			id, display_name, source, spec, default_enabled, revision
+		) VALUES ('dual-row', 'Dual row fixture', 'builtin', '{}', false, 1)
 	`); err != nil {
 		t.Fatal(err)
 	}

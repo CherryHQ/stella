@@ -8,11 +8,13 @@ import (
 )
 
 // ToolIdentity is the durable identity of a model-facing tool. Core tools use
-// CoreToolName; plugin tools use the trusted plugin/local pair. Exported names
-// are a runtime projection and never participate in this identity.
+// CoreToolName; plugin tools use the trusted package/server/local triple.
+// Exported names are a runtime projection and never participate in this
+// identity.
 type ToolIdentity struct {
 	CoreToolName  string `json:"core_tool_name,omitempty"`
 	PluginID      string `json:"plugin_id,omitempty"`
+	ServerKey     string `json:"server_key,omitempty"`
 	LocalToolName string `json:"local_tool_name,omitempty"`
 }
 
@@ -21,10 +23,13 @@ type ToolIdentity struct {
 // definition before an identity reaches this package.
 func (id ToolIdentity) Validate() error {
 	core := id.CoreToolName != ""
-	plugin := id.PluginID != "" || id.LocalToolName != ""
+	plugin := id.PluginID != "" || id.ServerKey != "" || id.LocalToolName != ""
 	if core == plugin {
 		return fmt.Errorf("tool identity must be exactly core or plugin")
 	}
+	// Native Agent plugin tools have a stable package/local pair. MCP tools add
+	// the authored child key; the runner validates that requirement at the MCP
+	// boundary before an identity reaches policy storage.
 	if plugin && (id.PluginID == "" || id.LocalToolName == "") {
 		return fmt.Errorf("plugin tool identity requires plugin_id and local_tool_name")
 	}

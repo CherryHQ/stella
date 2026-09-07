@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ import (
 func TestToolsForRegistrationsUsesPackageComponentTupleForExport(t *testing.T) {
 	provider := NewToolProvider(NewService(newFakeDB(), nil))
 	registration := Registration{
-		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", PluginID: "remote.package",
+		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", PluginID: "remote.package", ServerKey: "main",
 		Scope: ScopeSystem, Enabled: true, Status: StatusOK, ProbedAt: time.Now().UTC(),
 		Tools: []CatalogTool{{Name: "remote tool", Description: "remote"}},
 	}
@@ -48,14 +49,14 @@ func TestToolsForRegistrationsSkipsLegacyRegistrationWithoutPackageID(t *testing
 }
 
 func TestToolProxyExposesDurablePluginIdentity(t *testing.T) {
-	proxy := &toolProxy{reg: Registration{PluginID: "settings.server"}, remoteName: "list"}
+	proxy := &toolProxy{reg: Registration{PluginID: "settings.server", ServerKey: "search"}, remoteName: "list"}
 
-	pluginID, local, ok := proxy.PluginToolIdentity()
-	if !ok || pluginID != "settings.server" || local != "list" {
+	pluginID, serverKey, local, ok := proxy.PluginToolIdentity()
+	if !ok || pluginID != "settings.server" || serverKey != "search" || local != "list" {
 		t.Fatalf("PluginToolIdentity = %q, %q, %v; want settings.server, list, true", pluginID, local, ok)
 	}
 	legacy := &toolProxy{reg: Registration{Name: "settings_server"}, remoteName: "list"}
-	if pluginID, local, ok := legacy.PluginToolIdentity(); ok || pluginID != "" || local != "" {
+	if pluginID, serverKey, local, ok := legacy.PluginToolIdentity(); ok || pluginID != "" || serverKey != "" || local != "" {
 		t.Fatalf("legacy PluginToolIdentity = %q, %q, %v; want empty, empty, false", pluginID, local, ok)
 	}
 }
@@ -63,7 +64,7 @@ func TestToolProxyExposesDurablePluginIdentity(t *testing.T) {
 func TestToolsForRegistrationsSkipsDisabledWinner(t *testing.T) {
 	provider := NewToolProvider(NewService(newFakeDB(), nil))
 	registration := Registration{
-		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", PluginID: "remote.package",
+		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", PluginID: "remote.package", ServerKey: "main",
 		Scope: ScopeSystem, Enabled: false, Status: StatusOK, ProbedAt: time.Now().UTC(),
 		Tools: []CatalogTool{{Name: "remote tool"}},
 	}
@@ -74,7 +75,7 @@ func TestToolsForRegistrationsSkipsDisabledWinner(t *testing.T) {
 }
 
 func TestValidateCatalogToolsPreservesRawTupleAndRejectsExactCollision(t *testing.T) {
-	reg := Registration{PluginID: "remote.package"}
+	reg := Registration{PluginID: "remote.package", ServerKey: "main"}
 	if err := validateCatalogTools(reg, []CatalogTool{{Name: "a.b"}, {Name: "a_b"}}); err != nil {
 		t.Fatalf("distinct raw names collided: %v", err)
 	}
@@ -112,15 +113,25 @@ func TestSnapshotMCPExportBoundaries(t *testing.T) {
 			ctx := t.Context()
 			const userID = "10000000-0000-0000-0000-000000000071"
 			const configID = "20000000-0000-0000-0000-000000000071"
+			const childID = "30000000-0000-0000-0000-000000000071"
 			const pluginID = "remote.package"
 			if _, err := pool.Exec(ctx, `INSERT INTO auth_user(id,email) VALUES($1,$2)`, userID, "snapshot-boundary@test.invalid"); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := pool.Exec(ctx, `INSERT INTO plugin_definition(id,display_name,backend,source,implementation_key,spec,default_enabled,revision,creator_user_id) VALUES($1,'Remote','mcp','custom','mcp','{}',false,1,$2)`, pluginID, userID); err != nil {
+			if _, err := pool.Exec(ctx, `INSERT INTO plugin_definition(id,display_name,source,spec,default_enabled,revision,creator_user_id) VALUES($1,'Remote','custom','{}',false,1,$2)`, pluginID, userID); err != nil {
 				t.Fatal(err)
+			}
+			if tc.payload != nil {
+				nested := `{"mcp_servers":{"main":` + *tc.payload + `}}`
+				tc.payload = &nested
 			}
 			if _, err := pool.Exec(ctx, `INSERT INTO plugin_config(id,plugin_id,scope,user_id,enabled,config,credential_refs,revision) VALUES($1,$2,'user',$3,$4,$5,'{}',1)`, configID, pluginID, userID, tc.enabled, tc.payload); err != nil {
 				t.Fatal(err)
+			}
+			if tc.payload != nil {
+				if _, err := pool.Exec(ctx, `INSERT INTO plugin_config_mcp_server(id,config_id,server_key) VALUES($1,$2,'main')`, childID, configID); err != nil {
+					t.Fatal(err)
+				}
 			}
 			authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
 			if err != nil {
@@ -131,7 +142,7 @@ func TestSnapshotMCPExportBoundaries(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			observations := map[string]PluginMCPObservation{configID: {Status: StatusOK, ProbedAt: time.Now().UTC(), ConfigRevision: 1, Tools: tc.tools}}
+			observations := map[string]PluginMCPObservation{childID: {Status: StatusOK, ProbedAt: time.Now().UTC(), ConfigRevision: 1, Tools: tc.tools}}
 			regs, err := mcpRegistrationsFromSnapshot(snapshot, observations, authority)
 			if tc.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantError) {
@@ -146,5 +157,45 @@ func TestSnapshotMCPExportBoundaries(t *testing.T) {
 				t.Fatalf("registrations = %d, want %d", len(regs), tc.wantCount)
 			}
 		})
+	}
+}
+
+func TestMCPChildrenWithSameToolNameRemainIndependent(t *testing.T) {
+	provider := NewToolProvider(NewService(newFakeDB(), nil))
+	regs := []Registration{
+		{ID: "10000000-0000-0000-0000-000000000001", PluginID: "demo", ServerKey: "alpha", Scope: ScopeSystem, Enabled: true, Status: StatusOK, ProbedAt: time.Now().UTC(), Tools: []CatalogTool{{Name: "search"}}},
+		{ID: "10000000-0000-0000-0000-000000000002", PluginID: "demo", ServerKey: "beta", Scope: ScopeSystem, Enabled: true, Status: StatusOK, ProbedAt: time.Now().UTC(), Tools: []CatalogTool{{Name: "search"}}},
+	}
+	got := provider.toolsForRegistrations(t.Context(), regs, false, "")
+	if len(got) != 2 {
+		t.Fatalf("same-named sibling tools: got %d, want 2", len(got))
+	}
+	if got[0].Definition().Name == got[1].Definition().Name {
+		t.Fatal("server key was lost from exported identity")
+	}
+}
+
+func TestMCPMalformedChildDoesNotHideHealthySibling(t *testing.T) {
+	const parentID = "10000000-0000-0000-0000-000000000001"
+	const healthyID = "10000000-0000-0000-0000-000000000002"
+	const badID = "10000000-0000-0000-0000-000000000003"
+	def := plugin.Definition{ID: "demo", DisplayName: "Demo", Source: plugin.SourceCustom, Spec: json.RawMessage(`{}`), Revision: 1}
+	payload := json.RawMessage(`{"mcp_servers":{"healthy":{"url":"https://example.com/mcp","transport":"streamable_http","auth_type":"none"},"bad":{"url":17}}}`)
+	cfg := plugin.Config{ID: parentID, PluginID: def.ID, Scope: plugin.ScopeSystem, Enabled: boolPtr(true), Payload: payload, CredentialRefs: json.RawMessage(`{}`), Revision: 1, MCPServers: []plugin.MCPServerChild{{ID: healthyID, ParentConfigID: parentID, ServerKey: "healthy"}, {ID: badID, ParentConfigID: parentID, ServerKey: "bad"}}}
+	effective := plugin.Effective{PluginID: def.ID, ConfigID: parentID, SourceScope: cfg.Scope, IsEffectivelyEnabled: true, Payload: payload}
+	got, err := registrationsFromResolvedConfig(def, cfg, effective, PluginMCPObservation{}, nil, testUserAuthority(t, "user-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != healthyID {
+		t.Fatalf("healthy sibling lost: %+v", got)
+	}
+}
+
+func TestMCPEmptyResourceSetDoesNotFailDiscovery(t *testing.T) {
+	cfg := plugin.Config{Payload: json.RawMessage(`{"mcp_servers":{}}`)}
+	got, err := registrationsFromResolvedConfig(plugin.Definition{}, cfg, plugin.Effective{Payload: cfg.Payload}, PluginMCPObservation{}, nil, testUserAuthority(t, "user-1"))
+	if err != nil || len(got) != 0 {
+		t.Fatalf("empty resource set: got %v, %v", got, err)
 	}
 }

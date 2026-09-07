@@ -65,8 +65,8 @@ func (s *Server) CreatePlugin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "namespace is no longer accepted; use name")
 		return
 	}
-	if request.DisplayName == "" || request.Name == "" || request.Backend == "" || request.InitialConfig.Scope == "" {
-		writeError(w, http.StatusBadRequest, "display_name, name, backend, and initial_config are required")
+	if request.DisplayName == "" || request.Name == "" || request.InitialConfig.Scope == "" {
+		writeError(w, http.StatusBadRequest, "display_name, name, and initial_config are required")
 		return
 	}
 	if !agentpackage.ValidName(request.Name) {
@@ -77,7 +77,8 @@ func (s *Server) CreatePlugin(w http.ResponseWriter, r *http.Request) {
 		writePluginError(w, pluginpkg.ErrInvalidConfig)
 		return
 	}
-	if request.Backend == apitypes.CreatePluginRequestBackend(pluginpkg.BackendMCP) && (request.InitialConfig.Config != nil || request.InitialConfig.Credentials != nil) {
+	isMCP := hasCompactMCPInput(request.InitialConfig.Config, request.InitialConfig.Credentials)
+	if isMCP && (request.InitialConfig.Config != nil || request.InitialConfig.Credentials != nil) {
 		s.createMCPPlugin(w, r, authority, request)
 		return
 	}
@@ -85,7 +86,7 @@ func (s *Server) CreatePlugin(w http.ResponseWriter, r *http.Request) {
 		writePluginError(w, errPluginCapabilityUnavailable)
 		return
 	}
-	definition := pluginpkg.Definition{ID: request.Name, DisplayName: request.DisplayName, Backend: pluginpkg.Backend(request.Backend), Spec: mustJSON(request.DefinitionSpec)}
+	definition := pluginpkg.Definition{ID: request.Name, DisplayName: request.DisplayName, Spec: mustJSON(request.DefinitionSpec)}
 	config := pluginpkg.Config{Scope: pluginpkg.Scope(request.InitialConfig.Scope), Enabled: request.InitialConfig.IsEnabled, Payload: mustJSONPtr(request.InitialConfig.Config)}
 	if request.InitialConfig.AgentId != nil {
 		config.AgentID = *request.InitialConfig.AgentId
@@ -187,7 +188,7 @@ func (s *Server) CreatePluginConfig(w http.ResponseWriter, r *http.Request, plug
 		writePluginError(w, err)
 		return
 	}
-	if definition.Backend == pluginpkg.BackendMCP && (request.Config != nil || request.Credentials != nil) {
+	if hasCompactMCPInput(request.Config, request.Credentials) {
 		created, err := s.createMCPPluginConfig(r.Context(), authority, access, definition, request)
 		if err != nil {
 			writePluginError(w, err)
@@ -223,7 +224,7 @@ func (s *Server) GetPluginConfig(w http.ResponseWriter, r *http.Request, pluginI
 }
 
 func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, pluginID, configId string) {
-	access, authority, ok := s.beginPluginAccess(w, r)
+	access, _, ok := s.beginPluginAccess(w, r)
 	if !ok {
 		return
 	}
@@ -244,30 +245,6 @@ func (s *Server) UpdatePluginConfig(w http.ResponseWriter, r *http.Request, plug
 	}
 	if request.ExpectedRevision < 1 {
 		writeError(w, http.StatusBadRequest, "expected_revision must be a positive integer")
-		return
-	}
-	current, err := access.GetConfig(r.Context(), pluginID, configId)
-	if err != nil {
-		writePluginError(w, err)
-		return
-	}
-	backendDefinition, err := access.GetDefinition(r.Context(), current.PluginID)
-	if err != nil {
-		writePluginError(w, err)
-		return
-	}
-	if backendDefinition.Backend == pluginpkg.BackendMCP && (request.Config != nil || request.Credentials != nil) {
-		updated, err := s.updateMCPPluginConfig(r.Context(), authority, access, current, request, raw)
-		if err != nil {
-			writePluginError(w, err)
-			return
-		}
-		view, err := pluginConfigView(backendDefinition, updated)
-		if err != nil {
-			writePluginError(w, err)
-			return
-		}
-		writeData(w, http.StatusOK, view)
 		return
 	}
 	if request.Credentials != nil {
@@ -327,50 +304,6 @@ func (s *Server) ResetPluginConfig(w http.ResponseWriter, r *http.Request, plugi
 		return
 	}
 	s.resetPluginConfig(w, r, pluginID, configId, request.ExpectedRevision)
-}
-
-func (s *Server) ProbePluginConfig(w http.ResponseWriter, r *http.Request, pluginID, configId string) {
-	access, authority, ok := s.beginPluginAccess(w, r)
-	if !ok {
-		return
-	}
-	config, err := access.GetConfig(r.Context(), pluginID, configId)
-	if err != nil {
-		writePluginError(w, err)
-		return
-	}
-	definition, err := access.GetDefinition(r.Context(), config.PluginID)
-	if err != nil {
-		writePluginError(w, err)
-		return
-	}
-	if definition.Backend != pluginpkg.BackendMCP {
-		writeError(w, http.StatusBadRequest, "plugin backend does not support probing")
-		return
-	}
-	if s.mcpAccess == nil || s.mcpSvc == nil {
-		writeCapabilityUnavailable(w, capMCP)
-		return
-	}
-	mcpAccess, err := s.mcpAccess.Begin(authority)
-	if err != nil {
-		writePluginError(w, err)
-		return
-	}
-	// The common access read above is the parent/config PEP. Reuse the
-	// resulting trusted tuple instead of accepting scope or owner input from
-	// the route, so MCP cannot probe a different credential owner.
-	registration, err := mcpAccess.Probe(r.Context(), config.ID, string(config.Scope), config.AgentID)
-	if err != nil {
-		writePluginError(w, err)
-		return
-	}
-	view, err := pluginMCPRegistrationView(registration)
-	if err != nil {
-		writePluginError(w, err)
-		return
-	}
-	writeData(w, http.StatusOK, view)
 }
 
 func (s *Server) GetPluginEffective(w http.ResponseWriter, r *http.Request, pluginID string, params apiserver.GetPluginEffectiveParams) {

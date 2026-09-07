@@ -239,11 +239,11 @@ const (
 	toolSourcePlugin  = "plugin"
 )
 
-// MCPToolIdentityProvider carries the durable plugin/local identity of one
-// MCP proxy. The runner validates this pair against its immutable snapshot;
-// an exported name is never parsed back into ownership.
+// MCPToolIdentityProvider carries the durable package/server/local identity of
+// one MCP proxy. The runner validates it against its immutable snapshot; an
+// exported name is never parsed back into ownership.
 type MCPToolIdentityProvider interface {
-	PluginToolIdentity() (pluginID, localToolName string, ok bool)
+	PluginToolIdentity() (pluginID, serverKey, localToolName string, ok bool)
 }
 
 // toolCandidate is a non-core tool awaiting the override filter, carrying where
@@ -600,9 +600,10 @@ func closeTool(tool tools.Tool) {
 
 func (r *runner) PluginContext() PluginContext { return r.pluginContext }
 
-// runnerMCPToolIdentity verifies that a proxy's durable plugin/local pair is
-// still attached to the exact package in this runner's immutable snapshot. A
-// model-facing exported name is only a projection of that verified identity.
+// runnerMCPToolIdentity verifies that a proxy's durable package/server/local
+// identity is still attached to the exact package child in this runner's
+// immutable snapshot. A model-facing exported name is only a projection of
+// that verified identity.
 func runnerMCPToolIdentity(snapshot plugin.Snapshot, tool tools.Tool) (ToolIdentity, error) {
 	if tool == nil {
 		return ToolIdentity{}, fmt.Errorf("runner: MCP tool is nil")
@@ -611,7 +612,7 @@ func runnerMCPToolIdentity(snapshot plugin.Snapshot, tool tools.Tool) (ToolIdent
 	if !ok {
 		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q does not expose a durable plugin identity", tool.Definition().Name)
 	}
-	pluginID, localToolName, ok := provider.PluginToolIdentity()
+	pluginID, serverKey, localToolName, ok := provider.PluginToolIdentity()
 	if !ok {
 		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q has no durable plugin identity", tool.Definition().Name)
 	}
@@ -619,20 +620,30 @@ func runnerMCPToolIdentity(snapshot plugin.Snapshot, tool tools.Tool) (ToolIdent
 	if !ok {
 		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q references unknown plugin %q", tool.Definition().Name, pluginID)
 	}
-	if resolved.Definition.Backend != plugin.BackendMCP {
-		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q references non-MCP plugin %q", tool.Definition().Name, pluginID)
-	}
 	if resolved.Effective.PluginID != pluginID || !resolved.Effective.IsEffectivelyEnabled {
 		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q is not enabled for package %q", tool.Definition().Name, pluginID)
 	}
-	exported, err := agentpackage.ExportedToolName(pluginID, "main", localToolName)
+	if resolved.Config == nil || serverKey == "" {
+		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q has no selected server child", tool.Definition().Name)
+	}
+	childFound := false
+	for _, child := range resolved.Config.MCPServers {
+		if child.ID != "" && child.ParentConfigID == resolved.Config.ID && child.ServerKey == serverKey {
+			childFound = true
+			break
+		}
+	}
+	if !childFound {
+		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q references unknown server child %q", tool.Definition().Name, serverKey)
+	}
+	exported, err := agentpackage.ExportedToolName(pluginID, serverKey, localToolName)
 	if err != nil {
 		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q has invalid identity: %w", tool.Definition().Name, err)
 	}
 	if exported != tool.Definition().Name {
 		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q identity exports %q", tool.Definition().Name, exported)
 	}
-	identity := ToolIdentity{PluginID: pluginID, LocalToolName: localToolName}
+	identity := ToolIdentity{PluginID: pluginID, ServerKey: serverKey, LocalToolName: localToolName}
 	if err := identity.Validate(); err != nil {
 		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q has invalid identity: %w", tool.Definition().Name, err)
 	}

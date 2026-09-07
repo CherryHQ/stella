@@ -7,6 +7,8 @@ import {
   createMcpPlugin,
   exportedMcpName,
   type McpFixture,
+  mcpServer,
+  mcpServers,
   pluginConfigPath,
   pluginDefinitionPath,
   startMcpFixture,
@@ -14,15 +16,18 @@ import {
 import { type OAuthFixture, startOAuthFixture } from "./lib/oauth-fixture.ts";
 import { ensureProvider } from "./lib/provider.ts";
 import { loadRegistryFixtureState } from "./lib/registry-fixture.ts";
-import { type CreatePluginResponse, type PluginConfig, type PluginDefinition } from "./lib/types.ts";
+import { type CreatePluginResponse, type McpServer, type PluginConfig, type PluginDefinition } from "./lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
 
 const registry = loadRegistryFixtureState();
 let oauthAS: OAuthFixture;
 let oauthMcp: McpFixture;
+let webMainMcp: McpFixture;
+let webSearchMcp: McpFixture;
 let agentId = "";
 let agentServerId = "";
+let agentConfigId = "";
 let agentPluginId = "";
 const created: string[] = [];
 const agentBrowserAdd = exportedMcpName("agent-browser", "add");
@@ -129,6 +134,8 @@ test.beforeAll(async () => {
       && !oauthAS.revokedAccessTokens.has(token),
   });
   oauthAS.resource = oauthMcp.url;
+  webMainMcp = await startMcpFixture();
+  webSearchMcp = await startMcpFixture();
 });
 
 test.afterAll(async ({ admin, db }) => {
@@ -142,6 +149,8 @@ test.afterAll(async ({ admin, db }) => {
   }
   await oauthMcp.close();
   await oauthAS.close();
+  await webMainMcp.close();
+  await webSearchMcp.close();
 });
 
 test("marketplace search, detail, global scope, install provenance, and next page", async ({ page, admin, db, loginAsAdmin }) => {
@@ -192,12 +201,13 @@ test("marketplace search, detail, global scope, install provenance, and next pag
   created.push(definition!.id);
   const installed = (await pluginConfigs(admin, definition!.id, "user"))[0];
   expect(installed).toBeDefined();
+  const installedChild = await mcpServer(admin, installed.id);
   await expect
     .poll(
       async () =>
         String(
           (
-            await db`select status from mcp_connection_state where config_id = ${installed.id}`
+            await db`select status from mcp_connection_state where child_id = ${installedChild.id}`
           )[0]?.status,
         ),
       {
@@ -205,13 +215,17 @@ test("marketplace search, detail, global scope, install provenance, and next pag
       },
     )
     .toBe("ok");
-  const probed = await pluginConfig(admin, definition!.id, installed.id);
-  expect(probed.backend_summary.endpoint_configured).toBe(true);
+  const probed = expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${installedChild.id}/probe`),
+    200,
+    "probe registry MCP server",
+  );
+  expect(probed.endpoint_configured).toBe(true);
   const row = (
-    await db`select c.config, s.status, s.tools from plugin_config c join mcp_connection_state s on s.config_id = c.id where c.id = ${installed.id}`
+    await db`select c.config, s.status, s.tools from plugin_config c join plugin_config_mcp_server child on child.config_id = c.id join mcp_connection_state s on s.child_id = child.id where child.id = ${installedChild.id}`
   )[0];
   expect(row.status).toBe("ok");
-  expect(row.config.metadata).toMatchObject({
+  expect(row.config.mcp_servers.main.metadata).toMatchObject({
     registry: {
       source: "official",
       id: "com.stella/registry-add",
@@ -248,7 +262,7 @@ test("bearer secret uses the registry template and only creates vault-backed mat
   await sheet.getByRole("button", { name: "Install" }).last().click();
 
   const dbRow = (
-    await db`select id, scope, agent_id, credential_refs #>> '{bearer,name}' as credential_ref, row_to_json(plugin_config)::text as raw from plugin_config where plugin_id = 'com-stella-bearer' order by created_at desc limit 1`
+    await db`select id, scope, agent_id, credential_refs #>> '{mcp_servers,main,bearer,name}' as credential_ref, row_to_json(plugin_config)::text as raw from plugin_config where plugin_id = 'com-stella-bearer' order by created_at desc limit 1`
   )[0];
   expect(dbRow).toBeDefined();
   const definitions = expectStatus(
@@ -332,7 +346,7 @@ test("unsupported registry entry hands off to the prefilled manual form", async 
   created.push(manual!.id);
   expect(
     (
-      await db`select config->>'url' as url from plugin_config where plugin_id = ${manual!.id}`
+      await db`select config #>> '{mcp_servers,main,url}' as url from plugin_config where plugin_id = ${manual!.id}`
     )[0],
   ).toMatchObject({
     url: "http://127.0.0.1:1/unsupported",
@@ -345,7 +359,6 @@ test("OAuth connect and disconnect run through the browser", async ({ page, admi
     await admin.post<CreatePluginResponse>("/api/plugins", {
       name: "browser-oauth",
       display_name: "browser-oauth",
-      backend: "mcp",
       definition_spec: {},
       initial_config: {
         scope: "user",
@@ -361,10 +374,9 @@ test("OAuth connect and disconnect run through the browser", async ({ page, admi
     "create OAuth server",
   );
   created.push(createdOAuth.plugin.id);
+  const createdOAuthChild = await mcpServer(admin, createdOAuth.config.id);
   expectStatus(
-    await admin.post(
-      `${pluginConfigPath(createdOAuth.plugin.id, createdOAuth.config.id)}/probe`,
-    ),
+    await admin.post<McpServer>(`/api/mcp/servers/${createdOAuthChild.id}/probe`),
     200,
     "probe OAuth server",
   );
@@ -374,12 +386,12 @@ test("OAuth connect and disconnect run through the browser", async ({ page, admi
     createdOAuth.plugin.id,
     createdOAuth.config.id,
   );
-  expect(row.backend_summary.auth_type).toBe("oauth");
+  expect(row.resource_summary.mcp_servers[0]?.auth_type).toBe("oauth");
   await expect
     .poll(async () =>
       String(
         (
-          await db`select status from mcp_connection_state where config_id = ${createdOAuth.config.id}`
+          await db`select status from mcp_connection_state where child_id = ${createdOAuthChild.id}`
         )[0]?.status,
       )
     )
@@ -405,12 +417,12 @@ test("OAuth connect and disconnect run through the browser", async ({ page, admi
     .poll(
       async () =>
         (
-          await db`select s.status, c.credential_refs #>> '{oauth_bundle,name}' as bundle from mcp_connection_state s join plugin_config c on c.id = s.config_id where s.config_id = ${createdOAuth.config.id}`
+          await db`select s.status, c.credential_refs #>> '{mcp_servers,main,oauth_bundle,name}' as bundle from mcp_connection_state s join plugin_config_mcp_server child on child.id = s.child_id join plugin_config c on c.id = child.config_id where s.child_id = ${createdOAuthChild.id}`
         )[0],
     )
     .toMatchObject({ status: "ok" });
   const connected = (
-    await db`select credential_refs #>> '{oauth_bundle,name}' as bundle from plugin_config where id = ${createdOAuth.config.id}`
+    await db`select credential_refs #>> '{mcp_servers,main,oauth_bundle,name}' as bundle from plugin_config where id = ${createdOAuth.config.id}`
   )[0]?.bundle;
   expect(connected).toBeTruthy();
   await page.getByRole("button", { name: /Disconnect account|断开/ }).click();
@@ -420,7 +432,7 @@ test("OAuth connect and disconnect run through the browser", async ({ page, admi
   expect(
     String(
       (
-        await db`select status from mcp_connection_state where config_id = ${createdOAuth.config.id}`
+        await db`select status from mcp_connection_state where child_id = ${createdOAuthChild.id}`
       )[0]?.status,
     ),
   ).toBe("needs_auth");
@@ -433,7 +445,6 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
     await admin.post<CreatePluginResponse>("/api/plugins", {
       name: "drawer-dead",
       display_name: "drawer-dead",
-      backend: "mcp",
       definition_spec: {},
       initial_config: {
         scope: "user",
@@ -449,6 +460,8 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
     "create dead",
   );
   created.push(dead.plugin.id);
+  const main = await mcpServer(admin, dead.config.id);
+  const mainURL = `/api/mcp/servers/${main.id}`;
   await page.goto("/settings/mcp");
   const card = page
     .locator('[data-slot="card"]')
@@ -461,27 +474,33 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
     .locator('input:not([aria-hidden="true"]):visible')
     .first()
     .fill("http://127.0.0.1:8/edited");
-  const configURL = pluginConfigPath(dead.plugin.id, dead.config.id);
   const patch = page.waitForRequest(
-    (request) => request.method() === "PATCH" && request.url().includes(configURL),
+    (request) => request.method() === "PATCH" && request.url().includes(mainURL),
   );
   const saveResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "PATCH"
-      && response.url().includes(configURL),
+      && response.url().includes(mainURL),
   );
+  const parentBeforeEdit = await pluginConfig(admin, dead.plugin.id, dead.config.id);
   await form.getByRole("button", { name: "Save" }).click();
-  expect((await patch).postDataJSON()).toMatchObject({
-    expected_revision: dead.config.revision,
-  });
+  expect((await patch).postDataJSON()).toMatchObject({ expected_parent_revision: parentBeforeEdit.revision });
   expect((await saveResponse).status()).toBe(200);
   await expect(form.getByRole("button", { name: "Save" })).toBeHidden();
   await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();
+  const afterFirstEdit = await pluginConfig(admin, dead.plugin.id, dead.config.id);
+  expect(afterFirstEdit.revision).toBe(parentBeforeEdit.revision + 1);
+  const updatedChild = expectStatus(
+    await admin.get<McpServer>(mainURL),
+    200,
+    "get edited MCP child",
+  );
+  expect(updatedChild.parent_revision).toBe(afterFirstEdit.revision);
   await expect
     .poll(
       async () =>
         (
-          await db`select config->>'url' as url from plugin_config where id = ${dead.config.id}`
+          await db`select config #>> '{mcp_servers,main,url}' as url from plugin_config where id = ${dead.config.id}`
         )[0]?.url,
     )
     .toBe("http://127.0.0.1:8/edited");
@@ -494,39 +513,37 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
     .fill("http://127.0.0.1:6/must-not-win");
   const current = await pluginConfig(admin, dead.plugin.id, dead.config.id);
   const outOfBand = expectStatus(
-    await admin.patch<PluginConfig>(configURL, {
-      expected_revision: current.revision,
-      config: {
-        url: "http://127.0.0.1:7/out-of-band",
-        transport: "streamable_http",
-        auth_type: "none",
-        credential_mode: "shared",
-      },
+    await admin.patch<McpServer>(mainURL, {
+      expected_parent_revision: current.revision,
+      url: "http://127.0.0.1:7/out-of-band",
+      transport: "streamable_http",
+      auth_type: "none",
+      credential_mode: "shared",
     }),
     200,
     "out of band update",
   );
-  expect(outOfBand.revision).toBeGreaterThan(current.revision);
+  expect(outOfBand.parent_revision).toBeGreaterThan(current.revision);
   const staleRequest = page.waitForRequest(
     (request) =>
       request.method() === "PATCH"
-      && request.url().includes(configURL),
+      && request.url().includes(mainURL),
   );
   const staleResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "PATCH"
-      && response.url().includes(configURL),
+      && response.url().includes(mainURL),
   );
   await staleForm.getByRole("button", { name: "Save" }).click();
-  const staleBody = (await staleRequest).postDataJSON() as { expected_revision: number; };
-  expect(staleBody.expected_revision).toBe(current.revision);
-  expect(staleBody.expected_revision).toBeLessThan(outOfBand.revision);
+  const staleBody = (await staleRequest).postDataJSON() as { expected_parent_revision: number; };
+  expect(staleBody.expected_parent_revision).toBe(current.revision);
+  expect(staleBody.expected_parent_revision).toBeLessThan(outOfBand.parent_revision);
   expect((await staleResponse).status()).toBe(409);
   await expect
     .poll(
       async () =>
         (
-          await db`select config->>'url' as url from plugin_config where id = ${dead.config.id}`
+          await db`select config #>> '{mcp_servers,main,url}' as url from plugin_config where id = ${dead.config.id}`
         )[0]?.url,
     )
     .toBe("http://127.0.0.1:7/out-of-band");
@@ -535,7 +552,8 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
     .click({ force: true });
   await page.reload();
   await expect(page.getByText("out-of-band", { exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Delete", exact: true }).first().click();
+  const configCard = page.locator('[data-slot="card"]').filter({ hasText: /main/ }).last();
+  await configCard.getByRole("button", { name: "Delete", exact: true }).last().click();
   const configDeleteDialog = page
     .getByRole("dialog")
     .filter({ hasText: /Delete configuration\?|删除配置/ });
@@ -565,6 +583,87 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
   await expect(page.getByText("out-of-band", { exact: true })).toHaveCount(0);
 });
 
+test("multi-child MCP detail edits and deletes only the selected server", async ({ page, admin, db, loginAsAdmin }, testInfo) => {
+  const createdPlugin = createMcpPlugin(admin, webMainMcp, {
+    name: "web-multi-child",
+    displayName: "web-multi-child",
+  });
+  const { plugin, config } = await createdPlugin;
+  created.push(plugin.id);
+  await mcpServer(admin, config.id, "main");
+  const search = expectStatus(
+    await admin.post<McpServer>("/api/mcp/servers", {
+      parent_config_id: config.id,
+      server_key: "search",
+      expected_parent_revision: config.revision,
+      url: webSearchMcp.url,
+      transport: "streamable_http",
+      auth_type: "none",
+      credential_mode: "shared",
+    }),
+    201,
+    "create second MCP child",
+  );
+  expect(search.server_key).toBe("search");
+  const afterCreate = await pluginConfig(admin, plugin.id, config.id);
+  expect(afterCreate.revision).toBe(config.revision + 1);
+  const createdChildren = await mcpServers(admin, config.id);
+  expect(createdChildren.map((child) => child.server_key).sort()).toEqual(["main", "search"]);
+
+  await loginAsAdmin();
+  await page.goto("/settings/plugins");
+  await page.locator('[data-slot="card"]').filter({ hasText: plugin.display_name }).click();
+  await expect(page).toHaveURL(new RegExp(`/settings/plugins/${plugin.id}$`));
+
+  const childRow = (serverKey: string) => page.locator("div.rounded-md.border").filter({ has: page.getByText(serverKey, { exact: true }) });
+  const mainRow = childRow("main");
+  const searchRow = childRow("search");
+  await expect(mainRow).toHaveCount(1);
+  await expect(searchRow).toHaveCount(1);
+  await expect(mainRow).toContainText("main");
+  await expect(searchRow).toContainText("search");
+
+  const revisionBeforeEdit = afterCreate.revision;
+  await mainRow.getByRole("button", { name: "Edit", exact: true }).click();
+  const editor = page.getByRole("dialog").last();
+  await expect(editor).toBeVisible();
+  const editedURL = `${webMainMcp.url}/edited`;
+  await editor.locator("input:visible").first().fill(editedURL);
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.getByRole("button", { name: "Save", exact: true })).toBeHidden();
+  await expect
+    .poll(async () => (await pluginConfig(admin, plugin.id, config.id)).revision)
+    .toBe(revisionBeforeEdit + 1);
+  const [stored] = await db`select config->'mcp_servers' as servers from plugin_config where id = ${config.id}`;
+  expect(stored.servers.main.url).toBe(editedURL);
+  expect(stored.servers.search.url).toBe(webSearchMcp.url);
+  expect((await db`select revision::int as revision from plugin_config where id = ${config.id}`)[0].revision).toBe(revisionBeforeEdit + 1);
+
+  await page.evaluate(() => localStorage.setItem("stella-theme", JSON.stringify({ appearance: "light" })));
+  await page.reload();
+  await expect(childRow("main")).toHaveCount(1);
+  await expect(childRow("search")).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath("mcp-multi-child-light.png"), fullPage: true });
+  await page.evaluate(() => localStorage.setItem("stella-theme", JSON.stringify({ appearance: "dark" })));
+  await page.reload();
+  await expect(childRow("main")).toHaveCount(1);
+  await expect(childRow("search")).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath("mcp-multi-child-dark.png"), fullPage: true });
+
+  await childRow("search").getByRole("button", { name: "Delete", exact: true }).click();
+  const deleteDialog = page.getByRole("dialog").filter({ hasText: "search" }).last();
+  await expect(deleteDialog).toBeVisible();
+  await deleteDialog.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect
+    .poll(async () => (await mcpServers(admin, config.id)).map((child) => child.server_key))
+    .toEqual(["main"]);
+  const afterDelete = await pluginConfig(admin, plugin.id, config.id);
+  expect(afterDelete.revision).toBe(revisionBeforeEdit + 2);
+  expect((await db`select revision::int as revision from plugin_config where id = ${config.id}`)[0].revision).toBe(revisionBeforeEdit + 2);
+  await expect(childRow("main")).toHaveCount(1);
+  await expect(childRow("search")).toHaveCount(0);
+});
+
 test("agent-scoped install and MCP tool permission toggle persist", async ({ page, admin, db, loginAsAdmin }) => {
   const { modelRef } = await ensureProvider(admin);
   agentId = await ensureAgent(admin, modelRef, "e2e-mcp-web-agent");
@@ -576,15 +675,16 @@ test("agent-scoped install and MCP tool permission toggle persist", async ({ pag
     agentId,
   });
   agentPluginId = scoped.plugin.id;
-  agentServerId = scoped.config.id;
+  agentConfigId = scoped.config.id;
+  agentServerId = (await mcpServer(admin, agentConfigId)).id;
   created.push(agentPluginId);
   expectStatus(
-    await admin.post(`${pluginConfigPath(agentPluginId, agentServerId)}/probe`),
+    await admin.post<McpServer>(`/api/mcp/servers/${agentServerId}/probe`),
     200,
     "probe agent browser server",
   );
   await page.goto(`/agents/${agentId}/profile?tab=tools`);
-  expect(await pluginConfig(admin, agentPluginId, agentServerId)).toMatchObject(
+  expect(await pluginConfig(admin, agentPluginId, agentConfigId)).toMatchObject(
     {
       plugin_id: agentPluginId,
       scope: "user_agent",
@@ -617,7 +717,6 @@ test("a real agent calls add on the browser-installed server @model", async ({ a
     const setup = await admin.post<CreatePluginResponse>("/api/plugins", {
       name: "agent-browser",
       display_name: "agent-browser",
-      backend: "mcp",
       definition_spec: {},
       initial_config: {
         scope: "user_agent",
@@ -632,7 +731,8 @@ test("a real agent calls add on the browser-installed server @model", async ({ a
     });
     if (setup.status === 201) {
       agentPluginId = setup.body.plugin.id;
-      agentServerId = setup.body.config.id;
+      agentConfigId = setup.body.config.id;
+      agentServerId = (await mcpServer(admin, agentConfigId)).id;
       created.push(agentPluginId);
     } else if (setup.status === 409) {
       const definitions = expectStatus(
@@ -657,18 +757,19 @@ test("a real agent calls add on the browser-installed server @model", async ({ a
       if (!config) {
         throw new Error("could not recover existing model browser config");
       }
-      agentServerId = config.id;
+      agentConfigId = config.id;
+      agentServerId = (await mcpServer(admin, agentConfigId)).id;
     } else {
       throw new Error(`create model browser server: ${setup.status}`);
     }
   }
   expect(agentServerId).toBeTruthy();
   expectStatus(
-    await admin.post(`${pluginConfigPath(agentPluginId, agentServerId)}/probe`),
+    await admin.post<McpServer>(`/api/mcp/servers/${agentServerId}/probe`),
     200,
     "probe model browser server",
   );
-  expect(await pluginConfig(admin, agentPluginId, agentServerId)).toMatchObject(
+  expect(await pluginConfig(admin, agentPluginId, agentConfigId)).toMatchObject(
     {
       plugin_id: agentPluginId,
       scope: "user_agent",

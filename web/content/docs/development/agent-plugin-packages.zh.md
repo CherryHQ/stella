@@ -2,8 +2,9 @@
 title: Agent Plugin 包参考
 ---
 
-本页记录 Stella Phase 1 的 Agent Plugin 包读取边界。它只读取数据，不
-安装二进制文件、启用 native capability、创建 OAuth 连接或启动进程。
+Agent Plugin 读取器加载可移植包声明。发行生成器与 Agent Plugin 服务将这些声明
+作为一个包含独立资源种类的包使用。单独读取包不会安装二进制文件、启用 Native
+能力、创建 OAuth 连接或启动进程。
 
 ## 可移植目录
 
@@ -24,11 +25,11 @@ Stella 本地支持 Agent Plugins 1.0.0。读取包时不会联网获取 schema�
 Stella 声明位于 `plugin.json.extensions["com.cherryhq.stella"]`，必须显式
 提供扩展 `version`。当前支持的声明组如下：
 
-| 字段          | 含义                                                             |
-| ------------- | ---------------------------------------------------------------- |
-| `binaries`    | 公共命令、安装工具、可选版本和安装选项。                         |
-| `session_env` | 运行时变量、公共 source 标识和是否必需。                         |
-| `oauth`       | 公共 provider 标识、请求 scope，以及凭据到环境变量或连接的绑定。 |
+| 字段          | 含义                                                                                                           |
+| ------------- | -------------------------------------------------------------------------------------------------------------- |
+| `binaries`    | 公共命令、安装工具、可选版本和安装选项。                                                                       |
+| `session_env` | 运行时变量、公共 source 标识和是否必需。                                                                       |
+| `oauth`       | 公共 provider 标识、请求 scope，以及凭据到环境变量的绑定。暂不支持 connection 绑定；MCP 认证在各子服务上配置。 |
 
 扩展 `version` 当前必须严格为 `"1"`。Skill 的标准 `compatibility` 字段可
 用人类可读文字说明环境或 native capability 需求；运行时 policy 仍决定

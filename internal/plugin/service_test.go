@@ -149,8 +149,7 @@ func TestPatchPayloadPreservesOmittedFieldsAndExplicitResets(t *testing.T) {
 
 func TestApplyCLIWriteOnlyPatchMaterializesOnlyKnownResources(t *testing.T) {
 	definition := Definition{
-		Backend: BackendCLI,
-		Spec:    []byte(`{"binaries":[{"name":"tool","tool":"github:owner/tool","version":"1.0","options":{"channel":"stable"}}],"skills":[{"name":"docs"}]}`),
+		Spec: []byte(`{"binaries":[{"name":"tool","tool":"github:owner/tool","version":"1.0","options":{"channel":"stable"}}],"skills":[{"name":"docs"}]}`),
 	}
 	patched, err := applyCLIWriteOnlyPatch(definition, []byte(`{"binaries":[{"name":"tool","version":"1.5"}]}`), ConfigPatch{
 		BinaryVersionsSet: true,
@@ -175,7 +174,7 @@ func TestApplyCLIWriteOnlyPatchMaterializesOnlyKnownResources(t *testing.T) {
 }
 
 func TestApplyCLIWriteOnlyPatchRejectsUnknownAndUnauthorizedResources(t *testing.T) {
-	definition := Definition{Backend: BackendCLI, Spec: []byte(`{"binaries":[{"name":"tool","tool":"uv","version":"1"}],"skills":[{"name":"docs"}]}`)}
+	definition := Definition{Spec: []byte(`{"binaries":[{"name":"tool","tool":"uv","version":"1"}],"skills":[{"name":"docs"}]}`)}
 	_, err := applyCLIWriteOnlyPatch(definition, nil, ConfigPatch{
 		BinaryVersionsSet: true,
 		BinaryVersions:    map[string]string{"missing": "2"},
@@ -211,7 +210,7 @@ func TestRejectImmutableSkillPatch(t *testing.T) {
 func TestValidateCustomSpecRejectsClaimedSkills(t *testing.T) {
 	base := Definition{
 		ID: "demo", DisplayName: "Demo",
-		Backend: BackendCLI, Source: SourceCustom, ImplementationKey: "cli", Revision: 1,
+		Source: SourceCustom, Revision: 1,
 	}
 	for _, test := range []struct {
 		name string
@@ -230,5 +229,26 @@ func TestValidateCustomSpecRejectsClaimedSkills(t *testing.T) {
 				t.Fatalf("validateCustomSpec() error = %v, want error %v", err, test.want)
 			}
 		})
+	}
+}
+
+func TestValidateCustomResourceContentNonAdminRejectsHostResources(t *testing.T) {
+	base := Definition{ID: "remote", DisplayName: "Remote", Source: SourceCustom, Revision: 1, Spec: json.RawMessage(`{}`)}
+	for _, raw := range []string{`{"binaries":[]}`, `{"session_env":[]}`, `{"skills":[]}`, `{"oauth_bindings":[]}`} {
+		if err := validateCustomResourceContent(base, Config{Payload: json.RawMessage(raw)}, false); !errors.Is(err, ErrForbidden) {
+			t.Errorf("payload %s error = %v, want forbidden", raw, err)
+		}
+	}
+	base.Spec = json.RawMessage(`{"binaries":[]}`)
+	if err := validateCustomResourceContent(base, Config{Payload: json.RawMessage(`{"url":"https://example.test","transport":"sse"}`)}, false); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("definition host resource error = %v, want forbidden", err)
+	}
+}
+
+func TestValidateCustomResourceContentAllowsRemoteMCP(t *testing.T) {
+	def := Definition{ID: "remote", DisplayName: "Remote", Source: SourceCustom, Revision: 1, Spec: json.RawMessage(`{"description":"remote"}`)}
+	config := Config{Payload: json.RawMessage(`{"url":"https://example.test","transport":"streamable_http","auth_type":"none","credential_mode":"shared"}`)}
+	if err := validateCustomResourceContent(def, config, false); err != nil {
+		t.Fatalf("valid remote MCP rejected: %v", err)
 	}
 }

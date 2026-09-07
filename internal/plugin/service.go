@@ -200,6 +200,9 @@ func (b *Access) GetConfig(ctx context.Context, pluginID, id string) (Config, er
 		return Config{}, mapNotFound(err)
 	}
 	config := fromSQLConfig(row)
+	if err := b.service.loadMCPServerChildren(ctx, &config); err != nil {
+		return Config{}, err
+	}
 	if config.PluginID != pluginID {
 		return Config{}, ErrNotFound
 	}
@@ -448,6 +451,43 @@ func (b *Access) DeleteConfig(ctx context.Context, pluginID, id string, expected
 	return b.service.transitionConfig(ctx, b.authority, MutationDelete, def, &current, nil)
 }
 
+// DeleteMCPServerChild removes one child identity while the enclosing config
+// mutation is locked. The caller must first CAS the parent payload, so this
+// method cannot delete a child from an unrelated or stale parent.
+func (b *Access) DeleteMCPServerChild(ctx context.Context, parentID, childID string) error {
+	if err := b.ensureActive(); err != nil {
+		return err
+	}
+	if !b.service.txBound || parentID == "" || childID == "" {
+		return ErrConflict
+	}
+	if err := b.service.q.DeletePluginConfigMCPServer(ctx, sqlc.DeletePluginConfigMCPServerParams{ConfigID: parentID, ID: childID}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// CreateMCPServerChild allocates and binds a child UUID in the locked parent
+// mutation. Callers receive the server-owned identity and cannot choose a
+// credential namespace that belongs to another child.
+func (b *Access) CreateMCPServerChild(ctx context.Context, parentID, serverKey string) (MCPServerChild, error) {
+	if err := b.ensureActive(); err != nil {
+		return MCPServerChild{}, err
+	}
+	if !b.service.txBound || parentID == "" || serverKey == "" {
+		return MCPServerChild{}, ErrConflict
+	}
+	childID, err := uuid.NewV7()
+	if err != nil {
+		return MCPServerChild{}, err
+	}
+	row, err := b.service.q.CreatePluginConfigMCPServer(ctx, sqlc.CreatePluginConfigMCPServerParams{ID: childID.String(), ConfigID: parentID, ServerKey: serverKey})
+	if err != nil {
+		return MCPServerChild{}, mapConflict(err)
+	}
+	return MCPServerChild{ID: row.ID, ParentConfigID: row.ConfigID, ServerKey: row.ServerKey, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC()}, nil
+}
+
 func (b *Access) ResetBuiltinConfig(ctx context.Context, pluginID, id string, expectedRevision int64) (Config, error) {
 	if err := b.ensureActive(); err != nil {
 		return Config{}, err
@@ -513,14 +553,18 @@ func (s *Service) syncBuiltinDefaultsTx(ctx context.Context) error {
 		}
 		_, err := q.UpsertPluginDefinition(ctx, sqlc.UpsertPluginDefinitionParams{
 			ID: def.ID, DisplayName: def.DisplayName,
-			Backend: string(def.Backend), Source: string(def.Source), ImplementationKey: def.ImplementationKey,
-			Spec: def.Spec, DefaultEnabled: def.DefaultEnabled, Revision: def.Revision,
+			Source: string(def.Source), Spec: def.Spec, DefaultEnabled: def.DefaultEnabled, Revision: def.Revision,
 		})
 		if err != nil {
 			return fmt.Errorf("sync definition %s: %w", def.ID, err)
 		}
-		if _, err := q.EnsureSystemPluginConfig(ctx, def.ID); err != nil {
+		row, err := q.EnsureSystemPluginConfig(ctx, sqlc.EnsureSystemPluginConfigParams{PluginID: def.ID, Config: json.RawMessage(`{}`)})
+		if err != nil {
 			return fmt.Errorf("sync config %s: %w", def.ID, err)
+		}
+		config := Config{ID: row.ID, PluginID: row.PluginID, Payload: row.Config}
+		if err := (&Service{q: q}).ensureMCPServerChildren(ctx, &config); err != nil {
+			return err
 		}
 	}
 	return classifyCommitError(tx.Commit(ctx))
@@ -540,18 +584,13 @@ func (b *Access) CreateCustom(ctx context.Context, def Definition, config Config
 		})
 		return createdDef, createdConfig, err
 	}
-	if def.Backend == BackendCLI && !b.authority.IsAdmin() {
-		return Definition{}, Config{}, ErrForbidden
-	}
-	if def.Backend != BackendCLI && def.Backend != BackendMCP {
-		return Definition{}, Config{}, ErrInvalidDefinition
-	}
+
 	id, err := uuid.NewV7()
 	if err != nil {
 		return Definition{}, Config{}, err
 	}
 	def.Source, def.Revision = SourceCustom, 1
-	def.ImplementationKey, def.CreatorUserID, def.DefaultEnabled = string(def.Backend), string(b.authority.UserID()), false
+	def.CreatorUserID, def.DefaultEnabled = string(b.authority.UserID()), false
 	if b.authority.IsAdmin() {
 		def.CreatorUserID = ""
 	}
@@ -567,6 +606,9 @@ func (b *Access) CreateCustom(ctx context.Context, def Definition, config Config
 	config.UserID, config.AgentID, config.Revision = userID, agentID, 1
 	config.CredentialRefs = nonEmptyJSON(config.CredentialRefs)
 	if err := config.Validate(); err != nil {
+		return Definition{}, Config{}, err
+	}
+	if err := validateCustomResourceContent(def, config, b.authority.IsAdmin()); err != nil {
 		return Definition{}, Config{}, err
 	}
 	if err := rejectImmutableSkillPayload(config.Payload); err != nil {
@@ -596,9 +638,34 @@ func (b *Access) CreateCustom(ctx context.Context, def Definition, config Config
 	return createdDef, createdConfig, nil
 }
 
-// An MCP definition has no shared endpoint/auth base. CLI resource fields are
-// the same explicit schema projected by its release loader; backend validation
-// additionally checks their typed contents before any config is persisted.
+// validateCustomResourceContent preserves the remote-only non-admin boundary
+// from the actual resources rather than a caller-selected backend label.
+func validateCustomResourceContent(def Definition, config Config, isAdmin bool) error {
+	if isAdmin {
+		return nil
+	}
+	for label, raw := range map[string]json.RawMessage{"definition": def.Spec, "config": config.Payload} {
+		var fields map[string]json.RawMessage
+		if len(raw) == 0 {
+			continue
+		}
+		if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+			return fmt.Errorf("%w: %s resource must be an object", ErrInvalidConfig, label)
+		}
+		for key := range fields {
+			switch key {
+			case "description", "mcp_servers", "url", "transport", "auth_type", "credential_mode", "metadata":
+				continue
+			default:
+				return fmt.Errorf("%w: non-admin custom resources cannot declare %s", ErrForbidden, key)
+			}
+		}
+	}
+	return nil
+}
+
+// Custom packages cannot claim shipped Skill bytes. Resource consumers validate
+// the typed declarations after this small authored-field boundary.
 func validateCustomSpec(def Definition) error {
 	if err := def.Validate(); err != nil {
 		return err
@@ -615,17 +682,15 @@ func validateCustomSpec(def Definition) error {
 			}
 			continue
 		}
-		if def.Backend == BackendCLI {
-			switch field {
-			case "category", "prompt", "binaries", "session_env", "oauth_provider":
-				continue
-			case "skills":
-				var skills []json.RawMessage
-				if err := json.Unmarshal(value, &skills); err != nil || len(skills) != 0 {
-					return fmt.Errorf("%w: custom CLI definitions cannot claim bundled skills", ErrInvalidDefinition)
-				}
-				continue
+		switch field {
+		case "category", "prompt", "binaries", "session_env", "oauth_provider", "oauth", "mcp_servers":
+			continue
+		case "skills":
+			var skills []json.RawMessage
+			if err := json.Unmarshal(value, &skills); err != nil || len(skills) != 0 {
+				return fmt.Errorf("%w: custom definitions cannot claim bundled skills", ErrInvalidDefinition)
 			}
+			continue
 		}
 		return fmt.Errorf("%w: unsupported definition field %s", ErrInvalidDefinition, field)
 	}

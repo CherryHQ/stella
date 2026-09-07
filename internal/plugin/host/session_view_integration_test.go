@@ -81,8 +81,7 @@ func TestSessionPluginViewRejectsIncompletePayloadAfterCapabilityLift(t *testing
 	db := dbtest.New(t)
 	definition := plugin.Definition{
 		ID: "lift", DisplayName: "Lift",
-		Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin,
-		ImplementationKey: "lift", DefaultEnabled: false, Revision: 1,
+		Source: plugin.SourceBuiltin, DefaultEnabled: false, Revision: 1,
 		Spec: json.RawMessage(`{"binaries":[{"name":"lift","tool":"github:owner/lift","version":"1.0.0"}]}`),
 	}
 	catalog := plugin.NewCatalog()
@@ -356,7 +355,7 @@ func insertUser(t *testing.T, db *pgxpool.Pool, id string) {
 
 func insertDefinition(t *testing.T, db *pgxpool.Pool, definition plugin.Definition) {
 	t.Helper()
-	if _, err := db.Exec(context.Background(), `INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec, default_enabled, revision) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, definition.ID, definition.DisplayName, definition.Backend, definition.Source, definition.ImplementationKey, definition.Spec, definition.DefaultEnabled, definition.Revision); err != nil {
+	if _, err := db.Exec(context.Background(), `INSERT INTO plugin_definition (id, display_name, source, spec, default_enabled, revision) VALUES ($1, $2, $3, $4, $5, $6)`, definition.ID, definition.DisplayName, definition.Source, definition.Spec, definition.DefaultEnabled, definition.Revision); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -371,7 +370,7 @@ func insertConfig(t *testing.T, db *pgxpool.Pool, id string, definition plugin.D
 func TestPromptUsesFrozenCLIConfig(t *testing.T) {
 	db := dbtest.New(t)
 	ctx := t.Context()
-	def := plugin.Definition{ID: "prompted", DisplayName: "Prompted", Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin, ImplementationKey: "prompted", DefaultEnabled: true, Revision: 1, Spec: []byte(`{"prompt":"shipped guidance"}`)}
+	def := plugin.Definition{ID: "prompted", DisplayName: "Prompted", Source: plugin.SourceBuiltin, DefaultEnabled: true, Revision: 1, Spec: []byte(`{"prompt":"shipped guidance"}`)}
 	catalog := plugin.NewCatalog()
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)

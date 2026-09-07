@@ -23,33 +23,37 @@ type Translate = ReturnType<typeof useI18n>["t"];
 
 type SaveConfig = (payload: PluginConfigPayload, credentials: PluginConfigCredentials) => void;
 
-function mcpSummary(config?: PluginConfig) {
-  return config?.backend_summary.backend === "mcp" ? config.backend_summary : undefined;
+function mcpSummary(config?: PluginConfig, serverKey?: string) {
+  if (!config || serverKey === undefined) return undefined;
+  return config.resource_summary.mcp_servers.find((server) => server.server_key === serverKey);
 }
 
 function cliSummary(config?: PluginConfig) {
-  return config?.backend_summary.backend === "cli" ? config.backend_summary : undefined;
+  return config?.resource_summary;
 }
 
 function ConfigEditor({
   plugin,
   config,
   initialMcpUrl,
+  mcpServerKey,
   onSave,
   onCancel,
   busy,
   t,
 }: {
-  plugin: Pick<PluginDefinition, "backend" | "display_name">;
+  plugin: Pick<PluginDefinition, "display_name">;
   config?: PluginConfig;
   initialMcpUrl?: string;
+  mcpServerKey?: string;
   onSave: SaveConfig;
   onCancel: () => void;
   busy: boolean;
   t: Translate;
 }) {
-  const mcp = mcpSummary(config);
+  const mcp = mcpSummary(config, mcpServerKey);
   const cli = cliSummary(config);
+  const isMcp = mcpServerKey !== undefined;
   const [url, setURL] = useState("");
   const [transport, setTransport] = useState<McpTransport>("streamable_http");
   const [authType, setAuthType] = useState<McpAuthType>("none");
@@ -71,7 +75,7 @@ function ConfigEditor({
   }, [cli, initialMcpUrl, mcp]);
 
   const save = () => {
-    if (plugin.backend === "mcp") {
+    if (isMcp) {
       const config: Record<string, unknown> = {
         transport,
         auth_type: authType,
@@ -87,7 +91,7 @@ function ConfigEditor({
       onSave({ config }, credentials);
       return;
     }
-    if (plugin.backend === "cli") {
+    if (!isMcp) {
       const payload: PluginConfigPayload = {};
       const binaryVersions = Object.fromEntries(
         Object.entries(versions).filter(([, version]) => version.trim()),
@@ -99,7 +103,7 @@ function ConfigEditor({
     onSave({}, {});
   };
 
-  if (plugin.backend === "mcp") {
+  if (isMcp) {
     return (
       <div className="space-y-4">
         <McpServerFields
@@ -136,7 +140,7 @@ function ConfigEditor({
     );
   }
 
-  if (plugin.backend === "cli" && cli) {
+  if (!isMcp && cli) {
     return (
       <div className="space-y-4">
         <div className="space-y-2">

@@ -2,7 +2,8 @@
 title: Plugin System
 ---
 
-Agent Plugins configure CLI and MCP resources through scoped definitions.
+Agent Plugins combine Skills, CLI dependencies, environment bindings and MCP
+servers through one scoped package definition.
 Compiled Stella Native Plugins use trusted Go registration and deployment-wide
 configuration, with an administrator's per-Agent deny policy.
 
@@ -35,14 +36,16 @@ tokens cannot reach it.
 ## Definition and configuration
 
 `PluginDefinition.ID` is the unique canonical package name. It describes the
-backend, shipped resources and default enabled state. Builtin definitions come
+shipped resources and default enabled state. Builtin definitions come
 from trusted release declarations; persisted builtin rows are projections.
-Agent definitions contain only CLI or MCP resources. Compiled Go implementations
-are registered and managed through the separate Native path.
+One Agent definition can contain several resource kinds together. Transport and
+installation choices belong to the respective resource consumers; the definition
+has no root backend discriminator. Compiled Go implementations are registered
+and managed through the separate Native path.
 
 Management routes use `/api/plugins/{plugin_id}` and its sub-resources. Pass the
-exact ID returned by the catalog as one URL-encoded path segment. Backend and
-source-directory categories do not participate in request addressing.
+exact ID returned by the catalog as one URL-encoded path segment.
+Source-directory categories do not participate in request addressing.
 Names use 1–64 lowercase letters, digits, periods and hyphens, start and end
 with a letter or digit, and cannot contain `..` or `--`. A name conflict fails;
 Stella does not add a suffix. The identity is fixed after creation; the display
@@ -66,8 +69,8 @@ default of the selected definition.
 This is the Agent Plugin configuration model: one `PluginDefinition` plus at most
 one `PluginConfig` for each of the four scope tuples. `user_id` and `agent_id`
 come from the trusted authority and are never accepted as caller-owned identity.
-The definition owns stable package identity and implementation; the selected
-config owns its backend payload and credentials for that scope.
+The definition owns stable package identity and resource declarations; the
+selected config owns its resource payload and credential references for that scope.
 
 The selected scope owns its configuration. It can override fields in the
 shipped definition, but fields and credentials are never merged across scopes.
@@ -87,10 +90,10 @@ uses the trusted registration ID and independent policy.
 
 MCP exported names adapt the package name, server key and remote tool name into
 an ASCII name of at most 64 characters, with a deterministic 12-hex-character
-hash suffix. The current single-server configuration uses server key `main`.
-The actual exposed set is checked for collisions. Authorization uses trusted
-package and local tool identity, never a parsed display name. Native tools keep
-their registered static names.
+hash suffix. The server key is the authored MCP entry key; imported single-server
+registrations use `main`. The actual exposed set is checked for collisions.
+Authorization uses the package, server key and raw remote tool name, never a
+parsed display name. Native tools keep their registered static names.
 
 Configuration writes run under the admission boundary and commit atomically.
 Idle runners are retired; an admitted turn can finish before its runner is
@@ -154,11 +157,22 @@ provisioning a bot account.
 
 ## MCP credentials and observations
 
-MCP is a plugin backend. Authored endpoint settings and credential references
-belong to its selected configuration. Tokens remain in the Vault. Shared and
-per-user credentials never fall back to each other.
+Each MCP server is a resource within an Agent Plugin. The selected parent config
+stores endpoint settings in `mcp_servers`, keyed by the authored server name;
+credential references use the same keys. Each child has a stable UUID under that
+parent, unique by `(config_id, server_key)`. The child relation stores identity,
+not a second endpoint or auth configuration. Tokens remain in the Vault. Shared
+and per-user credentials never fall back to each other.
 
-OAuth client registration belongs to the configuration owner. For system and
+The child UUID identifies credentials, OAuth flows and connection observations.
+The parent owns scope, actor authorization and the revision fence. A child write
+checks membership and consumes the parent revision once. Changing an endpoint
+or auth identity retires only the affected child state; moving or deleting a
+parent handles all children atomically. A failed child does not hide working
+sibling servers or package Skills.
+
+OAuth client registration belongs to each child and is managed by its parent
+configuration owner. For system and
 system agent configurations, an administrator initializes a missing client
 through the OAuth start action before users authorize their own accounts. User
 and user agent configuration owners can initialize their own client. Existing
@@ -166,8 +180,8 @@ system configurations without a client ID need this administrator step after
 upgrade; per-user tokens remain isolated. Disable and reset preserve grants.
 Deleting a configuration removes its grants atomically.
 
-Remote tool catalogs and connection status are backend observations keyed by
-configuration and credential owner, with a configuration revision fence. A
+Remote tool catalogs and connection status are observations keyed by
+child UUID and credential owner, with a parent configuration revision fence. A
 per-user catalog cannot become another user's tool list. Legacy per-user catalogs
 have no trusted owner provenance and are cold-probed after migration. Internal
 OAuth bundles are excluded from public Vault access and ambient environment

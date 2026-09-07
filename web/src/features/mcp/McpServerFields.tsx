@@ -7,11 +7,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { PluginMcpBackendSummary } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 
-export type McpTransport = PluginMcpBackendSummary["transport"];
-export type McpAuthType = PluginMcpBackendSummary["auth_type"];
+export type McpTransport = "streamable_http" | "sse";
+export type McpAuthType = "none" | "bearer" | "oauth";
 
 export function transportLabel(transport: McpTransport) {
   return transport === "streamable_http" ? "Streamable HTTP" : "SSE";

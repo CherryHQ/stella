@@ -64,8 +64,7 @@ func TestUnifiedPluginWithMutationTxRollbackRestoresConfigAndPolicies(t *testing
 		t.Fatal(err)
 	}
 	definition, config, err := access.CreateCustom(ctx, plugin.Definition{
-		ID: "tx-delete", DisplayName: "Transactional delete", Backend: plugin.BackendMCP,
-		Spec: json.RawMessage(`{}`),
+		ID: "tx-delete", DisplayName: "Transactional delete", Spec: json.RawMessage(`{}`),
 	}, plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(false)})
 	if err != nil {
 		t.Fatal(err)
@@ -199,8 +198,7 @@ func TestUnifiedPluginWithMutationTxExpiresAccessBeforeFenceUnlock(t *testing.T)
 
 func transactionDefinition() plugin.Definition {
 	return plugin.Definition{
-		ID: "tx-custom", DisplayName: "Transactional custom", Backend: plugin.BackendMCP,
-		Spec: json.RawMessage(`{}`),
+		ID: "tx-custom", DisplayName: "Transactional custom", Spec: json.RawMessage(`{}`),
 	}
 }
 

@@ -51,15 +51,18 @@ type oauthFlowConfig struct {
 	RedirectURI string   `json:"redirect_uri"`
 	// Common plugin identity is persisted with the one-shot flow so the
 	// callback never has to rediscover a legacy mcp_server row by UUID.
-	PluginID         string `json:"plugin_id,omitempty"`
-	ConfigRevision   int64  `json:"config_revision,omitempty"`
-	ConfigScope      string `json:"config_scope,omitempty"`
-	ConfigUserID     string `json:"config_user_id,omitempty"`
-	ConfigAgentID    string `json:"config_agent_id,omitempty"`
-	CredentialMode   string `json:"credential_mode,omitempty"`
-	Endpoint         string `json:"endpoint,omitempty"`
-	Transport        string `json:"transport,omitempty"`
-	RegistrationName string `json:"registration_name,omitempty"`
+	PluginID         string            `json:"plugin_id,omitempty"`
+	ParentConfigID   string            `json:"parent_config_id,omitempty"`
+	ServerKey        string            `json:"server_key,omitempty"`
+	ConfigRevision   int64             `json:"config_revision,omitempty"`
+	ConfigScope      string            `json:"config_scope,omitempty"`
+	ConfigUserID     string            `json:"config_user_id,omitempty"`
+	ConfigAgentID    string            `json:"config_agent_id,omitempty"`
+	CredentialMode   string            `json:"credential_mode,omitempty"`
+	Headers          map[string]string `json:"headers,omitempty"`
+	Endpoint         string            `json:"endpoint,omitempty"`
+	Transport        string            `json:"transport,omitempty"`
+	RegistrationName string            `json:"registration_name,omitempty"`
 }
 
 func (c oauthFlowConfig) marshal() (json.RawMessage, error) {

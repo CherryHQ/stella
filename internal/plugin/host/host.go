@@ -600,9 +600,6 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 		out = append(out, section)
 	}
 	for _, definition := range snapshot.Definitions() {
-		if definition.Backend != plugin.BackendCLI {
-			continue
-		}
 		resolved, ok := snapshot.Get(definition.ID)
 		if !ok || !resolved.Effective.IsEffectivelyEnabled {
 			continue

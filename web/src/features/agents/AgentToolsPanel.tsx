@@ -33,13 +33,11 @@ import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { updateAgentTool } from "@/lib/api-client";
 import {
-  deletePluginConfig,
-  disconnectPluginConfigOAuth,
-  getPluginConfig,
-  startPluginConfigOAuth,
-  updatePluginConfig,
+  deleteMcpServer,
+  disconnectMcpServerOAuth,
+  startMcpServerOAuth,
 } from "@/lib/api-client/sdk.gen";
-import type { AgentMcpServer, PluginConfig } from "@/lib/api-client/types.gen";
+import type { AgentMcpServer } from "@/lib/api-client/types.gen";
 import { apiErrorMessage } from "@/lib/api-error";
 import { agentToolsOptions } from "@/lib/queries/agents";
 import { agentMcpServersOptions } from "@/lib/queries/mcp";
@@ -138,21 +136,6 @@ function mcpAvailabilityReason(reason: string): McpAvailabilityReason | null {
     : null;
 }
 const FAMILY_UPDATE_CONCURRENCY = 4;
-
-function pluginPath(pluginID: string) {
-  if (!pluginID) throw new Error("invalid plugin id");
-  return { plugin_id: pluginID };
-}
-
-async function readOwnedConfig(server: AgentMcpServer): Promise<PluginConfig> {
-  if (!server.readable) throw new Error("configuration is not readable");
-  const { data } = await getPluginConfig({
-    path: { ...pluginPath(server.plugin_id), config_id: server.config_id },
-    throwOnError: true,
-  });
-  if (!data) throw new Error("configuration is unavailable");
-  return data;
-}
 
 // A plugin can contribute an arbitrary number of tools. Keep the convenience
 // fan-out bounded, and wait for every started write before the caller refetches.
@@ -298,10 +281,9 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
 
   const removeServer = useMutation({
     mutationFn: async (server: AgentMcpServer) => {
-      const config = await readOwnedConfig(server);
-      return deletePluginConfig({
-        path: { ...pluginPath(server.plugin_id), config_id: server.config_id },
-        query: { expected_revision: config.revision },
+      return deleteMcpServer({
+        path: { id: server.config_id },
+        query: { expected_parent_revision: server.parent_revision },
         throwOnError: true,
       });
     },
@@ -314,8 +296,8 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
 
   const connectServer = useMutation({
     mutationFn: (server: AgentMcpServer) =>
-      startPluginConfigOAuth({
-        path: { ...pluginPath(server.plugin_id), config_id: server.config_id },
+      startMcpServerOAuth({
+        path: { id: server.config_id },
         throwOnError: true,
       }),
     onSuccess: async ({ data }) => {
@@ -330,25 +312,12 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
 
   const disconnectServer = useMutation({
     mutationFn: (server: AgentMcpServer) =>
-      disconnectPluginConfigOAuth({
-        path: { ...pluginPath(server.plugin_id), config_id: server.config_id },
+      disconnectMcpServerOAuth({
+        path: { id: server.config_id },
         throwOnError: true,
       }),
     onSuccess: invalidateMcp,
     onError: (error) => showToast(apiErrorMessage(error, t("mcp.disconnectFailed")), "error"),
-  });
-
-  const toggleServer = useMutation({
-    mutationFn: async ({ server, enabled }: { server: AgentMcpServer; enabled: boolean }) => {
-      const config = await readOwnedConfig(server);
-      return updatePluginConfig({
-        path: { ...pluginPath(server.plugin_id), config_id: server.config_id },
-        body: { expected_revision: config.revision, is_enabled: enabled },
-        throwOnError: true,
-      });
-    },
-    onSuccess: invalidateMcp,
-    onError: () => showToast(t("agents.tools.updateFailed"), "error"),
   });
 
   const openServerSheet = (server: AgentMcpServer | null) => {
@@ -573,10 +542,6 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
                     mcpFamilyMutation.isPending &&
                     mcpFamilyMutation.variables?.family === `mcp:${server.plugin_id}`
                   }
-                  toggleBusy={
-                    toggleServer.isPending &&
-                    toggleServer.variables?.server.config_id === server.config_id
-                  }
                   onToggle={(tool, enabled, scope) => mutation.mutate({ tool, enabled, scope })}
                   onSetFamilyEnabled={(members_, enabled) =>
                     mcpFamilyMutation.mutate({
@@ -585,7 +550,6 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
                       enabled,
                     })
                   }
-                  onToggleServer={(enabled) => toggleServer.mutate({ server, enabled })}
                   onEdit={openServerSheet}
                   onDelete={setPendingDelete}
                   onConnect={(srv) => connectServer.mutate(srv)}
@@ -856,10 +820,8 @@ export function McpServerGroup({
   isAdmin,
   busyToolName,
   familyBusy,
-  toggleBusy,
   onToggle,
   onSetFamilyEnabled,
-  onToggleServer,
   onEdit,
   onDelete,
   onConnect,
@@ -872,10 +834,8 @@ export function McpServerGroup({
   isAdmin: boolean;
   busyToolName: string | null;
   familyBusy: boolean;
-  toggleBusy: boolean;
   onToggle: (tool: Tool, enabled: boolean, scope: ToolOverrideScope) => void;
   onSetFamilyEnabled: (tools: Tool[], enabled: boolean) => void;
-  onToggleServer: (enabled: boolean) => void;
   onEdit: (server: AgentMcpServer) => void;
   onDelete: (server: AgentMcpServer) => void;
   onConnect: (server: AgentMcpServer) => void;
@@ -940,18 +900,10 @@ export function McpServerGroup({
     >
       {canEdit && server.readable && (
         <div className="flex items-center justify-end gap-2 pr-1">
-          <span className="text-xs text-muted-foreground">{t("agents.tools.mcp.server")}</span>
-          <Switch
-            checked={server.enabled}
-            disabled={toggleBusy}
-            onCheckedChange={(checked) => onToggleServer(!!checked)}
-            aria-label={t("agents.tools.mcp.server")}
-          />
           {(server.needs_auth || server.credential_mode === "per_user") && (
             <Button
               variant="outline"
               size="xs"
-              disabled={toggleBusy}
               onClick={() => (server.needs_auth ? onConnect(server) : onDisconnect(server))}
             >
               {server.needs_auth ? t("mcp.connect") : t("mcp.disconnect")}
@@ -959,14 +911,7 @@ export function McpServerGroup({
           )}
           <DropdownMenu>
             <DropdownMenuTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  disabled={toggleBusy}
-                  aria-label={t("common.actions")}
-                />
-              }
+              render={<Button variant="ghost" size="icon-xs" aria-label={t("common.actions")} />}
             >
               <MoreHorizontal />
             </DropdownMenuTrigger>

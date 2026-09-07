@@ -13,24 +13,24 @@ import (
 )
 
 const listMCPConnectionStatesForConfigs = `-- name: ListMCPConnectionStatesForConfigs :many
-SELECT id, config_id, credential_user_id, tools, status, status_error,
+SELECT id, child_id, credential_user_id, tools, status, status_error,
        probed_at, config_revision, created_at, updated_at
 FROM mcp_connection_state
-WHERE config_id = ANY($1::uuid[])
+WHERE child_id = ANY($1::uuid[])
   AND (
       credential_user_id IS NULL
       OR credential_user_id = $2::uuid
   )
-ORDER BY array_position($1::uuid[], config_id), credential_user_id NULLS FIRST, id
+ORDER BY array_position($1::uuid[], child_id), credential_user_id NULLS FIRST, id
 `
 
 type ListMCPConnectionStatesForConfigsParams struct {
-	ConfigIds        []string    `json:"config_ids"`
+	ChildIds         []string    `json:"child_ids"`
 	CredentialUserID pgtype.Text `json:"credential_user_id"`
 }
 
 func (q *Queries) ListMCPConnectionStatesForConfigs(ctx context.Context, arg ListMCPConnectionStatesForConfigsParams) ([]McpConnectionState, error) {
-	rows, err := q.db.Query(ctx, listMCPConnectionStatesForConfigs, arg.ConfigIds, arg.CredentialUserID)
+	rows, err := q.db.Query(ctx, listMCPConnectionStatesForConfigs, arg.ChildIds, arg.CredentialUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func (q *Queries) ListMCPConnectionStatesForConfigs(ctx context.Context, arg Lis
 		var i McpConnectionState
 		if err := rows.Scan(
 			&i.ID,
-			&i.ConfigID,
+			&i.ChildID,
 			&i.CredentialUserID,
 			&i.Tools,
 			&i.Status,
@@ -61,14 +61,15 @@ func (q *Queries) ListMCPConnectionStatesForConfigs(ctx context.Context, arg Lis
 }
 
 const lockMCPConfigRevision = `-- name: LockMCPConfigRevision :one
-SELECT revision
-FROM plugin_config
-WHERE id = $1::uuid
-FOR UPDATE
+SELECT c.revision
+FROM plugin_config_mcp_server child
+JOIN plugin_config c ON c.id = child.config_id
+WHERE child.id = $1::uuid
+FOR UPDATE OF c
 `
 
-func (q *Queries) LockMCPConfigRevision(ctx context.Context, configID string) (int64, error) {
-	row := q.db.QueryRow(ctx, lockMCPConfigRevision, configID)
+func (q *Queries) LockMCPConfigRevision(ctx context.Context, childID string) (int64, error) {
+	row := q.db.QueryRow(ctx, lockMCPConfigRevision, childID)
 	var revision int64
 	err := row.Scan(&revision)
 	return revision, err
@@ -76,7 +77,7 @@ func (q *Queries) LockMCPConfigRevision(ctx context.Context, configID string) (i
 
 const upsertMCPConnectionState = `-- name: UpsertMCPConnectionState :one
 INSERT INTO mcp_connection_state (
-    config_id, credential_user_id, tools, status, status_error,
+    child_id, credential_user_id, tools, status, status_error,
     probed_at, config_revision
 )
 VALUES (
@@ -88,19 +89,19 @@ VALUES (
     $6,
     $7
 )
-ON CONFLICT (config_id, credential_user_id) DO UPDATE
+ON CONFLICT (child_id, credential_user_id) DO UPDATE
 SET tools = EXCLUDED.tools,
     status = EXCLUDED.status,
     status_error = EXCLUDED.status_error,
     probed_at = EXCLUDED.probed_at,
     config_revision = EXCLUDED.config_revision,
     updated_at = now()
-RETURNING id, config_id, credential_user_id, tools, status, status_error,
+RETURNING id, child_id, credential_user_id, tools, status, status_error,
           probed_at, config_revision, created_at, updated_at
 `
 
 type UpsertMCPConnectionStateParams struct {
-	ConfigID         string             `json:"config_id"`
+	ChildID          string             `json:"child_id"`
 	CredentialUserID pgtype.Text        `json:"credential_user_id"`
 	Tools            json.RawMessage    `json:"tools"`
 	Status           string             `json:"status"`
@@ -111,7 +112,7 @@ type UpsertMCPConnectionStateParams struct {
 
 func (q *Queries) UpsertMCPConnectionState(ctx context.Context, arg UpsertMCPConnectionStateParams) (McpConnectionState, error) {
 	row := q.db.QueryRow(ctx, upsertMCPConnectionState,
-		arg.ConfigID,
+		arg.ChildID,
 		arg.CredentialUserID,
 		arg.Tools,
 		arg.Status,
@@ -122,7 +123,7 @@ func (q *Queries) UpsertMCPConnectionState(ctx context.Context, arg UpsertMCPCon
 	var i McpConnectionState
 	err := row.Scan(
 		&i.ID,
-		&i.ConfigID,
+		&i.ChildID,
 		&i.CredentialUserID,
 		&i.Tools,
 		&i.Status,

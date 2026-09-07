@@ -9,9 +9,9 @@ SELECT * FROM plugin_definition ORDER BY id;
 
 -- name: UpsertPluginDefinition :one
 INSERT INTO plugin_definition (
-    id, display_name, backend, source, implementation_key,
+    id, display_name, source,
     spec, default_enabled, revision, creator_user_id, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, now())
 ON CONFLICT (id) DO UPDATE SET
     display_name = excluded.display_name,
     spec = excluded.spec,
@@ -22,9 +22,7 @@ ON CONFLICT (id) DO UPDATE SET
     updated_at = CASE WHEN (plugin_definition.display_name, plugin_definition.spec, plugin_definition.default_enabled)
         IS DISTINCT FROM (excluded.display_name, excluded.spec, excluded.default_enabled)
         THEN now() ELSE plugin_definition.updated_at END
-WHERE plugin_definition.backend = excluded.backend
-  AND plugin_definition.source = excluded.source
-  AND plugin_definition.implementation_key = excluded.implementation_key
+WHERE plugin_definition.source = excluded.source
 RETURNING *;
 
 -- name: ListPluginConfigs :many
@@ -42,9 +40,9 @@ ORDER BY id;
 
 -- name: CreatePluginDefinition :one
 INSERT INTO plugin_definition (
-    id, display_name, backend, source, implementation_key,
+    id, display_name, source,
     spec, default_enabled, revision, creator_user_id, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, now())
 RETURNING *;
 
 -- name: UpdatePluginDefinitionCAS :one
@@ -113,7 +111,7 @@ RETURNING *;
 WITH inserted AS (
     INSERT INTO plugin_config (
         plugin_id, scope, enabled, config, credential_refs, revision, updated_at
-    ) VALUES ($1, 'system', NULL, '{}'::jsonb, '{}'::jsonb, 1, now())
+    ) VALUES ($1, 'system', NULL, sqlc.arg(config)::jsonb, '{}'::jsonb, 1, now())
     ON CONFLICT (plugin_id, scope, user_id, agent_id) DO NOTHING
     RETURNING *
 )

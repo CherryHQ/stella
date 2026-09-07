@@ -82,7 +82,8 @@ func TestTypedMCPPolicySameLocatorReplacementRollsBackAndRevokes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant := oauthBundleName(cfg.ID)
+	childID := cfg.MCPServers[0].ID
+	grant := oauthBundleName(childID)
 	if _, err := svc.pool.Exec(ctx, `INSERT INTO vault_entry(id,scope,user_id,name,ciphertext) VALUES($1,'user',$2,$3,'synthetic')`, uuid.NewString(), userID, grant); err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +117,7 @@ func TestTypedMCPPolicySameLocatorReplacementRollsBackAndRevokes(t *testing.T) {
 	if afterFailure.ConfigRevision != reg.ConfigRevision {
 		t.Fatal("failed store did not roll back config")
 	}
-	if got, err := svc.vault.GetScoped(ctx, ScopeUser, userID, "", oauthClientSecretName(cfg.ID)); err != nil || got != "old-secret" {
+	if got, err := svc.vault.GetScoped(ctx, ScopeUser, userID, "", oauthClientSecretName(childID)); err != nil || got != "old-secret" {
 		t.Fatalf("old secret not restored: %v", err)
 	}
 	disabled := false
@@ -130,7 +131,7 @@ func TestTypedMCPPolicySameLocatorReplacementRollsBackAndRevokes(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertGrant(0)
-	if got, err := svc.vault.GetScoped(ctx, ScopeUser, userID, "", oauthClientSecretName(cfg.ID)); err != nil || got != "new-secret" {
+	if got, err := svc.vault.GetScoped(ctx, ScopeUser, userID, "", oauthClientSecretName(childID)); err != nil || got != "new-secret" {
 		t.Fatalf("new secret missing: %v", err)
 	}
 }

@@ -12,6 +12,13 @@ type ManifestPluginDefinition struct {
 	Skills        []ManifestSkill      `json:"skills,omitempty" yaml:"skills,omitempty"`
 	SessionEnvs   []ManifestSessionEnv `json:"session_env,omitempty" yaml:"session_env,omitempty"`
 	OAuthProvider string               `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
+	// OAuth keeps the richer Agent package declaration intact. The legacy
+	// OAuthProvider field remains the shorthand for one CLI payload provider.
+	OAuth []ManifestOAuthRequirement `json:"oauth,omitempty" yaml:"oauth,omitempty"`
+	// MCPServers is keyed by the authored package entry. The key is the stable
+	// child identity; the payload deliberately contains only endpoint/auth
+	// metadata, never package paths or loaded bytes.
+	MCPServers map[string]ManifestMCPServer `json:"mcp_servers,omitempty" yaml:"mcp_servers,omitempty"`
 }
 
 type ManifestPlugin struct {
@@ -70,6 +77,27 @@ type ManifestSessionEnv struct {
 	Source   string `json:"source" yaml:"source"`
 	Value    string `json:"value,omitempty" yaml:"value,omitempty"`
 	Required bool   `json:"required,omitempty" yaml:"required,omitempty"`
+}
+
+type ManifestOAuthRequirement struct {
+	Provider string                 `json:"provider" yaml:"provider"`
+	Scopes   []string               `json:"scopes,omitempty" yaml:"scopes,omitempty"`
+	Bindings []ManifestOAuthBinding `json:"bindings,omitempty" yaml:"bindings,omitempty"`
+}
+
+type ManifestOAuthBinding struct {
+	Credential string `json:"credential" yaml:"credential"`
+	EnvVar     string `json:"env_var,omitempty" yaml:"env_var,omitempty"`
+	Connection string `json:"connection,omitempty" yaml:"connection,omitempty"`
+}
+
+type ManifestMCPServer struct {
+	URL            string            `json:"url" yaml:"url"`
+	Transport      string            `json:"transport" yaml:"transport"`
+	AuthType       string            `json:"auth_type" yaml:"auth_type"`
+	CredentialMode string            `json:"credential_mode,omitempty" yaml:"credential_mode,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Metadata       map[string]any    `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
 
 type ManifestOAuthFlow struct {

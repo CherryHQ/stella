@@ -52,7 +52,7 @@ func (s *Service) loadCredentialSnapshot(ctx context.Context, reg Registration, 
 		return credentialSnapshot{}, fmt.Errorf("mcp: begin credential snapshot: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	identity, err := readPluginConfigIdentity(ctx, tx, reg.ID)
+	identity, err := readPluginConfigIdentityForRegistration(ctx, tx, reg, false)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return credentialSnapshot{}, errPluginConfigIdentity
 	}
@@ -106,7 +106,7 @@ func (s *Service) withCredentialVault(ctx context.Context, reg Registration, own
 		return fmt.Errorf("mcp: begin credential write: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	identity, err := readPluginConfigIdentityForUpdate(ctx, tx, reg.ID)
+	identity, err := readPluginConfigIdentityForRegistration(ctx, tx, reg, true)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errPluginConfigIdentity
 	}
@@ -129,24 +129,33 @@ func (s *Service) withCredentialVault(ctx context.Context, reg Registration, own
 	return nil
 }
 
-func readPluginConfigIdentity(ctx context.Context, tx pgx.Tx, id string) (pluginConfigIdentity, error) {
-	return readPluginConfigIdentityQuery(ctx, tx, id, false)
-}
-
-func readPluginConfigIdentityForUpdate(ctx context.Context, tx pgx.Tx, id string) (pluginConfigIdentity, error) {
-	return readPluginConfigIdentityQuery(ctx, tx, id, true)
-}
-
-func readPluginConfigIdentityQuery(ctx context.Context, tx pgx.Tx, id string, lock bool) (pluginConfigIdentity, error) {
-	query := `SELECT id, plugin_id, scope, user_id, agent_id, revision FROM plugin_config WHERE id = $1::uuid`
+func readPluginConfigIdentityForRegistration(ctx context.Context, tx pgx.Tx, reg Registration, lock bool) (pluginConfigIdentity, error) {
+	if reg.ParentConfigID == "" || reg.ServerKey == "" {
+		return pluginConfigIdentity{}, errPluginConfigIdentity
+	}
+	// Lock the parent first, matching every parent-CAS mutation. The child row
+	// is only an identity check; locking it first would create the inverse
+	// child-then-parent order and introduce a new deadlock edge.
+	childQuery := `
+		SELECT c.id, c.plugin_id, c.scope, c.user_id, c.agent_id, c.revision,
+		       child.config_id, child.server_key
+		FROM plugin_config_mcp_server child
+		JOIN plugin_config c ON c.id = child.config_id
+		WHERE child.id = $1::uuid`
 	if lock {
-		query += " FOR UPDATE"
+		childQuery += " FOR UPDATE OF c"
 	}
 	var row pluginConfigIdentity
 	var userID, agentID pgtype.Text
-	err := tx.QueryRow(ctx, query, id).Scan(&row.ID, &row.PluginID, &row.Scope, &userID, &agentID, &row.Revision)
-	if err != nil {
+	var parentID, serverKey string
+	if err := tx.QueryRow(ctx, childQuery, reg.ID).Scan(
+		&row.ID, &row.PluginID, &row.Scope, &userID, &agentID, &row.Revision,
+		&parentID, &serverKey,
+	); err != nil {
 		return pluginConfigIdentity{}, err
+	}
+	if parentID != reg.ParentConfigID || serverKey != reg.ServerKey {
+		return pluginConfigIdentity{}, errPluginConfigIdentity
 	}
 	if userID.Valid {
 		row.UserID = userID.String
@@ -158,13 +167,18 @@ func readPluginConfigIdentityQuery(ctx context.Context, tx pgx.Tx, id string, lo
 }
 
 func validatePluginConfigIdentity(identity pluginConfigIdentity, reg Registration) error {
+	parentID := registrationParentID(reg)
 	if identity.Revision < 1 || reg.ConfigRevision < 1 ||
-		identity.ID != reg.ID || identity.PluginID != reg.PluginID ||
+		identity.ID != parentID || identity.PluginID != reg.PluginID ||
 		identity.Scope != reg.Scope || identity.UserID != reg.UserID || identity.AgentID != reg.AgentID ||
 		identity.Revision != reg.ConfigRevision {
 		return fmt.Errorf("%w for %q", errPluginConfigIdentity, reg.ID)
 	}
 	return nil
+}
+
+func registrationParentID(reg Registration) string {
+	return reg.ParentConfigID
 }
 
 // validatePluginConfigRegistration fences metadata-only OAuth operations before
@@ -182,7 +196,7 @@ func (s *Service) validatePluginConfigRegistration(ctx context.Context, reg Regi
 		return fmt.Errorf("mcp: begin plugin config validation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	identity, err := readPluginConfigIdentity(ctx, tx, reg.ID)
+	identity, err := readPluginConfigIdentityForRegistration(ctx, tx, reg, false)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errPluginConfigIdentity
 	}
@@ -204,7 +218,7 @@ func (s *Service) loadOAuthClientSecret(ctx context.Context, reg Registration) (
 		return "", fmt.Errorf("mcp: begin oauth client secret read: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	identity, err := readPluginConfigIdentity(ctx, tx, reg.ID)
+	identity, err := readPluginConfigIdentityForRegistration(ctx, tx, reg, false)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", errPluginConfigIdentity
 	}

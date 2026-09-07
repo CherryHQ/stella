@@ -142,7 +142,7 @@ func buildBearerTransport(reg Registration, bearer string, policy EndpointPolicy
 	if err := policy.validateEndpointURL(reg.URL); err != nil {
 		return nil, err
 	}
-	httpClient := safeHTTPClient(bearer, policy)
+	httpClient := safeHTTPClientWithHeaders(bearer, reg.Headers, policy)
 	switch reg.Transport {
 	case TransportStreamableHTTP:
 		return &mcpsdk.StreamableClientTransport{Endpoint: reg.URL, HTTPClient: httpClient}, nil
@@ -168,7 +168,7 @@ func (s *Service) buildTransport(ctx context.Context, reg Registration, owner Cr
 			return nil, err
 		}
 		return &mcpsdk.StreamableClientTransport{
-			Endpoint: reg.URL, HTTPClient: safeHTTPClient("", s.endpoints),
+			Endpoint: reg.URL, HTTPClient: safeHTTPClientWithHeaders("", reg.Headers, s.endpoints),
 			OAuthHandler: &oauthSession{svc: s, reg: reg, owner: owner},
 		}, nil
 	}
@@ -227,9 +227,10 @@ func isCredentialRejection(err error) bool {
 // authRoundTripper injects a bearer token on every request. When the token is
 // empty it is a transparent pass-through, so unauthenticated servers work too.
 type authRoundTripper struct {
-	base   http.RoundTripper
-	bearer string
-	policy EndpointPolicy
+	base    http.RoundTripper
+	bearer  string
+	headers map[string]string
+	policy  EndpointPolicy
 }
 
 func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -244,17 +245,26 @@ func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 			return nil, err
 		}
 	}
-	if a.bearer != "" {
+	if a.bearer != "" || len(a.headers) != 0 {
 		// Clone before mutating: RoundTrippers must not modify the caller's request.
 		req = req.Clone(req.Context())
-		req.Header.Set("Authorization", "Bearer "+a.bearer)
+		if a.bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+a.bearer)
+		}
+		for name, value := range a.headers {
+			req.Header.Set(name, value)
+		}
 	}
 	return base.RoundTrip(req)
 }
 
 func safeHTTPClient(bearer string, policy EndpointPolicy) *http.Client {
+	return safeHTTPClientWithHeaders(bearer, nil, policy)
+}
+
+func safeHTTPClientWithHeaders(bearer string, headers map[string]string, policy EndpointPolicy) *http.Client {
 	return &http.Client{
-		Transport: &authRoundTripper{base: safeBaseTransport(policy), bearer: bearer, policy: policy},
+		Transport: &authRoundTripper{base: safeBaseTransport(policy), bearer: bearer, headers: headers, policy: policy},
 		Timeout:   30 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if err := policy.validateEndpointURL(req.URL.String()); err != nil {

@@ -24,22 +24,18 @@ func BuiltinDefinitions() ([]plugin.Definition, error) {
 		if !agentpackage.ValidName(authored.Name) {
 			return nil, fmt.Errorf("plugin %s: invalid canonical name", authored.Name)
 		}
-		spec, err := json.Marshal(map[string]any{
-			"description":    authored.Description,
-			"category":       authored.Category,
-			"prompt":         authored.Prompt,
-			"binaries":       authored.Binaries,
-			"skills":         authored.Skills,
-			"session_env":    authored.SessionEnvs,
-			"oauth_provider": authored.OAuthProvider,
+		spec, err := json.Marshal(cliPayload{
+			Description: authored.Description, Category: authored.Category, Prompt: authored.Prompt,
+			Binaries: authored.Binaries, Skills: authored.Skills, SessionEnvs: authored.SessionEnvs,
+			OAuthProvider: authored.OAuthProvider, OAuth: authored.OAuth, MCPServers: authored.MCPServers,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("plugin %s: %w", authored.ID, err)
 		}
 		definition := plugin.Definition{
 			ID: authored.Name, DisplayName: authored.DisplayName,
-			Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin,
-			ImplementationKey: authored.Name, Spec: spec,
+			Source:         plugin.SourceBuiltin,
+			Spec:           spec,
 			DefaultEnabled: authored.Enabled, Revision: 1,
 		}
 		if err := definition.Validate(); err != nil {
@@ -59,7 +55,7 @@ var builtinSystemPluginIDs struct {
 // immutable shipped declaration. A bare canonical ID carries no installation
 // mode information, so neither its spelling nor editable config can classify it.
 func IsSystemPlugin(definition plugin.Definition) bool {
-	if definition.Source != plugin.SourceBuiltin || definition.Backend != plugin.BackendCLI || definition.ImplementationKey != definition.ID {
+	if definition.Source != plugin.SourceBuiltin {
 		return false
 	}
 	builtinSystemPluginIDs.Do(func() {

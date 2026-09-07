@@ -20,8 +20,8 @@ import (
 func pluginDefinition(id string, enabled bool) plugin.Definition {
 	return plugin.Definition{
 		ID: id, DisplayName: id,
-		Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin,
-		ImplementationKey: id, Spec: json.RawMessage(`{"schema":1}`),
+		Source:         plugin.SourceBuiltin,
+		Spec:           json.RawMessage(`{"schema":1}`),
 		DefaultEnabled: enabled, Revision: 1,
 	}
 }
@@ -57,8 +57,8 @@ func TestUnifiedPluginConfigConstraints(t *testing.T) {
 	insertDefinition := func(id string) {
 		t.Helper()
 		if _, err := db.Exec(ctx, `
-			INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec)
-			VALUES ($1, $1, 'cli', 'builtin', $1, '{}'::jsonb)
+			INSERT INTO plugin_definition (id, display_name, source, spec)
+			VALUES ($1, $1, 'builtin', '{}'::jsonb)
 		`, id); err != nil {
 			t.Fatal(err)
 		}
@@ -201,8 +201,8 @@ func TestUnifiedPluginSyncFailureRollsBackEarlierDefinitions(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec)
-		VALUES ('conflict', 'old', 'mcp', 'custom', 'old', '{}'::jsonb)
+		INSERT INTO plugin_definition (id, display_name, source, spec)
+		VALUES ('conflict', 'old', 'custom', '{}'::jsonb)
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -454,9 +454,9 @@ func TestUnifiedPluginNegativeResetKeepsNullPayload(t *testing.T) {
 	second := pluginDefinition("negative-two", true)
 	syncPluginCatalog(t, db, first)
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, second.ID, second.DisplayName, second.Backend, second.Source, second.ImplementationKey, second.Spec); err != nil {
+		INSERT INTO plugin_definition (id, display_name, source, spec)
+		VALUES ($1, $2, $3, $4)
+	`, second.ID, second.DisplayName, second.Source, second.Spec); err != nil {
 		t.Fatal(err)
 	}
 	catalog := plugin.NewCatalog()
@@ -504,8 +504,8 @@ func TestUnifiedPluginSharedCustomVisibleWithoutSystemPayload(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec)
-		VALUES ('shared', 'Shared', 'mcp', 'custom', 'mcp', '{}'::jsonb)
+		INSERT INTO plugin_definition (id, display_name, source, spec)
+		VALUES ('shared', 'Shared', 'custom', '{}'::jsonb)
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -559,7 +559,7 @@ func TestUnifiedPluginCustomIdentityValidationAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	createdDef, createdConfig, err := access.CreateCustom(ctx,
-		plugin.Definition{ID: "remote", DisplayName: "Remote", Backend: plugin.BackendMCP, Spec: json.RawMessage(`{"description":"safe"}`)},
+		plugin.Definition{ID: "remote", DisplayName: "Remote", Spec: json.RawMessage(`{"description":"safe"}`)},
 		plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(false)})
 	if err != nil {
 		t.Fatal(err)
@@ -581,7 +581,7 @@ func TestUnifiedPluginCustomIdentityValidationAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := access.CreateCustom(ctx,
-		plugin.Definition{ID: "bad-endpoint", DisplayName: "Bad", Backend: plugin.BackendMCP, Spec: json.RawMessage(`{"endpoint":"https://secret.example"}`)},
+		plugin.Definition{ID: "bad-endpoint", DisplayName: "Bad", Spec: json.RawMessage(`{"endpoint":"https://secret.example"}`)},
 		plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(false)}); !errors.Is(err, plugin.ErrInvalidDefinition) {
 		t.Fatalf("endpoint in custom spec = %v, want invalid definition", err)
 	}
@@ -594,13 +594,13 @@ func TestUnifiedPluginCustomIdentityValidationAndRollback(t *testing.T) {
 	}
 
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec, default_enabled)
-		VALUES ('taken', 'Taken', 'cli', 'builtin', 'taken', '{}'::jsonb, true)
+		INSERT INTO plugin_definition (id, display_name, source, spec, default_enabled)
+		VALUES ('taken', 'Taken', 'builtin', '{}'::jsonb, true)
 	`); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := access.CreateCustom(ctx,
-		plugin.Definition{ID: "taken", DisplayName: "Conflict", Backend: plugin.BackendMCP, Spec: json.RawMessage(`{}`)},
+		plugin.Definition{ID: "taken", DisplayName: "Conflict", Spec: json.RawMessage(`{}`)},
 		plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(true), Payload: json.RawMessage(`{}`)}); !errors.Is(err, plugin.ErrConflict) {
 		t.Fatalf("definition ID conflict = %v, want conflict", err)
 	}
@@ -623,7 +623,7 @@ func TestUnifiedPluginDefinitionDeleteCASAndPolicyRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	def, config, err := access.CreateCustom(ctx,
-		plugin.Definition{ID: "deletable", DisplayName: "Deletable", Backend: plugin.BackendMCP, Spec: json.RawMessage(`{}`)},
+		plugin.Definition{ID: "deletable", DisplayName: "Deletable", Spec: json.RawMessage(`{}`)},
 		plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(false)})
 	if err != nil {
 		t.Fatal(err)

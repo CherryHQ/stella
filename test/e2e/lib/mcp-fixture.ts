@@ -5,7 +5,7 @@ import { type IncomingMessage, type ServerResponse } from "node:http";
 import { z } from "zod";
 import { type ApiClient, expectStatus } from "./api.ts";
 import { startFixtureServer } from "./fixture-server.ts";
-import { type CreatePluginResponse, type PluginConfig, type PluginDefinition } from "./types.ts";
+import { type CreatePluginResponse, type McpServer as McpServerResource, type PluginConfig, type PluginDefinition } from "./types.ts";
 
 export interface McpFixtureOptions {
   // Requests must carry `Authorization: Bearer <bearer>`; anything else is 401.
@@ -93,7 +93,6 @@ export async function createMcpPlugin(
     await api.post<CreatePluginResponse>("/api/plugins", {
       name,
       display_name: displayName,
-      backend: "mcp",
       definition_spec: {},
       initial_config: {
         scope: options.scope ?? "user",
@@ -117,6 +116,20 @@ export function pluginConfigPath(definition: PluginDefinition | string, config: 
   const pluginID = typeof definition === "string" ? definition : definition.id;
   const configID = typeof config === "string" ? config : config.id;
   return `${pluginDefinitionPath(pluginID)}/configs/${configID}`;
+}
+
+export async function mcpServers(api: ApiClient, parentConfigID: string): Promise<McpServerResource[]> {
+  return expectStatus(
+    await api.get<{ servers: McpServerResource[]; }>(`/api/mcp/servers?parent_config_id=${encodeURIComponent(parentConfigID)}`),
+    200,
+    `list MCP children for ${parentConfigID}`,
+  ).servers;
+}
+
+export async function mcpServer(api: ApiClient, parentConfigID: string, serverKey = "main"): Promise<McpServerResource> {
+  const server = (await mcpServers(api, parentConfigID)).find((item) => item.server_key === serverKey);
+  if (!server) throw new Error(`MCP child ${serverKey} missing for parent ${parentConfigID}`);
+  return server;
 }
 
 function buildServer(options: McpFixtureOptions, fixture: McpFixture): McpServer {

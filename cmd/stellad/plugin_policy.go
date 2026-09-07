@@ -19,24 +19,13 @@ func pluginBackendPolicy(allowPrivate bool) plugin.BackendPolicy {
 	mcpPolicy := mcp.NewMCPBackendPolicy(mcp.EndpointPolicy{AllowPrivate: allowPrivate})
 	return plugin.BackendPolicy{
 		Validate: func(ctx context.Context, def plugin.Definition, cfg plugin.Config, resets []string) error {
-			switch def.Backend {
-			case plugin.BackendCLI:
-				return validateCLIBackendPayload(ctx, def, cfg, resets)
-			case plugin.BackendMCP:
-				return mcpPolicy.Validate(ctx, def, cfg, resets)
-			default:
-				return plugin.ErrInvalidDefinition
+			if err := validateCLIBackendPayload(ctx, def, cfg, resets); err != nil {
+				return err
 			}
+			return mcpPolicy.Validate(ctx, def, cfg, resets)
 		},
 		Transition: func(ctx context.Context, tx pgx.Tx, authority authz.Authority, kind plugin.MutationKind, def plugin.Definition, before, after *plugin.Config) error {
-			switch def.Backend {
-			case plugin.BackendMCP:
-				return mcpPolicy.Transition(ctx, tx, authority, kind, def, before, after)
-			case plugin.BackendCLI:
-				return nil
-			default:
-				return plugin.ErrInvalidDefinition
-			}
+			return mcpPolicy.Transition(ctx, tx, authority, kind, def, before, after)
 		},
 	}
 }

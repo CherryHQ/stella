@@ -16,7 +16,6 @@ func customMCPDefinition(name string) plugin.Definition {
 	return plugin.Definition{
 		ID:          "custom-mcp-resource",
 		DisplayName: name,
-		Backend:     plugin.BackendMCP,
 		Spec:        []byte(`{"description":"custom MCP"}`),
 	}
 }
@@ -41,7 +40,17 @@ func TestCreateCustomMCPUsesSharedUUIDAndStoresBearerInSameMutation(t *testing.T
 	if _, err := uuid.Parse(cfg.ID); err != nil {
 		t.Fatalf("config id is not UUID: %v", err)
 	}
-	if got, err := svc.vault.GetScoped(t.Context(), ScopeUser, userID, "", credentialName(cfg.ID)); err != nil || got != "bearer-secret" {
+	if len(cfg.MCPServers) != 1 || cfg.MCPServers[0].ServerKey != "main" {
+		t.Fatalf("custom config children = %#v, want one main child", cfg.MCPServers)
+	}
+	child := cfg.MCPServers[0]
+	if child.ID == cfg.ID || child.ParentConfigID != cfg.ID {
+		t.Fatalf("main child identity = %#v, parent %q", child, cfg.ID)
+	}
+	if _, err := uuid.Parse(child.ID); err != nil {
+		t.Fatalf("main child id is not UUID: %v", err)
+	}
+	if got, err := svc.vault.GetScoped(t.Context(), ScopeUser, userID, "", credentialName(child.ID)); err != nil || got != "bearer-secret" {
 		t.Fatalf("stored bearer = %q, err=%v", got, err)
 	}
 	var legacyCount, configCount int
@@ -71,7 +80,14 @@ func TestCreateCustomMCPOAuthSecretUsesConfigOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateCustom OAuth: %v", err)
 	}
-	if got, err := svc.vault.GetScoped(t.Context(), ScopeUser, userID, "", oauthClientSecretName(cfg.ID)); err != nil || got != "oauth-client-secret" {
+	if len(cfg.MCPServers) != 1 || cfg.MCPServers[0].ServerKey != "main" {
+		t.Fatalf("custom OAuth config children = %#v, want one main child", cfg.MCPServers)
+	}
+	child := cfg.MCPServers[0]
+	if child.ID == cfg.ID || child.ParentConfigID != cfg.ID {
+		t.Fatalf("OAuth main child identity = %#v, parent %q", child, cfg.ID)
+	}
+	if got, err := svc.vault.GetScoped(t.Context(), ScopeUser, userID, "", oauthClientSecretName(child.ID)); err != nil || got != "oauth-client-secret" {
 		t.Fatalf("stored OAuth client secret = %q, err=%v", got, err)
 	}
 }

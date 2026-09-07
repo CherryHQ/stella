@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	connections "github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -273,12 +274,15 @@ func recordSessionSecretValues(target *SessionSecretValues, env map[string]strin
 
 // injectSessionEnv resolves plugin SessionEnvSpecs into env.
 func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, vaultEnv map[string]string, secretEnv map[string]string) error {
-	// oauthBundles caches loaded bundles per provider to avoid redundant vault hits.
-	oauthBundles := make(map[string]*oauth.OAuthBundle)
 	// oauthBoundVars records the env vars actually injected from OAuth so a later
 	// live refresh rotates exactly those and never an explicit vault override.
 	var oauthBoundVars []string
 	defer func() { cfg.OAuthEnvBindings.Set(oauthBoundVars) }()
+	// Keep provider groups in declaration order. A provider is committed only
+	// after all of its required bindings resolve, so a failed sibling cannot
+	// expose a partial credential set; earlier providers remain usable.
+	providerSpecs := make(map[string][]pkgplugins.SessionEnvSpec)
+	var providerOrder []string
 	for _, spec := range cfg.SessionEnvSpecs {
 		src := string(spec.Source)
 		if spec.Source == pkgplugins.SessionEnvSourceStatic {
@@ -295,12 +299,7 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, va
 		if _, ok := vaultEnv[spec.EnvVar]; ok {
 			continue
 		}
-		if cfg.TokenManager == nil {
-			if spec.Required {
-				return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
-			}
-			continue
-		}
+
 		providerID := spec.OAuthProviderID
 		if providerID == "" {
 			if spec.Required {
@@ -308,56 +307,73 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, va
 			}
 			continue
 		}
-		bundle, ok := oauthBundles[providerID]
+		if _, ok := providerSpecs[providerID]; !ok {
+			providerOrder = append(providerOrder, providerID)
+		}
+		providerSpecs[providerID] = append(providerSpecs[providerID], spec)
+	}
+
+	for _, providerID := range providerOrder {
+		if cfg.TokenManager == nil {
+			continue
+		}
+		specs := providerSpecs[providerID]
+		bundle, err := cfg.TokenManager.GetOAuthToken(ctx, providerID, cfg.UserID, oauthMinValidity(cfg))
+		if err != nil {
+			slog.Debug("session env injection skipped: OAuth token unavailable", "component", "runner_sandbox", "provider", providerID, "error", err)
+			continue
+		}
+		updates, ok := oauthSessionEnvValues(specs, bundle)
 		if !ok {
-			var err error
-			bundle, err = cfg.TokenManager.GetOAuthToken(ctx, providerID, cfg.UserID, oauthMinValidity(cfg))
-			if err != nil {
-				slog.Debug("session env injection skipped",
-					"component", "runner_sandbox",
-					"user_id", cfg.UserID,
-					"env_var", spec.EnvVar,
-					"source", spec.Source,
-					"error", err,
-				)
-			}
-			oauthBundles[providerID] = bundle
-		}
-		if bundle == nil {
-			if spec.Required {
-				return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
-			}
-			// Provider not connected: the tool will run without this env var.
-			// Expected when a user hasn't connected the tool's credential yet,
-			// so keep it at Debug — the credentials page surfaces the prompt.
-			slog.Debug("session env skipped: oauth provider not connected",
-				"component", "runner_sandbox",
-				"user_id", cfg.UserID,
-				"env_var", spec.EnvVar,
-				"provider", providerID,
-				"plugin", spec.PluginID,
-			)
+			// Missing authentication removes this provider's bindings only.
+			// Other providers and package Skills remain usable.
+			slog.Debug("session env injection skipped: OAuth requirements unavailable", "component", "runner_sandbox", "provider", providerID)
 			continue
 		}
-		field := strings.TrimPrefix(src, "oauth.")
-		value, known := oauthBundleField(bundle, field)
-		if !known {
-			if spec.Required {
-				return fmt.Errorf("required session env %q (source %q) for plugin %q: unknown oauth field %q", spec.EnvVar, spec.Source, spec.PluginID, field)
+		maps.Copy(env, updates)
+		for _, spec := range specs {
+			value, present := updates[spec.EnvVar]
+			if !present {
+				continue
 			}
-			continue
-		}
-		if value != "" {
-			env[spec.EnvVar] = value
 			oauthBoundVars = append(oauthBoundVars, spec.EnvVar)
-			if oauthSessionEnvFieldSecret(field) {
+			if oauthSessionEnvFieldSecret(strings.TrimPrefix(string(spec.Source), "oauth.")) {
 				secretEnv[spec.EnvVar] = value
 			}
-		} else if spec.Required {
-			return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
 		}
 	}
 	return nil
+}
+
+// oauthSessionEnvValues stages one provider's complete required binding set.
+// Initial injection and refresh must agree on both scope and field availability.
+func oauthSessionEnvValues(specs []pkgplugins.SessionEnvSpec, bundle *oauth.OAuthBundle) (map[string]string, bool) {
+	if bundle == nil {
+		return nil, false
+	}
+	if missing, known := requiredOAuthScopes(specs, bundle); !known || len(missing) > 0 {
+		return nil, false
+	}
+	updates := make(map[string]string)
+	for _, spec := range specs {
+		value, known := oauthBundleField(bundle, strings.TrimPrefix(string(spec.Source), "oauth."))
+		if !known || value == "" {
+			if spec.Required {
+				return nil, false
+			}
+			continue
+		}
+		updates[spec.EnvVar] = value
+	}
+	return updates, true
+}
+
+func requiredOAuthScopes(specs []pkgplugins.SessionEnvSpec, bundle *oauth.OAuthBundle) ([]string, bool) {
+	var required []string
+	for _, spec := range specs {
+		required = append(required, spec.OAuthScopes...)
+	}
+	return connections.CheckRequiredScopes(required, bundle.GrantedScope)
 }
 
 // oauthBundleField maps an oauth.<field> source suffix to the corresponding

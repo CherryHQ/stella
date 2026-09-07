@@ -12,7 +12,7 @@ import (
 func TestResolveExhaustive256WinnerFirst(t *testing.T) {
 	def := Definition{
 		ID: "email", DisplayName: "Email",
-		Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "email", Revision: 1,
+		Source: SourceBuiltin, Revision: 1,
 		DefaultEnabled: true, Spec: json.RawMessage(`{"schema":1}`),
 	}
 	states := []struct {
@@ -137,17 +137,24 @@ func TestCustomDefinitionCannotDefaultEnabled(t *testing.T) {
 	}
 }
 
-func TestResolveBackendSourceMatrix(t *testing.T) {
-	backends := []Backend{BackendCLI, BackendMCP}
+func TestResolveResourceSourceMatrix(t *testing.T) {
+	resources := []struct {
+		name string
+		spec json.RawMessage
+	}{
+		{name: "prompt", spec: json.RawMessage(`{"prompt":"guide"}`)},
+		{name: "cli", spec: json.RawMessage(`{"binaries":[{"name":"tool","tool":"uv","version":"1"}],"session_env":[{"env_var":"TOKEN","source":"oauth.access_token"}]}`)},
+		{name: "mcp", spec: json.RawMessage(`{"mcp_servers":{"remote":{"url":"https://example.test","transport":"sse","auth_type":"none"}}}`)},
+	}
 	sources := []Source{SourceBuiltin, SourceCustom}
-	for _, backend := range backends {
+	for _, resource := range resources {
 		for _, source := range sources {
 			for _, defaultEnabled := range []bool{false, true} {
-				name := string(backend) + "/" + string(source) + "/" + fmt.Sprint(defaultEnabled)
+				name := resource.name + "/" + string(source) + "/" + fmt.Sprint(defaultEnabled)
 				t.Run(name, func(t *testing.T) {
 					def := Definition{
-						ID: "matrix-" + string(backend) + "-" + string(source) + "-" + fmt.Sprint(defaultEnabled), DisplayName: name,
-						Backend: backend, Source: source, ImplementationKey: name, Spec: json.RawMessage(`{"kind":"matrix"}`),
+						ID: "matrix-" + resource.name + "-" + string(source) + "-" + fmt.Sprint(defaultEnabled), DisplayName: name,
+						Source: source, Spec: resource.spec,
 						DefaultEnabled: defaultEnabled, Revision: 1,
 					}
 					if source == SourceCustom {
@@ -155,6 +162,9 @@ func TestResolveBackendSourceMatrix(t *testing.T) {
 					}
 					if err := def.Validate(); err != nil {
 						t.Fatal(err)
+					}
+					if string(def.Spec) != string(resource.spec) {
+						t.Fatalf("resource spec changed for %s: %s", resource.name, def.Spec)
 					}
 					got, err := Resolve(def, nil, "user", "agent")
 					if err != nil {
@@ -306,7 +316,7 @@ func TestAccessDerivesOnlyTrustedUserScope(t *testing.T) {
 }
 
 func testDefinition() Definition {
-	return Definition{ID: "test", DisplayName: "Test", Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "test", Spec: json.RawMessage(`{}`), Revision: 1}
+	return Definition{ID: "test", DisplayName: "Test", Source: SourceBuiltin, Spec: json.RawMessage(`{}`), Revision: 1}
 }
 
 func boolPtr(value bool) *bool { return &value }

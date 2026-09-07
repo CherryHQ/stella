@@ -75,10 +75,10 @@ func (s *Service) startOAuth(ctx context.Context, reg Registration, userID, call
 		ClientID: clientID, ClientSecretRef: secretRef,
 		TokenEndpoint: asm.TokenEndpoint, AuthStyle: int(authStyle),
 		Resource: prm.Resource, Scopes: scopes, RedirectURI: callback,
-		PluginID: reg.PluginID, ConfigRevision: reg.ConfigRevision,
+		PluginID: reg.PluginID, ParentConfigID: reg.ParentConfigID, ServerKey: reg.ServerKey, ConfigRevision: reg.ConfigRevision,
 		ConfigScope: reg.Scope, ConfigUserID: reg.UserID, ConfigAgentID: reg.AgentID,
-		CredentialMode: reg.CredentialMode,
-		Endpoint:       reg.URL, Transport: reg.Transport, RegistrationName: reg.Name,
+		CredentialMode: reg.CredentialMode, Headers: cloneHeaders(reg.Headers),
+		Endpoint: reg.URL, Transport: reg.Transport, RegistrationName: reg.Name,
 	}.marshal()
 	if err != nil {
 		return "", "", time.Time{}, err
@@ -130,7 +130,7 @@ func (s *Service) CompleteOAuth(ctx context.Context, flowID, code string) (Regis
 }
 
 func commonOAuthRegistration(flow McpOauthFlow, cfg oauthFlowConfig) (Registration, error) {
-	if cfg.PluginID == "" || cfg.ConfigRevision < 1 ||
+	if cfg.PluginID == "" || cfg.ParentConfigID == "" || cfg.ServerKey == "" || cfg.ConfigRevision < 1 ||
 		cfg.ConfigScope == "" || cfg.Endpoint == "" || cfg.Transport == "" || cfg.CredentialMode == "" {
 		return Registration{}, fmt.Errorf("mcp: oauth flow common plugin identity is incomplete")
 	}
@@ -138,11 +138,11 @@ func commonOAuthRegistration(flow McpOauthFlow, cfg oauthFlowConfig) (Registrati
 		return Registration{}, fmt.Errorf("mcp: oauth flow common plugin identity is invalid")
 	}
 	return Registration{
-		ID: flow.ServerID, PluginID: cfg.PluginID,
+		ID: flow.ServerID, ParentConfigID: cfg.ParentConfigID, ServerKey: cfg.ServerKey, PluginID: cfg.PluginID,
 		ConfigRevision: cfg.ConfigRevision, Scope: cfg.ConfigScope,
 		UserID: cfg.ConfigUserID, AgentID: cfg.ConfigAgentID,
 		Name: cfg.RegistrationName, URL: cfg.Endpoint, Transport: cfg.Transport,
-		AuthType: AuthTypeOAuth, Enabled: true, CredentialMode: cfg.CredentialMode,
+		AuthType: AuthTypeOAuth, Enabled: true, CredentialMode: cfg.CredentialMode, Headers: cloneHeaders(cfg.Headers),
 		OAuthClientID: cfg.ClientID, OAuthClientSecretRef: cfg.ClientSecretRef,
 	}, nil
 }

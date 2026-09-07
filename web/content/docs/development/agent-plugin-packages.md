@@ -2,9 +2,10 @@
 title: Agent Plugin package reference
 ---
 
-This page records the Phase 1 package boundary for Stella's Agent Plugin reader.
-It is a data reader only. Loading a package does not install binaries, enable a
-native capability, create an OAuth connection, or launch a process.
+The Agent Plugin reader loads portable package declarations. Release generation
+and the Agent Plugin service consume these declarations as one package with
+independent resource kinds. Reading a package alone does not install binaries,
+enable a Native capability, create an OAuth connection, or launch a process.
 
 ## Portable layout
 
@@ -29,11 +30,11 @@ Stella-specific declarations live under
 `plugin.json.extensions["com.cherryhq.stella"]` and require an explicit
 extension `version`. The supported declaration groups are:
 
-| Field         | Meaning                                                                                             |
-| ------------- | --------------------------------------------------------------------------------------------------- |
-| `binaries`    | Public command, installer/tool, optional version, and installer options.                            |
-| `session_env` | Runtime variable, public source identifier, and whether the binding is required.                    |
-| `oauth`       | Public provider identifier, requested scopes, and credential-to-environment or connection bindings. |
+| Field         | Meaning                                                                                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `binaries`    | Public command, installer/tool, optional version, and installer options.                                                                                                 |
+| `session_env` | Runtime variable, public source identifier, and whether the binding is required.                                                                                         |
+| `oauth`       | Public provider identifier, requested scopes, and credential-to-environment bindings. Connection bindings are not supported; configure MCP authentication on each child. |
 
 The extension `version` is currently exactly `"1"`. A Skill's standard
 `compatibility` field can describe an environment or native-capability need in

@@ -4,7 +4,7 @@ title: MCP Servers
 
 ## What MCP Servers Do
 
-Stella can connect to external [Model Context Protocol](https://modelcontextprotocol.io) servers and expose their tools to your agents. Register a server once and use the exact tool names shown in the tool catalog. Stella derives stable names from the plugin and remote tool, and checks for collisions before exposing them.
+Stella can connect to external [Model Context Protocol](https://modelcontextprotocol.io) servers and expose their tools to your agents. Register a server once and use the exact tool names shown in the tool catalog. Stella derives stable names from the plugin, server entry and remote tool, and checks for collisions before exposing them.
 
 Stella is an MCP **client** over HTTP-based transports only:
 
@@ -27,6 +27,8 @@ Registrations use the same four scopes as skills and the vault, so a server can 
 | `user_agent`   | one user with one specific agent |
 
 Each plugin has a unique name. Its configuration is selected in this order: `user_agent` > `user` > `system_agent` > `system`. An explicit administrator disable at `system` or matching `system_agent` scope still blocks access. Different plugins do not replace one another.
+
+A plugin can contain several MCP servers alongside Skills and CLI resources. Its scope and enable switch apply to the whole package. Each server has its own connection, credentials and tool catalog; a failed connection does not hide working servers or Skills in the same package.
 
 ## Authentication
 
@@ -52,7 +54,11 @@ Stella probes each registered server — connects and fetches its tool list — 
 | `error`      | The last probe or tool call failed; the redacted reason is shown |
 | `needs_auth` | The server rejected the stored credential with 401/403           |
 
-Creating or updating a configuration does not probe the server. Use **Probe** in the Web UI, or `POST /api/plugins/{plugin_id}/configs/{config_id}/probe`, to check the saved connection. Pass the exact plugin ID as a URL-encoded path segment. Stella also refreshes discovery when an agent session needs a missing tool catalog or the last snapshot is older than 24 hours. A failed probe updates the connection status and shows a redacted reason.
+Creating or updating a configuration does not probe the server. Use **Probe** in the Web UI, or `POST /api/mcp/servers/{child_id}/probe`, to check the saved connection. Use the child UUID returned by `GET /api/mcp/servers?parent_config_id={config_id}`. Stella also refreshes discovery when an agent session needs a missing tool catalog or the last snapshot is older than 24 hours. A failed probe updates the connection status and shows a redacted reason.
+
+All children share the parent configuration revision. Updating any child or another parent field invalidates older discovery snapshots; they are refreshed when discovery runs again. An OAuth authorization already in progress must be restarted after a parent revision change, including a change to a sibling. Saved credentials for unchanged siblings are preserved.
+
+Moving a package to another scope moves all of its MCP servers together. Bearer-authenticated servers each require a replacement token for the target scope. A package containing any OAuth server cannot be moved; create a configuration in the target scope and authorize it there.
 
 When a tool call is rejected with 401/403, the server moves to `needs_auth`; update the credential in the Web UI and probe again.
 
@@ -69,9 +75,9 @@ Every tool a server exposes can be switched on or off individually, using the sa
 
 An administrator's **disable** always wins over a user's enable; otherwise the more user-specific layer wins. Switch a tool in **Personal Settings → Agents → Tools** (or the admin console for system scopes), or with `PATCH /api/agents/{id}/tools/{toolName}`.
 
-The server's **enable switch is separate**: it turns the whole registration on or off. While a server is disabled, unreachable, or rejecting credentials, its tools stay listed but their switches have no effect until the server is healthy again — the header shows why.
+The plugin's **enable switch** controls every server and other resource in that package. Individual tool switches cannot override it. A server that is unreachable or rejecting credentials cannot execute tools; its connection status shows why.
 
-Tool restrictions follow the plugin identity and remote tool, across that plugin's scoped configurations. Changing the display name does not change its identity or permissions. The plugin name is fixed after creation. Always use the current catalog's exact exported name when managing a tool.
+Tool restrictions follow the plugin identity, server entry and remote tool, across that plugin's scoped configurations. Changing the display name does not change its identity or permissions. The plugin name is fixed after creation. Always use the current catalog's exact exported name when managing a tool.
 
 ## Marketplace
 
@@ -88,7 +94,7 @@ The registry source can be overridden (e.g. for a mirror) with the `STELLA_MCP_R
 
 ## Managing Servers
 
-Manage personal `user` and `user_agent` configurations from **Personal Settings → Plugins**. Administrators manage deployment-owned `system` and `system_agent` configurations from **Admin Console → Integrations → Plugins**. Add the MCP plugin configuration, choose whether it applies to every agent or one agent, and provide credentials when required. There is no separate MCP management API: the Web UI and the common plugin API under `/api/plugins` provide management, while agents retain the `settings_mcp_server_*` tools for model-facing administration.
+Manage personal `user` and `user_agent` configurations from **Personal Settings → Plugins**. Administrators manage deployment-owned `system` and `system_agent` configurations from **Admin Console → Integrations → Plugins**. Add the MCP plugin configuration, choose whether it applies to every agent or one agent, and provide credentials when required. The plugin API under `/api/plugins` manages package configuration and scope. `/api/mcp/servers` manages individual servers within a configuration; writes check the current parent revision. Agents retain the `settings_mcp_server_*` tools for model-facing administration.
 
 ## Troubleshooting
 

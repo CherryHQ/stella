@@ -60,7 +60,6 @@ type Service struct {
 	// plugins is the common configuration owner. MCP keeps this dependency
 	// narrow: credential and metadata mutations must share its transaction.
 	plugins *plugin.Service
-
 	// connect opens a client session to a registration; injectable so tests can
 	// fake the remote server. The default implementation resolves the
 	// credential for owner (bearer from the vault, OAuth via a TokenSource
@@ -159,14 +158,18 @@ func (s *Service) commonRegistration(ctx context.Context, authority authz.Author
 	if err != nil {
 		return Registration{}, err
 	}
-	var pluginID string
-	if err := s.pool.QueryRow(ctx, `SELECT plugin_id FROM plugin_config WHERE id = $1::uuid`, id).Scan(&pluginID); err != nil {
+	var pluginID, parentID, childKey string
+	if err := s.pool.QueryRow(ctx, `
+		SELECT c.plugin_id, c.id, COALESCE(ch.server_key, '')
+		FROM plugin_config c
+		LEFT JOIN plugin_config_mcp_server ch ON ch.config_id = c.id AND ch.id = $1::uuid
+		WHERE c.id = $1::uuid OR ch.id IS NOT NULL`, id).Scan(&pluginID, &parentID, &childKey); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Registration{}, authz.ErrNotFound
 		}
 		return Registration{}, fmt.Errorf("mcp: read common registration identity: %w", err)
 	}
-	cfg, err := access.GetConfig(ctx, pluginID, id)
+	cfg, err := access.GetConfig(ctx, pluginID, parentID)
 	if err != nil {
 		return Registration{}, err
 	}
@@ -174,9 +177,29 @@ func (s *Service) commonRegistration(ctx context.Context, authority authz.Author
 	if err != nil {
 		return Registration{}, err
 	}
-	observation, err := s.commonObservation(ctx, cfg, authority)
+	effective, err := plugin.Resolve(def, []plugin.Config{cfg}, cfg.UserID, cfg.AgentID)
 	if err != nil {
 		return Registration{}, err
+	}
+	observationChildID := cfg.ID
+	if len(cfg.MCPServers) == 1 {
+		observationChildID = cfg.MCPServers[0].ID
+	}
+	observation, err := s.commonObservation(ctx, cfg, effective.Payload, observationChildID, authority)
+	if err != nil {
+		return Registration{}, err
+	}
+	if childKey != "" {
+		for _, child := range cfg.MCPServers {
+			if child.ID == id && child.ServerKey == childKey {
+				observation, err = s.commonObservation(ctx, cfg, effective.Payload, child.ID, authority)
+				if err != nil {
+					return Registration{}, err
+				}
+				return RegistrationFromPluginChild(def, cfg, effective, child, observation, authority)
+			}
+		}
+		return Registration{}, authz.ErrNotFound
 	}
 	return s.registrationFromCommonConfig(ctx, authority, def, cfg, observation)
 }
@@ -184,11 +207,27 @@ func (s *Service) commonRegistration(ctx context.Context, authority authz.Author
 // commonObservation loads the exact observation owner for one resolved config.
 // Shared rows use the NULL owner tuple; per-user rows use only the caller's
 // trusted authority user. A missing or stale row remains StatusUnknown.
-func (s *Service) commonObservation(ctx context.Context, cfg plugin.Config, authority authz.Authority) (PluginMCPObservation, error) {
+func (s *Service) commonObservation(ctx context.Context, cfg plugin.Config, payloadRaw json.RawMessage, childID string, authority authz.Authority) (PluginMCPObservation, error) {
 	observation := PluginMCPObservation{ConfigRevision: cfg.Revision}
-	payload, err := decodeMCPPluginPayload(cfg.Payload)
+	payload, unambiguous, err := decodeMCPPluginObservationPayload(payloadRaw)
 	if err != nil {
 		return observation, err
+	}
+	if len(cfg.MCPServers) > 1 {
+		unambiguous = false
+		for _, child := range cfg.MCPServers {
+			if child.ID == childID {
+				childPayload, childErr := decodeMCPPluginPayloadForKey(payloadRaw, child.ServerKey)
+				if childErr != nil {
+					return observation, childErr
+				}
+				payload, unambiguous = childPayload, true
+				break
+			}
+		}
+	}
+	if !unambiguous || childID == "" {
+		return observation, nil
 	}
 	var userID *string
 	if payload.CredentialMode == CredentialModePerUser {
@@ -201,7 +240,7 @@ func (s *Service) commonObservation(ctx context.Context, cfg plugin.Config, auth
 		}
 		userID = &value
 	}
-	states, err := appdb.ListMCPConnectionStatesForConfigs(ctx, s.pool, []string{cfg.ID}, userID)
+	states, err := appdb.ListMCPConnectionStatesForConfigs(ctx, s.pool, []string{childID}, userID)
 	if err != nil {
 		return observation, err
 	}
@@ -236,6 +275,11 @@ func derefString(value *string) string {
 	return *value
 }
 
+type observationKey struct {
+	childID string
+	ownerID string
+}
+
 func (s *Service) commonRegistrationsByScope(ctx context.Context, authority authz.Authority, scope, agentID string) ([]Registration, error) {
 	if s == nil || s.pool == nil || s.plugins == nil || !authority.Valid() {
 		return nil, errPluginCredentialsUnavailable
@@ -251,9 +295,6 @@ func (s *Service) commonRegistrationsByScope(ctx context.Context, authority auth
 	configs := make([]plugin.Config, 0)
 	defsByID := make(map[string]plugin.Definition)
 	for _, def := range defs {
-		if def.Backend != plugin.BackendMCP {
-			continue
-		}
 		rows, err := access.ListConfigs(ctx, def.ID, plugin.Scope(scope), agentID)
 		if err != nil {
 			return nil, err
@@ -262,6 +303,13 @@ func (s *Service) commonRegistrationsByScope(ctx context.Context, authority auth
 			if len(cfg.Payload) == 0 {
 				continue // negative config disables this scope and has no registration
 			}
+			merged, err := mergeMCPJSONObjects(def.Spec, cfg.Payload)
+			if err != nil {
+				return nil, err
+			}
+			if !payloadHasMCP(merged) {
+				continue
+			}
 			configs = append(configs, cfg)
 			defsByID[def.ID] = def
 		}
@@ -269,15 +317,17 @@ func (s *Service) commonRegistrationsByScope(ctx context.Context, authority auth
 	if len(configs) == 0 {
 		return []Registration{}, nil
 	}
-	ids := make([]string, 0, len(configs))
+	ids := make([]string, 0)
 	perUser := false
 	for _, cfg := range configs {
-		ids = append(ids, cfg.ID)
-		payload, err := decodeMCPPluginPayload(cfg.Payload)
-		if err != nil {
-			return nil, err
+		for _, child := range cfg.MCPServers {
+			ids = append(ids, child.ID)
+			payload, err := decodeMCPPluginPayloadForKey(cfg.Payload, child.ServerKey)
+			if err != nil {
+				return nil, err
+			}
+			perUser = perUser || payload.CredentialMode == CredentialModePerUser
 		}
-		perUser = perUser || payload.CredentialMode == CredentialModePerUser
 	}
 	var credentialUserID *string
 	if perUser && authority.Kind() == authz.ActorUser {
@@ -287,10 +337,6 @@ func (s *Service) commonRegistrationsByScope(ctx context.Context, authority auth
 	states, err := appdb.ListMCPConnectionStatesForConfigs(ctx, s.pool, ids, credentialUserID)
 	if err != nil {
 		return nil, err
-	}
-	type observationKey struct {
-		configID string
-		ownerID  string
 	}
 	stateByKey := make(map[observationKey]PluginMCPObservation, len(states))
 	for _, state := range states {
@@ -302,25 +348,38 @@ func (s *Service) commonRegistrationsByScope(ctx context.Context, authority auth
 		if state.CredentialUserID != nil {
 			observedUserID = *state.CredentialUserID
 		}
-		stateByKey[observationKey{configID: state.ConfigID, ownerID: observedUserID}] = PluginMCPObservation{Status: state.Status, StatusError: state.StatusError, ProbedAt: derefTime(state.ProbedAt), ConfigRevision: state.ConfigRevision, CredentialUserID: observedUserID, Tools: tools}
+		stateByKey[observationKey{childID: state.ChildID, ownerID: observedUserID}] = PluginMCPObservation{Status: state.Status, StatusError: state.StatusError, ProbedAt: derefTime(state.ProbedAt), ConfigRevision: state.ConfigRevision, CredentialUserID: observedUserID, Tools: tools}
 	}
 	out := make([]Registration, 0, len(configs))
 	for _, cfg := range configs {
-		payload, err := decodeMCPPluginPayload(cfg.Payload)
+		effective, err := plugin.Resolve(defsByID[cfg.PluginID], []plugin.Config{cfg}, cfg.UserID, cfg.AgentID)
 		if err != nil {
 			return nil, err
 		}
-		ownerID := ""
-		if payload.CredentialMode == CredentialModePerUser && authority.Kind() == authz.ActorUser {
-			ownerID = string(authority.UserID())
-		}
-		reg, err := s.registrationFromCommonConfig(ctx, authority, defsByID[cfg.PluginID], cfg, stateByKey[observationKey{configID: cfg.ID, ownerID: ownerID}])
+		converted, err := registrationsFromResolvedConfig(defsByID[cfg.PluginID], cfg, effective, PluginMCPObservation{ConfigRevision: cfg.Revision}, observationMapForChildren(cfg, stateByKey, authority), authority)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, reg)
+		out = append(out, converted...)
 	}
 	return out, nil
+}
+
+func observationMapForChildren(cfg plugin.Config, states map[observationKey]PluginMCPObservation, authority authz.Authority) map[string]PluginMCPObservation {
+	result := make(map[string]PluginMCPObservation, len(cfg.MCPServers))
+	for _, child := range cfg.MCPServers {
+		ownerID := ""
+		payload, err := decodeMCPPluginPayloadForKey(cfg.Payload, child.ServerKey)
+		if err == nil && payload.CredentialMode == CredentialModePerUser && (authority.Kind() == authz.ActorUser || authority.Kind() == authz.ActorAgent) {
+			ownerID = string(authority.UserID())
+		}
+		if observation, ok := states[observationKey{childID: child.ID, ownerID: ownerID}]; ok {
+			result[child.ID] = observation
+		} else {
+			result[child.ID] = PluginMCPObservation{ConfigRevision: cfg.Revision}
+		}
+	}
+	return result
 }
 
 func (s *Service) registrationFromCommonConfig(ctx context.Context, authority authz.Authority, def plugin.Definition, cfg plugin.Config, observations ...PluginMCPObservation) (Registration, error) {
@@ -354,14 +413,44 @@ func (s *Service) withPluginMutation(ctx context.Context, authority authz.Author
 // Config edits and these credential operations therefore share one plugin
 // mutation transaction and one config-row lock.
 type CredentialMutation struct {
-	tx     pgx.Tx
-	config plugin.Config
-	owner  CredentialOwner
-	vault  Vault
+	tx             pgx.Tx
+	config         plugin.Config
+	registrationID string
+	serverKey      string
+	payloadRaw     json.RawMessage
+	owner          CredentialOwner
+	vault          Vault
 	// configManaged is true only when the authority may mutate the config
 	// owner tuple. A per-user caller may manage its own bundle, but must never
 	// touch a shared client secret or claim to delete every user's bundle.
 	configManaged bool
+}
+
+func (m CredentialMutation) credentialConfig() plugin.Config {
+	cfg := m.config
+	if m.registrationID != "" {
+		cfg.ID = m.registrationID
+	}
+	return cfg
+}
+
+func (m CredentialMutation) payload() (mcpPluginPayload, error) {
+	raw := m.config.Payload
+	if len(m.payloadRaw) != 0 {
+		raw = m.payloadRaw
+	}
+	if m.serverKey != "" {
+		return decodeMCPPluginPayloadForKey(raw, m.serverKey)
+	}
+	return decodeMCPPluginPayloadSingle(raw)
+}
+
+func (m CredentialMutation) credentialRefs(payload mcpPluginPayload) (string, string, string, error) {
+	cfg := m.credentialConfig()
+	if m.serverKey != "" {
+		return decodeMCPPluginCredentialRefsForKey(m.config.CredentialRefs, cfg, m.serverKey, payload.AuthType, payload.CredentialMode)
+	}
+	return decodeMCPPluginCredentialRefs(m.config.CredentialRefs, cfg, payload.AuthType, payload.CredentialMode)
 }
 
 // withCredentialMutationTx binds an MCP credential mutation to the common
@@ -371,6 +460,15 @@ type CredentialMutation struct {
 // callback runs. The callback may update/delete the config through Access and
 // clean up its credential refs before that same transaction commits.
 func (s *Service) withCredentialMutationTx(ctx context.Context, authority authz.Authority, pluginID, configID string, expectedRevision int64, owner CredentialOwner, fn func(context.Context, *plugin.Access, plugin.Config, CredentialMutation) error) error {
+	return s.withCredentialMutationTxForRegistration(ctx, authority, Registration{ID: configID, ParentConfigID: configID, ServerKey: "main", PluginID: pluginID, ConfigRevision: expectedRevision}, owner, fn)
+}
+
+// withCredentialMutationTxForRegistration locks the parent config while
+// carrying the child runtime identity into the typed credential capability.
+// A child UUID must namespace Vault and refs even though the parent row owns
+// the revision and mutation transaction.
+func (s *Service) withCredentialMutationTxForRegistration(ctx context.Context, authority authz.Authority, reg Registration, owner CredentialOwner, fn func(context.Context, *plugin.Access, plugin.Config, CredentialMutation) error) error {
+	pluginID, configID, expectedRevision := reg.PluginID, reg.ParentConfigID, reg.ConfigRevision
 	if expectedRevision < 1 || pluginID == "" || configID == "" || fn == nil {
 		return plugin.ErrConflict
 	}
@@ -390,7 +488,45 @@ func (s *Service) withCredentialMutationTx(ctx context.Context, authority authz.
 		if err != nil {
 			return err
 		}
-		if err := commonCredentialOwner(config, owner, authority); err != nil {
+		def, err := access.GetDefinition(mutationCtx, pluginID)
+		if err != nil {
+			return err
+		}
+		effective, err := plugin.Resolve(def, []plugin.Config{config}, config.UserID, config.AgentID)
+		if err != nil {
+			return err
+		}
+		ownerConfig := config
+		ownerConfig.Payload = effective.Payload
+		registrationID := reg.ID
+		serverKey := reg.ServerKey
+		if registrationID == config.ID {
+			// Some imported one-child packages historically reused the parent
+			// UUID for their child row. Keep the nested key when that relation
+			// exists; only a true flat config has no child row.
+			var linkedKey string
+			if err := tx.QueryRow(mutationCtx, `SELECT server_key FROM plugin_config_mcp_server WHERE id = $1::uuid AND config_id = $1::uuid`, config.ID).Scan(&linkedKey); errors.Is(err, pgx.ErrNoRows) {
+				registrationID = ""
+				serverKey = ""
+			} else if err != nil {
+				return errPluginConfigIdentity
+			} else {
+				serverKey = linkedKey
+			}
+		}
+		if registrationID != "" {
+			var linkedParent, linkedKey string
+			if err := tx.QueryRow(mutationCtx, `SELECT config_id, server_key FROM plugin_config_mcp_server WHERE id = $1::uuid`, registrationID).Scan(&linkedParent, &linkedKey); err != nil || linkedParent != config.ID || linkedKey != serverKey {
+				return errPluginConfigIdentity
+			}
+		}
+		// The config row is the authority for shared/system ownership. An admin
+		// caller may arrive through an older adapter carrying a user-scope owner
+		// tuple; canonicalize that tuple before validating or touching Vault.
+		if authority.IsAdmin() && (owner.Scope != string(config.Scope) || owner.UserID != config.UserID || owner.AgentID != config.AgentID) {
+			owner = CredentialOwner{Scope: string(config.Scope), UserID: config.UserID, AgentID: config.AgentID}
+		}
+		if err := commonCredentialOwnerForRegistration(ownerConfig, owner, authority, serverKey); err != nil {
 			return err
 		}
 		var vault Vault
@@ -400,7 +536,7 @@ func (s *Service) withCredentialMutationTx(ctx context.Context, authority authz.
 		managed := authority.IsAdmin() ||
 			(config.Scope == plugin.ScopeUser && config.UserID == string(authority.UserID())) ||
 			(config.Scope == plugin.ScopeUserAgent && config.UserID == string(authority.UserID()))
-		return fn(mutationCtx, access, config, CredentialMutation{tx: tx, config: config, owner: owner, vault: vault, configManaged: managed})
+		return fn(mutationCtx, access, config, CredentialMutation{tx: tx, config: config, registrationID: registrationID, serverKey: serverKey, payloadRaw: effective.Payload, owner: owner, vault: vault, configManaged: managed})
 	})
 }
 
@@ -423,11 +559,11 @@ func (m CredentialMutation) DeleteAll(ctx context.Context) error {
 // owner tuple. Empty values are rejected so a caller cannot turn a write into
 // an accidental credential deletion.
 func (m CredentialMutation) StoreBearer(ctx context.Context, token string) error {
-	payload, err := decodeMCPPluginPayload(m.config.Payload)
+	payload, err := m.payload()
 	if err != nil || payload.AuthType != AuthTypeBearer || token == "" {
 		return authz.ErrForbidden
 	}
-	ref, _, _, err := decodeMCPPluginCredentialRefs(m.config.CredentialRefs, m.config, payload.AuthType, payload.CredentialMode)
+	ref, _, _, err := m.credentialRefs(payload)
 	if err != nil {
 		return authz.ErrForbidden
 	}
@@ -438,14 +574,14 @@ func (m CredentialMutation) StoreBearer(ctx context.Context, token string) error
 // bundle name is derived from the config UUID and cannot be supplied by the
 // caller.
 func (m CredentialMutation) StoreOAuthBundle(ctx context.Context, bundle OAuthBundle) error {
-	payload, err := decodeMCPPluginPayload(m.config.Payload)
+	payload, err := m.payload()
 	if err != nil || payload.AuthType != AuthTypeOAuth {
 		return authz.ErrForbidden
 	}
-	if _, _, _, err := decodeMCPPluginCredentialRefs(m.config.CredentialRefs, m.config, payload.AuthType, payload.CredentialMode); err != nil {
+	if _, _, _, err := m.credentialRefs(payload); err != nil {
 		return authz.ErrForbidden
 	}
-	return writeOAuthBundle(ctx, m.vault, m.owner, m.config.ID, bundle)
+	return writeOAuthBundle(ctx, m.vault, m.owner, m.credentialConfig().ID, bundle)
 }
 
 // storeOAuthClientSecret stores the configured client secret at the config
@@ -455,11 +591,11 @@ func (m CredentialMutation) storeOAuthClientSecret(ctx context.Context, secret s
 	if !m.configManaged {
 		return authz.ErrForbidden
 	}
-	payload, err := decodeMCPPluginPayload(m.config.Payload)
+	payload, err := m.payload()
 	if err != nil || payload.AuthType != AuthTypeOAuth || secret == "" {
 		return authz.ErrForbidden
 	}
-	_, _, ref, err := decodeMCPPluginCredentialRefs(m.config.CredentialRefs, m.config, payload.AuthType, payload.CredentialMode)
+	_, _, ref, err := m.credentialRefs(payload)
 	if err != nil || ref == "" {
 		return authz.ErrForbidden
 	}
@@ -470,14 +606,14 @@ func (m CredentialMutation) storeOAuthClientSecret(ctx context.Context, secret s
 // DeleteOAuthBundle removes only the bundle for this trusted credential owner.
 // It is safe for a per-user caller because it cannot address another user.
 func (m CredentialMutation) DeleteOAuthBundle(ctx context.Context) error {
-	payload, err := decodeMCPPluginPayload(m.config.Payload)
+	payload, err := m.payload()
 	if err != nil || payload.AuthType != AuthTypeOAuth {
 		return authz.ErrForbidden
 	}
-	if _, _, _, err := decodeMCPPluginCredentialRefs(m.config.CredentialRefs, m.config, payload.AuthType, payload.CredentialMode); err != nil {
+	if _, _, _, err := m.credentialRefs(payload); err != nil {
 		return authz.ErrForbidden
 	}
-	return m.deleteScoped(ctx, m.owner, oauthBundleName(m.config.ID))
+	return m.deleteScoped(ctx, m.owner, oauthBundleName(m.credentialConfig().ID))
 }
 
 // DeleteOAuthClientSecret removes the config-owned client secret. It requires
@@ -487,15 +623,16 @@ func (m CredentialMutation) DeleteOAuthClientSecret(ctx context.Context) error {
 	if !m.configManaged {
 		return authz.ErrForbidden
 	}
-	payload, err := decodeMCPPluginPayload(m.config.Payload)
+	payload, err := m.payload()
 	if err != nil || payload.AuthType != AuthTypeOAuth {
 		return authz.ErrForbidden
 	}
-	_, _, ref, err := decodeMCPPluginCredentialRefs(m.config.CredentialRefs, m.config, payload.AuthType, payload.CredentialMode)
+	_, _, ref, err := m.credentialRefs(payload)
 	if err != nil || ref == "" {
 		return authz.ErrForbidden
 	}
-	return m.deleteScoped(ctx, CredentialOwner{Scope: string(m.config.Scope), UserID: m.config.UserID, AgentID: m.config.AgentID}, ref)
+	cfg := m.credentialConfig()
+	return m.deleteScoped(ctx, CredentialOwner{Scope: string(cfg.Scope), UserID: cfg.UserID, AgentID: cfg.AgentID}, ref)
 }
 
 func (m CredentialMutation) deleteScoped(ctx context.Context, owner CredentialOwner, name string) error {
@@ -539,11 +676,17 @@ func (s *Service) ResetCommonBuiltinConfig(ctx context.Context, authority authz.
 	return reset, err
 }
 
-func commonCredentialOwner(config plugin.Config, owner CredentialOwner, authority authz.Authority) error {
+func commonCredentialOwnerForRegistration(config plugin.Config, owner CredentialOwner, authority authz.Authority, serverKey string) error {
 	if !authority.Valid() || authority.Kind() != authz.ActorUser {
 		return authz.ErrForbidden
 	}
-	payload, err := decodeMCPPluginPayload(config.Payload)
+	var payload mcpPluginPayload
+	var err error
+	if serverKey != "" {
+		payload, err = decodeMCPPluginPayloadForKey(config.Payload, serverKey)
+	} else {
+		payload, err = decodeMCPPluginPayloadSingle(config.Payload)
+	}
 	if err != nil {
 		return authz.ErrForbidden
 	}
@@ -716,9 +859,6 @@ func (s *Service) CreateCustom(ctx context.Context, def plugin.Definition, in Cr
 	if err := s.requireCommon(); err != nil {
 		return plugin.Definition{}, plugin.Config{}, err
 	}
-	if def.Backend != plugin.BackendMCP {
-		return plugin.Definition{}, plugin.Config{}, fmt.Errorf("%w: mcp: custom definition backend must be %q", plugin.ErrInvalidConfig, plugin.BackendMCP)
-	}
 	if in.PluginID != "" {
 		return plugin.Definition{}, plugin.Config{}, fmt.Errorf("%w: "+"mcp: custom creation must not specify plugin_id", plugin.ErrInvalidConfig)
 	}
@@ -770,8 +910,12 @@ func (s *Service) CreateCustom(ctx context.Context, def plugin.Definition, in Cr
 	}
 
 	initialPayload, err := json.Marshal(map[string]any{
-		"url": in.URL, "transport": in.Transport, "auth_type": AuthTypeNone,
-		"credential_mode": CredentialModeShared,
+		"mcp_servers": map[string]any{
+			"main": map[string]any{
+				"url": in.URL, "transport": in.Transport, "auth_type": AuthTypeNone,
+				"credential_mode": CredentialModeShared,
+			},
+		},
 	})
 	if err != nil {
 		return plugin.Definition{}, plugin.Config{}, err
@@ -790,7 +934,15 @@ func (s *Service) CreateCustom(ctx context.Context, def plugin.Definition, in Cr
 		if err != nil {
 			return err
 		}
-		payload, refs, err := commonMCPCreatePayload(createdConfig.ID, in)
+		if len(createdConfig.MCPServers) != 1 || createdConfig.MCPServers[0].ServerKey != "main" {
+			return fmt.Errorf("mcp: custom config did not create its main server child")
+		}
+		childID := createdConfig.MCPServers[0].ID
+		payload, refs, err := commonMCPCreatePayload(childID, in)
+		if err != nil {
+			return err
+		}
+		payload, refs, err = wrapMCPChildPayload(payload, refs)
 		if err != nil {
 			return err
 		}
@@ -805,14 +957,13 @@ func (s *Service) CreateCustom(ctx context.Context, def plugin.Definition, in Cr
 		if s.bindVault != nil {
 			vault = s.bindVault(tx)
 		}
-		mutation := CredentialMutation{tx: tx, config: updated, owner: owner, vault: vault, configManaged: true}
 		if in.Token != "" {
-			if err := mutation.StoreBearer(mutationCtx, in.Token); err != nil {
+			if err := storeChildSecret(mutationCtx, vault, owner, credentialName(childID), in.Token); err != nil {
 				return err
 			}
 		}
 		if in.OAuthClientSecret != "" {
-			if err := mutation.storeOAuthClientSecret(mutationCtx, in.OAuthClientSecret); err != nil {
+			if err := storeChildSecret(mutationCtx, vault, owner, oauthClientSecretName(childID), in.OAuthClientSecret); err != nil {
 				return err
 			}
 		}
@@ -823,6 +974,28 @@ func (s *Service) CreateCustom(ctx context.Context, def plugin.Definition, in Cr
 		return plugin.Definition{}, plugin.Config{}, err
 	}
 	return createdDef, createdConfig, nil
+}
+
+// wrapMCPChildPayload gives a single-server mutation the same nested shape as
+// a composable package. Child identity is already encoded into the locators.
+func wrapMCPChildPayload(payload, refs json.RawMessage) (json.RawMessage, json.RawMessage, error) {
+	childPayload, err := decodeJSONObject(payload, "MCP child payload")
+	if err != nil {
+		return nil, nil, err
+	}
+	childRefs, err := decodeJSONObject(refs, "MCP child refs")
+	if err != nil {
+		return nil, nil, err
+	}
+	wrappedPayload, err := json.Marshal(map[string]any{"mcp_servers": map[string]any{"main": childPayload}})
+	if err != nil {
+		return nil, nil, err
+	}
+	wrappedRefs, err := json.Marshal(map[string]any{"mcp_servers": map[string]any{"main": childRefs}})
+	if err != nil {
+		return nil, nil, err
+	}
+	return wrappedPayload, wrappedRefs, nil
 }
 
 func (s *Service) createCommon(ctx context.Context, in CreateInput) (Registration, error) {
@@ -871,8 +1044,10 @@ func (s *Service) createCommonForAuthority(ctx context.Context, authority authz.
 			return err
 		}
 		initialPayload, err := json.Marshal(map[string]any{
-			"url": in.URL, "transport": in.Transport, "auth_type": AuthTypeNone,
-			"credential_mode": CredentialModeShared,
+			"mcp_servers": map[string]any{"main": map[string]any{
+				"url": in.URL, "transport": in.Transport, "auth_type": AuthTypeNone,
+				"credential_mode": CredentialModeShared,
+			}},
 		})
 		if err != nil {
 			return err
@@ -885,7 +1060,15 @@ func (s *Service) createCommonForAuthority(ctx context.Context, authority authz.
 		if err != nil {
 			return err
 		}
-		payload, refs, err := commonMCPCreatePayload(created.ID, in)
+		if len(created.MCPServers) != 1 || created.MCPServers[0].ServerKey != "main" {
+			return fmt.Errorf("mcp: common config did not create its main server child")
+		}
+		childID := created.MCPServers[0].ID
+		payload, refs, err := commonMCPCreatePayload(childID, in)
+		if err != nil {
+			return err
+		}
+		payload, refs, err = wrapMCPChildPayload(payload, refs)
 		if err != nil {
 			return err
 		}
@@ -898,7 +1081,7 @@ func (s *Service) createCommonForAuthority(ctx context.Context, authority authz.
 		if s.bindVault != nil {
 			vault = s.bindVault(tx)
 		}
-		mutation := CredentialMutation{tx: tx, config: updated, owner: owner, vault: vault, configManaged: true}
+		mutation := CredentialMutation{tx: tx, config: updated, registrationID: childID, serverKey: "main", owner: owner, vault: vault, configManaged: true}
 		if in.Token != "" {
 			if err := mutation.StoreBearer(mutationCtx, in.Token); err != nil {
 				return err
@@ -1029,6 +1212,10 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 	if expectedVersion != "" && reg.Version() != expectedVersion {
 		return Registration{}, ErrVersionConflict
 	}
+	if reg.ServerKey != "" && in.NewScope == nil && in.NewUserID == "" && in.NewAgentID == "" {
+		childAccess := &Access{svc: s, authority: authority}
+		return childAccess.UpdateChild(ctx, reg.ID, reg.ConfigRevision, in)
+	}
 	if in.NewScope != nil || in.NewUserID != "" || in.NewAgentID != "" {
 		targetScope := plugin.Scope(reg.Scope)
 		targetAgentID := reg.AgentID
@@ -1062,7 +1249,7 @@ func (s *Service) updateCommon(ctx context.Context, authority authz.Authority, i
 	}
 	owner := s.CredentialOwner(reg, string(authority.UserID()))
 	var result Registration
-	err = s.withCredentialMutationTx(ctx, authority, reg.PluginID, reg.ID, reg.ConfigRevision, owner, func(mutationCtx context.Context, access *plugin.Access, current plugin.Config, mutation CredentialMutation) error {
+	err = s.withCredentialMutationTxForRegistration(ctx, authority, reg, owner, func(mutationCtx context.Context, access *plugin.Access, current plugin.Config, mutation CredentialMutation) error {
 		payload, err := decodeJSONObject(current.Payload, "MCP config payload")
 		if err != nil {
 			return err
@@ -1296,6 +1483,13 @@ func (s *Service) Delete(ctx context.Context, id, scope, userID, agentID string)
 	if reg.Scope != scope || reg.UserID != userID || reg.AgentID != agentID {
 		return authz.ErrNotFound
 	}
+	if reg.ServerKey != "" {
+		// Child UUIDs are the settings-facing identity, while the authored
+		// payload and CAS revision live on their parent config. Reuse the
+		// child-aware path so deleting through Service has the same behavior as
+		// Access.Delete and revokes the child credential namespace atomically.
+		return (&Access{svc: s, authority: authority}).DeleteChild(ctx, reg.ID, reg.ConfigRevision)
+	}
 	return s.DeleteCommonConfig(ctx, authority, reg.PluginID, reg.ID, reg.ConfigRevision, s.CredentialOwner(reg, string(authority.UserID())))
 }
 
@@ -1321,6 +1515,9 @@ func (s *Service) DeleteIfVersion(ctx context.Context, id, scope, userID, agentI
 	}
 	if reg.Scope != scope || reg.UserID != userID || reg.AgentID != agentID || reg.Version() != expectedVersion {
 		return ErrVersionConflict
+	}
+	if reg.ServerKey != "" {
+		return (&Access{svc: s, authority: authority}).DeleteChild(ctx, reg.ID, reg.ConfigRevision)
 	}
 	return s.DeleteCommonConfig(ctx, authority, reg.PluginID, reg.ID, reg.ConfigRevision, s.CredentialOwner(reg, string(authority.UserID())))
 }
@@ -1427,7 +1624,7 @@ func (s *Service) persistCommonObservation(ctx context.Context, reg Registration
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	_, err = appdb.StoreMCPConnectionState(ctx, tx, appdb.MCPConnectionState{
-		ConfigID: reg.ID, CredentialUserID: credentialUserID, Tools: raw,
+		ChildID: reg.ID, CredentialUserID: credentialUserID, Tools: raw,
 		Status: status, StatusError: reason, ProbedAt: timePtr(time.Now().UTC()),
 		ConfigRevision: reg.ConfigRevision,
 	})
@@ -1467,7 +1664,12 @@ func (s *Service) persistCommonStatus(ctx context.Context, reg Registration, own
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var revision int64
-	if err := tx.QueryRow(ctx, `SELECT revision FROM plugin_config WHERE id = $1::uuid FOR UPDATE`, reg.ID).Scan(&revision); err != nil {
+	if err := tx.QueryRow(ctx, `
+		SELECT c.revision
+		FROM plugin_config_mcp_server child
+		JOIN plugin_config c ON c.id = child.config_id
+		WHERE child.id = $1::uuid
+		FOR UPDATE OF c`, reg.ID).Scan(&revision); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errPluginConfigIdentity
 		}
@@ -1479,7 +1681,7 @@ func (s *Service) persistCommonStatus(ctx context.Context, reg Registration, own
 	result, err := tx.Exec(ctx, `
 		UPDATE mcp_connection_state
 		SET status = $3, status_error = $4, updated_at = now()
-		WHERE config_id = $1::uuid
+		WHERE child_id = $1::uuid
 		  AND credential_user_id IS NOT DISTINCT FROM $2::uuid
 		  AND config_revision = $5`, reg.ID, ownerID, status, reason, reg.ConfigRevision)
 	if err != nil {
@@ -1487,7 +1689,7 @@ func (s *Service) persistCommonStatus(ctx context.Context, reg Registration, own
 	}
 	if result.RowsAffected() == 0 {
 		if _, err := appdb.StoreMCPConnectionState(ctx, tx, appdb.MCPConnectionState{
-			ConfigID: reg.ID, CredentialUserID: ownerStringPtr(ownerID),
+			ChildID: reg.ID, CredentialUserID: ownerStringPtr(ownerID),
 			Tools: json.RawMessage(`[]`), Status: status, StatusError: reason,
 			ConfigRevision: reg.ConfigRevision,
 		}); err != nil {

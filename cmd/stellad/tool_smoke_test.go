@@ -1602,7 +1602,11 @@ func disableSmokeCLIPlugins(ctx context.Context, service *plugin.Service, author
 	}
 	disabled := false
 	for _, definition := range definitions {
-		if definition.Backend != plugin.BackendCLI || manifest.IsSystemPlugin(definition) {
+		if manifest.IsSystemPlugin(definition) {
+			continue
+		}
+		payload, err := manifest.DecodeCLIPayload(definition.Spec, "smoke CLI definition")
+		if err != nil || len(payload.Binaries) == 0 {
 			continue
 		}
 		configs, err := access.ListConfigs(ctx, definition.ID, plugin.ScopeSystem, "")

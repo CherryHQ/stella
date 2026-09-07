@@ -9,12 +9,12 @@ import (
 	"testing"
 
 	"filippo.io/age"
+	"github.com/google/uuid"
 
 	"github.com/jackc/pgx/v5"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/mcp"
-	"github.com/CherryHQ/stella/internal/platform/config"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -54,7 +54,7 @@ func setupPluginMutationHTTP(t *testing.T) (*testEnv, *vault.Service) {
 func TestPluginMCPHTTPAtomicCredentialsAndClosedProjection(t *testing.T) {
 	env, secrets := setupPluginMutationHTTP(t)
 	body := map[string]any{
-		"name": "http-mcp", "display_name": "HTTP MCP", "backend": "mcp", "definition_spec": map[string]any{},
+		"name": "http-mcp", "display_name": "HTTP MCP", "definition_spec": map[string]any{},
 		"initial_config": map[string]any{"scope": "user", "is_enabled": true, "config": map[string]any{"url": "https://mcp.example.test/path/endpoint-secret", "auth_type": "bearer", "transport": "streamable_http"}, "credentials": map[string]any{"token": "first-bearer-secret"}},
 	}
 	if rr := doUnauthRequest(t, env.srv, http.MethodPost, "/api/plugins", body); rr.Code != http.StatusUnauthorized {
@@ -74,61 +74,41 @@ func TestPluginMCPHTTPAtomicCredentialsAndClosedProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := created.Config
-	name := "MCP_TOKEN_" + strings.ToUpper(strings.ReplaceAll(cfg.Id.String(), "-", "_"))
+	if len(cfg.ResourceSummary.McpServers) != 1 || cfg.ResourceSummary.McpServers[0].ChildId == nil {
+		t.Fatalf("created MCP child summary = %#v", cfg.ResourceSummary.McpServers)
+	}
+	name := "MCP_TOKEN_" + strings.ToUpper(strings.ReplaceAll(cfg.ResourceSummary.McpServers[0].ChildId.String(), "-", "_"))
 	if got, err := secrets.GetScoped(t.Context(), "user", env.adminUser.ID, "", name); err != nil || got != "first-bearer-secret" {
 		t.Fatalf("stored initial credential: %v", err)
 	}
-	for _, mode := range []string{"false", "null", "omitted"} {
-		agentID := "mcp-create-" + mode
-		if err := env.store.CreateAgent(t.Context(), config.Agent{ID: agentID, Name: agentID, Model: "test/model", Scope: config.AgentScopeSystem, Enabled: true}); err != nil {
-			t.Fatal(err)
-		}
-		child := map[string]any{"scope": "system_agent", "agent_id": agentID, "config": map[string]any{"url": "https://mcp.example.test", "auth_type": "none", "transport": "streamable_http"}}
-		if mode == "false" {
-			child["is_enabled"] = false
-		}
-		if mode == "null" {
-			child["is_enabled"] = nil
-		}
-		response := doRequest(t, env, http.MethodPost, pluginAPIPath(created.Plugin.Id)+"/configs", child)
+	parentRevision := *cfg.Revision
+	for _, serverKey := range []string{"child-alpha", "child-beta"} {
+		response := doRequest(t, env, http.MethodPost, "/api/mcp/servers", map[string]any{
+			"parent_config_id":         cfg.Id.String(),
+			"server_key":               serverKey,
+			"expected_parent_revision": parentRevision,
+			"url":                      "https://mcp.example.test",
+			"auth_type":                "none",
+			"transport":                "streamable_http",
+		})
 		if response.Code != http.StatusCreated {
-			t.Fatalf("child %s=%d %s", mode, response.Code, response.Body.String())
+			t.Fatalf("child %s=%d %s", serverKey, response.Code, response.Body.String())
 		}
-		var nullValue, falseValue bool
-		if err := env.db.QueryRow(t.Context(), `SELECT enabled IS NULL, enabled IS FALSE FROM plugin_config WHERE plugin_id=$1 AND scope='system_agent' AND agent_id=$2`, created.Plugin.Id, agentID).Scan(&nullValue, &falseValue); err != nil {
+		var child apitypes.MCPServer
+		if err := json.Unmarshal(response.Body.Bytes(), &child); err != nil {
 			t.Fatal(err)
 		}
-		if mode == "false" && !falseValue || mode != "false" && !nullValue {
-			t.Fatalf("child %s null=%v false=%v", mode, nullValue, falseValue)
+		if child.Enabled == nil || !*child.Enabled || child.ParentRevision == nil || *child.ParentRevision <= parentRevision {
+			t.Fatalf("child projection = %#v", child)
 		}
+		parentRevision = *child.ParentRevision
 	}
-	for _, scope := range []string{"system_agent", "user_agent"} {
-		invalid := map[string]any{"scope": scope, "config": map[string]any{"url": "https://mcp.example.test", "auth_type": "none", "transport": "streamable_http"}}
-		response := doRequest(t, env, http.MethodPost, pluginAPIPath(created.Plugin.Id)+"/configs", invalid)
-		if response.Code != http.StatusBadRequest {
-			t.Fatalf("missing agent %s=%d %s", scope, response.Code, response.Body.String())
-		}
-		if strings.Contains(response.Body.String(), "mcp.example.test") {
-			t.Fatal("owner validation exposed config")
-		}
-	}
-	path := pluginAPIPath(created.Plugin.Id) + "/configs/" + cfg.Id.String()
-	var revision int64
-	if err := env.db.QueryRow(t.Context(), `SELECT revision FROM plugin_config WHERE id=$1`, cfg.Id.String()).Scan(&revision); err != nil {
-		t.Fatal(err)
-	}
-	update := map[string]any{"expected_revision": revision, "config": map[string]any{"url": "https://changed.example.test/mcp"}, "credentials": map[string]any{"token": "second-bearer-secret"}}
-	wrong := pluginAPIPath("custom/wrong") + "/configs/" + cfg.Id.String()
+	mainChild := cfg.ResourceSummary.McpServers[0].ChildId.String()
+	path := "/api/mcp/servers/" + mainChild
+	update := map[string]any{"expected_parent_revision": parentRevision, "url": "https://changed.example.test/mcp", "credentials": map[string]any{"token": "second-bearer-secret"}}
+	wrong := "/api/mcp/servers/" + uuid.NewString()
 	if rr := doRequest(t, env, http.MethodPatch, wrong, update); rr.Code != http.StatusNotFound {
-		t.Fatalf("wrong parent=%d %s", rr.Code, rr.Body.String())
-	}
-	invalid := map[string]any{"expected_revision": revision, "config": map[string]any{"url": "https://changed.example.test/mcp"}}
-	rejected := doRequest(t, env, http.MethodPatch, path, invalid)
-	if rejected.Code != http.StatusBadRequest {
-		t.Fatalf("missing replacement=%d %s", rejected.Code, rejected.Body.String())
-	}
-	if strings.Contains(rejected.Body.String(), "changed.example.test") || strings.Contains(rejected.Body.String(), "first-bearer-secret") {
-		t.Fatal("validation response leaked connection")
+		t.Fatalf("unknown child=%d %s", rr.Code, rr.Body.String())
 	}
 	rr = doRequest(t, env, http.MethodPatch, path, update)
 	if rr.Code != http.StatusOK {
@@ -143,29 +123,15 @@ func TestPluginMCPHTTPAtomicCredentialsAndClosedProjection(t *testing.T) {
 	if rr := doRequest(t, env, http.MethodPatch, path, update); rr.Code != http.StatusConflict {
 		t.Fatalf("stale=%d %s", rr.Code, rr.Body.String())
 	}
-	if err := env.db.QueryRow(t.Context(), `SELECT revision FROM plugin_config WHERE id=$1`, cfg.Id.String()).Scan(&revision); err != nil {
-		t.Fatal(err)
-	}
-	rr = doRequest(t, env, http.MethodPatch, path, map[string]any{"expected_revision": revision, "is_enabled": nil})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("inherit=%d %s", rr.Code, rr.Body.String())
-	}
-	var inherited bool
-	if err := env.db.QueryRow(t.Context(), `SELECT enabled IS NULL FROM plugin_config WHERE id=$1`, cfg.Id.String()).Scan(&inherited); err != nil {
-		t.Fatal(err)
-	}
-	if !inherited {
-		t.Fatal("null enabled did not restore inheritance")
-	}
 	if got, err := secrets.GetScoped(t.Context(), "user", env.adminUser.ID, "", name); err != nil || got != "second-bearer-secret" {
-		t.Fatalf("enable reset changed credential: %v", err)
+		t.Fatalf("child credential changed unexpectedly: %v", err)
 	}
 }
 
 func TestPluginMCPHTTPRejectsRawLocatorsAndForeignScope(t *testing.T) {
 	env, _ := setupPluginMutationHTTP(t)
 	_, token := createTestUserWithToken(t, env.authStore, env.oidcStore, "plugin-http-user", "user")
-	body := map[string]any{"name": "forbidden-mcp", "display_name": "Forbidden MCP", "backend": "mcp", "definition_spec": map[string]any{}, "initial_config": map[string]any{"scope": "system", "config": map[string]any{"url": "https://mcp.example.test", "auth_type": "none", "transport": "streamable_http"}}}
+	body := map[string]any{"name": "forbidden-mcp", "display_name": "Forbidden MCP", "definition_spec": map[string]any{}, "initial_config": map[string]any{"scope": "system", "config": map[string]any{"url": "https://mcp.example.test", "auth_type": "none", "transport": "streamable_http"}}}
 	rr := doRequestWithSession(t, env.srv, token, http.MethodPost, "/api/plugins", body)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("foreign scope=%d %s", rr.Code, rr.Body.String())
@@ -190,7 +156,7 @@ func TestPluginMCPHTTPInvalidBackendInput(t *testing.T) {
 		t.Run(field, func(t *testing.T) {
 			cfg := map[string]any{"url": "https://mcp.example.test/private-path", "auth_type": "none", "transport": "streamable_http"}
 			cfg[field] = "invalid-secret-value"
-			body := map[string]any{"name": "invalid-mcp", "display_name": "Invalid MCP", "backend": "mcp", "definition_spec": map[string]any{}, "initial_config": map[string]any{"scope": "user", "is_enabled": true, "config": cfg}}
+			body := map[string]any{"name": "invalid-mcp", "display_name": "Invalid MCP", "definition_spec": map[string]any{}, "initial_config": map[string]any{"scope": "user", "is_enabled": true, "config": cfg}}
 			rr := doRequest(t, env, http.MethodPost, "/api/plugins", body)
 			if rr.Code != http.StatusBadRequest {
 				t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -209,7 +175,7 @@ func TestPluginHTTPDefinitionLifecycleAndConfigIsolation(t *testing.T) {
 	create := func(name, displayName, endpoint string) apitypes.CreatePluginResponse {
 		t.Helper()
 		rr := doRequest(t, env, http.MethodPost, "/api/plugins", map[string]any{
-			"name": name, "display_name": displayName, "backend": "mcp",
+			"name": name, "display_name": displayName,
 			"definition_spec": map[string]any{},
 			"initial_config": map[string]any{
 				"scope": "user", "is_enabled": true,
@@ -236,11 +202,14 @@ func TestPluginHTTPDefinitionLifecycleAndConfigIsolation(t *testing.T) {
 	if err := env.db.QueryRow(t.Context(), `SELECT config FROM plugin_config WHERE id = $1`, second.Config.Id.String()).Scan(&before); err != nil {
 		t.Fatalf("read second config: %v", err)
 	}
-	updatePath := pluginAPIPath(first.Plugin.Id) + "/configs/" + first.Config.Id.String()
+	if len(first.Config.ResourceSummary.McpServers) != 1 || first.Config.ResourceSummary.McpServers[0].ChildId == nil {
+		t.Fatalf("first MCP child summary = %#v", first.Config.ResourceSummary.McpServers)
+	}
+	updatePath := "/api/mcp/servers/" + first.Config.ResourceSummary.McpServers[0].ChildId.String()
 	update := map[string]any{
-		"expected_revision": first.Config.Revision,
-		"config":            map[string]any{"url": "https://a-updated.example.test/mcp", "auth_type": "bearer", "transport": "streamable_http"},
-		"credentials":       map[string]any{"token": "lifecycle_a-replacement"},
+		"expected_parent_revision": first.Config.Revision,
+		"url":                      "https://a-updated.example.test/mcp",
+		"credentials":              map[string]any{"token": "lifecycle_a-replacement"},
 	}
 	rr := doRequest(t, env, http.MethodPatch, updatePath, update)
 	if rr.Code != http.StatusOK {
@@ -257,8 +226,8 @@ func TestPluginHTTPDefinitionLifecycleAndConfigIsolation(t *testing.T) {
 	catalog := pluginpkg.NewCatalog()
 	if err := catalog.Register(pluginpkg.Definition{
 		ID: "builtin.lifecycle", DisplayName: "Builtin lifecycle",
-		Backend: pluginpkg.BackendMCP, Source: pluginpkg.SourceBuiltin, ImplementationKey: "lifecycle",
-		Spec: json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1,
+		Source: pluginpkg.SourceBuiltin,
+		Spec:   json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1,
 	}); err != nil {
 		t.Fatalf("register builtin: %v", err)
 	}

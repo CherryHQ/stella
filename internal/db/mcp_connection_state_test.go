@@ -20,40 +20,40 @@ func TestMCPConnectionStateReadsSharedAndTrustedUserOnly(t *testing.T) {
 	userB := insertPluginUser(t, db, "mcp-state-b@example.test", false)
 	definitionID := "mcp-connection-state-read"
 	insertMCPConnectionStateDefinition(t, db, definitionID)
-	sharedConfigID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeSystem), "", 7)
-	perUserConfigID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeUser), string(userA.UserID()), 3)
-	foreignConfigID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeUser), string(userB.UserID()), 3)
+	_, sharedChildID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeSystem), "", 7)
+	_, perUserChildID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeUser), string(userA.UserID()), 3)
+	_, foreignChildID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeUser), string(userB.UserID()), 3)
 
 	now := time.Now().UTC()
 	storeMCPConnectionState(t, db, MCPConnectionState{
-		ConfigID: sharedConfigID, Status: "ok", Tools: json.RawMessage(`[ {"name":"shared"} ]`), ConfigRevision: 7, ProbedAt: &now,
+		ChildID: sharedChildID, Status: "ok", Tools: json.RawMessage(`[ {"name":"shared"} ]`), ConfigRevision: 7, ProbedAt: &now,
 	})
 	storeMCPConnectionState(t, db, MCPConnectionState{
-		ConfigID: perUserConfigID, CredentialUserID: stringPtr(string(userA.UserID())), Status: "ok", Tools: json.RawMessage(`[{"name":"alpha"}]`), ConfigRevision: 3,
+		ChildID: perUserChildID, CredentialUserID: stringPtr(string(userA.UserID())), Status: "ok", Tools: json.RawMessage(`[{"name":"alpha"}]`), ConfigRevision: 3,
 	})
 	storeMCPConnectionState(t, db, MCPConnectionState{
-		ConfigID: foreignConfigID, CredentialUserID: stringPtr(string(userB.UserID())), Status: "needs_auth", StatusError: "redacted", Tools: json.RawMessage(`[{"name":"beta"}]`), ConfigRevision: 3,
+		ChildID: foreignChildID, CredentialUserID: stringPtr(string(userB.UserID())), Status: "needs_auth", StatusError: "redacted", Tools: json.RawMessage(`[{"name":"beta"}]`), ConfigRevision: 3,
 	})
 
-	states, err := ListMCPConnectionStatesForConfigs(ctx, db, []string{sharedConfigID, perUserConfigID, foreignConfigID}, stringPtr(string(userA.UserID())))
+	states, err := ListMCPConnectionStatesForConfigs(ctx, db, []string{sharedChildID, perUserChildID, foreignChildID}, stringPtr(string(userA.UserID())))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(states) != 2 || states[0].ConfigID != sharedConfigID || states[1].ConfigID != perUserConfigID {
+	if len(states) != 2 || states[0].ChildID != sharedChildID || states[1].ChildID != perUserChildID {
 		t.Fatalf("trusted user states = %#v, want shared and user A only", states)
 	}
 	if states[1].CredentialUserID == nil || *states[1].CredentialUserID != string(userA.UserID()) {
 		t.Fatalf("per-user owner = %#v", states[1].CredentialUserID)
 	}
 
-	states, err = ListMCPConnectionStatesForConfigs(ctx, db, []string{sharedConfigID, perUserConfigID}, nil)
+	states, err = ListMCPConnectionStatesForConfigs(ctx, db, []string{sharedChildID, perUserChildID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(states) != 1 || states[0].ConfigID != sharedConfigID || states[0].CredentialUserID != nil {
+	if len(states) != 1 || states[0].ChildID != sharedChildID || states[0].CredentialUserID != nil {
 		t.Fatalf("shared-only states = %#v", states)
 	}
-	if states, err = ListMCPConnectionStatesForConfigs(ctx, db, []string{foreignConfigID}, stringPtr(string(userA.UserID()))); err != nil {
+	if states, err = ListMCPConnectionStatesForConfigs(ctx, db, []string{foreignChildID}, stringPtr(string(userA.UserID()))); err != nil {
 		t.Fatal(err)
 	} else if len(states) != 0 {
 		t.Fatalf("foreign per-user state leaked: %#v", states)
@@ -66,36 +66,36 @@ func TestMCPConnectionStateRevisionFenceAndCascade(t *testing.T) {
 	user := insertPluginUser(t, db, "mcp-state-cascade@example.test", false)
 	definitionID := "mcp-connection-state-write"
 	insertMCPConnectionStateDefinition(t, db, definitionID)
-	configID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeSystem), "", 7)
-	state := MCPConnectionState{ConfigID: configID, Status: "ok", Tools: json.RawMessage(`[]`), ConfigRevision: 7}
+	configID, childID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeSystem), "", 7)
+	state := MCPConnectionState{ChildID: childID, Status: "ok", Tools: json.RawMessage(`[]`), ConfigRevision: 7}
 	storeMCPConnectionState(t, db, state)
 
 	if _, err := db.Exec(ctx, `UPDATE plugin_config SET revision = 8, updated_at = now() WHERE id = $1`, configID); err != nil {
 		t.Fatal(err)
 	}
-	if err := storeMCPConnectionStateErr(t, db, MCPConnectionState{ConfigID: configID, Status: "ok", Tools: json.RawMessage(`[]`), ConfigRevision: 7}); !errors.Is(err, ErrMCPConnectionStateStale) {
+	if err := storeMCPConnectionStateErr(t, db, MCPConnectionState{ChildID: childID, Status: "ok", Tools: json.RawMessage(`[]`), ConfigRevision: 7}); !errors.Is(err, ErrMCPConnectionStateStale) {
 		t.Fatalf("stale replacement error = %v, want ErrMCPConnectionStateStale", err)
 	}
-	updated := MCPConnectionState{ConfigID: configID, Status: "ok", Tools: json.RawMessage(`[{"name":"fresh"}]`), ConfigRevision: 8}
+	updated := MCPConnectionState{ChildID: childID, Status: "ok", Tools: json.RawMessage(`[{"name":"fresh"}]`), ConfigRevision: 8}
 	storeMCPConnectionState(t, db, updated)
 
 	if _, err := db.Exec(ctx, `DELETE FROM plugin_config WHERE id = $1`, configID); err != nil {
 		t.Fatal(err)
 	}
 	var count int
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM mcp_connection_state WHERE config_id = $1`, configID).Scan(&count); err != nil {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM mcp_connection_state WHERE child_id = $1`, childID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
 		t.Fatalf("config cascade left %d observation rows", count)
 	}
 
-	userConfigID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeUser), string(user.UserID()), 1)
-	storeMCPConnectionState(t, db, MCPConnectionState{ConfigID: userConfigID, CredentialUserID: stringPtr(string(user.UserID())), Status: "needs_auth", ConfigRevision: 1})
+	_, userChildID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeUser), string(user.UserID()), 1)
+	storeMCPConnectionState(t, db, MCPConnectionState{ChildID: userChildID, CredentialUserID: stringPtr(string(user.UserID())), Status: "needs_auth", ConfigRevision: 1})
 	if _, err := db.Exec(ctx, `DELETE FROM auth_user WHERE id = $1`, user.UserID()); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM mcp_connection_state WHERE config_id = $1`, userConfigID).Scan(&count); err != nil {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM mcp_connection_state WHERE child_id = $1`, userChildID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
@@ -108,11 +108,11 @@ func TestMCPConnectionStateRejectsStaleFirstInsert(t *testing.T) {
 	ctx := t.Context()
 	definitionID := "mcp-connection-state-empty"
 	insertMCPConnectionStateDefinition(t, db, definitionID)
-	configID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeSystem), "", 8)
-	if err := storeMCPConnectionStateErr(t, db, MCPConnectionState{ConfigID: configID, Status: "ok", ConfigRevision: 7}); !errors.Is(err, ErrMCPConnectionStateStale) {
+	_, childID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeSystem), "", 8)
+	if err := storeMCPConnectionStateErr(t, db, MCPConnectionState{ChildID: childID, Status: "ok", ConfigRevision: 7}); !errors.Is(err, ErrMCPConnectionStateStale) {
 		t.Fatalf("stale first insert error = %v, want ErrMCPConnectionStateStale", err)
 	}
-	if states, err := ListMCPConnectionStatesForConfigs(ctx, db, []string{configID}, nil); err != nil {
+	if states, err := ListMCPConnectionStatesForConfigs(ctx, db, []string{childID}, nil); err != nil {
 		t.Fatal(err)
 	} else if len(states) != 0 {
 		t.Fatalf("stale first insert created rows: %#v", states)
@@ -125,14 +125,14 @@ func TestMCPConnectionStateRevisionFenceSerializesProbeAndConfigCAS(t *testing.T
 	defer cancel()
 	definitionID := "mcp-connection-state-race"
 	insertMCPConnectionStateDefinition(t, db, definitionID)
-	configID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeSystem), "", 7)
+	configID, childID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeSystem), "", 7)
 
 	probeTx, err := db.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = probeTx.Rollback(ctx) }()
-	if _, err := StoreMCPConnectionState(ctx, probeTx, MCPConnectionState{ConfigID: configID, Status: "ok", ConfigRevision: 7}); err != nil {
+	if _, err := StoreMCPConnectionState(ctx, probeTx, MCPConnectionState{ChildID: childID, Status: "ok", ConfigRevision: 7}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -156,14 +156,14 @@ func TestMCPConnectionStateRevisionFenceSerializesProbeAndConfigCAS(t *testing.T
 	if err := <-configDone; err != nil {
 		t.Fatal(err)
 	}
-	states, err := ListMCPConnectionStatesForConfigs(ctx, db, []string{configID}, nil)
+	states, err := ListMCPConnectionStatesForConfigs(ctx, db, []string{childID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(states) != 1 || states[0].ConfigRevision != 7 {
 		t.Fatalf("race result = %#v, want persisted probe fenced at revision 7", states)
 	}
-	if err := storeMCPConnectionStateErr(t, db, MCPConnectionState{ConfigID: configID, Status: "ok", ConfigRevision: 7}); !errors.Is(err, ErrMCPConnectionStateStale) {
+	if err := storeMCPConnectionStateErr(t, db, MCPConnectionState{ChildID: childID, Status: "ok", ConfigRevision: 7}); !errors.Is(err, ErrMCPConnectionStateStale) {
 		t.Fatalf("post-CAS stale write error = %v, want ErrMCPConnectionStateStale", err)
 	}
 }
@@ -171,14 +171,14 @@ func TestMCPConnectionStateRevisionFenceSerializesProbeAndConfigCAS(t *testing.T
 func insertMCPConnectionStateDefinition(t *testing.T, db *pgxpool.Pool, id string) {
 	t.Helper()
 	if _, err := db.Exec(t.Context(), `
-		INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec, default_enabled, revision)
-		VALUES ($1, $1, 'mcp', 'builtin', 'mcp', '{}'::jsonb, false, 1)
+		INSERT INTO plugin_definition (id, display_name, source, spec, default_enabled, revision)
+		VALUES ($1, $1, 'builtin', '{}'::jsonb, false, 1)
 	`, id); err != nil {
 		t.Fatalf("insert definition %s: %v", id, err)
 	}
 }
 
-func insertMCPConnectionStateConfig(t *testing.T, db *pgxpool.Pool, definitionID, scope, userID string, revision int64) string {
+func insertMCPConnectionStateConfig(t *testing.T, db *pgxpool.Pool, definitionID, scope, userID string, revision int64) (string, string) {
 	t.Helper()
 	id := uuid.NewString()
 	if _, err := db.Exec(t.Context(), `
@@ -187,7 +187,15 @@ func insertMCPConnectionStateConfig(t *testing.T, db *pgxpool.Pool, definitionID
 	`, id, definitionID, scope, userID, revision); err != nil {
 		t.Fatalf("insert config %s: %v", id, err)
 	}
-	return id
+	var childID string
+	if err := db.QueryRow(t.Context(), `
+		INSERT INTO plugin_config_mcp_server (config_id, server_key)
+		VALUES ($1, 'main')
+		RETURNING id
+	`, id).Scan(&childID); err != nil {
+		t.Fatalf("insert child %s: %v", id, err)
+	}
+	return id, childID
 }
 
 func storeMCPConnectionState(t *testing.T, db *pgxpool.Pool, state MCPConnectionState) {

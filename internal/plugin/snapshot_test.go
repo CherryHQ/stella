@@ -14,8 +14,8 @@ import (
 func TestSnapshotAccessDefensivelyCopiesNestedValues(t *testing.T) {
 	enabled := true
 	def := Definition{
-		ID: "demo", DisplayName: "Demo", Backend: BackendCLI,
-		Source: SourceBuiltin, ImplementationKey: "demo", Revision: 1,
+		ID: "demo", DisplayName: "Demo",
+		Source: SourceBuiltin, Revision: 1,
 		Spec: json.RawMessage(`{"base":"definition"}`),
 	}
 	catalog := NewCatalog()
@@ -63,6 +63,29 @@ func TestSnapshotAccessDefensivelyCopiesNestedValues(t *testing.T) {
 	}
 	if string(resolvedAgain.Payload) != `{"base":"definition","key":"config"}` {
 		t.Fatalf("snapshot was mutated through accessors: %s", resolvedAgain.Payload)
+	}
+}
+
+func TestSnapshotAccessDefensivelyCopiesMCPChildIdentity(t *testing.T) {
+	enabled := true
+	snapshot := Snapshot{
+		catalog: NewCatalog(),
+		configs: []Config{{
+			ID: "config-1", PluginID: "demo", Scope: ScopeSystem, Enabled: &enabled, Payload: json.RawMessage(`{"mcp_servers":{"main":{}}}`), Revision: 1,
+			MCPServers: []MCPServerChild{{ID: "child-1", ParentConfigID: "config-1", ServerKey: "main"}},
+		}},
+	}
+	if err := snapshot.catalog.Register(Definition{ID: "demo", DisplayName: "Demo", Source: SourceBuiltin, Spec: json.RawMessage(`{}`), Revision: 1}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := snapshot.Get("demo")
+	if !ok || len(got.Config.MCPServers) != 1 {
+		t.Fatalf("snapshot child mapping = %#v, ok=%v", got.Config, ok)
+	}
+	got.Config.MCPServers[0].ServerKey = "mutated"
+	again, ok := snapshot.Get("demo")
+	if !ok || again.Config.MCPServers[0].ServerKey != "main" {
+		t.Fatalf("child identity was not defensively copied: %#v", again.Config.MCPServers)
 	}
 }
 

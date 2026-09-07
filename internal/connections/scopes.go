@@ -49,6 +49,23 @@ func missingScopes(requested, granted []string) []string {
 	return out
 }
 
+// CheckRequiredScopes checks an extension's required scopes against the raw
+// scope value captured in an OAuth bundle. An empty granted value means the
+// bundle predates granted-scope capture (or the provider omitted it), so a
+// non-empty requirement is unknown and must not be treated as satisfied.
+// The helper deliberately does not alter provider reconnect policy; callers
+// decide whether missing or unknown scopes should block their resource.
+func CheckRequiredScopes(required []string, grantedRaw string) (missing []string, known bool) {
+	required = normalizeScopes(required)
+	if len(required) == 0 {
+		return nil, true
+	}
+	if strings.TrimSpace(grantedRaw) == "" {
+		return required, false
+	}
+	return missingScopes(required, splitGrantedScope(grantedRaw)), true
+}
+
 func unionScopes(groups ...[]string) []string {
 	var combined []string
 	for _, group := range groups {

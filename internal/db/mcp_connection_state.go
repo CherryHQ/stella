@@ -23,11 +23,15 @@ var (
 	ErrMCPConnectionStateStale = errors.New("mcp connection state: stale config revision")
 )
 
-// MCPConnectionState is a remote MCP observation keyed by one plugin config
-// and, for per-user credentials, one trusted credential owner. It contains no
-// authored endpoint or credential data.
+// MCPConnectionState is a remote MCP observation keyed by one child server
+// and, for per-user credentials, one trusted credential owner. The parent
+// config supplies the revision fence but is never the observation identity.
 type MCPConnectionState struct {
-	ID               string
+	ID      string
+	ChildID string
+
+	// ConfigID is retained only as a read-only decoding alias for callers
+	// compiled against the pre-child struct. It is never accepted on writes.
 	ConfigID         string
 	CredentialUserID *string
 	Tools            json.RawMessage
@@ -40,36 +44,37 @@ type MCPConnectionState struct {
 }
 
 const listMCPConnectionStatesSQL = `
-SELECT id, config_id, credential_user_id, tools, status, status_error,
+SELECT id, child_id, credential_user_id, tools, status, status_error,
        probed_at, config_revision, created_at, updated_at
 FROM mcp_connection_state
-WHERE config_id = ANY($1::uuid[])
+WHERE child_id = ANY($1::uuid[])
   AND (credential_user_id IS NULL OR credential_user_id = $2::uuid)
-ORDER BY array_position($1::uuid[], config_id), credential_user_id NULLS FIRST, id`
+ORDER BY array_position($1::uuid[], child_id), credential_user_id NULLS FIRST, id`
 
 const lockMCPConfigRevisionSQL = `
-SELECT revision
-FROM plugin_config
-WHERE id = $1::uuid
-FOR UPDATE`
+SELECT c.revision
+FROM plugin_config_mcp_server child
+JOIN plugin_config c ON c.id = child.config_id
+WHERE child.id = $1::uuid
+FOR UPDATE OF c`
 
 const upsertMCPConnectionStateSQL = `
 INSERT INTO mcp_connection_state (
-    config_id, credential_user_id, tools, status, status_error,
+    child_id, credential_user_id, tools, status, status_error,
     probed_at, config_revision
 )
 VALUES ($1::uuid, $2::uuid, $3::jsonb, $4, $5, $6, $7)
-ON CONFLICT (config_id, credential_user_id) DO UPDATE
+ON CONFLICT (child_id, credential_user_id) DO UPDATE
 SET tools = EXCLUDED.tools,
     status = EXCLUDED.status,
     status_error = EXCLUDED.status_error,
     probed_at = EXCLUDED.probed_at,
     config_revision = EXCLUDED.config_revision,
     updated_at = now()
-RETURNING id, config_id, credential_user_id, tools, status, status_error,
+RETURNING id, child_id, credential_user_id, tools, status, status_error,
           probed_at, config_revision, created_at, updated_at`
 
-// ListMCPConnectionStatesForConfigs reads only the selected config IDs. A
+// ListMCPConnectionStatesForConfigs reads only the selected child IDs. A
 // non-nil trusted user ID includes shared state and that user's per-user state;
 // nil reads shared state only. Empty IDs avoid an accidental broad read.
 func ListMCPConnectionStatesForConfigs(ctx context.Context, pool *pgxpool.Pool, configIDs []string, credentialUserID *string) ([]MCPConnectionState, error) {
@@ -79,9 +84,9 @@ func ListMCPConnectionStatesForConfigs(ctx context.Context, pool *pgxpool.Pool, 
 	if len(configIDs) == 0 {
 		return nil, nil
 	}
-	for _, configID := range configIDs {
-		if _, err := uuid.Parse(configID); err != nil {
-			return nil, fmt.Errorf("mcp connection state: invalid config id: %w", err)
+	for _, childID := range configIDs {
+		if _, err := uuid.Parse(childID); err != nil {
+			return nil, fmt.Errorf("mcp connection state: invalid child id: %w", err)
 		}
 	}
 	var owner any
@@ -118,8 +123,11 @@ func StoreMCPConnectionState(ctx context.Context, tx pgx.Tx, state MCPConnection
 	if tx == nil {
 		return MCPConnectionState{}, errors.New("mcp connection state: nil transaction")
 	}
-	if _, err := uuid.Parse(state.ConfigID); err != nil {
-		return MCPConnectionState{}, fmt.Errorf("mcp connection state: invalid config id: %w", err)
+	if state.ChildID == "" {
+		return MCPConnectionState{}, errors.New("mcp connection state: child id is required")
+	}
+	if _, err := uuid.Parse(state.ChildID); err != nil {
+		return MCPConnectionState{}, fmt.Errorf("mcp connection state: invalid child id: %w", err)
 	}
 	if state.CredentialUserID != nil {
 		if _, err := uuid.Parse(*state.CredentialUserID); err != nil {
@@ -137,7 +145,7 @@ func StoreMCPConnectionState(ctx context.Context, tx pgx.Tx, state MCPConnection
 		state.Status = "unknown"
 	}
 	var parentRevision int64
-	if err := tx.QueryRow(ctx, lockMCPConfigRevisionSQL, state.ConfigID).Scan(&parentRevision); err != nil {
+	if err := tx.QueryRow(ctx, lockMCPConfigRevisionSQL, state.ChildID).Scan(&parentRevision); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return MCPConnectionState{}, ErrMCPConnectionConfigNotFound
 		}
@@ -154,7 +162,7 @@ func StoreMCPConnectionState(ctx context.Context, tx pgx.Tx, state MCPConnection
 	if state.ProbedAt != nil {
 		probedAt = state.ProbedAt.UTC()
 	}
-	row := tx.QueryRow(ctx, upsertMCPConnectionStateSQL, state.ConfigID, owner, toolsJSON, state.Status, state.StatusError, probedAt, state.ConfigRevision)
+	row := tx.QueryRow(ctx, upsertMCPConnectionStateSQL, state.ChildID, owner, toolsJSON, state.Status, state.StatusError, probedAt, state.ConfigRevision)
 	stored, err := scanMCPConnectionState(row)
 	if err != nil {
 		return MCPConnectionState{}, fmt.Errorf("upsert MCP connection state: %w", err)
@@ -190,7 +198,7 @@ func scanMCPConnectionState(row mcpConnectionStateRowScanner) (MCPConnectionStat
 		updatedAt time.Time
 	)
 	if err := row.Scan(
-		&state.ID, &state.ConfigID, &owner, &state.Tools, &state.Status,
+		&state.ID, &state.ChildID, &owner, &state.Tools, &state.Status,
 		&state.StatusError, &probedAt, &state.ConfigRevision, &createdAt, &updatedAt,
 	); err != nil {
 		return MCPConnectionState{}, err
@@ -205,5 +213,6 @@ func scanMCPConnectionState(row mcpConnectionStateRowScanner) (MCPConnectionStat
 	}
 	state.CreatedAt = createdAt.UTC()
 	state.UpdatedAt = updatedAt.UTC()
+	state.ConfigID = state.ChildID
 	return state, nil
 }

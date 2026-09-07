@@ -59,7 +59,7 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 	// Import preserves the catalog and status but intentionally leaves the
 	// observation timestamp cold. Mark this fixture as freshly probed so the
 	// provider exercises the cached catalog and never dials the test endpoint.
-	if _, err := db.Exec(ctx, `UPDATE mcp_connection_state SET probed_at = now() WHERE config_id = $1::uuid`, registrationID); err != nil {
+	if _, err := db.Exec(ctx, `UPDATE mcp_connection_state SET probed_at = now() WHERE child_id = $1::uuid`, registrationID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -68,7 +68,7 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch migrated tool override: %v", err)
 	}
-	wantIdentity := ToolIdentity{PluginID: "remote", LocalToolName: "list"}
+	wantIdentity := ToolIdentity{PluginID: "remote", ServerKey: "main", LocalToolName: "list"}
 	if len(overrides) != 1 || overrides[0].Identity != wantIdentity || overrides[0].Scope != ToolOverrideScopeUserAgent || overrides[0].Enabled {
 		t.Fatalf("migrated overrides = %+v, want disabled %v in user_agent", overrides, wantIdentity)
 	}
@@ -273,8 +273,8 @@ type migratedMCPTool struct {
 	local    string
 }
 
-func (t migratedMCPTool) PluginToolIdentity() (string, string, bool) {
-	return t.pluginID, t.local, true
+func (t migratedMCPTool) PluginToolIdentity() (string, string, string, bool) {
+	return t.pluginID, "main", t.local, true
 }
 
 func seedRunnerIdentity(t *testing.T, db *pgxpool.Pool, userID, agentID string) {

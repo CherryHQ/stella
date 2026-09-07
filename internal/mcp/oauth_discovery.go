@@ -243,8 +243,8 @@ func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Au
 		owner = CredentialOwner{Scope: reg.Scope, UserID: reg.UserID, AgentID: reg.AgentID}
 	}
 	var updatedReg Registration
-	err := s.withCredentialMutationTx(ctx, authority, reg.PluginID, reg.ID, reg.ConfigRevision, owner, func(mutationCtx context.Context, access *plugin.Access, _ plugin.Config, mutation CredentialMutation) error {
-		cfg, err := access.GetConfig(mutationCtx, reg.PluginID, reg.ID)
+	err := s.withCredentialMutationTxForRegistration(ctx, authority, reg, owner, func(mutationCtx context.Context, access *plugin.Access, _ plugin.Config, mutation CredentialMutation) error {
+		cfg, err := access.GetConfig(mutationCtx, reg.PluginID, reg.ParentConfigID)
 		if err != nil {
 			return fmt.Errorf("mcp: read plugin config for DCR: %w", err)
 		}
@@ -255,12 +255,29 @@ func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Au
 		if err != nil {
 			return err
 		}
-		mcpPayload, err := decodeMCPPluginPayload(cfg.Payload)
+		childPayload := payload
+		var childServers map[string]json.RawMessage
+		if reg.ServerKey != "" {
+			childServers, err = decodeJSONObject(payload["mcp_servers"], "MCP mcp_servers payload")
+			if err != nil {
+				return err
+			}
+			childRaw, ok := childServers[reg.ServerKey]
+			if !ok {
+				return authz.ErrNotFound
+			}
+			childPayload, err = decodeJSONObject(childRaw, "MCP server payload")
+			if err != nil {
+				return err
+			}
+		}
+		childRawPayload, _ := json.Marshal(childPayload)
+		mcpPayload, err := decodeMCPPluginChildPayload(childRawPayload)
 		if err != nil {
 			return err
 		}
 		metadata := map[string]json.RawMessage{}
-		if raw, exists := payload["metadata"]; exists {
+		if raw, exists := childPayload["metadata"]; exists {
 			metadata, err = decodeJSONObject(raw, "MCP metadata")
 			if err != nil {
 				return err
@@ -291,7 +308,15 @@ func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Au
 		oauthMetadata["client_id"], _ = json.Marshal(resp.ClientID)
 		oauthMetadata["token_endpoint_auth_method"], _ = json.Marshal(resp.TokenEndpointAuthMethod)
 		metadata["oauth"], _ = json.Marshal(oauthMetadata)
-		payload["metadata"], _ = json.Marshal(metadata)
+		childPayload["metadata"], _ = json.Marshal(metadata)
+		if reg.ServerKey != "" {
+			childRawPayload, err = json.Marshal(childPayload)
+			if err != nil {
+				return err
+			}
+			childServers[reg.ServerKey] = childRawPayload
+			payload["mcp_servers"], _ = json.Marshal(childServers)
+		}
 		payloadRaw, err := json.Marshal(payload)
 		if err != nil {
 			return err
@@ -301,12 +326,31 @@ func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Au
 		if err != nil {
 			return err
 		}
-		_, _, existingSecretRef, err := decodeMCPPluginCredentialRefs(cfg.CredentialRefs, cfg, mcpPayload.AuthType, mcpPayload.CredentialMode)
+		childRefs := refs
+		var refsChildren map[string]json.RawMessage
+		if reg.ServerKey != "" {
+			refsChildren, err = decodeJSONObject(refs["mcp_servers"], "MCP credential refs mcp_servers")
+			if err != nil {
+				return err
+			}
+			childRefRaw, ok := refsChildren[reg.ServerKey]
+			if !ok {
+				return authz.ErrNotFound
+			}
+			childRefs, err = decodeJSONObject(childRefRaw, "MCP child credential refs")
+			if err != nil {
+				return err
+			}
+		}
+		childRefsRaw, _ := json.Marshal(childRefs)
+		childCfg := cfg
+		childCfg.ID = reg.ID
+		_, _, existingSecretRef, err := decodeMCPPluginCredentialRefsForKey(childRefsRaw, childCfg, "", mcpPayload.AuthType, mcpPayload.CredentialMode)
 		if err != nil {
 			return err
 		}
 		if resp.ClientSecret != "" {
-			refs["oauth_client_secret"], _ = json.Marshal(map[string]string{
+			childRefs["oauth_client_secret"], _ = json.Marshal(map[string]string{
 				"name": oauthClientSecretName(reg.ID), "scope": string(cfg.Scope),
 				"user_id": cfg.UserID, "agent_id": cfg.AgentID,
 			})
@@ -314,6 +358,11 @@ func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Au
 			if existingClientID == "" {
 				return errors.New("mcp: dynamic registration returned no secret for an existing OAuth client secret")
 			}
+		}
+		if reg.ServerKey != "" {
+			childRefsRaw, _ = json.Marshal(childRefs)
+			refsChildren[reg.ServerKey] = childRefsRaw
+			refs["mcp_servers"], _ = json.Marshal(refsChildren)
 		}
 		refsRaw, err := json.Marshal(refs)
 		if err != nil {
@@ -324,7 +373,7 @@ func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Au
 		}); err != nil {
 			return fmt.Errorf("mcp: persist DCR client id: %w", err)
 		}
-		updated, err := access.GetConfig(mutationCtx, reg.PluginID, reg.ID)
+		updated, err := access.GetConfig(mutationCtx, reg.PluginID, reg.ParentConfigID)
 		if err != nil {
 			return fmt.Errorf("mcp: reread DCR config: %w", err)
 		}
@@ -332,7 +381,7 @@ func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Au
 			// UpdateConfig increments the revision and adds the client-secret
 			// locator. Rebind the typed capability to the authoritative config
 			// while keeping the same transaction-bound Vault.
-			updatedMutation := CredentialMutation{tx: mutation.tx, config: updated, owner: owner, vault: mutation.vault, configManaged: mutation.configManaged}
+			updatedMutation := CredentialMutation{tx: mutation.tx, config: updated, registrationID: mutation.registrationID, serverKey: mutation.serverKey, owner: owner, vault: mutation.vault, configManaged: mutation.configManaged}
 			if err := updatedMutation.storeOAuthClientSecret(mutationCtx, resp.ClientSecret); err != nil {
 				return fmt.Errorf("mcp: persist DCR client secret: %w", err)
 			}
@@ -344,6 +393,15 @@ func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Au
 		effective, err := plugin.Resolve(def, []plugin.Config{updated}, updated.UserID, updated.AgentID)
 		if err != nil {
 			return fmt.Errorf("mcp: resolve DCR config: %w", err)
+		}
+		if reg.ServerKey != "" {
+			for _, child := range updated.MCPServers {
+				if child.ID == reg.ID {
+					updatedReg, err = RegistrationFromPluginChild(def, updated, effective, child, PluginMCPObservation{ConfigRevision: updated.Revision}, authority)
+					return err
+				}
+			}
+			return authz.ErrNotFound
 		}
 		updatedReg, err = RegistrationFromPluginConfig(def, updated, effective, PluginMCPObservation{ConfigRevision: updated.Revision}, authority)
 		return err

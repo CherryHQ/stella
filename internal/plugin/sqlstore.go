@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -50,7 +52,11 @@ func (s *Service) listConfigs(ctx context.Context, pluginID string, scope Scope,
 	}
 	configs := make([]Config, 0, len(rows))
 	for _, row := range rows {
-		configs = append(configs, fromSQLConfig(row))
+		config := fromSQLConfig(row)
+		if err := s.loadMCPServerChildren(ctx, &config); err != nil {
+			return nil, err
+		}
+		configs = append(configs, config)
 	}
 	return configs, nil
 }
@@ -64,7 +70,14 @@ func (s *Service) createConfig(ctx context.Context, config Config) (Config, erro
 	if err != nil {
 		return Config{}, mapConflict(err)
 	}
-	return fromSQLConfig(row), nil
+	created := fromSQLConfig(row)
+	if err := s.ensureMCPServerChildren(ctx, &created); err != nil {
+		return Config{}, err
+	}
+	if err := s.loadMCPServerChildren(ctx, &created); err != nil {
+		return Config{}, err
+	}
+	return created, nil
 }
 
 func (s *Service) updateConfigCAS(ctx context.Context, id string, revision int64, enabled *bool, payload, refs json.RawMessage) (Config, error) {
@@ -77,7 +90,14 @@ func (s *Service) updateConfigCAS(ctx context.Context, id string, revision int64
 		}
 		return Config{}, mapConflict(err)
 	}
-	return fromSQLConfig(row), nil
+	updated := fromSQLConfig(row)
+	if err := s.ensureMCPServerChildren(ctx, &updated); err != nil {
+		return Config{}, err
+	}
+	if err := s.loadMCPServerChildren(ctx, &updated); err != nil {
+		return Config{}, err
+	}
+	return updated, nil
 }
 
 func (s *Service) moveConfigCAS(ctx context.Context, id string, revision int64, scope Scope, userID, agentID string, enabled *bool, payload, refs json.RawMessage) (Config, error) {
@@ -91,7 +111,11 @@ func (s *Service) moveConfigCAS(ctx context.Context, id string, revision int64, 
 		}
 		return Config{}, mapConflict(err)
 	}
-	return fromSQLConfig(row), nil
+	updated := fromSQLConfig(row)
+	if err := s.loadMCPServerChildren(ctx, &updated); err != nil {
+		return Config{}, err
+	}
+	return updated, nil
 }
 
 func (s *Service) deleteConfigCAS(ctx context.Context, id string, revision int64, pluginID string) (bool, error) {
@@ -107,13 +131,17 @@ func (s *Service) resetBuiltinConfig(ctx context.Context, id string, revision in
 		}
 		return Config{}, mapConflict(err)
 	}
-	return fromSQLConfig(row), nil
+	reset := fromSQLConfig(row)
+	if err := s.loadMCPServerChildren(ctx, &reset); err != nil {
+		return Config{}, err
+	}
+	return reset, nil
 }
 
 func (s *Service) createCustom(ctx context.Context, def Definition, config Config) (Definition, Config, error) {
 	defRow, err := s.q.CreatePluginDefinition(ctx, sqlc.CreatePluginDefinitionParams{
-		ID: def.ID, DisplayName: def.DisplayName, Backend: string(def.Backend), Source: string(def.Source),
-		ImplementationKey: def.ImplementationKey, Spec: def.Spec, DefaultEnabled: def.DefaultEnabled, Revision: def.Revision, CreatorUserID: nullableText(def.CreatorUserID),
+		ID: def.ID, DisplayName: def.DisplayName, Source: string(def.Source),
+		Spec: def.Spec, DefaultEnabled: def.DefaultEnabled, Revision: def.Revision, CreatorUserID: nullableText(def.CreatorUserID),
 	})
 	if err != nil {
 		return Definition{}, Config{}, mapConflict(err)
@@ -125,7 +153,14 @@ func (s *Service) createCustom(ctx context.Context, def Definition, config Confi
 	if err != nil {
 		return Definition{}, Config{}, mapConflict(err)
 	}
-	return fromSQLDefinition(defRow), fromSQLConfig(configRow), nil
+	created := fromSQLConfig(configRow)
+	if err := s.ensureMCPServerChildren(ctx, &created); err != nil {
+		return Definition{}, Config{}, err
+	}
+	if err := s.loadMCPServerChildren(ctx, &created); err != nil {
+		return Definition{}, Config{}, err
+	}
+	return fromSQLDefinition(defRow), created, nil
 }
 
 func nullableText(value string) pgtype.Text { return pgtype.Text{String: value, Valid: value != ""} }
@@ -160,11 +195,79 @@ func nonEmptyJSON(value json.RawMessage) json.RawMessage {
 }
 
 func fromSQLDefinition(row sqlc.PluginDefinition) Definition {
-	return Definition{ID: row.ID, DisplayName: row.DisplayName, Backend: Backend(row.Backend), Source: Source(row.Source), ImplementationKey: row.ImplementationKey, Spec: row.Spec, DefaultEnabled: row.DefaultEnabled, Revision: row.Revision, CreatorUserID: textValue(row.CreatorUserID), CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC()}
+	return Definition{ID: row.ID, DisplayName: row.DisplayName, Source: Source(row.Source), Spec: row.Spec, DefaultEnabled: row.DefaultEnabled, Revision: row.Revision, CreatorUserID: textValue(row.CreatorUserID), CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC()}
 }
 
 func fromSQLConfig(row sqlc.PluginConfig) Config {
 	return Config{ID: row.ID, PluginID: row.PluginID, Scope: Scope(row.Scope), UserID: textValue(row.UserID), AgentID: textValue(row.AgentID), Enabled: boolValue(row.Enabled), Payload: row.Config, CredentialRefs: row.CredentialRefs, Revision: row.Revision, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC()}
+}
+
+func (s *Service) loadMCPServerChildren(ctx context.Context, config *Config) error {
+	return loadMCPServerChildren(ctx, s.q, config)
+}
+
+func loadMCPServerChildren(ctx context.Context, q *sqlc.Queries, config *Config) error {
+	if config == nil || config.ID == "" {
+		return nil
+	}
+	rows, err := q.ListPluginConfigMCPServersForConfig(ctx, config.ID)
+	if err != nil {
+		return err
+	}
+	config.MCPServers = make([]MCPServerChild, 0, len(rows))
+	for _, row := range rows {
+		config.MCPServers = append(config.MCPServers, MCPServerChild{ID: row.ID, ParentConfigID: row.ConfigID, ServerKey: row.ServerKey, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC()})
+	}
+	return nil
+}
+
+func (s *Service) ensureMCPServerChildren(ctx context.Context, config *Config) error {
+	if config == nil || config.ID == "" || len(config.Payload) == 0 {
+		return nil
+	}
+	definition, err := s.q.GetPluginDefinition(ctx, config.PluginID)
+	if err != nil {
+		return err
+	}
+	resolved, err := mergeObjects(definition.Spec, config.Payload)
+	if err != nil {
+		return err
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(resolved, &payload); err != nil {
+		return fmt.Errorf("plugin: decode config payload: %w", err)
+	}
+	raw, ok := payload["mcp_servers"]
+	if !ok {
+		return nil
+	}
+	var servers map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &servers); err != nil || servers == nil {
+		return fmt.Errorf("plugin: mcp_servers must be an object")
+	}
+	persisted, err := s.q.ListPluginConfigMCPServersForConfig(ctx, config.ID)
+	if err != nil {
+		return err
+	}
+	persistedKeys := make(map[string]struct{}, len(persisted))
+	for _, row := range persisted {
+		persistedKeys[row.ServerKey] = struct{}{}
+	}
+	for key := range servers {
+		if _, exists := persistedKeys[key]; exists {
+			continue
+		}
+		id, err := uuid.NewV7()
+		if err != nil {
+			return err
+		}
+		row, err := s.q.CreatePluginConfigMCPServer(ctx, sqlc.CreatePluginConfigMCPServerParams{ID: id.String(), ConfigID: config.ID, ServerKey: key})
+		if err != nil {
+			return mapConflict(err)
+		}
+		config.MCPServers = append(config.MCPServers, MCPServerChild{ID: row.ID, ParentConfigID: row.ConfigID, ServerKey: row.ServerKey, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC()})
+	}
+	return nil
 }
 
 func mapNotFound(err error) error {

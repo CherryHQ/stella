@@ -44,35 +44,36 @@ func (oauthTestVault) DeleteSystemScoped(context.Context, string, string, string
 }
 
 type pluginOAuthFixture struct {
-	id string
+	parentID string
+	childID  string
 }
 
 func installPluginOAuthFixture(t *testing.T, env *testEnv, scope, userID, agentID, mode, endpoint string) pluginOAuthFixture {
 	t.Helper()
 	const pluginID = "oauth-test"
 	configID := uuid.NewString()
+	childID := uuid.NewString()
 	if _, err := env.db.Exec(context.Background(), `
-		INSERT INTO plugin_definition(id, display_name, backend, source,
-			implementation_key, spec, default_enabled, revision)
-		VALUES ($1, 'OAuth test', 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1)
+		INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision)
+		VALUES ($1, 'OAuth test', 'custom', '{"mcp_servers":{"main":{"url":"https://mcp.example.test/mcp","transport":"streamable_http","auth_type":"oauth","credential_mode":"shared"}}}'::jsonb, false, 1)
 		ON CONFLICT (id) DO NOTHING`, pluginID); err != nil {
 		t.Fatalf("seed plugin definition: %v", err)
 	}
-	payload, err := json.Marshal(map[string]string{
+	payload, err := json.Marshal(map[string]any{"mcp_servers": map[string]any{"main": map[string]string{
 		"url": endpoint, "transport": mcp.TransportStreamableHTTP,
 		"auth_type": mcp.AuthTypeOAuth, "credential_mode": mode,
-	})
+	}}})
 	if err != nil {
 		t.Fatalf("marshal OAuth payload: %v", err)
 	}
-	refs := map[string]any{"oauth_bundle": map[string]any{
-		"name": "MCP_OAUTH_" + strings.ToUpper(strings.ReplaceAll(configID, "-", "_")),
+	bundle := map[string]any{
+		"name": "MCP_OAUTH_" + strings.ToUpper(strings.ReplaceAll(childID, "-", "_")),
 		"mode": mode,
-	}}
+	}
+	refs := map[string]any{"mcp_servers": map[string]any{"main": map[string]any{"oauth_bundle": bundle}}}
 	if mode == mcp.CredentialModePerUser {
-		refs["oauth_bundle"].(map[string]any)["owner"] = "per_user"
+		bundle["owner"] = "per_user"
 	} else {
-		bundle := refs["oauth_bundle"].(map[string]any)
 		bundle["scope"], bundle["user_id"], bundle["agent_id"] = scope, userID, agentID
 	}
 	credentialRefs, err := json.Marshal(refs)
@@ -86,7 +87,12 @@ func installPluginOAuthFixture(t *testing.T, env *testEnv, scope, userID, agentI
 			true, $6::jsonb, $7::jsonb, 1)`, configID, pluginID, scope, userID, agentID, payload, credentialRefs); err != nil {
 		t.Fatalf("seed plugin config: %v", err)
 	}
-	return pluginOAuthFixture{id: configID}
+	if _, err := env.db.Exec(context.Background(), `
+		INSERT INTO plugin_config_mcp_server(id, config_id, server_key)
+		VALUES ($1::uuid, $2::uuid, 'main')`, childID, configID); err != nil {
+		t.Fatalf("seed MCP child: %v", err)
+	}
+	return pluginOAuthFixture{parentID: configID, childID: childID}
 }
 
 func setupPluginOAuthHTTPEnv(t *testing.T, endpointPolicy mcp.EndpointPolicy) *testEnv {
@@ -110,17 +116,17 @@ func setupPluginOAuthHTTPEnv(t *testing.T, endpointPolicy mcp.EndpointPolicy) *t
 func TestPluginOAuthHTTPRejectsWrongParentAndUnknownConfig(t *testing.T) {
 	env := setupPluginOAuthHTTPEnv(t, mcp.EndpointPolicy{})
 	fixture := installPluginOAuthFixture(t, env, mcp.ScopeSystem, "", "", mcp.CredentialModeShared, "https://mcp.example.test/mcp")
-	path := fmt.Sprintf("%s/configs/%s/oauth/start", pluginAPIPath("oauth-test"), fixture.id)
+	path := fmt.Sprintf("/api/mcp/servers/%s/oauth/start", fixture.childID)
 	if rr := doUnauthRequest(t, env.srv, http.MethodPost, path, nil); rr.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated start status = %d, want 401 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	for _, action := range []string{"start", "disconnect"} {
-		wrongParent := fmt.Sprintf("%s/configs/%s/oauth/%s", pluginAPIPath("oauth-wrong"), fixture.id, action)
+		wrongParent := fmt.Sprintf("/api/mcp/servers/%s/oauth/%s", uuid.NewString(), action)
 		if rr := doRequest(t, env, http.MethodPost, wrongParent, nil); rr.Code != http.StatusNotFound {
 			t.Fatalf("wrong parent %s status = %d, want 404 (body: %s)", action, rr.Code, rr.Body.String())
 		}
-		unknownConfig := fmt.Sprintf("%s/configs/%s/oauth/%s", pluginAPIPath("oauth-test"), uuid.NewString(), action)
+		unknownConfig := fmt.Sprintf("/api/mcp/servers/%s/oauth/%s", uuid.NewString(), action)
 		if rr := doRequest(t, env, http.MethodPost, unknownConfig, nil); rr.Code != http.StatusNotFound {
 			t.Fatalf("unknown config %s status = %d, want 404 (body: %s)", action, rr.Code, rr.Body.String())
 		}
@@ -150,7 +156,7 @@ func TestPluginOAuthHTTPRejectsUnauthorizedAgentAndSharedScope(t *testing.T) {
 		{name: "shared-system", fixture: systemShared},
 	} {
 		for _, action := range []string{"start", "disconnect"} {
-			path := fmt.Sprintf("%s/configs/%s/oauth/%s", pluginAPIPath("oauth-test"), test.fixture.id, action)
+			path := fmt.Sprintf("/api/mcp/servers/%s/oauth/%s", test.fixture.childID, action)
 			if rr := doRequestWithSession(t, env.srv, userToken, http.MethodPost, path, nil); rr.Code != http.StatusForbidden {
 				t.Fatalf("unauthorized %s %s status = %d, want 403 (body: %s)", test.name, action, rr.Code, rr.Body.String())
 			}
@@ -170,7 +176,7 @@ func TestPluginOAuthHTTPMapsSystemPerUserInitializationHint(t *testing.T) {
 	env := setupPluginOAuthHTTPEnv(t, mcp.EndpointPolicy{AllowPrivate: true})
 	_, userToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "oauth-user", "user")
 	fixture := installPluginOAuthFixture(t, env, mcp.ScopeSystem, "", "", mcp.CredentialModePerUser, remote.URL+"/mcp")
-	path := fmt.Sprintf("%s/configs/%s/oauth/start", pluginAPIPath("oauth-test"), fixture.id)
+	path := fmt.Sprintf("/api/mcp/servers/%s/oauth/start", fixture.childID)
 	rr := doRequestWithSession(t, env.srv, userToken, http.MethodPost, path, nil)
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("per-user initialization status = %d, want 409 (body: %s)", rr.Code, rr.Body.String())

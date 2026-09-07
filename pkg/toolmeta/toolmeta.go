@@ -22,6 +22,10 @@ type ActionTool struct {
 	// PluginID is the trusted logical plugin identity. It is empty for core
 	// tools; callers must not infer ownership from Name.
 	PluginID string
+	// ServerKey identifies an authored MCP child within PluginID. Native Agent
+	// plugin tools leave it empty because their durable identity is the
+	// package/local pair.
+	ServerKey string
 	// LocalName is the plugin-local tool name. It is empty for core tools.
 	LocalName string
 	// Family groups tools that share a domain, e.g. "recally".

@@ -15,8 +15,8 @@ func TestRegistrationFromPluginConfigPreservesIdentityRefsAndRemoteNames(t *test
 	const id = "0198f9a4-1b2c-7def-8123-456789abcdef"
 	def := plugin.Definition{
 		ID: "github", DisplayName: "GitHub MCP",
-		Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp",
-		Spec: []byte(`{}`), Revision: 1,
+		Source: plugin.SourceCustom,
+		Spec:   []byte(`{}`), Revision: 1,
 	}
 	cfg := plugin.Config{
 		ID: id, PluginID: def.ID, Scope: plugin.ScopeSystem,
@@ -52,6 +52,43 @@ func TestRegistrationFromPluginConfigPreservesIdentityRefsAndRemoteNames(t *test
 	}
 }
 
+func TestRegistrationsFromResolvedConfigExpandsMCPChildren(t *testing.T) {
+	def := plugin.Definition{
+		ID: "multi-mcp", DisplayName: "Multi MCP", Source: plugin.SourceCustom, Spec: []byte(`{"mcp_servers":{}}`), Revision: 1,
+	}
+	parentID := "0198f9a4-1b2c-7def-8123-456789abcdef"
+	childA := "0198f9a4-1b2c-7def-8123-456789abcde0"
+	childB := "0198f9a4-1b2c-7def-8123-456789abcde1"
+	payload := []byte(`{"mcp_servers":{"alpha":{"url":"https://alpha.example.test","transport":"sse","auth_type":"none"},"beta":{"url":"https://beta.example.test","transport":"streamable_http","auth_type":"none"}}}`)
+	cfg := plugin.Config{
+		ID: parentID, PluginID: def.ID, Scope: plugin.ScopeUser, UserID: "user-1", Enabled: boolPtr(true),
+		Payload: payload, CredentialRefs: []byte(`{"mcp_servers":{"alpha":{},"beta":{}}}`), Revision: 4,
+		MCPServers: []plugin.MCPServerChild{
+			{ID: childA, ParentConfigID: parentID, ServerKey: "alpha"},
+			{ID: childB, ParentConfigID: parentID, ServerKey: "beta"},
+		},
+	}
+	effective := plugin.Effective{PluginID: def.ID, ConfigID: parentID, SourceScope: cfg.Scope, IsEffectivelyEnabled: true, Payload: payload}
+	registrations, err := registrationsFromResolvedConfig(def, cfg, effective, PluginMCPObservation{Status: StatusOK, ConfigRevision: cfg.Revision, Tools: []CatalogTool{{Name: "wrong-sibling-cache"}}}, nil, testUserAuthority(t, "user-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(registrations) != 2 {
+		t.Fatalf("registration count = %d, want 2", len(registrations))
+	}
+	if registrations[0].ID != childA || registrations[0].ParentConfigID != parentID || registrations[0].ServerKey != "alpha" || registrations[0].URL != "https://alpha.example.test" {
+		t.Fatalf("alpha registration = %#v", registrations[0])
+	}
+	if registrations[1].ID != childB || registrations[1].ParentConfigID != parentID || registrations[1].ServerKey != "beta" || registrations[1].URL != "https://beta.example.test" {
+		t.Fatalf("beta registration = %#v", registrations[1])
+	}
+	for _, registration := range registrations {
+		if registration.Status != StatusUnknown || len(registration.Tools) != 0 {
+			t.Fatalf("sibling inherited parent observation: %#v", registration)
+		}
+	}
+}
+
 func TestMCPConverterMatchesNormalizedLegacyOAuthShape(t *testing.T) {
 	const id = "0198f9a4-1b2c-7def-8123-456789abcdef"
 	plan, err := plugin.NormalizeLegacySnapshot(plugin.LegacySnapshot{MCP: []plugin.LegacyMCPRegistration{{
@@ -67,12 +104,30 @@ func TestMCPConverterMatchesNormalizedLegacyOAuthShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	def, cfg := plan.Definitions[0], plan.Configs[0]
-	def.Spec = []byte(`{"description":"safe MCP description"}`)
+	def.Spec = []byte(`{}`)
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(cfg.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	payload["description"] = json.RawMessage(`"safe MCP description"`)
+	var servers map[string]json.RawMessage
+	if err := json.Unmarshal(payload["mcp_servers"], &servers); err != nil {
+		t.Fatal(err)
+	}
+	var main map[string]json.RawMessage
+	if err := json.Unmarshal(servers["main"], &main); err != nil {
+		t.Fatal(err)
+	}
+	main["description"] = json.RawMessage(`"safe MCP description"`)
+	mainBytes, err := json.Marshal(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	servers["main"] = mainBytes
+	serversBytes, err := json.Marshal(servers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload["mcp_servers"] = serversBytes
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +141,7 @@ func TestMCPConverterMatchesNormalizedLegacyOAuthShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reg.ID != id || reg.PluginID != def.ID || reg.Description != "safe MCP description" || reg.OAuthClientID != "client-123" || reg.OAuthClientSecretRef != "MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF" || reg.CredentialMode != CredentialModeShared || reg.Tools[0].Name != "original-remote" {
+	if reg.ID != id || reg.ParentConfigID != id || reg.ServerKey != "main" || reg.PluginID != def.ID || reg.Description != "safe MCP description" || reg.OAuthClientID != "client-123" || reg.OAuthClientSecretRef != "MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF" || reg.CredentialMode != CredentialModeShared || reg.Tools[0].Name != "original-remote" {
 		t.Fatalf("normalized legacy conversion = %#v", reg)
 	}
 }
@@ -264,7 +319,7 @@ func TestPerUserObservationIsolatedByTrustedOwner(t *testing.T) {
 
 func testPluginMCPInputs() (plugin.Definition, plugin.Config, plugin.Effective) {
 	const id = "0198f9a4-1b2c-7def-8123-456789abcdef"
-	def := plugin.Definition{ID: "mcp-test", DisplayName: "MCP test", Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp", Spec: []byte(`{}`), Revision: 1}
+	def := plugin.Definition{ID: "mcp-test", DisplayName: "MCP test", Source: plugin.SourceCustom, Spec: []byte(`{"mcp_servers":{}}`), Revision: 1}
 	cfg := plugin.Config{ID: id, PluginID: def.ID, Scope: plugin.ScopeUser, UserID: "user-1", Enabled: boolPtr(true), Payload: []byte(`{"url":"https://mcp.example.test","transport":"sse","auth_type":"none"}`), CredentialRefs: []byte(`{}`), Revision: 1}
 	effective := plugin.Effective{PluginID: def.ID, ConfigID: cfg.ID, SourceScope: plugin.ScopeUser, IsEffectivelyEnabled: true, Payload: cfg.Payload}
 	return def, cfg, effective
@@ -272,7 +327,7 @@ func testPluginMCPInputs() (plugin.Definition, plugin.Config, plugin.Effective) 
 
 func testPerUserPluginMCPInputs() (plugin.Definition, plugin.Config, plugin.Effective) {
 	const id = "0198f9a4-1b2c-7def-8123-456789abcdef"
-	def := plugin.Definition{ID: "mcp-per-user-test", DisplayName: "MCP per-user test", Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp", Spec: []byte(`{}`), Revision: 1}
+	def := plugin.Definition{ID: "mcp-per-user-test", DisplayName: "MCP per-user test", Source: plugin.SourceCustom, Spec: []byte(`{"mcp_servers":{}}`), Revision: 1}
 	cfg := plugin.Config{ID: id, PluginID: def.ID, Scope: plugin.ScopeSystem, Enabled: boolPtr(true), Payload: []byte(`{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user","metadata":{"oauth":{"client_id":"client-123"}}}`), Revision: 1}
 	refs, _ := json.Marshal(map[string]any{"oauth_bundle": map[string]any{"name": oauthBundleName(id), "mode": CredentialModePerUser, "owner": "per_user"}})
 	cfg.CredentialRefs = refs

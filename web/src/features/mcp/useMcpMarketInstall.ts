@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createPlugin, probePluginConfig, startPluginConfigOAuth } from "@/lib/api-client/sdk.gen";
+import { createPlugin, probeMcpServer, startMcpServerOAuth } from "@/lib/api-client/sdk.gen";
 import type {
   ComponentsPluginConfigInputWritable,
   McpRegistryServer,
@@ -69,7 +69,6 @@ export function useMcpMarketInstall(
         body: {
           display_name: server.name,
           name: registryPluginID(server.id),
-          backend: "mcp",
           definition_spec: {},
           initial_config: {
             ...initialConfig,
@@ -79,8 +78,10 @@ export function useMcpMarketInstall(
       });
       const createdConfig = data?.config;
       if (!createdConfig) throw new Error("plugin configuration was not returned");
-      await probePluginConfig({
-        path: { plugin_id: createdConfig.plugin_id, config_id: createdConfig.id },
+      const childID = createdConfig.resource_summary.mcp_servers[0]?.child_id;
+      if (!childID) throw new Error("MCP child server was not returned");
+      await probeMcpServer({
+        path: { id: childID },
         throwOnError: true,
       });
       return createdConfig;
@@ -99,8 +100,10 @@ export function useMcpMarketInstall(
   // from config writes so the callback can enforce common plugin visibility.
   const connect = useMutation({
     mutationFn: async (config: PluginConfig) => {
-      const { data } = await startPluginConfigOAuth({
-        path: { plugin_id: config.plugin_id, config_id: config.id },
+      const childID = config.resource_summary.mcp_servers[0]?.child_id;
+      if (!childID) throw new Error("MCP child server was not returned");
+      const { data } = await startMcpServerOAuth({
+        path: { id: childID },
         throwOnError: true,
       });
       return data?.authorization_url ?? "";

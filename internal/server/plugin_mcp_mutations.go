@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -26,6 +25,25 @@ type pluginMCPSecrets struct {
 	Token        *string `json:"token"`
 	ClientID     *string `json:"oauth_client_id"`
 	ClientSecret *string `json:"oauth_client_secret"`
+}
+
+// hasCompactMCPInput classifies the legacy single-server authoring shape by
+// the request itself. A package may contain MCP resources alongside CLI
+// resources, so the parent definition cannot decide which mutation adapter is
+// appropriate for an individual config request.
+func hasCompactMCPInput(payload, credentials *map[string]any) bool {
+	if credentials != nil {
+		return true
+	}
+	if payload == nil {
+		return false
+	}
+	for _, key := range []string{"url", "transport", "auth_type", "credential_mode"} {
+		if _, ok := (*payload)[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Only these authored fields cross into the backend. Owner tuples and Vault
@@ -111,7 +129,7 @@ func (s *Server) createMCPPlugin(w http.ResponseWriter, r *http.Request, authori
 		writePluginError(w, err)
 		return
 	}
-	definition, config, err := s.mcpSvc.CreateCustom(authz.WithAuthority(r.Context(), authority), pluginpkg.Definition{ID: request.Name, DisplayName: request.DisplayName, Backend: pluginpkg.BackendMCP, Spec: mustJSON(request.DefinitionSpec)}, input)
+	definition, config, err := s.mcpSvc.CreateCustom(authz.WithAuthority(r.Context(), authority), pluginpkg.Definition{ID: request.Name, DisplayName: request.DisplayName, Spec: mustJSON(request.DefinitionSpec)}, input)
 	if err != nil {
 		writePluginError(w, err)
 		return
@@ -142,43 +160,7 @@ func (s *Server) createMCPPluginConfig(ctx context.Context, authority authz.Auth
 	if err != nil {
 		return pluginpkg.Config{}, err
 	}
-	return access.GetConfig(ctx, definition.ID, registration.ID)
-}
-
-func (s *Server) updateMCPPluginConfig(ctx context.Context, authority authz.Authority, access *pluginpkg.Access, current pluginpkg.Config, request apitypes.UpdatePluginConfigRequest, raw map[string]json.RawMessage) (pluginpkg.Config, error) {
-	if s.mcpSvc == nil {
-		return pluginpkg.Config{}, errPluginCapabilityUnavailable
-	}
-	if request.ExpectedRevision != current.Revision {
-		return pluginpkg.Config{}, pluginpkg.ErrConflict
-	}
-	if request.BinaryVersions != nil || request.ResetFields != nil {
-		return pluginpkg.Config{}, pluginpkg.ErrInvalidConfig
-	}
-	if value, exists := raw["config"]; exists && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-		return pluginpkg.Config{}, pluginpkg.ErrInvalidConfig
-	}
-	edit, secrets, err := decodePluginMCPEdit(request.Config, request.Credentials)
-	if err != nil {
-		return pluginpkg.Config{}, err
-	}
-	ctx = authz.WithAuthority(ctx, authority)
-	registration, err := s.mcpSvc.Get(ctx, current.ID, string(current.Scope), current.UserID, current.AgentID)
-	if err != nil {
-		return pluginpkg.Config{}, err
-	}
-	if registration.ConfigRevision != request.ExpectedRevision {
-		return pluginpkg.Config{}, pluginpkg.ErrConflict
-	}
-	_, enabledSet := raw["is_enabled"]
-	_, err = s.mcpSvc.UpdateIfVersion(ctx, mcp.UpdateInput{
-		ID: current.ID, Scope: string(current.Scope), UserID: current.UserID, AgentID: current.AgentID,
-		URL: edit.URL, Transport: edit.Transport, AuthType: edit.AuthType, CredentialMode: edit.CredentialMode,
-		Metadata: edit.Metadata, Description: edit.Description, EnabledSet: enabledSet, Enabled: request.IsEnabled,
-		Token: secrets.Token, OAuthClientID: secrets.ClientID, OAuthClientSecret: secrets.ClientSecret,
-	}, registration.Version())
-	if err != nil {
-		return pluginpkg.Config{}, fmt.Errorf("MCP config mutation: %w", err)
-	}
-	return access.GetConfig(ctx, current.PluginID, current.ID)
+	// Create returns the runtime child identity. The plugin config API returns
+	// the authored parent row, whose revision owns all child mutations.
+	return access.GetConfig(ctx, definition.ID, registration.ParentConfigID)
 }

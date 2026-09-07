@@ -78,18 +78,18 @@ type toolProxy struct {
 
 func (t *toolProxy) Definition() pkgtools.Definition { return t.def }
 
-// PluginToolIdentity exposes the durable owner pair to the runner. The
-// runner still checks the pair against its authority-bound snapshot and the
-// proxy's exported definition before registering it.
-func (t *toolProxy) PluginToolIdentity() (pluginID, localToolName string, ok bool) {
-	if t == nil || t.reg.PluginID == "" {
-		return "", "", false
+// PluginToolIdentity exposes the durable package/server/local identity to the
+// runner. The runner still checks it against its authority-bound snapshot and
+// the proxy's exported definition before registering it.
+func (t *toolProxy) PluginToolIdentity() (pluginID, serverKey, localToolName string, ok bool) {
+	if t == nil || t.reg.PluginID == "" || t.reg.ServerKey == "" {
+		return "", "", "", false
 	}
 	localToolName = t.remoteName
-	if _, err := agentpackage.ExportedToolName(t.reg.PluginID, "main", localToolName); err != nil {
-		return "", "", false
+	if _, err := agentpackage.ExportedToolName(t.reg.PluginID, t.reg.ServerKey, localToolName); err != nil {
+		return "", "", "", false
 	}
-	return t.reg.PluginID, localToolName, true
+	return t.reg.PluginID, t.reg.ServerKey, localToolName, true
 }
 
 // ExecuteContent runs the call and converts MCP content blocks to ai blocks:

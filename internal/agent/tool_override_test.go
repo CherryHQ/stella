@@ -12,9 +12,11 @@ func TestToolIdentityValidate(t *testing.T) {
 	}{
 		"core":           {identity: ToolIdentity{CoreToolName: "memory"}},
 		"plugin":         {identity: ToolIdentity{PluginID: "system/email", LocalToolName: "send"}},
+		"mcp plugin":     {identity: ToolIdentity{PluginID: "custom/github", ServerKey: "main", LocalToolName: "issues_list"}},
 		"empty":          {wantErr: true},
 		"both":           {identity: ToolIdentity{CoreToolName: "memory", PluginID: "system/email", LocalToolName: "send"}, wantErr: true},
 		"missing local":  {identity: ToolIdentity{PluginID: "system/email"}, wantErr: true},
+		"server only":    {identity: ToolIdentity{ServerKey: "main", LocalToolName: "send"}, wantErr: true},
 		"missing plugin": {identity: ToolIdentity{LocalToolName: "send"}, wantErr: true},
 	} {
 		t.Run(name, func(t *testing.T) {

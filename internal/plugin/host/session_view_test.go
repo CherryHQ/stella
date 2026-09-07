@@ -64,8 +64,8 @@ func TestAppendCLIResourcesCarriesIdentityAndClonesOptions(t *testing.T) {
 func TestValidateResolvedCLIPayloadRejectsIncompleteCapabilityLift(t *testing.T) {
 	definition := plugin.Definition{
 		ID: "demo", DisplayName: "Demo",
-		Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin,
-		ImplementationKey: "demo", DefaultEnabled: false, Revision: 1,
+		Source:         plugin.SourceBuiltin,
+		DefaultEnabled: false, Revision: 1,
 		Spec: json.RawMessage(`{"binaries":[{"name":"demo","tool":"github:owner/demo","version":"1.0.0"}]}`),
 	}
 	disabled := false

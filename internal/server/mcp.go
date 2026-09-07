@@ -6,10 +6,13 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/google/uuid"
+
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/mcp"
+	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 )
 
 // beginMCPAccess authenticates the request and starts the common MCP access
@@ -45,11 +48,15 @@ func mcpAgentID(id *string) string {
 }
 
 func writeMCPError(w http.ResponseWriter, err error) {
+	if errors.Is(err, authz.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
 	if errors.Is(err, authz.ErrForbidden) {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	if errors.Is(err, mcp.ErrVersionConflict) {
+	if errors.Is(err, mcp.ErrVersionConflict) || errors.Is(err, pluginpkg.ErrConflict) {
 		writeError(w, http.StatusConflict, "registration changed; re-read it and retry")
 		return
 	}
@@ -110,6 +117,10 @@ func (s *Server) ListAgentMcpServers(w http.ResponseWriter, r *http.Request, id 
 // intentionally does not expose endpoint, credential locators, or OAuth state
 // from the owner-scoped registration.
 func agentMCPServerResponse(registration mcp.Registration, readable bool) apitypes.AgentMCPServer {
+	parentConfigID, err := uuid.Parse(registration.ParentConfigID)
+	if err != nil {
+		parentConfigID = uuid.Nil
+	}
 	tools := make([]apitypes.MCPTool, len(registration.Tools))
 	for i, tool := range registration.Tools {
 		tools[i] = apitypes.MCPTool{Name: tool.Name}
@@ -129,6 +140,8 @@ func agentMCPServerResponse(registration mcp.Registration, readable bool) apityp
 	return apitypes.AgentMCPServer{
 		PluginId:       registration.PluginID,
 		ConfigId:       registration.ID,
+		ParentConfigId: parentConfigID,
+		ParentRevision: registration.ConfigRevision,
 		Scope:          apitypes.AgentMCPServerScope(registration.Scope),
 		Enabled:        registration.Enabled,
 		CredentialMode: apitypes.AgentMCPServerCredentialMode(registration.CredentialMode),

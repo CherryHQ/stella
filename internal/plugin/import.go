@@ -113,6 +113,7 @@ type ToolOverrideMigration struct {
 	OldName   string
 	NewName   string
 	PluginID  string
+	ServerKey string
 	ConfigID  string
 	LocalTool string
 	Scope     Scope
@@ -282,7 +283,7 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, native N
 					return ImportPlan{}, fmt.Errorf("%w: tool override %s references mismatched config %s", ErrLegacyMigrationConflict, override.ID, migration.ConfigID)
 				}
 			}
-			key := strings.Join([]string{migration.PluginID, migration.LocalTool, string(migration.Scope), migration.UserID, migration.AgentID}, "\x00")
+			key := strings.Join([]string{migration.PluginID, migration.ServerKey, migration.LocalTool, string(migration.Scope), migration.UserID, migration.AgentID}, "\x00")
 			if prior, exists := seenToolOverrides[key]; exists {
 				return ImportPlan{}, fmt.Errorf("%w: tool overrides %s and %s target the same identity", ErrLegacyMigrationConflict, prior, override.ID)
 			}
@@ -396,8 +397,8 @@ func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, 
 	for _, def := range plan.Definitions {
 		if _, err := q.UpsertPluginDefinition(ctx, sqlc.UpsertPluginDefinitionParams{
 			ID: def.ID, DisplayName: def.DisplayName,
-			Backend: string(def.Backend), Source: string(def.Source),
-			ImplementationKey: def.ImplementationKey, Spec: def.Spec,
+			Source:         string(def.Source),
+			Spec:           def.Spec,
 			DefaultEnabled: def.DefaultEnabled, Revision: def.Revision,
 			CreatorUserID: nullableText(def.CreatorUserID),
 		}); err != nil {
@@ -419,6 +420,11 @@ func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, 
 		}); err != nil {
 			return fmt.Errorf("import plugin config %s: %w", config.PluginID, mapConflict(err))
 		}
+		for _, child := range config.MCPServers {
+			if _, err := q.CreatePluginConfigMCPServer(ctx, sqlc.CreatePluginConfigMCPServerParams{ID: child.ID, ConfigID: config.ID, ServerKey: child.ServerKey}); err != nil {
+				return fmt.Errorf("import MCP child %s/%s: %w", config.PluginID, child.ServerKey, mapConflict(err))
+			}
+		}
 		configs[config.ID] = config
 	}
 	if err := importToolOverrides(ctx, tx, plan); err != nil {
@@ -432,8 +438,13 @@ func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, 
 		if def.Source != SourceBuiltin {
 			continue
 		}
-		if _, err := q.EnsureSystemPluginConfig(ctx, def.ID); err != nil {
+		row, err := q.EnsureSystemPluginConfig(ctx, sqlc.EnsureSystemPluginConfigParams{PluginID: def.ID, Config: json.RawMessage(`{}`)})
+		if err != nil {
 			return fmt.Errorf("ensure builtin plugin config %s: %w", def.ID, err)
+		}
+		config := Config{ID: row.ID, PluginID: row.PluginID, Payload: row.Config}
+		if err := (&Service{q: q}).ensureMCPServerChildren(ctx, &config); err != nil {
+			return fmt.Errorf("ensure builtin MCP children %s: %w", def.ID, err)
 		}
 	}
 
@@ -457,10 +468,10 @@ func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, 
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO mcp_connection_state (
-				config_id, credential_user_id, tools, status, status_error,
+				child_id, credential_user_id, tools, status, status_error,
 				probed_at, config_revision
 			) VALUES ($1::uuid, NULL, $2::jsonb, $3, $4, NULL, $5)
-			ON CONFLICT (config_id, credential_user_id) DO UPDATE SET
+			ON CONFLICT (child_id, credential_user_id) DO UPDATE SET
 				tools = EXCLUDED.tools, status = EXCLUDED.status,
 				status_error = EXCLUDED.status_error, probed_at = EXCLUDED.probed_at,
 				config_revision = EXCLUDED.config_revision, updated_at = now()
@@ -490,7 +501,7 @@ func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, 
 // runtime authoritative. This keeps preparation migrations from being
 // mistaken for a complete cutover.
 func legacyImportSchemaReady(ctx context.Context, tx pgx.Tx) error {
-	var migration41Applied, pluginIdentity, localToolIdentity, observationTable, oauthConfigFK, toolNameNullable, identityCheck, coreIndex, pluginIndex bool
+	var migration41Applied, pluginIdentity, localToolIdentity, serverKeyIdentity, observationTable, oauthConfigFK, toolNameNullable, identityCheck, coreIndex, pluginIndex bool
 	err := tx.QueryRow(ctx, `
 		SELECT
 			COALESCE((
@@ -511,6 +522,11 @@ func legacyImportSchemaReady(ctx context.Context, tx pgx.Tx) error {
 				  AND column_name = 'local_tool_name'
 			),
 			EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'tool_override'
+				  AND column_name = 'server_key'
+			),
+			EXISTS (
 				SELECT 1
 				FROM pg_constraint c
 				JOIN pg_class child ON child.oid = c.conrelid
@@ -523,7 +539,7 @@ func legacyImportSchemaReady(ctx context.Context, tx pgx.Tx) error {
 				  AND c.conname = 'mcp_oauth_flow_server_id_plugin_config_fkey'
 				  AND child.relnamespace = 'public'::regnamespace
 				  AND child.relname = 'mcp_oauth_flow'
-				  AND parent.relname = 'plugin_config'
+				  AND parent.relname = 'plugin_config_mcp_server'
 				  AND parent.relnamespace = 'public'::regnamespace
 				  AND child_col.attname = 'server_id'
 				  AND parent_col.attname = 'id'
@@ -564,11 +580,11 @@ func legacyImportSchemaReady(ctx context.Context, tx pgx.Tx) error {
 				  AND index_ref.indexrelid = to_regclass('public.uniq_tool_override_plugin_identity')
 				  AND index_ref.indisunique
 			)
-	`).Scan(&migration41Applied, &observationTable, &pluginIdentity, &localToolIdentity, &oauthConfigFK, &toolNameNullable, &identityCheck, &coreIndex, &pluginIndex)
+	`).Scan(&migration41Applied, &observationTable, &pluginIdentity, &localToolIdentity, &serverKeyIdentity, &oauthConfigFK, &toolNameNullable, &identityCheck, &coreIndex, &pluginIndex)
 	if err != nil {
 		return fmt.Errorf("check plugin cutover schema: %w", err)
 	}
-	if !migration41Applied || !pluginIdentity || !localToolIdentity {
+	if !migration41Applied || !pluginIdentity || !localToolIdentity || !serverKeyIdentity {
 		return ErrToolOverrideSchema
 	}
 	if !toolNameNullable || !identityCheck || !coreIndex || !pluginIndex {
@@ -621,20 +637,20 @@ func verifyCoreOverrides(ctx context.Context, tx pgx.Tx, overrides []LegacyToolO
 		if _, err := uuid.Parse(override.ID); err != nil {
 			return fmt.Errorf("%w: core override %s has invalid row ID", ErrLegacyMigrationConflict, override.ID)
 		}
-		var storedToolName, storedScope, storedUserID, storedAgentID, storedPluginID, storedLocalToolName pgtype.Text
+		var storedToolName, storedScope, storedUserID, storedAgentID, storedPluginID, storedServerKey, storedLocalToolName pgtype.Text
 		var storedEnabled bool
 		err := tx.QueryRow(ctx, `
-			SELECT tool_name, scope, user_id::text, agent_id, enabled, plugin_id, local_tool_name
+			SELECT tool_name, scope, user_id::text, agent_id, enabled, plugin_id, server_key, local_tool_name
 			FROM tool_override
 			WHERE id = $1::uuid
-		`, override.ID).Scan(&storedToolName, &storedScope, &storedUserID, &storedAgentID, &storedEnabled, &storedPluginID, &storedLocalToolName)
+		`, override.ID).Scan(&storedToolName, &storedScope, &storedUserID, &storedAgentID, &storedEnabled, &storedPluginID, &storedServerKey, &storedLocalToolName)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("%w: core override %s source row disappeared", ErrLegacyMigrationConflict, override.ID)
 		}
 		if err != nil {
 			return fmt.Errorf("verify core override %s: %w", override.ID, err)
 		}
-		if storedPluginID.Valid || storedLocalToolName.Valid || !storedToolName.Valid || storedToolName.String != override.ToolName || !storedScope.Valid || storedScope.String != override.Scope ||
+		if storedPluginID.Valid || storedServerKey.Valid || storedLocalToolName.Valid || !storedToolName.Valid || storedToolName.String != override.ToolName || !storedScope.Valid || storedScope.String != override.Scope ||
 			textValue(storedUserID) != override.UserID || textValue(storedAgentID) != override.AgentID || storedEnabled != override.Enabled {
 			return fmt.Errorf("%w: core override %s changed since snapshot", ErrLegacyMigrationConflict, override.ID)
 		}
@@ -652,7 +668,7 @@ func importToolOverrides(ctx context.Context, tx pgx.Tx, plan ImportPlan) error 
 		if targetName == "" {
 			targetName = override.ToolName
 		}
-		key := legacyOverrideTargetKey("core", targetName, override.Scope, override.UserID, override.AgentID)
+		key := legacyOverrideTargetKey("core", "", targetName, override.Scope, override.UserID, override.AgentID)
 		if prior, exists := seen[key]; exists {
 			return fmt.Errorf("%w: tool overrides %s and %s target the same identity", ErrLegacyMigrationConflict, prior, override.ID)
 		}
@@ -683,10 +699,10 @@ func importToolOverrides(ctx context.Context, tx pgx.Tx, plan ImportPlan) error 
 		}
 	}
 	for _, override := range plan.ToolOverrides {
-		if override.PluginID == "" || override.LocalTool == "" || override.NewName == "" {
+		if override.PluginID == "" || override.ServerKey == "" || override.LocalTool == "" || override.NewName == "" {
 			return fmt.Errorf("%w: incomplete target identity for legacy override %s", ErrLegacyMigrationConflict, override.LegacyID)
 		}
-		key := legacyOverrideTargetKey(override.PluginID, override.LocalTool, string(override.Scope), override.UserID, override.AgentID)
+		key := legacyOverrideTargetKey(override.PluginID, override.ServerKey, override.LocalTool, string(override.Scope), override.UserID, override.AgentID)
 		if prior, exists := seen[key]; exists {
 			return fmt.Errorf("%w: tool overrides %s and %s target the same identity", ErrLegacyMigrationConflict, prior, override.LegacyID)
 		}
@@ -699,16 +715,16 @@ func importToolOverrides(ctx context.Context, tx pgx.Tx, plan ImportPlan) error 
 		var updatedID string
 		err := tx.QueryRow(ctx, `
 			UPDATE tool_override
-			SET tool_name = NULL, plugin_id = $2, local_tool_name = $3, updated_at = now()
+			SET tool_name = NULL, plugin_id = $2, server_key = NULLIF($3::text, ''), local_tool_name = $4, updated_at = now()
 			WHERE id = $1::uuid
-			  AND tool_name IS NOT DISTINCT FROM $4::text
-			  AND scope IS NOT DISTINCT FROM $5::text
-			  AND user_id::text IS NOT DISTINCT FROM NULLIF($6::text, '')
-			  AND agent_id IS NOT DISTINCT FROM NULLIF($7::text, '')
-			  AND enabled IS NOT DISTINCT FROM $8::boolean
+			  AND tool_name IS NOT DISTINCT FROM $5::text
+			  AND scope IS NOT DISTINCT FROM $6::text
+			  AND user_id::text IS NOT DISTINCT FROM NULLIF($7::text, '')
+			  AND agent_id IS NOT DISTINCT FROM NULLIF($8::text, '')
+			  AND enabled IS NOT DISTINCT FROM $9::boolean
 			  AND plugin_id IS NULL AND local_tool_name IS NULL
 			RETURNING id::text
-		`, override.LegacyID, override.PluginID, override.LocalTool, override.OldName, string(override.Scope), override.UserID, override.AgentID, override.Enabled).Scan(&updatedID)
+		`, override.LegacyID, override.PluginID, override.ServerKey, override.LocalTool, override.OldName, string(override.Scope), override.UserID, override.AgentID, override.Enabled).Scan(&updatedID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("%w: source tool override %s disappeared or was already migrated", ErrLegacyMigrationConflict, override.LegacyID)
 		}
@@ -719,8 +735,8 @@ func importToolOverrides(ctx context.Context, tx pgx.Tx, plan ImportPlan) error 
 	return nil
 }
 
-func legacyOverrideTargetKey(owner, local, scope, userID, agentID string) string {
-	return strings.Join([]string{owner, local, scope, userID, agentID}, "\x00")
+func legacyOverrideTargetKey(owner, serverKey, local, scope, userID, agentID string) string {
+	return strings.Join([]string{owner, serverKey, local, scope, userID, agentID}, "\x00")
 }
 
 // validateLegacyOAuthForeignKey is intentionally called after config writes:
@@ -745,7 +761,7 @@ func validateLegacyOAuthForeignKey(ctx context.Context, tx pgx.Tx) error {
 			  AND child.relnamespace = 'public'::regnamespace
 			  AND child.relname = 'mcp_oauth_flow'
 			  AND parent.relnamespace = 'public'::regnamespace
-			  AND parent.relname = 'plugin_config'
+			  AND parent.relname = 'plugin_config_mcp_server'
 			  AND child_col.attname = 'server_id'
 			  AND parent_col.attname = 'id'
 			  AND c.confdeltype = 'c'
@@ -1094,8 +1110,7 @@ func customDefinitionFromManifest(raw string) (Definition, error) {
 	}
 	return Definition{
 		ID: id, DisplayName: displayName,
-		Backend: BackendCLI, Source: SourceCustom, ImplementationKey: "cli",
-		Spec: defSpec, DefaultEnabled: false, Revision: 1,
+		Source: SourceCustom, Spec: defSpec, DefaultEnabled: false, Revision: 1,
 	}, nil
 }
 
@@ -1136,10 +1151,11 @@ func normalizeMCP(row LegacyMCPRegistration) (Definition, Config, error) {
 	if row.AuthType == legacyMCPAuthOAuth && row.OAuthClientSecretExists && metadataString(row.Metadata, "oauth.client_id") == "" {
 		return Definition{}, Config{}, fmt.Errorf("%w: MCP %s OAuth client secret exists without a public client_id", ErrLegacyMigrationConflict, row.ID)
 	}
-	payload := map[string]any{
+	serverPayload := map[string]any{
 		"url": row.URL, "transport": row.Transport, "auth_type": row.AuthType,
 		"credential_mode": effectiveCredentialMode(row.CredentialMode), "metadata": metadata,
 	}
+	payload := map[string]any{"mcp_servers": map[string]any{"main": serverPayload}}
 	encodedPayload, err := json.Marshal(payload)
 	if err != nil {
 		return Definition{}, Config{}, err
@@ -1151,12 +1167,17 @@ func normalizeMCP(row LegacyMCPRegistration) (Definition, Config, error) {
 	}
 	def := Definition{
 		ID: pluginID, DisplayName: row.Name,
-		Backend: BackendMCP, Source: SourceCustom, ImplementationKey: "mcp", Spec: json.RawMessage(`{}`),
+		Source: SourceCustom, Spec: json.RawMessage(`{}`),
 		DefaultEnabled: false, Revision: 1, CreatorUserID: creator,
+	}
+	refsPayload, err := json.Marshal(map[string]any{"mcp_servers": map[string]json.RawMessage{"main": refs}})
+	if err != nil {
+		return Definition{}, Config{}, err
 	}
 	config := Config{
 		ID: row.ID, PluginID: def.ID, Scope: Scope(row.Scope), UserID: row.UserID, AgentID: row.AgentID,
-		Enabled: cloneBool(&row.Enabled), Payload: encodedPayload, CredentialRefs: refs, Revision: 1,
+		Enabled: cloneBool(&row.Enabled), Payload: encodedPayload, CredentialRefs: refsPayload, Revision: 1,
+		MCPServers: []MCPServerChild{{ID: row.ID, ParentConfigID: row.ID, ServerKey: "main"}},
 	}
 	return def, config, nil
 }
@@ -1444,7 +1465,7 @@ func ConvertLegacyToolOverride(override LegacyToolOverride, registrations []Lega
 	}
 	return ToolOverrideMigration{
 		LegacyID: override.ID, OldName: override.ToolName, NewName: newName,
-		PluginID: pluginID, ConfigID: registration.ID, LocalTool: local,
+		PluginID: pluginID, ServerKey: "main", ConfigID: registration.ID, LocalTool: local,
 		Scope: Scope(override.Scope), UserID: override.UserID, AgentID: override.AgentID, Enabled: override.Enabled,
 	}, nil
 }

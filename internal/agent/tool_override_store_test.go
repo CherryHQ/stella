@@ -168,8 +168,8 @@ func TestToolOverrideStorePluginIdentityCRUDAndCAS(t *testing.T) {
 	db := dbtest.New(t)
 	applyToolOverrideIdentityDDL(t, db)
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec, default_enabled, revision)
-		VALUES ('email', 'Email', 'mcp', 'custom', 'email', '{}'::jsonb, false, 1)
+		INSERT INTO plugin_definition (id, display_name, source, spec, default_enabled, revision)
+		VALUES ('email', 'Email', 'custom', '{}'::jsonb, false, 1)
 	`); err != nil {
 		t.Fatalf("insert plugin definition: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestToolOverrideStorePluginIdentityCRUDAndCAS(t *testing.T) {
 		t.Fatal("unknown plugin override insert succeeded, want FK rejection")
 	}
 
-	identity := ToolIdentity{PluginID: "email", LocalToolName: "message_send"}
+	identity := ToolIdentity{PluginID: "email", ServerKey: "main", LocalToolName: "message_send"}
 	key := ToolOverrideKey{Identity: identity, Scope: ToolOverrideScopeSystem}
 	store := NewToolOverrideStore(db)
 	absent, err := store.Get(ctx, key)
@@ -219,7 +219,7 @@ func applyToolOverrideIdentityDDL(t *testing.T, db *pgxpool.Pool) {
 			ON tool_override (tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
 			WHERE tool_name IS NOT NULL AND plugin_id IS NULL AND local_tool_name IS NULL;
 		CREATE UNIQUE INDEX IF NOT EXISTS uniq_tool_override_plugin_identity
-			ON tool_override (plugin_id, local_tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
+			ON tool_override (plugin_id, server_key, local_tool_name, scope, user_id, agent_id) NULLS NOT DISTINCT
 			WHERE tool_name IS NULL;
 	`)
 	if err != nil {
@@ -257,5 +257,23 @@ func TestPersistedToolIdentityRejectsPartialPluginPair(t *testing.T) {
 	row := sqlc.ToolOverride{PluginID: pgnull.Text("email")}
 	if _, err := persistedToolIdentity(row); err == nil {
 		t.Fatal("partial persisted plugin identity = nil, want error")
+	}
+	row = sqlc.ToolOverride{ServerKey: pgnull.Text("main")}
+	if _, err := persistedToolIdentity(row); err == nil {
+		t.Fatal("server-only persisted plugin identity = nil, want error")
+	}
+}
+
+func TestToolIdentityServerKeySeparatesMCPChildren(t *testing.T) {
+	left := ToolIdentity{PluginID: "remote", ServerKey: "alpha", LocalToolName: "list"}
+	right := ToolIdentity{PluginID: "remote", ServerKey: "beta", LocalToolName: "list"}
+	if err := left.Validate(); err != nil {
+		t.Fatalf("left identity: %v", err)
+	}
+	if err := right.Validate(); err != nil {
+		t.Fatalf("right identity: %v", err)
+	}
+	if left == right || toolOverrideVersionKey(left) == toolOverrideVersionKey(right) {
+		t.Fatalf("MCP sibling identities collapsed: left=%+v right=%+v", left, right)
 	}
 }

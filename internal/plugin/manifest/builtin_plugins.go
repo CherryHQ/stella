@@ -3,10 +3,12 @@ package manifest
 import (
 	"bytes"
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -141,12 +143,6 @@ func loadAgentPlugin(root, relative string) (rawManifestPlugin, error) {
 			return rawManifestPlugin{}, fmt.Errorf("stat Agent package %q %s: %w", relative, legacy, err)
 		}
 	}
-	if len(pkg.MCPServers) > 0 {
-		return rawManifestPlugin{}, fmt.Errorf("agent package %q declares MCP servers; guide-only packages cannot declare runtime components", relative)
-	}
-	if pkg.Extension != nil && (len(pkg.Extension.Binaries) > 0 || len(pkg.Extension.SessionEnv) > 0 || len(pkg.Extension.OAuth) > 0) {
-		return rawManifestPlugin{}, fmt.Errorf("agent package %q declares Stella runtime requirements; guide-only packages cannot declare runtime components", relative)
-	}
 	enabled := true
 	result := rawManifestPlugin{
 		ID: pkg.Manifest.Name, Kind: "agent", Enabled: &enabled,
@@ -155,10 +151,80 @@ func loadAgentPlugin(root, relative string) (rawManifestPlugin, error) {
 			Description: pkg.Manifest.Description,
 		},
 	}
+	if pkg.Extension != nil {
+		for _, binary := range pkg.Extension.Binaries {
+			result.Binaries = append(result.Binaries, ManifestBinary{
+				Name: binary.Name, Tool: binary.Tool, Version: binary.Version,
+				Options: cloneRawOptions(binary.Options),
+			})
+		}
+		for _, env := range pkg.Extension.SessionEnv {
+			result.SessionEnvs = append(result.SessionEnvs, ManifestSessionEnv{
+				EnvVar: env.EnvVar, Source: env.Source, Required: env.Required,
+			})
+		}
+		for _, requirement := range pkg.Extension.OAuth {
+			converted := ManifestOAuthRequirement{Provider: requirement.Provider, Scopes: slices.Clone(requirement.Scopes)}
+			for _, binding := range requirement.Bindings {
+				converted.Bindings = append(converted.Bindings, ManifestOAuthBinding{
+					Credential: binding.Credential, EnvVar: binding.EnvVar, Connection: binding.Connection,
+				})
+			}
+			result.OAuth = append(result.OAuth, converted)
+		}
+	}
+	for _, server := range pkg.MCPServers {
+		transport, ok := agentMCPTransport(server.Type)
+		if !ok {
+			return rawManifestPlugin{}, fmt.Errorf("agent package %q MCP server %q uses unsupported transport %q", relative, server.Name, server.Type)
+		}
+		if result.MCPServers == nil {
+			result.MCPServers = make(map[string]ManifestMCPServer)
+		}
+		result.MCPServers[server.Name] = ManifestMCPServer{
+			URL: server.URL, Transport: transport, AuthType: "none", CredentialMode: "shared",
+			Headers: cloneStringMap(server.Headers),
+		}
+	}
 	for _, skill := range pkg.Skills {
 		result.Skills = append(result.Skills, ManifestSkill{Name: skill.Name})
 	}
 	return result, nil
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	maps.Copy(out, in)
+	return out
+}
+
+func agentMCPTransport(transport string) (string, bool) {
+	switch transport {
+	case "streamable-http":
+		return "streamable_http", true
+	case "sse":
+		return "sse", true
+	default:
+		return "", false
+	}
+}
+
+func cloneRawOptions(options map[string]json.RawMessage) map[string]any {
+	if len(options) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(options))
+	for key, raw := range options {
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			continue
+		}
+		out[key] = value
+	}
+	return out
 }
 
 func loadBuiltinPlugin(filename, relative string) (rawManifestPlugin, error) {
