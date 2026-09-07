@@ -135,7 +135,7 @@ The bot streams responses by editing messages in place:
 2. Coalesces bursts into the latest visible snapshot and updates at most every 250 ms.
 3. Drains the newest snapshot, then synchronously writes a completed or failed final card.
 
-The card includes a chronological **Thinking and tools** panel. It is expanded while the response is running and collapsed when the response completes. The panel keeps the model-provided reasoning and every tool state in event order. Tool input summaries pass through Stella's credential redactor and are truncated; raw arguments, results, and error details are never placed in the Feishu card.
+While a response is running, the card shows the latest **Thinking and tools** panel expanded. When the response finishes, the final card keeps the answer and removes the progress panel. Long answers can span multiple cards; reasoning and tool progress do not create additional cards. Tool input summaries pass through Stella's credential redactor and are truncated; raw arguments, results, and error details are never placed in the Feishu card.
 
 ### Cancellation and delivery
 
