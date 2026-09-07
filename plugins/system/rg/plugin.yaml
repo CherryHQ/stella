@@ -1,0 +1,11 @@
+id: rg
+kind: system
+name: rg
+display_name: ripgrep
+description: Required text search CLI.
+enabled: true
+category: system
+binaries:
+  - name: rg
+    tool: github:BurntSushi/ripgrep
+    version: 15.2.0

@@ -9,7 +9,7 @@ import (
 
 func builtinPlugin() ManifestPlugin {
 	return ManifestPlugin{
-		ID:      "tool/gh",
+		ID:      "gh",
 		Kind:    "tool",
 		Enabled: true,
 		ManifestPluginDefinition: ManifestPluginDefinition{

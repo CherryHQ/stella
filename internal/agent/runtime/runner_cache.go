@@ -42,8 +42,19 @@ type runnerSelection struct {
 	runner         Runner
 	model          string
 	thinking       ai.ThinkingLevel
+	pluginContext  PluginContext
 	beforeRun      BeforeRunFunc
 	snapshotPrompt SnapshotPromptFunc
+}
+
+func runnerSelectionFor(cs *cachedSession) runnerSelection {
+	return runnerSelection{
+		session:       cs,
+		runner:        cs.r,
+		model:         cs.model,
+		thinking:      cs.thinking,
+		pluginContext: cs.r.PluginContext(),
+	}
 }
 
 // runnerCache manages active runners keyed by session ID.
@@ -60,6 +71,10 @@ type runnerCache struct {
 	mu              sync.Mutex
 	log             *slog.Logger
 }
+
+// maxConcurrentRunnerCloses bounds Docker and filesystem cleanup pressure
+// during a large invalidation while avoiding serial idle-runner retirement.
+const maxConcurrentRunnerCloses = 8
 
 func newRunnerCache(
 	newRunner NewRunnerFunc,
@@ -174,7 +189,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 				if reserve {
 					cs.reserved = true
 				}
-				selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
+				selection = runnerSelectionFor(cs)
 				selected = true
 				return
 			}
@@ -190,7 +205,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 				(thinking != "" && cs.thinking != thinking) {
 				cs.stale = true
 			}
-			selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
+			selection = runnerSelectionFor(cs)
 			selected = true
 			return
 		}
@@ -200,7 +215,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 				if reserve {
 					cs.reserved = true
 				}
-				selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
+				selection = runnerSelectionFor(cs)
 				selected = true
 				return
 			}
@@ -220,7 +235,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 				if reserve {
 					cs.reserved = true
 				}
-				selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
+				selection = runnerSelectionFor(cs)
 				selected = true
 				return
 			}
@@ -249,7 +264,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 				if reserve {
 					cs.reserved = true
 				}
-				selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
+				selection = runnerSelectionFor(cs)
 				selected = true
 				return
 			}
@@ -317,7 +332,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 	c.mu.Lock()
 	if cs.r != nil {
 		// Another goroutine installed a runner; discard ours.
-		selection := runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
+		selection := runnerSelectionFor(cs)
 		c.mu.Unlock()
 		_ = c.closeRetired(r)
 		return selection, nil
@@ -339,7 +354,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 	}
 
 	c.log.Info("created runner", "session_id", info.ID, "model", effectiveModel)
-	return runnerSelection{session: cs, runner: r, model: effectiveModel, thinking: effectiveThinking}, nil
+	return runnerSelection{session: cs, runner: r, model: effectiveModel, thinking: effectiveThinking, pluginContext: r.PluginContext()}, nil
 }
 
 // foregroundHumanSession gates discovery of Stella settings tools. It accepts
@@ -403,6 +418,38 @@ func (c *runnerCache) closeRetired(r Runner) (err error) {
 		}
 	}()
 	return r.Close()
+}
+
+// closeRetiredBatch waits for every detached runner while bounding Docker and
+// filesystem cleanup pressure from a large invalidation burst.
+func (c *runnerCache) closeRetiredBatch(runners []Runner) error {
+	if len(runners) == 0 {
+		return nil
+	}
+	workers := min(maxConcurrentRunnerCloses, len(runners))
+	jobs := make(chan Runner)
+	errs := make(chan error, len(runners))
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for r := range jobs {
+				if err := c.closeRetired(r); err != nil {
+					errs <- err
+				}
+			}
+		})
+	}
+	for _, r := range runners {
+		jobs <- r
+	}
+	close(jobs)
+	wg.Wait()
+	close(errs)
+	var joinedErr error
+	for err := range errs {
+		joinedErr = errors.Join(joinedErr, err)
+	}
+	return joinedErr
 }
 
 // close shuts down the runner for a single session.
@@ -476,13 +523,7 @@ func (c *runnerCache) resetWhere(include func(*cachedSession) bool) error {
 		}
 	}()
 
-	var lastErr error
-	for _, r := range runners {
-		if err := c.closeRetired(r); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return c.closeRetiredBatch(runners)
 }
 
 // invalidateSkillPolicy retires idle runners immediately and marks busy runners
@@ -529,13 +570,7 @@ func (c *runnerCache) invalidateSkillPolicy() error {
 			cs.failedAdmission = false
 		}
 	}()
-	var lastErr error
-	for _, r := range runners {
-		if err := c.closeRetired(r); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return c.closeRetiredBatch(runners)
 }
 
 // closeAll shuts down all runners.
@@ -545,15 +580,13 @@ func (c *runnerCache) closeAll() error {
 	c.sessions = make(map[string]*cachedSession)
 	c.mu.Unlock()
 
-	var lastErr error
+	var runners []Runner
 	for _, cs := range sessions {
 		if cs.r != nil {
-			if err := c.closeRetired(cs.r); err != nil {
-				lastErr = err
-			}
+			runners = append(runners, cs.r)
 		}
 	}
-	return lastErr
+	return c.closeRetiredBatch(runners)
 }
 
 // closeWhere is terminal: unlike resetWhere it removes every matching cache
@@ -572,13 +605,7 @@ func (c *runnerCache) closeWhere(include func(*cachedSession) bool) error {
 		}
 	}
 	c.mu.Unlock()
-	var lastErr error
-	for _, r := range closing {
-		if err := c.closeRetired(r); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return c.closeRetiredBatch(closing)
 }
 
 // reap closes runners that are idle or dead.
@@ -628,9 +655,7 @@ func (c *runnerCache) reap() {
 		}
 	}()
 
-	for _, r := range closing {
-		_ = c.closeRetired(r)
-	}
+	_ = c.closeRetiredBatch(closing)
 }
 
 // StartReaper runs a background goroutine that periodically reaps runners.

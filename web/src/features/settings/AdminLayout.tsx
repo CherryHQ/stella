@@ -9,6 +9,7 @@ import {
   Sparkles,
   Users,
   Wrench,
+  ShieldCheck,
 } from "lucide-react";
 import { ErrorState } from "@/components/RouteFallback";
 import { AppShell } from "@/layouts/AppShell";
@@ -36,8 +37,16 @@ export const adminSettingsNav: SettingsNavGroup[] = [
   {
     label: "admin.section.ai",
     items: [
-      { label: "settings.nav.providers", href: "/admin/ai/providers", icon: Bot },
-      { label: "settings.nav.defaultModels", href: "/admin/ai/models", icon: Sparkles },
+      {
+        label: "settings.nav.providers",
+        href: "/admin/ai/providers",
+        icon: Bot,
+      },
+      {
+        label: "settings.nav.defaultModels",
+        href: "/admin/ai/models",
+        icon: Sparkles,
+      },
     ],
   },
   {
@@ -67,7 +76,18 @@ export const adminSettingsNav: SettingsNavGroup[] = [
   },
   {
     label: "admin.section.integrations",
-    items: [{ label: "settings.nav.plugins", href: "/admin/integrations/plugins", icon: Blocks }],
+    items: [
+      {
+        label: "settings.nav.plugins",
+        href: "/admin/integrations/plugins",
+        icon: Blocks,
+      },
+      {
+        label: "settings.nav.nativePlugins",
+        href: "/admin/integrations/native",
+        icon: ShieldCheck,
+      },
+    ],
   },
 ];
 

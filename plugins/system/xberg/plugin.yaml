@@ -1,0 +1,11 @@
+id: xberg
+kind: system
+name: xberg
+display_name: Xberg
+description: Release-bundled document extraction CLI and its usage guide.
+enabled: true
+category: system
+bundled_binaries:
+  - xberg
+skills:
+  - name: xberg

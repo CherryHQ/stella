@@ -1,28 +1,27 @@
 package skill
 
 import (
-	"context"
 	"strings"
 	"testing"
 )
 
-func TestSkillsToolAgentPolicyBlocksAllModelReachableReads(t *testing.T) {
+func TestSkillsToolIgnoresLegacyBuiltinPolicy(t *testing.T) {
 	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).
+		WithPluginVisibility([]string{"stella"}, []string{"stella"}).
 		WithAgentSkillPolicy([]string{"builtin:stella"})
-	ctx := context.Background()
+	ctx := t.Context()
 
-	// Name, stable API ID, logical ref, and a file/reference read all resolve the
-	// same winner before filtering. None can manufacture a lower-precedence or
-	// direct-file bypass, and no helper directory is returned.
+	// Legacy builtin policy bytes remain readable but no longer affect immutable
+	// builtin resources. The owning plugin visibility gate remains authoritative.
 	for _, args := range []map[string]any{
 		{"name": "stella"},
 		{"name": "builtin-stella"},
 		{"name": "builtin:stella"},
-		{"name": "stella", "path": "references/anything.md"},
+		{"name": "stella", "path": "SKILL.md"},
 	} {
 		out, err := skillAction(tool, "load").Execute(ctx, args)
-		if err == nil || out != "" {
-			t.Fatalf("skill_load(%#v) = %q, %v; disabled winner must be unavailable", args, out, err)
+		if err != nil || out == "" {
+			t.Fatalf("skill_load(%#v) = %q, %v; legacy builtin deny must be ignored", args, out, err)
 		}
 	}
 
@@ -31,8 +30,8 @@ func TestSkillsToolAgentPolicyBlocksAllModelReachableReads(t *testing.T) {
 		if err != nil {
 			t.Fatalf("skill_installed_search(%#v): %v", args, err)
 		}
-		if strings.Contains(out, `"name": "stella"`) || strings.Contains(out, "<skill_dir>") {
-			t.Fatalf("skill_installed_search(%#v) leaked disabled winner/helper: %s", args, out)
+		if !strings.Contains(out, `"name": "stella"`) || strings.Contains(out, "<skill_dir>") {
+			t.Fatalf("skill_installed_search(%#v) did not retain builtin winner: %s", args, out)
 		}
 	}
 }

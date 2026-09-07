@@ -2,6 +2,9 @@ package host
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"sort"
 
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -9,7 +12,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildContext) []tools.Tool {
+func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildContext) (_ []tools.Tool, resultErr error) {
 	h.mu.RLock()
 	regs := make([]pkgplugins.ToolSpec, 0, len(h.toolRegs))
 	for _, reg := range h.toolRegs {
@@ -18,28 +21,45 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildCon
 	h.mu.RUnlock()
 	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
 	var out []tools.Tool
+	defer func() {
+		if resultErr == nil {
+			return
+		}
+		for _, built := range out {
+			if closer, ok := built.(io.Closer); ok {
+				resultErr = errors.Join(resultErr, closer.Close())
+			}
+		}
+	}()
 	for _, reg := range regs {
 		if reg.Build == nil {
 			continue
 		}
-		if !reg.Required {
-			state, err := h.DesiredState(ctx, reg.PluginID)
-			if err != nil || !state.Enabled {
-				continue
-			}
+		_, enabled, err := h.nativeState(ctx, reg.PluginID, bc.AgentID)
+		if err != nil {
+			return nil, err
+		}
+		if !enabled {
+			continue
 		}
 		t, err := reg.Build(pkgplugins.ToolContext{
 			Platform: h.platform(reg.PluginID),
 			Runtime:  bc.Runtime,
 		})
-		if err == nil && t != nil {
+		if t != nil {
 			out = append(out, t)
+			if err == nil && t.Definition().Name != reg.Name {
+				return nil, fmt.Errorf("plugin tool %q built as %q", reg.Name, t.Definition().Name)
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("build plugin tool %q: %w", reg.Name, err)
 		}
 	}
-	return out
+	return out, nil
 }
 
-func (h *Host) BuildEnabledHooks(ctx context.Context, toolsBinDir string) []hooks.HookPlugin {
+func (h *Host) BuildEnabledHooks(ctx context.Context, toolsBinDir, agentID string) (_ []hooks.HookPlugin, resultErr error) {
 	h.mu.RLock()
 	regs := make([]pkgplugins.HookSpec, 0, len(h.hookRegs))
 	for _, reg := range h.hookRegs {
@@ -48,9 +68,22 @@ func (h *Host) BuildEnabledHooks(ctx context.Context, toolsBinDir string) []hook
 	h.mu.RUnlock()
 	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
 	var out []hooks.HookPlugin
+	defer func() {
+		if resultErr == nil {
+			return
+		}
+		for _, built := range out {
+			if closer, ok := built.(io.Closer); ok {
+				resultErr = errors.Join(resultErr, closer.Close())
+			}
+		}
+	}()
 	for _, reg := range regs {
-		state, err := h.DesiredState(ctx, reg.PluginID)
-		if err != nil || !state.Enabled || reg.Build == nil {
+		state, enabled, err := h.nativeState(ctx, reg.PluginID, agentID)
+		if err != nil {
+			return nil, err
+		}
+		if !enabled || reg.Build == nil {
 			continue
 		}
 		item, err := reg.Build(pkgplugins.HookContext{
@@ -58,9 +91,12 @@ func (h *Host) BuildEnabledHooks(ctx context.Context, toolsBinDir string) []hook
 			State:       state,
 			ToolsBinDir: toolsBinDir,
 		})
-		if err == nil && item != nil {
+		if item != nil {
 			out = append(out, item)
 		}
+		if err != nil {
+			return nil, fmt.Errorf("build plugin hook %q: %w", reg.Name, err)
+		}
 	}
-	return out
+	return out, nil
 }

@@ -60,9 +60,9 @@ func TestSelectorsResolveAgainstTheRealGeneratedNames(t *testing.T) {
 			name:     "retired union name still means its family",
 			selector: "scheduler",
 			want: []string{
-				"scheduler_job_create", "scheduler_job_delete", "scheduler_job_get",
-				"scheduler_job_list", "scheduler_job_pause", "scheduler_job_resume",
-				"scheduler_job_update",
+				"scheduler__job_create", "scheduler__job_delete", "scheduler__job_get",
+				"scheduler__job_list", "scheduler__job_pause", "scheduler__job_resume",
+				"scheduler__job_update",
 			},
 		},
 		{
@@ -116,9 +116,9 @@ func TestGoalWorkerExclusionListCoversTheWholeOrchestrationSurface(t *testing.T)
 	slices.Sort(got)
 	want := []string{
 		"goal_cancel", "goal_create", "goal_get", "goal_list",
-		"scheduler_job_create", "scheduler_job_delete", "scheduler_job_get",
-		"scheduler_job_list", "scheduler_job_pause", "scheduler_job_resume",
-		"scheduler_job_update",
+		"scheduler__job_create", "scheduler__job_delete", "scheduler__job_get",
+		"scheduler__job_list", "scheduler__job_pause", "scheduler__job_resume",
+		"scheduler__job_update",
 		"workflow_get", "workflow_list", "workflow_run", "workflow_save",
 	}
 	if !slices.Equal(got, want) {
@@ -174,7 +174,7 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 	collect(sessionaccess.ActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return sessionaccess.NewTool(nil, s) })
 	collect(agentpkg.SettingsAgentActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return agentpkg.NewManagementTool(s, nil) })
 	collect(agentpkg.SettingsAgentToolActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
-		return agentpkg.NewToolOverrideManagementTool(s, nil, nil, nil, nil)
+		return agentpkg.NewToolOverrideManagementTool(s, nil, nil, nil, nil, nil)
 	})
 	collect(skillstool.RuntimeActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool { return skillstool.NewAction(nil, s) })
 	collect(skillstool.SettingsSkillActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {

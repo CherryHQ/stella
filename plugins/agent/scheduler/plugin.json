@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "scheduler",
+  "version": "1.0.0",
+  "description": "Guidance for managing recurring and one-time scheduled jobs."
+}

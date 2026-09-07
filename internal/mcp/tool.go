@@ -11,6 +11,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
@@ -60,8 +61,8 @@ func (c *serverConn) Close() error {
 }
 
 // toolProxy adapts one remote MCP tool to Stella's Tool interface. The
-// agent-facing name is namespaced by server (mcp__<server>__<tool>); calls are
-// proxied to the tool's original remote name. A persisted catalog can create
+// agent-facing name is derived from the exact package/server/tool tuple; calls
+// are proxied to the tool's original remote name. A persisted catalog can create
 // the proxy without an open session, so Execute lazily connects on first use
 // through the server's shared connection.
 type toolProxy struct {
@@ -76,6 +77,20 @@ type toolProxy struct {
 }
 
 func (t *toolProxy) Definition() pkgtools.Definition { return t.def }
+
+// PluginToolIdentity exposes the durable owner pair to the runner. The
+// runner still checks the pair against its authority-bound snapshot and the
+// proxy's exported definition before registering it.
+func (t *toolProxy) PluginToolIdentity() (pluginID, localToolName string, ok bool) {
+	if t == nil || t.reg.PluginID == "" {
+		return "", "", false
+	}
+	localToolName = t.remoteName
+	if _, err := agentpackage.ExportedToolName(t.reg.PluginID, "main", localToolName); err != nil {
+		return "", "", false
+	}
+	return t.reg.PluginID, localToolName, true
+}
 
 // ExecuteContent runs the call and converts MCP content blocks to ai blocks:
 // text stays text, images become ai.ImageContent, anything else is JSON-encoded
@@ -106,7 +121,11 @@ func (t *toolProxy) call(ctx context.Context, args map[string]any) (*mcpsdk.Call
 		// A plain timeout is the model's problem to retry; only a credential
 		// rejection is a durable server state worth persisting.
 		if isCredentialRejection(err) {
-			_ = t.svc.SetStatus(ctx, t.reg.ID, StatusNeedsAuth, credentialRejectedHint)
+			owner := CredentialOwner{}
+			if t.conn != nil {
+				owner = t.conn.owner
+			}
+			_ = t.svc.setStatusForRegistration(ctx, t.reg, owner, StatusNeedsAuth, credentialRejectedHint)
 			return nil, fmt.Errorf("mcp: call tool %q: %s", t.remoteName, credentialRejectedHint)
 		}
 		return nil, err

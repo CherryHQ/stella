@@ -1,0 +1,5 @@
+assets:
+  - name: xberg
+    source: skills/xberg
+    logical_root: core/xberg
+    owner_plugin_id: xberg

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 	"testing"
 
@@ -19,39 +18,21 @@ func (h *countingHook) Name() string { return h.name }
 func (*countingHook) Priority() int  { return 0 }
 func (h *countingHook) Close() error { h.closed.Add(1); return nil }
 
-func TestConcurrentReloadPluginHooksRetiresEachGenerationOnce(t *testing.T) {
+func TestReloadPluginHooksWithoutAgentsRetiresCachedGeneration(t *testing.T) {
 	pm := NewPoolManager(nil, memorytest.New())
 	initial := &countingHook{name: "initial"}
 	pm.hookPlugins = []hooks.HookPlugin{initial}
-	constructed := make(chan struct{}, 2)
-	release := make(chan struct{})
-	var next atomic.Int32
-	created := make(chan *countingHook, 2)
-	pm.pluginHooksBuilder = func(context.Context) []hooks.HookPlugin {
-		h := &countingHook{name: fmt.Sprintf("reload-%d", next.Add(1))}
-		created <- h
-		constructed <- struct{}{}
-		<-release
-		return []hooks.HookPlugin{h}
+	pm.pluginHooksBuilder = func(context.Context, string) ([]hooks.HookPlugin, error) {
+		t.Fatal("native hooks must not be built without an Agent identity")
+		return nil, nil
 	}
-	results := make(chan error, 2)
-	go func() { results <- pm.ReloadPluginHooks(context.Background()) }()
-	go func() { results <- pm.ReloadPluginHooks(context.Background()) }()
-	<-constructed
-	<-constructed
-	close(release)
-	for range 2 {
-		if err := <-results; err != nil {
-			t.Fatal(err)
-		}
+	if err := pm.ReloadPluginHooks(context.Background()); err != nil {
+		t.Fatal(err)
 	}
-	first, second := <-created, <-created
 	if err := pm.Close(); err != nil {
 		t.Fatal(err)
 	}
-	for _, h := range []*countingHook{initial, first, second} {
-		if got := h.closed.Load(); got != 1 {
-			t.Fatalf("hook generation %q close count = %d, want 1", h.name, got)
-		}
+	if got := initial.closed.Load(); got != 1 {
+		t.Fatalf("hook generation %q close count = %d, want 1", initial.name, got)
 	}
 }

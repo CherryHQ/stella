@@ -1,0 +1,9 @@
+id: stella
+kind: system
+name: stella
+display_name: Stella
+description: Stella platform guidance and operating workflows.
+enabled: true
+category: system
+skills:
+  - name: stella

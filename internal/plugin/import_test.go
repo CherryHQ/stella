@@ -1,0 +1,378 @@
+package plugin
+
+import (
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/CherryHQ/stella/pkg/toolmeta"
+)
+
+func TestNormalizeLegacyMCPKeepsIdentityAndSecretBoundaries(t *testing.T) {
+	catalog := NewCatalog()
+	plan, err := NormalizeLegacySnapshot(LegacySnapshot{MCP: []LegacyMCPRegistration{{
+		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", Scope: string(ScopeUser), UserID: "user-1",
+		Name: "GitHub Cloud", URL: "https://mcp.example.test", Transport: "sse", AuthType: "oauth",
+		CredentialMode: "shared", OAuthClientSecretExists: true,
+		Metadata: map[string]any{"oauth": map[string]any{"client_id": "client-1", "client_secret_ref": "MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF"}},
+		Tools:    json.RawMessage(`[{"name":"create-issue"}]`), Enabled: true,
+	}}}, catalog, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Definitions) != 1 || len(plan.Configs) != 1 {
+		t.Fatalf("plan sizes = %d definitions / %d configs", len(plan.Definitions), len(plan.Configs))
+	}
+	definition, config := plan.Definitions[0], plan.Configs[0]
+	if definition.ID != "github-cloud" {
+		t.Fatalf("MCP identity = %q", definition.ID)
+	}
+	if string(definition.Spec) != `{}` || definition.ImplementationKey != "mcp" || definition.CreatorUserID != "user-1" {
+		t.Fatalf("MCP definition safety fields = spec=%s key=%q creator=%q", definition.Spec, definition.ImplementationKey, definition.CreatorUserID)
+	}
+	if strings.Contains(string(definition.Spec), "example.test") || strings.Contains(string(definition.Spec), "secret") {
+		t.Fatalf("definition contains endpoint or secret material: %s", definition.Spec)
+	}
+	if !strings.Contains(string(config.Payload), "https://mcp.example.test") || strings.Contains(string(config.Payload), "create-issue") || strings.Contains(string(config.Payload), "tool_map") {
+		t.Fatalf("config mixed MCP observation into backend payload: %s", config.Payload)
+	}
+	if strings.Contains(string(config.Payload), "MCP_OAUTH_CLIENT_KEPT") {
+		t.Fatal("OAuth locator duplicated into payload")
+	}
+	if strings.Contains(string(config.Payload), `"name"`) {
+		t.Fatalf("config duplicated definition name: %s", config.Payload)
+	}
+	if strings.Contains(string(config.CredentialRefs), "MCP_TOKEN_") || !strings.Contains(string(config.CredentialRefs), "MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF") {
+		t.Fatalf("credential boundary broken: payload=%s refs=%s", config.Payload, config.CredentialRefs)
+	}
+}
+
+func TestNormalizeLegacyMCPRejectsNonDerivedCredentialLocators(t *testing.T) {
+	base := LegacyMCPRegistration{
+		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", Scope: string(ScopeSystem),
+		Name: "github", URL: "https://mcp.example.test", Transport: "sse", Enabled: true,
+	}
+	for name, row := range map[string]LegacyMCPRegistration{
+		"bearer": func() LegacyMCPRegistration {
+			row := base
+			row.AuthType, row.CredentialRef = legacyMCPAuthBearer, "MCP_TOKEN_wrong"
+			return row
+		}(),
+		"oauth metadata": func() LegacyMCPRegistration {
+			row := base
+			row.AuthType = legacyMCPAuthOAuth
+			row.Metadata = map[string]any{"oauth": map[string]any{"client_secret_ref": "MCP_OAUTH_CLIENT_wrong"}}
+			return row
+		}(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := NormalizeLegacySnapshot(LegacySnapshot{MCP: []LegacyMCPRegistration{row}}, NewCatalog(), nil, nil)
+			if !errors.Is(err, ErrLegacyMigrationConflict) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestNormalizeLegacyMCPDoesNotInventAbsentOAuthSecret(t *testing.T) {
+	row := LegacyMCPRegistration{
+		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", Scope: string(ScopeSystem),
+		Name: "github", URL: "https://mcp.example.test", Transport: "sse", AuthType: legacyMCPAuthOAuth,
+		Metadata: map[string]any{"oauth": map[string]any{"client_id": "client-1"}}, Enabled: true,
+	}
+	plan, err := NormalizeLegacySnapshot(LegacySnapshot{MCP: []LegacyMCPRegistration{row}}, NewCatalog(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plan.Configs[0].CredentialRefs), "oauth_client_secret") {
+		t.Fatalf("invented absent OAuth secret locator: %s", plan.Configs[0].CredentialRefs)
+	}
+}
+
+func TestNormalizeLegacyMCPRejectsSecretWithoutClientID(t *testing.T) {
+	row := LegacyMCPRegistration{
+		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", Scope: string(ScopeSystem),
+		Name: "github", URL: "https://mcp.example.test", Transport: "sse", AuthType: legacyMCPAuthOAuth,
+		Metadata: map[string]any{"oauth": map[string]any{}}, OAuthClientSecretExists: true, Enabled: true,
+	}
+	_, err := NormalizeLegacySnapshot(LegacySnapshot{MCP: []LegacyMCPRegistration{row}}, NewCatalog(), nil, nil)
+	if !errors.Is(err, ErrLegacyMigrationConflict) || !strings.Contains(err.Error(), "client_id") {
+		t.Fatalf("OAuth secret without client_id error = %v", err)
+	}
+}
+
+func TestNormalizeLegacyRejectsNameAndPayloadCollisions(t *testing.T) {
+	_, err := NormalizeLegacySnapshot(LegacySnapshot{MCP: []LegacyMCPRegistration{
+		{ID: "0198f9a4-1b2c-7def-8123-456789abcdea", Scope: string(ScopeSystem), Name: "foo-bar", URL: "https://one.test", Transport: "sse", AuthType: "none", Enabled: true},
+		{ID: "0198f9a4-1b2c-7def-8123-456789abcdeb", Scope: string(ScopeSystem), Name: "foo_bar", URL: "https://two.test", Transport: "sse", AuthType: "none", Enabled: true},
+	}}, NewCatalog(), nil, nil)
+	if !errors.Is(err, ErrLegacyMigrationConflict) {
+		t.Fatalf("namespace collision error = %v", err)
+	}
+
+	def := Definition{ID: "test", DisplayName: "Test", Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "test", Spec: json.RawMessage(`{"name":"test"}`), DefaultEnabled: true, Revision: 1}
+	catalog := NewCatalog()
+	if err := catalog.Register(def); err != nil {
+		t.Fatal(err)
+	}
+	_, err = NormalizeLegacySnapshot(LegacySnapshot{
+		Plugins:           []LegacyPlugin{{ID: def.ID, Enabled: true, Config: json.RawMessage(`{"same":1}`)}},
+		ManifestOverrides: []LegacyManifestOverride{{PluginID: def.ID, Config: `{"$sparse":true,"same":2}`}},
+	}, catalog, nil, nil)
+	if !errors.Is(err, ErrLegacyMigrationConflict) {
+		t.Fatalf("payload collision error = %v", err)
+	}
+}
+
+func TestNormalizeLegacyRejectsUnsupportedMCPMetadata(t *testing.T) {
+	_, err := NormalizeLegacySnapshot(LegacySnapshot{MCP: []LegacyMCPRegistration{{
+		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", Scope: string(ScopeSystem), Name: "github", URL: "https://mcp.example.test", Transport: "sse", AuthType: "none", Enabled: true,
+		Metadata: map[string]any{"token": "secret"},
+	}}}, NewCatalog(), nil, nil)
+	if !errors.Is(err, ErrLegacyMigrationConflict) || !strings.Contains(err.Error(), "metadata") {
+		t.Fatalf("unsupported metadata error = %v", err)
+	}
+}
+
+func TestNormalizeLegacyRejectsManifestIdentityChange(t *testing.T) {
+	def := Definition{ID: "test", DisplayName: "Test", Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "test", Spec: json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1}
+	catalog := NewCatalog()
+	if err := catalog.Register(def); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NormalizeLegacySnapshot(LegacySnapshot{ManifestOverrides: []LegacyManifestOverride{
+		{PluginID: def.ID, Config: `{"$sparse":true,"display_name":"Other"}`},
+	}}, catalog, nil, nil)
+	if !errors.Is(err, ErrLegacyMigrationConflict) || !strings.Contains(err.Error(), "display_name") {
+		t.Fatalf("identity override error = %v", err)
+	}
+}
+
+func TestNormalizeLegacyRejectsLiteralSessionEnv(t *testing.T) {
+	def := Definition{ID: "test", DisplayName: "Test", Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "test", Spec: json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1}
+	catalog := NewCatalog()
+	if err := catalog.Register(def); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NormalizeLegacySnapshot(LegacySnapshot{ManifestOverrides: []LegacyManifestOverride{
+		{PluginID: def.ID, Config: `{"$sparse":true,"session_env":[{"env_var":"TOKEN","source":"literal","value":"secret"}]}`},
+	}}, catalog, nil, nil)
+	if !errors.Is(err, ErrLegacyMigrationConflict) || !strings.Contains(err.Error(), "session_env") {
+		t.Fatalf("literal session env error = %v", err)
+	}
+}
+
+func TestNormalizeLegacyMapsCustomCLIToStableCustomIdentity(t *testing.T) {
+	oldID := "agent/private-cli"
+	plan, err := NormalizeLegacySnapshot(LegacySnapshot{
+		ManifestOverrides: []LegacyManifestOverride{{PluginID: oldID, Enabled: importBoolPtr(true), Config: `{"name":"private-cli","display_name":"Private CLI","prompt":"use it"}`}},
+		Plugins:           []LegacyPlugin{{ID: oldID, Enabled: true, Config: json.RawMessage(`{"version":"1"}`)}},
+	}, NewCatalog(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantID := "private-cli"
+	if len(plan.Definitions) != 1 || plan.Definitions[0].ID != wantID || len(plan.Configs) != 1 || plan.Configs[0].PluginID != wantID || plan.Configs[0].ID == "" {
+		t.Fatalf("custom identity mapping = %#v / %#v", plan.Definitions, plan.Configs)
+	}
+}
+
+func TestNormalizeLegacyRejectsCanonicalNameCollisionAcrossOwners(t *testing.T) {
+	_, err := NormalizeLegacySnapshot(LegacySnapshot{MCP: []LegacyMCPRegistration{
+		{ID: "0198f9a4-1b2c-7def-8123-456789abcdea", Scope: string(ScopeUser), UserID: "user-a", Name: "git-hub", URL: "https://one.test", Transport: "sse", AuthType: "none", Enabled: true},
+		{ID: "0198f9a4-1b2c-7def-8123-456789abcdeb", Scope: string(ScopeUser), UserID: "user-b", Name: "git hub", URL: "https://two.test", Transport: "sse", AuthType: "none", Enabled: true},
+	}}, NewCatalog(), nil, nil)
+	if !errors.Is(err, ErrLegacyMigrationConflict) {
+		t.Fatalf("canonical name collision err=%v", err)
+	}
+}
+
+func TestConvertLegacyToolOverrideResolvesExactMCPRegistration(t *testing.T) {
+	registration := LegacyMCPRegistration{ID: "0198f9a4-1b2c-7def-8123-456789abcdef", Scope: string(ScopeUser), UserID: "user-1", Name: "GitHub", Tools: json.RawMessage(`[{"name":"create-issue"}]`)}
+	migration, err := ConvertLegacyToolOverride(LegacyToolOverride{ID: "override-1", ToolName: "mcp__GitHub__create_issue", Scope: string(ScopeUser), UserID: "user-1", Enabled: false}, []LegacyMCPRegistration{registration}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migration.PluginID != "github" || migration.LocalTool != "create-issue" || migration.NewName == "" || migration.ConfigID != registration.ID || migration.Enabled {
+		t.Fatalf("migration = %#v", migration)
+	}
+}
+
+func importBoolPtr(value bool) *bool { return &value }
+
+func testLegacyToolMetadata() *toolmeta.Registry {
+	return toolmeta.NewRegistry(
+		toolmeta.ActionTool{Name: "email__message_send", PluginID: "system/email", LocalName: "message_send", Family: "email"},
+		toolmeta.ActionTool{Name: "recally__entry_add", PluginID: "system/recally", LocalName: "entry_add", Family: "recally"},
+		toolmeta.ActionTool{Name: "scheduler__job_create", PluginID: "system/scheduler", LocalName: "job_create", Family: "scheduler"},
+	)
+}
+
+func testLegacyNativeRegistry() NativeRegistry {
+	return NativeRegistryMap{
+		"system/email": true, "system/recally": true, "system/scheduler": true,
+		"channel/telegram": true,
+	}
+}
+
+func TestNormalizeLegacyMainEraToolIDsMapToBareBuiltin(t *testing.T) {
+	catalog := NewCatalog()
+	if err := catalog.Register(Definition{
+		ID: "lark-cli", DisplayName: "Lark CLI", Backend: BackendCLI,
+		Source: SourceBuiltin, ImplementationKey: "cli", Spec: json.RawMessage(`{}`),
+		DefaultEnabled: true, Revision: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := NormalizeLegacySnapshot(LegacySnapshot{
+		Plugins: []LegacyPlugin{{
+			ID: "tool/lark-cli", Enabled: true,
+			Config: json.RawMessage(`{"binary":"lark-cli"}`),
+		}},
+		ManifestOverrides: []LegacyManifestOverride{{
+			PluginID: "tool/lark-cli", Enabled: importBoolPtr(false),
+			Config: `{"$sparse":true,"prompt":"use managed Lark OAuth"}`,
+		}},
+	}, catalog, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Definitions) != 1 || len(plan.Configs) != 1 {
+		t.Fatalf("plan sizes = %d definitions / %d configs", len(plan.Definitions), len(plan.Configs))
+	}
+	config := plan.Configs[0]
+	if config.PluginID != "lark-cli" || config.Scope != ScopeSystem || config.Enabled == nil || *config.Enabled {
+		t.Fatalf("legacy lark-cli identity/config = %#v", config)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(config.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["binary"] != "lark-cli" || payload["prompt"] != "use managed Lark OAuth" {
+		t.Fatalf("legacy lark-cli payload = %s", config.Payload)
+	}
+
+	// Native ownership is checked before the main-era tool/ conversion.
+	nativePlan, err := NormalizeLegacySnapshot(LegacySnapshot{
+		Plugins: []LegacyPlugin{{ID: "tool/lark-cli", Enabled: true}},
+	}, catalog, NativeRegistryMap{"tool/lark-cli": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nativePlan.Definitions) != 1 || nativePlan.Definitions[0].ID != "lark-cli" || len(nativePlan.Configs) != 0 {
+		t.Fatalf("native tool/lark-cli entered Agent state: %#v", nativePlan)
+	}
+}
+
+func TestLegacyImportUsesExplicitNativeRegistry(t *testing.T) {
+	snapshot := LegacySnapshot{
+		Plugins:           []LegacyPlugin{{ID: "channel/new-adapter", Enabled: false, Config: json.RawMessage(`{"token":"private"}`)}},
+		ManifestOverrides: []LegacyManifestOverride{{PluginID: "channel/new-adapter", Config: `{"native-only":"private"}`}},
+	}
+	plan, err := NormalizeLegacySnapshot(snapshot, NewCatalog(), NativeRegistryMap{"channel/new-adapter": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Definitions) != 0 || len(plan.Configs) != 0 {
+		t.Fatalf("Native rows entered the Agent catalog: %#v", plan)
+	}
+	for _, id := range []string{"channel/new-adapter", "channel/telegram", "system/email"} {
+		_, err := NormalizeLegacySnapshot(LegacySnapshot{Plugins: []LegacyPlugin{{ID: id}}}, NewCatalog(), nil, testLegacyToolMetadata())
+		if !errors.Is(err, ErrLegacyPluginUnknown) {
+			t.Fatalf("unregistered %s error = %v", id, err)
+		}
+	}
+	_, err = ConvertLegacyToolOverride(LegacyToolOverride{
+		ToolName: "email_message_send", Scope: string(ScopeSystem),
+	}, nil, nil, testLegacyToolMetadata())
+	if !errors.Is(err, ErrLegacyMigrationConflict) {
+		t.Fatalf("tool metadata granted Native ownership: %v", err)
+	}
+}
+
+func TestPreviewIncludesShippedNamespaceClaimsWithoutInventingConfigIDs(t *testing.T) {
+	catalog := NewCatalog()
+	if err := catalog.Register(testDefinition()); err != nil {
+		t.Fatal(err)
+	}
+	registration := LegacyMCPRegistration{
+		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", Scope: string(ScopeSystem),
+		Name: "test", URL: "https://mcp.example.test", Transport: "sse", AuthType: "none", Enabled: true,
+	}
+	if _, err := NormalizeLegacySnapshot(LegacySnapshot{MCP: []LegacyMCPRegistration{registration}}, catalog, nil, nil); !errors.Is(err, ErrLegacyMigrationConflict) {
+		t.Fatalf("unconfigured builtin namespace collision = %v", err)
+	}
+	plan, err := NormalizeLegacySnapshot(LegacySnapshot{}, catalog, nil, nil)
+	if err != nil || len(plan.Configs) != 0 {
+		t.Fatalf("default claim fabricated config identity: %#v, %v", plan.Configs, err)
+	}
+	registration.Scope, registration.UserID = string(ScopeUser), "user"
+	registration.Name = "test-user"
+	if _, err := NormalizeLegacySnapshot(LegacySnapshot{MCP: []LegacyMCPRegistration{registration}}, catalog, nil, nil); err != nil {
+		t.Fatalf("different plugin name claim denied: %v", err)
+	}
+	registration.Name = "git--hub"
+	if _, err := NormalizeLegacySnapshot(LegacySnapshot{MCP: []LegacyMCPRegistration{registration}}, catalog, nil, nil); err == nil {
+		t.Fatal("invalid normalized namespace accepted without a discovered tool catalog")
+	}
+}
+
+func TestToolOverrideMigrationHandlesSharedRegistrationAndGoPlugins(t *testing.T) {
+	registration := LegacyMCPRegistration{ID: "0198f9a4-1b2c-7def-8123-456789abcdef", Scope: "system", Name: "shared", Tools: json.RawMessage(`[{"name":"read"}]`)}
+	override := LegacyToolOverride{ID: "policy", ToolName: "mcp__shared__read", Scope: "user", UserID: "user"}
+	mapped, err := ConvertLegacyToolOverride(override, []LegacyMCPRegistration{registration}, nil, nil)
+	if err != nil || mapped.PluginID != "shared" || mapped.LocalTool != "read" || mapped.NewName == "" || mapped.UserID != "user" || mapped.Enabled {
+		t.Fatalf("shared deny mapping = %#v, %v", mapped, err)
+	}
+	private := registration
+	private.ID, private.Scope, private.UserID = "0198f9a4-1b2c-7def-8123-456789abcdea", "user", "user"
+	if _, err := ConvertLegacyToolOverride(override, []LegacyMCPRegistration{registration, private}, nil, nil); !errors.Is(err, ErrLegacyMigrationConflict) {
+		t.Fatalf("ambiguous policy mapping = %v", err)
+	}
+	for _, tc := range []struct{ old, current string }{
+		{old: "email_message_send", current: "email__message_send"},
+		{old: "recally_entry_add", current: "recally__entry_add"},
+		{old: "scheduler_job_create", current: "scheduler__job_create"},
+	} {
+		override.ToolName = tc.old
+		mapped, err := ConvertLegacyToolOverride(override, nil, testLegacyNativeRegistry(), testLegacyToolMetadata())
+		if err != nil || mapped.PluginID != "" || mapped.NewName != tc.current || mapped.Enabled {
+			t.Fatalf("native Go tool policy %s = %#v, %v", tc.old, mapped, err)
+		}
+	}
+	override.ToolName = "email_impostor"
+	mapped, err = ConvertLegacyToolOverride(override, nil, testLegacyNativeRegistry(), testLegacyToolMetadata())
+	if err != nil || mapped.PluginID != "" {
+		t.Fatal("a prefix invented a plugin-owned tool")
+	}
+}
+
+func TestNormalizeLegacyNativeToolOverrideBecomesCoreIdentity(t *testing.T) {
+	plan, err := NormalizeLegacySnapshot(LegacySnapshot{ToolOverrides: []LegacyToolOverride{{
+		ID: "0198f9a4-1b2c-7def-8123-456789abcdea", ToolName: "email_message_send",
+		Scope: string(ScopeSystem), Enabled: false,
+	}}}, NewCatalog(), testLegacyNativeRegistry(), testLegacyToolMetadata())
+	if err != nil {
+		t.Fatalf("normalize native tool override: %v", err)
+	}
+	if len(plan.CoreOverrides) != 1 || plan.CoreOverrides[0].NewToolName != "email__message_send" {
+		t.Fatalf("native override plan = %#v", plan.CoreOverrides)
+	}
+	if len(plan.ToolOverrides) != 0 {
+		t.Fatalf("native override entered plugin identity branch: %#v", plan.ToolOverrides)
+	}
+}
+
+func TestNormalizeLegacyNativeRowsStayOutsideAgentCatalog(t *testing.T) {
+	plan, err := NormalizeLegacySnapshot(LegacySnapshot{Plugins: []LegacyPlugin{
+		{ID: "channel/telegram", Enabled: true, Config: json.RawMessage(`{"token":"secret"}`)},
+		{ID: "system/email", Enabled: false, Config: json.RawMessage(`{"account":"legacy"}`)},
+	}}, NewCatalog(), testLegacyNativeRegistry(), testLegacyToolMetadata())
+	if err != nil {
+		t.Fatalf("native rows should remain in legacy storage: %v", err)
+	}
+	if len(plan.Configs) != 0 || len(plan.Definitions) != 0 {
+		t.Fatalf("native rows were imported as Agent plugin state: %#v", plan)
+	}
+}

@@ -4,7 +4,7 @@ title: MCP Servers
 
 ## What MCP Servers Do
 
-Stella can connect to external [Model Context Protocol](https://modelcontextprotocol.io) servers and expose their tools to your agents. Register a server once and its tools appear in the agent's toolbox, namespaced as `mcp__<server>__<tool>` so they never collide with skills or built-in tools.
+Stella can connect to external [Model Context Protocol](https://modelcontextprotocol.io) servers and expose their tools to your agents. Register a server once and use the exact tool names shown in the tool catalog. Stella derives stable names from the plugin and remote tool, and checks for collisions before exposing them.
 
 Stella is an MCP **client** over HTTP-based transports only:
 
@@ -26,11 +26,11 @@ Registrations use the same four scopes as skills and the vault, so a server can 
 | `user`         | one user, across their agents    |
 | `user_agent`   | one user with one specific agent |
 
-When two registrations share a name, the most specific wins: `user_agent` > `user` > `system_agent` > `system`.
+Each plugin has a unique name. Its configuration is selected in this order: `user_agent` > `user` > `system_agent` > `system`. An explicit administrator disable at `system` or matching `system_agent` scope still blocks access. Different plugins do not replace one another.
 
 ## Authentication
 
-A server may need a bearer token. Configure it when creating or editing the registration in the Web UI, or pass a `token` in the request body of `POST /api/mcp/servers`; the token is stored **encrypted in the vault** under the same scope as the registration (see [Secrets and Keys](/docs/guides/secrets-and-keys)) and is never written to the registration table. Servers that need no auth need no credential and work even without the vault configured.
+A server may need a bearer token. Configure it when creating or editing its MCP plugin configuration in the Web UI; credential inputs are write-only, stored **encrypted in the vault** under the configuration scope (see [Secrets and Keys](/docs/guides/secrets-and-keys)), and never returned by the API. Servers that need no auth need no credential and work even without the vault configured.
 
 ## OAuth connections
 
@@ -52,7 +52,7 @@ Stella probes each registered server — connects and fetches its tool list — 
 | `error`      | The last probe or tool call failed; the redacted reason is shown |
 | `needs_auth` | The server rejected the stored credential with 401/403           |
 
-A probe runs automatically when you create a server, when its URL, transport, or auth changes, and when an agent session needs the tool list and the last snapshot is older than 24 hours. You can also trigger one any time with **Probe** in the Web UI, or with `POST /api/mcp/servers/{id}/probe` from the API. A failed probe never breaks anything — it just updates the status so you can see the problem (and the redacted reason) in the UI.
+Creating or updating a configuration does not probe the server. Use **Probe** in the Web UI, or `POST /api/plugins/{plugin_id}/configs/{config_id}/probe`, to check the saved connection. Pass the exact plugin ID as a URL-encoded path segment. Stella also refreshes discovery when an agent session needs a missing tool catalog or the last snapshot is older than 24 hours. A failed probe updates the connection status and shows a redacted reason.
 
 When a tool call is rejected with 401/403, the server moves to `needs_auth`; update the credential in the Web UI and probe again.
 
@@ -71,7 +71,7 @@ An administrator's **disable** always wins over a user's enable; otherwise the m
 
 The server's **enable switch is separate**: it turns the whole registration on or off. While a server is disabled, unreachable, or rejecting credentials, its tools stay listed but their switches have no effect until the server is healthy again — the header shows why.
 
-Because overrides are keyed by tool name (`mcp__<server>__<tool>`), renaming a server migrates its tools' overrides to the new prefix automatically, and deleting a server removes them. Both only happen once no other registration in any scope still uses that name. If two registrations share a name in different scopes, an override applies to whichever registration wins for the context.
+Tool restrictions follow the plugin identity and remote tool, across that plugin's scoped configurations. Changing the display name does not change its identity or permissions. The plugin name is fixed after creation. Always use the current catalog's exact exported name when managing a tool.
 
 ## Marketplace
 
@@ -88,7 +88,7 @@ The registry source can be overridden (e.g. for a mirror) with the `STELLA_MCP_R
 
 ## Managing Servers
 
-Manage personal `user` and `user_agent` registrations from **Personal Settings → MCP Servers**. Administrators manage deployment-owned `system` and `system_agent` registrations from **Admin Console → Deployment resources → Global MCP**. Add the server URL, choose whether it applies to every agent or one agent, and provide a bearer token when required. There is no MCP management CLI: management happens in the Web UI, the HTTP API under `/api/mcp/servers`, or through the agent's `settings_mcp_server_*` tools.
+Manage personal `user` and `user_agent` configurations from **Personal Settings → Plugins**. Administrators manage deployment-owned `system` and `system_agent` configurations from **Admin Console → Integrations → Plugins**. Add the MCP plugin configuration, choose whether it applies to every agent or one agent, and provide credentials when required. There is no separate MCP management API: the Web UI and the common plugin API under `/api/plugins` provide management, while agents retain the `settings_mcp_server_*` tools for model-facing administration.
 
 ## Troubleshooting
 

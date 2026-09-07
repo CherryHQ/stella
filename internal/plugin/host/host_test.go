@@ -2,17 +2,66 @@ package host
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
+	internalplugin "github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-type stubStore struct{ plugins map[string]config.Plugin }
+func TestNativeLifecycleAdmissionIsPerAgent(t *testing.T) {
+	store := &stubStore{
+		plugins:      map[string]config.Plugin{"tool/native": {ID: "tool/native", Enabled: true, Config: map[string]any{"mode": "trusted"}}},
+		nativeDenies: map[string]map[string]bool{"tool/native": {"agent-a": true}},
+	}
+	host := New(store)
+	host.RegisterPluginID("tool/native")
+	bindNativePolicy(t, host, store, "tool/native")
+	host.AddBeforeRun(pkgplugins.BeforeRunSpec{
+		PluginID: "tool/native",
+		Name:     "native",
+		Run: func(_ context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
+			if build.State.Config["mode"] != "trusted" {
+				t.Fatalf("native config was not preserved: %#v", build.State.Config)
+			}
+			return pkgplugins.BeforeRunResult{SystemPrompt: "native"}, nil
+		},
+	})
+
+	denied, err := host.BeforeRun(t.Context(), pkgplugins.BeforeRunContext{AgentID: "agent-a", SystemPrompt: "base"})
+	if err != nil || denied.SystemPrompt != "base" {
+		t.Fatalf("denied Agent admission = %+v, %v; want base, nil", denied, err)
+	}
+	allowed, err := host.BeforeRun(t.Context(), pkgplugins.BeforeRunContext{AgentID: "agent-b", SystemPrompt: "base"})
+	if err != nil || allowed.SystemPrompt != "native" {
+		t.Fatalf("allowed Agent admission = %+v, %v; want native, nil", allowed, err)
+	}
+}
+
+func TestNativeLifecycleFailsClosedWithoutPolicy(t *testing.T) {
+	host := New(&stubStore{plugins: map[string]config.Plugin{"tool/native": {ID: "tool/native", Enabled: true}}})
+	host.RegisterPluginID("tool/native")
+	host.AddBeforeRun(pkgplugins.BeforeRunSpec{PluginID: "tool/native", Name: "native", Run: func(context.Context, pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
+		t.Fatal("native lifecycle ran without an admission policy")
+		return pkgplugins.BeforeRunResult{}, nil
+	}})
+	_, err := host.BeforeRun(t.Context(), pkgplugins.BeforeRunContext{AgentID: "agent", SystemPrompt: "base"})
+	if !errors.Is(err, internalplugin.ErrNativePolicyUnavailable) {
+		t.Fatalf("missing native policy error = %v; want ErrNativePolicyUnavailable", err)
+	}
+}
+
+type stubStore struct {
+	plugins       map[string]config.Plugin
+	nativeDenies  map[string]map[string]bool
+	channels      map[string][]config.Channel
+	channelsError error
+}
 
 func (s *stubStore) ListProviders(context.Context) ([]config.Provider, error) { return nil, nil }
 func (s *stubStore) GetProvider(context.Context, string) (config.Provider, error) {
@@ -35,12 +84,22 @@ func (s *stubStore) CreateAgent(context.Context, config.Agent) error        { re
 func (s *stubStore) UpdateAgent(context.Context, config.Agent) error        { return nil }
 func (s *stubStore) DeleteAgent(context.Context, string) error              { return nil }
 func (s *stubStore) ListChannels(context.Context) ([]config.Channel, error) { return nil, nil }
-func (s *stubStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
-	return nil, nil
+func (s *stubStore) ListChannelsByType(_ context.Context, channelType string) ([]config.Channel, error) {
+	if s.channelsError != nil {
+		return nil, s.channelsError
+	}
+	return slices.Clone(s.channels[channelType]), nil
 }
 
-func (s *stubStore) GetChannel(context.Context, string) (config.Channel, error) {
-	return config.Channel{}, nil
+func (s *stubStore) GetChannel(_ context.Context, id string) (config.Channel, error) {
+	for _, channels := range s.channels {
+		for _, channel := range channels {
+			if channel.ID == id {
+				return channel, nil
+			}
+		}
+	}
+	return config.Channel{}, config.ErrChannelNotFound
 }
 func (s *stubStore) CreateChannel(context.Context, config.Channel) error { return nil }
 func (s *stubStore) UpdateChannel(context.Context, config.Channel) error { return nil }
@@ -80,6 +139,68 @@ func (s *stubStore) SetPluginConfig(_ context.Context, id string, cfg map[string
 	p.Config = cfg
 	s.plugins[id] = p
 	return nil
+}
+
+func (s *stubStore) SetNativePluginEnabled(_ context.Context, id string, enabled bool) error {
+	p := s.plugins[id]
+	p.ID = id
+	p.Enabled = enabled
+	s.plugins[id] = p
+	return nil
+}
+
+func (s *stubStore) GetNativeAdmission(_ context.Context, nativeID, agentID string) (bool, bool, bool, error) {
+	p, present := s.plugins[nativeID]
+	return p.Enabled, present, s.nativeDenies[nativeID][agentID], nil
+}
+
+func (s *stubStore) IsNativeAgentDenied(_ context.Context, nativeID, agentID string) (bool, error) {
+	return s.nativeDenies[nativeID][agentID], nil
+}
+
+func (s *stubStore) SetNativeAgentDeny(_ context.Context, nativeID, agentID string) error {
+	if s.nativeDenies == nil {
+		s.nativeDenies = map[string]map[string]bool{}
+	}
+	if s.nativeDenies[nativeID] == nil {
+		s.nativeDenies[nativeID] = map[string]bool{}
+	}
+	if s.nativeDenies[nativeID][agentID] {
+		return internalplugin.ErrNativeAgentDenyExists
+	}
+	s.nativeDenies[nativeID][agentID] = true
+	return nil
+}
+
+func (s *stubStore) DeleteNativeAgentDeny(_ context.Context, nativeID, agentID string) error {
+	delete(s.nativeDenies[nativeID], agentID)
+	return nil
+}
+
+func (s *stubStore) ListNativeAgentDenials(_ context.Context, nativeID string) ([]internalplugin.NativeAgentDeny, error) {
+	var out []internalplugin.NativeAgentDeny
+	for agentID := range s.nativeDenies[nativeID] {
+		out = append(out, internalplugin.NativeAgentDeny{NativeID: nativeID, AgentID: agentID})
+	}
+	slices.SortFunc(out, func(a, b internalplugin.NativeAgentDeny) int { return strings.Compare(a.AgentID, b.AgentID) })
+	return out, nil
+}
+
+func bindNativePolicy(t *testing.T, host *Host, store *stubStore, ids ...string) {
+	t.Helper()
+	if store.plugins == nil {
+		store.plugins = map[string]config.Plugin{}
+	}
+	registry := internalplugin.NativeRegistryMap{}
+	for _, id := range ids {
+		registry[id] = true
+		if _, ok := store.plugins[id]; !ok {
+			store.plugins[id] = config.Plugin{ID: id, Enabled: true, Config: map[string]any{"trusted": id}}
+		}
+	}
+	policy := internalplugin.NewNativePolicy(store, registry)
+	policy.SetMutationFence(func(_ context.Context, mutate func() error) error { return mutate() })
+	host.SetNativePolicy(policy)
 }
 
 // The real store writes only the config column here; the stub mirrors that by
@@ -132,10 +253,11 @@ func TestPromptToolsUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/test")
+	bindNativePolicy(t, host, store, "tool/test")
 	host.AddPromptInventory(pkgplugins.PromptInventorySpec{PluginID: "tool/test", Name: "tools", GetTools: func(context.Context, pkgplugins.PromptInventoryContext) ([]pkgplugins.PromptToolInfo, error) {
 		return []pkgplugins.PromptToolInfo{{Name: "test__docs__search"}}, nil
 	}})
-	tools, err := host.PromptTools(context.Background(), "tool/test")
+	tools, err := host.PromptTools(context.Background(), "tool/test", "agent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,6 +270,7 @@ func TestSystemPromptSectionsUsePluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/skills")
+	bindNativePolicy(t, host, store, "tool/skills")
 	host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
 		PluginID: "tool/skills",
 		Name:     "skills",
@@ -159,7 +282,7 @@ func TestSystemPromptSectionsUsePluginIDDirectly(t *testing.T) {
 			}, nil
 		},
 	})
-	sections, err := host.SystemPromptSections(context.Background(), pkgplugins.SystemPromptContext{})
+	sections, err := host.SystemPromptSections(context.Background(), pkgplugins.SystemPromptContext{AgentID: "agent"}, internalplugin.Snapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,6 +295,7 @@ func TestBeforeRunUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/skills")
+	bindNativePolicy(t, host, store, "tool/skills")
 	host.AddBeforeRun(pkgplugins.BeforeRunSpec{
 		PluginID: "tool/skills",
 		Name:     "skills",
@@ -181,7 +305,7 @@ func TestBeforeRunUsesPluginIDDirectly(t *testing.T) {
 		},
 	})
 
-	result, err := host.BeforeRun(context.Background(), pkgplugins.BeforeRunContext{SystemPrompt: "base"})
+	result, err := host.BeforeRun(context.Background(), pkgplugins.BeforeRunContext{SystemPrompt: "base", AgentID: "agent"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,6 +318,7 @@ func TestBeforeToolCallUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/filter")
+	bindNativePolicy(t, host, store, "tool/filter")
 	host.AddBeforeToolCall(pkgplugins.BeforeToolCallSpec{
 		PluginID: "tool/filter",
 		Name:     "filter",
@@ -208,6 +333,7 @@ func TestBeforeToolCallUsesPluginIDDirectly(t *testing.T) {
 	})
 
 	result, err := host.BeforeToolCall(context.Background(), pkgplugins.BeforeToolCallContext{
+		AgentID:   "agent",
 		ToolName:  "web_fetch",
 		Arguments: map[string]any{"q": "original"},
 	})
@@ -226,6 +352,7 @@ func TestAfterToolResultUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/filter")
+	bindNativePolicy(t, host, store, "tool/filter")
 	host.AddAfterToolResult(pkgplugins.AfterToolResultSpec{
 		PluginID: "tool/filter",
 		Name:     "filter",
@@ -238,6 +365,7 @@ func TestAfterToolResultUsesPluginIDDirectly(t *testing.T) {
 	})
 
 	result, err := host.AfterToolResult(context.Background(), pkgplugins.AfterToolResultContext{
+		AgentID:  "agent",
 		ToolName: "web_fetch",
 		Result:   "original",
 		IsError:  true,
@@ -257,6 +385,7 @@ func TestAfterToolResultNoopDoesNotReturnTextMutation(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/noop")
+	bindNativePolicy(t, host, store, "tool/noop")
 	host.AddAfterToolResult(pkgplugins.AfterToolResultSpec{
 		PluginID: "tool/noop",
 		Name:     "noop",
@@ -267,6 +396,7 @@ func TestAfterToolResultNoopDoesNotReturnTextMutation(t *testing.T) {
 	})
 
 	result, err := host.AfterToolResult(context.Background(), pkgplugins.AfterToolResultContext{
+		AgentID:  "agent",
 		ToolName: "read",
 		Result:   "Read image file [image/jpeg]",
 		IsError:  false,
@@ -343,25 +473,19 @@ func TestValidateRegistrationsAcceptsToolLifecycleOnly(t *testing.T) {
 	}
 }
 
-func TestSessionPluginViewRegistersDisabledManifestPlugins(t *testing.T) {
+func TestSessionPluginViewUsesOnlySnapshot(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}})
 	host.RegisterManifestPlugins(&manifest.Manifest{Plugins: []manifest.ManifestPlugin{
 		{ID: "tool/xberg", Kind: "tool", Enabled: false, ManifestPluginDefinition: manifest.ManifestPluginDefinition{Name: "xberg", Binaries: []manifest.ManifestBinary{{Name: "xberg", Tool: "github:xberg-io/xberg"}}}},
 		{ID: "tool/enabled", Kind: "tool", Enabled: true, ManifestPluginDefinition: manifest.ManifestPluginDefinition{Name: "enabled", Prompt: "enabled"}},
 	}})
 
-	view, err := host.SessionPluginView(context.Background())
+	view, err := host.SessionPluginView(internalplugin.Snapshot{})
 	if err != nil {
 		t.Fatalf("SessionPluginView: %v", err)
 	}
-	if !slices.Contains(view.RegisteredPluginIDs, "tool/xberg") {
-		t.Fatalf("RegisteredPluginIDs = %v, want disabled manifest plugin", view.RegisteredPluginIDs)
-	}
-	if slices.Contains(view.EnabledPluginIDs, "tool/xberg") {
-		t.Fatalf("EnabledPluginIDs = %v, contains disabled manifest plugin", view.EnabledPluginIDs)
-	}
-	if !slices.Contains(view.EnabledPluginIDs, "tool/enabled") {
-		t.Fatalf("EnabledPluginIDs = %v, missing enabled manifest plugin", view.EnabledPluginIDs)
+	if len(view.RegisteredPluginIDs) != 0 || len(view.ExposedPluginIDs) != 0 {
+		t.Fatalf("SessionPluginView = %+v, manifest registrations must not enter snapshot view", view)
 	}
 }
 
@@ -426,7 +550,7 @@ func TestManifestSessionEnvPropagatesOAuthProvider(t *testing.T) {
 	}
 }
 
-func TestValidateRegistrationsRejectsDuplicateSessionEnvAndBundledSkills(t *testing.T) {
+func TestValidateRegistrationsRejectsDuplicateSessionEnvs(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/gh")
@@ -435,23 +559,6 @@ func TestValidateRegistrationsRejectsDuplicateSessionEnvAndBundledSkills(t *test
 	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: "tool/acme", EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceStatic, Value: "x"})
 	if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), `session env "GH_TOKEN"`) {
 		t.Fatalf("ValidateRegistrations error = %v, want duplicate env", err)
-	}
-
-	host = New(store)
-	host.RegisterPluginID("tool/gh")
-	host.RegisterPluginID("tool/acme")
-	host.AddBundledSkill(pkgplugins.BundledSkillSpec{
-		PluginID: "tool/gh",
-		Name:     "shared-skill",
-		Sync:     func(context.Context, pkgplugins.BundledSkillSyncContext) error { return nil },
-	})
-	host.AddBundledSkill(pkgplugins.BundledSkillSpec{
-		PluginID: "tool/acme",
-		Name:     "shared-skill",
-		Sync:     func(context.Context, pkgplugins.BundledSkillSyncContext) error { return nil },
-	})
-	if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), `bundled skill "shared-skill"`) {
-		t.Fatalf("ValidateRegistrations error = %v, want duplicate bundled skill", err)
 	}
 }
 

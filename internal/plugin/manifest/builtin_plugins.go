@@ -1,0 +1,327 @@
+package manifest
+
+import (
+	"bytes"
+	"cmp"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
+)
+
+var builtinPluginIdentifier = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// BuiltinOAuthProviderIDs returns the provider identities from the central
+// oauth.yaml document so plugin generation can validate cross-file references.
+func BuiltinOAuthProviderIDs(data []byte) ([]string, error) {
+	raw, err := parseRawYAML(data)
+	if err != nil {
+		return nil, fmt.Errorf("decode builtin OAuth providers: %w", err)
+	}
+	ids := make([]string, 0, len(raw.OAuthProviders))
+	seen := make(map[string]struct{}, len(raw.OAuthProviders))
+	for _, provider := range raw.OAuthProviders {
+		if provider.ID == "" {
+			return nil, fmt.Errorf("builtin OAuth provider has empty ID")
+		}
+		if _, exists := seen[provider.ID]; exists {
+			return nil, fmt.Errorf("duplicate builtin OAuth provider ID %q", provider.ID)
+		}
+		seen[provider.ID] = struct{}{}
+		ids = append(ids, provider.ID)
+	}
+	return ids, nil
+}
+
+// GenerateBuiltinPlugins recursively loads authored plugin declarations beneath
+// sourceRoot. YAML declarations describe CLI resources; standard Agent
+// packages use plugin.json and contribute their public metadata and Skills.
+func GenerateBuiltinPlugins(sourceRoot string, reservedRuntimeNames, oauthProviderIDs []string) (*Manifest, error) {
+	info, err := os.Lstat(sourceRoot)
+	if err != nil {
+		return nil, fmt.Errorf("stat builtin plugins root: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil, fmt.Errorf("builtin plugins root must be a directory: %s", sourceRoot)
+	}
+
+	var rawPlugins []rawManifestPlugin
+	err = filepath.WalkDir(sourceRoot, func(filename string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(sourceRoot, filename)
+		if err != nil {
+			return fmt.Errorf("relative plugin path %q: %w", filename, err)
+		}
+		if rel == "." {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("builtin plugin path %q is a symlink", rel)
+		}
+		if entry.IsDir() {
+			if path.Base(rel) == "plugin.yaml" {
+				return fmt.Errorf("builtin plugin path %q has unsupported type directory", rel)
+			}
+			return nil
+		}
+		fileInfo, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("stat builtin plugin path %q: %w", rel, err)
+		}
+		if !fileInfo.Mode().IsRegular() {
+			return fmt.Errorf("builtin plugin path %q has unsupported type %s", rel, fileInfo.Mode().Type())
+		}
+		switch path.Base(rel) {
+		case "plugin.yaml":
+			plugin, err := loadBuiltinPlugin(filename, rel)
+			if err != nil {
+				return err
+			}
+			rawPlugins = append(rawPlugins, plugin)
+		case "plugin.json":
+			parts := strings.Split(rel, "/")
+			if len(parts) != 3 || parts[0] != "agent" || parts[2] != "plugin.json" {
+				return nil
+			}
+			plugin, err := loadAgentPlugin(filepath.Dir(filename), rel)
+			if err != nil {
+				return err
+			}
+			rawPlugins = append(rawPlugins, plugin)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(rawPlugins) == 0 {
+		return nil, fmt.Errorf("builtin plugins root contains no plugin.yaml or plugin.json: %s", sourceRoot)
+	}
+
+	manifest := rawToManifest(rawManifest{Plugins: rawPlugins})
+	if err := validateBuiltinPlugins(manifest.Plugins, reservedRuntimeNames, oauthProviderIDs); err != nil {
+		return nil, err
+	}
+	slices.SortFunc(manifest.Plugins, func(a, b ManifestPlugin) int { return cmp.Compare(a.ID, b.ID) })
+	return manifest, nil
+}
+
+func loadAgentPlugin(root, relative string) (rawManifestPlugin, error) {
+	diagnostics := agentpackage.ValidateAuthoring(root)
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == agentpackage.SeverityError {
+			return rawManifestPlugin{}, fmt.Errorf("validate Agent package %q: %s", relative, diagnostic.Message)
+		}
+	}
+	pkg, diagnostics := agentpackage.Load(root)
+	if pkg == nil {
+		return rawManifestPlugin{}, fmt.Errorf("load Agent package %q: %v", relative, diagnostics)
+	}
+	if filepath.Base(root) != pkg.Manifest.Name {
+		return rawManifestPlugin{}, fmt.Errorf("agent package %q directory must match manifest name %q", relative, pkg.Manifest.Name)
+	}
+	for _, legacy := range []string{"assets.yaml", "plugin.yaml"} {
+		if _, err := os.Stat(filepath.Join(root, legacy)); err == nil {
+			return rawManifestPlugin{}, fmt.Errorf("agent package %q cannot also contain %s", relative, legacy)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return rawManifestPlugin{}, fmt.Errorf("stat Agent package %q %s: %w", relative, legacy, err)
+		}
+	}
+	if len(pkg.MCPServers) > 0 {
+		return rawManifestPlugin{}, fmt.Errorf("agent package %q declares MCP servers; guide-only packages cannot declare runtime components", relative)
+	}
+	if pkg.Extension != nil && (len(pkg.Extension.Binaries) > 0 || len(pkg.Extension.SessionEnv) > 0 || len(pkg.Extension.OAuth) > 0) {
+		return rawManifestPlugin{}, fmt.Errorf("agent package %q declares Stella runtime requirements; guide-only packages cannot declare runtime components", relative)
+	}
+	enabled := true
+	result := rawManifestPlugin{
+		ID: pkg.Manifest.Name, Kind: "agent", Enabled: &enabled,
+		ManifestPluginDefinition: ManifestPluginDefinition{
+			Name: pkg.Manifest.Name, DisplayName: pkg.Manifest.Name,
+			Description: pkg.Manifest.Description,
+		},
+	}
+	for _, skill := range pkg.Skills {
+		result.Skills = append(result.Skills, ManifestSkill{Name: skill.Name})
+	}
+	return result, nil
+}
+
+func loadBuiltinPlugin(filename, relative string) (rawManifestPlugin, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return rawManifestPlugin{}, fmt.Errorf("read builtin plugin %q: %w", relative, err)
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	var plugin rawManifestPlugin
+	if err := decoder.Decode(&plugin); err != nil {
+		return rawManifestPlugin{}, fmt.Errorf("decode builtin plugin %q: %w", relative, err)
+	}
+	if yamlDocumentHasField(data, "essential") {
+		return rawManifestPlugin{}, fmt.Errorf("builtin plugin %q cannot declare essential; system CLI installation follows kind", relative)
+	}
+	if yamlDocumentHasField(data, "bundled_binaries") && plugin.Kind != "system" {
+		return rawManifestPlugin{}, fmt.Errorf("builtin plugin %q: bundled_binaries require kind system", relative)
+	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); err == nil {
+		return rawManifestPlugin{}, fmt.Errorf("builtin plugin %q contains more than one YAML document", relative)
+	} else if !errors.Is(err, io.EOF) {
+		return rawManifestPlugin{}, fmt.Errorf("decode trailing builtin plugin document %q: %w", relative, err)
+	}
+	return plugin, nil
+}
+
+func yamlDocumentHasField(data []byte, field string) bool {
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil || len(document.Content) != 1 {
+		return false
+	}
+	node := document.Content[0]
+	if node.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == field {
+			return true
+		}
+	}
+	return false
+}
+
+func validateBuiltinPlugins(plugins []ManifestPlugin, reservedRuntimeNames, oauthProviderIDs []string) error {
+	reservedRuntimeNames = slices.Clone(reservedRuntimeNames)
+	providerIDs := make(map[string]struct{}, len(oauthProviderIDs))
+	for _, id := range oauthProviderIDs {
+		providerIDs[id] = struct{}{}
+	}
+	if errs := validatePlugins(plugins, providerIDs); len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	seenIDs := make(map[string]struct{}, len(plugins))
+	seenResources := make(map[string]string)
+	reservedIDs := make(map[string]struct{}, len(reservedRuntimeNames))
+	reservedBinaryNames := make(map[string]struct{}, len(reservedRuntimeNames))
+	for _, plugin := range plugins {
+		if plugin.Kind != "system" {
+			continue
+		}
+		for _, binary := range plugin.Binaries {
+			reservedRuntimeNames = append(reservedRuntimeNames, binary.Name)
+			if binary.Version == "" || binary.Version == "latest" {
+				return fmt.Errorf("system plugin %q binary %q must pin a release version", plugin.ID, binary.Name)
+			}
+		}
+		reservedRuntimeNames = append(reservedRuntimeNames, plugin.BundledBinaries...)
+	}
+	for _, name := range reservedRuntimeNames {
+		reservedIDs[name] = struct{}{}
+		reservedBinaryNames[name] = struct{}{}
+	}
+	for _, plugin := range plugins {
+		if plugin.Kind == "" || !builtinPluginIdentifier.MatchString(plugin.Kind) || plugin.Name == "" || !agentpackage.ValidName(plugin.Name) || plugin.DisplayName == "" {
+			return fmt.Errorf("builtin plugin %q has invalid kind, namespace, or display_name", plugin.ID)
+		}
+		if plugin.ID != plugin.Name {
+			return fmt.Errorf("builtin plugin %q must use canonical bare ID %s", plugin.ID, plugin.Name)
+		}
+		if plugin.Kind != "system" {
+			if _, reserved := reservedIDs[plugin.ID]; reserved {
+				return fmt.Errorf("builtin plugin %q uses reserved core ID %q", plugin.ID, plugin.ID)
+			}
+		}
+		if _, exists := seenIDs[plugin.ID]; exists {
+			return fmt.Errorf("duplicate builtin plugin ID %q", plugin.ID)
+		}
+		seenIDs[plugin.ID] = struct{}{}
+		for _, binary := range plugin.Binaries {
+			if _, reserved := reservedBinaryNames[binary.Name]; reserved && plugin.Kind != "system" {
+				return fmt.Errorf("builtin plugin %q uses reserved core binary name %q", plugin.ID, binary.Name)
+			}
+			if previous, exists := seenResources["binary:"+binary.Name]; exists {
+				return fmt.Errorf("duplicate builtin plugin resource binary %q in %q and %q", binary.Name, previous, plugin.ID)
+			}
+			seenResources["binary:"+binary.Name] = plugin.ID
+		}
+		for _, name := range plugin.BundledBinaries {
+			if previous, exists := seenResources["binary:"+name]; exists {
+				return fmt.Errorf("duplicate builtin plugin resource binary %q in %q and %q", name, previous, plugin.ID)
+			}
+			seenResources["binary:"+name] = plugin.ID
+		}
+		for _, skill := range plugin.Skills {
+			if previous, exists := seenResources["skill:"+skill.Name]; exists {
+				return fmt.Errorf("duplicate builtin plugin resource skill %q in %q and %q", skill.Name, previous, plugin.ID)
+			}
+			seenResources["skill:"+skill.Name] = plugin.ID
+		}
+		for _, env := range plugin.SessionEnvs {
+			if previous, exists := seenResources["session_env:"+env.EnvVar]; exists {
+				return fmt.Errorf("duplicate builtin plugin resource session env %q in %q and %q", env.EnvVar, previous, plugin.ID)
+			}
+			seenResources["session_env:"+env.EnvVar] = plugin.ID
+		}
+	}
+	return nil
+}
+
+func renderBuiltinPlugins(manifest *Manifest) ([]byte, error) {
+	data, err := yaml.Marshal(manifest)
+	if err != nil {
+		return nil, fmt.Errorf("encode builtin plugins: %w", err)
+	}
+	return []byte("// Code generated by cmd/generatebuiltinmanifest; DO NOT EDIT.\n\npackage resources\n\nconst builtinPluginsYAML = " + strconv.Quote(string(data)) + "\n"), nil
+}
+
+// WriteBuiltinPlugins writes the generated source after the complete input tree
+// validates, using a same-directory rename so a failed scan cannot publish a
+// partial catalog.
+func WriteBuiltinPlugins(sourceRoot, output string, reservedRuntimeNames, oauthProviderIDs []string) error {
+	manifest, err := GenerateBuiltinPlugins(sourceRoot, reservedRuntimeNames, oauthProviderIDs)
+	if err != nil {
+		return err
+	}
+	rendered, err := renderBuiltinPlugins(manifest)
+	if err != nil {
+		return err
+	}
+	if current, err := os.ReadFile(output); err == nil && bytes.Equal(current, rendered) {
+		return nil
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(output), ".builtin-plugins-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create builtin plugin output: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod builtin plugin output: %w", err)
+	}
+	if _, err := tmp.Write(rendered); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write builtin plugin output: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close builtin plugin output: %w", err)
+	}
+	if err := os.Rename(tmpName, output); err != nil {
+		return fmt.Errorf("install builtin plugin output: %w", err)
+	}
+	return nil
+}

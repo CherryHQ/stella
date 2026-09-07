@@ -1,0 +1,9 @@
+id: mise
+kind: system
+name: mise
+display_name: mise
+description: Release-bundled bootstrap for installing CLI tools.
+enabled: true
+category: system
+bundled_binaries:
+  - mise

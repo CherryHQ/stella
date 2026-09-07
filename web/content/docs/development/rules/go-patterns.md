@@ -76,6 +76,17 @@ one row:
    twenty packages and imports twenty-five, the types other packages actually
    need belong in `internal/core`, not in `A/<leaf>`.
 
+`plugins/system` prepares every CLI declared by release-owned system plugins,
+independently of their configurable capability enablement. Each plugin owns its
+CLI and skill declarations; generation projects the required runtime catalog.
+The runtime package may import only the exact repository packages
+`internal/plugin/manifest` (shared installation primitives) and
+`resources/binaries` (embedded assets); its tests may also read `resources`.
+Internal runtime consumers may import the exact `plugins/system` package.
+This exception does not let internal callers import `plugins/system`
+subpackages or other replaceable plugins. The architecture guard enforces both
+directions.
+
 **How it breaks.** `internal/agent` was both hub and kernel. Its leaves —
 `toolmeta`, `access`, `agentctx`, `agenterr`, `providercred` — carried 15–16
 external consumers each, so `memory`, `vault`, `connections`, and

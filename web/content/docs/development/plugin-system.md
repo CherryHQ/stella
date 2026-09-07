@@ -2,92 +2,192 @@
 title: Plugin System
 ---
 
-> This section is for developers contributing to Stella.
+Agent Plugins configure CLI and MCP resources through scoped definitions.
+Compiled Stella Native Plugins use trusted Go registration and deployment-wide
+configuration, with an administrator's per-Agent deny policy.
 
-## Plugin Means Ownership, Not One Runtime API
+## Native administration
 
-Stella compiles trusted integrations into `stellad`, but does not route every
-integration through one universal host. Each family has the smallest contract
-that matches its lifecycle:
+Administrators manage Native switches under **Admin console > Integrations >
+Native capabilities**. The global switch applies to every Agent. A per-Agent deny
+blocks only the selected Agent; removing it restores access only while the
+global switch is enabled. User settings cannot override these limits.
 
-| Family           | Registration                                               | Runtime owner                       |
-| ---------------- | ---------------------------------------------------------- | ----------------------------------- |
-| Providers        | explicit `providers.Definition` list in `cmd/stellad`      | provider registry                   |
-| Sandbox backends | explicit `sandbox.BackendDefinition` list in `cmd/stellad` | agent sandbox                       |
-| Channels         | compiled catalog registration                              | channel plugin host                 |
-| CLI tools        | built-in manifest                                          | sandbox session and prompt assembly |
+`NativePolicy` reads the global `plugin` row and `native_agent_deny` together.
+A missing global row inherits its default from the trusted Native registry.
+An unknown registration or failed policy read refuses new admission. Native
+hooks, channel listeners and background work use this policy; channel instances
+retain their own enabled state and credentials.
 
-Native agent tools, hooks, and memory implementations remain internal modules.
-They should not become plugins merely to make the directory layout look uniform.
+Native tools keep their static exported names in `tool_override.tool_name`.
+The existing four-scope tool restrictions apply at discovery and on every
+invocation, including calls from an already-built runner. Native identities
+do not require an Agent Plugin definition foreign key. The importer uses the
+same explicit Native registry as runtime admission and leaves Native global
+configuration in its existing store.
 
-## Dependency Boundary
+Native mutations use the runner admission fence. An acknowledged commit, or a
+write whose commit outcome is unknown, retires old runners and reconciles
+channel listeners. A failed response therefore does not preserve stale access.
+The Native management API requires administrator authentication; OAuth access
+tokens cannot reach it.
 
-Production code under `plugins/providers/**` and `plugins/sandbox/**` may depend
-on public contracts under `pkg/**`, sibling family packages, the standard
-library, and third-party modules. It must not import `internal/**`.
+## Definition and configuration
 
-The composition root in `cmd/stellad` is allowed to know both sides. It selects
-the compiled definitions, supplies Stella-owned dependencies, validates duplicate
-IDs, and injects immutable registries into the services that execute them. The
-table-driven guard in `internal/boundary_test.go` enforces this direction.
+`PluginDefinition.ID` is the unique canonical package name. It describes the
+backend, shipped resources and default enabled state. Builtin definitions come
+from trusted release declarations; persisted builtin rows are projections.
+Agent definitions contain only CLI or MCP resources. Compiled Go implementations
+are registered and managed through the separate Native path.
 
-## Provider Adapters
+Management routes use `/api/plugins/{plugin_id}` and its sub-resources. Pass the
+exact ID returned by the catalog as one URL-encoded path segment. Backend and
+source-directory categories do not participate in request addressing.
+Names use 1–64 lowercase letters, digits, periods and hyphens, start and end
+with a letter or digit, and cannot contain `..` or `--`. A name conflict fails;
+Stella does not add a suffix. The identity is fixed after creation; the display
+name can change.
 
-A provider package exports a `Definition()` containing its ID, display metadata,
-default URL, and adapter builder. `setupProviderRegistry()` lists the supported
-definitions explicitly. Adding a package without adding that wiring has no
-runtime effect.
+`PluginConfig` records one decision for a definition at one scope:
 
-Provider credentials, base URLs, models, and enabled state are managed by the
-provider control plane. Providers are not plugin rows and are not enabled or
-reloaded through the plugin admin surface.
+| Scope        | Applies to                    |
+| ------------ | ----------------------------- |
+| System       | Everyone in the deployment    |
+| System agent | One Agent, across its users   |
+| User         | One user, across their Agents |
+| User agent   | One user using one Agent      |
 
-## Sandbox Backends
+There is at most one configuration for each definition and scope tuple. The
+selected configuration is user agent, user, system agent, then system. An
+explicit system or matching system agent `false` is an independent upper bound.
+A narrower `true` cannot override either restriction. `null` follows the shipped
+default of the selected definition.
 
-A sandbox package implements the public sandbox interfaces. The composition root
-adapts it into a `sandbox.BackendDefinition`, supplying process-owned concerns
-such as the embedded runtime bundle and development image selection. The agent
-sandbox receives only the resulting registry and never imports a concrete
-backend.
+This is the Agent Plugin configuration model: one `PluginDefinition` plus at most
+one `PluginConfig` for each of the four scope tuples. `user_id` and `agent_id`
+come from the trusted authority and are never accepted as caller-owned identity.
+The definition owns stable package identity and implementation; the selected
+config owns its backend payload and credentials for that scope.
 
-Backend selection is static for a runner configuration. There is no dynamic
-unregister or rollback protocol because Stella does not load third-party backend
-code at runtime.
+The selected scope owns its configuration. It can override fields in the
+shipped definition, but fields and credentials are never merged across scopes.
+A disabled or incomplete winner does not fall back to a broader configuration.
+Builtin plugins follow the same rules and administrators can disable them.
 
-## Channels
+## One execution snapshot
 
-Channels use the existing managed plugin host and package registration. A
-channel plugin owns its persisted configuration type, complete decoder,
-validation, and redaction. The host stores only the channel registration and
-asks that registration for the optional guest policy decoder, so guest
-admission remains based on the current persisted record and fails closed when a
-decoder is absent or rejects the complete configuration.
+The common service resolves a snapshot from trusted user, Agent or group
+identity. A runner captures that snapshot once for Agent Plugin resources,
+Skills and environment. Native tools and hooks read their separate policy.
 
-Account enrollment is a separate, capability-gated host port. A plugin receives
-an enrollment port directly from `Platform`, independently of channel runtime
-services. The capability declaration is the only opt-in; the plugin must own
-exactly one registered channel, which determines its namespace. Plugin requests
-contain profile data only: the host supplies the namespace separately to the
-account transaction. Message handlers do not acquire account write access
-through type assertions. Platform evidence,
-such as Feishu tenant and canonical subject checks, remains in the owning
-plugin. See [Create a Plugin](/docs/extend-stella/create-a-plugin) for the
-current channel authoring path.
+Each Agent Plugin resolves by its exact package ID. Different packages do not
+replace each other's resources. Native tools and hooks are absent from that
+snapshot; a matching Agent package name cannot grant Native admission, which
+uses the trusted registration ID and independent policy.
 
-## Manifest CLI Integrations
+MCP exported names adapt the package name, server key and remote tool name into
+an ASCII name of at most 64 characters, with a deterministic 12-hex-character
+hash suffix. The current single-server configuration uses server key `main`.
+The actual exposed set is checked for collisions. Authorization uses trusted
+package and local tool identity, never a parsed display name. Native tools keep
+their registered static names.
 
-CLI integrations that only contribute binaries, skills, prompt guidance, or
-session environment use the built-in manifest. They do not need a Go plugin
-package. See [Manifest Tool Integrations](/docs/extend-stella/manifest-tools).
+Configuration writes run under the admission boundary and commit atomically.
+Idle runners are retired; an admitted turn can finish before its runner is
+retired. Credential access must still match the captured configuration revision:
+an old runner must never send newly rotated credentials to an old endpoint.
+Plugin switches govern Stella-managed exposure and admission. Filesystem and
+network restrictions remain sandbox responsibilities; disabling a plugin does
+not revoke an existing OAuth grant or erase a previously loaded Skill.
 
-## Choosing A Boundary
+## CLI and Skill resources
 
-Use the first contract that fits:
+A CLI integration can contain binaries, Skills, environment declarations and
+prompt guidance. A CLI version pin and a Skill source are independent fields;
+changing one need not change the other. The manifest is a release input loader,
+not a separate permission system. CLI installation is lazy: a runner materializes
+the selected snapshot when it needs it, and there is no standalone sync endpoint.
 
-1. Keep ordinary behavior in its owning internal package.
-2. Use the manifest for declarative CLI integration.
-3. Add a typed family definition for a compiled provider or sandbox backend.
-4. Use the managed plugin host only for a channel lifecycle.
+Builtin Skill ownership is generated from the release package declarations.
+User frontmatter cannot claim an owner. Prompt listing, search and direct loading
+apply the same owner restriction after selecting the resource winner.
 
-A new capability on the generic host is an escalation, not the default extension
-mechanism.
+The email, recally and scheduler guides are standard Agent packages under
+`plugins/agent/<name>/`, with `plugin.json` and `skills/<name>/SKILL.md` as their
+authored sources. Their Agent Plugin identities are the bare package names.
+Disabling a guide hides its Skill without changing the corresponding Native
+capability. Loading a guide does not enable Native tools; its compatibility text
+states that the Native capability must be available separately.
+
+The remaining shipped packages still use their existing YAML declarations.
+Web currently belongs to Bun and Python Script to uv; disabling the owning
+package suppresses its Skill. Lightpanda affects rendering within Web, not plain
+fetch or search.
+
+Each runner receives only the selected CLI artifacts and their entry points.
+Trusted system installations keep private options out of the runner filesystem;
+Docker prepares Linux artifacts in its existing tool cache, keyed by one resolved
+image ID and the complete four-scope selection. A selection helper supplies only
+the chosen entries and binaries. Native managed installs use the managed tree;
+user and user agent installations stay in their own sandbox trees and take
+precedence in PATH. Plugin permissions govern the resources Stella supplies; the
+`none` backend provides no filesystem isolation.
+
+## Channels and accounts
+
+A channel plugin describes one platform. Each account remains a separate
+channel instance, with its own exact ID, credentials, active state and persistent
+Agent binding. Saving one account cannot replace another account's credentials
+or re-enable an administrator-disabled platform.
+
+Listeners use the Native global switch and per-Agent deny plus instance active
+state. A user's tool restriction does not stop a listener shared with other
+users. Event admission also checks existing Agent access or guest policy.
+Channel signatures, enrollment and platform identity checks remain in their
+owning adapters.
+
+The existing uniqueness rule, `UNIQUE(agent_id, type)`, permits at most one
+instance of a platform per Agent. Each instance has its own credentials, so
+multiple accounts remain separate even when they use the same platform. Multiple
+accounts can be bound to different Agents. Identity linking is separate from
+provisioning a bot account.
+
+## MCP credentials and observations
+
+MCP is a plugin backend. Authored endpoint settings and credential references
+belong to its selected configuration. Tokens remain in the Vault. Shared and
+per-user credentials never fall back to each other.
+
+OAuth client registration belongs to the configuration owner. For system and
+system agent configurations, an administrator initializes a missing client
+through the OAuth start action before users authorize their own accounts. User
+and user agent configuration owners can initialize their own client. Existing
+system configurations without a client ID need this administrator step after
+upgrade; per-user tokens remain isolated. Disable and reset preserve grants.
+Deleting a configuration removes its grants atomically.
+
+Remote tool catalogs and connection status are backend observations keyed by
+configuration and credential owner, with a configuration revision fence. A
+per-user catalog cannot become another user's tool list. Legacy per-user catalogs
+have no trusted owner provenance and are cold-probed after migration. Internal
+OAuth bundles are excluded from public Vault access and ambient environment
+injection.
+
+## Core boundaries and upgrade
+
+Provider adapters and sandbox backends retain their explicit compiled
+registries. Core storage, orchestration and credential services do not become
+optional simply because a plugin uses them. For example, disabling the public
+Xberg plugin hides its public resources; the Library's explicit internal parser
+dependency remains available.
+
+`cmd/stellad` composes backend adapters and the common catalog. Backend packages
+must not introduce their own scope or enabled resolver. Production provider and
+sandbox adapters depend on public `pkg/**` contracts, not `internal/**`.
+
+The legacy cutover is a maintenance upgrade: stop every old writer before
+starting the new runtime. One transaction imports and validates configurations,
+credential relationships and tool policies before recording completion. Legacy
+Agent Plugin rows remain for inspection after import. Native global configuration
+continues to use its existing store. Rolling old and new writers against that
+database is not supported during this cutover.

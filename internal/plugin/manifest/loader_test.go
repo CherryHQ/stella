@@ -15,13 +15,31 @@ func TestLoadBuiltin(t *testing.T) {
 	}
 }
 
+func TestLoadBuiltinIncludesCoreRuntimePlugins(t *testing.T) {
+	m, err := LoadBuiltin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := make(map[string]bool)
+	for _, p := range m.Plugins {
+		if slices.Contains([]string{"mise", "xberg", "fd", "rg"}, p.ID) {
+			found[p.ID] = true
+		}
+	}
+	for _, id := range []string{"mise", "xberg", "fd", "rg"} {
+		if !found[id] {
+			t.Fatalf("core runtime plugin %q missing from builtin manifest", id)
+		}
+	}
+}
+
 func TestLoadBuiltinLarkCLIUsesManagedFeishuOAuth(t *testing.T) {
 	m, err := LoadBuiltin()
 	if err != nil {
 		t.Fatalf("LoadBuiltin() error: %v", err)
 	}
 	for _, p := range m.Plugins {
-		if p.ID != "tool/lark-cli" {
+		if p.ID != "lark-cli" {
 			continue
 		}
 		if p.OAuthProvider != "feishu" {
@@ -35,7 +53,7 @@ func TestLoadBuiltinLarkCLIUsesManagedFeishuOAuth(t *testing.T) {
 		}
 		return
 	}
-	t.Fatal("tool/lark-cli not found")
+	t.Fatal("lark-cli not found")
 }
 
 func TestLoadBuiltinLarkProvidersRecommendFullCLIScopes(t *testing.T) {

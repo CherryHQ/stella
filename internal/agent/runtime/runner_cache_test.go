@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -11,22 +12,25 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/pkg/ai"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // --- fake runner ------------------------------------------------------------
 
 type fakeRunner struct {
-	alive      bool
-	busy       bool
-	closed     bool
-	lastAct    time.Time
-	system     string
-	chatSystem string
-	closeErr   error
-	panicAlive bool
-	panicBusy  bool
-	panicClose bool
+	alive         bool
+	busy          bool
+	closed        bool
+	lastAct       time.Time
+	system        string
+	chatSystem    string
+	closeErr      error
+	panicAlive    bool
+	panicBusy     bool
+	panicClose    bool
+	pluginContext PluginContext
 }
 
 func newFakeRunner() *fakeRunner { return &fakeRunner{alive: true, lastAct: time.Now()} }
@@ -72,14 +76,192 @@ func (r *fakeRunner) Busy() bool {
 	}
 	return r.busy
 }
-func (r *fakeRunner) LastActivity() time.Time { return r.lastAct }
-func (r *fakeRunner) SystemPrompt() string    { return r.system }
+func (r *fakeRunner) LastActivity() time.Time      { return r.lastAct }
+func (r *fakeRunner) SystemPrompt() string         { return r.system }
+func (r *fakeRunner) PluginContext() PluginContext { return r.pluginContext }
 func (r *fakeRunner) Close() error {
 	if r.panicClose {
 		panic("close panic")
 	}
 	r.closed = true
 	return r.closeErr
+}
+
+type blockingCloseGate struct {
+	mu         sync.Mutex
+	started    int
+	want       int
+	active     int
+	maxActive  int
+	allStarted chan struct{}
+	release    chan struct{}
+}
+
+func (g *blockingCloseGate) markStarted() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.started++
+	g.active++
+	if g.active > g.maxActive {
+		g.maxActive = g.active
+	}
+	if g.started == g.want {
+		close(g.allStarted)
+	}
+}
+
+func (g *blockingCloseGate) markFinished() {
+	g.mu.Lock()
+	g.active--
+	g.mu.Unlock()
+}
+
+func (g *blockingCloseGate) peakActive() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.maxActive
+}
+
+type blockingCloseRunner struct {
+	*fakeRunner
+	gate *blockingCloseGate
+	err  error
+}
+
+func (r *blockingCloseRunner) Close() error {
+	r.gate.markStarted()
+	defer r.gate.markFinished()
+	<-r.gate.release
+	r.closed = true
+	return r.err
+}
+
+func TestRunnerCacheResetClosesIdleRunnersConcurrentlyAndWaits(t *testing.T) {
+	ids := []string{"idle-close-a", "idle-close-b"}
+	wantErr := errors.New("close failed")
+	gate := &blockingCloseGate{
+		want:       len(ids),
+		allStarted: make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	runners := make([]*blockingCloseRunner, 0, len(ids))
+	for i, id := range ids {
+		r := &blockingCloseRunner{fakeRunner: newFakeRunner(), gate: gate}
+		if i == 0 {
+			r.err = wantErr
+		}
+		runners = append(runners, r)
+		cache.sessions[id] = &cachedSession{r: r, info: validInfo(id)}
+	}
+
+	resetDone := make(chan error, 1)
+	go func() { resetDone <- cache.reset() }()
+	select {
+	case <-gate.allStarted:
+	case <-time.After(time.Second):
+		close(gate.release)
+		t.Fatal("reset did not start all idle runner closes concurrently")
+	}
+	select {
+	case err := <-resetDone:
+		t.Fatalf("reset returned before all closes were released: %v", err)
+	default:
+	}
+
+	close(gate.release)
+	if err := <-resetDone; !errors.Is(err, wantErr) {
+		t.Fatalf("reset error = %v, want %v", err, wantErr)
+	}
+	for _, r := range runners {
+		if !r.closed {
+			t.Fatal("reset returned before a detached runner closed")
+		}
+	}
+}
+
+func TestRunnerCacheResetBoundsConcurrentIdleRunnerCloses(t *testing.T) {
+	const runnerCount = maxConcurrentRunnerCloses + 1
+	gate := &blockingCloseGate{
+		want:       maxConcurrentRunnerCloses,
+		allStarted: make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	runners := make([]*blockingCloseRunner, 0, runnerCount)
+	for i := range runnerCount {
+		id := "bounded-close-" + strconv.Itoa(i)
+		r := &blockingCloseRunner{fakeRunner: newFakeRunner(), gate: gate}
+		runners = append(runners, r)
+		cache.sessions[id] = &cachedSession{r: r, info: validInfo(id)}
+	}
+
+	resetDone := make(chan error, 1)
+	go func() { resetDone <- cache.reset() }()
+	select {
+	case <-gate.allStarted:
+	case <-time.After(time.Second):
+		close(gate.release)
+		t.Fatal("reset did not start the close worker batch")
+	}
+	select {
+	case err := <-resetDone:
+		close(gate.release)
+		t.Fatalf("reset returned before the first close batch was released: %v", err)
+	default:
+	}
+
+	close(gate.release)
+	if err := <-resetDone; err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	if got := gate.peakActive(); got > maxConcurrentRunnerCloses {
+		t.Fatalf("peak concurrent closes = %d, want <= %d", got, maxConcurrentRunnerCloses)
+	}
+	for _, r := range runners {
+		if !r.closed {
+			t.Fatal("reset returned before a detached runner closed")
+		}
+	}
+}
+
+func TestRunnerCacheKeepsReservedContextAndRefreshesNewRunner(t *testing.T) {
+	first := newFakeRunner()
+	first.pluginContext = NewPluginContext(plugin.Snapshot{}, pkgplugins.SessionPluginView{ExposedPluginIDs: []string{"plugin/old"}})
+	second := newFakeRunner()
+	second.pluginContext = NewPluginContext(plugin.Snapshot{}, pkgplugins.SessionPluginView{ExposedPluginIDs: []string{"plugin/new"}})
+	builds := 0
+	cache := newRunnerCache(func(context.Context, RunnerParams) (Runner, error) {
+		builds++
+		if builds == 1 {
+			return first, nil
+		}
+		return second, nil
+	}, fakeMemory{}, time.Minute, slog.Default())
+	info := session.Info{ID: "session", UserID: "user", AgentID: "agent"}
+
+	selection, err := cache.getOrCreateReserved(context.Background(), info, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := selection.pluginContext.SessionPluginView().ExposedPluginIDs; len(got) != 1 || got[0] != "plugin/old" {
+		t.Fatalf("first selection context = %v", got)
+	}
+	if err := cache.invalidateSkillPolicy(); err != nil {
+		t.Fatal(err)
+	}
+	cache.releaseReservation(selection.session)
+
+	selection, err = cache.getOrCreateReserved(context.Background(), info, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.runner != second {
+		t.Fatalf("runner after invalidation = %p, want refreshed runner %p", selection.runner, second)
+	}
+	if got := selection.pluginContext.SessionPluginView().ExposedPluginIDs; len(got) != 1 || got[0] != "plugin/new" {
+		t.Fatalf("refreshed selection context = %v", got)
+	}
 }
 
 // --- fake memory provider ---------------------------------------------------
@@ -556,7 +738,7 @@ func TestAdmittedSelectionKeepsModelThinkingAcrossReset(t *testing.T) {
 		Memory:          mem,
 		DefaultModel:    "old-model",
 		DefaultThinking: "low",
-		BeforeRun: func(_ context.Context, _ session.Info, model, _ string, _ string, _ []ai.Message) (string, error) {
+		BeforeRun: func(_ context.Context, _ session.Info, model, _ string, _ string, _ []ai.Message, _ PluginContext) (string, error) {
 			mu.Lock()
 			beforeModels = append(beforeModels, model)
 			mu.Unlock()
@@ -629,7 +811,7 @@ func TestResetDuringReservedFactoryBuildKeepsSelectionAndDropsCacheMetadata(t *t
 		Memory:          fakeMemory{},
 		DefaultModel:    "old-model",
 		DefaultThinking: "low",
-		BeforeRun: func(_ context.Context, _ session.Info, model, _ string, _ string, _ []ai.Message) (string, error) {
+		BeforeRun: func(_ context.Context, _ session.Info, model, _ string, _ string, _ []ai.Message, _ PluginContext) (string, error) {
 			mu.Lock()
 			models = append(models, model)
 			mu.Unlock()
@@ -692,7 +874,7 @@ func TestCompactionKeepsAdmittedSelectionMetadata(t *testing.T) {
 		Memory:          mem,
 		DefaultModel:    "old-model",
 		DefaultThinking: "low",
-		BeforeRun: func(_ context.Context, _ session.Info, model, _ string, _ string, _ []ai.Message) (string, error) {
+		BeforeRun: func(_ context.Context, _ session.Info, model, _ string, _ string, _ []ai.Message, _ PluginContext) (string, error) {
 			mu.Lock()
 			models = append(models, model)
 			mu.Unlock()
@@ -1059,7 +1241,7 @@ func TestRuntimeChat_BeforeRunOverride(t *testing.T) {
 			return runner, nil
 		},
 		Memory: fakeMemory{},
-		BeforeRun: func(_ context.Context, info session.Info, model, msgText, system string, history []ai.Message) (string, error) {
+		BeforeRun: func(_ context.Context, info session.Info, model, msgText, system string, history []ai.Message, _ PluginContext) (string, error) {
 			if info.ID != "s1" {
 				t.Fatalf("session ID = %q, want s1", info.ID)
 			}

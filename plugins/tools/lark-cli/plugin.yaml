@@ -1,0 +1,21 @@
+id: lark-cli
+kind: tool
+name: lark-cli
+display_name: Lark CLI
+description: Lark CLI with environment or managed OAuth authentication and built-in CLI documentation.
+enabled: true
+prompt: "Use lark-cli for Feishu/Lark operations. Read the bundled lark-cli skill for Stella's environment/OAuth authentication rules, then use lark-cli skills read for domain documentation. Never run lark-cli config init or auth login inside Stella."
+binaries:
+  - name: lark-cli
+    tool: github:larksuite/cli
+    version: 1.0.87
+oauth_provider: feishu
+session_env:
+  - env_var: LARKSUITE_CLI_USER_ACCESS_TOKEN
+    source: oauth.access_token
+  - env_var: LARKSUITE_CLI_APP_ID
+    source: oauth.client_id
+  - env_var: LARKSUITE_CLI_BRAND
+    source: oauth.brand
+skills:
+  - name: lark-cli
