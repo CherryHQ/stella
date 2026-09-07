@@ -41,8 +41,8 @@ func validateCLIBackendPayload(ctx context.Context, def plugin.Definition, cfg p
 	if manifest.IsSystemPlugin(def) {
 		return nil
 	}
-	reserved := make(map[string]struct{}, len(systemplugins.RuntimeResources()))
-	for _, resource := range systemplugins.RuntimeResources() {
+	reserved := make(map[string]struct{}, len(systemplugins.EmbeddedRuntimeResources()))
+	for _, resource := range systemplugins.EmbeddedRuntimeResources() {
 		reserved[resource.Name] = struct{}{}
 	}
 	check := func(raw []byte, label string) error {

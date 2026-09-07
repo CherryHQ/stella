@@ -73,3 +73,14 @@ func IsSystemPlugin(definition plugin.Definition) bool {
 	_, ok := builtinSystemPluginIDs.ids[definition.ID]
 	return ok
 }
+
+// IsEmbeddedSystemPlugin identifies the two release-owned runtimes whose
+// package metadata may be empty because their executable and skill assets are
+// supplied by the immutable release. Mise-managed CLIs such as fd and rg are
+// ordinary Agent package binaries and must follow the normal installer path.
+func IsEmbeddedSystemPlugin(definition plugin.Definition) bool {
+	if definition.Source != plugin.SourceBuiltin {
+		return false
+	}
+	return definition.ID == "mise" || definition.ID == "xberg"
+}

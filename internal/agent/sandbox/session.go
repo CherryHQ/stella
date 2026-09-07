@@ -164,7 +164,7 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 	defer span.End()
 
 	for _, spec := range cfg.BinarySpecs {
-		for _, runtime := range systemplugins.RuntimeResources() {
+		for _, runtime := range systemplugins.EmbeddedRuntimeResources() {
 			if spec.Name == runtime.Name {
 				return nil, fmt.Errorf("sandbox: plugin binary %q conflicts with mandatory core runtime", spec.Name)
 			}

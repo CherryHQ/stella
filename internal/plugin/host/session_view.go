@@ -42,11 +42,6 @@ func (h *Host) SessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPl
 		if err != nil {
 			return pkgplugins.SessionPluginView{}, fmt.Errorf("plugin %q: %w", definition.ID, err)
 		}
-		if manifest.IsSystemPlugin(definition) {
-			// Embedded resources still follow release installation policy; B
-			// changes composition, while installation modes are a later phase.
-			payload.Binaries = nil
-		}
 		appendCLIResources(&view, identity, payload)
 	}
 

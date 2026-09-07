@@ -45,10 +45,10 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 	}
 	// A nil config payload is still checked against the release resource
 	// contract. Only the selected config's completeness is suppressed by false.
-	system := IsSystemPlugin(definition)
+	embedded := IsEmbeddedSystemPlugin(definition)
 	// Custom definitions may leave all resources to their scoped configs,
 	// including an empty MCP set after the last child is removed.
-	allowEmpty := system || definition.Source == plugin.SourceCustom
+	allowEmpty := embedded || definition.Source == plugin.SourceCustom
 	if err := validateResources(shipped, "definition spec", true, allowEmpty); err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func ValidatePayload(_ context.Context, definition plugin.Definition, config plu
 	if err != nil {
 		return err
 	}
-	if system && !slices.EqualFunc(resolved.Binaries, shipped.Binaries, func(a, b ManifestBinary) bool { return reflect.DeepEqual(a, b) }) {
+	if embedded && !slices.EqualFunc(resolved.Binaries, shipped.Binaries, func(a, b ManifestBinary) bool { return reflect.DeepEqual(a, b) }) {
 		return invalidPayload("system CLI binaries are release-owned and cannot be overridden")
 	}
 	complete := definition.DefaultEnabled

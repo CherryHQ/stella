@@ -45,13 +45,11 @@ func TestSelectionToolCacheScriptPublishesCoreAlias(t *testing.T) {
 
 func TestSelectionToolInstallScriptCoreOnlyDoesNotExposeMise(t *testing.T) {
 	coreRuntimes := []systemplugins.RuntimeResource{
-		{Name: "fd", Version: "core-1"},
 		{Name: "mise", Version: "core-1", Embedded: true},
-		{Name: "rg", Version: "core-1"},
 		{Name: "xberg", Version: "core-1", Embedded: true},
 	}
 	script := selectionToolInstallScript("hash", nil, coreRuntimes)
-	for _, name := range []string{"fd", "mise", "rg", "xberg"} {
+	for _, name := range []string{"mise", "xberg"} {
 		if !strings.Contains(script, "test -x \"$ROOT/core/"+name+"\"") || !strings.Contains(script, "/opt/stella/selection-tools/core/"+name) {
 			t.Fatalf("core-only selection must publish %s from the image:\n%s", name, script)
 		}
@@ -62,8 +60,8 @@ func TestSelectionToolInstallScriptCoreOnlyDoesNotExposeMise(t *testing.T) {
 }
 
 func TestSelectionToolInstallScriptRejectsOptionalCoreCollision(t *testing.T) {
-	script := selectionToolInstallScript("hash", []ToolBinary{{Name: "rg", Tool: "github:BurntSushi/ripgrep"}}, systemplugins.RuntimeResources())
-	if !strings.Contains(script, "selection binary conflicts with mandatory core runtime rg") {
+	script := selectionToolInstallScript("hash", []ToolBinary{{Name: "xberg", Tool: "github:example/xberg"}}, systemplugins.EmbeddedRuntimeResources())
+	if !strings.Contains(script, "selection binary conflicts with mandatory core runtime xberg") {
 		t.Fatalf("optional core collision must fail closed:\n%s", script)
 	}
 }

@@ -95,7 +95,7 @@ func ensureSelectionToolCache(ctx context.Context, client *dockerclient.Client, 
 	if imageID == "" {
 		return nil, fmt.Errorf("docker selection tool cache: resolved image ID is required")
 	}
-	core := systemplugins.RuntimeResources()
+	core := systemplugins.EmbeddedRuntimeResources()
 	hash := selectionToolCacheHash(imageID, cfg.SelectionToolBinaries, core)
 	volumeName := "stella-selection-" + hash[:16]
 	installerName := "stella-selection-cache-" + hash[:16]
@@ -114,7 +114,7 @@ func ensureSelectionToolCache(ctx context.Context, client *dockerclient.Client, 
 }
 
 func installSelectionToolCache(ctx context.Context, client *dockerclient.Client, cfg Config, imageID, hash, installerName string, cache *selectionToolCache) (*selectionToolCache, error) {
-	core := systemplugins.RuntimeResources()
+	core := systemplugins.EmbeddedRuntimeResources()
 	if _, err := client.VolumeCreate(ctx, mobyclient.VolumeCreateOptions{
 		Name: cache.VolumeName,
 		Labels: map[string]string{
@@ -190,7 +190,7 @@ func installSelectionToolCache(ctx context.Context, client *dockerclient.Client,
 }
 
 func verifySelectionToolCache(ctx context.Context, client *dockerclient.Client, cfg Config, imageID, hash string, cache *selectionToolCache) error {
-	core := systemplugins.RuntimeResources()
+	core := systemplugins.EmbeddedRuntimeResources()
 	containerID, err := client.CreateAndStart(ctx, dockerclient.CreateOptions{
 		Image: imageID, Runtime: cfg.Runtime, NetworkMode: dockerclient.NetworkDisabled, User: "root",
 		ExtraMounts: []dockerclient.Mount{{

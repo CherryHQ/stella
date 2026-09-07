@@ -70,7 +70,7 @@ ENV MISE_CACHE_DIR=/opt/stella/.mise-tools/cache
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # `system-bundle install` extracts the exact release-owned core runtimes
-# (mise, Xberg, fd, and ripgrep) and shell environment. stellad is
+# (mise and Xberg) and shell environment. stellad is
 # bind-mounted only for this build step; it is not shipped in the runtime
 # image. Snapshot selection later decides which optional plugin binaries are
 # visible to each runner, while trusted core runtimes are republished into
@@ -83,8 +83,6 @@ RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/
 	mkdir -p /opt/stella/skills && ln -s "../bundles/$REVISION" /opt/stella/skills/builtin && \
     /opt/stella/core-runtime/mise --version && \
     /opt/stella/core-runtime/xberg --version && \
-    /opt/stella/core-runtime/fd --version && \
-    /opt/stella/core-runtime/rg --version && \
     rm -rf /opt/stella/.mise-tools/cache \
            /opt/stella/.mise-tools/config \
            /opt/stella/.mise-tools/state \
@@ -101,9 +99,7 @@ RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/
 # from "reachable by the process that will actually use it".
 USER root
 RUN HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/core-runtime/mise --version && \
-    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/core-runtime/xberg --version && \
-    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/core-runtime/fd --version && \
-    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/core-runtime/rg --version
+    HOME=/tmp setpriv --reuid=65534 --regid=65534 --clear-groups /opt/stella/core-runtime/xberg --version
 USER stella
 
 ENV HOME=/workspace

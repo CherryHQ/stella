@@ -11,7 +11,7 @@ import (
 
 func TestPluginBackendPolicyRejectsCoreRuntimeBinaryNames(t *testing.T) {
 	policy := pluginBackendPolicy(false)
-	for _, resource := range systemplugins.RuntimeResources() {
+	for _, resource := range systemplugins.EmbeddedRuntimeResources() {
 		t.Run("reserved/"+resource.Name, func(t *testing.T) {
 			definition, payload := testCLIBackendDefinition(t, resource.Name)
 			enabled := false
@@ -23,6 +23,17 @@ func TestPluginBackendPolicyRejectsCoreRuntimeBinaryNames(t *testing.T) {
 				t.Fatalf("reserved binary %q error = %v, want ErrInvalidConfig", resource.Name, err)
 			}
 		})
+	}
+	for _, resource := range systemplugins.RuntimeResources() {
+		if resource.Embedded {
+			continue
+		}
+		definition, payload := testCLIBackendDefinition(t, resource.Name)
+		enabled := false
+		config := plugin.Config{ID: "config", PluginID: definition.ID, Scope: plugin.ScopeSystem, Enabled: &enabled, Payload: payload, Revision: 1}
+		if err := policy.Validate(t.Context(), definition, config, nil); err != nil {
+			t.Fatalf("mise-managed runtime binary %q error = %v, want nil", resource.Name, err)
+		}
 	}
 
 	definition, payload := testCLIBackendDefinition(t, "ordinary-tool")
@@ -36,7 +47,7 @@ func TestPluginBackendPolicyRejectsCoreRuntimeBinaryNames(t *testing.T) {
 	}
 
 	definition, _ = testCLIBackendDefinition(t, "ordinary-tool")
-	_, reservedPayload := testCLIBackendDefinition(t, systemplugins.RuntimeResources()[0].Name)
+	_, reservedPayload := testCLIBackendDefinition(t, systemplugins.EmbeddedRuntimeResources()[0].Name)
 	config = plugin.Config{
 		ID: "config", PluginID: definition.ID,
 		Scope: plugin.ScopeSystem, Enabled: &enabled, Payload: reservedPayload, Revision: 1,
@@ -92,7 +103,7 @@ func TestPluginPolicyValidatesEveryComposableResource(t *testing.T) {
 	}
 	cfg.Payload = payload
 	unsafe["mcp_servers"].(map[string]any)["search"].(map[string]any)["url"] = "https://example.org/mcp"
-	unsafe["binaries"].([]any)[0].(map[string]any)["name"] = systemplugins.RuntimeResources()[0].Name
+	unsafe["binaries"].([]any)[0].(map[string]any)["name"] = systemplugins.EmbeddedRuntimeResources()[0].Name
 	unsafePayload, err = json.Marshal(unsafe)
 	if err != nil {
 		t.Fatal(err)

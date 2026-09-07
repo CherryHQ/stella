@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,9 +21,10 @@ import (
 )
 
 // RuntimeResource describes a release-owned command that is available to
-// every session. Mise and Xberg are embedded in the release; fd and rg are
-// installed into the release-owned mise cache at fixed versions. This catalog
-// is independent of plugin state and snapshot identities.
+// every session. Embedded resources are extracted synchronously from the
+// release; mise-managed resources are installed by the background manifest
+// reconciler. This catalog is independent of plugin state and snapshot
+// identities.
 type RuntimeResource struct {
 	Name      string
 	MiseTool  string
@@ -30,6 +32,23 @@ type RuntimeResource struct {
 	Options   map[string]any
 	Embedded  bool
 	SkillRefs []string
+}
+
+// EmbeddedRuntimeResources returns the release resources that are safe to
+// publish during synchronous startup. Mise-managed resources intentionally do
+// not enter this list: a network install must never become a startup gate.
+func EmbeddedRuntimeResources() []RuntimeResource {
+	resources := RuntimeResources()
+	embedded := make([]RuntimeResource, 0, len(resources))
+	for _, resource := range resources {
+		if !resource.Embedded {
+			continue
+		}
+		resource.Options = maps.Clone(resource.Options)
+		resource.SkillRefs = slices.Clone(resource.SkillRefs)
+		embedded = append(embedded, resource)
+	}
+	return embedded
 }
 
 // RuntimePlan is the immutable system command selection exposed to startup and
@@ -109,12 +128,11 @@ func Prepare(ctx context.Context, stellaHome string) (RuntimePlan, error) {
 	}
 	dataDir := filepath.Join(stellaHome, ".mise-tools")
 	publicDir := filepath.Join(dataDir, "public", identity)
-	tools := make([]manifest.NativeMiseTool, 0, 2)
-	embeddedNames := make([]string, 0, 2)
-	for _, resource := range RuntimeResources() {
-		if resource.Embedded {
-			embeddedNames = append(embeddedNames, resource.Name)
-		}
+	embeddedResources := EmbeddedRuntimeResources()
+	tools := make([]manifest.NativeMiseTool, 0, len(embeddedResources))
+	embeddedNames := make([]string, 0, len(embeddedResources))
+	for _, resource := range embeddedResources {
+		embeddedNames = append(embeddedNames, resource.Name)
 		if resource.MiseTool == "" {
 			continue
 		}
@@ -175,14 +193,18 @@ func Verify(plan RuntimePlan) error {
 		if !ok {
 			return fmt.Errorf("system: runtime %q is not declared in plan", resource.Name)
 		}
-		if !prepared.Available && resource.MiseTool == "" {
+		if !prepared.Available {
+			if !resource.Embedded {
+				continue
+			}
 			assetName := resource.Name
 			if resource.Name == "mise" && runtime.GOOS == "windows" {
 				assetName = "mise.exe"
 			}
 			if _, embedded := assetNames[assetName]; !embedded {
-				continue
+				return fmt.Errorf("system: embedded runtime %q is missing from release assets", resource.Name)
 			}
+			return fmt.Errorf("system: embedded runtime %q is unavailable", resource.Name)
 		}
 		publicName := prepared.Name
 		if runtime.GOOS == "windows" {
