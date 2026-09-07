@@ -3,6 +3,7 @@ package feishu
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -103,7 +104,7 @@ func TestStreamTimelinePreservesOrderAndRedactsToolInput(t *testing.T) {
 	timeline.handleTool(&channel.ToolUseEvent{ID: "1", Tool: "bash", Status: "done", Detail: "must-not-appear"})
 	timeline.addReasoning("再总结。")
 
-	got := timeline.markdown(false)
+	got := strings.Join(timeline.panels(false), "\n\n")
 	firstReasoning := strings.Index(got, "先检查")
 	tool := strings.Index(got, "bash")
 	lastReasoning := strings.Index(got, "再总结")
@@ -121,7 +122,7 @@ func TestStreamTimelinePreservesOrderAndRedactsToolInput(t *testing.T) {
 func TestStreamTimelineSplitsLongReasoningIntoValidPanels(t *testing.T) {
 	timeline := &streamTimeline{}
 	timeline.addReasoning(strings.Repeat("思考内容。", 1_000))
-	markdown := timeline.markdown(false)
+	markdown := strings.Join(timeline.panels(false), "\n\n")
 	if panels := strings.Count(markdown, "<details>"); panels < 2 {
 		t.Fatalf("panels = %d, want multiple", panels)
 	}
@@ -180,27 +181,57 @@ func TestStreamDrainsLatestSnapshot(t *testing.T) {
 	}
 }
 
-func TestStreamReturnsCompleteReasoningAndToolTimeline(t *testing.T) {
-	bot := &Bot{
-		replyCardFn: func(_ context.Context, _, _ string) (string, error) {
-			return "om_progress", nil
-		},
-		patchCardFn: func(_ context.Context, _ string, _ string) error { return nil },
-	}
-	events := make(chan channel.Event, 4)
-	events <- channel.Event{Reasoning: "inspect"}
-	events <- channel.Event{ToolUse: &channel.ToolUseEvent{ID: "1", Tool: "read", Status: "running", Input: "config"}}
-	events <- channel.Event{ToolUse: &channel.ToolUseEvent{ID: "1", Tool: "read", Status: "done"}}
-	events <- channel.Event{Text: "answer"}
-	close(events)
+func TestStreamFinalCardsExcludeProgress(t *testing.T) {
+	for _, answer := range []string{"answer", strings.Repeat("answer paragraph.\n\n", 500)} {
+		t.Run(fmt.Sprintf("answer_bytes_%d", len(answer)), func(t *testing.T) {
+			var replies, patches []string
+			bot := &Bot{
+				replyCardFn: func(_ context.Context, _, content string) (string, error) {
+					replies = append(replies, content)
+					return "om_progress", nil
+				},
+				patchCardFn: func(_ context.Context, _ string, content string) error {
+					patches = append(patches, content)
+					return nil
+				},
+			}
+			events := make(chan channel.Event, 4)
+			events <- channel.Event{Reasoning: strings.Repeat("inspect progress. ", 2_000)}
+			events <- channel.Event{ToolUse: &channel.ToolUseEvent{ID: "1", Tool: "read", Status: "running", Input: "config"}}
+			events <- channel.Event{ToolUse: &channel.ToolUseEvent{ID: "1", Tool: "read", Status: "done"}}
+			events <- channel.Event{Text: answer}
+			close(events)
 
-	_, response, _, _, _, _, err := bot.streamResponseInThread(t.Context(), events, "oc_chat", "om_request", "", "turn-1")
-	if err != nil {
-		t.Fatalf("stream response: %v", err)
-	}
-	for _, want := range []string{"answer", "<details>", "inspect", "read"} {
-		if !strings.Contains(response, want) {
-			t.Fatalf("response missing %q: %q", want, response)
-		}
+			messageID, response, _, _, _, elapsed, err := bot.streamResponseInThread(t.Context(), events, "oc_chat", "om_request", "", "turn-1")
+			if err != nil {
+				t.Fatalf("stream response: %v", err)
+			}
+			if response != answer {
+				t.Fatalf("final response includes progress or loses answer: %q", response)
+			}
+			if len(patches) == 0 || !strings.Contains(patches[len(patches)-1], "思考与工具") {
+				t.Fatal("running card lost the progress panel")
+			}
+
+			patches = nil
+			final := response + elapsedFooter(elapsed)
+			if err := bot.sendFinalResponseInThread(t.Context(), "oc_chat", "om_request", "", messageID, final, nil, false, false); err != nil {
+				t.Fatalf("final response: %v", err)
+			}
+			chunks := splitCardText(final, cardStatusCompleted)
+			if len(patches) != 1 || len(replies) != len(chunks) {
+				t.Fatalf("got %d patches and %d replies, want one patch and %d replies including the initial card", len(patches), len(replies), len(chunks))
+			}
+			patches = append(patches, replies[1:]...)
+			for i, content := range patches {
+				want, err := buildCardContentForStatus(chunks[i], cardStatusCompleted)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if content != want || strings.Contains(content, "思考与工具") || strings.Contains(content, "inspect progress") {
+					t.Fatalf("final card %d contains progress or loses answer content", i)
+				}
+			}
+		})
 	}
 }
