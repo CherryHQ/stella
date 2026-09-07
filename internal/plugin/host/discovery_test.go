@@ -62,7 +62,7 @@ func TestLoadCatalogFailsOnIncompleteManagedMetadata(t *testing.T) {
 	}
 }
 
-func TestDiscoveryReportsRegistrationsAndMergedAdminView(t *testing.T) {
+func TestDiscoveryReportsRegistrations(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{
 		"channel/telegram": {
 			ID:      "channel/telegram",
@@ -107,59 +107,8 @@ func TestDiscoveryReportsRegistrationsAndMergedAdminView(t *testing.T) {
 		t.Fatalf("ValidateRegistrations: %v", err)
 	}
 
-	if got := host.PluginsByKind(config.PluginKindChannel); len(got) != 1 || got[0] != "channel/telegram" {
-		t.Fatalf("unexpected channel plugins: %#v", got)
-	}
-	if got := host.ManagedPlugins(); len(got) != 1 || got[0] != "channel/telegram" {
-		t.Fatalf("unexpected managed plugins: %#v", got)
-	}
 	if !host.HasRuntime("channel/telegram") || !host.HasConfig("channel/telegram") || !host.HasStatus("channel/telegram") {
 		t.Fatal("expected runtime/config/status registrations")
-	}
-
-	plugins, err := host.ListAdminVisiblePlugins(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(plugins) != 2 {
-		t.Fatalf("expected 2 plugins, got %#v", plugins)
-	}
-	if plugins[0].Info.ID != "channel/telegram" || !plugins[0].Persisted || !plugins[0].State.Enabled || plugins[0].HasConfig || len(plugins[0].State.Config) != 0 {
-		t.Fatalf("unexpected registered overlay entry: %#v", plugins[0])
-	}
-	if plugins[1].Info.ID != "provider/custom" || !plugins[1].Persisted || plugins[1].PersistedID != "provider/custom" {
-		t.Fatalf("unexpected persisted-only entry: %#v", plugins[1])
-	}
-}
-
-func TestAdminVisibleDiscoveryIncludesBuiltinsBeforePersistedState(t *testing.T) {
-	host := New(&stubStore{plugins: map[string]config.Plugin{}})
-	host.RegisterPluginID("channel/telegram")
-	host.SetInfo(pkgplugins.PluginInfo{
-		ID:           "channel/telegram",
-		Kind:         config.PluginKindChannel,
-		Name:         "telegram",
-		DisplayName:  "Telegram",
-		AdminVisible: true,
-		HasConfig:    true,
-	})
-	host.AddAdmin(pkgplugins.AdminSpec{PluginID: "channel/telegram", DefaultConfig: func() map[string]any { return map[string]any{"token": ""} }})
-
-	plugins, err := host.ListAdminVisiblePlugins(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(plugins) != 1 {
-		t.Fatalf("expected 1 plugin, got %#v", plugins)
-	}
-	if plugins[0].Persisted {
-		t.Fatalf("expected non-persisted builtin entry: %#v", plugins[0])
-	}
-	if plugins[0].State.ID != "channel/telegram" || plugins[0].State.Enabled {
-		t.Fatalf("unexpected default state: %#v", plugins[0].State)
-	}
-	if plugins[0].HasConfig || len(plugins[0].State.Config) != 0 {
-		t.Fatalf("expected channel plugin config to be hidden in discovery entry: %#v", plugins[0])
 	}
 }
 
@@ -253,13 +202,8 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 	host.RegisterPluginID(weixinplugin.PluginID)
 	weixinPlugin.Register(host)
 
-	plugins, err := host.ListAdminVisiblePlugins(context.Background())
-	if err != nil {
+	if err := host.ValidateRegistrations(); err != nil {
 		t.Fatal(err)
-	}
-	seen := map[string]pkgplugins.RegisteredPlugin{}
-	for _, plugin := range plugins {
-		seen[plugin.Info.ID] = plugin
 	}
 
 	for _, pluginID := range []string{
@@ -267,15 +211,8 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 		feishuplugin.PluginID,
 		weixinplugin.PluginID,
 	} {
-		entry, ok := seen[pluginID]
-		if !ok {
-			t.Fatalf("missing admin-visible plugin %q in %#v", pluginID, seen)
-		}
-		if !entry.Info.Managed || !entry.HasStatus {
-			t.Fatalf("unexpected metadata for %q: %#v", pluginID, entry)
-		}
-		if entry.HasConfig {
-			t.Fatalf("expected channel plugin config to be hidden for %q: %#v", pluginID, entry)
+		if !host.HasRuntime(pluginID) || !host.HasStatus(pluginID) {
+			t.Fatalf("missing runtime/status registration for %q", pluginID)
 		}
 		if len(host.ConfigSchema(pluginID)) == 0 {
 			t.Fatalf("expected non-empty schema for %q", pluginID)

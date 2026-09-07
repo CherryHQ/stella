@@ -11,7 +11,6 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
-	"github.com/CherryHQ/stella/internal/plugin"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -32,7 +31,7 @@ func TestPoolSnapshotPromptPassesLogicalIdentityWithoutPhysicalPaths(t *testing.
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var got pkgplugins.SystemPromptContext
-			pm := &PoolManager{homeWorkspace: testWorkspaceViewer{root: stellaHome}, skillRevisionReader: emptySkillRuntime{}, skillReadAuthz: allowSkillReads{}, promptSectionsBuilder: func(_ context.Context, build pkgplugins.SystemPromptContext, _ plugin.Snapshot) ([]pkgplugins.SystemPromptSection, error) {
+			pm := &PoolManager{homeWorkspace: testWorkspaceViewer{root: stellaHome}, skillRevisionReader: emptySkillRuntime{}, skillReadAuthz: allowSkillReads{}, promptSectionsBuilder: func(_ context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 				got = build
 				return nil, nil
 			}}

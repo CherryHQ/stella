@@ -385,7 +385,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		PluginContextBuilder: func(context.Context, authz.Authority, string) (agentruntime.PluginContext, error) {
 			return agentruntime.PluginContext{}, nil
 		},
-		PromptSectionsBuilder: func(context.Context, pkgplugins.SystemPromptContext, plugin.Snapshot) ([]pkgplugins.SystemPromptSection, error) {
+		PromptSectionsBuilder: func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 			return nil, nil
 		},
 		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {

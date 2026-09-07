@@ -1,4 +1,4 @@
-package host_test
+package runtime_test
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -61,7 +62,7 @@ func TestEmbeddedCompanionPackagesHaveNoScopedBinaries(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		view, err := pluginhost.New(nil).SessionPluginView(snapshot)
+		view, err := sessionPluginView(snapshot)
 		if err != nil {
 			t.Fatalf("enabled=%v: %v", enabled, err)
 		}
@@ -101,7 +102,7 @@ func TestSessionPluginViewRejectsIncompletePayloadAfterCapabilityLift(t *testing
 	if err != nil {
 		t.Fatalf("ResolveSnapshot disabled: %v", err)
 	}
-	view, err := pluginhost.New(nil).SessionPluginView(snapshot)
+	view, err := sessionPluginView(snapshot)
 	if err != nil {
 		t.Fatalf("SessionPluginView disabled: %v", err)
 	}
@@ -116,7 +117,7 @@ func TestSessionPluginViewRejectsIncompletePayloadAfterCapabilityLift(t *testing
 	if err != nil {
 		t.Fatalf("ResolveSnapshot lifted: %v", err)
 	}
-	if _, err := pluginhost.New(nil).SessionPluginView(snapshot); err == nil {
+	if _, err := sessionPluginView(snapshot); err == nil {
 		t.Fatal("capability lift exposed an incomplete CLI payload")
 	}
 }
@@ -161,7 +162,7 @@ func TestAgentGuideVisibilityIsIndependentFromNativeAdmission(t *testing.T) {
 	}
 	nativePolicy := plugin.NewNativePolicy(nativeStore, plugin.NativeRegistryMap{"system/email": true})
 	host.SetNativePolicy(nativePolicy)
-	view, err := host.SessionPluginView(snapshot)
+	view, err := sessionPluginView(snapshot)
 	if err != nil {
 		t.Fatalf("SessionPluginView: %v", err)
 	}
@@ -176,7 +177,7 @@ func TestAgentGuideVisibilityIsIndependentFromNativeAdmission(t *testing.T) {
 	if allowed {
 		t.Fatal("native global off was admitted")
 	}
-	viewOff, err := host.SessionPluginView(snapshot)
+	viewOff, err := sessionPluginView(snapshot)
 	if err != nil {
 		t.Fatalf("SessionPluginView with native global off: %v", err)
 	}
@@ -191,7 +192,7 @@ func TestAgentGuideVisibilityIsIndependentFromNativeAdmission(t *testing.T) {
 	if allowed {
 		t.Fatal("native Agent deny was admitted")
 	}
-	viewDenied, err := host.SessionPluginView(snapshot)
+	viewDenied, err := sessionPluginView(snapshot)
 	if err != nil {
 		t.Fatalf("SessionPluginView with native Agent deny: %v", err)
 	}
@@ -209,7 +210,7 @@ func TestAgentGuideVisibilityIsIndependentFromNativeAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSnapshot with email Agent disabled: %v", err)
 	}
-	disabledView, err := host.SessionPluginView(disabledSnapshot)
+	disabledView, err := sessionPluginView(disabledSnapshot)
 	if err != nil {
 		t.Fatalf("SessionPluginView with email Agent disabled: %v", err)
 	}
@@ -251,7 +252,7 @@ func TestWebAgentRetainsSkillAndBinariesWhenBunAgentIsDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSnapshot: %v", err)
 	}
-	view, err := pluginhost.New(nil).SessionPluginView(snapshot)
+	view, err := sessionPluginView(snapshot)
 	if err != nil {
 		t.Fatalf("SessionPluginView: %v", err)
 	}
@@ -439,8 +440,8 @@ func TestPromptUsesFrozenCLIConfig(t *testing.T) {
 	if _, err := db.Exec(ctx, `UPDATE plugin_config SET enabled=false,revision=revision+1 WHERE id=$1`, configID); err != nil {
 		t.Fatal(err)
 	}
-	host := pluginhost.New(nil)
-	sections, err := host.SystemPromptSections(ctx, pkgplugins.SystemPromptContext{}, snapshot)
+	view, err := sessionPluginView(snapshot)
+	sections := view.PromptSections
 	if err != nil || len(sections) != 1 || sections[0].Content != "shipped guidance" {
 		t.Fatalf("frozen prompt = %+v, %v", sections, err)
 	}
@@ -448,8 +449,14 @@ func TestPromptUsesFrozenCLIConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sections, err = host.SystemPromptSections(ctx, pkgplugins.SystemPromptContext{}, next)
+	view, err = sessionPluginView(next)
+	sections = view.PromptSections
 	if err != nil || len(sections) != 0 {
 		t.Fatalf("disabled prompt = %+v, %v", sections, err)
 	}
+}
+
+func sessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPluginView, error) {
+	context, err := agentruntime.NewPluginContext(snapshot)
+	return context.SessionPluginView(), err
 }

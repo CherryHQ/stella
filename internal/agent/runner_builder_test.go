@@ -16,7 +16,6 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
-	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/plugins"
@@ -161,7 +160,7 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 			}
 			return PluginContext{}, nil
 		},
-		PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext, _ plugin.Snapshot) ([]plugins.SystemPromptSection, error) {
+		PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
 			promptBuild = build
 			return nil, nil
 		},
@@ -246,7 +245,7 @@ func TestNewRunnerFuncGuestHasMinimalPromptAndNoTools(t *testing.T) {
 		},
 		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
 		SandboxBackends:  testSandboxBackends(t),
-		PromptSectionsBuilder: func(context.Context, plugins.SystemPromptContext, plugin.Snapshot) ([]plugins.SystemPromptSection, error) {
+		PromptSectionsBuilder: func(context.Context, plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
 			t.Fatal("guest must not build prompt sections")
 			return nil, nil
 		},

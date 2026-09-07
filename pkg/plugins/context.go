@@ -94,12 +94,11 @@ type PluginBinarySpec struct {
 // setup, resources, and plugin visibility state.
 type SessionPluginView struct {
 	RegisteredPluginIDs []string
-	// ExposedPluginIDs are the enabled namespace winners whose resources may
-	// contribute to this public session view. ID-based callers retain their own
-	// snapshot resolution for enabled losers.
+	// ExposedPluginIDs identify the enabled Agent packages in this snapshot.
 	ExposedPluginIDs []string
 	SessionEnvSpecs  []SessionEnvSpec
 	BinarySpecs      []PluginBinarySpec
+	PromptSections   []SystemPromptSection
 }
 
 // BeforeRunContext is the narrow per-run lifecycle context exposed to plugins.

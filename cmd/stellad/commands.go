@@ -253,11 +253,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		if err != nil {
 			return agent.PluginContext{}, err
 		}
-		view, err := phost.SessionPluginView(snapshot)
-		if err != nil {
-			return agent.PluginContext{}, err
-		}
-		return agentruntime.NewPluginContext(snapshot, view), nil
+		return agentruntime.NewPluginContext(snapshot)
 	}
 
 	// One process-wide manager is the sole materializer beneath STELLA_HOME.
@@ -763,7 +759,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			slog.Error("load Agent package preinstallation catalog", "error", err)
 			return
 		}
-		manifest.Reconcile(parent, catalog, config.StellaHome())
+		if err := manifest.WarmBuiltinArtifacts(parent, catalog, config.StellaHome()); err != nil {
+			slog.Error("preinstall Agent package artifacts", "error", err)
+		}
 	})
 
 	reconcileProjectCoordinatesInBackground(parent, backgroundTasks, homeRegistry)

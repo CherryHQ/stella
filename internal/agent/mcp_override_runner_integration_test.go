@@ -19,7 +19,6 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -83,11 +82,10 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 		t.Fatalf("resolve plugin snapshot: %v", err)
 	}
 	home := t.TempDir()
-	view := pkgplugins.SessionPluginView{
-		RegisteredPluginIDs: []string{"remote"},
-		ExposedPluginIDs:    []string{"remote"},
+	runnerPlugins, err := agentruntime.NewPluginContext(snapshot)
+	if err != nil {
+		t.Fatal(err)
 	}
-	runnerPlugins := agentruntime.NewPluginContext(snapshot, view)
 	registry, _, _, err := buildToolRegistry(ctx, runnerConfig{
 		Sandbox: sandbox.Config{Paths: sandbox.Paths{
 			StellaHome: home,
@@ -144,9 +142,9 @@ func TestDisabledHostToolNameRemainsReservedFromMCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve plugin snapshot: %v", err)
 	}
-	view := pkgplugins.SessionPluginView{
-		RegisteredPluginIDs: []string{"remote"},
-		ExposedPluginIDs:    []string{"remote"},
+	runnerPlugins, err := agentruntime.NewPluginContext(snapshot)
+	if err != nil {
+		t.Fatal(err)
 	}
 	exportedName, err := agentpackage.ExportedToolName("remote", "main", "list")
 	if err != nil {
@@ -159,7 +157,7 @@ func TestDisabledHostToolNameRemainsReservedFromMCP(t *testing.T) {
 			UserRoot:   filepath.Join(t.TempDir(), "users", userID),
 		}},
 		BuiltinParams: RunnerParams{UserID: userID, AgentID: agentID},
-		PluginContext: agentruntime.NewPluginContext(snapshot, view),
+		PluginContext: runnerPlugins,
 		ToolMetaRegistry: toolmeta.NewRegistry(toolmeta.ActionTool{
 			Name: exportedName, PluginID: "tool/host", LocalName: exportedName,
 		}),
@@ -225,9 +223,9 @@ func TestMigratedMCPPackageDenyDoesNotFallThrough(t *testing.T) {
 	}
 
 	home := t.TempDir()
-	view := pkgplugins.SessionPluginView{
-		RegisteredPluginIDs: []string{packageID},
-		ExposedPluginIDs:    []string{packageID},
+	runnerPlugins, err := agentruntime.NewPluginContext(snapshot)
+	if err != nil {
+		t.Fatal(err)
 	}
 	_, _, _, err = buildToolRegistry(ctx, runnerConfig{
 		Sandbox: sandbox.Config{Paths: sandbox.Paths{
@@ -236,7 +234,7 @@ func TestMigratedMCPPackageDenyDoesNotFallThrough(t *testing.T) {
 			UserRoot:   filepath.Join(home, "users", userID),
 		}},
 		BuiltinParams:       RunnerParams{UserID: userID, AgentID: "namespace-agent"},
-		PluginContext:       agentruntime.NewPluginContext(snapshot, view),
+		PluginContext:       runnerPlugins,
 		MCPToolProvider:     migratedMCPToolProvider{pluginID: packageID},
 		SkillRevisionReader: emptySkillRuntime{},
 		SkillReadAuthorizer: allowSkillReads{},

@@ -412,11 +412,12 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		}
 		var sections []pkgplugins.SystemPromptSection
 		if hasPluginAuthority && cfg.PromptSectionsBuilder != nil {
-			sections, err = cfg.PromptSectionsBuilder(ctx, promptBuild, pluginContext.Snapshot())
+			sections, err = cfg.PromptSectionsBuilder(ctx, promptBuild)
 			if err != nil {
 				return nil, fmt.Errorf("runner: build prompt sections: %w", err)
 			}
 		}
+		sections = append(sections, pluginView.PromptSections...)
 		skillPromptBuild := promptBuild
 		if params.GroupID != "" {
 			skillPromptBuild.UserID = ""

@@ -60,8 +60,10 @@ Definition 拥有稳定的包身份和资源声明；所选 Config 拥有该范�
 
 ## 一份执行快照
 
-公共服务从可信用户、Agent 或群组身份解析快照。Runner 在创建时捕获一次，Agent
-Plugin 资源、Skills 和环境变量使用这一代配置。Native 工具和 hooks 读取独立策略。
+公共服务从可信用户、Agent 或群组身份解析快照。Agent 运行时从同一份快照一起生成
+资源可见性、二进制、环境绑定与声明式 Prompt。上下文构造函数只接收快照，调用方
+不能另行传入其他身份或版本的资源。Native Host 只通过独立策略管理 Go 注册的能力
+与原生 Prompt。
 
 每个 Agent Plugin 按精确包 ID 解析，不同包不会替换彼此的资源。Native 工具和 hooks
 不进入这份快照；同名 Agent 包不能获得 Native 准入，Native 仍使用可信注册 ID 和独立策略。
@@ -82,8 +84,9 @@ Native 工具保留已注册的静态名称。
 CLI 集成可以包含二进制、Skills、环境声明和提示。CLI 版本与 Skill 来源是独立字段，
 更新一个不要求更新另一个。Manifest 只是发行输入的加载器，不再拥有独立权限规则。
 只有 mise 和 Xberg 是同步准备的内嵌发行运行时。其他 CLI，包括 fd 和 rg，
-都在后台预装和协调。Runner 从匹配缓存准备选中的 snapshot，缺失版本在对应
-沙箱边界内安装。
+都在后台通过会话选择共用的安装器预装。预热使用临时私有配置填充 mise artifact 缓存，
+不发布会话选择，也不维护第二份安装状态文件。Runner 从匹配缓存准备选中的 snapshot，
+缺失版本在对应沙箱边界内安装。
 
 Builtin Skill 的归属由发行包声明生成，用户 frontmatter 不能认领 owner。
 提示列表、搜索与直接加载都在选定资源后检查同一归属限制。

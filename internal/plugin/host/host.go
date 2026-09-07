@@ -11,7 +11,6 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -60,7 +59,6 @@ type Host struct {
 	statusRegs       map[string]pkgplugins.AdminSpec
 	promptRegs       map[string]pkgplugins.PromptInventorySpec
 	systemPromptRegs map[string]pkgplugins.SystemPromptSpec
-	sessionEnvRegs   map[string][]pkgplugins.SessionEnvSpec
 }
 
 func New(store config.Store, opts ...Option) *Host {
@@ -80,7 +78,6 @@ func New(store config.Store, opts ...Option) *Host {
 		statusRegs:       map[string]pkgplugins.AdminSpec{},
 		promptRegs:       map[string]pkgplugins.PromptInventorySpec{},
 		systemPromptRegs: map[string]pkgplugins.SystemPromptSpec{},
-		sessionEnvRegs:   map[string][]pkgplugins.SessionEnvSpec{},
 	}
 	h.config = &configService{store: store}
 	h.runtimes = NewRuntimeHost(h)
@@ -96,7 +93,7 @@ func (h *Host) Runtime() pkgplugins.RuntimeLookup   { return h.runtimes }
 
 // SetNativePolicy binds the trusted native admission policy before the host is
 // sealed. Every capability registered through this Go host uses this policy;
-// only manifest prompt sections use Agent snapshot state.
+// Agent package resources are composed separately by the runner.
 func (h *Host) SetNativePolicy(policy *plugin.NativePolicy) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -284,28 +281,6 @@ func (h *Host) AddSystemPrompt(reg pkgplugins.SystemPromptSpec) {
 	registerUnique(h.systemPromptRegs, promptKey(reg.PluginID, reg.Name), reg, "system prompt")
 }
 
-func (h *Host) AddSessionEnv(spec pkgplugins.SessionEnvSpec) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.sessionEnvRegs[spec.PluginID] = append(h.sessionEnvRegs[spec.PluginID], spec)
-}
-
-func (h *Host) SessionEnvSpecs(pluginID string) []pkgplugins.SessionEnvSpec {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return append([]pkgplugins.SessionEnvSpec(nil), h.sessionEnvRegs[pluginID]...)
-}
-
-func (h *Host) AllSessionEnvSpecs() []pkgplugins.SessionEnvSpec {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	var out []pkgplugins.SessionEnvSpec
-	for _, specs := range h.sessionEnvRegs {
-		out = append(out, specs...)
-	}
-	return out
-}
-
 func registerUnique[T any](m map[string]T, key string, reg T, kind string) {
 	if key == "" {
 		panic("pluginhost: empty " + kind + " key")
@@ -451,7 +426,7 @@ func (h *Host) PromptTools(ctx context.Context, pluginID, agentID string) ([]pkg
 	return out, nil
 }
 
-func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.SystemPromptContext, snapshot plugin.Snapshot) ([]pkgplugins.SystemPromptSection, error) {
+func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 	h.mu.RLock()
 	regs := make([]pkgplugins.SystemPromptSpec, 0, len(h.systemPromptRegs))
 	for _, reg := range h.systemPromptRegs {
@@ -488,25 +463,6 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 			continue
 		}
 		out = append(out, section)
-	}
-	for _, definition := range snapshot.Definitions() {
-		resolved, ok := snapshot.Get(definition.ID)
-		if !ok || !resolved.Effective.IsEffectivelyEnabled {
-			continue
-		}
-		if _, err := selectedResourceIdentity(definition, resolved); err != nil {
-			return nil, err
-		}
-		if err := validateResolvedCLIPayload(definition, resolved); err != nil {
-			return nil, err
-		}
-		payload, err := manifest.DecodeCLIPayload(resolved.Effective.Payload, "prompt CLI payload")
-		if err != nil {
-			return nil, err
-		}
-		if payload.Prompt != "" {
-			out = append(out, pkgplugins.SystemPromptSection{Title: definition.DisplayName, Content: payload.Prompt, Inline: true})
-		}
 	}
 	return out, nil
 }

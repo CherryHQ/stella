@@ -18,11 +18,14 @@ type PluginContext struct {
 	view     pkgplugins.SessionPluginView
 }
 
-// NewPluginContext takes ownership of a defensive copy of the runner-facing
-// plugin view. The plugin snapshot is already immutable: its state is private
-// and all outward-facing methods return defensive copies.
-func NewPluginContext(snapshot plugin.Snapshot, view pkgplugins.SessionPluginView) PluginContext {
-	return PluginContext{snapshot: snapshot, view: cloneSessionPluginView(view)}
+// NewPluginContext derives every Agent resource from the same frozen snapshot.
+// Callers cannot supply a view from another authority or configuration revision.
+func NewPluginContext(snapshot plugin.Snapshot) (PluginContext, error) {
+	view, err := projectSessionPluginView(snapshot)
+	if err != nil {
+		return PluginContext{}, err
+	}
+	return PluginContext{snapshot: snapshot, view: view}, nil
 }
 
 // Snapshot returns the authority-bound plugin snapshot captured for this
@@ -39,6 +42,10 @@ func cloneSessionPluginView(view pkgplugins.SessionPluginView) pkgplugins.Sessio
 	view.RegisteredPluginIDs = slices.Clone(view.RegisteredPluginIDs)
 	view.ExposedPluginIDs = slices.Clone(view.ExposedPluginIDs)
 	view.SessionEnvSpecs = slices.Clone(view.SessionEnvSpecs)
+	for i := range view.SessionEnvSpecs {
+		view.SessionEnvSpecs[i].OAuthScopes = slices.Clone(view.SessionEnvSpecs[i].OAuthScopes)
+	}
+	view.PromptSections = slices.Clone(view.PromptSections)
 	view.BinarySpecs = slices.Clone(view.BinarySpecs)
 	for i := range view.BinarySpecs {
 		view.BinarySpecs[i].Options = clonePluginOptions(view.BinarySpecs[i].Options)

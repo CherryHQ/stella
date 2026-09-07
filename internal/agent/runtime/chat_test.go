@@ -16,7 +16,6 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -281,7 +280,7 @@ func TestAdmittedChatKeepsPromptBuilderSnapshot(t *testing.T) {
 		release: make(chan struct{}),
 	}
 	systemsSeen := make(chan string, 2)
-	pluginContext := NewPluginContext(plugin.Snapshot{}, pkgplugins.SessionPluginView{RegisteredPluginIDs: []string{"plugin/a"}, ExposedPluginIDs: []string{"plugin/a"}})
+	pluginContext := PluginContext{view: pkgplugins.SessionPluginView{RegisteredPluginIDs: []string{"plugin/a"}, ExposedPluginIDs: []string{"plugin/a"}}}
 	rt, err := New(Config{
 		Memory: mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {

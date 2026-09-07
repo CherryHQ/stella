@@ -1,4 +1,4 @@
-package host_test
+package runtime_test
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/plugin"
-	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 )
 
 func TestSessionPluginViewRejectsCrossPackageEnvironmentCollision(t *testing.T) {
@@ -35,7 +34,7 @@ func TestSessionPluginViewRejectsCrossPackageEnvironmentCollision(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := pluginhost.New(nil).SessionPluginView(snapshot)
+	view, err := sessionPluginView(snapshot)
 	if err == nil || !strings.Contains(err.Error(), "SHARED_TOKEN") || !strings.Contains(err.Error(), "first") || !strings.Contains(err.Error(), "second") {
 		t.Fatalf("colliding view = %+v, error = %v", view, err)
 	}
@@ -49,7 +48,7 @@ func TestSessionPluginViewRejectsCrossPackageEnvironmentCollision(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err = pluginhost.New(nil).SessionPluginView(snapshot)
+	view, err = sessionPluginView(snapshot)
 	if err != nil || len(view.SessionEnvSpecs) != 1 || view.SessionEnvSpecs[0].OAuthProviderID != "first" {
 		t.Fatalf("nonconflicting view = %+v, error = %v", view, err)
 	}

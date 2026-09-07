@@ -12,7 +12,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -227,9 +226,9 @@ func TestRunnerCacheResetBoundsConcurrentIdleRunnerCloses(t *testing.T) {
 
 func TestRunnerCacheKeepsReservedContextAndRefreshesNewRunner(t *testing.T) {
 	first := newFakeRunner()
-	first.pluginContext = NewPluginContext(plugin.Snapshot{}, pkgplugins.SessionPluginView{ExposedPluginIDs: []string{"plugin/old"}})
+	first.pluginContext = PluginContext{view: pkgplugins.SessionPluginView{ExposedPluginIDs: []string{"plugin/old"}}}
 	second := newFakeRunner()
-	second.pluginContext = NewPluginContext(plugin.Snapshot{}, pkgplugins.SessionPluginView{ExposedPluginIDs: []string{"plugin/new"}})
+	second.pluginContext = PluginContext{view: pkgplugins.SessionPluginView{ExposedPluginIDs: []string{"plugin/new"}}}
 	builds := 0
 	cache := newRunnerCache(func(context.Context, RunnerParams) (Runner, error) {
 		builds++

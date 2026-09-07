@@ -30,24 +30,6 @@ func (h *Host) ListRegisteredPlugins() []pkgplugins.PluginInfo {
 func (h *Host) ValidateRegistrations() error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	envOwners := map[string]string{}
-	for pluginID, specs := range h.sessionEnvRegs {
-		for _, spec := range specs {
-			if spec.EnvVar == "" {
-				return fmt.Errorf("pluginhost: session env registration for %q missing env var", pluginID)
-			}
-			switch {
-			case spec.Source == pkgplugins.SessionEnvSourceStatic:
-			case strings.HasPrefix(string(spec.Source), "oauth."):
-			default:
-				return fmt.Errorf("pluginhost: session env %q for %q has unknown source %q", spec.EnvVar, pluginID, spec.Source)
-			}
-			if prev, ok := envOwners[spec.EnvVar]; ok && prev != pluginID {
-				return fmt.Errorf("pluginhost: session env %q registered by both %q and %q", spec.EnvVar, prev, pluginID)
-			}
-			envOwners[spec.EnvVar] = pluginID
-		}
-	}
 	for _, meta := range h.metadataRegs {
 		if meta.Managed && !hasRuntimeLocked(h.runtimeRegs, meta.ID) {
 			return fmt.Errorf("pluginhost: metadata for %q declares managed runtime but no runtime is registered", meta.ID)

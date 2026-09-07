@@ -1,5 +1,4 @@
-// Package plugin groups the plugin machinery. It holds no code of its own; the
-// concerns are subpackages: manifest (manifest-declared plugins, their mise
-// runtimes, overrides, and reconciliation) and host (the capability-scoped
-// process-wide plugin platform, including durable plugin state).
+// Package plugin owns Agent package definitions, scoped configuration,
+// authorization and immutable resolution snapshots. NativePolicy independently
+// gates trusted Go implementations; it never resolves Agent package records.
 package plugin

@@ -20,7 +20,6 @@ type Host interface {
 	AddBeforeRun(BeforeRunSpec)
 	AddBeforeToolCall(BeforeToolCallSpec)
 	AddAfterToolResult(AfterToolResultSpec)
-	AddSessionEnv(SessionEnvSpec)
 }
 
 // Platform is the plugin-scoped service surface available during build/runtime

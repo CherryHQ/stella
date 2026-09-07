@@ -270,7 +270,7 @@ func TestSystemPromptSectionsUsePluginIDDirectly(t *testing.T) {
 			}, nil
 		},
 	})
-	sections, err := host.SystemPromptSections(context.Background(), pkgplugins.SystemPromptContext{AgentID: "agent"}, internalplugin.Snapshot{})
+	sections, err := host.SystemPromptSections(context.Background(), pkgplugins.SystemPromptContext{AgentID: "agent"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,31 +458,6 @@ func TestValidateRegistrationsAcceptsToolLifecycleOnly(t *testing.T) {
 
 	if err := host.ValidateRegistrations(); err != nil {
 		t.Fatalf("ValidateRegistrations: %v", err)
-	}
-}
-
-func TestSessionPluginViewUsesOnlySnapshot(t *testing.T) {
-	host := New(&stubStore{plugins: map[string]config.Plugin{}})
-	host.RegisterPluginID("native-example")
-
-	view, err := host.SessionPluginView(internalplugin.Snapshot{})
-	if err != nil {
-		t.Fatalf("SessionPluginView: %v", err)
-	}
-	if len(view.RegisteredPluginIDs) != 0 || len(view.ExposedPluginIDs) != 0 {
-		t.Fatalf("SessionPluginView = %+v, Native registrations must not enter the Agent snapshot view", view)
-	}
-}
-
-func TestValidateRegistrationsRejectsDuplicateSessionEnvs(t *testing.T) {
-	store := &stubStore{plugins: map[string]config.Plugin{}}
-	host := New(store)
-	host.RegisterPluginID("tool/gh")
-	host.RegisterPluginID("tool/acme")
-	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: "tool/gh", EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token")})
-	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: "tool/acme", EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceStatic, Value: "x"})
-	if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), `session env "GH_TOKEN"`) {
-		t.Fatalf("ValidateRegistrations error = %v, want duplicate env", err)
 	}
 }
 

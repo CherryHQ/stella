@@ -35,9 +35,8 @@ import (
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
 
-// PromptSectionsBuilder builds prompt sections from the runner's authority-bound
-// plugin snapshot.
-type PromptSectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext, snapshot plugin.Snapshot) ([]pkgplugins.SystemPromptSection, error)
+// PromptSectionsBuilder builds Native prompt sections for the runner context.
+type PromptSectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
 
 // PluginHooksBuilder creates hooks for one Agent. Native hook admission reads
 // the current deployment policy at build time.
@@ -542,11 +541,12 @@ func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot
 	var sections []pkgplugins.SystemPromptSection
 	if pm.promptSectionsBuilder != nil {
 		var err error
-		sections, err = pm.promptSectionsBuilder(ctx, promptBuild, pluginContext.Snapshot())
+		sections, err = pm.promptSectionsBuilder(ctx, promptBuild)
 		if err != nil {
 			return nil, fmt.Errorf("build prompt sections: %w", err)
 		}
 	}
+	sections = append(sections, pluginView.PromptSections...)
 	skillBuild := promptBuild
 	if info.GroupID != "" {
 		skillBuild.UserID = ""

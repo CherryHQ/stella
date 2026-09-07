@@ -1,12 +1,13 @@
 package manifest
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 func TestGenerateMiseTOMLSimpleForm(t *testing.T) {
@@ -256,7 +257,7 @@ func renderBinaryTOML(b ManifestBinary) (string, error) {
 	return renderMiseTOML([]miseTool{miseToolFromBinary(b)})
 }
 
-func TestInstallScopeIsolatesHostEnvAndPersistsConfig(t *testing.T) {
+func TestWarmBuiltinArtifactsIsolatesHostEnvAndLeavesNoSelection(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake mise script uses POSIX shell")
 	}
@@ -268,6 +269,7 @@ func TestInstallScopeIsolatesHostEnvAndPersistsConfig(t *testing.T) {
 	}
 
 	logPath := filepath.Join(stellaHome, "mise.log")
+	capturedConfig := filepath.Join(stellaHome, "captured.toml")
 	fakeMise := filepath.Join(binDir, "mise")
 	fake := `#!/bin/sh
 set -eu
@@ -280,8 +282,9 @@ set -eu
   printf 'HOME=%s\n' "${HOME-}"
   printf 'XDG_CONFIG_HOME=%s\n' "${XDG_CONFIG_HOME-}"
 } >> ` + shellQuote(logPath) + `
+cat "$MISE_GLOBAL_CONFIG_FILE" > ` + shellQuote(capturedConfig) + `
 case "$1" in
-  trust|install|reshim)
+  trust|install)
     exit 0
     ;;
   *)
@@ -300,26 +303,23 @@ esac
 	t.Setenv("XDG_CONFIG_HOME", "/danger/xdg")
 	t.Setenv("HOME", "/danger/home")
 
-	err := installScope(context.Background(), stellaHome, builtinScope, []miseTool{{
-		Key:     "github:owner/repo",
-		Version: "1.2.3",
-		Lookup:  "mytool",
-	}})
+	declaration := makeMinimalManifest("tool", true, "mytool", "1.2.3")
+	err := WarmBuiltinArtifacts(t.Context(), declaration, stellaHome)
 	if err != nil {
-		t.Fatalf("installScope: %v", err)
+		t.Fatalf("WarmBuiltinArtifacts: %v", err)
 	}
 
-	// Config is persisted (not a temp dir) so runtime can point at it.
-	configPath := ScopeConfigPath(stellaHome, builtinScope)
-	cfg, err := os.ReadFile(configPath)
+	// Capture the installation input before its private directory is removed.
+	assertNoPrewarmPublication(t, stellaHome)
+	cfg, err := os.ReadFile(capturedConfig)
 	if err != nil {
-		t.Fatalf("read persisted config: %v", err)
+		t.Fatalf("read captured config: %v", err)
 	}
 	if !strings.Contains(string(cfg), `'github:owner/repo' = '1.2.3'`) {
-		t.Fatalf("persisted config missing tool entry:\n%s", cfg)
+		t.Fatalf("install input missing tool entry:\n%s", cfg)
 	}
 
-	// Nothing is copied into $STELLA_HOME/bin (shims-only).
+	// Prewarming never exposes a command in the embedded runtime directory.
 	if _, err := os.Stat(filepath.Join(binDir, "mytool")); !os.IsNotExist(err) {
 		t.Fatalf("expected no copied binary, stat err = %v", err)
 	}
@@ -329,7 +329,7 @@ esac
 		t.Fatalf("read fake mise log: %v", err)
 	}
 	log := string(logData)
-	for _, want := range []string{"args:trust ", "args:install\n", "args:reshim\n"} {
+	for _, want := range []string{"args:trust ", "args:install\n"} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("missing %q in mise log:\n%s", want, log)
 		}
@@ -341,12 +341,28 @@ esac
 	if !strings.Contains(log, wantData) {
 		t.Fatalf("isolated data dir not used, want %q in log:\n%s", wantData, log)
 	}
-	if !strings.Contains(log, "MISE_GLOBAL_CONFIG_FILE="+configPath) {
-		t.Fatalf("scope config file not pointed at, want %q in log:\n%s", configPath, log)
+	if !strings.Contains(log, "MISE_GLOBAL_CONFIG_FILE="+filepath.Join(stellaHome, ".mise-private")) {
+		t.Fatalf("prewarm did not use private install input: %s", log)
 	}
-	if !strings.Contains(log, "MISE_PROJECT_ROOT=\n") {
-		t.Fatalf("MISE_PROJECT_ROOT should be stripped; log:\n%s", log)
+	privateRoot, err := filepath.EvalSymlinks(filepath.Join(stellaHome, ".mise-private"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	if !strings.Contains(log, "MISE_PROJECT_ROOT="+filepath.Join(privateRoot, "install-")) {
+		t.Fatalf("project search was not pinned to the private install directory; log:\n%s", log)
+	}
+	// A new release source or option must reach mise even when name/version
+	// stay the same; there is no second state index that can suppress it.
+	declaration.Plugins[0].Binaries[0].Tool = "github:new/repo"
+	declaration.Plugins[0].Binaries[0].Options = map[string]any{"asset_pattern": "new-asset"}
+	if err := WarmBuiltinArtifacts(t.Context(), declaration, stellaHome); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = os.ReadFile(capturedConfig)
+	if err != nil || !strings.Contains(string(cfg), "github:new/repo") || !strings.Contains(string(cfg), "new-asset") || strings.Contains(string(cfg), "github:owner/repo") {
+		t.Fatalf("changed artifact declaration not installed: %s, %v", cfg, err)
+	}
+	assertNoPrewarmPublication(t, stellaHome)
 }
 
 func TestRelinkShims(t *testing.T) {
@@ -382,7 +398,7 @@ func TestRelinkShims(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := relinkShims(stellaHome, hostMise); err != nil {
+	if err := pkgsandbox.RelinkSystemMiseShims(stellaHome); err != nil {
 		t.Fatalf("relinkShims: %v", err)
 	}
 
@@ -423,7 +439,7 @@ func TestRelinkShims(t *testing.T) {
 	if err := os.Symlink(hostMise, fdShim); err != nil {
 		t.Fatal(err)
 	}
-	if err := relinkShims(stellaHome, hostMise); err != nil {
+	if err := pkgsandbox.RelinkSystemMiseShims(stellaHome); err != nil {
 		t.Fatalf("relinkShims after external reshim: %v", err)
 	}
 	if target, err := os.Readlink(fdShim); err != nil || target != wantTarget {
@@ -447,7 +463,7 @@ func TestRelinkShims_skipsWithoutLocalMise(t *testing.T) {
 	}
 
 	// No $STELLA_HOME/bin/mise — relinkShims should be a no-op.
-	if err := relinkShims(stellaHome, hostMise); err != nil {
+	if err := pkgsandbox.RelinkSystemMiseShims(stellaHome); err != nil {
 		t.Fatalf("relinkShims: %v", err)
 	}
 

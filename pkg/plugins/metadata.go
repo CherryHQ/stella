@@ -2,7 +2,6 @@ package plugins
 
 import (
 	"slices"
-	"sort"
 )
 
 const (
@@ -64,32 +63,4 @@ func (m PluginInfo) Clone() PluginInfo {
 // RequiresCapability reports whether the plugin declared the given capability.
 func (m PluginInfo) RequiresCapability(c Capability) bool {
 	return slices.Contains(m.RequiredCapabilities, c)
-}
-
-// RegisteredPlugin is the merged discovery view of registered metadata and persisted state.
-type RegisteredPlugin struct {
-	Info         PluginInfo
-	Kind         string
-	Name         string
-	HasConfig    bool
-	HasStatus    bool
-	Capabilities []string
-	State        PluginState
-	Persisted    bool
-	PersistedID  string
-}
-
-// Clone returns a shallow copy with independent nested maps/slices.
-func (p RegisteredPlugin) Clone() RegisteredPlugin {
-	p.Info = p.Info.Clone()
-	p.Capabilities = append([]string(nil), p.Capabilities...)
-	p.State = p.State.Clone()
-	return p
-}
-
-// SortedCapabilities returns a normalized, sorted copy of the capability list.
-func (p RegisteredPlugin) SortedCapabilities() []string {
-	caps := append([]string(nil), p.Capabilities...)
-	sort.Strings(caps)
-	return caps
 }

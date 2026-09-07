@@ -329,13 +329,21 @@ func runContextInstall(ctx context.Context, stellaHome string, plan BinaryInstal
 	return runContextInstallWithCore(ctx, stellaHome, plan, tools, false)
 }
 
-func runContextInstallWithCore(ctx context.Context, stellaHome string, plan BinaryInstallPlan, tools []miseTool, includeCore bool) (retErr error) {
+func runContextInstallWithCore(ctx context.Context, stellaHome string, plan BinaryInstallPlan, tools []miseTool, includeCore bool) error {
 	miseInstallMu.Lock()
 	defer miseInstallMu.Unlock()
 	if nativePublicationComplete(plan.PublicDir, nativeSelectionAliases(stellaHome, plan, tools, includeCore)) {
 		return nil
 	}
 
+	return withNativeMiseInstall(ctx, stellaHome, plan.DataDir, tools, func(miseBin string, env []string, dir string) error {
+		return materializeNativeSelectionWithCore(ctx, stellaHome, plan, tools, miseBin, env, dir, includeCore)
+	})
+}
+
+// withNativeMiseInstall owns the temporary installation configuration. Callers
+// hold miseInstallMu until optional selection publication and cleanup finish.
+func withNativeMiseInstall(ctx context.Context, stellaHome, dataDir string, tools []miseTool, publish func(string, []string, string) error) (retErr error) {
 	miseBin, err := findMiseBin(stellaHome)
 	if err != nil {
 		return err
@@ -375,7 +383,7 @@ func runContextInstallWithCore(ctx context.Context, stellaHome string, plan Bina
 	}()
 
 	shimsDir := filepath.Join(tempDir, "shims")
-	env, err := nativeMiseInstallEnv(stellaHome, plan.DataDir, shimsDir, tempDir, tempConfig, systemConfig)
+	env, err := nativeMiseInstallEnv(stellaHome, dataDir, shimsDir, tempDir, tempConfig, systemConfig)
 	if err != nil {
 		return err
 	}
@@ -384,8 +392,8 @@ func runContextInstallWithCore(ctx context.Context, stellaHome string, plan Bina
 			return fmt.Errorf("manifest: mise %s: %w", args[0], err)
 		}
 	}
-	if err := materializeNativeSelectionWithCore(ctx, stellaHome, plan, tools, miseBin, env, tempDir, includeCore); err != nil {
-		return err
+	if publish != nil {
+		return publish(miseBin, env, tempDir)
 	}
 	return nil
 }

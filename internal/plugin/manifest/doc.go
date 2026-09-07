@@ -1,7 +1,4 @@
-// Package manifest owns manifest-declared plugins: loading the builtin
-// manifest, applying operator overrides, validating a plugin's shape, and
-// reconciling its mise-installed runtime against what the manifest asks for.
-//
-// Manifest plugins describe traits; they can never request a host capability.
-// That line is enforced in internal/plugin/host.
+// Package manifest adapts standard Agent packages into catalog definitions,
+// validates resource payloads and owns shared CLI installation. Prewarming fills
+// the artifact cache; only a runner's selected resources publish a session view.
 package manifest

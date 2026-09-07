@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func TestInstallScopeCancelKillsChildProcessGroup(t *testing.T) {
+func TestWarmBuiltinArtifactsCancelKillsChildProcessGroup(t *testing.T) {
 	stellaHome := t.TempDir()
 	binDir := filepath.Join(stellaHome, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -43,10 +43,10 @@ esac
 		t.Fatalf("write fake mise: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	errCh := make(chan error, 1)
 	go func() {
-		err := installScope(ctx, stellaHome, builtinScope, []miseTool{{Key: "github:owner/repo", Lookup: "mytool"}})
+		err := WarmBuiltinArtifacts(ctx, makeMinimalManifest("tool", true, "mytool", "1.2.3"), stellaHome)
 		errCh <- err
 	}()
 
@@ -59,10 +59,10 @@ esac
 	select {
 	case err := <-errCh:
 		if err == nil {
-			t.Fatal("installBinaryWithMise succeeded, want cancellation error")
+			t.Fatal("WarmBuiltinArtifacts succeeded, want cancellation error")
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("installBinaryWithMise did not return after cancellation")
+		t.Fatal("WarmBuiltinArtifacts did not return after cancellation")
 	}
 
 	pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))

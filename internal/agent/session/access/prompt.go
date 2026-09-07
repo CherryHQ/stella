@@ -14,7 +14,6 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
-	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/skill"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
@@ -47,7 +46,7 @@ func ConfigAgentSystemPrompt(store config.Store) AgentSystemPrompt {
 
 type PromptSkillSectionBuilder func(context.Context, pkgplugins.SystemPromptContext, *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error)
 
-type PromptSectionsBuilder func(context.Context, pkgplugins.SystemPromptContext, plugin.Snapshot) ([]pkgplugins.SystemPromptSection, error)
+type PromptSectionsBuilder func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
 
 type SystemPromptBuildInput struct {
 	Info agentsession.Info
@@ -182,10 +181,11 @@ func (b *SystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Context, in S
 	var promptSections []pkgplugins.SystemPromptSection
 	if hasPluginAuthority {
 		var err error
-		promptSections, err = b.deps.PromptSectionsBuilder(ctx, promptBuild, pluginContext.Snapshot())
+		promptSections, err = b.deps.PromptSectionsBuilder(ctx, promptBuild)
 		if err != nil {
 			return "", fmt.Errorf("%w: system prompt sections: %w", ErrUnavailable, err)
 		}
+		promptSections = append(promptSections, pluginView.PromptSections...)
 		if skillsSection, err := b.deps.Skills(ctx, promptBuild, projectSkills); err != nil {
 			return "", fmt.Errorf("%w: skills prompt section: %w", ErrUnavailable, err)
 		} else if skillsSection.Title != "" && skillsSection.Content != "" {

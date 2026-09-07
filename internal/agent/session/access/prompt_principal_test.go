@@ -13,7 +13,6 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/internal/platform/home"
-	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/skill"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -98,7 +97,7 @@ func TestPromptPreviewUsesAuthorizedRootToLeafProjectContextWithoutHostPath(t *t
 		PluginContextBuilder: func(context.Context, authz.Authority, string) (agentruntime.PluginContext, error) {
 			return agentruntime.PluginContext{}, nil
 		},
-		PromptSectionsBuilder: func(context.Context, pkgplugins.SystemPromptContext, plugin.Snapshot) ([]pkgplugins.SystemPromptSection, error) {
+		PromptSectionsBuilder: func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 			return nil, nil
 		},
 		Skills: func(_ context.Context, _ pkgplugins.SystemPromptContext, project *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
@@ -146,7 +145,7 @@ func TestAuthorizedPromptPassesLogicalIdentityWithoutPhysicalPaths(t *testing.T)
 				PluginContextBuilder: func(context.Context, authz.Authority, string) (agentruntime.PluginContext, error) {
 					return agentruntime.PluginContext{}, nil
 				},
-				PromptSectionsBuilder: func(_ context.Context, got pkgplugins.SystemPromptContext, _ plugin.Snapshot) ([]pkgplugins.SystemPromptSection, error) {
+				PromptSectionsBuilder: func(_ context.Context, got pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 					build = got
 					return nil, nil
 				},

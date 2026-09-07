@@ -80,8 +80,11 @@ Builtin plugins follow the same rules and administrators can disable them.
 ## One execution snapshot
 
 The common service resolves a snapshot from trusted user, Agent or group
-identity. A runner captures that snapshot once for Agent Plugin resources,
-Skills and environment. Native tools and hooks read their separate policy.
+identity. The Agent runtime derives resource visibility, binaries, environment
+bindings and declarative prompt sections together from that snapshot. The
+context constructor accepts only the snapshot, so callers cannot pair it with
+resources from another identity or revision. Native Host handles Go-registered
+capabilities and native prompt contributions through its separate policy.
 
 Each Agent Plugin resolves by its exact package ID. Different packages do not
 replace each other's resources. Native tools and hooks are absent from that
@@ -110,8 +113,11 @@ prompt guidance. A CLI version pin and a Skill source are independent fields;
 changing one need not change the other. The manifest is a release input loader,
 not a separate permission system. Only mise and Xberg are embedded release
 runtimes prepared synchronously. Other CLIs, including fd and rg, are preinstalled
-and reconciled in the background. A runner prepares its selected snapshot from
-matching cached artifacts, installing missing versions within its sandbox boundary.
+in the background through the same installer used for session selection.
+Prewarming fills the mise artifact cache using temporary private configuration;
+it neither publishes a session selection nor maintains a second installation
+state file. A runner prepares its selected snapshot from matching cached
+artifacts, installing missing versions within its sandbox boundary.
 
 Builtin Skill ownership is generated from the release package declarations.
 User frontmatter cannot claim an owner. Prompt listing, search and direct loading

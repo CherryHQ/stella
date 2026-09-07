@@ -1,7 +1,6 @@
 package manifest
 
 import (
-	"context"
 	"fmt"
 	"maps"
 	"os"
@@ -31,11 +30,6 @@ func findMiseBin(stellaHome string) (string, error) {
 		return path, nil
 	}
 	return "", fmt.Errorf("mise not found at %s or on PATH", local)
-}
-
-func bootstrapMise(_ context.Context, stellaHome string) error {
-	_, err := findMiseBin(stellaHome)
-	return err
 }
 
 var misePassthroughEnv = []string{
@@ -127,15 +121,6 @@ func runtimeBinaryName(name string) string {
 		return name + ".exe"
 	}
 	return name
-}
-
-// relinkShims rewrites the system-tree mise shims to relative paths so they
-// resolve inside bwrap sandboxes where STELLA_HOME is remapped. The relink logic
-// lives in pkg/sandbox alongside the per-user variant; this delegates so the
-// install/reconcile path and the session path stay in lockstep. The second
-// parameter is retained for the existing call sites and tests.
-func relinkShims(stellaHome, _ string) error {
-	return pkgsandbox.RelinkSystemMiseShims(stellaHome)
 }
 
 // stringOption returns a non-empty string tool option value.

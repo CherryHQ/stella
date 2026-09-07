@@ -1,4 +1,4 @@
-package host
+package runtime
 
 import (
 	"cmp"
@@ -11,9 +11,9 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// SessionPluginView projects one already-authorized plugin snapshot for a
-// runner. The snapshot is the only source of selected config and enabled state.
-func (h *Host) SessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPluginView, error) {
+// projectSessionPluginView derives resources and prompts together from the
+// authority-bound snapshot captured when the runner is admitted.
+func projectSessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPluginView, error) {
 	definitions := snapshot.Definitions()
 	view := pkgplugins.SessionPluginView{
 		RegisteredPluginIDs: make([]string, 0, len(definitions)),
@@ -43,6 +43,9 @@ func (h *Host) SessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPl
 			return pkgplugins.SessionPluginView{}, fmt.Errorf("plugin %q: %w", definition.ID, err)
 		}
 		appendCLIResources(&view, identity, payload)
+		if payload.Prompt != "" {
+			view.PromptSections = append(view.PromptSections, pkgplugins.SystemPromptSection{Title: definition.DisplayName, Content: payload.Prompt, Inline: true})
+		}
 	}
 
 	slices.Sort(view.RegisteredPluginIDs)
@@ -114,7 +117,7 @@ func appendCLIResources(view *pkgplugins.SessionPluginView, identity pkgplugins.
 			Name:                   binary.Name,
 			Tool:                   binary.Tool,
 			Version:                binary.Version,
-			Options:                cloneMap(binary.Options),
+			Options:                clonePluginOptions(binary.Options),
 		})
 	}
 	declaredEnv := make(map[string]struct{}, len(payload.SessionEnvs))
