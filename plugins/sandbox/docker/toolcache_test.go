@@ -218,7 +218,10 @@ func TestSelectionToolInstallScriptUsesBuiltinArtifactWithoutMise(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(imageRoot, "mise"), []byte(mise), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	script := selectionToolInstallScript("hash", []ToolBinary{binary}, nil)
+	binary.PluginID = "uv"
+	shared := binary
+	shared.PluginID = "other-package"
+	script := selectionToolInstallScript("hash", []ToolBinary{binary, shared}, nil)
 	script = strings.ReplaceAll(script, "/opt/stella/selection-tools", selectionRoot)
 	script = strings.ReplaceAll(script, "/opt/stella/.mise-tools/builtin-artifacts", artifactRoot)
 	script = strings.ReplaceAll(script, "/opt/stella/core-runtime", imageRoot)
@@ -380,5 +383,24 @@ esac
 		if runErr != nil || string(output) != want.text {
 			t.Fatalf("selected %s output=%q err=%v", want.name, output, runErr)
 		}
+	}
+}
+
+func TestSelectionToolInstallScriptRejectsConflictingCommandBeforePublication(t *testing.T) {
+	for name, conflict := range map[string]ToolBinary{
+		"source":  {Name: "uv", Tool: "github:other/uv", Version: "1"},
+		"version": {Name: "uv", Tool: "uv", Version: "2"},
+		"options": {Name: "uv", Tool: "uv", Version: "1", Options: map[string]any{"asset_pattern": "other"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			script := selectionToolInstallScript("hash", []ToolBinary{{Name: "uv", Tool: "uv", Version: "1"}, conflict}, nil)
+			output, err := exec.CommandContext(t.Context(), "/bin/sh", "-c", script).CombinedOutput()
+			if err == nil || !strings.Contains(string(output), "selected binaries disagree on command uv") {
+				t.Fatalf("conflicting command result = %q, %v", output, err)
+			}
+			if strings.Contains(script, "mkdir") || strings.Contains(script, "rm -rf") {
+				t.Fatal("conflicting command must be rejected before modifying selection storage")
+			}
+		})
 	}
 }

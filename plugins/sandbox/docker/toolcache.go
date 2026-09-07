@@ -388,14 +388,27 @@ func selectionToolInstallScript(hash string, binaries []ToolBinary, core []syste
 	for _, binary := range core {
 		coreNames[binary.Name] = struct{}{}
 	}
-	artifactIdentities := make([]string, len(binaries))
-	for i, binary := range binaries {
+	// Several packages may select one identical CLI. Publish it once while
+	// retaining every package/config identity in the selection cache key.
+	unique := make([]ToolBinary, 0, len(binaries))
+	artifactIdentities := make([]string, 0, len(binaries))
+	seen := make(map[string]string, len(binaries))
+	for _, binary := range binaries {
 		identity, err := binaryArtifactIdentity(binary)
 		if err != nil {
 			return "echo " + shellQuote("binary artifact identity: "+err.Error()) + " >&2\nexit 1\n"
 		}
-		artifactIdentities[i] = identity
+		if previous, exists := seen[binary.Name]; exists {
+			if previous != identity {
+				return "echo " + shellQuote("selected binaries disagree on command "+binary.Name) + " >&2\nexit 1\n"
+			}
+			continue
+		}
+		seen[binary.Name] = identity
+		unique = append(unique, binary)
+		artifactIdentities = append(artifactIdentities, identity)
 	}
+	binaries = unique
 	miseTOMLs := make([]string, len(binaries))
 	if len(binaries) > 0 {
 		if _, err := selectionMiseTOML(binaries); err != nil {
