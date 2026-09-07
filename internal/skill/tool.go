@@ -127,6 +127,9 @@ func (t *Tool) authorizeLoadable(ctx context.Context, rs *ResolvedSkill) error {
 		}
 		return err
 	}
+	if dec == nil {
+		return ErrSkillReadUnavailable
+	}
 	allowed, err := dec.AllowRead(ctx, rs.ID, rs.Scope, rs.UserID, rs.AgentID)
 	if err != nil {
 		return err
@@ -199,12 +202,37 @@ func resolvedIdentity(rs ResolvedSkill) Skill {
 }
 
 func (t *Tool) identityMerged(ctx context.Context, vc ViewContext) ([]ResolvedSkill, error) {
+	if turn, ok := SkillTurnViewFromContext(ctx); ok {
+		if err := ValidateSkillTurnSelection(turn); err != nil {
+			return nil, err
+		}
+		merged := t.svc.ListMerged(turn.ManagedIdentities(), turn.ProjectSnapshot())
+		merged = filterMaskedSkills(merged, turn.MaskedSkillNames())
+		return filterDisabled(merged, turn.DisabledSkillRefs()), nil
+	}
 	rows, err := listManagedIdentitiesWhenAvailable(ctx, t.runtime, ViewContext{UserID: vc.UserID, AgentID: vc.AgentID})
 	if err != nil {
 		return nil, err
 	}
 	merged := t.svc.ListMerged(rows, t.projectSnapshot)
 	return filterDisabled(merged, vc.DisabledSkillRefs), nil
+}
+
+func filterMaskedSkills(skills []ResolvedSkill, names []string) []ResolvedSkill {
+	if len(names) == 0 {
+		return skills
+	}
+	masked := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		masked[name] = struct{}{}
+	}
+	out := make([]ResolvedSkill, 0, len(skills))
+	for _, candidate := range skills {
+		if _, ok := masked[candidate.Name]; !ok {
+			out = append(out, candidate)
+		}
+	}
+	return out
 }
 
 func (t *Tool) hydrateAuthorized(ctx context.Context, merged []ResolvedSkill) ([]ResolvedSkill, error) {
@@ -218,7 +246,7 @@ func (t *Tool) hydrateAuthorized(ctx context.Context, merged []ResolvedSkill) ([
 			out = append(out, rs)
 			continue
 		}
-		revision, err := t.runtime.LoadCurrentRevision(ctx, resolvedIdentity(rs))
+		revision, err := t.loadSelectedRevision(ctx, rs)
 		if errors.Is(err, errCurrentSkillSelectorMissing) {
 			continue
 		}
@@ -235,6 +263,14 @@ func (t *Tool) hydrateAuthorized(ctx context.Context, merged []ResolvedSkill) ([
 		out = append(out, rs)
 	}
 	return out, nil
+}
+
+func (t *Tool) loadSelectedRevision(ctx context.Context, rs ResolvedSkill) (ManagedRevision, error) {
+	identity := resolvedIdentity(rs)
+	if validSkillDigest(rs.ContentDigest) {
+		return t.runtime.LoadExactRevision(ctx, identity, rs.ContentDigest)
+	}
+	return t.runtime.LoadCurrentRevision(ctx, identity)
 }
 
 func (t *Tool) loadManagedOrImmutable(ctx context.Context, name, filename string, vc ViewContext) (string, error) {
@@ -283,7 +319,7 @@ func (t *Tool) loadManagedOrImmutable(ctx context.Context, name, filename string
 			return "", fmt.Errorf("prepare %s skill %q projection: %w", resolved.Scope, name, err)
 		}
 	} else {
-		revision, readErr := t.runtime.LoadCurrentRevision(ctx, resolvedIdentity(*resolved))
+		revision, readErr := t.loadSelectedRevision(ctx, *resolved)
 		if readErr != nil {
 			return "", fmt.Errorf("load skill %q: %w", name, readErr)
 		}

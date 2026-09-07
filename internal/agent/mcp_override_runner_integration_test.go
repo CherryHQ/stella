@@ -86,6 +86,10 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mcpTools, err := (migratedMCPToolProvider{pluginID: "remote"}).ToolsForSnapshot(ctx, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	registry, _, _, err := buildToolRegistry(ctx, runnerConfig{
 		Sandbox: sandbox.Config{Paths: sandbox.Paths{
 			StellaHome: home,
@@ -94,7 +98,8 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 		}},
 		BuiltinParams:       RunnerParams{UserID: userID, AgentID: agentID},
 		PluginContext:       runnerPlugins,
-		MCPToolProvider:     migratedMCPToolProvider{pluginID: "remote"},
+		MCPTools:            mcpTools,
+		MCPPrepared:         true,
 		ToolOverrideFetcher: store.Fetch,
 		SkillRevisionReader: emptySkillRuntime{},
 		SkillReadAuthorizer: allowSkillReads{},
@@ -146,6 +151,10 @@ func TestDisabledHostToolNameRemainsReservedFromMCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mcpTools, err := (migratedMCPToolProvider{pluginID: "remote"}).ToolsForSnapshot(ctx, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	exportedName, err := agentpackage.ExportedToolName("remote", "main", "list")
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +170,8 @@ func TestDisabledHostToolNameRemainsReservedFromMCP(t *testing.T) {
 		ToolMetaRegistry: toolmeta.NewRegistry(toolmeta.ActionTool{
 			Name: exportedName, PluginID: "tool/host", LocalName: exportedName,
 		}),
-		MCPToolProvider:     migratedMCPToolProvider{pluginID: "remote"},
+		MCPTools:            mcpTools,
+		MCPPrepared:         true,
 		SkillRevisionReader: emptySkillRuntime{},
 		SkillReadAuthorizer: allowSkillReads{},
 	}, &fakeSession{alive: true}, nil, ai.Model{}, "")
@@ -227,6 +237,10 @@ func TestMigratedMCPPackageDenyDoesNotFallThrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	mcpTools, err := (migratedMCPToolProvider{pluginID: packageID}).ToolsForSnapshot(ctx, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, _, _, err = buildToolRegistry(ctx, runnerConfig{
 		Sandbox: sandbox.Config{Paths: sandbox.Paths{
 			StellaHome: home,
@@ -235,7 +249,8 @@ func TestMigratedMCPPackageDenyDoesNotFallThrough(t *testing.T) {
 		}},
 		BuiltinParams:       RunnerParams{UserID: userID, AgentID: "namespace-agent"},
 		PluginContext:       runnerPlugins,
-		MCPToolProvider:     migratedMCPToolProvider{pluginID: packageID},
+		MCPTools:            mcpTools,
+		MCPPrepared:         true,
 		SkillRevisionReader: emptySkillRuntime{},
 		SkillReadAuthorizer: allowSkillReads{},
 	}, &fakeSession{alive: true}, nil, ai.Model{}, "")

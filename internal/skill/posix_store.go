@@ -277,15 +277,28 @@ func managedRevisionFromSnapshot(snapshot managedSnapshot) ManagedRevision {
 	return ManagedRevision{Skill: snapshot.Skill, Files: files, Modes: modes}
 }
 
-func (s *POSIXStore) LoadCurrentRevision(ctx context.Context, identity Skill) (ManagedRevision, error) {
+func (s *POSIXStore) LoadCurrentRevision(ctx context.Context, identity Skill) (revision ManagedRevision, resultErr error) {
+	// Runtime reads share the same session advisory lock as publication and
+	// cleanup. The exact bytes are copied before releasing it, so a selector
+	// removal or staging cleanup cannot race an active load.
+	release, err := s.lockManagedMutations(ctx)
+	if err != nil {
+		return ManagedRevision{}, err
+	}
+	defer finishManagedMutation(release, &resultErr)
 	snapshot, err := s.loadIdentity(ctx, identity)
 	return managedRevisionFromSnapshot(snapshot), err
 }
 
-func (s *POSIXStore) LoadExactRevision(ctx context.Context, identity Skill, digest string) (ManagedRevision, error) {
+func (s *POSIXStore) LoadExactRevision(ctx context.Context, identity Skill, digest string) (revision ManagedRevision, resultErr error) {
 	if !validSkillDigest(digest) {
 		return ManagedRevision{}, ErrSkillDigestRequired
 	}
+	release, err := s.lockManagedMutations(ctx)
+	if err != nil {
+		return ManagedRevision{}, err
+	}
+	defer finishManagedMutation(release, &resultErr)
 	snapshot, err := s.loadIdentityRevision(ctx, identity, digest)
 	return managedRevisionFromSnapshot(snapshot), err
 }

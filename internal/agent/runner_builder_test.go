@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -22,6 +23,28 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
+
+func TestNewRunnerFuncReturnsNilInterfaceOnConstructionError(t *testing.T) {
+	snap := &config.Snapshot{AgentID: "typed-nil-agent", Provider: "anthropic", Model: "test-model"}
+	build := newRunnerFunc(runnerBuilderConfig{
+		Snap: snap,
+		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
+		},
+	})
+	owner := agentruntime.NewRunnerBuildOwner(agentruntime.PluginContext{})
+	runner, err := build(t.Context(), RunnerParams{GuestID: "guest", BuildOwner: owner})
+	if err == nil {
+		t.Fatal("construction error = nil, want missing API key")
+	}
+	if runner != nil {
+		t.Fatalf("construction returned typed-nil Runner: %#v", runner)
+	}
+	owner.Complete()
+	if err := owner.Close(); err != nil {
+		t.Fatalf("close partial owner: %v", err)
+	}
+}
 
 func TestRunnerPluginAuthorityUsesOnlyNamedSessionIdentity(t *testing.T) {
 	for _, tt := range []struct {

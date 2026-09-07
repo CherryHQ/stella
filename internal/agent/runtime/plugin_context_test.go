@@ -42,3 +42,23 @@ func TestPluginContextReturnsIndependentView(t *testing.T) {
 		t.Fatalf("plugin context view was mutable: %#v", want)
 	}
 }
+
+func TestPluginContextIdentityIncludesMCPDirectoryAndSuccessfulSet(t *testing.T) {
+	base := PluginContext{view: pkgplugins.SessionPluginView{MCPDirectory: []pkgplugins.MCPDirectoryEntry{{
+		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{PluginID: "remote", ConfigID: "cfg", Revision: 1},
+		ServerKey:              "main", Ready: true,
+		Tools: []pkgplugins.MCPToolDescriptor{{Name: "remote__main__search", Description: "old", InputSchema: map[string]any{"type": "object"}}},
+	}}, SuccessfulPluginIDs: []string{"remote"}}}
+	changed := base.SessionPluginView()
+	changed.MCPDirectory[0].Tools[0].Description = "new"
+	changedCtx := PluginContext{view: changed}
+	if base.SameIdentity(changedCtx) {
+		t.Fatal("MCP tool declaration changes must invalidate plugin identity")
+	}
+	changed = base.SessionPluginView()
+	changed.SuccessfulPluginIDs = nil
+	changedCtx = PluginContext{view: changed}
+	if base.SameIdentity(changedCtx) {
+		t.Fatal("successful package set changes must invalidate plugin identity")
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
@@ -46,6 +47,15 @@ type (
 // an interface here so the agent package need not depend on MCP internals.
 type MCPToolProvider interface {
 	ToolsForSnapshot(ctx context.Context, snapshot plugin.Snapshot) ([]tools.Tool, error)
+}
+
+// MCPToolSnapshotProvider is the stronger runner-build seam. It returns the
+// tools and the exact observation-backed directory in one read, so cache
+// identity and model-facing tools cannot be assembled from different MCP
+// observations. Providers that only implement MCPToolProvider remain valid
+// for compatibility, but their directory identity is necessarily empty.
+type MCPToolSnapshotProvider interface {
+	ToolsForSnapshotWithDirectory(ctx context.Context, snapshot plugin.Snapshot) (pkgplugins.MCPToolSnapshot, error)
 }
 
 type ToolUnavailableReason string
@@ -141,12 +151,21 @@ func newRunnerScratch(stellaHome string) (string, func() error, error) {
 		return "", nil, fmt.Errorf("create runner scratch: too many collisions")
 	}
 	dir := filepath.Join(stellaHome, runnerScratchDir, name)
-	var once sync.Once
-	var cleanupErr error
+	var cleanupMu sync.Mutex
+	var cleaned bool
 	cleanup := func() error {
-		once.Do(func() {
-			cleanupErr = errors.Join(root.RemoveAll(name), root.Close())
-		})
+		cleanupMu.Lock()
+		defer cleanupMu.Unlock()
+		if cleaned {
+			return nil
+		}
+		if err := root.RemoveAll(name); err != nil {
+			return err
+		}
+		cleanupErr := root.Close()
+		if cleanupErr == nil {
+			cleaned = true
+		}
 		return cleanupErr
 	}
 	return dir, cleanup, nil
@@ -257,12 +276,53 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		var scratchCleanup func() error
 		var pluginHooks []hooks.HookPlugin
 		runnerOwnsPluginHooks := false
+		factoryCalled := false
+		partialOwnerAttached := false
+		partial := &runner{
+			cleanup: func() error {
+				if scratchCleanup != nil {
+					return scratchCleanup()
+				}
+				return nil
+			},
+			pluginContext: func() PluginContext {
+				if params.PluginContextReady {
+					return params.PluginContext
+				}
+				return PluginContext{}
+			}(),
+			noCapabilities: params.GuestID != "",
+			lastActivity:   time.Now(),
+			log:            slog.With("component", "go_runner"),
+		}
+		if params.BuildOwner != nil {
+			if err := params.BuildOwner.AdoptRunner(partial); err != nil {
+				return nil, fmt.Errorf("runner: adopt partial build owner: %w", err)
+			}
+			partialOwnerAttached = true
+		}
 		defer func() {
-			if err != nil && scratchCleanup != nil {
+			panicValue := recover()
+			// Once newRunner is called, its partial runner owns scratch cleanup,
+			// including failed tool/session construction. Before that boundary the
+			// builder still owns the scratch root itself.
+			if (err != nil || panicValue != nil) && !partialOwnerAttached && !factoryCalled && scratchCleanup != nil {
 				_ = scratchCleanup()
 			}
-			if err != nil && !runnerOwnsPluginHooks {
-				closeHookPlugins(pluginHooks)
+			// newRunner closes hooks on an ordinary error. A panic can unwind
+			// before that transfer point, so retain the builder as the cleanup
+			// owner for panic paths too.
+			if !partialOwnerAttached && !runnerOwnsPluginHooks && (err != nil || panicValue != nil) {
+				err = errors.Join(err, closeHookPlugins(pluginHooks))
+			}
+			if panicValue != nil {
+				panic(panicValue)
+			}
+			// A failed concrete *runner return must become a nil interface at
+			// this boundary. The BuildOwner retains the partial runner; returning
+			// a typed nil would create a second, uncloseable retired entry.
+			if err != nil {
+				built = nil
 			}
 		}()
 		modelRef := params.Model
@@ -286,6 +346,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		}
 
 		if params.GuestID != "" {
+			factoryCalled = true
 			return newRunner(ctx, runnerConfig{
 				NoCapabilities: true,
 				Provider: providerConfig{
@@ -333,7 +394,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			}
 			workspaceRoot, projectValidateRoot = userRoot, userRoot
 		}
-
 		// Resolve project directory when session has a project.
 		var projectRoot string
 		var projectSkillSnapshot *skillstool.ProjectSnapshot
@@ -341,24 +401,15 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		var descriptor ProjectDescriptor
 		if params.ProjectID != "" {
 			if cfg.ProjectResolver == nil {
-				if scratchCleanup != nil {
-					_ = scratchCleanup()
-				}
 				return nil, fmt.Errorf("runner: project resolver is required")
 			}
 			projectSnapshot, snapshotErr := SnapshotAuthorizedProject(ctx, cfg.ProjectResolver, cfg.Home, params.ProjectID, params.UserID, params.AgentID)
 			err = snapshotErr
 			if err != nil {
-				if scratchCleanup != nil {
-					_ = scratchCleanup()
-				}
 				return nil, fmt.Errorf("runner: resolve project %q: %w", params.ProjectID, err)
 			}
 			descriptor, projectContext, projectSkillSnapshot = projectSnapshot.Descriptor, projectSnapshot.Context, projectSnapshot.Skills
 			if descriptor.ID != params.ProjectID || descriptor.UserID != params.UserID || descriptor.AgentID != params.AgentID {
-				if scratchCleanup != nil {
-					_ = scratchCleanup()
-				}
 				return nil, fmt.Errorf("runner: project %q is outside the agent workspace", params.ProjectID)
 			}
 			projectRoot = projectValidateRoot
@@ -378,7 +429,10 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		pluginContext := PluginContext{}
 		hasPluginAuthority := false
-		if cfg.PluginContextBuilder != nil {
+		if params.PluginContextReady {
+			pluginContext = params.PluginContext
+			hasPluginAuthority = pluginContext.Snapshot().Authority().Valid()
+		} else if cfg.PluginContextBuilder != nil {
 			authority, authorityErr := runnerPluginAuthority(params)
 			err = authorityErr
 			if err != nil {
@@ -474,10 +528,13 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		// Resolve hooks from RunnerParams — injected by Pool, not the builder.
 		if hasPluginAuthority && cfg.PluginHooksBuilder != nil {
 			pluginHooks, err = cfg.PluginHooksBuilder(ctx, params.AgentID)
+			partial.pluginHooks = pluginHooks
 			if err != nil {
 				return nil, fmt.Errorf("runner: build plugin hooks: %w", err)
 			}
 		}
+		partial.pluginContext = pluginContext
+		partial.pluginHooks = pluginHooks
 		hookPlugins := pluginHooks
 		if params.HooksFn != nil {
 			hookPlugins = append(hookPlugins, params.HooksFn()...)
@@ -533,6 +590,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		// hooks on every construction error, including provider setup failures;
 		// this defer handles errors that occur before that handoff.
 		runnerOwnsPluginHooks = true
+		factoryCalled = true
 		built, err = newRunner(ctx, runnerConfig{
 			Provider: providerConfig{
 				ProviderID: providerID,
@@ -563,6 +621,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			HookPlugins:          hookPlugins,
 			PluginHookPlugins:    pluginHooks,
 			ToolLifecycle:        toolLifecycle,
+			Partial:              partial,
 			MCPToolProvider:      cfg.MCPToolProvider,
 			CodeToolSurface:      cfg.CodeToolSurface,
 			DelegateRunner:       params.DelegateRunner,
@@ -571,8 +630,13 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			// Resolved from the factory's snapshot. A vision-settings write rebuilds
 			// pool factories, so future runners use the current auxiliary service
 			// while already admitted runners finish against their captured configuration.
-			Vision:  vision.NewFromSnapshot(cfg.Snap, vision.StreamBuilder(cfg.ProviderStreamBuilder)),
-			Cleanup: scratchCleanup,
+			Vision: vision.NewFromSnapshot(cfg.Snap, vision.StreamBuilder(cfg.ProviderStreamBuilder)),
+			Cleanup: func() error {
+				if scratchCleanup != nil {
+					return scratchCleanup()
+				}
+				return nil
+			},
 		})
 		return built, err
 	}

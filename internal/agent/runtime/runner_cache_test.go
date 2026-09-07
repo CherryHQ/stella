@@ -86,6 +86,105 @@ func (r *fakeRunner) Close() error {
 	return r.closeErr
 }
 
+func TestRunnerBuildOwnerDefersPartialCloseUntilComplete(t *testing.T) {
+	resource := newFakeRunner()
+	owner := NewRunnerBuildOwner(PluginContext{})
+	if err := owner.AdoptRunner(resource); err != nil {
+		t.Fatalf("adopt partial runner: %v", err)
+	}
+	if err := owner.Close(); err != nil {
+		t.Fatalf("incomplete close: %v", err)
+	}
+	if resource.closed {
+		t.Fatal("incomplete build owner closed its partial runner")
+	}
+	owner.Complete()
+	if err := owner.Close(); err != nil {
+		t.Fatalf("complete close: %v", err)
+	}
+	if !resource.closed {
+		t.Fatal("complete build owner did not close its partial runner")
+	}
+}
+
+func TestRunnerBuildOwnerRetriesPartialCloseAfterFailure(t *testing.T) {
+	resource := newFakeRunner()
+	want := errors.New("partial close failed")
+	resource.closeErr = want
+	owner := NewRunnerBuildOwner(PluginContext{})
+	if err := owner.AdoptRunner(resource); err != nil {
+		t.Fatalf("adopt partial runner: %v", err)
+	}
+	owner.Complete()
+	if err := owner.Close(); !errors.Is(err, want) {
+		t.Fatalf("first close = %v, want %v", err, want)
+	}
+	resource.closeErr = nil
+	if err := owner.Close(); err != nil {
+		t.Fatalf("retry close: %v", err)
+	}
+}
+
+func TestRunnerCacheClosesPartialOwnerWhenFactoryFails(t *testing.T) {
+	want := errors.New("registry build failed")
+	partial := newFakeRunner()
+	cache := newRunnerCache(func(_ context.Context, params RunnerParams) (Runner, error) {
+		if err := params.BuildOwner.AdoptRunner(partial); err != nil {
+			t.Fatalf("adopt partial runner: %v", err)
+		}
+		return nil, want
+	}, fakeMemory{}, time.Minute, slog.Default())
+	if _, _, err := cache.getOrCreate(context.Background(), validInfo("partial-factory-error"), "", ""); !errors.Is(err, want) {
+		t.Fatalf("factory error = %v, want %v", err, want)
+	}
+	if !partial.closed {
+		t.Fatal("partial runner was not closed after factory failure")
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if len(cache.retired) != 0 {
+		t.Fatalf("retired partial owner remains after successful close: %d", len(cache.retired))
+	}
+}
+
+func TestRunnerCacheRetiresPartialOwnerWhenTerminalCloseRacesFactory(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	partial := newFakeRunner()
+	cache := newRunnerCache(func(_ context.Context, params RunnerParams) (Runner, error) {
+		if err := params.BuildOwner.AdoptRunner(partial); err != nil {
+			t.Fatalf("adopt partial runner: %v", err)
+		}
+		close(started)
+		<-release
+		return partial, nil
+	}, fakeMemory{}, time.Minute, slog.Default())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, _, err := cache.getOrCreate(ctx, validInfo("partial-terminal-close"), "", "")
+		result <- err
+	}()
+	<-started
+	if err := cache.closeAll(); err != nil {
+		t.Fatalf("closeAll during build: %v", err)
+	}
+	cancel()
+	close(release)
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("raced build error = %v, want context canceled", err)
+	}
+	if !partial.closed {
+		t.Fatal("detached partial runner was not closed")
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if len(cache.retired) != 0 {
+		t.Fatalf("retired partial owner remains after terminal close: %d", len(cache.retired))
+	}
+}
+
 type blockingCloseGate struct {
 	mu         sync.Mutex
 	started    int
@@ -787,25 +886,30 @@ func TestAdmittedSelectionKeepsModelThinkingAcrossReset(t *testing.T) {
 	}
 }
 
-func TestResetDuringReservedFactoryBuildKeepsSelectionAndDropsCacheMetadata(t *testing.T) {
+func TestResetDuringReservedFactoryBuildRetriesWithNewSelection(t *testing.T) {
 	factoryStarted := make(chan struct{})
 	releaseFactory := make(chan struct{})
+	release := sync.OnceFunc(func() { close(releaseFactory) })
+	defer release()
 	var (
-		params []RunnerParams
-		models []string
-		mu     sync.Mutex
+		params  []RunnerParams
+		models  []string
+		runners []*fakeRunner
+		mu      sync.Mutex
 	)
 	rt, err := New(Config{
 		NewRunner: func(_ context.Context, p RunnerParams) (Runner, error) {
+			runner := newFakeRunner()
 			mu.Lock()
 			params = append(params, p)
+			runners = append(runners, runner)
 			first := len(params) == 1
 			mu.Unlock()
 			if first {
 				close(factoryStarted)
 				<-releaseFactory
 			}
-			return newFakeRunner(), nil
+			return runner, nil
 		},
 		Memory:          fakeMemory{},
 		DefaultModel:    "old-model",
@@ -835,14 +939,14 @@ func TestResetDuringReservedFactoryBuildKeepsSelectionAndDropsCacheMetadata(t *t
 	if err := rt.ResetRunners(); err != nil {
 		t.Fatalf("reset during factory build: %v", err)
 	}
-	close(releaseFactory)
+	release()
 	first := <-admitted
 	if first.err != nil {
-		t.Fatalf("admit old turn: %v", first.err)
+		t.Fatalf("retry admission: %v", first.err)
 	}
 	for event := range first.stream {
 		if event.Err != nil {
-			t.Fatalf("old turn event: %v", event.Err)
+			t.Fatalf("retried turn event: %v", event.Err)
 		}
 	}
 	for event := range rt.Chat(context.Background(), info, "second") {
@@ -852,8 +956,11 @@ func TestResetDuringReservedFactoryBuildKeepsSelectionAndDropsCacheMetadata(t *t
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(params) != 2 || params[0].Model != "old-model" || params[0].Thinking != "low" || params[1].Model != "new-model" || params[1].Thinking != "high" || len(models) != 2 || models[0] != "old-model" || models[1] != "new-model" {
+	if len(params) != 2 || params[0].Model != "old-model" || params[0].Thinking != "low" || params[1].Model != "new-model" || params[1].Thinking != "high" || len(models) != 2 || models[0] != "new-model" || models[1] != "new-model" {
 		t.Fatalf("factory-build reset params=%#v models=%#v; want old immutable then new defaults", params, models)
+	}
+	if !runners[0].closed {
+		t.Fatal("discarded old runner was not closed")
 	}
 }
 
@@ -1109,6 +1216,59 @@ func TestFailedAdmissionRetirementClosePanicIsBounded(t *testing.T) {
 	rt.cache.mu.Unlock()
 	if cs != nil && cs.r != nil {
 		t.Fatalf("close panic left bad runner cache-reachable: %#v", cs)
+	}
+}
+
+func TestRunnerCacheRetriesRetiredCloseAfterError(t *testing.T) {
+	want := errors.New("close failed")
+	r := newFakeRunner()
+	r.closeErr = want
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	cache.sessions["retry-close"] = &cachedSession{r: r, info: validInfo("retry-close")}
+	if err := cache.reset(); !errors.Is(err, want) {
+		t.Fatalf("first reset error = %v, want %v", err, want)
+	}
+	cache.mu.Lock()
+	retired := len(cache.retired)
+	cache.mu.Unlock()
+	if retired != 1 {
+		t.Fatalf("retired entries after close error = %d, want 1", retired)
+	}
+	r.closeErr = nil
+	if err := cache.reset(); err != nil {
+		t.Fatalf("retry reset: %v", err)
+	}
+	cache.mu.Lock()
+	retired = len(cache.retired)
+	cache.mu.Unlock()
+	if retired != 0 {
+		t.Fatalf("retired entries after successful retry = %d, want 0", retired)
+	}
+}
+
+func TestRunnerCacheRetriesRetiredCloseAfterPanic(t *testing.T) {
+	r := newFakeRunner()
+	r.panicClose = true
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	cache.sessions["retry-panic-close"] = &cachedSession{r: r, info: validInfo("retry-panic-close")}
+	if err := cache.reset(); err == nil {
+		t.Fatal("first reset error = nil, want recovered close panic")
+	}
+	cache.mu.Lock()
+	retired := len(cache.retired)
+	cache.mu.Unlock()
+	if retired != 1 {
+		t.Fatalf("retired entries after close panic = %d, want 1", retired)
+	}
+	r.panicClose = false
+	if err := cache.reset(); err != nil {
+		t.Fatalf("retry reset: %v", err)
+	}
+	cache.mu.Lock()
+	retired = len(cache.retired)
+	cache.mu.Unlock()
+	if retired != 0 {
+		t.Fatalf("retired entries after successful panic retry = %d, want 0", retired)
 	}
 }
 

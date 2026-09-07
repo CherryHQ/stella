@@ -28,16 +28,22 @@ const (
 // server, so a 30-tool server costs one MCP session, not thirty. Close is
 // idempotent because the tool registry closes each proxy on teardown.
 type serverConn struct {
-	mu     sync.Mutex
-	svc    *Service
-	reg    Registration
-	owner  CredentialOwner
-	client RemoteClient
+	mu       sync.Mutex
+	closeMu  sync.Mutex
+	svc      *Service
+	reg      Registration
+	owner    CredentialOwner
+	client   RemoteClient
+	retiring bool
+	closed   bool
 }
 
 func (c *serverConn) get(ctx context.Context) (RemoteClient, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.closed || c.retiring {
+		return nil, fmt.Errorf("mcp: server connection is closed")
+	}
 	if c.client != nil {
 		return c.client, nil
 	}
@@ -50,14 +56,31 @@ func (c *serverConn) get(ctx context.Context) (RemoteClient, error) {
 }
 
 func (c *serverConn) Close() error {
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
 	c.mu.Lock()
-	client := c.client
-	c.client = nil
-	c.mu.Unlock()
-	if client == nil {
+	if c.closed {
+		c.mu.Unlock()
 		return nil
 	}
-	return client.Close()
+	client := c.client
+	c.retiring = true
+	c.mu.Unlock()
+	if client == nil {
+		c.mu.Lock()
+		c.closed = true
+		c.mu.Unlock()
+		return nil
+	}
+	err := client.Close()
+	c.mu.Lock()
+	if err == nil {
+		c.client = nil
+		c.closed = true
+		c.retiring = false
+	}
+	c.mu.Unlock()
+	return err
 }
 
 // toolProxy adapts one remote MCP tool to Stella's Tool interface. The

@@ -6,6 +6,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // ToolContext is the narrow build context for tool capabilities.
@@ -84,10 +85,45 @@ type PluginResourceIdentity struct {
 // only: the host installer must not consume user-scoped values from this type.
 type PluginBinarySpec struct {
 	PluginResourceIdentity
-	Name    string
-	Tool    string
-	Version string
-	Options map[string]any
+	// PackageDigest identifies the immutable published package envelope that
+	// declared this binary. It is part of selection identity, while the
+	// artifact identity remains based on the effective install inputs.
+	PackageDigest string
+	Name          string
+	Tool          string
+	Version       string
+	Options       map[string]any
+}
+
+// MCPDirectoryEntry is the immutable, model-facing identity of one selected
+// MCP child and the catalog tools successfully projected for it. It deliberately
+// carries no endpoint or credential material. The config revision and complete
+// executable declarations detect a directory change without exposing secrets.
+type MCPDirectoryEntry struct {
+	PluginResourceIdentity
+	ServerKey string
+	Tools     []MCPToolDescriptor
+	// Ready is explicit because an empty catalog is a successful probe, while
+	// a skipped or failed server may also have zero tools.
+	Ready       bool
+	Status      string
+	StatusError string
+}
+
+type MCPToolDescriptor struct {
+	Name        string
+	Description string
+	InputSchema map[string]any
+	Annotations map[string]any
+}
+
+// MCPToolSnapshot is the provider result consumed by runner construction. The
+// directory and tools are one observation-backed projection and must not be
+// read independently.
+type MCPToolSnapshot struct {
+	Tools               []tools.Tool
+	Directory           []MCPDirectoryEntry
+	SuccessfulPluginIDs []string
 }
 
 // SessionPluginView is the runner-facing view of selected plugin-owned session
@@ -99,6 +135,14 @@ type SessionPluginView struct {
 	SessionEnvSpecs  []SessionEnvSpec
 	BinarySpecs      []PluginBinarySpec
 	PromptSections   []SystemPromptSection
+	// MCPDirectory is the exact selected MCP child/tool directory used by the
+	// runner. It lives here because it is an observation-backed capability set,
+	// not part of the authored plugin snapshot.
+	MCPDirectory []MCPDirectoryEntry
+	// SuccessfulPluginIDs records packages for which runtime resource discovery
+	// succeeded. An enabled package can be absent when its remote resources are
+	// unavailable, so enabled visibility alone is not a sufficient cache key.
+	SuccessfulPluginIDs []string
 }
 
 // BeforeRunContext is the narrow per-run lifecycle context exposed to plugins.

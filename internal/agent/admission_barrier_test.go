@@ -164,7 +164,7 @@ func TestAdmissionBarrierTurnPrecedesPolicyCommitAndFailureDoesNotInvalidate(t *
 	releaseAdmission := make(chan struct{})
 	go func() {
 		_ = svc.withAdmissionBarrier(func() error {
-			stream, err := svc.admitLocked(context.Background(), barrierInfo("old-turn"), "turn")
+			stream, err := svc.Runtime.ChatAdmitted(context.Background(), barrierInfo("old-turn"), "turn")
 			if err != nil {
 				t.Errorf("admit old turn: %v", err)
 				return err

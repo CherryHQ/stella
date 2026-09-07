@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -161,6 +162,43 @@ func TestNewRunnerClosesRegistryWhenCoreRunnerBuildFails(t *testing.T) {
 
 	if _, err := newRunner(context.Background(), cfg); err == nil {
 		t.Fatal("expected invalid code tool surface error")
+	}
+	if got := built.closed.Load(); got != 1 {
+		t.Fatalf("built tool close count = %d, want 1", got)
+	}
+}
+
+func TestNewRunnerRetainsPartialResourcesForBuildOwner(t *testing.T) {
+	built := &cleanupTool{name: "built"}
+	owner := agentruntime.NewRunnerBuildOwner(agentruntime.PluginContext{})
+	cfg := withTestRunnerPaths(t, runnerConfig{
+		Provider: providerConfig{
+			API:     "anthropic",
+			Model:   "model",
+			APIKey:  "key",
+			Builder: cleanupProviderBuilder,
+		},
+		BuiltinTools:        []BuiltinTool{{Tool: built}},
+		SkillRevisionReader: emptySkillRuntime{},
+		SkillReadAuthorizer: allowSkillReads{},
+		BuiltinParams:       RunnerParams{BuildOwner: owner},
+		Sandbox: sandbox.Config{
+			SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+			Backends:         testSandboxBackends(t),
+		},
+		CodeToolSurface: coreagent.CodeToolSurface("invalid"),
+	})
+	cfg.Sandbox.SystemRuntimePlan = fixtureRunnerSystemRuntimePlan(t, cfg.Sandbox.Paths.StellaHome)
+
+	if _, err := newRunner(context.Background(), cfg); err == nil {
+		t.Fatal("expected invalid code tool surface error")
+	}
+	if built.closed.Load() != 0 {
+		t.Fatal("partial resources closed before build owner completion")
+	}
+	owner.Complete()
+	if err := owner.Close(); err != nil {
+		t.Fatalf("close partial resources: %v", err)
 	}
 	if got := built.closed.Load(); got != 1 {
 		t.Fatalf("built tool close count = %d, want 1", got)

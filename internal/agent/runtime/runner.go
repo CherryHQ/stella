@@ -79,6 +79,15 @@ type RunnerParams struct {
 	HooksFn         func() []hooks.HookPlugin
 	ExtraTools      []tools.Tool
 	DelegateRunner  delegatetool.SessionRunner
+	// PluginContext is an admission-captured context. Production builders set
+	// PluginContextReady when a fresh identity was prepared so the runner and
+	// cache compare and consume the same snapshot.
+	PluginContext      PluginContext
+	PluginContextReady bool
+	// BuildOwner is registered in the runner cache before the factory starts
+	// slow workspace/package work. It owns external cleanup until construction
+	// completes and the returned Runner takes over the owner.
+	BuildOwner *RunnerBuildOwner
 }
 
 // Runner executes prompts against an AI backend.

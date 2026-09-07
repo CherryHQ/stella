@@ -11,6 +11,8 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 func TestToolsForRegistrationsUsesPackageComponentTupleForExport(t *testing.T) {
@@ -33,6 +35,45 @@ func TestToolsForRegistrationsUsesPackageComponentTupleForExport(t *testing.T) {
 		t.Fatalf("exported tool name = %q, want tuple projection %q", got, want)
 	}
 }
+
+func TestMCPDirectoryKeepsChildReadinessAndExactToolDeclaration(t *testing.T) {
+	regs := []Registration{
+		{PluginID: "remote", ParentConfigID: "cfg", ServerKey: "healthy", Scope: ScopeSystem, ConfigRevision: 4, Enabled: true, Status: StatusOK, Tools: []CatalogTool{{Name: "search", Description: "search", InputSchema: map[string]any{"type": "object"}, Annotations: map[string]any{"readOnlyHint": true}}}},
+		{PluginID: "remote", ParentConfigID: "cfg", ServerKey: "broken", Scope: ScopeSystem, ConfigRevision: 4, Enabled: true, Status: StatusNeedsAuth, StatusError: "reauth required"},
+	}
+	search, err := agentpackage.ExportedToolName("remote", "healthy", "search")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := []pkgtools.Tool{testDefinitionTool{definition: pkgtools.Definition{Name: search, Description: "search", InputSchema: map[string]any{"type": "object"}}}}
+	entries := mcpDirectory(regs, []registrationToolsResult{{tools: tools, ready: true, status: StatusOK}, {ready: false, status: StatusNeedsAuth, statusError: "reauth required"}})
+	if len(entries) != 2 {
+		t.Fatalf("directory readiness = %#v", entries)
+	}
+	var healthy, broken *pkgplugins.MCPDirectoryEntry
+	for i := range entries {
+		switch entries[i].ServerKey {
+		case "healthy":
+			healthy = &entries[i]
+		case "broken":
+			broken = &entries[i]
+		}
+	}
+	if healthy == nil || broken == nil || !healthy.Ready || broken.Ready || broken.StatusError == "" {
+		t.Fatalf("directory readiness = %#v", entries)
+	}
+	if len(healthy.Tools) != 1 || healthy.Tools[0].Name != search || healthy.Tools[0].Annotations["readOnlyHint"] != true {
+		t.Fatalf("directory tool declaration = %#v", healthy.Tools)
+	}
+	if got := successfulPluginIDs(regs, []registrationToolsResult{{tools: tools, ready: true}, {ready: false}}); len(got) != 0 {
+		t.Fatalf("partial child success marked package ready: %v", got)
+	}
+}
+
+type testDefinitionTool struct{ definition pkgtools.Definition }
+
+func (t testDefinitionTool) Definition() pkgtools.Definition                       { return t.definition }
+func (testDefinitionTool) Execute(context.Context, map[string]any) (string, error) { return "", nil }
 
 func TestToolsForRegistrationsSkipsLegacyRegistrationWithoutPackageID(t *testing.T) {
 	provider := NewToolProvider(NewService(newFakeDB(), nil))

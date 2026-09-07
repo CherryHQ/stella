@@ -17,12 +17,25 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 	if reader == nil || authorizer == nil {
 		return pkgplugins.SystemPromptSection{}, fmt.Errorf("skills prompt requires identity reader and read authorizer")
 	}
-	identities, err := listManagedIdentitiesWhenAvailable(ctx, reader, ViewContext{UserID: build.UserID, AgentID: build.AgentID})
-	if err != nil {
-		return pkgplugins.SystemPromptSection{}, err
+	var identities []Skill
+	var masked []string
+	if turn, ok := SkillTurnViewFromContext(ctx); ok {
+		if err := ValidateSkillTurnSelection(turn); err != nil {
+			return pkgplugins.SystemPromptSection{}, err
+		}
+		project = turn.ProjectSnapshot()
+		identities = turn.ManagedIdentities()
+		masked = turn.MaskedSkillNames()
+	} else {
+		var err error
+		identities, err = listManagedIdentitiesWhenAvailable(ctx, reader, ViewContext{UserID: build.UserID, AgentID: build.AgentID})
+		if err != nil {
+			return pkgplugins.SystemPromptSection{}, err
+		}
 	}
 	svc := NewService()
 	merged := filterDisabled(svc.ListMerged(identities, project), build.DisabledSkillRefs)
+	merged = filterMaskedSkills(merged, masked)
 	decision, err := authorizer.BeginRead(ctx)
 	if errors.Is(err, authz.ErrUnauthenticated) {
 		decision, err = nil, nil
@@ -30,13 +43,13 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 	if err != nil {
 		return pkgplugins.SystemPromptSection{}, err
 	}
+	if decision == nil {
+		return pkgplugins.SystemPromptSection{}, ErrSkillReadUnavailable
+	}
 	authorized := make([]ResolvedSkill, 0, len(merged))
 	for _, rs := range merged {
 		if !isDBSkill(rs) {
 			authorized = append(authorized, rs)
-			continue
-		}
-		if decision == nil {
 			continue
 		}
 		allowed, err := decision.AllowRead(ctx, rs.ID, rs.Scope, rs.UserID, rs.AgentID)
@@ -46,7 +59,12 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 		if !allowed {
 			continue
 		}
-		revision, err := reader.LoadCurrentRevision(ctx, resolvedIdentity(rs))
+		var revision ManagedRevision
+		if validSkillDigest(rs.ContentDigest) {
+			revision, err = reader.LoadExactRevision(ctx, resolvedIdentity(rs), rs.ContentDigest)
+		} else {
+			revision, err = reader.LoadCurrentRevision(ctx, resolvedIdentity(rs))
+		}
 		if errors.Is(err, errCurrentSkillSelectorMissing) {
 			continue
 		}

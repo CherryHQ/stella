@@ -403,36 +403,53 @@ func directForegroundAuthority(authority authz.Authority, info session.Info) boo
 // turn admission point. Every Service turn path uses it so policy commits cannot
 // leave a post-return gap where an old runner is handed to a new turn.
 func (s *Service) admit(ctx context.Context, info session.Info, message MessageContent, opts ...agentruntime.Option) (<-chan Event, error) {
+	return s.admitPhased(ctx, info, message, nil, opts...)
+}
+
+// admitPhased keeps only active-turn registration and final publication under
+// the lifecycle/admission locks. Runner construction, plugin snapshot capture,
+// and filesystem/MCP preparation happen between those two short lock holds.
+func (s *Service) admitPhased(ctx context.Context, info session.Info, message MessageContent, beforeStart func() error, opts ...agentruntime.Option) (<-chan Event, error) {
+	var admission *agentruntime.ChatAdmission
+	if err := s.withAdmissionLock(ctx, func() error {
+		var err error
+		admission, err = s.Runtime.BeginChatAdmission(ctx, info, message, beforeStart, opts...)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	if err := s.Runtime.PrepareChatAdmission(admission); err != nil {
+		s.Runtime.AbortChatAdmission(admission)
+		return nil, err
+	}
+	var stream <-chan Event
+	if err := s.withAdmissionLock(ctx, func() error {
+		var err error
+		stream, err = s.Runtime.PublishChatAdmission(admission)
+		return err
+	}); err != nil {
+		s.Runtime.AbortChatAdmission(admission)
+		return nil, err
+	}
+	return stream, nil
+}
+
+func (s *Service) withAdmissionLock(ctx context.Context, fn func() error) error {
 	if s.lifecycle != nil {
 		if err := s.lifecycle.lockShared(ctx); err != nil {
-			return nil, err
+			return err
 		}
 		defer s.lifecycle.unlockShared()
 	}
 	if err := s.admissionMu.Lock(ctx); err != nil {
-		return nil, err
+		return err
 	}
 	defer s.admissionMu.Unlock()
-	return s.admitLocked(ctx, info, message, opts...)
-}
-
-// admitLocked is the actual Runtime admission point. Caller owns admissionMu.
-func (s *Service) admitLocked(ctx context.Context, info session.Info, message MessageContent, opts ...agentruntime.Option) (<-chan Event, error) {
-	return s.Runtime.ChatAdmitted(ctx, info, message, opts...)
+	return fn()
 }
 
 func (s *Service) admitControlled(ctx context.Context, info session.Info, message MessageContent, beforeStart func() error, opts ...agentruntime.Option) (<-chan Event, error) {
-	if s.lifecycle != nil {
-		if err := s.lifecycle.lockShared(ctx); err != nil {
-			return nil, err
-		}
-		defer s.lifecycle.unlockShared()
-	}
-	if err := s.admissionMu.Lock(ctx); err != nil {
-		return nil, err
-	}
-	defer s.admissionMu.Unlock()
-	return s.Runtime.ChatAdmittedControlled(ctx, info, message, beforeStart, opts...)
+	return s.admitPhased(ctx, info, message, beforeStart, opts...)
 }
 
 // withAdmissionBarrier runs a configuration mutation under lifecycle shared

@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
+	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -43,7 +44,8 @@ type recordingMemory struct {
 
 type snapshotRecordingMemory struct {
 	*recordingMemory
-	snapshot memory.SessionSnapshot
+	snapshot      memory.SessionSnapshot
+	snapshotReads int
 }
 
 type blockingSnapshotMemory struct {
@@ -62,7 +64,41 @@ func (m *blockingSnapshotMemory) Assemble(context.Context, memory.Session, int, 
 }
 
 func (m *snapshotRecordingMemory) GetOrCreateSessionSnapshot(context.Context, string, string, string) (memory.SessionSnapshot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.snapshotReads++
 	return m.snapshot, nil
+}
+
+func TestGroupTurnsRebuildResourcesWithoutPersonalSnapshot(t *testing.T) {
+	mem := &snapshotRecordingMemory{recordingMemory: &recordingMemory{}}
+	var promptCalls, builds int
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			builds++
+			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+		},
+		SnapshotPrompt: func(context.Context, session.Info, memory.SessionSnapshot, PluginContext) (string, error) {
+			promptCalls++
+			return "current resource instructions", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupID := uuid.NewString()
+	info := session.Info{ID: "group-resources", UserID: groupID, GroupID: groupID, AgentID: "agent-1"}
+	for range 2 {
+		for event := range rt.Chat(t.Context(), info, "hello") {
+			if event.Err != nil {
+				t.Fatal(event.Err)
+			}
+		}
+	}
+	if promptCalls != 2 || builds != 1 || mem.snapshotReads != 0 {
+		t.Fatalf("prompts=%d builds=%d personal snapshots=%d, want 2, 1, 0", promptCalls, builds, mem.snapshotReads)
+	}
 }
 
 func (*snapshotRecordingMemory) AdvanceSessionSnapshot(context.Context, string, string, string) error {
@@ -107,6 +143,56 @@ type chatFakeRunner struct {
 	messages      *[]MessageContent
 	ctx           *context.Context
 	pluginContext PluginContext
+}
+
+type turnCaptureTestKey struct{}
+
+func TestChatCapturesAndReleasesTurnContextForEachTurn(t *testing.T) {
+	mem := &recordingMemory{}
+	var captured context.Context
+	var captures int
+	owner := &skill.ActiveTurnOwner{}
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{events: []Event{{Text: "ok"}}, ctx: &captured}, nil
+		},
+		SkillTurnCapture: func(ctx context.Context, _ session.Info, _ PluginContext) (context.Context, error) {
+			captures++
+			view, err := skill.NewSkillTurnView(nil, nil, nil, nil)
+			if err != nil {
+				return nil, err
+			}
+			return skill.WithSkillTurnView(context.WithValue(ctx, turnCaptureTestKey{}, captures), view), nil
+		},
+		SkillTurnOwner: owner,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := session.Info{ID: "turn-view-each-turn", UserID: "user", AgentID: "agent"}
+	for range rt.Chat(t.Context(), info, "hello") {
+	}
+	if got, want := captures, 1; got != want {
+		t.Fatalf("first turn captures=%d, want %d", got, want)
+	}
+	if got, want := captured.Value(turnCaptureTestKey{}), 1; got != want {
+		t.Fatalf("first turn context marker=%v, want %d", got, want)
+	}
+	if got := len(owner.Snapshot()); got != 0 {
+		t.Fatalf("first turn active owners=%d, want 0", got)
+	}
+	for range rt.Chat(t.Context(), info, "again") {
+	}
+	if captures != 2 {
+		t.Fatalf("second turn captures=%d, want 2", captures)
+	}
+	if got, want := captured.Value(turnCaptureTestKey{}), 2; got != want {
+		t.Fatalf("second turn context marker=%v, want %d", got, want)
+	}
+	if got := len(owner.Snapshot()); got != 0 {
+		t.Fatalf("second turn active owners=%d, want 0", got)
+	}
 }
 
 func (r chatFakeRunner) Chat(ctx context.Context, _ []ai.Message, msg MessageContent) <-chan Event {

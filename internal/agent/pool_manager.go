@@ -18,7 +18,9 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
+	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
@@ -488,20 +490,47 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 		return nil, fmt.Errorf("build session registry for %q: %w", agentID, err)
 	}
 
+	var freshPluginContext agentruntime.PluginContextBuilder
+	pm.mu.RLock()
+	pluginContextBuilder := pm.pluginContextBuilder
+	mcpToolProvider := pm.mcpToolProvider
+	pm.mu.RUnlock()
+	if pluginContextBuilder != nil {
+		freshPluginContext = func(buildCtx context.Context, authority authz.Authority, targetAgentID string) (agentruntime.PluginContext, error) {
+			pluginContext, err := pluginContextBuilder(buildCtx, authority, targetAgentID)
+			if err != nil {
+				return agentruntime.PluginContext{}, err
+			}
+			if provider, ok := mcpToolProvider.(MCPToolSnapshotProvider); ok {
+				mcpSnapshot, snapshotErr := provider.ToolsForSnapshotWithDirectory(buildCtx, pluginContext.Snapshot())
+				if snapshotErr != nil {
+					return agentruntime.PluginContext{}, snapshotErr
+				}
+				pluginContext = pluginContext.WithMCPToolSnapshot(mcpSnapshot)
+			}
+			return pluginContext, nil
+		}
+	}
+
 	cfg := agentruntime.Config{
-		NewRunner:       factory,
-		Memory:          pm.mem,
-		IdleTimeout:     pm.idleTimeout,
-		DefaultModel:    snap.ResolveModelID(config.ModelTierNormal),
-		DefaultThinking: snap.ResolveThinkingLevel(config.ModelTierNormal),
-		HooksFn:         pm.HookPlugins,
-		BeforeRun:       pm.runtimeBeforeRunFunc(snap),
-		SnapshotPrompt:  pm.buildSnapshotPromptFunc(snap),
-		SessionImages:   pm.sessionImages,
+		NewRunner:            factory,
+		PluginContextBuilder: freshPluginContext,
+		Memory:               pm.mem,
+		IdleTimeout:          pm.idleTimeout,
+		DefaultModel:         snap.ResolveModelID(config.ModelTierNormal),
+		DefaultThinking:      snap.ResolveThinkingLevel(config.ModelTierNormal),
+		HooksFn:              pm.HookPlugins,
+		BeforeRun:            pm.runtimeBeforeRunFunc(snap),
+		SnapshotPrompt:       pm.buildSnapshotPromptFunc(snap),
+		SessionImages:        pm.sessionImages,
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,
 		},
+	}
+	if pm.skillRevisionReader != nil && pm.skillReadAuthz != nil {
+		cfg.SkillTurnCapture = pm.skillTurnHooks(snap)
+		cfg.SkillTurnOwner = &skillstool.ActiveTurnOwner{}
 	}
 	rt, err := agentruntime.New(cfg)
 	if err != nil {
@@ -518,6 +547,54 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	svc := &Service{Sessions: reg, Runtime: rt, SessionAccess: sessionAccess, SessionInbox: pm.sessionInbox, AgentID: agentID, lifecycle: pm.lifecycle}
 	rt.SetDelegateRunner(svc)
 	return svc, nil
+}
+
+// skillTurnHooks resolve one immutable Skill view at turn admission and keep
+// its managed revisions reachable until the turn's final cleanup path. The
+// callbacks live on the Runtime boundary so overrides, delegation, and
+// auto-compaction all inherit the same context.
+func (pm *PoolManager) skillTurnHooks(snap *config.Snapshot) agentruntime.SkillTurnCapture {
+	capture := func(ctx context.Context, info session.Info, _ agentruntime.PluginContext) (context.Context, error) {
+		var project *skillstool.ProjectSnapshot
+		var projectContext prompt.ProjectContext
+		if info.ProjectID != "" && info.UserID != "" {
+			if pm.projectResolver == nil {
+				return nil, errors.New("project resolver is not configured")
+			}
+			projectSnapshot, err := SnapshotAuthorizedProject(ctx, pm.projectResolver, pm.homeWorkspace, info.ProjectID, info.UserID, info.AgentID)
+			if err != nil {
+				return nil, err
+			}
+			project = projectSnapshot.Skills
+			projectContext = projectSnapshot.Context
+		}
+		var disabled []string
+		if pm.snapshots != nil {
+			current, err := pm.snapshots.Snapshot(ctx, info.AgentID)
+			if err != nil {
+				return nil, fmt.Errorf("load current agent snapshot: %w", err)
+			}
+			disabled = slices.Clone(current.DisabledSkillRefs)
+		} else if snap != nil {
+			disabled = slices.Clone(snap.DisabledSkillRefs)
+		}
+		viewUserID := info.UserID
+		if info.GroupID != "" {
+			viewUserID = ""
+		}
+		view, err := skillstool.CaptureSkillTurnView(ctx, pm.skillRevisionReader, pm.skillReadAuthz, project, nil, skillstool.ViewContext{
+			UserID: viewUserID, AgentID: info.AgentID, DisabledSkillRefs: disabled,
+		})
+		if err != nil {
+			return nil, err
+		}
+		ctx = skillstool.WithSkillTurnView(ctx, view)
+		if info.ProjectID != "" {
+			ctx = prompt.WithProjectContext(ctx, projectContext)
+		}
+		return ctx, nil
+	}
+	return capture
 }
 
 // promptScope computes only the logical profile subject. Group sessions blank
@@ -568,7 +645,13 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 		promptUserID, groupID := pm.promptScope(info)
 		var projectContext prompt.ProjectContext
 		var projectSkills *skillstool.ProjectSnapshot
-		if info.ProjectID != "" {
+		if capturedContext, ok := prompt.ProjectContextFromContext(ctx); ok {
+			projectContext = capturedContext
+			if turn, turnOK := skillstool.SkillTurnViewFromContext(ctx); turnOK {
+				projectSkills = turn.ProjectSnapshot()
+			}
+		}
+		if info.ProjectID != "" && projectSkills == nil {
 			if pm.projectResolver == nil {
 				return "", errors.New("project resolver is not configured")
 			}
@@ -583,8 +666,12 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 			return "", err
 		}
 
+		systemPrompt := snap.SystemPrompt
+		if override, ok := agentctx.SystemOverrideFromContext(ctx); ok && override != "" {
+			systemPrompt = override
+		}
 		return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-			SystemPrompt:    snap.SystemPrompt,
+			SystemPrompt:    systemPrompt,
 			AgentSoul:       snap.Soul,
 			Memory:          pm.mem,
 			UserID:          promptUserID,
@@ -707,8 +794,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 		oldPlugins := pm.hookPlugins
 		pm.hookPlugins = nil
 		pm.mu.Unlock()
-		closeHookPlugins(oldPlugins)
-		return nil
+		return closeHookPlugins(oldPlugins)
 	}
 	for _, agentID := range ids {
 		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
@@ -1220,10 +1306,10 @@ func (pm *PoolManager) Close() error {
 	}
 	pm.closed = true
 	pm.mu.Unlock()
-	closeHookPlugins(hookPlugins)
+	lastErr = errors.Join(lastErr, closeHookPlugins(hookPlugins))
 	// Core hooks (trace) are closed last so their end-of-session spans flush
 	// after every runtime has stopped producing new ones.
-	closeHookPlugins(coreHooks)
+	lastErr = errors.Join(lastErr, closeHookPlugins(coreHooks))
 	if pm.mem != nil {
 		if err := pm.mem.Close(); err != nil {
 			lastErr = err
@@ -1232,7 +1318,8 @@ func (pm *PoolManager) Close() error {
 	return lastErr
 }
 
-func closeHookPlugins(plugins []hooks.HookPlugin) {
+func closeHookPlugins(plugins []hooks.HookPlugin) error {
+	var errs []error
 	for _, plugin := range plugins {
 		closer, ok := plugin.(io.Closer)
 		if !ok {
@@ -1240,6 +1327,8 @@ func closeHookPlugins(plugins []hooks.HookPlugin) {
 		}
 		if err := closer.Close(); err != nil {
 			slog.Warn("failed to close hook", "name", plugin.Name(), "error", err)
+			errs = append(errs, err)
 		}
 	}
+	return errors.Join(errs...)
 }

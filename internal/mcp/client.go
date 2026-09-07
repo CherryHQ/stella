@@ -59,8 +59,9 @@ var (
 // Client is a live connection to one external MCP server. It is safe to Close
 // more than once.
 type Client struct {
-	session   *mcpsdk.ClientSession
-	closeOnce sync.Once
+	session *mcpsdk.ClientSession
+	closeMu sync.Mutex
+	closed  bool
 }
 
 // Connect opens an MCP session to the server described by reg, injecting the
@@ -201,8 +202,15 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 // Close ends the session. Idempotent so multiple tool wrappers can share one
 // client and each safely Close it on registry teardown.
 func (c *Client) Close() error {
-	var err error
-	c.closeOnce.Do(func() { err = c.session.Close() })
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
+	if c.closed {
+		return nil
+	}
+	err := c.session.Close()
+	if err == nil {
+		c.closed = true
+	}
 	return err
 }
 

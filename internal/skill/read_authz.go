@@ -1,6 +1,11 @@
 package skill
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+var ErrSkillReadUnavailable = errors.New("skills: read authorization is unavailable")
 
 // SkillReadAuthorizer authorizes DB-backed skill reads for one skills-tool
 // invocation. It is the narrow, consumer-owned port that lets the tool use the

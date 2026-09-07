@@ -48,6 +48,11 @@ type PromptSkillSectionBuilder func(context.Context, pkgplugins.SystemPromptCont
 
 type PromptSectionsBuilder func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
 
+// PromptSkillTurnCapture binds one immutable Skill selection to a prompt
+// preview context. Runtime turns use the stronger admission hook; previews
+// still need the same resolver so prompt/search/load cannot drift.
+type PromptSkillTurnCapture func(context.Context, agentsession.Info, *skill.ProjectSnapshot, []string) (context.Context, error)
+
 type SystemPromptBuildInput struct {
 	Info agentsession.Info
 }
@@ -60,6 +65,7 @@ type SystemPromptDeps struct {
 	PluginContextBuilder  agentruntime.PluginContextBuilder
 	PromptSectionsBuilder PromptSectionsBuilder
 	Skills                PromptSkillSectionBuilder
+	SkillTurnCapture      PromptSkillTurnCapture
 	// SandboxBackendFn lets prompt construction preserve bundled declarations
 	// for Docker, whose Linux image is the authority on runtime availability.
 	// Other backends filter against the current host's trusted assets.
@@ -143,6 +149,7 @@ func (b *SystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Context, in S
 			return "", fmt.Errorf("%w: project context: %w", ErrUnavailable, err)
 		}
 		projectContext, projectSkills = projectSnapshot.Context, projectSnapshot.Skills
+		ctx = prompt.WithProjectContext(ctx, projectContext)
 	}
 
 	pluginContext := agentruntime.PluginContext{}
@@ -177,6 +184,13 @@ func (b *SystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Context, in S
 		RegisteredPluginIDs: slices.Clone(pluginView.RegisteredPluginIDs),
 		EnabledPluginIDs:    slices.Clone(pluginView.ExposedPluginIDs),
 		DisabledSkillRefs:   disabledSkillRefs,
+	}
+	if info.GuestID == "" && b.deps.SkillTurnCapture != nil {
+		captured, err := b.deps.SkillTurnCapture(ctx, info, projectSkills, disabledSkillRefs)
+		if err != nil {
+			return "", fmt.Errorf("%w: skill turn view: %w", ErrUnavailable, err)
+		}
+		ctx = captured
 	}
 	var promptSections []pkgplugins.SystemPromptSection
 	if hasPluginAuthority {

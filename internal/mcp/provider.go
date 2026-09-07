@@ -16,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/diagnostic"
 	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -60,18 +61,35 @@ func NewToolProvider(svc *Service) *ToolProvider {
 // package. It reads observations internally for this snapshot's
 // trusted authority, so callers never supply an arbitrary owner or cache.
 func (p *ToolProvider) ToolsForSnapshot(ctx context.Context, snapshot plugin.Snapshot) ([]tools.Tool, error) {
-	authority := snapshot.Authority()
-	if !authority.Valid() {
-		return nil, authz.ErrForbidden
-	}
-	if p == nil || p.svc == nil {
-		return nil, nil
-	}
-	registrations, err := p.svc.RegistrationsForSnapshot(ctx, snapshot)
+	result, err := p.ToolsForSnapshotWithDirectory(ctx, snapshot)
 	if err != nil {
 		return nil, err
 	}
-	return p.toolsForRegistrations(ctx, registrations, true, string(authority.UserID())), nil
+	return result.Tools, nil
+}
+
+// ToolsForSnapshotWithDirectory projects the MCP directory and its successful
+// tool set in one observation read. The runner stores both parts in its
+// immutable PluginContext, so cache identity and model-facing tools cannot be
+// assembled from different probe generations.
+func (p *ToolProvider) ToolsForSnapshotWithDirectory(ctx context.Context, snapshot plugin.Snapshot) (pkgplugins.MCPToolSnapshot, error) {
+	authority := snapshot.Authority()
+	if !authority.Valid() {
+		return pkgplugins.MCPToolSnapshot{}, authz.ErrForbidden
+	}
+	if p == nil || p.svc == nil {
+		return pkgplugins.MCPToolSnapshot{}, nil
+	}
+	registrations, err := p.svc.RegistrationsForSnapshot(ctx, snapshot)
+	if err != nil {
+		return pkgplugins.MCPToolSnapshot{}, err
+	}
+	tools, outcomes := p.toolsForRegistrationsDetailed(ctx, registrations, true, string(authority.UserID()))
+	return pkgplugins.MCPToolSnapshot{
+		Tools:               tools,
+		Directory:           mcpDirectory(registrations, outcomes),
+		SuccessfulPluginIDs: successfulPluginIDs(registrations, outcomes),
+	}, nil
 }
 
 // observationsForSnapshot reads only config IDs visible to this snapshot and
@@ -225,9 +243,26 @@ func registrationsFromResolvedConfig(def plugin.Definition, cfg plugin.Config, e
 }
 
 func (p *ToolProvider) toolsForRegistrations(ctx context.Context, regs []Registration, allowDiscovery bool, userID string) []tools.Tool {
+	result, _ := p.toolsForRegistrationsDetailed(ctx, regs, allowDiscovery, userID)
+	return result
+}
+
+type registrationToolsResult struct {
+	tools       []tools.Tool
+	catalog     []CatalogTool
+	ready       bool
+	status      string
+	statusError string
+}
+
+func (p *ToolProvider) toolsForRegistrationsDetailed(ctx context.Context, regs []Registration, allowDiscovery bool, userID string) ([]tools.Tool, []registrationToolsResult) {
 	type result struct {
-		index int
-		tools []tools.Tool
+		index       int
+		tools       []tools.Tool
+		catalog     []CatalogTool
+		ready       bool
+		status      string
+		statusError string
 	}
 	limit := p.concurrency
 	if limit <= 0 {
@@ -248,19 +283,22 @@ func (p *ToolProvider) toolsForRegistrations(ctx context.Context, regs []Registr
 			// rejected; a per_user registration without this user's bundle has
 			// nothing to authenticate with. Only a reconnect from the Web UI
 			// fixes either.
+			results <- result{index: i, status: reg.Status, statusError: reg.StatusError}
 			continue
 		}
 		if catalog, ok := freshCatalog(reg); ok {
 			if err := validateCatalogTools(reg, catalog); err != nil {
 				p.log.Warn("mcp cached catalog is invalid; skipping server", "server", reg.Name, "error", err)
+				results <- result{index: i, status: reg.Status, statusError: err.Error()}
 				continue
 			}
-			results <- result{index: i, tools: p.catalogProxies(reg, catalog, owner)}
+			results <- result{index: i, tools: p.catalogProxies(reg, catalog, owner), catalog: catalog, ready: true, status: reg.Status, statusError: reg.StatusError}
 			continue
 		}
 		if !allowDiscovery {
 			continue
 		}
+		index, registration, credentialOwner := i, reg, owner
 		wg.Go(func() {
 			select {
 			case sem <- struct{}{}:
@@ -268,7 +306,8 @@ func (p *ToolProvider) toolsForRegistrations(ctx context.Context, regs []Registr
 			case <-discoveryCtx.Done():
 				return
 			}
-			results <- result{index: i, tools: p.discover(discoveryCtx, reg, owner)}
+			tools, catalog, ready, status, statusErr := p.discover(discoveryCtx, registration, credentialOwner)
+			results <- result{index: index, tools: tools, catalog: catalog, ready: ready, status: status, statusError: statusErr}
 		})
 	}
 	go func() {
@@ -278,14 +317,14 @@ func (p *ToolProvider) toolsForRegistrations(ctx context.Context, regs []Registr
 
 	// Collect by registration index so name collisions resolve by scope
 	// precedence (regs is ordered most-specific-first), not by arrival order.
-	byIndex := make([][]tools.Tool, len(regs))
+	outcomes := make([]registrationToolsResult, len(regs))
 	for res := range results {
-		byIndex[res.index] = res.tools
+		outcomes[res.index] = registrationToolsResult{tools: res.tools, catalog: res.catalog, ready: res.ready, status: res.status, statusError: res.statusError}
 	}
 	seen := map[string]struct{}{}
 	var out []tools.Tool
-	for _, serverTools := range byIndex {
-		for _, tool := range serverTools {
+	for i := range outcomes {
+		for _, tool := range outcomes[i].tools {
 			name := tool.Definition().Name
 			if _, ok := seen[name]; ok {
 				p.log.Warn("mcp tool name collision; skipping duplicate", "tool", name)
@@ -295,13 +334,101 @@ func (p *ToolProvider) toolsForRegistrations(ctx context.Context, regs []Registr
 			out = append(out, tool)
 		}
 	}
+	return out, outcomes
+}
+
+func mcpDirectory(regs []Registration, outcomes []registrationToolsResult) []pkgplugins.MCPDirectoryEntry {
+	entries := make([]pkgplugins.MCPDirectoryEntry, 0, len(regs))
+	for i, reg := range regs {
+		if !reg.Enabled || i >= len(outcomes) {
+			continue
+		}
+		entry := pkgplugins.MCPDirectoryEntry{
+			PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
+				PluginID: reg.PluginID,
+				ConfigID: reg.ParentConfigID,
+				Scope:    reg.Scope,
+				Revision: reg.ConfigRevision,
+			},
+			ServerKey: reg.ServerKey,
+			Ready:     outcomes[i].ready, Status: outcomes[i].status, StatusError: outcomes[i].statusError,
+			Tools: make([]pkgplugins.MCPToolDescriptor, 0, len(outcomes[i].tools)),
+		}
+		for _, tool := range outcomes[i].tools {
+			if tool != nil {
+				definition := tool.Definition()
+				entry.Tools = append(entry.Tools, pkgplugins.MCPToolDescriptor{Name: definition.Name, Description: definition.Description, InputSchema: cloneAnyMap(definition.InputSchema), Annotations: catalogAnnotations(reg, outcomes[i].catalog, definition.Name)})
+			}
+		}
+		slices.SortFunc(entry.Tools, func(left, right pkgplugins.MCPToolDescriptor) int { return strings.Compare(left.Name, right.Name) })
+		entries = append(entries, entry)
+	}
+	slices.SortFunc(entries, func(left, right pkgplugins.MCPDirectoryEntry) int {
+		if left.PluginID != right.PluginID {
+			return strings.Compare(left.PluginID, right.PluginID)
+		}
+		if left.ConfigID != right.ConfigID {
+			return strings.Compare(left.ConfigID, right.ConfigID)
+		}
+		return strings.Compare(left.ServerKey, right.ServerKey)
+	})
+	return entries
+}
+
+func catalogAnnotations(reg Registration, catalogTools []CatalogTool, exportedName string) map[string]any {
+	if len(catalogTools) == 0 {
+		catalogTools = reg.Tools
+	}
+	for _, catalog := range catalogTools {
+		if exportedToolName(reg, catalog.Name) == exportedName {
+			return cloneSchema(catalog.Annotations)
+		}
+	}
+	return nil
+}
+
+func cloneAnyMap(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
 	return out
+}
+
+func successfulPluginIDs(regs []Registration, outcomes []registrationToolsResult) []string {
+	ready := make(map[string]bool)
+	for i, reg := range regs {
+		if reg.PluginID == "" || !reg.Enabled {
+			continue
+		}
+		if _, ok := ready[reg.PluginID]; !ok {
+			ready[reg.PluginID] = true
+		}
+		if i >= len(outcomes) || !outcomes[i].ready {
+			ready[reg.PluginID] = false
+		}
+	}
+	ids := make([]string, 0, len(ready))
+	for id := range ready {
+		if ready[id] {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids
 }
 
 // freshCatalog reports whether the registration carries a persisted catalog
 // good enough to build proxies without connecting.
 func freshCatalog(reg Registration) ([]CatalogTool, bool) {
-	if reg.Status != StatusOK || len(reg.Tools) == 0 {
+	if reg.Status != StatusOK {
 		return nil, false
 	}
 	if reg.ProbedAt.IsZero() || time.Since(reg.ProbedAt) > catalogMaxAge {
@@ -312,22 +439,22 @@ func freshCatalog(reg Registration) ([]CatalogTool, bool) {
 
 // discover cold-probes one server via the service, which persists both success
 // and failure, then returns proxies from the refreshed catalog.
-func (p *ToolProvider) discover(ctx context.Context, reg Registration, owner CredentialOwner) []tools.Tool {
+func (p *ToolProvider) discover(ctx context.Context, reg Registration, owner CredentialOwner) ([]tools.Tool, []CatalogTool, bool, string, string) {
 	updated, err := p.svc.Probe(ctx, reg, owner)
 	if err != nil {
 		p.log.Warn("mcp cold discovery failed; skipping server", "server", reg.Name, "url", diagnostic.Endpoint(reg.URL), "error", err)
-		return nil
+		return nil, nil, false, "error", err.Error()
 	}
 	if updated.Status != StatusOK {
 		p.log.Warn("mcp probe failed; skipping server", "server", reg.Name, "url", diagnostic.Endpoint(reg.URL), "status", updated.Status, "reason", updated.StatusError)
-		return nil
+		return nil, nil, false, updated.Status, updated.StatusError
 	}
 	catalog, ok := freshCatalog(updated)
 	if !ok {
 		// ok with an empty catalog: the server advertised no tools.
-		return nil
+		return nil, catalog, true, updated.Status, updated.StatusError
 	}
-	return p.catalogProxies(updated, catalog, owner)
+	return p.catalogProxies(updated, catalog, owner), catalog, true, updated.Status, updated.StatusError
 }
 
 func (p *ToolProvider) catalogProxies(reg Registration, catalog []CatalogTool, owner CredentialOwner) []tools.Tool {

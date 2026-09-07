@@ -20,6 +20,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -452,6 +453,19 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		SandboxBackendFn:      func(context.Context) string { return config.ActiveSandboxBackend() },
 		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
 			return skill.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
+		},
+		SkillTurnCapture: func(ctx context.Context, info session.Info, project *skill.ProjectSnapshot, disabled []string) (context.Context, error) {
+			userID := info.UserID
+			if info.GroupID != "" {
+				userID = ""
+			}
+			view, err := skill.CaptureSkillTurnView(ctx, skillStore, skillAccess, project, nil, skill.ViewContext{
+				UserID: userID, AgentID: info.AgentID, DisabledSkillRefs: disabled,
+			})
+			if err != nil {
+				return nil, err
+			}
+			return skill.WithSkillTurnView(ctx, view), nil
 		},
 	})
 	if err != nil {
