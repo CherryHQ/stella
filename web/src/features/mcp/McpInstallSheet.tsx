@@ -16,11 +16,7 @@ import {
   RegistryDetailBody,
   RegistryRepositoryLink,
 } from "@/features/mcp/McpRegistryCard";
-import {
-  buildInstallRequest,
-  registryPluginNamespace,
-  useMcpMarketInstall,
-} from "./useMcpMarketInstall";
+import { buildInstallRequest, registryPluginID, useMcpMarketInstall } from "./useMcpMarketInstall";
 import { mcpRegistryInfiniteQueryOptions } from "@/lib/queries/mcp";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -66,7 +62,7 @@ export function McpInstallSheet({
   agentId?: string;
   isAdmin?: boolean;
   manual?: React.ReactNode;
-  onRequestManual?: (prefill: { name: string; namespace: string; url: string }) => void;
+  onRequestManual?: (prefill: { name: string; pluginID: string; url: string }) => void;
 }) {
   const { t } = useI18n();
   const [mode, setMode] = useState<Mode>("market");
@@ -105,7 +101,7 @@ export function McpInstallSheet({
     if (detail.auth === "unsupported") {
       onRequestManual?.({
         name: detail.name,
-        namespace: registryPluginNamespace(detail.id),
+        pluginID: registryPluginID(detail.id),
         url: detail.url,
       });
       onOpenChange(false);

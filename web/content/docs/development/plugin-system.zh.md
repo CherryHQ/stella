@@ -27,12 +27,14 @@ Native 管理 API 只接受管理员认证，OAuth access token 无法访问。
 
 ## 定义与配置
 
-`PluginDefinition` 确定集成身份、命名空间、后端、发行资源与默认启用状态。
+`PluginDefinition.ID` 是唯一的规范包名，定义还包含后端、发行资源与默认启用状态。
 Builtin 定义来自可信的发行声明，数据库中的 builtin 行只是投影。
 Agent 定义只包含 CLI 或 MCP 资源。编译进程序的 Go 实现通过独立 Native 路径注册和管理。
 
 管理路由使用 `/api/plugins/{plugin_id}` 及其子资源。将目录返回的完整 ID 编码为一个
 URL 路径段；后端类型和源码目录分类不参与请求寻址。
+名称由 1–64 个小写字母、数字、点和短横线组成，首尾必须是字母或数字，不能包含
+`..` 或 `--`。重名创建失败，不自动添加后缀。创建后身份不可修改，显示名称可以修改。
 
 `PluginConfig` 保存某个定义在一个范围内的决策：
 
@@ -49,7 +51,7 @@ agent、system。System 或匹配的 system agent 显式设为 `false`，分别�
 
 Agent Plugin 的配置模型是一份 `PluginDefinition`，加上四种范围元组各自至多一份
 `PluginConfig`。`user_id` 和 `agent_id` 由可信 authority 推导，不能接受调用方自填身份。
-Definition 拥有稳定的实现和 namespace 身份；所选 Config 拥有该范围的后端 payload 与凭据。
+Definition 拥有稳定的包身份和实现；所选 Config 拥有该范围的后端 payload 与凭据。
 
 所选范围独立拥有配置，可以覆盖发行定义中的字段，但不同范围之间不合并字段或凭据。
 所选配置禁用或不完整时，不回退到更宽范围。Builtin 使用相同规则，管理员可以禁用。
@@ -59,10 +61,13 @@ Definition 拥有稳定的实现和 namespace 身份；所选 Config 拥有该�
 公共服务从可信用户、Agent 或群组身份解析快照。Runner 在创建时捕获一次，Agent
 Plugin 资源、Skills 和环境变量使用这一代配置。Native 工具和 hooks 读取独立策略。
 
-Agent Plugin 资源遵循命名空间的胜出定义。Native 工具和 hooks 不进入这份快照，
-自定义 MCP 不能通过认领同名 namespace 获得 Native 能力。Native 准入使用可信注册 ID
-和独立策略。模型可见工具名采用
-`{namespace}__{local_name}`，授权使用可信 plugin ID 和本地工具身份，不解析展示名称。
+每个 Agent Plugin 按精确包 ID 解析，不同包不会替换彼此的资源。Native 工具和 hooks
+不进入这份快照；同名 Agent 包不能获得 Native 准入，Native 仍使用可信注册 ID 和独立策略。
+
+MCP 导出名由包名、server key 和远端工具名适配为最多 64 字符的 ASCII 名称，
+带确定性的 12 位十六进制哈希后缀。当前单服务器配置使用 `main` 作为 server key，
+实际暴露前检查整组工具是否重名。授权使用可信包身份与本地工具身份，不解析展示名称。
+Native 工具保留已注册的静态名称。
 
 配置写入在执行准入屏障内原子提交。空闲 runner 被回收，已经开始的 turn 可以结束后
 再回收 runner。凭据读取仍必须匹配捕获的配置版本，旧 runner 不能把新凭据发给旧地址。

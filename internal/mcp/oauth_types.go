@@ -52,7 +52,6 @@ type oauthFlowConfig struct {
 	// Common plugin identity is persisted with the one-shot flow so the
 	// callback never has to rediscover a legacy mcp_server row by UUID.
 	PluginID         string `json:"plugin_id,omitempty"`
-	Namespace        string `json:"namespace,omitempty"`
 	ConfigRevision   int64  `json:"config_revision,omitempty"`
 	ConfigScope      string `json:"config_scope,omitempty"`
 	ConfigUserID     string `json:"config_user_id,omitempty"`

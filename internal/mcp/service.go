@@ -125,7 +125,7 @@ func (s *Service) SnapshotForAuthority(ctx context.Context, authority authz.Auth
 	return s.plugins.ResolveSnapshot(ctx, authority, agentID)
 }
 
-// RegistrationsForSnapshot projects the exact enabled MCP namespace winners
+// RegistrationsForSnapshot projects the exact enabled MCP package entries
 // and their persisted observations for an already-authorized snapshot.
 func (s *Service) RegistrationsForSnapshot(ctx context.Context, snapshot plugin.Snapshot) ([]Registration, error) {
 	authority := snapshot.Authority()
@@ -878,7 +878,7 @@ func (s *Service) createCommonForAuthority(ctx context.Context, authority authz.
 			return err
 		}
 		created, err := access.CreateConfig(mutationCtx, plugin.Config{
-			PluginID: in.PluginID, Namespace: def.Namespace, Scope: plugin.Scope(in.Scope),
+			PluginID: in.PluginID, Scope: plugin.Scope(in.Scope),
 			UserID: in.UserID, AgentID: in.AgentID, Enabled: createInputEnabled(in),
 			Payload: initialPayload, CredentialRefs: json.RawMessage(`{}`),
 		})
@@ -1387,14 +1387,9 @@ func (s *Service) probeCommon(ctx context.Context, reg Registration, owner Crede
 func validateCatalogTools(reg Registration, catalog []CatalogTool) error {
 	seen := make(map[string]struct{}, len(catalog))
 	for _, catalogTool := range catalog {
-		local := SanitizeIdent(catalogTool.Name, "tool")
 		name := exportedToolName(reg, catalogTool.Name)
-		if reg.Namespace != "" {
-			var err error
-			name, err = plugin.ExportedToolName(reg.Namespace, local)
-			if err != nil {
-				return fmt.Errorf("mcp: invalid discovered tool name: %w", err)
-			}
+		if name == "" {
+			return fmt.Errorf("mcp: invalid discovered tool name")
 		}
 		if _, duplicate := seen[name]; duplicate {
 			return fmt.Errorf("mcp: discovered catalog has duplicate exported tool name")

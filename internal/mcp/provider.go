@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +15,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/platform/diagnostic"
 	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -54,9 +55,9 @@ func NewToolProvider(svc *Service) *ToolProvider {
 }
 
 // ToolsForSnapshot builds MCP tools from an already resolved plugin snapshot.
-// The snapshot is the single source of truth for definition/config winners;
-// this method never re-queries plugin configuration or falls back to a
-// shadowed namespace. It reads observations internally for this snapshot's
+// The snapshot is the single source of truth for definition/config entries;
+// this method never re-queries plugin configuration or falls back to another
+// package. It reads observations internally for this snapshot's
 // trusted authority, so callers never supply an arbitrary owner or cache.
 func (p *ToolProvider) ToolsForSnapshot(ctx context.Context, snapshot plugin.Snapshot) ([]tools.Tool, error) {
 	authority := snapshot.Authority()
@@ -145,35 +146,29 @@ func (s *Service) observationsForSnapshot(ctx context.Context, snapshot plugin.S
 
 func mcpRegistrationsFromSnapshot(snapshot plugin.Snapshot, observations map[string]PluginMCPObservation, authority authz.Authority) ([]Registration, error) {
 	defs := snapshot.Definitions()
-	namespaces := make(map[string]struct{}, len(defs))
-	for _, def := range defs {
-		namespaces[def.Namespace] = struct{}{}
-	}
-	orderedNamespaces := slices.Sorted(maps.Keys(namespaces))
+	slices.SortFunc(defs, func(a, b plugin.Definition) int { return strings.Compare(a.ID, b.ID) })
 
-	registrations := make([]Registration, 0, len(orderedNamespaces))
-	for _, namespace := range orderedNamespaces {
-		effective, err := snapshot.ResolveNamespace(namespace)
+	registrations := make([]Registration, 0, len(defs))
+	exportedNames := make(map[string]string)
+	for _, def := range defs {
+		if def.Backend != plugin.BackendMCP {
+			continue
+		}
+		effective, err := snapshot.Resolve(def.ID)
 		if errors.Is(err, plugin.ErrNotFound) {
-			// A visible negative-only definition does not claim its namespace.
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("resolve MCP namespace %q: %w", namespace, err)
+			return nil, fmt.Errorf("resolve MCP package %q: %w", def.ID, err)
 		}
-		if effective.PluginID == "" {
-			return nil, fmt.Errorf("resolve MCP namespace %q returned no plugin", namespace)
-		}
-		resolved, ok := snapshot.Get(effective.PluginID)
+		resolved, ok := snapshot.Get(def.ID)
 		if !ok {
-			return nil, fmt.Errorf("resolve MCP namespace %q selected missing plugin %q", namespace, effective.PluginID)
+			return nil, fmt.Errorf("resolve MCP package %q returned missing definition", def.ID)
 		}
-		if resolved.Definition.Namespace != namespace || resolved.Effective.ConfigID != effective.ConfigID {
-			return nil, fmt.Errorf("resolve MCP namespace %q returned inconsistent winner", namespace)
+		if resolved.Definition.ID != def.ID || resolved.Effective.PluginID != def.ID || resolved.Effective.ConfigID != effective.ConfigID {
+			return nil, fmt.Errorf("resolve MCP package %q returned inconsistent entry", def.ID)
 		}
 		if !effective.IsEffectivelyEnabled || resolved.Definition.Backend != plugin.BackendMCP || resolved.Config == nil || len(resolved.Config.Payload) == 0 {
-			// A different backend owns this namespace, or a negative/no-payload
-			// record won. Neither case may fall through to another definition.
 			continue
 		}
 		observation := observations[resolved.Config.ID]
@@ -181,16 +176,15 @@ func mcpRegistrationsFromSnapshot(snapshot plugin.Snapshot, observations map[str
 		if err != nil {
 			return nil, fmt.Errorf("convert MCP config %q: %w", resolved.Config.ID, err)
 		}
-		exportedNames := make(map[string]struct{}, len(registration.Tools))
 		for _, catalogTool := range registration.Tools {
-			name, err := plugin.ExportedToolName(registration.Namespace, SanitizeIdent(catalogTool.Name, "tool"))
+			name, err := agentpackage.ExportedToolName(registration.PluginID, "main", catalogTool.Name)
 			if err != nil {
 				return nil, fmt.Errorf("convert MCP config %q tool %q: %w", resolved.Config.ID, catalogTool.Name, err)
 			}
-			if _, duplicate := exportedNames[name]; duplicate {
-				return nil, fmt.Errorf("MCP config %q has duplicate exported tool name %q", resolved.Config.ID, name)
+			if prior, duplicate := exportedNames[name]; duplicate {
+				return nil, fmt.Errorf("MCP configs %q and %q collide on exported tool name %q", prior, resolved.Config.ID, name)
 			}
-			exportedNames[name] = struct{}{}
+			exportedNames[name] = resolved.Config.ID
 		}
 		registrations = append(registrations, registration)
 	}
@@ -309,9 +303,9 @@ func (p *ToolProvider) catalogProxies(reg Registration, catalog []CatalogTool, o
 	for _, ct := range catalog {
 		name := exportedToolName(reg, ct.Name)
 		if name == "" {
-			// A registration without a trusted plugin namespace is legacy state.
+			// A registration without a trusted package identity is legacy state.
 			// It cannot enter the model-facing registry under a guessed name.
-			p.log.Warn("mcp catalog has no exported namespace; skipping tool", "server", reg.Name, "tool", ct.Name)
+			p.log.Warn("mcp catalog has no exported package identity; skipping tool", "server", reg.Name, "tool", ct.Name)
 			continue
 		}
 		out = append(out, &toolProxy{
@@ -330,7 +324,7 @@ func (p *ToolProvider) catalogProxies(reg Registration, catalog []CatalogTool, o
 }
 
 func exportedToolName(reg Registration, remoteName string) string {
-	name, _ := plugin.ExportedToolName(reg.Namespace, SanitizeIdent(remoteName, "tool"))
+	name, _ := agentpackage.ExportedToolName(reg.PluginID, "main", remoteName)
 	return name
 }
 

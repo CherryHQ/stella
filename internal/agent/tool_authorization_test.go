@@ -149,7 +149,7 @@ func TestBuiltNativeToolsRecheckGlobalAndAgentAdmission(t *testing.T) {
 		cfg.BuiltinParams.AgentID = agentID
 		cfg.NativePolicy = policy
 		cfg.ToolMetaRegistry = toolmeta.NewRegistry(toolmeta.ActionTool{
-			Name: toolName, PluginID: "system/scheduler", Namespace: "scheduler", LocalName: "job_list",
+			Name: toolName, PluginID: "system/scheduler", LocalName: "job_list",
 		})
 		calls := new(int)
 		callCounts[agentID] = calls

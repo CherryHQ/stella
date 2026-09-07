@@ -13,8 +13,11 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/mcp"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/internal/server"
 )
+
+const catalogedMCPPluginID = "custom-gh"
 
 // fakeRemote is the canned remote MCP client behind mcp.Service's test-only
 // connect hook. Real endpoints are unreachable in tests because the SSRF-safe
@@ -68,7 +71,7 @@ func TestLegacyMCPManagementRoutesRemoved(t *testing.T) {
 func seedCatalogedMCPServer(t *testing.T, env *testEnv) {
 	t.Helper()
 	ctx := context.Background()
-	const pluginID, namespace = "custom/gh", "github"
+	const pluginID = catalogedMCPPluginID
 	configID := uuid.NewString()
 	tools, err := json.Marshal([]mcp.CatalogTool{{
 		Name: "create_issue", Description: "Create an issue.",
@@ -78,16 +81,16 @@ func seedCatalogedMCPServer(t *testing.T, env *testEnv) {
 		t.Fatal(err)
 	}
 	if _, err := env.db.Exec(ctx, `
-		INSERT INTO plugin_definition(id, namespace, display_name, backend, source,
+		INSERT INTO plugin_definition(id, display_name, backend, source,
 			implementation_key, spec, default_enabled, revision)
-		VALUES ($1, $2, 'GitHub', 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1)`, pluginID, namespace); err != nil {
+		VALUES ($1, 'GitHub', 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1)`, pluginID); err != nil {
 		t.Fatalf("seed definition: %v", err)
 	}
 	if _, err := env.db.Exec(ctx, `
-		INSERT INTO plugin_config(id, plugin_id, namespace, scope, user_id, enabled,
+		INSERT INTO plugin_config(id, plugin_id, scope, user_id, enabled,
 			config, credential_refs, revision)
-		VALUES ($1::uuid, $2, $3, 'user', $4::uuid, true,
-			$5::jsonb, '{}'::jsonb, 1)`, configID, pluginID, namespace, env.adminUser.ID,
+		VALUES ($1::uuid, $2, 'user', $3::uuid, true,
+			$4::jsonb, '{}'::jsonb, 1)`, configID, pluginID, env.adminUser.ID,
 		`{"url":"https://mcp.example.com","transport":"streamable_http","auth_type":"none"}`); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
@@ -151,7 +154,11 @@ func TestAgentToolsListIncludesMCPCatalogEntries(t *testing.T) {
 		t.Fatalf("mcp tools = %#v, want exactly the cataloged tool", mcpTools)
 	}
 	tool := mcpTools[0]
-	if tool.Name != "github__create_issue" || tool.Family != "mcp:GitHub" || tool.Control != "override" {
+	wantToolName, err := agentpackage.ExportedToolName(catalogedMCPPluginID, "main", "create_issue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tool.Name != wantToolName || tool.Family != "mcp:GitHub" || tool.Control != "override" {
 		t.Fatalf("mcp tool = %#v", tool)
 	}
 	if tool.Enabled == nil || !*tool.Enabled {
@@ -162,7 +169,10 @@ func TestAgentToolsListIncludesMCPCatalogEntries(t *testing.T) {
 func TestAgentToolOverrideUsesUnifiedMCPIdentity(t *testing.T) {
 	env := setupMCPCatalogEnv(t)
 	agentID := findStellaID(t, env)
-	const toolName = "github__create_issue"
+	toolName, err := agentpackage.ExportedToolName(catalogedMCPPluginID, "main", "create_issue")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// The unified registration carries a trusted plugin/local identity, so a
 	// user-agent override is accepted and is keyed by that identity.
@@ -218,7 +228,7 @@ func TestAgentToolOverrideRejectsUnknownMCPName(t *testing.T) {
 	env := setupMCPCatalogEnv(t)
 	agentID := findStellaID(t, env)
 
-	rr := doRequest(t, env, http.MethodPatch, "/api/agents/"+agentID+"/tools/github__missing",
+	rr := doRequest(t, env, http.MethodPatch, "/api/agents/"+agentID+"/tools/unknown-mcp-tool",
 		map[string]any{"enabled": false, "scope": "user_agent"})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("unknown mcp tool status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
@@ -231,21 +241,21 @@ func TestAgentToolOverrideRejectsUnknownMCPName(t *testing.T) {
 func TestAgentToolsPerUserNeedsAuth(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()
-	const pluginID, namespace = "custom/notion", "notion"
+	const pluginID = "custom-notion"
 	configID := uuid.NewString()
 	if _, err := env.db.Exec(ctx, `
-		INSERT INTO plugin_definition(id, namespace, display_name, backend, source,
+		INSERT INTO plugin_definition(id, display_name, backend, source,
 			implementation_key, spec, default_enabled, revision)
-		VALUES ($1, $2, 'Notion', 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1)`, pluginID, namespace); err != nil {
+		VALUES ($1, 'Notion', 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1)`, pluginID); err != nil {
 		t.Fatalf("seed definition: %v", err)
 	}
 	payload := `{"url":"https://mcp.example.com","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user"}`
 	refs := `{"oauth_bundle":{"name":"MCP_OAUTH_` + strings.ToUpper(strings.ReplaceAll(configID, "-", "_")) + `","mode":"per_user","owner":"per_user"}}`
 	if _, err := env.db.Exec(ctx, `
-		INSERT INTO plugin_config(id, plugin_id, namespace, scope, agent_id, enabled,
+		INSERT INTO plugin_config(id, plugin_id, scope, agent_id, enabled,
 			config, credential_refs, revision)
-		VALUES ($1::uuid, $2, $3, 'system_agent', 'stella', true, $4::jsonb, $5::jsonb, 1)`,
-		configID, pluginID, namespace, payload, refs); err != nil {
+		VALUES ($1::uuid, $2, 'system_agent', 'stella', true, $3::jsonb, $4::jsonb, 1)`,
+		configID, pluginID, payload, refs); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
 	tools, err := json.Marshal([]mcp.CatalogTool{{
@@ -290,8 +300,12 @@ func TestAgentToolsPerUserNeedsAuth(t *testing.T) {
 		Enabled            *bool   `json:"enabled"`
 		AvailabilityReason *string `json:"availability_reason"`
 	}
+	wantToolName, err := agentpackage.ExportedToolName(pluginID, "main", "search")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, item := range got.Tools {
-		if item.Name == "notion__search" {
+		if item.Name == wantToolName {
 			tool = item
 		}
 	}

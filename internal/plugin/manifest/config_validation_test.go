@@ -27,9 +27,9 @@ func testCLIDefinition(t *testing.T) plugin.Definition {
 		t.Fatal(err)
 	}
 	return plugin.Definition{
-		ID: "tool/demo", Namespace: "demo", DisplayName: "Demo",
+		ID: "demo", DisplayName: "Demo",
 		Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin,
-		ImplementationKey: "tool/demo", Spec: spec, DefaultEnabled: true, Revision: 1,
+		ImplementationKey: "demo", Spec: spec, DefaultEnabled: true, Revision: 1,
 	}
 }
 
@@ -44,7 +44,7 @@ func TestSystemPluginRuntimeOwnership(t *testing.T) {
 		}
 		t.Run(definition.ID, func(t *testing.T) {
 			for _, scope := range []plugin.Scope{plugin.ScopeSystem, plugin.ScopeUser} {
-				config := plugin.Config{ID: "config", PluginID: definition.ID, Namespace: definition.Namespace, Scope: scope, Revision: 1, Payload: definition.Spec}
+				config := plugin.Config{ID: "config", PluginID: definition.ID, Scope: scope, Revision: 1, Payload: definition.Spec}
 				if scope == plugin.ScopeUser {
 					config.UserID = "user-1"
 				}
@@ -77,7 +77,7 @@ func TestSystemPluginIdentityCannotBeSpoofed(t *testing.T) {
 	if IsSystemPlugin(definition) {
 		t.Fatal("editable category granted system runtime ownership")
 	}
-	definition.ID = "system/demo"
+	definition.ID = "stella"
 	definition.ImplementationKey = definition.ID
 	if !IsSystemPlugin(definition) {
 		t.Fatal("canonical builtin system CLI was not recognized")
@@ -85,8 +85,8 @@ func TestSystemPluginIdentityCannotBeSpoofed(t *testing.T) {
 	for _, mutate := range []func(*plugin.Definition){
 		func(d *plugin.Definition) { d.Source = plugin.SourceCustom },
 		func(d *plugin.Definition) { d.Backend = plugin.BackendMCP },
-		func(d *plugin.Definition) { d.Namespace = "other" },
-		func(d *plugin.Definition) { d.ImplementationKey = "tool/demo" },
+		func(d *plugin.Definition) { d.ID = "other" },
+		func(d *plugin.Definition) { d.ImplementationKey = "other" },
 	} {
 		spoof := definition
 		mutate(&spoof)
@@ -118,12 +118,12 @@ func testUserPayload(t *testing.T, version string) json.RawMessage {
 
 func TestValidatePayloadAcceptsSystemAndUserOwnership(t *testing.T) {
 	definition := testCLIDefinition(t)
-	system := plugin.Config{ID: "system", PluginID: definition.ID, Namespace: definition.Namespace, Scope: plugin.ScopeSystem, Revision: 1, Enabled: boolPtr(true), Payload: definition.Spec}
+	system := plugin.Config{ID: "system", PluginID: definition.ID, Scope: plugin.ScopeSystem, Revision: 1, Enabled: boolPtr(true), Payload: definition.Spec}
 	if err := ValidatePayload(t.Context(), definition, system, nil); err != nil {
 		t.Fatalf("system payload: %v", err)
 	}
 
-	user := plugin.Config{ID: "user", PluginID: definition.ID, Namespace: definition.Namespace, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(true), Payload: testUserPayload(t, "2.0.0"), CredentialRefs: json.RawMessage(`{"session_env":{"name":"DEMO_OAUTH","scope":"user","user_id":"user-1"}}`)}
+	user := plugin.Config{ID: "user", PluginID: definition.ID, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(true), Payload: testUserPayload(t, "2.0.0"), CredentialRefs: json.RawMessage(`{"session_env":{"name":"DEMO_OAUTH","scope":"user","user_id":"user-1"}}`)}
 	if err := ValidatePayload(t.Context(), definition, user, nil); err != nil {
 		t.Fatalf("user payload: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestValidatePayloadRejectsUserResourceIdentityChanges(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			config := plugin.Config{ID: "user", PluginID: definition.ID, Namespace: definition.Namespace, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(true), Payload: raw}
+			config := plugin.Config{ID: "user", PluginID: definition.ID, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(true), Payload: raw}
 			if err := ValidatePayload(t.Context(), definition, config, tc.resets); !errors.Is(err, plugin.ErrInvalidConfig) {
 				t.Fatalf("error = %v, want invalid config", err)
 			}
@@ -210,7 +210,7 @@ func TestValidatePayloadRejectsSecretsUnknownFieldsAndBadRefs(t *testing.T) {
 				}
 				payload = string(encoded)
 			}
-			config := plugin.Config{ID: "user", PluginID: definition.ID, Namespace: definition.Namespace, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false), Payload: json.RawMessage(payload), CredentialRefs: json.RawMessage(tc.refs)}
+			config := plugin.Config{ID: "user", PluginID: definition.ID, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false), Payload: json.RawMessage(payload), CredentialRefs: json.RawMessage(tc.refs)}
 			err := ValidatePayload(t.Context(), definition, config, nil)
 			if !errors.Is(err, plugin.ErrInvalidConfig) || !contains(err.Error(), tc.wantError) {
 				t.Fatalf("error = %v, want invalid config containing %q", err, tc.wantError)
@@ -221,11 +221,11 @@ func TestValidatePayloadRejectsSecretsUnknownFieldsAndBadRefs(t *testing.T) {
 
 func TestValidatePayloadChecksDisabledPayloadAndResetFields(t *testing.T) {
 	definition := testCLIDefinition(t)
-	disabled := plugin.Config{ID: "user", PluginID: definition.ID, Namespace: definition.Namespace, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false), Payload: json.RawMessage(`{"unexpected":true}`)}
+	disabled := plugin.Config{ID: "user", PluginID: definition.ID, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false), Payload: json.RawMessage(`{"unexpected":true}`)}
 	if err := ValidatePayload(t.Context(), definition, disabled, nil); !errors.Is(err, plugin.ErrInvalidConfig) {
 		t.Fatalf("disabled malformed payload = %v, want invalid config", err)
 	}
-	if err := ValidatePayload(t.Context(), definition, plugin.Config{ID: "user", PluginID: definition.ID, Namespace: definition.Namespace, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false), Payload: testUserPayload(t, "2.0.0")}, []string{"description"}); !errors.Is(err, plugin.ErrInvalidConfig) {
+	if err := ValidatePayload(t.Context(), definition, plugin.Config{ID: "user", PluginID: definition.ID, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false), Payload: testUserPayload(t, "2.0.0")}, []string{"description"}); !errors.Is(err, plugin.ErrInvalidConfig) {
 		t.Fatalf("disabled unauthorized reset = %v, want invalid config", err)
 	}
 	var malformed cliPayload
@@ -238,7 +238,7 @@ func TestValidatePayloadChecksDisabledPayloadAndResetFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	definition.Spec = encoded
-	if err := ValidatePayload(t.Context(), definition, plugin.Config{ID: "negative", PluginID: definition.ID, Namespace: definition.Namespace, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false)}, nil); !errors.Is(err, plugin.ErrInvalidConfig) {
+	if err := ValidatePayload(t.Context(), definition, plugin.Config{ID: "negative", PluginID: definition.ID, Scope: plugin.ScopeUser, UserID: "user-1", Revision: 1, Enabled: boolPtr(false)}, nil); !errors.Is(err, plugin.ErrInvalidConfig) {
 		t.Fatalf("nil payload with malformed definition = %v, want invalid config", err)
 	}
 }

@@ -321,9 +321,8 @@ describe("AgentToolsPanel control contract", () => {
 
 // SAFETY: fixed response fixture satisfies the AgentMCPServer projection shape.
 const healthyServer = {
-  plugin_id: "mcp/github",
+  plugin_id: "github",
   config_id: "srv-1",
-  namespace: "github",
   scope: "user",
   enabled: true,
   status: "ok",
@@ -337,7 +336,7 @@ const healthyServer = {
 const needsAuthServer = {
   ...healthyServer,
   config_id: "srv-2",
-  namespace: "notion",
+  plugin_id: "notion",
   status: "needs_auth",
   needs_auth: true,
 } as import("@/lib/api-client/types.gen").AgentMcpServer;

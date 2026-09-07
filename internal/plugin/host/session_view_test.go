@@ -10,7 +10,7 @@ import (
 )
 
 func TestSelectedResourceIdentityRequiresSelectedConfig(t *testing.T) {
-	definition := plugin.Definition{ID: "tool/demo"}
+	definition := plugin.Definition{ID: "demo"}
 	if _, err := selectedResourceIdentity(definition, plugin.ResolvedPlugin{}); err == nil {
 		t.Fatal("selectedResourceIdentity accepted an enabled plugin without a selected config")
 	}
@@ -26,7 +26,7 @@ func TestSelectedResourceIdentityRequiresSelectedConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("selectedResourceIdentity: %v", err)
 	}
-	want := pkgplugins.PluginResourceIdentity{PluginID: "tool/demo", ConfigID: "config/user-agent", Scope: "user_agent", Revision: 7}
+	want := pkgplugins.PluginResourceIdentity{PluginID: "demo", ConfigID: "config/user-agent", Scope: "user_agent", Revision: 7}
 	if identity != want {
 		t.Fatalf("identity = %+v, want %+v", identity, want)
 	}
@@ -35,7 +35,7 @@ func TestSelectedResourceIdentityRequiresSelectedConfig(t *testing.T) {
 func TestAppendCLIResourcesCarriesIdentityAndClonesOptions(t *testing.T) {
 	options := map[string]any{"extras": "x"}
 	view := pkgplugins.SessionPluginView{}
-	identity := pkgplugins.PluginResourceIdentity{PluginID: "tool/demo", ConfigID: "cfg-1", Scope: "user", Revision: 3}
+	identity := pkgplugins.PluginResourceIdentity{PluginID: "demo", ConfigID: "cfg-1", Scope: "user", Revision: 3}
 	appendCLIResources(&view, identity, manifest.CLIPayload{
 		Binaries: []manifest.ManifestBinary{{Name: "demo", Tool: "github:demo/demo", Version: "1.2.3", Options: options}},
 		Skills:   []manifest.ManifestSkill{{Name: "demo"}},
@@ -63,15 +63,15 @@ func TestAppendCLIResourcesCarriesIdentityAndClonesOptions(t *testing.T) {
 
 func TestValidateResolvedCLIPayloadRejectsIncompleteCapabilityLift(t *testing.T) {
 	definition := plugin.Definition{
-		ID: "tool/demo", Namespace: "demo", DisplayName: "Demo",
+		ID: "demo", DisplayName: "Demo",
 		Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin,
-		ImplementationKey: "tool/demo", DefaultEnabled: false, Revision: 1,
+		ImplementationKey: "demo", DefaultEnabled: false, Revision: 1,
 		Spec: json.RawMessage(`{"binaries":[{"name":"demo","tool":"github:owner/demo","version":"1.0.0"}]}`),
 	}
 	disabled := false
 	resolved := plugin.ResolvedPlugin{
 		Config: &plugin.Config{
-			ID: "cfg-user", PluginID: definition.ID, Namespace: definition.Namespace,
+			ID: "cfg-user", PluginID: definition.ID,
 			Scope: plugin.ScopeUser, UserID: "user-1", Enabled: &disabled, Revision: 1,
 			Payload: json.RawMessage(`{"binaries":null}`),
 		},

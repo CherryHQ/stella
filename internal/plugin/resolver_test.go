@@ -11,7 +11,7 @@ import (
 
 func TestResolveExhaustive256WinnerFirst(t *testing.T) {
 	def := Definition{
-		ID: "builtin/email", Namespace: "email", DisplayName: "Email",
+		ID: "email", DisplayName: "Email",
 		Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "email", Revision: 1,
 		DefaultEnabled: true, Spec: json.RawMessage(`{"schema":1}`),
 	}
@@ -36,7 +36,7 @@ func TestResolveExhaustive256WinnerFirst(t *testing.T) {
 							continue
 						}
 						config := Config{
-							ID: string(scopes[i]) + "-id", PluginID: def.ID, Namespace: def.Namespace,
+							ID: string(scopes[i]) + "-id", PluginID: def.ID,
 							Scope: scopes[i], Payload: states[state].payload,
 							Enabled: states[state].enabled, Revision: 1,
 						}
@@ -87,9 +87,9 @@ func TestResolveCapsCannotBeBypassed(t *testing.T) {
 	falseValue := false
 	trueValue := true
 	configs := []Config{
-		{ID: "system", PluginID: def.ID, Namespace: def.Namespace, Scope: ScopeSystem, Enabled: &falseValue, Revision: 1},
-		{ID: "agent", PluginID: def.ID, Namespace: def.Namespace, Scope: ScopeSystemAgent, AgentID: "agent", Enabled: &trueValue, Payload: json.RawMessage(`{}`), Revision: 1},
-		{ID: "user-agent", PluginID: def.ID, Namespace: def.Namespace, Scope: ScopeUserAgent, UserID: "user", AgentID: "agent", Enabled: &trueValue, Payload: json.RawMessage(`{}`), Revision: 1},
+		{ID: "system", PluginID: def.ID, Scope: ScopeSystem, Enabled: &falseValue, Revision: 1},
+		{ID: "agent", PluginID: def.ID, Scope: ScopeSystemAgent, AgentID: "agent", Enabled: &trueValue, Payload: json.RawMessage(`{}`), Revision: 1},
+		{ID: "user-agent", PluginID: def.ID, Scope: ScopeUserAgent, UserID: "user", AgentID: "agent", Enabled: &trueValue, Payload: json.RawMessage(`{}`), Revision: 1},
 	}
 	got, err := Resolve(def, configs, "user", "agent")
 	if err != nil {
@@ -103,7 +103,7 @@ func TestResolveCapsCannotBeBypassed(t *testing.T) {
 func TestResolveRejectsMismatchedOwner(t *testing.T) {
 	def := testDefinition()
 	value := true
-	got, err := Resolve(def, []Config{{ID: "u", PluginID: def.ID, Namespace: def.Namespace, Scope: ScopeUser, UserID: "other", Enabled: &value, Payload: json.RawMessage(`{}`), Revision: 1}}, "user", "agent")
+	got, err := Resolve(def, []Config{{ID: "u", PluginID: def.ID, Scope: ScopeUser, UserID: "other", Enabled: &value, Payload: json.RawMessage(`{}`), Revision: 1}}, "user", "agent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestResolveBackendSourceMatrix(t *testing.T) {
 				name := string(backend) + "/" + string(source) + "/" + fmt.Sprint(defaultEnabled)
 				t.Run(name, func(t *testing.T) {
 					def := Definition{
-						ID: "matrix/" + name, Namespace: "matrix-" + string(backend) + "-" + string(source), DisplayName: name,
+						ID: "matrix-" + string(backend) + "-" + string(source) + "-" + fmt.Sprint(defaultEnabled), DisplayName: name,
 						Backend: backend, Source: source, ImplementationKey: name, Spec: json.RawMessage(`{"kind":"matrix"}`),
 						DefaultEnabled: defaultEnabled, Revision: 1,
 					}
@@ -165,8 +165,8 @@ func TestResolveBackendSourceMatrix(t *testing.T) {
 					}
 					trueValue, falseValue := true, false
 					got, err = Resolve(def, []Config{
-						{ID: "system", PluginID: def.ID, Namespace: def.Namespace, Scope: ScopeSystem, Enabled: &falseValue, Revision: 1},
-						{ID: "user-agent", PluginID: def.ID, Namespace: def.Namespace, Scope: ScopeUserAgent, UserID: "user", AgentID: "agent", Enabled: &trueValue, Payload: json.RawMessage(`{}`), Revision: 1},
+						{ID: "system", PluginID: def.ID, Scope: ScopeSystem, Enabled: &falseValue, Revision: 1},
+						{ID: "user-agent", PluginID: def.ID, Scope: ScopeUserAgent, UserID: "user", AgentID: "agent", Enabled: &trueValue, Payload: json.RawMessage(`{}`), Revision: 1},
 					}, "user", "agent")
 					if err != nil {
 						t.Fatal(err)
@@ -180,23 +180,12 @@ func TestResolveBackendSourceMatrix(t *testing.T) {
 	}
 }
 
-func TestResolveNamespaceChoosesPayloadOwnerByScope(t *testing.T) {
-	catalog := NewCatalog()
+func TestResolveByPluginIDChoosesPayloadOwnerByScope(t *testing.T) {
 	systemDef := testDefinition()
 	userDef := systemDef
-	userDef.ID = "custom/user"
-	if err := catalog.Register(systemDef); err != nil {
-		t.Fatal(err)
-	}
-	if err := catalog.Register(userDef); err != nil {
-		t.Fatal(err)
-	}
-	systemEnabled, userEnabled := true, true
-	configs := []Config{
-		{ID: "system", PluginID: systemDef.ID, Namespace: systemDef.Namespace, Scope: ScopeSystem, Enabled: &systemEnabled, Payload: json.RawMessage(`{"base":true}`), Revision: 1},
-		{ID: "user", PluginID: userDef.ID, Namespace: userDef.Namespace, Scope: ScopeUser, UserID: "u", Enabled: &userEnabled, Payload: json.RawMessage(`{"private":true}`), Revision: 1},
-	}
-	got, err := ResolveNamespace(catalog, configs, systemDef.Namespace, "u", "")
+	userDef.ID = "user"
+	userEnabled := true
+	got, err := Resolve(userDef, []Config{{ID: "user", PluginID: userDef.ID, Scope: ScopeUser, UserID: "u", Enabled: &userEnabled, Payload: json.RawMessage(`{"private":true}`), Revision: 1}}, "u", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,28 +193,20 @@ func TestResolveNamespaceChoosesPayloadOwnerByScope(t *testing.T) {
 		t.Fatalf("namespace winner = %#v", got)
 	}
 	if string(got.Payload) != `{"private":true}` {
-		t.Fatalf("namespace payload = %s", got.Payload)
+		t.Fatalf("plugin payload = %s", got.Payload)
 	}
 }
 
-func TestResolveNamespacePreservesWinningDefinitionCaps(t *testing.T) {
-	catalog := NewCatalog()
+func TestResolvePreservesWinningDefinitionCaps(t *testing.T) {
 	first := testDefinition()
 	second := first
-	second.ID = "custom/lower"
-	if err := catalog.Register(first); err != nil {
-		t.Fatal(err)
-	}
-	if err := catalog.Register(second); err != nil {
-		t.Fatal(err)
-	}
+	second.ID = "lower"
 	falseValue, trueValue := false, true
 	configs := []Config{
-		{ID: "first-system", PluginID: first.ID, Namespace: first.Namespace, Scope: ScopeSystem, Enabled: &falseValue, Revision: 1},
-		{ID: "first-ua", PluginID: first.ID, Namespace: first.Namespace, Scope: ScopeUserAgent, UserID: "u", AgentID: "a", Enabled: &trueValue, Payload: json.RawMessage(`{"ua":true}`), Revision: 1},
-		{ID: "second-user", PluginID: second.ID, Namespace: second.Namespace, Scope: ScopeUser, UserID: "u", Enabled: &trueValue, Payload: json.RawMessage(`{"user":true}`), Revision: 1},
+		{ID: "first-system", PluginID: first.ID, Scope: ScopeSystem, Enabled: &falseValue, Revision: 1},
+		{ID: "first-ua", PluginID: first.ID, Scope: ScopeUserAgent, UserID: "u", AgentID: "a", Enabled: &trueValue, Payload: json.RawMessage(`{"ua":true}`), Revision: 1},
 	}
-	got, err := ResolveNamespace(catalog, configs, first.Namespace, "u", "a")
+	got, err := Resolve(first, configs, "u", "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,11 +215,11 @@ func TestResolveNamespacePreservesWinningDefinitionCaps(t *testing.T) {
 	}
 }
 
-func TestCatalogAllowsSameNamespaceAcrossDefinitions(t *testing.T) {
+func TestCatalogAllowsDistinctDefinitions(t *testing.T) {
 	catalog := NewCatalog()
 	first := testDefinition()
 	second := first
-	second.ID = "custom/2"
+	second.ID = "two"
 	if err := catalog.Register(first); err != nil {
 		t.Fatal(err)
 	}
@@ -250,23 +231,16 @@ func TestCatalogAllowsSameNamespaceAcrossDefinitions(t *testing.T) {
 	}
 }
 
-func TestNamespaceAndExportedNameContract(t *testing.T) {
-	for _, namespace := range []string{"Email_2", "MCP-Remote"} {
-		if err := ValidateNamespace(namespace); err != nil {
-			t.Fatalf("namespace %q rejected: %v", namespace, err)
+func TestNameContract(t *testing.T) {
+	for _, name := range []string{"email-2", "mcp-remote"} {
+		if err := ValidateName(name); err != nil {
+			t.Fatalf("name %q rejected: %v", name, err)
 		}
 	}
-	for _, namespace := range []string{"has.dot", "has/slash", "bad__separator", ""} {
-		if err := ValidateNamespace(namespace); err == nil {
-			t.Fatalf("namespace %q accepted", namespace)
+	for _, name := range []string{"has/slash", "bad__separator", ""} {
+		if err := ValidateName(name); err == nil {
+			t.Fatalf("name %q accepted", name)
 		}
-	}
-	name, err := ExportedToolName("MCP-Remote", "list_items")
-	if err != nil || name != "MCP-Remote__list_items" {
-		t.Fatalf("exported name = %q, err=%v", name, err)
-	}
-	if _, err := ExportedToolName("12345678901234567890123456789012345678901234567890123456789012", "x"); err == nil {
-		t.Fatal("overlong exported name accepted")
 	}
 }
 
@@ -302,7 +276,7 @@ func TestCatalogAndResolverDefensivelyCopyMutableFields(t *testing.T) {
 	def.Spec = json.RawMessage(`{"key":"original"}`)
 	value := true
 	payload := json.RawMessage(`{"safe":true}`)
-	config := Config{ID: "c", PluginID: def.ID, Namespace: def.Namespace, Scope: ScopeUser, UserID: "u", Enabled: &value, Payload: payload, Revision: 1, CreatedAt: time.Now().UTC()}
+	config := Config{ID: "c", PluginID: def.ID, Scope: ScopeUser, UserID: "u", Enabled: &value, Payload: payload, Revision: 1, CreatedAt: time.Now().UTC()}
 	effective, err := Resolve(def, []Config{config}, "u", "")
 	if err != nil {
 		t.Fatal(err)
@@ -332,22 +306,7 @@ func TestAccessDerivesOnlyTrustedUserScope(t *testing.T) {
 }
 
 func testDefinition() Definition {
-	return Definition{ID: "builtin/test", Namespace: "test", DisplayName: "Test", Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "test", Spec: json.RawMessage(`{}`), Revision: 1}
+	return Definition{ID: "test", DisplayName: "Test", Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "test", Spec: json.RawMessage(`{}`), Revision: 1}
 }
 
 func boolPtr(value bool) *bool { return &value }
-
-func TestExportedToolNameAllowsSeparatorInsideLocalName(t *testing.T) {
-	got, err := ExportedToolName("safe", "part__operation")
-	if err != nil || got != "safe__part__operation" {
-		t.Fatalf("valid local name = %q, %v", got, err)
-	}
-	for _, local := range []string{"", "../operation", "part.operation", "part/operation"} {
-		if _, err := ExportedToolName("safe", local); err == nil {
-			t.Errorf("invalid local %q accepted", local)
-		}
-	}
-	if _, err := ExportedToolName("unsafe__namespace", "operation"); err == nil {
-		t.Fatal("ambiguous namespace accepted")
-	}
-}

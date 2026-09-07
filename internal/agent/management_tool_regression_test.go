@@ -54,7 +54,7 @@ func TestAgentToolOverridesExcludeSettingsPolicyActions(t *testing.T) {
 	registry := toolmeta.NewRegistry(
 		toolmeta.ActionTool{Name: "settings_agent_list", Family: "agent", Action: "list"},
 		toolmeta.ActionTool{Name: "vault_secret_list", Family: "vault", Action: "list"},
-		toolmeta.ActionTool{Name: "email__send", PluginID: "system/email", Namespace: "email", LocalName: "send", Family: "email", Action: "send"},
+		toolmeta.ActionTool{Name: "email__send", PluginID: "system/email", LocalName: "send", Family: "email", Action: "send"},
 	)
 	h := agentOverrideHandler{registry: registry, mcpCatalog: func(context.Context, authz.Authority, string) ([]MCPCatalogEntry, error) {
 		return []MCPCatalogEntry{{Name: "gh__create_issue", Identity: ToolIdentity{PluginID: "custom/gh", LocalToolName: "create_issue"}, Family: "mcp:gh"}}, nil
@@ -89,8 +89,8 @@ func TestAgentToolOverrideCatalogErrorPropagates(t *testing.T) {
 
 func TestAgentToolOverrideRejectsMalformedRegistryIdentity(t *testing.T) {
 	registry := toolmeta.NewRegistry(
-		toolmeta.ActionTool{Name: "email__send", PluginID: "system/email", Namespace: "email"},
-		toolmeta.ActionTool{Name: "fake__tool", Namespace: "fake", LocalName: "tool"},
+		toolmeta.ActionTool{Name: "email__send", PluginID: "system/email"},
+		toolmeta.ActionTool{Name: "fake__tool", LocalName: "tool"},
 	)
 	h := agentOverrideHandler{registry: registry}
 	for _, name := range []string{"email__send", "fake__tool"} {

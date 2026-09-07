@@ -373,14 +373,14 @@ func (h agentOverrideHandler) registryToolIdentity(name string) (ToolIdentity, b
 	}
 	identity := ToolIdentity{CoreToolName: name}
 	if spec.PluginID != "" {
-		if spec.Namespace == "" || spec.LocalName == "" {
+		if spec.LocalName == "" {
 			return ToolIdentity{}, false
 		}
 		if h.nativePolicy == nil || !h.nativePolicy.IsRegistered(spec.PluginID) {
 			return ToolIdentity{}, false
 		}
 		identity = ToolIdentity{CoreToolName: name}
-	} else if spec.Namespace != "" || spec.LocalName != "" {
+	} else if spec.LocalName != "" {
 		return ToolIdentity{}, false
 	}
 	return identity, identity.Validate() == nil

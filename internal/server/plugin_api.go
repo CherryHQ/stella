@@ -10,6 +10,7 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
 
 func (s *Server) ListPlugins(w http.ResponseWriter, r *http.Request, params apiserver.ListPluginsParams) {
@@ -60,8 +61,16 @@ func (s *Server) CreatePlugin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if request.DisplayName == "" || request.Namespace == "" || request.Backend == "" || request.InitialConfig.Scope == "" {
-		writeError(w, http.StatusBadRequest, "display_name, namespace, backend, and initial_config are required")
+	if _, exists := raw["namespace"]; exists {
+		writeError(w, http.StatusBadRequest, "namespace is no longer accepted; use name")
+		return
+	}
+	if request.DisplayName == "" || request.Name == "" || request.Backend == "" || request.InitialConfig.Scope == "" {
+		writeError(w, http.StatusBadRequest, "display_name, name, backend, and initial_config are required")
+		return
+	}
+	if !agentpackage.ValidName(request.Name) {
+		writeError(w, http.StatusBadRequest, "name must be a valid canonical plugin ID")
 		return
 	}
 	if rawContainsAnyKey(data, "credential_refs") {
@@ -76,7 +85,7 @@ func (s *Server) CreatePlugin(w http.ResponseWriter, r *http.Request) {
 		writePluginError(w, errPluginCapabilityUnavailable)
 		return
 	}
-	definition := pluginpkg.Definition{DisplayName: request.DisplayName, Namespace: request.Namespace, Backend: pluginpkg.Backend(request.Backend), Spec: mustJSON(request.DefinitionSpec)}
+	definition := pluginpkg.Definition{ID: request.Name, DisplayName: request.DisplayName, Backend: pluginpkg.Backend(request.Backend), Spec: mustJSON(request.DefinitionSpec)}
 	config := pluginpkg.Config{Scope: pluginpkg.Scope(request.InitialConfig.Scope), Enabled: request.InitialConfig.IsEnabled, Payload: mustJSONPtr(request.InitialConfig.Config)}
 	if request.InitialConfig.AgentId != nil {
 		config.AgentID = *request.InitialConfig.AgentId

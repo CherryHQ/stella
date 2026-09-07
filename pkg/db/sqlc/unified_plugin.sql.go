@@ -15,16 +15,15 @@ import (
 
 const createPluginConfig = `-- name: CreatePluginConfig :one
 INSERT INTO plugin_config (
-    id, plugin_id, namespace, scope, user_id, agent_id, enabled, config,
+    id, plugin_id, scope, user_id, agent_id, enabled, config,
     credential_refs, revision, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
-RETURNING id, plugin_id, namespace, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+RETURNING id, plugin_id, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at
 `
 
 type CreatePluginConfigParams struct {
 	ID             string          `json:"id"`
 	PluginID       string          `json:"plugin_id"`
-	Namespace      string          `json:"namespace"`
 	Scope          string          `json:"scope"`
 	UserID         pgtype.Text     `json:"user_id"`
 	AgentID        pgtype.Text     `json:"agent_id"`
@@ -38,7 +37,6 @@ func (q *Queries) CreatePluginConfig(ctx context.Context, arg CreatePluginConfig
 	row := q.db.QueryRow(ctx, createPluginConfig,
 		arg.ID,
 		arg.PluginID,
-		arg.Namespace,
 		arg.Scope,
 		arg.UserID,
 		arg.AgentID,
@@ -51,7 +49,6 @@ func (q *Queries) CreatePluginConfig(ctx context.Context, arg CreatePluginConfig
 	err := row.Scan(
 		&i.ID,
 		&i.PluginID,
-		&i.Namespace,
 		&i.Scope,
 		&i.UserID,
 		&i.AgentID,
@@ -67,15 +64,14 @@ func (q *Queries) CreatePluginConfig(ctx context.Context, arg CreatePluginConfig
 
 const createPluginDefinition = `-- name: CreatePluginDefinition :one
 INSERT INTO plugin_definition (
-    id, namespace, display_name, backend, source, implementation_key,
+    id, display_name, backend, source, implementation_key,
     spec, default_enabled, revision, creator_user_id, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
-RETURNING id, namespace, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+RETURNING id, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at
 `
 
 type CreatePluginDefinitionParams struct {
 	ID                string          `json:"id"`
-	Namespace         string          `json:"namespace"`
 	DisplayName       string          `json:"display_name"`
 	Backend           string          `json:"backend"`
 	Source            string          `json:"source"`
@@ -89,7 +85,6 @@ type CreatePluginDefinitionParams struct {
 func (q *Queries) CreatePluginDefinition(ctx context.Context, arg CreatePluginDefinitionParams) (PluginDefinition, error) {
 	row := q.db.QueryRow(ctx, createPluginDefinition,
 		arg.ID,
-		arg.Namespace,
 		arg.DisplayName,
 		arg.Backend,
 		arg.Source,
@@ -102,7 +97,6 @@ func (q *Queries) CreatePluginDefinition(ctx context.Context, arg CreatePluginDe
 	var i PluginDefinition
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.DisplayName,
 		&i.Backend,
 		&i.Source,
@@ -171,27 +165,21 @@ func (q *Queries) DeletePluginToolPolicies(ctx context.Context, pluginID pgtype.
 const ensureSystemPluginConfig = `-- name: EnsureSystemPluginConfig :one
 WITH inserted AS (
     INSERT INTO plugin_config (
-        plugin_id, namespace, scope, enabled, config, credential_refs, revision, updated_at
-    ) VALUES ($1, $2, 'system', NULL, '{}'::jsonb, '{}'::jsonb, 1, now())
+        plugin_id, scope, enabled, config, credential_refs, revision, updated_at
+    ) VALUES ($1, 'system', NULL, '{}'::jsonb, '{}'::jsonb, 1, now())
     ON CONFLICT (plugin_id, scope, user_id, agent_id) DO NOTHING
-    RETURNING id, plugin_id, namespace, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at
+    RETURNING id, plugin_id, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at
 )
-SELECT id, plugin_id, namespace, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at FROM inserted
+SELECT id, plugin_id, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at FROM inserted
 UNION ALL
-SELECT id, plugin_id, namespace, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at FROM plugin_config
-WHERE plugin_id = $1 AND namespace = $2 AND scope = 'system'
+SELECT id, plugin_id, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at FROM plugin_config
+WHERE plugin_id = $1 AND scope = 'system'
 LIMIT 1
 `
-
-type EnsureSystemPluginConfigParams struct {
-	PluginID  string `json:"plugin_id"`
-	Namespace string `json:"namespace"`
-}
 
 type EnsureSystemPluginConfigRow struct {
 	ID             string          `json:"id"`
 	PluginID       string          `json:"plugin_id"`
-	Namespace      string          `json:"namespace"`
 	Scope          string          `json:"scope"`
 	UserID         pgtype.Text     `json:"user_id"`
 	AgentID        pgtype.Text     `json:"agent_id"`
@@ -203,13 +191,12 @@ type EnsureSystemPluginConfigRow struct {
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
-func (q *Queries) EnsureSystemPluginConfig(ctx context.Context, arg EnsureSystemPluginConfigParams) (EnsureSystemPluginConfigRow, error) {
-	row := q.db.QueryRow(ctx, ensureSystemPluginConfig, arg.PluginID, arg.Namespace)
+func (q *Queries) EnsureSystemPluginConfig(ctx context.Context, pluginID string) (EnsureSystemPluginConfigRow, error) {
+	row := q.db.QueryRow(ctx, ensureSystemPluginConfig, pluginID)
 	var i EnsureSystemPluginConfigRow
 	err := row.Scan(
 		&i.ID,
 		&i.PluginID,
-		&i.Namespace,
 		&i.Scope,
 		&i.UserID,
 		&i.AgentID,
@@ -224,7 +211,7 @@ func (q *Queries) EnsureSystemPluginConfig(ctx context.Context, arg EnsureSystem
 }
 
 const getPluginConfigForOwner = `-- name: GetPluginConfigForOwner :one
-SELECT id, plugin_id, namespace, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at FROM plugin_config
+SELECT id, plugin_id, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at FROM plugin_config
 WHERE id = $1 AND plugin_id = $2
   AND ((scope IN ('system', 'system_agent') AND $3::boolean)
     OR (scope IN ('user', 'user_agent') AND user_id = $4::uuid))
@@ -248,7 +235,6 @@ func (q *Queries) GetPluginConfigForOwner(ctx context.Context, arg GetPluginConf
 	err := row.Scan(
 		&i.ID,
 		&i.PluginID,
-		&i.Namespace,
 		&i.Scope,
 		&i.UserID,
 		&i.AgentID,
@@ -264,7 +250,7 @@ func (q *Queries) GetPluginConfigForOwner(ctx context.Context, arg GetPluginConf
 
 const getPluginDefinition = `-- name: GetPluginDefinition :one
 
-SELECT id, namespace, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at FROM plugin_definition WHERE id = $1
+SELECT id, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at FROM plugin_definition WHERE id = $1
 `
 
 // Unified plugin definitions and four-scope configuration records. These
@@ -274,7 +260,6 @@ func (q *Queries) GetPluginDefinition(ctx context.Context, id string) (PluginDef
 	var i PluginDefinition
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.DisplayName,
 		&i.Backend,
 		&i.Source,
@@ -290,7 +275,7 @@ func (q *Queries) GetPluginDefinition(ctx context.Context, id string) (PluginDef
 }
 
 const listPluginConfigs = `-- name: ListPluginConfigs :many
-SELECT id, plugin_id, namespace, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at FROM plugin_config
+SELECT id, plugin_id, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at FROM plugin_config
 WHERE plugin_id = $1
 ORDER BY scope, user_id NULLS FIRST, agent_id NULLS FIRST, id
 `
@@ -307,7 +292,6 @@ func (q *Queries) ListPluginConfigs(ctx context.Context, pluginID string) ([]Plu
 		if err := rows.Scan(
 			&i.ID,
 			&i.PluginID,
-			&i.Namespace,
 			&i.Scope,
 			&i.UserID,
 			&i.AgentID,
@@ -329,7 +313,7 @@ func (q *Queries) ListPluginConfigs(ctx context.Context, pluginID string) ([]Plu
 }
 
 const listPluginConfigsOwned = `-- name: ListPluginConfigsOwned :many
-SELECT id, plugin_id, namespace, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at FROM plugin_config
+SELECT id, plugin_id, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at FROM plugin_config
 WHERE plugin_id = $1
   AND scope = $2
   AND user_id IS NOT DISTINCT FROM $3
@@ -361,7 +345,6 @@ func (q *Queries) ListPluginConfigsOwned(ctx context.Context, arg ListPluginConf
 		if err := rows.Scan(
 			&i.ID,
 			&i.PluginID,
-			&i.Namespace,
 			&i.Scope,
 			&i.UserID,
 			&i.AgentID,
@@ -383,7 +366,7 @@ func (q *Queries) ListPluginConfigsOwned(ctx context.Context, arg ListPluginConf
 }
 
 const listPluginDefinitions = `-- name: ListPluginDefinitions :many
-SELECT id, namespace, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at FROM plugin_definition ORDER BY namespace, id
+SELECT id, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at FROM plugin_definition ORDER BY id
 `
 
 func (q *Queries) ListPluginDefinitions(ctx context.Context) ([]PluginDefinition, error) {
@@ -397,7 +380,6 @@ func (q *Queries) ListPluginDefinitions(ctx context.Context) ([]PluginDefinition
 		var i PluginDefinition
 		if err := rows.Scan(
 			&i.ID,
-			&i.Namespace,
 			&i.DisplayName,
 			&i.Backend,
 			&i.Source,
@@ -439,7 +421,7 @@ SET scope = $2,
     revision = revision + 1,
     updated_at = now()
 WHERE id = $1 AND revision = $8
-RETURNING id, plugin_id, namespace, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at
+RETURNING id, plugin_id, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at
 `
 
 type MovePluginConfigCASParams struct {
@@ -468,7 +450,6 @@ func (q *Queries) MovePluginConfigCAS(ctx context.Context, arg MovePluginConfigC
 	err := row.Scan(
 		&i.ID,
 		&i.PluginID,
-		&i.Namespace,
 		&i.Scope,
 		&i.UserID,
 		&i.AgentID,
@@ -490,7 +471,7 @@ SET enabled = NULL,
     revision = revision + 1,
     updated_at = now()
 WHERE id = $1 AND revision = $2 AND plugin_id = $3 AND scope = 'system'
-RETURNING id, plugin_id, namespace, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at
+RETURNING id, plugin_id, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at
 `
 
 type ResetBuiltinPluginConfigParams struct {
@@ -505,7 +486,6 @@ func (q *Queries) ResetBuiltinPluginConfig(ctx context.Context, arg ResetBuiltin
 	err := row.Scan(
 		&i.ID,
 		&i.PluginID,
-		&i.Namespace,
 		&i.Scope,
 		&i.UserID,
 		&i.AgentID,
@@ -527,7 +507,7 @@ SET enabled = $2,
     revision = revision + 1,
     updated_at = now()
 WHERE id = $1 AND revision = $5
-RETURNING id, plugin_id, namespace, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at
+RETURNING id, plugin_id, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at
 `
 
 type UpdatePluginConfigCASParams struct {
@@ -550,7 +530,6 @@ func (q *Queries) UpdatePluginConfigCAS(ctx context.Context, arg UpdatePluginCon
 	err := row.Scan(
 		&i.ID,
 		&i.PluginID,
-		&i.Namespace,
 		&i.Scope,
 		&i.UserID,
 		&i.AgentID,
@@ -571,7 +550,7 @@ SET display_name = $2,
     revision = revision + 1,
     updated_at = now()
 WHERE id = $1 AND revision = $3 AND source = 'custom'
-RETURNING id, namespace, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at
+RETURNING id, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at
 `
 
 type UpdatePluginDefinitionCASParams struct {
@@ -591,7 +570,6 @@ func (q *Queries) UpdatePluginDefinitionCAS(ctx context.Context, arg UpdatePlugi
 	var i PluginDefinition
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.DisplayName,
 		&i.Backend,
 		&i.Source,
@@ -608,9 +586,9 @@ func (q *Queries) UpdatePluginDefinitionCAS(ctx context.Context, arg UpdatePlugi
 
 const upsertPluginDefinition = `-- name: UpsertPluginDefinition :one
 INSERT INTO plugin_definition (
-    id, namespace, display_name, backend, source, implementation_key,
+    id, display_name, backend, source, implementation_key,
     spec, default_enabled, revision, creator_user_id, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
 ON CONFLICT (id) DO UPDATE SET
     display_name = excluded.display_name,
     spec = excluded.spec,
@@ -621,16 +599,14 @@ ON CONFLICT (id) DO UPDATE SET
     updated_at = CASE WHEN (plugin_definition.display_name, plugin_definition.spec, plugin_definition.default_enabled)
         IS DISTINCT FROM (excluded.display_name, excluded.spec, excluded.default_enabled)
         THEN now() ELSE plugin_definition.updated_at END
-WHERE plugin_definition.namespace = excluded.namespace
-  AND plugin_definition.backend = excluded.backend
+WHERE plugin_definition.backend = excluded.backend
   AND plugin_definition.source = excluded.source
   AND plugin_definition.implementation_key = excluded.implementation_key
-RETURNING id, namespace, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at
+RETURNING id, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id, created_at, updated_at
 `
 
 type UpsertPluginDefinitionParams struct {
 	ID                string          `json:"id"`
-	Namespace         string          `json:"namespace"`
 	DisplayName       string          `json:"display_name"`
 	Backend           string          `json:"backend"`
 	Source            string          `json:"source"`
@@ -644,7 +620,6 @@ type UpsertPluginDefinitionParams struct {
 func (q *Queries) UpsertPluginDefinition(ctx context.Context, arg UpsertPluginDefinitionParams) (PluginDefinition, error) {
 	row := q.db.QueryRow(ctx, upsertPluginDefinition,
 		arg.ID,
-		arg.Namespace,
 		arg.DisplayName,
 		arg.Backend,
 		arg.Source,
@@ -657,7 +632,6 @@ func (q *Queries) UpsertPluginDefinition(ctx context.Context, arg UpsertPluginDe
 	var i PluginDefinition
 	err := row.Scan(
 		&i.ID,
-		&i.Namespace,
 		&i.DisplayName,
 		&i.Backend,
 		&i.Source,

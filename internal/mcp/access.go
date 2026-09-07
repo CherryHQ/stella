@@ -14,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
 
 // Access binds registration ownership to a verified user authority. Reads use
@@ -142,10 +143,10 @@ func (a *Access) GetVisible(ctx context.Context, id string) (Registration, error
 	var createdAt, updatedAt time.Time
 	var pluginID string
 	err = a.svc.pool.QueryRow(ctx, `
-		SELECT id, plugin_id, namespace, scope, user_id, agent_id, enabled, config,
+		SELECT id, plugin_id, scope, user_id, agent_id, enabled, config,
 		       credential_refs, revision, created_at, updated_at
 		FROM plugin_config WHERE id = $1::uuid`, id).Scan(
-		&cfg.ID, &pluginID, &cfg.Namespace, &scope, &userID, &agentID, &enabled,
+		&cfg.ID, &pluginID, &scope, &userID, &agentID, &enabled,
 		&payload, &refs, &cfg.Revision, &createdAt, &updatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Registration{}, authz.ErrNotFound
@@ -254,13 +255,13 @@ func (a *Access) Create(ctx context.Context, in CreateInput) (Registration, erro
 			return Registration{}, errPluginCredentialsUnavailable
 		}
 		// The generated settings create action predates common plugin IDs. Its
-		// name is already the machine namespace, so validate it verbatim and
-		// reject invalid names instead of silently inventing a slug.
-		if err := plugin.ValidateNamespace(in.Name); err != nil {
-			return Registration{}, err
+		// The settings create action supplies the canonical package name. The
+		// custom service validates it before allocating the config UUID.
+		if !agentpackage.ValidName(in.Name) {
+			return Registration{}, fmt.Errorf("invalid plugin name %q", in.Name)
 		}
 		def, config, err := a.svc.CreateCustom(authz.WithAuthority(ctx, a.authority), plugin.Definition{
-			Namespace: in.Name, DisplayName: in.Name, Backend: plugin.BackendMCP,
+			ID: in.Name, DisplayName: in.Name, Backend: plugin.BackendMCP,
 			Spec: []byte(`{}`),
 		}, in)
 		if err != nil {

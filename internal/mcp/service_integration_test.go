@@ -26,7 +26,7 @@ import (
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
-const integrationPluginID = "custom/mcp-integration"
+const integrationPluginID = "mcp-integration"
 
 // setup builds an MCP service backed by a real database and vault, plus a
 // provisioned user and agent so all four scopes are usable.
@@ -74,7 +74,7 @@ func setup(t *testing.T) (svc *mcp.Service, q *sqlc.Queries, userID, agentID str
 	svc.SetPluginService(plugin.NewService(db, agents, plugin.NewCatalog(), mcp.NewMCPBackendPolicy(policy), func(_ context.Context, fn func() error) error {
 		return fn()
 	}))
-	if _, err := db.Exec(ctx, `INSERT INTO plugin_definition(id,namespace,display_name,backend,source,implementation_key,spec,default_enabled,revision,creator_user_id) VALUES($1,'mcp_integration','MCP integration','mcp','custom','mcp','{}',false,1,$2)`, integrationPluginID, user.ID); err != nil {
+	if _, err := db.Exec(ctx, `INSERT INTO plugin_definition(id,display_name,backend,source,implementation_key,spec,default_enabled,revision,creator_user_id) VALUES($1,'MCP integration','mcp','custom','mcp','{}',false,1,$2)`, integrationPluginID, user.ID); err != nil {
 		t.Fatalf("Create common MCP definition: %v", err)
 	}
 	if _, err := db.Exec(ctx, `
@@ -151,9 +151,9 @@ func TestCredentialEncryptedAtRest(t *testing.T) {
 func TestUpdateRedactsMalformedLegacyEndpoint(t *testing.T) {
 	ctx := context.Background()
 	const raw = "https://legacy-user:legacy-pass@example.test/%zz?token=legacy-query#legacy-fragment"
-	def := plugin.Definition{ID: integrationPluginID, Namespace: "mcp_integration", DisplayName: "MCP integration", Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp", Spec: json.RawMessage(`{}`), Revision: 1}
+	def := plugin.Definition{ID: integrationPluginID, DisplayName: "MCP integration", Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp", Spec: json.RawMessage(`{}`), Revision: 1}
 	enabled := true
-	cfg := plugin.Config{ID: uuid.NewString(), PluginID: def.ID, Namespace: def.Namespace, Scope: plugin.ScopeUser, UserID: "user", Enabled: &enabled, Payload: json.RawMessage(`{"url":"` + raw + `","transport":"streamable_http","auth_type":"none","credential_mode":"shared"}`), CredentialRefs: json.RawMessage(`{}`), Revision: 1}
+	cfg := plugin.Config{ID: uuid.NewString(), PluginID: def.ID, Scope: plugin.ScopeUser, UserID: "user", Enabled: &enabled, Payload: json.RawMessage(`{"url":"` + raw + `","transport":"streamable_http","auth_type":"none","credential_mode":"shared"}`), CredentialRefs: json.RawMessage(`{}`), Revision: 1}
 	err := mcp.ValidateMCPPayload(ctx, mcp.EndpointPolicy{AllowPrivate: true}, def, cfg, nil)
 	if err == nil {
 		t.Fatal("malformed common URL succeeded validation")

@@ -29,16 +29,6 @@ func (h *Host) SessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPl
 			continue
 		}
 
-		// A namespace winner is the only definition allowed to advertise its
-		// exported resources. ID resolution remains independent for callers such
-		// as channel/background integrations.
-		winner, err := snapshot.ResolveNamespace(definition.Namespace)
-		if err != nil {
-			return pkgplugins.SessionPluginView{}, fmt.Errorf("resolve namespace %q: %w", definition.Namespace, err)
-		}
-		if winner.PluginID != definition.ID || !winner.IsEffectivelyEnabled {
-			continue
-		}
 		identity, err := selectedResourceIdentity(definition, resolved)
 		if err != nil {
 			return pkgplugins.SessionPluginView{}, err

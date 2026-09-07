@@ -41,7 +41,7 @@ func unifiedPluginTestService(t *testing.T) *pluginapi.Service {
 	db := dbtest.New(t)
 	catalog := pluginapi.NewCatalog()
 	definition := pluginapi.Definition{
-		ID: "email", Namespace: "email", DisplayName: "Email", Backend: pluginapi.BackendCLI,
+		ID: "email", DisplayName: "Email", Backend: pluginapi.BackendCLI,
 		Source: pluginapi.SourceBuiltin, ImplementationKey: "email", Spec: []byte(`{}`),
 		DefaultEnabled: true, Revision: 1,
 	}

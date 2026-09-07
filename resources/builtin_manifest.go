@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
 
 const (
@@ -276,7 +278,7 @@ func validateExplicitSkillOwner(root, owner string) error {
 	if owner == "" {
 		return fmt.Errorf("builtin skill %q has no explicit plugin owner", root)
 	}
-	if !canonicalBuiltinPath(owner) || (strings.Contains(owner, "/") && strings.Count(owner, "/") != 1) {
+	if !agentpackage.ValidName(owner) {
 		return fmt.Errorf("builtin skill %q has invalid explicit owner %q", root, owner)
 	}
 	return nil

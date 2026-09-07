@@ -2,4 +2,4 @@ assets:
   - name: skill-creator
     source: skills/skill-creator
     logical_root: core/skill-creator
-    owner_plugin_id: skill/skill-creator
+    owner_plugin_id: skill-creator

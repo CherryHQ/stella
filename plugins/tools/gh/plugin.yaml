@@ -1,4 +1,4 @@
-id: tool/gh
+id: gh
 kind: tool
 name: gh
 display_name: GitHub CLI

@@ -248,7 +248,7 @@ func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Au
 		if err != nil {
 			return fmt.Errorf("mcp: read plugin config for DCR: %w", err)
 		}
-		if cfg.Revision != reg.ConfigRevision || cfg.Namespace != reg.Namespace || string(cfg.Scope) != reg.Scope || cfg.UserID != reg.UserID || cfg.AgentID != reg.AgentID {
+		if cfg.Revision != reg.ConfigRevision || string(cfg.Scope) != reg.Scope || cfg.UserID != reg.UserID || cfg.AgentID != reg.AgentID {
 			return errPluginConfigIdentity
 		}
 		payload, err := decodeJSONObject(cfg.Payload, "MCP config payload")

@@ -477,7 +477,7 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("mcp.deleteTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("mcp.deleteConfirm", { name: pendingDelete?.namespace ?? "" })}
+              {t("mcp.deleteConfirm", { name: pendingDelete?.plugin_id ?? "" })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -559,7 +559,7 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
           ) : (
             (mcpQuery.data ?? []).map((server) => {
               const members = (query.data ?? []).filter(
-                (tool) => tool.source === MCP_SOURCE && tool.family === `mcp:${server.namespace}`,
+                (tool) => tool.source === MCP_SOURCE && tool.family === `mcp:${server.plugin_id}`,
               );
               return (
                 <McpServerGroup
@@ -571,7 +571,7 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
                   busyToolName={mutation.isPending ? (mutation.variables?.tool.name ?? null) : null}
                   familyBusy={
                     mcpFamilyMutation.isPending &&
-                    mcpFamilyMutation.variables?.family === `mcp:${server.namespace}`
+                    mcpFamilyMutation.variables?.family === `mcp:${server.plugin_id}`
                   }
                   toggleBusy={
                     toggleServer.isPending &&
@@ -580,7 +580,7 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
                   onToggle={(tool, enabled, scope) => mutation.mutate({ tool, enabled, scope })}
                   onSetFamilyEnabled={(members_, enabled) =>
                     mcpFamilyMutation.mutate({
-                      family: `mcp:${server.namespace}`,
+                      family: `mcp:${server.plugin_id}`,
                       tools: members_,
                       enabled,
                     })
@@ -903,7 +903,7 @@ export function McpServerGroup({
 
   return (
     <ToolFamilyCard
-      title={server.namespace}
+      title={server.plugin_id}
       defaultOpen={defaultOpen}
       badges={
         <>
@@ -971,7 +971,7 @@ export function McpServerGroup({
               <MoreHorizontal />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={6}>
-              <DropdownMenuLabel>{server.namespace}</DropdownMenuLabel>
+              <DropdownMenuLabel>{server.plugin_id}</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => onEdit(server)}>{t("common.edit")}</DropdownMenuItem>
               <DropdownMenuItem onClick={() => onDelete(server)}>
                 {t("common.delete")}

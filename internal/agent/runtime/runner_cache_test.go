@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -84,6 +85,144 @@ func (r *fakeRunner) Close() error {
 	}
 	r.closed = true
 	return r.closeErr
+}
+
+type blockingCloseGate struct {
+	mu         sync.Mutex
+	started    int
+	want       int
+	active     int
+	maxActive  int
+	allStarted chan struct{}
+	release    chan struct{}
+}
+
+func (g *blockingCloseGate) markStarted() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.started++
+	g.active++
+	if g.active > g.maxActive {
+		g.maxActive = g.active
+	}
+	if g.started == g.want {
+		close(g.allStarted)
+	}
+}
+
+func (g *blockingCloseGate) markFinished() {
+	g.mu.Lock()
+	g.active--
+	g.mu.Unlock()
+}
+
+func (g *blockingCloseGate) peakActive() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.maxActive
+}
+
+type blockingCloseRunner struct {
+	*fakeRunner
+	gate *blockingCloseGate
+	err  error
+}
+
+func (r *blockingCloseRunner) Close() error {
+	r.gate.markStarted()
+	defer r.gate.markFinished()
+	<-r.gate.release
+	r.closed = true
+	return r.err
+}
+
+func TestRunnerCacheResetClosesIdleRunnersConcurrentlyAndWaits(t *testing.T) {
+	ids := []string{"idle-close-a", "idle-close-b"}
+	wantErr := errors.New("close failed")
+	gate := &blockingCloseGate{
+		want:       len(ids),
+		allStarted: make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	runners := make([]*blockingCloseRunner, 0, len(ids))
+	for i, id := range ids {
+		r := &blockingCloseRunner{fakeRunner: newFakeRunner(), gate: gate}
+		if i == 0 {
+			r.err = wantErr
+		}
+		runners = append(runners, r)
+		cache.sessions[id] = &cachedSession{r: r, info: validInfo(id)}
+	}
+
+	resetDone := make(chan error, 1)
+	go func() { resetDone <- cache.reset() }()
+	select {
+	case <-gate.allStarted:
+	case <-time.After(time.Second):
+		close(gate.release)
+		t.Fatal("reset did not start all idle runner closes concurrently")
+	}
+	select {
+	case err := <-resetDone:
+		t.Fatalf("reset returned before all closes were released: %v", err)
+	default:
+	}
+
+	close(gate.release)
+	if err := <-resetDone; !errors.Is(err, wantErr) {
+		t.Fatalf("reset error = %v, want %v", err, wantErr)
+	}
+	for _, r := range runners {
+		if !r.closed {
+			t.Fatal("reset returned before a detached runner closed")
+		}
+	}
+}
+
+func TestRunnerCacheResetBoundsConcurrentIdleRunnerCloses(t *testing.T) {
+	const runnerCount = maxConcurrentRunnerCloses + 1
+	gate := &blockingCloseGate{
+		want:       maxConcurrentRunnerCloses,
+		allStarted: make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	runners := make([]*blockingCloseRunner, 0, runnerCount)
+	for i := range runnerCount {
+		id := "bounded-close-" + strconv.Itoa(i)
+		r := &blockingCloseRunner{fakeRunner: newFakeRunner(), gate: gate}
+		runners = append(runners, r)
+		cache.sessions[id] = &cachedSession{r: r, info: validInfo(id)}
+	}
+
+	resetDone := make(chan error, 1)
+	go func() { resetDone <- cache.reset() }()
+	select {
+	case <-gate.allStarted:
+	case <-time.After(time.Second):
+		close(gate.release)
+		t.Fatal("reset did not start the close worker batch")
+	}
+	select {
+	case err := <-resetDone:
+		close(gate.release)
+		t.Fatalf("reset returned before the first close batch was released: %v", err)
+	default:
+	}
+
+	close(gate.release)
+	if err := <-resetDone; err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	if got := gate.peakActive(); got > maxConcurrentRunnerCloses {
+		t.Fatalf("peak concurrent closes = %d, want <= %d", got, maxConcurrentRunnerCloses)
+	}
+	for _, r := range runners {
+		if !r.closed {
+			t.Fatal("reset returned before a detached runner closed")
+		}
+	}
 }
 
 func TestRunnerCacheKeepsReservedContextAndRefreshesNewRunner(t *testing.T) {

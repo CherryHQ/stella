@@ -51,23 +51,22 @@ func TestDefaultLoadsBuiltinResources(t *testing.T) {
 		t.Error("expected builtin template 'stella'")
 	}
 	if err := r.ValidateBuiltinSkillOwners(map[string]struct{}{
-		"email":               {},
-		"recally":             {},
-		"scheduler":           {},
-		"system/stella":       {},
-		"system/xberg":        {},
-		"tool/bun":            {},
-		"tool/lark-cli":       {},
-		"skill/html-artifact": {},
-		"skill/skill-creator": {},
-		"tool/uv":             {},
-		"tool/xberg":          {},
+		"email":         {},
+		"recally":       {},
+		"scheduler":     {},
+		"stella":        {},
+		"xberg":         {},
+		"bun":           {},
+		"lark-cli":      {},
+		"html-artifact": {},
+		"skill-creator": {},
+		"uv":            {},
 	}); err != nil {
 		t.Fatalf("ValidateBuiltinSkillOwners(): %v", err)
 	}
 	for _, skill := range r.BuiltinSkills() {
-		if skill.Name == "stella" && skill.OwnerPluginID != "system/stella" {
-			t.Fatalf("stella skill owner = %q, want system/stella", skill.OwnerPluginID)
+		if skill.Name == "stella" && skill.OwnerPluginID != "stella" {
+			t.Fatalf("stella skill owner = %q, want stella", skill.OwnerPluginID)
 		}
 	}
 	for _, id := range []string{"coder"} {

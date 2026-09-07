@@ -210,7 +210,7 @@ func TestRejectImmutableSkillPatch(t *testing.T) {
 
 func TestValidateCustomSpecRejectsClaimedSkills(t *testing.T) {
 	base := Definition{
-		ID: "custom/demo", Namespace: "demo", DisplayName: "Demo",
+		ID: "demo", DisplayName: "Demo",
 		Backend: BackendCLI, Source: SourceCustom, ImplementationKey: "cli", Revision: 1,
 	}
 	for _, test := range []struct {

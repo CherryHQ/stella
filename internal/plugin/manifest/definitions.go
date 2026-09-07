@@ -3,8 +3,10 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
 
 // BuiltinDefinitions normalizes release assets before the catalog transaction.
@@ -19,6 +21,9 @@ func BuiltinDefinitions() ([]plugin.Definition, error) {
 	}
 	definitions := make([]plugin.Definition, 0, len(manifest.Plugins))
 	for _, authored := range manifest.Plugins {
+		if !agentpackage.ValidName(authored.Name) {
+			return nil, fmt.Errorf("plugin %s: invalid canonical name", authored.Name)
+		}
 		spec, err := json.Marshal(map[string]any{
 			"description":    authored.Description,
 			"category":       authored.Category,
@@ -32,9 +37,9 @@ func BuiltinDefinitions() ([]plugin.Definition, error) {
 			return nil, fmt.Errorf("plugin %s: %w", authored.ID, err)
 		}
 		definition := plugin.Definition{
-			ID: authored.ID, Namespace: authored.Name, DisplayName: authored.DisplayName,
+			ID: authored.Name, DisplayName: authored.DisplayName,
 			Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin,
-			ImplementationKey: authored.ID, Spec: spec,
+			ImplementationKey: authored.Name, Spec: spec,
 			DefaultEnabled: authored.Enabled, Revision: 1,
 		}
 		if err := definition.Validate(); err != nil {
@@ -45,10 +50,30 @@ func BuiltinDefinitions() ([]plugin.Definition, error) {
 	return definitions, nil
 }
 
-// IsSystemPlugin identifies a release-owned system CLI definition. The source
-// generator validates kind/name against this immutable implementation key;
-// neither the configuration scope nor an editable category grants this status.
+var builtinSystemPluginIDs struct {
+	sync.Once
+	ids map[string]struct{}
+}
+
+// IsSystemPlugin identifies a release-owned system CLI definition by the
+// immutable shipped declaration. A bare canonical ID carries no installation
+// mode information, so neither its spelling nor editable config can classify it.
 func IsSystemPlugin(definition plugin.Definition) bool {
-	return definition.Source == plugin.SourceBuiltin && definition.Backend == plugin.BackendCLI &&
-		definition.ImplementationKey == definition.ID && definition.ID == "system/"+definition.Namespace
+	if definition.Source != plugin.SourceBuiltin || definition.Backend != plugin.BackendCLI || definition.ImplementationKey != definition.ID {
+		return false
+	}
+	builtinSystemPluginIDs.Do(func() {
+		builtinSystemPluginIDs.ids = make(map[string]struct{})
+		builtin, err := LoadBuiltin()
+		if err != nil {
+			return
+		}
+		for _, authored := range builtin.Plugins {
+			if authored.Kind == "system" {
+				builtinSystemPluginIDs.ids[authored.ID] = struct{}{}
+			}
+		}
+	})
+	_, ok := builtinSystemPluginIDs.ids[definition.ID]
+	return ok
 }

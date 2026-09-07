@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -16,7 +15,6 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // seedOAuthRegistration inserts a common MCP definition/config directly so the
@@ -24,13 +22,12 @@ import (
 func seedOAuthRegistration(t *testing.T, pool *pgxpool.Pool, scope, userID, agentID, rawURL string) Registration {
 	t.Helper()
 	id := uuid.NewString()
-	pluginID := "custom/" + id
-	namespace := "oauth_" + id[:8]
+	pluginID := "oauth-" + id[:8]
 	if _, err := pool.Exec(context.Background(), `
-		INSERT INTO plugin_definition(id, namespace, display_name, backend, source,
+		INSERT INTO plugin_definition(id, display_name, backend, source,
 			implementation_key, spec, default_enabled, revision, creator_user_id)
-		VALUES ($1, $2, $3, 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1, NULLIF($4, '')::uuid)`,
-		pluginID, namespace, "oauth-"+id[:8], nullableTestText(userID)); err != nil {
+		VALUES ($1, $2, 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1, NULLIF($3, '')::uuid)`,
+		pluginID, "oauth-"+id[:8], nullableTestText(userID)); err != nil {
 		t.Fatalf("seed oauth definition: %v", err)
 	}
 	payload := `{"url":"` + rawURL + `","transport":"streamable_http","auth_type":"oauth","credential_mode":"shared"}`
@@ -39,27 +36,14 @@ func seedOAuthRegistration(t *testing.T, pool *pgxpool.Pool, scope, userID, agen
 		refs = `{"oauth_bundle":{"name":"` + oauthBundleName(id) + `","mode":"shared","scope":"` + scope + `","user_id":"` + userID + `","agent_id":"` + agentID + `"}}`
 	}
 	if _, err := pool.Exec(context.Background(), `
-		INSERT INTO plugin_config(id, plugin_id, namespace, scope, user_id, agent_id,
+		INSERT INTO plugin_config(id, plugin_id, scope, user_id, agent_id,
 			enabled, config, credential_refs, revision)
-		VALUES ($1::uuid, $2, $3, $4, NULLIF($5, '')::uuid, NULLIF($6, ''), true, $7::jsonb, $8::jsonb, 1)`,
-		id, pluginID, namespace, scope, userID, agentID, payload, refs); err != nil {
+		VALUES ($1::uuid, $2, $3, NULLIF($4, '')::uuid, NULLIF($5, ''), true, $6::jsonb, $7::jsonb, 1)`,
+		id, pluginID, scope, userID, agentID, payload, refs); err != nil {
 		t.Fatalf("seed oauth config: %v", err)
 	}
-	// Schema 39 still owns the OAuth flow FK. This dormant identity row is a
-	// test-only bridge until the coordinated NOT VALID FK retarget; production
-	// MCP reads and writes never consult it.
-	if _, err := sqlc.New(pool).CreateMCPServer(context.Background(), sqlc.CreateMCPServerParams{
-		ID: id, Scope: scope,
-		UserID:  pgtype.Text{String: userID, Valid: userID != ""},
-		AgentID: pgtype.Text{String: agentID, Valid: agentID != ""},
-		Name:    "dormant-flow-fk-" + id[:8], Url: rawURL,
-		Transport: TransportStreamableHTTP, AuthType: AuthTypeNone,
-		Enabled: false, Metadata: json.RawMessage(`{}`), CredentialMode: CredentialModeShared,
-	}); err != nil {
-		t.Fatalf("seed dormant OAuth flow FK identity: %v", err)
-	}
 	return Registration{
-		ID: id, PluginID: pluginID, Namespace: namespace, ConfigRevision: 1,
+		ID: id, PluginID: pluginID, ConfigRevision: 1,
 		Scope: scope, UserID: userID, AgentID: agentID, Name: "oauth-" + id[:8], URL: rawURL,
 		Transport: TransportStreamableHTTP, AuthType: AuthTypeOAuth, Enabled: true,
 		CredentialMode: CredentialModeShared,

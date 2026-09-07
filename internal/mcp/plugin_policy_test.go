@@ -13,7 +13,7 @@ import (
 
 func TestCommonMCPPolicyRejectsRawIdentityMutationAndCleansDelete(t *testing.T) {
 	svc, _, userID, _ := setupInternal(t)
-	configID, pluginID, _ := seedCommonConfig(t, svc.pool, userID, 1, AuthTypeOAuth)
+	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 1, AuthTypeOAuth)
 	authority, err := authz.NewUserAuthority(authz.UserID(userID), true)
 	if err != nil {
 		t.Fatal(err)

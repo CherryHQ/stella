@@ -18,8 +18,7 @@ import (
 )
 
 type pluginProbeFixture struct {
-	kind     string
-	name     string
+	pluginID string
 	configID string
 }
 
@@ -47,15 +46,13 @@ func setupPluginProbeHTTPEnv(t *testing.T) (*testEnv, *[]mcp.CredentialOwner) {
 
 func installPluginProbeFixture(t *testing.T, env *testEnv, backend pluginpkg.Backend, scope, userID, agentID, authType, credentialMode string) pluginProbeFixture {
 	t.Helper()
-	const kind = "custom"
 	name := "probe-" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	pluginID := kind + "/" + name
-	namespace := name
+	pluginID := name
 	configID := uuid.NewString()
 	if _, err := env.db.Exec(context.Background(), `
-		INSERT INTO plugin_definition(id, namespace, display_name, backend, source,
+		INSERT INTO plugin_definition(id, display_name, backend, source,
 			implementation_key, spec, default_enabled, revision)
-		VALUES ($1, $2, 'Probe test', $3, 'custom', $3, '{}'::jsonb, false, 1)`, pluginID, namespace, string(backend)); err != nil {
+		VALUES ($1, 'Probe test', $2, 'custom', $2, '{}'::jsonb, false, 1)`, pluginID, string(backend)); err != nil {
 		t.Fatalf("seed plugin definition: %v", err)
 	}
 	payload := json.RawMessage(`{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"none","credential_mode":"shared"}`)
@@ -70,17 +67,17 @@ func installPluginProbeFixture(t *testing.T, env *testEnv, backend pluginpkg.Bac
 		payload = []byte(`{}`)
 	}
 	if _, err := env.db.Exec(context.Background(), `
-		INSERT INTO plugin_config(id, plugin_id, namespace, scope, user_id, agent_id,
+		INSERT INTO plugin_config(id, plugin_id, scope, user_id, agent_id,
 			enabled, config, credential_refs, revision)
-		VALUES ($1::uuid, $2, $3, $4, NULLIF($5, '')::uuid, NULLIF($6, ''),
-			$7, $8::jsonb, $9::jsonb, 1)`, configID, pluginID, namespace, scope, userID, agentID, enabled, payload, refs); err != nil {
+		VALUES ($1::uuid, $2, $3, NULLIF($4, '')::uuid, NULLIF($5, ''),
+			$6, $7::jsonb, $8::jsonb, 1)`, configID, pluginID, scope, userID, agentID, enabled, payload, refs); err != nil {
 		t.Fatalf("seed plugin config: %v", err)
 	}
-	return pluginProbeFixture{kind: kind, name: name, configID: configID}
+	return pluginProbeFixture{pluginID: pluginID, configID: configID}
 }
 
 func pluginProbePath(f pluginProbeFixture) string {
-	return fmt.Sprintf("%s/configs/%s/probe", pluginAPIPath(f.kind+"/"+f.name), f.configID)
+	return fmt.Sprintf("%s/configs/%s/probe", pluginAPIPath(f.pluginID), f.configID)
 }
 
 func TestPluginProbeHTTPAuthorizesParentAndBackend(t *testing.T) {
@@ -89,7 +86,7 @@ func TestPluginProbeHTTPAuthorizesParentAndBackend(t *testing.T) {
 	if rr := doUnauthRequest(t, env.srv, http.MethodPost, pluginProbePath(mcpFixture), nil); rr.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated probe status = %d, want 401 (body: %s)", rr.Code, rr.Body.String())
 	}
-	wrongParent := fmt.Sprintf("%s/configs/%s/probe", pluginAPIPath(mcpFixture.kind+"/wrong"), mcpFixture.configID)
+	wrongParent := fmt.Sprintf("%s/configs/%s/probe", pluginAPIPath("probe-wrong"), mcpFixture.configID)
 	if rr := doRequest(t, env, http.MethodPost, wrongParent, nil); rr.Code != http.StatusNotFound {
 		t.Fatalf("wrong parent probe status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
 	}

@@ -16,7 +16,7 @@ func TestPluginBackendPolicyRejectsCoreRuntimeBinaryNames(t *testing.T) {
 			definition, payload := testCLIBackendDefinition(t, resource.Name)
 			enabled := false
 			config := plugin.Config{
-				ID: "config", PluginID: definition.ID, Namespace: definition.Namespace,
+				ID: "config", PluginID: definition.ID,
 				Scope: plugin.ScopeSystem, Enabled: &enabled, Payload: payload, Revision: 1,
 			}
 			if err := policy.Validate(t.Context(), definition, config, nil); !errors.Is(err, plugin.ErrInvalidConfig) {
@@ -28,7 +28,7 @@ func TestPluginBackendPolicyRejectsCoreRuntimeBinaryNames(t *testing.T) {
 	definition, payload := testCLIBackendDefinition(t, "ordinary-tool")
 	enabled := false
 	config := plugin.Config{
-		ID: "config", PluginID: definition.ID, Namespace: definition.Namespace,
+		ID: "config", PluginID: definition.ID,
 		Scope: plugin.ScopeSystem, Enabled: &enabled, Payload: payload, Revision: 1,
 	}
 	if err := policy.Validate(t.Context(), definition, config, nil); err != nil {
@@ -38,7 +38,7 @@ func TestPluginBackendPolicyRejectsCoreRuntimeBinaryNames(t *testing.T) {
 	definition, _ = testCLIBackendDefinition(t, "ordinary-tool")
 	_, reservedPayload := testCLIBackendDefinition(t, systemplugins.RuntimeResources()[0].Name)
 	config = plugin.Config{
-		ID: "config", PluginID: definition.ID, Namespace: definition.Namespace,
+		ID: "config", PluginID: definition.ID,
 		Scope: plugin.ScopeSystem, Enabled: &enabled, Payload: reservedPayload, Revision: 1,
 	}
 	if err := policy.Validate(t.Context(), definition, config, nil); !errors.Is(err, plugin.ErrInvalidConfig) {
@@ -56,8 +56,8 @@ func testCLIBackendDefinition(t *testing.T, binaryName string) (plugin.Definitio
 		t.Fatal(err)
 	}
 	return plugin.Definition{
-		ID: "tool/test", Namespace: "test", DisplayName: "Test",
+		ID: "test", DisplayName: "Test",
 		Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin,
-		ImplementationKey: "tool/test", Spec: payload, Revision: 1,
+		ImplementationKey: "test", Spec: payload, Revision: 1,
 	}, payload
 }

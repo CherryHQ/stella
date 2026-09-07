@@ -72,6 +72,10 @@ type runnerCache struct {
 	log             *slog.Logger
 }
 
+// maxConcurrentRunnerCloses bounds Docker and filesystem cleanup pressure
+// during a large invalidation while avoiding serial idle-runner retirement.
+const maxConcurrentRunnerCloses = 8
+
 func newRunnerCache(
 	newRunner NewRunnerFunc,
 	mem memory.Provider,
@@ -416,6 +420,38 @@ func (c *runnerCache) closeRetired(r Runner) (err error) {
 	return r.Close()
 }
 
+// closeRetiredBatch waits for every detached runner while bounding Docker and
+// filesystem cleanup pressure from a large invalidation burst.
+func (c *runnerCache) closeRetiredBatch(runners []Runner) error {
+	if len(runners) == 0 {
+		return nil
+	}
+	workers := min(maxConcurrentRunnerCloses, len(runners))
+	jobs := make(chan Runner)
+	errs := make(chan error, len(runners))
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for r := range jobs {
+				if err := c.closeRetired(r); err != nil {
+					errs <- err
+				}
+			}
+		})
+	}
+	for _, r := range runners {
+		jobs <- r
+	}
+	close(jobs)
+	wg.Wait()
+	close(errs)
+	var joinedErr error
+	for err := range errs {
+		joinedErr = errors.Join(joinedErr, err)
+	}
+	return joinedErr
+}
+
 // close shuts down the runner for a single session.
 func (c *runnerCache) close(sessionID string) error {
 	return c.closeWithSandbox(sessionID, nil)
@@ -487,13 +523,7 @@ func (c *runnerCache) resetWhere(include func(*cachedSession) bool) error {
 		}
 	}()
 
-	var lastErr error
-	for _, r := range runners {
-		if err := c.closeRetired(r); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return c.closeRetiredBatch(runners)
 }
 
 // invalidateSkillPolicy retires idle runners immediately and marks busy runners
@@ -540,13 +570,7 @@ func (c *runnerCache) invalidateSkillPolicy() error {
 			cs.failedAdmission = false
 		}
 	}()
-	var lastErr error
-	for _, r := range runners {
-		if err := c.closeRetired(r); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return c.closeRetiredBatch(runners)
 }
 
 // closeAll shuts down all runners.
@@ -556,15 +580,13 @@ func (c *runnerCache) closeAll() error {
 	c.sessions = make(map[string]*cachedSession)
 	c.mu.Unlock()
 
-	var lastErr error
+	var runners []Runner
 	for _, cs := range sessions {
 		if cs.r != nil {
-			if err := c.closeRetired(cs.r); err != nil {
-				lastErr = err
-			}
+			runners = append(runners, cs.r)
 		}
 	}
-	return lastErr
+	return c.closeRetiredBatch(runners)
 }
 
 // closeWhere is terminal: unlike resetWhere it removes every matching cache
@@ -583,13 +605,7 @@ func (c *runnerCache) closeWhere(include func(*cachedSession) bool) error {
 		}
 	}
 	c.mu.Unlock()
-	var lastErr error
-	for _, r := range closing {
-		if err := c.closeRetired(r); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return c.closeRetiredBatch(closing)
 }
 
 // reap closes runners that are idle or dead.
@@ -639,9 +655,7 @@ func (c *runnerCache) reap() {
 		}
 	}()
 
-	for _, r := range closing {
-		_ = c.closeRetired(r)
-	}
+	_ = c.closeRetiredBatch(closing)
 }
 
 // StartReaper runs a background goroutine that periodically reaps runners.

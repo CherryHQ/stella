@@ -858,7 +858,6 @@ type Plugin struct {
 type PluginConfig struct {
 	ID             string          `json:"id"`
 	PluginID       string          `json:"plugin_id"`
-	Namespace      string          `json:"namespace"`
 	Scope          string          `json:"scope"`
 	UserID         pgtype.Text     `json:"user_id"`
 	AgentID        pgtype.Text     `json:"agent_id"`
@@ -872,7 +871,6 @@ type PluginConfig struct {
 
 type PluginDefinition struct {
 	ID                string          `json:"id"`
-	Namespace         string          `json:"namespace"`
 	DisplayName       string          `json:"display_name"`
 	Backend           string          `json:"backend"`
 	Source            string          `json:"source"`

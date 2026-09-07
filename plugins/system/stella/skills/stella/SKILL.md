@@ -142,12 +142,12 @@ session_*                       # agent session discovery, bounded retrieval, an
 ```
 
 These names identify capability families. Use the current tool catalog to learn
-which are available; plugin tools and owned Skills may be disabled or shadowed
+which are available; plugin tools and owned Skills may be disabled
 for this user and Agent.
 
-Each name above is a family of one tool per action, so the exact name is
-`{namespace}__{local_name}` for plugins (`scheduler__job_pause`) and
-`<family>_<action>` for core tools (`goal_create`). Call the tool that
+Each name above is a family of one tool per action. Native tools keep their
+registered names (`scheduler__job_pause`); core tools use
+`<family>_<action>` (`goal_create`). Call the tool that
 does the thing; there is no `action` argument.
 
 `oauth_connect` accepts an optional `scopes` list. Request only the permissions
@@ -161,9 +161,9 @@ administrator instead of retrying.
 
 Configuration tools are cold Code Mode tools. Built-in `stella` starts with them enabled; every other Agent starts disabled until its manager opts in through Profile → Configuration → Advanced configuration. A manager may also turn them off for Stella. An enabled Agent offers them only in a signed-in human's foreground one-to-one `main` or `chat` session. They are unavailable to groups, guests, webhook turns, scheduler/task/delegate workers, and Agent-originated `session_send`. Discovery is not authority: each call rechecks the durable Agent setting, direct human authority, and the relevant domain permission.
 
-Read before you change state. `settings_agent_update`/`settings_agent_delete`, `settings_agent_tool_update`/`settings_agent_tool_delete`, `settings_library_file_delete`, `settings_skill_update`/`settings_skill_delete`, `settings_provider_update`/`settings_provider_delete`, `settings_default_model_update`, `settings_embedding_setting_update`, and `settings_mcp_server_update`/`settings_mcp_server_delete` require the opaque `version` returned by their matching `get` or `list` result. On a conflict, read again before choosing the next mutation. `settings_agent_tool_list` supplies an `absent` version for the first override; later mutations use that override's returned version. MCP tools (`<plugin_namespace>__<local_tool>`) appear alongside generated plugin tools. Their catalog follows the selected plugin configuration and credential owner. Tool policies retain plugin ID and local tool identity when a configuration changes; never infer permissions from the display name. Create and upload results include the server-selected ID and current version.
+Read before you change state. `settings_agent_update`/`settings_agent_delete`, `settings_agent_tool_update`/`settings_agent_tool_delete`, `settings_library_file_delete`, `settings_skill_update`/`settings_skill_delete`, `settings_provider_update`/`settings_provider_delete`, `settings_default_model_update`, `settings_embedding_setting_update`, and `settings_mcp_server_update`/`settings_mcp_server_delete` require the opaque `version` returned by their matching `get` or `list` result. On a conflict, read again before choosing the next mutation. `settings_agent_tool_list` supplies an `absent` version for the first override; later mutations use that override's returned version. MCP tools appear alongside Native tools; use their exact exported names from the catalog. Their catalog follows the selected plugin configuration and credential owner. Tool policies retain plugin ID and local tool identity when a configuration changes; never infer permissions from the display name. Create and upload results include the selected ID and current version.
 
-The capability matrix is in [references/configuration.md](references/configuration.md). In short: direct users can operate only the Agents and `user`/`user_agent` Library, managed Skill, and MCP resources their normal permissions allow. Administrators additionally get deployment Provider/default-model/embedding/plugin tools and may operate `system`/`system_agent` Library, Skill, and MCP scopes. Plugin actions address a `kind` plus `name`, not an opaque plugin configuration.
+The capability matrix is in [references/configuration.md](references/configuration.md). Direct users can operate only the Agents and `user`/`user_agent` Library, managed Skill, and MCP resources their normal permissions allow. Administrators additionally get deployment Provider/default-model/embedding/plugin tools and may operate `system`/`system_agent` Library, Skill, and MCP scopes. Plugin actions address the exact `plugin_id` returned by the catalog.
 
 Never pass, request, or invent `api_key`, bearer/token, or credential-reference arguments. Provider and Agent Provider credentials, MCP bearer credentials, and credential binding changes are Web UI/API-only. Provider creation is credential-free; a Provider with a configured key cannot have its endpoint origin changed through a tool. MCP creation is no-auth, and a bearer-backed registration can only receive limited safe metadata changes with the same endpoint origin and scope. Account, Users, Provisioning, Channels, Webhooks, arbitrary plugin configuration, Agent workspace/sandbox settings, and credential changes remain outside this capability.
 

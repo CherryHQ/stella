@@ -3,7 +3,14 @@
 import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
 import { type ApiClient, expectStatus } from "./lib/api.ts";
 import { expect, test } from "./lib/fixtures.ts";
-import { createMcpPlugin, type McpFixture, pluginConfigPath, pluginDefinitionPath, startMcpFixture } from "./lib/mcp-fixture.ts";
+import {
+  createMcpPlugin,
+  exportedMcpName,
+  type McpFixture,
+  pluginConfigPath,
+  pluginDefinitionPath,
+  startMcpFixture,
+} from "./lib/mcp-fixture.ts";
 import { type OAuthFixture, startOAuthFixture } from "./lib/oauth-fixture.ts";
 import { ensureProvider } from "./lib/provider.ts";
 import { loadRegistryFixtureState } from "./lib/registry-fixture.ts";
@@ -18,6 +25,7 @@ let agentId = "";
 let agentServerId = "";
 let agentPluginId = "";
 const created: string[] = [];
+const agentBrowserAdd = exportedMcpName("agent-browser", "add");
 
 interface PluginList {
   plugins: PluginDefinition[];
@@ -178,7 +186,7 @@ test("marketplace search, detail, global scope, install provenance, and next pag
     "list plugins",
   ).plugins;
   const definition = definitions.find(
-    (item) => item.namespace === "com-stella-registry-add",
+    (item) => item.id === "com-stella-registry-add",
   );
   expect(definition).toBeDefined();
   created.push(definition!.id);
@@ -240,7 +248,7 @@ test("bearer secret uses the registry template and only creates vault-backed mat
   await sheet.getByRole("button", { name: "Install" }).last().click();
 
   const dbRow = (
-    await db`select id, scope, agent_id, credential_refs #>> '{bearer,name}' as credential_ref, row_to_json(plugin_config)::text as raw from plugin_config where plugin_id in (select id from plugin_definition where namespace = 'com-stella-bearer') order by created_at desc limit 1`
+    await db`select id, scope, agent_id, credential_refs #>> '{bearer,name}' as credential_ref, row_to_json(plugin_config)::text as raw from plugin_config where plugin_id = 'com-stella-bearer' order by created_at desc limit 1`
   )[0];
   expect(dbRow).toBeDefined();
   const definitions = expectStatus(
@@ -249,7 +257,7 @@ test("bearer secret uses the registry template and only creates vault-backed mat
     "list plugins",
   ).plugins;
   const definition = definitions.find(
-    (item) => item.namespace === "com-stella-bearer",
+    (item) => item.id === "com-stella-bearer",
   );
   expect(definition).toBeDefined();
   created.push(definition!.id);
@@ -293,10 +301,10 @@ test("unsupported registry entry hands off to the prefilled manual form", async 
   const manualForm = page.getByRole("dialog").last();
   const manualInputs = manualForm.locator('input:not([aria-hidden="true"]):visible');
   const manualName = manualInputs.nth(0);
-  const manualNamespace = manualInputs.nth(1);
+  const manualID = manualInputs.nth(1);
   const manualURL = manualInputs.nth(3);
   await expect(manualName).toHaveValue("com.stella/unsupported");
-  await expect(manualNamespace).toHaveValue("com-stella-unsupported");
+  await expect(manualID).toHaveValue("com-stella-unsupported");
   await expect(manualURL).toHaveValue("http://127.0.0.1:1/unsupported");
   await page
     .getByRole("button", {
@@ -314,7 +322,7 @@ test("unsupported registry entry hands off to the prefilled manual form", async 
           "list plugins",
         ).plugins;
         manual = plugins.find(
-          (item) => item.namespace === "com-stella-unsupported",
+          (item) => item.id === "com-stella-unsupported",
         );
         return manual !== undefined;
       },
@@ -335,7 +343,7 @@ test("OAuth connect and disconnect run through the browser", async ({ page, admi
   await loginAsAdmin();
   const createdOAuth = expectStatus(
     await admin.post<CreatePluginResponse>("/api/plugins", {
-      namespace: "browser-oauth",
+      name: "browser-oauth",
       display_name: "browser-oauth",
       backend: "mcp",
       definition_spec: {},
@@ -423,7 +431,7 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
   await loginAsAdmin();
   const dead = expectStatus(
     await admin.post<CreatePluginResponse>("/api/plugins", {
-      namespace: "drawer-dead",
+      name: "drawer-dead",
       display_name: "drawer-dead",
       backend: "mcp",
       definition_spec: {},
@@ -562,7 +570,7 @@ test("agent-scoped install and MCP tool permission toggle persist", async ({ pag
   agentId = await ensureAgent(admin, modelRef, "e2e-mcp-web-agent");
   await loginAsAdmin();
   const scoped = await createMcpPlugin(admin, { url: registry.mcpUrl }, {
-    namespace: "agent-browser",
+    name: "agent-browser",
     displayName: "agent-browser",
     scope: "user_agent",
     agentId,
@@ -583,13 +591,13 @@ test("agent-scoped install and MCP tool permission toggle persist", async ({ pag
       agent_id: agentId,
     },
   );
-  await page.getByText("agent-browser", { exact: true }).click();
+  await page.getByRole("button", { name: "agent-browser", exact: true }).click();
   await expect(
-    page.getByText("agent-browser__add", { exact: true }),
+    page.getByText(agentBrowserAdd, { exact: true }),
   ).toBeVisible();
   const tool = page
     .locator('[data-slot="card"]')
-    .filter({ hasText: "agent-browser__add" });
+    .filter({ hasText: agentBrowserAdd });
   await tool.getByRole("switch").click();
   await expect
     .poll(
@@ -607,7 +615,7 @@ test("a real agent calls add on the browser-installed server @model", async ({ a
     const { modelRef } = await ensureProvider(admin);
     agentId = await ensureAgent(admin, modelRef, "e2e-mcp-web-agent");
     const setup = await admin.post<CreatePluginResponse>("/api/plugins", {
-      namespace: "agent-browser",
+      name: "agent-browser",
       display_name: "agent-browser",
       backend: "mcp",
       definition_spec: {},
@@ -633,7 +641,7 @@ test("a real agent calls add on the browser-installed server @model", async ({ a
         "list model plugins",
       ).plugins;
       const definition = definitions.find(
-        (item) => item.namespace === "agent-browser",
+        (item) => item.id === "agent-browser",
       );
       if (!definition) {
         throw new Error("could not recover existing model browser plugin");
@@ -668,7 +676,7 @@ test("a real agent calls add on the browser-installed server @model", async ({ a
     },
   );
   expectStatus(
-    await admin.patch(`/api/agents/${agentId}/tools/agent-browser__add`, {
+    await admin.patch(`/api/agents/${agentId}/tools/${agentBrowserAdd}`, {
       enabled: true,
       scope: "user_agent",
     }),
@@ -680,11 +688,11 @@ test("a real agent calls add on the browser-installed server @model", async ({ a
     admin,
     agentId,
     session,
-    "Call agent-browser__add with a=17 and b=25. Reply with only the result.",
+    `Call ${agentBrowserAdd} with a=17 and b=25. Reply with only the result.`,
   );
   expect(turn.errors, JSON.stringify(turn.events.slice(-5))).toEqual([]);
   expect(turn.text).toContain("42");
   expect(
     invokedToolNames(await sessionMessages(admin, agentId, session)),
-  ).toContain("agent-browser__add");
+  ).toContain(agentBrowserAdd);
 });

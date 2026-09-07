@@ -2,7 +2,7 @@
 import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
 import { expectStatus } from "./lib/api.ts";
 import { expect, test } from "./lib/fixtures.ts";
-import { createMcpPlugin, pluginConfigPath, pluginDefinitionPath } from "./lib/mcp-fixture.ts";
+import { createMcpPlugin, exportedMcpName, pluginConfigPath, pluginDefinitionPath } from "./lib/mcp-fixture.ts";
 import { ensureProvider } from "./lib/provider.ts";
 import { loadRegistryFixtureState } from "./lib/registry-fixture.ts";
 import { type CreatePluginResponse, type PluginConfig, RegistryServer } from "./lib/types.ts";
@@ -11,6 +11,8 @@ test.describe.configure({ mode: "serial" });
 
 const state = loadRegistryFixtureState();
 let installed: CreatePluginResponse;
+const registryPlugin = "registry-add";
+const registryAdd = exportedMcpName(registryPlugin, "add");
 
 async function registryCalls(baseURL: string) {
   const response = await fetch(`${baseURL}/__e2e/mcp-calls`);
@@ -54,9 +56,9 @@ test("registry detail prefers latest, unknown ids 404, and upstream failures map
   expect((await admin.get("/api/mcp/registry/servers?q=upstream-error")).status).toBe(502);
 });
 
-test("install persists provenance, probes the catalog, and rejects a duplicate namespace owner", async ({ admin, db }) => {
+test("install persists provenance, probes the catalog, and rejects a duplicate plugin name", async ({ admin, db }) => {
   installed = await createMcpPlugin(admin, { url: state.mcpUrl }, {
-    namespace: "registry_add",
+    name: registryPlugin,
     displayName: "registry-add",
     metadata: { registry: { source: "official", id: "com.stella/registry-add", version: "1.0.0" } },
   });
@@ -72,7 +74,7 @@ test("install persists provenance, probes the catalog, and rejects a duplicate n
   expect(observation.status).toBe("ok");
   expect((observation.tools as { name: string; }[]).map((tool) => tool.name).sort()).toEqual(["add", "echo"]);
   const twin = await admin.post("/api/plugins", {
-    namespace: "registry_add",
+    name: registryPlugin,
     display_name: "registry-twin",
     backend: "mcp",
     definition_spec: {},
@@ -90,7 +92,7 @@ test("a real agent calls add on the registry-installed server @model", async ({ 
   test.setTimeout(300_000);
   // Install through the API with provenance; the browser install path is covered by the #1237 spec.
   installed = await createMcpPlugin(admin, { url: state.mcpUrl }, {
-    namespace: "registry_add",
+    name: registryPlugin,
     displayName: "registry-add",
     metadata: { registry: { source: "official", id: "com.stella/registry-add", version: "1.0.0" } },
   });
@@ -98,12 +100,12 @@ test("a real agent calls add on the registry-installed server @model", async ({ 
   const agentId = await ensureAgent(admin, modelRef, "e2e-registry-agent");
   const sessionId = await createChatSession(admin, agentId);
   const before = (await registryCalls(state.url)).calls.length;
-  const turn = await sendTurn(admin, agentId, sessionId, "Call registry_add__add with a=17 and b=25. Reply with only the result.");
+  const turn = await sendTurn(admin, agentId, sessionId, `Call ${registryAdd} with a=17 and b=25. Reply with only the result.`);
   expect(turn.errors, JSON.stringify(turn.events.slice(-5))).toEqual([]);
   expect(turn.text).toContain("42");
   const calls = (await registryCalls(state.url)).calls.slice(before);
   expect(calls.some((call) => call.tool === "add" && call.args.a === 17 && call.args.b === 25)).toBe(true);
-  expect(invokedToolNames(await sessionMessages(admin, agentId, sessionId))).toContain("registry_add__add");
+  expect(invokedToolNames(await sessionMessages(admin, agentId, sessionId))).toContain(registryAdd);
   expect(
     (await admin.delete(`${pluginConfigPath(installed.plugin, installed.config)}?expected_revision=${installed.config.revision}`)).status,
   ).toBe(204);

@@ -9,7 +9,7 @@ import (
 )
 
 func TestBuiltinSkillsHaveOneOwnedEmbeddedSource(t *testing.T) {
-	owners := map[string]string{"stella": "system/stella", "xberg": "system/xberg", "lark-cli": "tool/lark-cli"}
+	owners := map[string]string{"stella": "stella", "xberg": "xberg", "lark-cli": "lark-cli"}
 	for _, asset := range BuiltinSkillAssets() {
 		if asset.OwnerPluginID == "" || asset.SourceRoot == "" || asset.LogicalRoot == "" {
 			t.Fatalf("skill %q has incomplete ownership: %#v", asset.Name, asset)

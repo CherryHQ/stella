@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createHash } from "node:crypto";
 import { type IncomingMessage, type ServerResponse } from "node:http";
 import { z } from "zod";
 import { type ApiClient, expectStatus } from "./api.ts";
@@ -33,7 +34,7 @@ export interface McpFixture {
 }
 
 export interface CreateMcpPluginOptions {
-  namespace?: string;
+  name?: string;
   displayName?: string;
   scope?: "system" | "system_agent" | "user" | "user_agent";
   agentId?: string;
@@ -45,6 +46,31 @@ export interface CreateMcpPluginOptions {
   url?: string;
 }
 
+// Keep this in lockstep with agentpackage.ExportedToolName. The e2e suite
+// speaks to the model-facing API, so it must assert the exported identity
+// rather than the retired package__local spelling.
+export function exportedMcpName(packageName: string, localToolName: string): string {
+  const digest = createHash("sha256")
+    .update(JSON.stringify([packageName, "main", localToolName]))
+    .digest("hex")
+    .slice(0, 12);
+  const sanitize = (value: string, fallback: string): string => {
+    const segment = Array.from(value)
+      .map((char) => /[A-Za-z0-9_-]/.test(char) ? char : "_")
+      .join("")
+      .replace(/^[_-]+|[_-]+$/g, "");
+    return segment || fallback;
+  };
+  let prefix = [
+    sanitize(packageName, "package"),
+    sanitize("main", "server"),
+    sanitize(localToolName, "tool"),
+  ].join("_");
+  if (prefix.length > 51) prefix = prefix.slice(0, 51).replace(/[_-]+$/g, "");
+  if (!prefix) prefix = "mcp";
+  return `${prefix}_${digest}`;
+}
+
 // Management tests use the common definition/config API. The MCP backend owns
 // endpoint and credential decoding behind this narrow fixture helper, so tests
 // never seed the retired registration table directly.
@@ -53,8 +79,8 @@ export async function createMcpPlugin(
   fixture: Pick<McpFixture, "url">,
   options: CreateMcpPluginOptions = {},
 ): Promise<CreatePluginResponse> {
-  const namespace = options.namespace ?? "e2e";
-  const displayName = options.displayName ?? namespace;
+  const name = options.name ?? "e2e";
+  const displayName = options.displayName ?? name;
   const config: Record<string, unknown> = {
     url: options.url ?? fixture.url,
     transport: "streamable_http",
@@ -65,7 +91,7 @@ export async function createMcpPlugin(
   const credentials = options.token === undefined ? undefined : { token: options.token };
   return expectStatus(
     await api.post<CreatePluginResponse>("/api/plugins", {
-      namespace,
+      name,
       display_name: displayName,
       backend: "mcp",
       definition_spec: {},

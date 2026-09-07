@@ -87,18 +87,18 @@ func TestLarkCLIOverrideRepairMigration(t *testing.T) {
 		t.Fatalf("load builtin manifest: %v", err)
 	}
 	resolved := manifest.Resolve(builtin, []manifest.StoredOverride{{
-		PluginID: "tool/lark-cli",
+		PluginID: "lark-cli",
 		Config:   repaired,
 	}}, nil)
 	var larkPlugin *manifest.ManifestPlugin
 	for i := range resolved.Plugins {
-		if resolved.Plugins[i].ID == "tool/lark-cli" {
+		if resolved.Plugins[i].ID == "lark-cli" {
 			larkPlugin = &resolved.Plugins[i]
 			break
 		}
 	}
 	if larkPlugin == nil {
-		t.Fatal("repaired manifest has no tool/lark-cli plugin")
+		t.Fatal("repaired manifest has no lark-cli plugin")
 	}
 	if larkPlugin.OAuthProvider != "feishu" {
 		t.Fatalf("repaired Lark OAuth provider = %q, want feishu", larkPlugin.OAuthProvider)

@@ -22,7 +22,7 @@ func TestContextBinaryInstallPlanIsolatedBySelectionIdentity(t *testing.T) {
 	stellaHome := t.TempDir()
 	base := pkgplugins.PluginBinarySpec{
 		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
-			PluginID: "tool/one", ConfigID: "cfg-one", Scope: string(plugin.ScopeSystem), Revision: 4,
+			PluginID: "one", ConfigID: "cfg-one", Scope: string(plugin.ScopeSystem), Revision: 4,
 		},
 		Name: "one", Tool: "github:owner/one", Version: "1.0.0",
 	}
@@ -51,7 +51,7 @@ func TestContextBinaryInstallPlanIsolatedBySelectionIdentity(t *testing.T) {
 func TestContextBinaryInstallPlanRejectsPathTraversal(t *testing.T) {
 	spec := pkgplugins.PluginBinarySpec{
 		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
-			PluginID: "tool/evil", ConfigID: "cfg", Scope: string(plugin.ScopeSystem), Revision: 1,
+			PluginID: "evil", ConfigID: "cfg", Scope: string(plugin.ScopeSystem), Revision: 1,
 		},
 		Name: "../../victim", Tool: "github:owner/tool",
 	}
@@ -71,7 +71,7 @@ func TestContextBinaryInstallPlanRejectsPathTraversal(t *testing.T) {
 func TestContextBinaryInstallPlanRejectsNonPositiveRevision(t *testing.T) {
 	base := pkgplugins.PluginBinarySpec{
 		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
-			PluginID: "tool/one", ConfigID: "cfg-one", Scope: string(plugin.ScopeSystem),
+			PluginID: "one", ConfigID: "cfg-one", Scope: string(plugin.ScopeSystem),
 		},
 		Name: "one", Tool: "github:owner/one", Version: "1.0.0",
 	}
@@ -156,10 +156,10 @@ func TestOverlayNativeSelectionKeepsPrivateUserMiseTree(t *testing.T) {
 }
 
 func TestContextBinaryInstallRejectsConflictingMiseToolSelections(t *testing.T) {
-	baseIdentity := pkgplugins.PluginResourceIdentity{PluginID: "tool/one", ConfigID: "cfg-one", Scope: string(plugin.ScopeSystem), Revision: 1}
+	baseIdentity := pkgplugins.PluginResourceIdentity{PluginID: "one", ConfigID: "cfg-one", Scope: string(plugin.ScopeSystem), Revision: 1}
 	specs := []pkgplugins.PluginBinarySpec{
 		{PluginResourceIdentity: baseIdentity, Name: "one", Tool: "github:owner/shared", Version: "1.0.0"},
-		{PluginResourceIdentity: pkgplugins.PluginResourceIdentity{PluginID: "tool/two", ConfigID: "cfg-two", Scope: string(plugin.ScopeSystemAgent), Revision: 1}, Name: "two", Tool: "github:owner/shared", Version: "2.0.0"},
+		{PluginResourceIdentity: pkgplugins.PluginResourceIdentity{PluginID: "two", ConfigID: "cfg-two", Scope: string(plugin.ScopeSystemAgent), Revision: 1}, Name: "two", Tool: "github:owner/shared", Version: "2.0.0"},
 	}
 	if _, err := ContextBinaryInstallPlan(t.TempDir(), specs); err != nil {
 		t.Fatalf("identity should accept distinct resources: %v", err)
@@ -193,7 +193,7 @@ func TestInstallContextBinariesUsesSelectionLocalConfigAndShims(t *testing.T) {
 
 	spec := pkgplugins.PluginBinarySpec{
 		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
-			PluginID: "tool/one", ConfigID: "cfg-one", Scope: string(plugin.ScopeSystem), Revision: 4,
+			PluginID: "one", ConfigID: "cfg-one", Scope: string(plugin.ScopeSystem), Revision: 4,
 		},
 		Name: "one", Tool: "github:owner/one", Version: "1.0.0", Options: map[string]any{"private": "secret"},
 	}
@@ -270,7 +270,7 @@ func TestRemoveNativeMiseConfigReportsCleanupFailure(t *testing.T) {
 func TestInstallContextBinariesSkipsEmptySystemSelection(t *testing.T) {
 	spec := pkgplugins.PluginBinarySpec{
 		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
-			PluginID: "tool/one", ConfigID: "cfg-one", Scope: string(plugin.ScopeUser), Revision: 1,
+			PluginID: "one", ConfigID: "cfg-one", Scope: string(plugin.ScopeUser), Revision: 1,
 		},
 		Name: "one", Tool: "github:owner/one", Version: "1.0.0",
 	}
@@ -666,7 +666,7 @@ func TestNativeMiseErrorsHideStderr(t *testing.T) {
 	}
 	spec := pkgplugins.PluginBinarySpec{
 		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
-			PluginID: "tool/secret", ConfigID: "cfg-secret", Scope: string(plugin.ScopeSystem), Revision: 1,
+			PluginID: "secret", ConfigID: "cfg-secret", Scope: string(plugin.ScopeSystem), Revision: 1,
 		},
 		Name: "secret-tool", Tool: "github:owner/secret-tool", Version: "1.0.0",
 	}
@@ -723,7 +723,7 @@ func TestInstallSandboxBinariesUsesSessionOnly(t *testing.T) {
 	defer func() { _ = session.Close() }()
 	spec := pkgplugins.PluginBinarySpec{
 		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
-			PluginID: "tool/user", ConfigID: "cfg-user", Scope: string(plugin.ScopeUser), Revision: 2,
+			PluginID: "user", ConfigID: "cfg-user", Scope: string(plugin.ScopeUser), Revision: 2,
 		},
 		Name: "user-tool", Tool: "github:owner/user-tool", Version: "3.0.0",
 	}

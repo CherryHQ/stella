@@ -13,6 +13,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
 	"github.com/CherryHQ/stella/internal/mcp"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 )
@@ -241,13 +242,13 @@ func (s *Server) agentTools(ctx context.Context, agentID string, includeSettings
 			for _, tool := range reg.Tools {
 				name, ok := mcpToolName(reg, tool)
 				if !ok {
-					// Legacy registrations have no trusted plugin namespace. They
+					// Legacy registrations have no trusted plugin ID. They
 					// cannot be published under a guessed model-facing name.
 					continue
 				}
 				identity, ok := mcpToolIdentity(reg, tool)
 				if !ok {
-					// A malformed registration may still carry a display namespace,
+					// A malformed registration may still carry display metadata,
 					// but without a plugin/local identity it cannot be controlled by
 					// a name-only override.
 					identity = agent.ToolIdentity{}
@@ -413,7 +414,7 @@ func (s *Server) toolIdentity(name string) (agent.ToolIdentity, error) {
 func trustedToolIdentityWithPolicy(meta *toolmeta.Registry, native *pluginpkg.NativePolicy, name string) (agent.ToolIdentity, error) {
 	if spec, ok := meta.Lookup(name); ok {
 		if spec.PluginID == "" {
-			if spec.Namespace != "" || spec.LocalName != "" {
+			if spec.LocalName != "" {
 				return agent.ToolIdentity{}, fmt.Errorf("tool %q has core/plugin metadata mismatch", name)
 			}
 			return agent.ToolIdentity{CoreToolName: name}, nil
@@ -442,15 +443,15 @@ func nativeToolIdentity(meta *toolmeta.Registry, native *pluginpkg.NativePolicy,
 }
 
 func mcpToolName(reg mcp.Registration, tool mcp.CatalogTool) (string, bool) {
-	name, err := pluginpkg.ExportedToolName(reg.Namespace, mcp.SanitizeIdent(tool.Name, "tool"))
+	name, err := agentpackage.ExportedToolName(reg.PluginID, "main", tool.Name)
 	return name, err == nil
 }
 
 func mcpToolIdentity(reg mcp.Registration, tool mcp.CatalogTool) (agent.ToolIdentity, bool) {
-	if reg.PluginID == "" || reg.Namespace == "" {
+	if reg.PluginID == "" || tool.Name == "" {
 		return agent.ToolIdentity{}, false
 	}
-	identity := agent.ToolIdentity{PluginID: reg.PluginID, LocalToolName: mcp.SanitizeIdent(tool.Name, "tool")}
+	identity := agent.ToolIdentity{PluginID: reg.PluginID, LocalToolName: tool.Name}
 	return identity, identity.Validate() == nil
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/observability"
 	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	skillstool "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
@@ -377,7 +378,13 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	knownHostToolNames := make(map[string]struct{})
 	if cfg.ToolMetaRegistry != nil {
 		for _, spec := range cfg.ToolMetaRegistry.Tools() {
-			if spec.PluginID != "" && spec.Namespace == "" {
+			if spec.PluginID == "" {
+				continue
+			}
+			// Generated Native tools also carry a PluginID. Their names are
+			// already reserved as builtins, so only reserve the remaining
+			// trusted Host metadata here.
+			if _, builtin := knownBuiltinNames[spec.Name]; !builtin {
 				knownHostToolNames[spec.Name] = struct{}{}
 			}
 		}
@@ -594,7 +601,7 @@ func closeTool(tool tools.Tool) {
 func (r *runner) PluginContext() PluginContext { return r.pluginContext }
 
 // runnerMCPToolIdentity verifies that a proxy's durable plugin/local pair is
-// still the winner for its namespace in this runner's immutable snapshot. A
+// still attached to the exact package in this runner's immutable snapshot. A
 // model-facing exported name is only a projection of that verified identity.
 func runnerMCPToolIdentity(snapshot plugin.Snapshot, tool tools.Tool) (ToolIdentity, error) {
 	if tool == nil {
@@ -615,15 +622,10 @@ func runnerMCPToolIdentity(snapshot plugin.Snapshot, tool tools.Tool) (ToolIdent
 	if resolved.Definition.Backend != plugin.BackendMCP {
 		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q references non-MCP plugin %q", tool.Definition().Name, pluginID)
 	}
-	namespace := resolved.Definition.Namespace
-	effective, err := snapshot.ResolveNamespace(namespace)
-	if err != nil {
-		return ToolIdentity{}, fmt.Errorf("runner: resolve MCP namespace %q for tool %q: %w", namespace, tool.Definition().Name, err)
+	if resolved.Effective.PluginID != pluginID || !resolved.Effective.IsEffectivelyEnabled {
+		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q is not enabled for package %q", tool.Definition().Name, pluginID)
 	}
-	if effective.PluginID != pluginID || !effective.IsEffectivelyEnabled {
-		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q is not owned by the enabled namespace winner", tool.Definition().Name)
-	}
-	exported, err := plugin.ExportedToolName(namespace, localToolName)
+	exported, err := agentpackage.ExportedToolName(pluginID, "main", localToolName)
 	if err != nil {
 		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q has invalid identity: %w", tool.Definition().Name, err)
 	}
@@ -642,7 +644,7 @@ func runnerMCPToolIdentity(snapshot plugin.Snapshot, tool tools.Tool) (ToolIdent
 func runnerToolIdentity(meta *toolmeta.Registry, native *plugin.NativePolicy, name string) (ToolIdentity, error) {
 	if spec, ok := meta.Lookup(name); ok {
 		if spec.PluginID == "" {
-			if spec.Namespace != "" || spec.LocalName != "" {
+			if spec.LocalName != "" {
 				return ToolIdentity{}, fmt.Errorf("runner: core tool %q has plugin metadata", name)
 			}
 			return ToolIdentity{CoreToolName: name}, nil

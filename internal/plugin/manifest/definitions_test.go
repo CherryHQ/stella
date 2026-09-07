@@ -25,7 +25,7 @@ func TestBuiltinDefinitionsPreserveReleasePayload(t *testing.T) {
 		if err := catalog.Register(definition); err != nil {
 			t.Fatal(err)
 		}
-		if definition.ID != original.ID || definition.Namespace != original.Name || definition.Backend != plugin.BackendCLI || definition.Source != plugin.SourceBuiltin || definition.DefaultEnabled != original.Enabled {
+		if definition.ID != original.ID || definition.Backend != plugin.BackendCLI || definition.Source != plugin.SourceBuiltin || definition.DefaultEnabled != original.Enabled {
 			t.Fatalf("release identity or default changed: %#v", definition)
 		}
 		var decoded ManifestPluginDefinition

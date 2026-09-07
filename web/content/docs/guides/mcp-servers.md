@@ -4,7 +4,7 @@ title: MCP Servers
 
 ## What MCP Servers Do
 
-Stella can connect to external [Model Context Protocol](https://modelcontextprotocol.io) servers and expose their tools to your agents. Register a server once and its tools appear in the agent's toolbox, namespaced as `mcp__<server>__<tool>` so they never collide with skills or built-in tools.
+Stella can connect to external [Model Context Protocol](https://modelcontextprotocol.io) servers and expose their tools to your agents. Register a server once and use the exact tool names shown in the tool catalog. Stella derives stable names from the plugin and remote tool, and checks for collisions before exposing them.
 
 Stella is an MCP **client** over HTTP-based transports only:
 
@@ -26,7 +26,7 @@ Registrations use the same four scopes as skills and the vault, so a server can 
 | `user`         | one user, across their agents    |
 | `user_agent`   | one user with one specific agent |
 
-When two registrations share a name, the most specific wins: `user_agent` > `user` > `system_agent` > `system`.
+Each plugin has a unique name. Its configuration is selected in this order: `user_agent` > `user` > `system_agent` > `system`. An explicit administrator disable at `system` or matching `system_agent` scope still blocks access. Different plugins do not replace one another.
 
 ## Authentication
 
@@ -71,7 +71,7 @@ An administrator's **disable** always wins over a user's enable; otherwise the m
 
 The server's **enable switch is separate**: it turns the whole registration on or off. While a server is disabled, unreachable, or rejecting credentials, its tools stay listed but their switches have no effect until the server is healthy again — the header shows why.
 
-Because overrides are keyed by tool name (`mcp__<server>__<tool>`), renaming a server migrates its tools' overrides to the new prefix automatically, and deleting a server removes them. Both only happen once no other registration in any scope still uses that name. If two registrations share a name in different scopes, an override applies to whichever registration wins for the context.
+Tool restrictions follow the plugin identity and remote tool, across that plugin's scoped configurations. Changing the display name does not change its identity or permissions. The plugin name is fixed after creation. Always use the current catalog's exact exported name when managing a tool.
 
 ## Marketplace
 

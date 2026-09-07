@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-const testBuiltinPluginYAML = `id: tool/demo
+const testBuiltinPluginYAML = `id: demo
 kind: tool
 name: demo
 display_name: Demo
@@ -53,7 +53,7 @@ func TestGenerateBuiltinPluginsNestedMovePreservesBytesAndIdentity(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(firstBytes, secondBytes) || second.Plugins[0].ID != "tool/demo" {
+	if !bytes.Equal(firstBytes, secondBytes) || second.Plugins[0].ID != "demo" {
 		t.Fatalf("moving declaration changed generated catalog or identity: first=%s second=%s", firstBytes, secondBytes)
 	}
 }
@@ -68,7 +68,7 @@ func TestGenerateBuiltinPluginsEmptyDirectoryIsNotPlugin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plugins.Plugins) != 1 || plugins.Plugins[0].ID != "tool/demo" {
+	if len(plugins.Plugins) != 1 || plugins.Plugins[0].ID != "demo" {
 		t.Fatalf("plugins = %#v, want only the declared plugin", plugins.Plugins)
 	}
 }
@@ -106,7 +106,7 @@ func TestGenerateBuiltinPluginsIncludesStandardAgentPackage(t *testing.T) {
 	}
 }
 
-func TestGenerateBuiltinPluginsRejectsDuplicateIDsNamespacesAndResources(t *testing.T) {
+func TestGenerateBuiltinPluginsRejectsDuplicateIDsAndResources(t *testing.T) {
 	tests := []struct {
 		name  string
 		left  string
@@ -114,8 +114,7 @@ func TestGenerateBuiltinPluginsRejectsDuplicateIDsNamespacesAndResources(t *test
 		want  string
 	}{
 		{name: "id", left: testBuiltinPluginYAML, right: testBuiltinPluginYAML, want: "duplicate builtin plugin ID"},
-		{name: "namespace", left: testBuiltinPluginYAML, right: strings.Replace(strings.Replace(testBuiltinPluginYAML, "id: tool/demo", "id: channel/demo", 1), "kind: tool", "kind: channel", 1), want: "duplicate builtin plugin namespace"},
-		{name: "resource", left: testBuiltinPluginYAML, right: strings.Replace(strings.Replace(testBuiltinPluginYAML, "id: tool/demo", "id: tool/other", 1), "name: demo\n", "name: other\n", 1), want: "duplicate builtin plugin resource"},
+		{name: "resource", left: testBuiltinPluginYAML, right: strings.Replace(strings.Replace(testBuiltinPluginYAML, "id: demo", "id: other", 1), "name: demo\n", "name: other\n", 1), want: "duplicate builtin plugin resource"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -186,7 +185,7 @@ func TestGenerateBuiltinPluginsRejectsUnknownFieldsAndMultipleDocuments(t *testi
 	}{
 		{name: "unknown field", content: testBuiltinPluginYAML + "unexpected: true\n", want: "field unexpected not found"},
 		{name: "remote skill source", content: strings.Replace(testBuiltinPluginYAML, "  - name: demo-skill\n", "  - name: demo-skill\n    repo: github:example/demo-skill\n", 1), want: "field repo not found"},
-		{name: "multiple documents", content: testBuiltinPluginYAML + "---\nid: tool/other\n", want: "more than one YAML document"},
+		{name: "multiple documents", content: testBuiltinPluginYAML + "---\nid: other\n", want: "more than one YAML document"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -204,7 +203,7 @@ func TestGenerateBuiltinPluginsRejectsCoreIDsAndReleaseFields(t *testing.T) {
 		content string
 		want    string
 	}{
-		{name: "reserved core ID", content: strings.Replace(strings.Replace(testBuiltinPluginYAML, "id: tool/demo", "id: tool/rg", 1), "name: demo\n", "name: rg\n", 1), want: "reserved core ID"},
+		{name: "reserved core ID", content: strings.Replace(strings.Replace(testBuiltinPluginYAML, "id: demo", "id: rg", 1), "name: demo\n", "name: rg\n", 1), want: "reserved core ID"},
 		{name: "essential", content: testBuiltinPluginYAML + "essential: false\n", want: "cannot declare essential"},
 		{name: "empty bundled binaries", content: testBuiltinPluginYAML + "bundled_binaries: []\n", want: "bundled_binaries require kind system"},
 	} {

@@ -6,7 +6,7 @@ import (
 )
 
 // Catalog is the single in-process definition index used by reconciliation and
-// service adapters. Registration rejects duplicate IDs; configuration owners reserve namespaces.
+// service adapters. Registration rejects duplicate canonical names.
 type Catalog struct {
 	byID map[string]Definition
 }
@@ -23,10 +23,8 @@ func (c *Catalog) Register(def Definition) error {
 		return err
 	}
 	if existing, ok := c.byID[def.ID]; ok {
-		if existing.Namespace == def.Namespace {
-			return fmt.Errorf("plugin: duplicate definition %q", def.ID)
-		}
-		return fmt.Errorf("plugin: definition %q changes namespace", def.ID)
+		_ = existing
+		return fmt.Errorf("plugin: duplicate definition %q", def.ID)
 	}
 	c.byID[def.ID] = cloneDefinition(def)
 	return nil
@@ -49,12 +47,6 @@ func (c *Catalog) Definitions() []Definition {
 		defs = append(defs, cloneDefinition(def))
 	}
 	slices.SortFunc(defs, func(a, b Definition) int {
-		if a.Namespace < b.Namespace {
-			return -1
-		}
-		if a.Namespace > b.Namespace {
-			return 1
-		}
 		if a.ID < b.ID {
 			return -1
 		}

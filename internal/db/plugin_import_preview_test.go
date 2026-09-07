@@ -18,14 +18,14 @@ func TestPreviewLegacyImportIsReadOnlyAndDoesNotWriteMarker(t *testing.T) {
 	ctx := t.Context()
 	if _, err := db.Exec(ctx, `
 		INSERT INTO plugin (id, kind, name, enabled, config)
-		VALUES ('tool/test', 'tool', 'test', false, '{}'::jsonb)
+		VALUES ('agent/test', 'agent', 'test', false, '{}'::jsonb)
 	`); err != nil {
 		t.Fatal(err)
 	}
 	catalog := plugin.NewCatalog()
 	if err := catalog.Register(plugin.Definition{
-		ID: "tool/test", Namespace: "test", DisplayName: "Test", Backend: plugin.BackendCLI,
-		Source: plugin.SourceBuiltin, ImplementationKey: "tool/test", Spec: []byte(`{"name":"test"}`), DefaultEnabled: true, Revision: 1,
+		ID: "test", DisplayName: "Test", Backend: plugin.BackendCLI,
+		Source: plugin.SourceBuiltin, ImplementationKey: "test", Spec: []byte(`{"name":"test"}`), DefaultEnabled: true, Revision: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestPreviewLegacyImportReportsUnexpectedMarkerAndMCPOverride(t *testing.T) 
 	if err != nil {
 		t.Fatalf("MCP override preview error = %v", err)
 	}
-	if len(plan.ToolOverrides) != 1 || plan.ToolOverrides[0].PluginID != "custom/"+registrationID || plan.ToolOverrides[0].LocalTool != "create_issue" || plan.ToolOverrides[0].Enabled {
+	if len(plan.ToolOverrides) != 1 || plan.ToolOverrides[0].PluginID != "github" || plan.ToolOverrides[0].LocalTool != "create_issue" || plan.ToolOverrides[0].Enabled {
 		t.Fatalf("MCP override mapping = %#v", plan.ToolOverrides)
 	}
 	var definitions, configs int
@@ -238,7 +238,7 @@ func TestImportLegacyStateWritesDefinitionsConfigsAndSharedObservation(t *testin
 	ctx := t.Context()
 	preparePluginPolicyCutoverSchema(t, db)
 	catalog := plugin.NewCatalog()
-	builtin := pluginDefinition("builtin/import", "import", true)
+	builtin := pluginDefinition("import", true)
 	if err := catalog.Register(builtin); err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestImportLegacyStateWritesDefinitionsConfigsAndSharedObservation(t *testin
 	const mirror = `{"provider":"legacy"}`
 	if _, err := db.Exec(ctx, `
 		INSERT INTO plugin (id, kind, name, enabled, config)
-		VALUES ('builtin/import', 'tool', 'import', false, $1::jsonb)
+		VALUES ('agent/import', 'agent', 'import', false, $1::jsonb)
 	`, mirror); err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestImportLegacyStateWritesDefinitionsConfigsAndSharedObservation(t *testin
 		t.Fatalf("target counts = definitions %d configs %d", definitionCount, configCount)
 	}
 	var enabled bool
-	if err := db.QueryRow(ctx, `SELECT enabled FROM plugin_config WHERE plugin_id = 'builtin/import' AND scope = 'system'`).Scan(&enabled); err != nil {
+	if err := db.QueryRow(ctx, `SELECT enabled FROM plugin_config WHERE plugin_id = 'import' AND scope = 'system'`).Scan(&enabled); err != nil {
 		t.Fatal(err)
 	}
 	if enabled {
@@ -304,7 +304,7 @@ func TestImportLegacyStateWritesDefinitionsConfigsAndSharedObservation(t *testin
 		t.Fatalf("shared observation = status=%q error=%q tools=%q", status, statusError, tools)
 	}
 	var gotMirror string
-	if err := db.QueryRow(ctx, `SELECT config::text FROM plugin WHERE id = 'builtin/import'`).Scan(&gotMirror); err != nil {
+	if err := db.QueryRow(ctx, `SELECT config::text FROM plugin WHERE id = 'agent/import'`).Scan(&gotMirror); err != nil {
 		t.Fatal(err)
 	}
 	var gotMirrorObject map[string]any
@@ -322,7 +322,7 @@ func TestImportLegacyStateDoesNotImportOwnerlessPerUserObservation(t *testing.T)
 	preparePluginPolicyCutoverSchema(t, db)
 	user := insertPluginUser(t, db, "legacy-import-user@example.test", false)
 	catalog := plugin.NewCatalog()
-	if err := catalog.Register(pluginDefinition("builtin/import", "import", true)); err != nil {
+	if err := catalog.Register(pluginDefinition("import", true)); err != nil {
 		t.Fatal(err)
 	}
 	const mcpID = "0198f9a4-1b2c-7def-8123-456789abcdea"
@@ -359,12 +359,12 @@ func TestImportLegacyStateRollsBackBeforeMarkerOnPolicyDependency(t *testing.T) 
 	db := newTestDBAtMigrationOnly(t, pluginCutoverMigration41)
 	ctx := t.Context()
 	catalog := plugin.NewCatalog()
-	if err := catalog.Register(pluginDefinition("builtin/import", "import", true)); err != nil {
+	if err := catalog.Register(pluginDefinition("import", true)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
 		INSERT INTO plugin (id, kind, name, enabled, config)
-		VALUES ('builtin/import', 'tool', 'import', true, '{}'::jsonb)
+		VALUES ('agent/import', 'agent', 'import', true, '{}'::jsonb)
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -434,17 +434,17 @@ func TestImportLegacyStateWritesPluginToolOverrideWithExactIdentity(t *testing.T
 	if err := db.QueryRow(ctx, `
 		SELECT tool_name, plugin_id, local_tool_name, scope, enabled
 		FROM tool_override WHERE plugin_id = $1 AND scope = 'system'
-	`, "custom/"+registrationID).Scan(&toolName, &pluginID, &localName, &scope, &enabled); err != nil {
+	`, "github").Scan(&toolName, &pluginID, &localName, &scope, &enabled); err != nil {
 		t.Fatal(err)
 	}
-	if toolName.Valid || pluginID != "custom/"+registrationID || localName != "create_issue" || scope != "system" || enabled {
+	if toolName.Valid || pluginID != "github" || localName != "create_issue" || scope != "system" || enabled {
 		t.Fatalf("imported plugin policy = tool=%#v plugin=%q local=%q scope=%q enabled=%v", toolName, pluginID, localName, scope, enabled)
 	}
 	var gotUser string
 	if err := db.QueryRow(ctx, `
 		SELECT user_id::text FROM tool_override
 		WHERE plugin_id = $1 AND scope = 'user'
-	`, "custom/"+registrationID).Scan(&gotUser); err != nil {
+	`, "github").Scan(&gotUser); err != nil {
 		t.Fatal(err)
 	}
 	if gotUser != string(user.UserID()) {
@@ -581,9 +581,9 @@ func TestImportLegacyStateRejectsCoreRowWithPluginIdentity(t *testing.T) {
 	preparePluginPolicyCutoverSchema(t, db)
 	if _, err := db.Exec(ctx, `
 		INSERT INTO plugin_definition (
-			id, namespace, display_name, backend, source, implementation_key,
+			id, display_name, backend, source, implementation_key,
 			spec, default_enabled, revision
-		) VALUES ('system/dual-row', 'dual-row', 'Dual row fixture', 'go', 'builtin', 'dual-row', '{}', false, 1)
+		) VALUES ('dual-row', 'Dual row fixture', 'go', 'builtin', 'dual-row', '{}', false, 1)
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -603,7 +603,7 @@ func TestImportLegacyStateRejectsCoreRowWithPluginIdentity(t *testing.T) {
 	}
 	if _, err := db.Exec(ctx, `
 		UPDATE tool_override
-		SET plugin_id = 'system/dual-row', local_tool_name = 'goal_create'
+		SET plugin_id = 'dual-row', local_tool_name = 'goal_create'
 		WHERE id = $1::uuid
 	`, overrideID); err != nil {
 		t.Fatal(err)
@@ -696,12 +696,12 @@ func TestImportLegacyStateRefusesPreparationSchema(t *testing.T) {
 	db, _ := newTestDBAtMigration(t, pluginCutoverMigration40)
 	ctx := t.Context()
 	catalog := plugin.NewCatalog()
-	if err := catalog.Register(pluginDefinition("builtin/import", "import", true)); err != nil {
+	if err := catalog.Register(pluginDefinition("import", true)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
 		INSERT INTO plugin (id, kind, name, enabled, config)
-		VALUES ('builtin/import', 'tool', 'import', true, '{}'::jsonb)
+		VALUES ('agent/import', 'agent', 'import', true, '{}'::jsonb)
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -814,7 +814,7 @@ func TestImportLegacyStateValidatesRetargetedOAuthFlowAfterUUIDConfigImport(t *t
 	ctx := t.Context()
 	user := insertPluginUser(t, db, "legacy-import-oauth@example.test", false)
 	catalog := plugin.NewCatalog()
-	if err := catalog.Register(pluginDefinition("builtin/import", "import", true)); err != nil {
+	if err := catalog.Register(pluginDefinition("import", true)); err != nil {
 		t.Fatal(err)
 	}
 	const mcpID = "0198f9a4-1b2c-7def-8123-456789abcdeb"
@@ -932,7 +932,7 @@ func TestImportLegacyStateRollsBackWhenRetargetedOAuthValidationFindsOrphan(t *t
 	ctx := t.Context()
 	user := insertPluginUser(t, db, "legacy-import-oauth-orphan@example.test", false)
 	catalog := plugin.NewCatalog()
-	if err := catalog.Register(pluginDefinition("builtin/import", "import", true)); err != nil {
+	if err := catalog.Register(pluginDefinition("import", true)); err != nil {
 		t.Fatal(err)
 	}
 	const mcpID = "0198f9a4-1b2c-7def-8123-456789abcded"

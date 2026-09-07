@@ -950,9 +950,9 @@ func TestListPluginsUsesUnifiedSafeDefinitionProjection(t *testing.T) {
 	plugins := plugin.NewService(env.db, env.deps.AgentAccess, plugin.NewCatalog(), plugin.BackendPolicy{}, func(_ context.Context, fn func() error) error { return fn() })
 	env.rebuild(t, func(d *server.Deps) { d.PluginService = plugins })
 	if _, err := env.db.Exec(context.Background(), `
-		INSERT INTO plugin_definition(id, namespace, display_name, backend, source,
+		INSERT INTO plugin_definition(id, display_name, backend, source,
 			implementation_key, spec, default_enabled, revision)
-		VALUES ('custom/safe', 'safe', 'Safe plugin', 'mcp', 'custom', 'mcp',
+		VALUES ('custom-safe', 'Safe plugin', 'mcp', 'custom', 'mcp',
 			'{"description":"safe","category":"utility","capabilities":["read"],"url":"https://private.example/path?token=secret","credential_refs":{"token":"vault://secret"}}'::jsonb, false, 1)`); err != nil {
 		t.Fatalf("seed plugin definition: %v", err)
 	}
@@ -969,7 +969,7 @@ func TestListPluginsUsesUnifiedSafeDefinitionProjection(t *testing.T) {
 		t.Fatalf("plugins = %#v, want one custom definition", list.Plugins)
 	}
 	item := list.Plugins[0]
-	if item.Id != "custom/safe" || item.Namespace != "safe" || item.DisplayName != "Safe plugin" {
+	if item.Id != "custom-safe" || item.DisplayName != "Safe plugin" {
 		t.Fatalf("plugin identity = %#v", item)
 	}
 	if item.Spec["description"] != "safe" || item.Spec["category"] != "utility" {
@@ -990,15 +990,11 @@ func TestPluginHTTPRouteUsesBareAndEncodedPluginIDs(t *testing.T) {
 		},
 	}, func(_ context.Context, fn func() error) error { return fn() })
 	env.rebuild(t, func(d *server.Deps) { d.PluginService = plugins })
-	for _, id := range []string{"email", "custom/acme"} {
-		namespace := id
-		if id == "custom/acme" {
-			namespace = "acme"
-		}
+	for _, id := range []string{"email", "custom.acme"} {
 		if _, err := env.db.Exec(context.Background(), `
-			INSERT INTO plugin_definition(id, namespace, display_name, backend, source,
+			INSERT INTO plugin_definition(id, display_name, backend, source,
 				implementation_key, spec, default_enabled, revision)
-			VALUES ($1, $2, $3, 'cli', 'custom', 'cli', '{}'::jsonb, false, 1)`, id, namespace, id); err != nil {
+			VALUES ($1, $2, 'cli', 'custom', 'cli', '{}'::jsonb, false, 1)`, id, id); err != nil {
 			t.Fatalf("seed plugin %q: %v", id, err)
 		}
 		rr := doRequest(t, env, http.MethodGet, pluginAPIPath(id), nil)
@@ -1013,10 +1009,14 @@ func TestPluginHTTPRouteUsesBareAndEncodedPluginIDs(t *testing.T) {
 			t.Fatalf("GET %s returned %q", id, definition.Id)
 		}
 	}
+	invalid := doRequest(t, env, http.MethodGet, pluginAPIPath("custom/acme"), nil)
+	if invalid.Code != http.StatusNotFound {
+		t.Fatalf("GET encoded slash plugin ID = %d, want 404: %s", invalid.Code, invalid.Body.String())
+	}
 	configID := uuid.NewString()
 	if _, err := env.db.Exec(context.Background(), `
-		INSERT INTO plugin_config(id, plugin_id, namespace, scope, user_id, enabled, config, credential_refs, revision)
-		VALUES ($1::uuid, 'email', 'email', 'user', $2::uuid, true, '{}'::jsonb, '{}'::jsonb, 1)`, configID, env.adminUser.ID); err != nil {
+		INSERT INTO plugin_config(id, plugin_id, scope, user_id, enabled, config, credential_refs, revision)
+		VALUES ($1::uuid, 'email', 'user', $2::uuid, true, '{}'::jsonb, '{}'::jsonb, 1)`, configID, env.adminUser.ID); err != nil {
 		t.Fatalf("seed bare plugin config: %v", err)
 	}
 	configs := doRequest(t, env, http.MethodGet, pluginAPIPath("email")+"/configs?scope=user", nil)

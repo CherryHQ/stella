@@ -1,4 +1,4 @@
-id: tool/lark-cli
+id: lark-cli
 kind: tool
 name: lark-cli
 display_name: Lark CLI

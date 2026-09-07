@@ -1,4 +1,4 @@
-id: system/rg
+id: rg
 kind: system
 name: rg
 display_name: ripgrep

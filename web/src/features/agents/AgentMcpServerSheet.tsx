@@ -108,7 +108,7 @@ export function AgentMcpServerSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetPopup side="right" className="w-full sm:w-[560px] sm:max-w-[560px]">
         <DetailPanel>
-          <DetailPanelHeader title={plugin?.display_name ?? server.namespace} />
+          <DetailPanelHeader title={plugin?.display_name ?? server.plugin_id} />
           {config && plugin ? (
             <PluginConfigEditor
               plugin={plugin}

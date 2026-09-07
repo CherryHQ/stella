@@ -129,7 +129,6 @@ func agentMCPServerResponse(registration mcp.Registration, readable bool) apityp
 	return apitypes.AgentMCPServer{
 		PluginId:       registration.PluginID,
 		ConfigId:       registration.ID,
-		Namespace:      registration.Namespace,
 		Scope:          apitypes.AgentMCPServerScope(registration.Scope),
 		Enabled:        registration.Enabled,
 		CredentialMode: apitypes.AgentMCPServerCredentialMode(registration.CredentialMode),

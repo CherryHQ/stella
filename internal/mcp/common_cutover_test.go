@@ -16,13 +16,12 @@ func TestCommonAuthNoneCRUDWorksWithoutVault(t *testing.T) {
 	svc, _, userID, _ := setupInternal(t)
 	svc.bindVault = nil
 	configID := uuid.NewString()
-	pluginID := "custom/" + configID
-	namespace := "mcp_" + configID[:8]
+	pluginID := "mcp-" + configID[:8]
 	if _, err := svc.pool.Exec(t.Context(), `
-		INSERT INTO plugin_definition(id, namespace, display_name, backend, source,
+		INSERT INTO plugin_definition(id, display_name, backend, source,
 			implementation_key, spec, default_enabled, revision, creator_user_id)
-		VALUES ($1, $2, $3, 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1, $4::uuid)`,
-		pluginID, namespace, "Auth None", userID); err != nil {
+		VALUES ($1, $2, 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1, $3::uuid)`,
+		pluginID, "Auth None", userID); err != nil {
 		t.Fatalf("seed common definition: %v", err)
 	}
 	authority, err := authz.NewUserAuthority(authz.UserID(userID), true)
@@ -63,7 +62,7 @@ func TestCommonAuthNoneCRUDWorksWithoutVault(t *testing.T) {
 
 func TestCommonUpdateRenamesDefinitionWithConfigCAS(t *testing.T) {
 	svc, _, userID, _ := setupInternal(t)
-	configID, pluginID, namespace := seedCommonConfig(t, svc.pool, userID, 1, AuthTypeNone)
+	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 1, AuthTypeNone)
 	authority, err := authz.NewUserAuthority(authz.UserID(userID), true)
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +80,7 @@ func TestCommonUpdateRenamesDefinitionWithConfigCAS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rename common config: %v", err)
 	}
-	if updated.Name != newName || updated.ID != configID || updated.PluginID != pluginID || updated.Namespace != namespace {
+	if updated.Name != newName || updated.ID != configID || updated.PluginID != pluginID {
 		t.Fatalf("renamed registration = %#v, want name %q with stable identity", updated, newName)
 	}
 	if updated.ConfigRevision != before.ConfigRevision+1 {
@@ -111,7 +110,7 @@ func TestCommonUpdateRenamesDefinitionWithConfigCAS(t *testing.T) {
 
 func TestCommonTransportRejectsLegacyRegistrationBeforeCredentialRead(t *testing.T) {
 	svc, _, userID, _ := setupInternal(t)
-	configID, _, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeBearer)
+	configID, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeBearer)
 	if err := svc.vault.SetScoped(t.Context(), ScopeUser, userID, "", credentialName(configID), "new-token"); err != nil {
 		t.Fatal(err)
 	}
@@ -123,8 +122,8 @@ func TestCommonTransportRejectsLegacyRegistrationBeforeCredentialRead(t *testing
 
 func TestCommonCredentialSnapshotFencesRevision(t *testing.T) {
 	svc, _, userID, _ := setupInternal(t)
-	configID, pluginID, namespace := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeBearer)
-	reg := Registration{ID: configID, PluginID: pluginID, Namespace: namespace, ConfigRevision: 7, Scope: ScopeUser, UserID: userID, AuthType: AuthTypeBearer, CredentialRef: credentialName(configID)}
+	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeBearer)
+	reg := Registration{ID: configID, PluginID: pluginID, ConfigRevision: 7, Scope: ScopeUser, UserID: userID, AuthType: AuthTypeBearer, CredentialRef: credentialName(configID)}
 	if err := svc.vault.SetScoped(t.Context(), ScopeUser, userID, "", reg.CredentialRef, "old-token"); err != nil {
 		t.Fatal(err)
 	}
@@ -142,8 +141,8 @@ func TestCommonCredentialSnapshotFencesRevision(t *testing.T) {
 
 func TestOAuthBundleCASFencesRevisionAndDigest(t *testing.T) {
 	svc, _, userID, _ := setupInternal(t)
-	configID, pluginID, namespace := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeOAuth)
-	reg := Registration{ID: configID, PluginID: pluginID, Namespace: namespace, ConfigRevision: 7, Scope: ScopeUser, UserID: userID, AuthType: AuthTypeOAuth, CredentialMode: CredentialModeShared}
+	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeOAuth)
+	reg := Registration{ID: configID, PluginID: pluginID, ConfigRevision: 7, Scope: ScopeUser, UserID: userID, AuthType: AuthTypeOAuth, CredentialMode: CredentialModeShared}
 	owner := CredentialOwner{Scope: ScopeUser, UserID: userID}
 	old := OAuthBundle{Version: 1, ClientID: "client", TokenEndpoint: "https://issuer.example.test/token", AccessToken: "old", RefreshToken: "refresh"}
 	oldRaw, _ := json.Marshal(old)
@@ -172,8 +171,8 @@ func TestOAuthBundleCASFencesRevisionAndDigest(t *testing.T) {
 
 func TestOAuthCallbackRevisionFence(t *testing.T) {
 	svc, _, userID, _ := setupInternal(t)
-	configID, pluginID, namespace := seedCommonConfig(t, svc.pool, userID, 3, AuthTypeOAuth)
-	reg := Registration{ID: configID, PluginID: pluginID, Namespace: namespace, ConfigRevision: 3, Scope: ScopeUser, UserID: userID, AuthType: AuthTypeOAuth, CredentialMode: CredentialModeShared}
+	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 3, AuthTypeOAuth)
+	reg := Registration{ID: configID, PluginID: pluginID, ConfigRevision: 3, Scope: ScopeUser, UserID: userID, AuthType: AuthTypeOAuth, CredentialMode: CredentialModeShared}
 	if _, err := svc.pool.Exec(t.Context(), `UPDATE plugin_config SET revision = 4 WHERE id = $1`, configID); err != nil {
 		t.Fatal(err)
 	}
@@ -182,13 +181,12 @@ func TestOAuthCallbackRevisionFence(t *testing.T) {
 	}
 }
 
-func seedCommonConfig(t *testing.T, pool *pgxpool.Pool, userID string, revision int64, authType string) (string, string, string) {
+func seedCommonConfig(t *testing.T, pool *pgxpool.Pool, userID string, revision int64, authType string) (string, string) {
 	t.Helper()
 	configID := uuid.NewString()
-	pluginID := "custom/" + configID
-	namespace := "mcp_" + configID[:8]
+	pluginID := "mcp-" + configID[:8]
 	ctx := context.Background()
-	if _, err := pool.Exec(ctx, `INSERT INTO plugin_definition(id, namespace, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id) VALUES($1,$2,$2,'mcp','custom','mcp','{}',false,1,$3)`, pluginID, namespace, userID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO plugin_definition(id, display_name, backend, source, implementation_key, spec, default_enabled, revision, creator_user_id) VALUES($1,$2,'mcp','custom','mcp','{}',false,1,$3)`, pluginID, "MCP "+configID[:8], userID); err != nil {
 		t.Fatal(err)
 	}
 	payload := `{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"` + authType + `"}`
@@ -199,8 +197,8 @@ func seedCommonConfig(t *testing.T, pool *pgxpool.Pool, userID string, revision 
 	if authType == AuthTypeOAuth {
 		refs = `{"oauth_bundle":{"name":"` + oauthBundleName(configID) + `","scope":"user","user_id":"` + userID + `","agent_id":""}}`
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO plugin_config(id,plugin_id,namespace,scope,user_id,enabled,config,credential_refs,revision) VALUES($1,$2,$3,'user',$4,true,$5::jsonb,$6::jsonb,$7)`, configID, pluginID, namespace, userID, payload, refs, revision); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO plugin_config(id,plugin_id,scope,user_id,enabled,config,credential_refs,revision) VALUES($1,$2,'user',$3,true,$4::jsonb,$5::jsonb,$6)`, configID, pluginID, userID, payload, refs, revision); err != nil {
 		t.Fatal(err)
 	}
-	return configID, pluginID, namespace
+	return configID, pluginID
 }

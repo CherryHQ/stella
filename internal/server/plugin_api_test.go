@@ -90,7 +90,7 @@ func TestPluginAccessAuthenticationPrecedesUnavailableService(t *testing.T) {
 
 func TestPluginDefinitionViewProjectsOnlySafeSummary(t *testing.T) {
 	definition := pluginpkg.Definition{
-		ID: "custom/plugin", Namespace: "plugin", DisplayName: "Plugin",
+		ID: "custom/plugin", DisplayName: "Plugin",
 		Backend: pluginpkg.BackendMCP, Source: pluginpkg.SourceCustom, Revision: 1,
 		Spec: json.RawMessage(`{"description":"safe","category":"utility","capabilities":["read"],"url":"https://private.example/path?token=secret","credential_refs":{"token":"vault://secret"}}`),
 	}

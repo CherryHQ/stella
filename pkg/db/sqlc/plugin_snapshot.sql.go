@@ -12,7 +12,7 @@ import (
 )
 
 const listPluginConfigsForContext = `-- name: ListPluginConfigsForContext :many
-SELECT id, plugin_id, namespace, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at FROM plugin_config
+SELECT id, plugin_id, scope, user_id, agent_id, enabled, config, credential_refs, revision, created_at, updated_at FROM plugin_config
 WHERE scope = 'system'
    OR (scope = 'system_agent' AND agent_id = $1)
    OR (scope = 'user' AND user_id = $2::uuid)
@@ -37,7 +37,6 @@ func (q *Queries) ListPluginConfigsForContext(ctx context.Context, arg ListPlugi
 		if err := rows.Scan(
 			&i.ID,
 			&i.PluginID,
-			&i.Namespace,
 			&i.Scope,
 			&i.UserID,
 			&i.AgentID,

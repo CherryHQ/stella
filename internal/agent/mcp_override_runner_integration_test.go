@@ -16,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -67,7 +68,7 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch migrated tool override: %v", err)
 	}
-	wantIdentity := ToolIdentity{PluginID: "custom/" + registrationID, LocalToolName: "list"}
+	wantIdentity := ToolIdentity{PluginID: "remote", LocalToolName: "list"}
 	if len(overrides) != 1 || overrides[0].Identity != wantIdentity || overrides[0].Scope != ToolOverrideScopeUserAgent || overrides[0].Enabled {
 		t.Fatalf("migrated overrides = %+v, want disabled %v in user_agent", overrides, wantIdentity)
 	}
@@ -83,8 +84,8 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 	}
 	home := t.TempDir()
 	view := pkgplugins.SessionPluginView{
-		RegisteredPluginIDs: []string{"custom/" + registrationID},
-		ExposedPluginIDs:    []string{"custom/" + registrationID},
+		RegisteredPluginIDs: []string{"remote"},
+		ExposedPluginIDs:    []string{"remote"},
 	}
 	runnerPlugins := agentruntime.NewPluginContext(snapshot, view)
 	registry, _, _, err := buildToolRegistry(ctx, runnerConfig{
@@ -95,7 +96,7 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 		}},
 		BuiltinParams:       RunnerParams{UserID: userID, AgentID: agentID},
 		PluginContext:       runnerPlugins,
-		MCPToolProvider:     migratedMCPToolProvider{pluginID: "custom/" + registrationID},
+		MCPToolProvider:     migratedMCPToolProvider{pluginID: "remote"},
 		ToolOverrideFetcher: store.Fetch,
 		SkillRevisionReader: emptySkillRuntime{},
 		SkillReadAuthorizer: allowSkillReads{},
@@ -104,7 +105,11 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 		t.Fatalf("build runner tool registry: %v", err)
 	}
 	defer func() { _ = registry.Close() }()
-	if registry.Has("remote__list") {
+	exportedName, err := agentpackage.ExportedToolName("remote", "main", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if registry.Has(exportedName) {
 		t.Fatal("migrated user_agent deny did not hide the MCP tool")
 	}
 }
@@ -140,8 +145,12 @@ func TestDisabledHostToolNameRemainsReservedFromMCP(t *testing.T) {
 		t.Fatalf("resolve plugin snapshot: %v", err)
 	}
 	view := pkgplugins.SessionPluginView{
-		RegisteredPluginIDs: []string{"custom/" + registrationID},
-		ExposedPluginIDs:    []string{"custom/" + registrationID},
+		RegisteredPluginIDs: []string{"remote"},
+		ExposedPluginIDs:    []string{"remote"},
+	}
+	exportedName, err := agentpackage.ExportedToolName("remote", "main", "list")
+	if err != nil {
+		t.Fatal(err)
 	}
 	_, _, _, err = buildToolRegistry(ctx, runnerConfig{
 		Sandbox: sandbox.Config{Paths: sandbox.Paths{
@@ -152,9 +161,9 @@ func TestDisabledHostToolNameRemainsReservedFromMCP(t *testing.T) {
 		BuiltinParams: RunnerParams{UserID: userID, AgentID: agentID},
 		PluginContext: agentruntime.NewPluginContext(snapshot, view),
 		ToolMetaRegistry: toolmeta.NewRegistry(toolmeta.ActionTool{
-			Name: "remote__list", PluginID: "tool/host", LocalName: "remote__list",
+			Name: exportedName, PluginID: "tool/host", LocalName: exportedName,
 		}),
-		MCPToolProvider:     migratedMCPToolProvider{pluginID: "custom/" + registrationID},
+		MCPToolProvider:     migratedMCPToolProvider{pluginID: "remote"},
 		SkillRevisionReader: emptySkillRuntime{},
 		SkillReadAuthorizer: allowSkillReads{},
 	}, &fakeSession{alive: true}, nil, ai.Model{}, "")
@@ -163,11 +172,11 @@ func TestDisabledHostToolNameRemainsReservedFromMCP(t *testing.T) {
 	}
 }
 
-// TestMigratedMCPNamespaceDenyDoesNotFallThrough proves that a more-specific
-// disabled definition wins its namespace over an enabled system definition.
-// The system definition is the imported registration; the user definition is
-// an additional target row, so this remains a post-import runtime test.
-func TestMigratedMCPNamespaceDenyDoesNotFallThrough(t *testing.T) {
+// TestMigratedMCPPackageDenyDoesNotFallThrough proves that a more-specific
+// disabled config wins for the exact package over an enabled system config.
+// The package is imported first, then receives a user-scope deny; resolution
+// must not fall back to the broader system config or another package.
+func TestMigratedMCPPackageDenyDoesNotFallThrough(t *testing.T) {
 	db := dbtest.NewAtMigration(t, runnerImportMigration41)
 	ctx := t.Context()
 
@@ -187,21 +196,14 @@ func TestMigratedMCPNamespaceDenyDoesNotFallThrough(t *testing.T) {
 	}
 
 	deniedID := uuid.NewString()
-	deniedPluginID := "custom/" + deniedID
+	const packageID = "remote"
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_definition (id, namespace, display_name, backend, source,
-			implementation_key, spec, default_enabled, revision, creator_user_id)
-		VALUES ($1, 'remote', 'user deny', 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1, $2)
-	`, deniedPluginID, userID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_config (id, plugin_id, namespace, scope, user_id, enabled,
+		INSERT INTO plugin_config (id, plugin_id, scope, user_id, enabled,
 			config, credential_refs, revision)
-		VALUES ($1, $2, 'remote', 'user', $3, false,
+		VALUES ($1, $2, 'user', $3, false,
 			'{"url":"https://mcp.example.test","transport":"sse","auth_type":"none","credential_mode":"shared","metadata":{}}'::jsonb,
 			'{}'::jsonb, 1)
-	`, deniedID, deniedPluginID, userID); err != nil {
+	`, deniedID, packageID, userID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -214,18 +216,18 @@ func TestMigratedMCPNamespaceDenyDoesNotFallThrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve plugin snapshot: %v", err)
 	}
-	winner, err := snapshot.ResolveNamespace("remote")
-	if err != nil {
-		t.Fatalf("resolve remote namespace: %v", err)
+	denied, ok := snapshot.Get(packageID)
+	if !ok {
+		t.Fatalf("denied package %s missing from snapshot", packageID)
 	}
-	if winner.PluginID != deniedPluginID || winner.IsEffectivelyEnabled {
-		t.Fatalf("namespace winner = %+v, want disabled user definition %s", winner, deniedPluginID)
+	if denied.Effective.IsEffectivelyEnabled {
+		t.Fatalf("denied plugin effective state = %+v, want disabled", denied.Effective)
 	}
 
 	home := t.TempDir()
 	view := pkgplugins.SessionPluginView{
-		RegisteredPluginIDs: []string{"custom/" + registrationID, deniedPluginID},
-		ExposedPluginIDs:    []string{"custom/" + registrationID, deniedPluginID},
+		RegisteredPluginIDs: []string{packageID},
+		ExposedPluginIDs:    []string{packageID},
 	}
 	_, _, _, err = buildToolRegistry(ctx, runnerConfig{
 		Sandbox: sandbox.Config{Paths: sandbox.Paths{
@@ -235,15 +237,15 @@ func TestMigratedMCPNamespaceDenyDoesNotFallThrough(t *testing.T) {
 		}},
 		BuiltinParams:       RunnerParams{UserID: userID, AgentID: "namespace-agent"},
 		PluginContext:       agentruntime.NewPluginContext(snapshot, view),
-		MCPToolProvider:     migratedMCPToolProvider{pluginID: "custom/" + registrationID},
+		MCPToolProvider:     migratedMCPToolProvider{pluginID: packageID},
 		SkillRevisionReader: emptySkillRuntime{},
 		SkillReadAuthorizer: allowSkillReads{},
 	}, &fakeSession{alive: true}, nil, ai.Model{}, "")
 	if err == nil {
 		t.Fatal("runner accepted a tool from the shadowed enabled definition")
 	}
-	if !strings.Contains(err.Error(), "not owned by the enabled namespace winner") {
-		t.Fatalf("shadowed namespace error = %v", err)
+	if !strings.Contains(err.Error(), "not enabled for package") {
+		t.Fatalf("shadowed package error = %v", err)
 	}
 }
 
@@ -258,7 +260,11 @@ func noopBackendTransition(context.Context, pgx.Tx, authz.Authority, plugin.Muta
 type migratedMCPToolProvider struct{ pluginID string }
 
 func (p migratedMCPToolProvider) ToolsForSnapshot(context.Context, plugin.Snapshot) ([]tools.Tool, error) {
-	return []tools.Tool{migratedMCPTool{staticTool{name: "remote__list"}, p.pluginID, "list"}}, nil
+	name, err := agentpackage.ExportedToolName(p.pluginID, "main", "list")
+	if err != nil {
+		return nil, err
+	}
+	return []tools.Tool{migratedMCPTool{staticTool{name: name}, p.pluginID, "list"}}, nil
 }
 
 type migratedMCPTool struct {

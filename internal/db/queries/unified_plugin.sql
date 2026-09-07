@@ -5,13 +5,13 @@
 SELECT * FROM plugin_definition WHERE id = $1;
 
 -- name: ListPluginDefinitions :many
-SELECT * FROM plugin_definition ORDER BY namespace, id;
+SELECT * FROM plugin_definition ORDER BY id;
 
 -- name: UpsertPluginDefinition :one
 INSERT INTO plugin_definition (
-    id, namespace, display_name, backend, source, implementation_key,
+    id, display_name, backend, source, implementation_key,
     spec, default_enabled, revision, creator_user_id, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
 ON CONFLICT (id) DO UPDATE SET
     display_name = excluded.display_name,
     spec = excluded.spec,
@@ -22,8 +22,7 @@ ON CONFLICT (id) DO UPDATE SET
     updated_at = CASE WHEN (plugin_definition.display_name, plugin_definition.spec, plugin_definition.default_enabled)
         IS DISTINCT FROM (excluded.display_name, excluded.spec, excluded.default_enabled)
         THEN now() ELSE plugin_definition.updated_at END
-WHERE plugin_definition.namespace = excluded.namespace
-  AND plugin_definition.backend = excluded.backend
+WHERE plugin_definition.backend = excluded.backend
   AND plugin_definition.source = excluded.source
   AND plugin_definition.implementation_key = excluded.implementation_key
 RETURNING *;
@@ -43,9 +42,9 @@ ORDER BY id;
 
 -- name: CreatePluginDefinition :one
 INSERT INTO plugin_definition (
-    id, namespace, display_name, backend, source, implementation_key,
+    id, display_name, backend, source, implementation_key,
     spec, default_enabled, revision, creator_user_id, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
 RETURNING *;
 
 -- name: UpdatePluginDefinitionCAS :one
@@ -63,9 +62,9 @@ WHERE id = $1 AND revision = $2 AND source = 'custom';
 
 -- name: CreatePluginConfig :one
 INSERT INTO plugin_config (
-    id, plugin_id, namespace, scope, user_id, agent_id, enabled, config,
+    id, plugin_id, scope, user_id, agent_id, enabled, config,
     credential_refs, revision, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
 RETURNING *;
 
 -- name: UpdatePluginConfigCAS :one
@@ -113,15 +112,15 @@ RETURNING *;
 -- name: EnsureSystemPluginConfig :one
 WITH inserted AS (
     INSERT INTO plugin_config (
-        plugin_id, namespace, scope, enabled, config, credential_refs, revision, updated_at
-    ) VALUES ($1, $2, 'system', NULL, '{}'::jsonb, '{}'::jsonb, 1, now())
+        plugin_id, scope, enabled, config, credential_refs, revision, updated_at
+    ) VALUES ($1, 'system', NULL, '{}'::jsonb, '{}'::jsonb, 1, now())
     ON CONFLICT (plugin_id, scope, user_id, agent_id) DO NOTHING
     RETURNING *
 )
 SELECT * FROM inserted
 UNION ALL
 SELECT * FROM plugin_config
-WHERE plugin_id = $1 AND namespace = $2 AND scope = 'system'
+WHERE plugin_id = $1 AND scope = 'system'
 LIMIT 1;
 
 -- name: DeletePluginToolPolicies :exec

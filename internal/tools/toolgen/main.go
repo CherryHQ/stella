@@ -1078,7 +1078,7 @@ func renderSplitSchemas(out *bytes.Buffer, family string, pkg domainPackage, dec
 		}
 		fmt.Fprintf(out, "\t\t{Name: %q, ", decl.Name)
 		if decl.PluginID != "" {
-			fmt.Fprintf(out, "PluginID: %q, Namespace: %q, LocalName: %q, ", decl.PluginID, decl.Namespace, decl.LocalName)
+			fmt.Fprintf(out, "PluginID: %q, LocalName: %q, ", decl.PluginID, decl.LocalName)
 		}
 		fmt.Fprintf(out, "Family: %q, ", decl.Family)
 		if decl.Resource != "" {

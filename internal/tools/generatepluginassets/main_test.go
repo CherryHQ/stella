@@ -13,7 +13,7 @@ func TestDiscoverAndWriteAssetsIsDeterministic(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(owner, "skills", "demo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(owner, "assets.yaml"), []byte("assets:\n  - name: demo\n    source: skills/demo\n    logical_root: plugins/tool/demo/demo\n    owner_plugin_id: tool/demo\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(owner, "assets.yaml"), []byte("assets:\n  - name: demo\n    source: skills/demo\n    logical_root: plugins/tool/demo/demo\n    owner_plugin_id: demo\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(owner, "skills", "demo", "SKILL.md"), []byte(""), 0o644); err != nil {
@@ -55,14 +55,35 @@ func TestDiscoverRejectsUnknownOwnerShape(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "skills", "demo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "assets.yaml"), []byte("assets:\n  - name: demo\n    source: skills/demo\n    logical_root: core/demo\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "assets.yaml"), []byte("assets:\n  - name: demo\n    source: skills/demo\n    logical_root: core/demo\n    owner_plugin_id: tool/demo\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "skills", "demo", "SKILL.md"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := discover(pluginsRoot); err == nil || !strings.Contains(err.Error(), "no owner") {
-		t.Fatalf("discover error = %v, want missing owner", err)
+	if _, err := discover(pluginsRoot); err == nil || !strings.Contains(err.Error(), "invalid bare owner") {
+		t.Fatalf("discover error = %v, want invalid bare owner", err)
+	}
+}
+
+func TestDiscoverRejectsAgentDirectoryNameMismatch(t *testing.T) {
+	pluginsRoot := t.TempDir()
+	root := filepath.Join(pluginsRoot, "agent", "directory-name")
+	if err := os.MkdirAll(filepath.Join(root, "skills", "demo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "plugin.json"), []byte(`{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "manifest-name",
+  "version": "1.0.0"
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "skills", "demo", "SKILL.md"), []byte("---\nname: demo\ndescription: Demo skill\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := discover(pluginsRoot); err == nil || !strings.Contains(err.Error(), "directory must match manifest name") {
+		t.Fatalf("discover error = %v, want directory/name mismatch", err)
 	}
 }
 

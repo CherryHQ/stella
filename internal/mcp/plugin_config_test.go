@@ -14,17 +14,17 @@ import (
 func TestRegistrationFromPluginConfigPreservesIdentityRefsAndRemoteNames(t *testing.T) {
 	const id = "0198f9a4-1b2c-7def-8123-456789abcdef"
 	def := plugin.Definition{
-		ID: "custom/" + id, Namespace: "github", DisplayName: "GitHub MCP",
+		ID: "github", DisplayName: "GitHub MCP",
 		Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp",
 		Spec: []byte(`{}`), Revision: 1,
 	}
 	cfg := plugin.Config{
-		ID: id, PluginID: def.ID, Namespace: def.Namespace, Scope: plugin.ScopeSystem,
+		ID: id, PluginID: def.ID, Scope: plugin.ScopeSystem,
 		Enabled: boolPtr(true), Payload: []byte(`{"url":"https://mcp.example.test/path","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user","metadata":{"oauth":{"client_id":"client-123"}}}`),
 		CredentialRefs: []byte(`{"oauth_bundle":{"name":"MCP_OAUTH_0198F9A4_1B2C_7DEF_8123_456789ABCDEF","mode":"per_user","owner":"per_user"},"oauth_client_secret":{"name":"MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF","scope":"system","user_id":"","agent_id":""}}`),
 		Revision:       1,
 	}
-	effective := plugin.Effective{PluginID: def.ID, Namespace: def.Namespace, ConfigID: cfg.ID, SourceScope: plugin.ScopeSystem, IsEffectivelyEnabled: true, Payload: cfg.Payload}
+	effective := plugin.Effective{PluginID: def.ID, ConfigID: cfg.ID, SourceScope: plugin.ScopeSystem, IsEffectivelyEnabled: true, Payload: cfg.Payload}
 	observed := PluginMCPObservation{
 		Status: StatusError, StatusError: "remote https://mcp.example.test/path?token=secret failed", ConfigRevision: 1,
 		CredentialUserID: "user-1",
@@ -38,7 +38,7 @@ func TestRegistrationFromPluginConfigPreservesIdentityRefsAndRemoteNames(t *test
 	if reg.ID != id || reg.Name != def.DisplayName || reg.Scope != ScopeSystem || reg.CredentialMode != CredentialModePerUser {
 		t.Fatalf("registration identity = %#v", reg)
 	}
-	if reg.CredentialRef != "" || reg.OAuthClientID != "client-123" || reg.OAuthClientSecretRef != "MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF" || reg.Enabled != true || reg.Namespace != def.Namespace || reg.ConfigRevision != 1 {
+	if reg.CredentialRef != "" || reg.OAuthClientID != "client-123" || reg.OAuthClientSecretRef != "MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF" || reg.Enabled != true || reg.ConfigRevision != 1 {
 		t.Fatalf("credential projection = %#v", reg)
 	}
 	if reg.StatusError != "MCP probe failed" || strings.Contains(reg.StatusError, "secret") {
@@ -78,7 +78,7 @@ func TestMCPConverterMatchesNormalizedLegacyOAuthShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.Payload = payloadBytes
-	effective := plugin.Effective{PluginID: def.ID, Namespace: def.Namespace, ConfigID: cfg.ID, SourceScope: cfg.Scope, IsEffectivelyEnabled: true, Payload: payloadBytes}
+	effective := plugin.Effective{PluginID: def.ID, ConfigID: cfg.ID, SourceScope: cfg.Scope, IsEffectivelyEnabled: true, Payload: payloadBytes}
 	if err := ValidateMCPPayload(t.Context(), EndpointPolicy{}, def, cfg, nil); err != nil {
 		t.Fatalf("normalized MCP payload rejected: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestMCPConverterMatchesNormalizedLegacyOAuthShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reg.ID != id || reg.PluginID != def.ID || reg.Namespace != def.Namespace || reg.Description != "safe MCP description" || reg.OAuthClientID != "client-123" || reg.OAuthClientSecretRef != "MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF" || reg.CredentialMode != CredentialModeShared || reg.Tools[0].Name != "original-remote" {
+	if reg.ID != id || reg.PluginID != def.ID || reg.Description != "safe MCP description" || reg.OAuthClientID != "client-123" || reg.OAuthClientSecretRef != "MCP_OAUTH_CLIENT_0198F9A4_1B2C_7DEF_8123_456789ABCDEF" || reg.CredentialMode != CredentialModeShared || reg.Tools[0].Name != "original-remote" {
 		t.Fatalf("normalized legacy conversion = %#v", reg)
 	}
 }
@@ -264,19 +264,19 @@ func TestPerUserObservationIsolatedByTrustedOwner(t *testing.T) {
 
 func testPluginMCPInputs() (plugin.Definition, plugin.Config, plugin.Effective) {
 	const id = "0198f9a4-1b2c-7def-8123-456789abcdef"
-	def := plugin.Definition{ID: "custom/" + id, Namespace: "mcp_test", DisplayName: "MCP test", Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp", Spec: []byte(`{}`), Revision: 1}
-	cfg := plugin.Config{ID: id, PluginID: def.ID, Namespace: def.Namespace, Scope: plugin.ScopeUser, UserID: "user-1", Enabled: boolPtr(true), Payload: []byte(`{"url":"https://mcp.example.test","transport":"sse","auth_type":"none"}`), CredentialRefs: []byte(`{}`), Revision: 1}
-	effective := plugin.Effective{PluginID: def.ID, Namespace: def.Namespace, ConfigID: cfg.ID, SourceScope: plugin.ScopeUser, IsEffectivelyEnabled: true, Payload: cfg.Payload}
+	def := plugin.Definition{ID: "mcp-test", DisplayName: "MCP test", Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp", Spec: []byte(`{}`), Revision: 1}
+	cfg := plugin.Config{ID: id, PluginID: def.ID, Scope: plugin.ScopeUser, UserID: "user-1", Enabled: boolPtr(true), Payload: []byte(`{"url":"https://mcp.example.test","transport":"sse","auth_type":"none"}`), CredentialRefs: []byte(`{}`), Revision: 1}
+	effective := plugin.Effective{PluginID: def.ID, ConfigID: cfg.ID, SourceScope: plugin.ScopeUser, IsEffectivelyEnabled: true, Payload: cfg.Payload}
 	return def, cfg, effective
 }
 
 func testPerUserPluginMCPInputs() (plugin.Definition, plugin.Config, plugin.Effective) {
 	const id = "0198f9a4-1b2c-7def-8123-456789abcdef"
-	def := plugin.Definition{ID: "custom/" + id, Namespace: "mcp_test", DisplayName: "MCP per-user test", Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp", Spec: []byte(`{}`), Revision: 1}
-	cfg := plugin.Config{ID: id, PluginID: def.ID, Namespace: def.Namespace, Scope: plugin.ScopeSystem, Enabled: boolPtr(true), Payload: []byte(`{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user","metadata":{"oauth":{"client_id":"client-123"}}}`), Revision: 1}
+	def := plugin.Definition{ID: "mcp-per-user-test", DisplayName: "MCP per-user test", Backend: plugin.BackendMCP, Source: plugin.SourceCustom, ImplementationKey: "mcp", Spec: []byte(`{}`), Revision: 1}
+	cfg := plugin.Config{ID: id, PluginID: def.ID, Scope: plugin.ScopeSystem, Enabled: boolPtr(true), Payload: []byte(`{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user","metadata":{"oauth":{"client_id":"client-123"}}}`), Revision: 1}
 	refs, _ := json.Marshal(map[string]any{"oauth_bundle": map[string]any{"name": oauthBundleName(id), "mode": CredentialModePerUser, "owner": "per_user"}})
 	cfg.CredentialRefs = refs
-	effective := plugin.Effective{PluginID: def.ID, Namespace: def.Namespace, ConfigID: cfg.ID, SourceScope: cfg.Scope, IsEffectivelyEnabled: true, Payload: cfg.Payload}
+	effective := plugin.Effective{PluginID: def.ID, ConfigID: cfg.ID, SourceScope: cfg.Scope, IsEffectivelyEnabled: true, Payload: cfg.Payload}
 	return def, cfg, effective
 }
 

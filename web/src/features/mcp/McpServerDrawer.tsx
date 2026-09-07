@@ -64,7 +64,7 @@ export function McpServerDrawer({
     <Drawer open={open} onOpenChange={onOpenChange} position="right">
       <DrawerPopup position="right" className="w-full sm:w-[480px] sm:max-w-[480px]">
         <DrawerHeader>
-          <DrawerTitle className="min-w-0 truncate font-mono">{server.namespace}</DrawerTitle>
+          <DrawerTitle className="min-w-0 truncate font-mono">{server.plugin_id}</DrawerTitle>
           <DrawerClose aria-label={t("common.close")} />
         </DrawerHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">

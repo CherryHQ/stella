@@ -283,7 +283,7 @@ func parseManifest(data []byte, strict bool, diagnostics *Diagnostics) (Manifest
 	if err := unmarshalField(values, "$schema", &manifest.Schema); err != nil || manifest.Schema != PluginSchemaV1 {
 		diagnostics.add(SeverityError, "manifest.schema", "plugin.json", "unsupported or missing $schema, want %q", PluginSchemaV1)
 	}
-	if err := unmarshalField(values, "name", &manifest.Name); err != nil || !validPluginName(manifest.Name) {
+	if err := unmarshalField(values, "name", &manifest.Name); err != nil || !ValidName(manifest.Name) {
 		diagnostics.add(SeverityError, "manifest.name", "plugin.json", "name must be 1-64 lowercase letters, digits, hyphens, or periods; no leading/trailing separator or repeated --/..")
 	}
 	for key, target := range map[string]any{"version": &manifest.Version, "description": &manifest.Description, "homepage": &manifest.Homepage, "repository": &manifest.Repository, "license": &manifest.License} {
@@ -392,7 +392,10 @@ func decodeStringMap(data []byte, target *map[string]string) error {
 	return nil
 }
 
-func validPluginName(name string) bool {
+// ValidName reports whether name is a standard Agent Plugin package name.
+// Keep this as the single name contract shared by package loading and the
+// persisted plugin catalog.
+func ValidName(name string) bool {
 	return utf8.RuneCountInString(name) >= 1 && utf8.RuneCountInString(name) <= 64 && pluginNamePattern.MatchString(name) && !strings.Contains(name, "--") && !strings.Contains(name, "..")
 }
 

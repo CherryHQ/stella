@@ -32,10 +32,10 @@ func TestUnifiedPluginWithMutationTxRollsBackCallbackError(t *testing.T) {
 		t.Fatalf("callback result = ran:%v err:%v", callbackRan, err)
 	}
 	var definitions, configs int
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM plugin_definition WHERE namespace = 'tx_custom'`).Scan(&definitions); err != nil {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM plugin_definition WHERE id = 'tx-custom'`).Scan(&definitions); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM plugin_config WHERE namespace = 'tx_custom'`).Scan(&configs); err != nil {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM plugin_config WHERE plugin_id = 'tx-custom'`).Scan(&configs); err != nil {
 		t.Fatal(err)
 	}
 	if definitions != 0 || configs != 0 {
@@ -64,7 +64,7 @@ func TestUnifiedPluginWithMutationTxRollbackRestoresConfigAndPolicies(t *testing
 		t.Fatal(err)
 	}
 	definition, config, err := access.CreateCustom(ctx, plugin.Definition{
-		Namespace: "tx_delete", DisplayName: "Transactional delete", Backend: plugin.BackendMCP,
+		ID: "tx-delete", DisplayName: "Transactional delete", Backend: plugin.BackendMCP,
 		Spec: json.RawMessage(`{}`),
 	}, plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(false)})
 	if err != nil {
@@ -199,7 +199,7 @@ func TestUnifiedPluginWithMutationTxExpiresAccessBeforeFenceUnlock(t *testing.T)
 
 func transactionDefinition() plugin.Definition {
 	return plugin.Definition{
-		Namespace: "tx_custom", DisplayName: "Transactional custom", Backend: plugin.BackendMCP,
+		ID: "tx-custom", DisplayName: "Transactional custom", Backend: plugin.BackendMCP,
 		Spec: json.RawMessage(`{}`),
 	}
 }

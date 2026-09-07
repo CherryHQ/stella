@@ -17,9 +17,9 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin"
 )
 
-func pluginDefinition(id, namespace string, enabled bool) plugin.Definition {
+func pluginDefinition(id string, enabled bool) plugin.Definition {
 	return plugin.Definition{
-		ID: id, Namespace: namespace, DisplayName: id,
+		ID: id, DisplayName: id,
 		Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin,
 		ImplementationKey: id, Spec: json.RawMessage(`{"schema":1}`),
 		DefaultEnabled: enabled, Revision: 1,
@@ -54,25 +54,26 @@ func noopBackendTransition(context.Context, pgx.Tx, authz.Authority, plugin.Muta
 func TestUnifiedPluginConfigConstraints(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
-	insertDefinition := func(id, namespace string) {
+	insertDefinition := func(id string) {
 		t.Helper()
 		if _, err := db.Exec(ctx, `
-			INSERT INTO plugin_definition (id, namespace, display_name, backend, source, implementation_key, spec)
-			VALUES ($1, $2, $1, 'cli', 'builtin', $1, '{}'::jsonb)
-		`, id, namespace); err != nil {
+			INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec)
+			VALUES ($1, $1, 'cli', 'builtin', $1, '{}'::jsonb)
+		`, id); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, pair := range [][2]string{
-		{"builtin/owner", "constraint-owner"},
-		{"builtin/payload", "constraint-payload"},
-		{"builtin/refs", "constraint-refs"},
-		{"builtin/null", "constraint-null"},
-		{"builtin/shared-payload", "constraint-shared"},
-		{"builtin/shared-negative", "constraint-shared"},
+	for _, id := range []string{
+		"owner",
+		"payload",
+		"refs",
+		"null",
+		"shared-payload",
+		"shared-negative",
 	} {
-		insertDefinition(pair[0], pair[1])
+		insertDefinition(id)
 	}
+	owner := insertPluginUser(t, db, "plugin-constraint-owner@example.test", false)
 
 	assertConstraint := func(name, expected, statement string, args ...any) {
 		t.Helper()
@@ -87,36 +88,36 @@ func TestUnifiedPluginConfigConstraints(t *testing.T) {
 		}
 	}
 	assertConstraint("owner tuple", "plugin_config_scope_owner_check", `
-		INSERT INTO plugin_config (plugin_id, namespace, scope, enabled, config)
-		VALUES ('builtin/owner', 'constraint-owner', 'user', false, NULL)
-	`)
+		INSERT INTO plugin_config (plugin_id, scope, user_id, enabled, config)
+		VALUES ('owner', 'system', $1, false, NULL)
+	`, owner.UserID())
 	assertConstraint("enabled payload", "plugin_config_negative_check", `
-		INSERT INTO plugin_config (plugin_id, namespace, scope, enabled, config)
-		VALUES ('builtin/payload', 'constraint-payload', 'system', true, NULL)
+		INSERT INTO plugin_config (plugin_id, scope, enabled, config)
+		VALUES ('payload', 'system', true, NULL)
 	`)
 	assertConstraint("negative refs", "plugin_config_negative_refs_check", `
-		INSERT INTO plugin_config (plugin_id, namespace, scope, enabled, config, credential_refs)
-		VALUES ('builtin/refs', 'constraint-refs', 'system', false, NULL, '{"vault":"key"}'::jsonb)
+		INSERT INTO plugin_config (plugin_id, scope, enabled, config, credential_refs)
+		VALUES ('refs', 'system', false, NULL, '{"vault":"key"}'::jsonb)
 	`)
 	assertConstraint("JSON null payload", "plugin_config_config_object_check", `
-		INSERT INTO plugin_config (plugin_id, namespace, scope, enabled, config)
-		VALUES ('builtin/null', 'constraint-null', 'system', false, 'null'::jsonb)
+		INSERT INTO plugin_config (plugin_id, scope, enabled, config)
+		VALUES ('null', 'system', false, 'null'::jsonb)
 	`)
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_config (plugin_id, namespace, scope, enabled, config)
-		VALUES ('builtin/shared-payload', 'constraint-shared', 'system', true, '{}'::jsonb)
+		INSERT INTO plugin_config (plugin_id, scope, enabled, config)
+		VALUES ('shared-payload', 'system', true, '{}'::jsonb)
 	`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_config (plugin_id, namespace, scope, enabled, config)
-		VALUES ('builtin/shared-negative', 'constraint-shared', 'system', false, NULL)
+		INSERT INTO plugin_config (plugin_id, scope, enabled, config)
+		VALUES ('shared-negative', 'system', false, NULL)
 	`); err != nil {
-		t.Fatalf("negative row claimed namespace: %v", err)
+		t.Fatalf("negative row was rejected: %v", err)
 	}
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_config (plugin_id, namespace, scope, enabled, config, credential_refs)
-		VALUES ('builtin/refs', 'constraint-refs', 'system', true, '{}'::jsonb, '{"vault":"allowed"}'::jsonb)
+		INSERT INTO plugin_config (plugin_id, scope, enabled, config, credential_refs)
+		VALUES ('refs', 'system', true, '{}'::jsonb, '{"vault":"allowed"}'::jsonb)
 	`); err != nil {
 		t.Fatalf("payload credential refs rejected: %v", err)
 	}
@@ -140,7 +141,7 @@ func syncPluginCatalog(t *testing.T, db *pgxpool.Pool, definitions ...plugin.Def
 func TestUnifiedPluginFreshSyncAndDefaultPreservesState(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
-	def := pluginDefinition("builtin/fresh", "fresh", true)
+	def := pluginDefinition("fresh", true)
 	service, _ := syncPluginCatalog(t, db, def)
 
 	var definitionCreated, definitionUpdated time.Time
@@ -200,15 +201,15 @@ func TestUnifiedPluginSyncFailureRollsBackEarlierDefinitions(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_definition (id, namespace, display_name, backend, source, implementation_key, spec)
-		VALUES ('builtin/conflict', 'conflict', 'old', 'mcp', 'custom', 'old', '{}'::jsonb)
+		INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec)
+		VALUES ('conflict', 'old', 'mcp', 'custom', 'old', '{}'::jsonb)
 	`); err != nil {
 		t.Fatal(err)
 	}
 	catalog := plugin.NewCatalog()
 	for _, def := range []plugin.Definition{
-		pluginDefinition("builtin/good", "good", true),
-		pluginDefinition("builtin/conflict", "conflict", true),
+		pluginDefinition("good", true),
+		pluginDefinition("conflict", true),
 	} {
 		if err := catalog.Register(def); err != nil {
 			t.Fatal(err)
@@ -219,10 +220,10 @@ func TestUnifiedPluginSyncFailureRollsBackEarlierDefinitions(t *testing.T) {
 		t.Fatal("sync accepted an incompatible existing definition")
 	}
 	var definitions, configs int
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM plugin_definition WHERE id = 'builtin/good'`).Scan(&definitions); err != nil {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM plugin_definition WHERE id = 'good'`).Scan(&definitions); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM plugin_config WHERE plugin_id = 'builtin/good'`).Scan(&configs); err != nil {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM plugin_config WHERE plugin_id = 'good'`).Scan(&configs); err != nil {
 		t.Fatal(err)
 	}
 	if definitions != 0 || configs != 0 {
@@ -233,8 +234,8 @@ func TestUnifiedPluginSyncFailureRollsBackEarlierDefinitions(t *testing.T) {
 func TestUnifiedPluginAccessOwnerCASAndReset(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
-	def := pluginDefinition("builtin/owner", "owner", true)
-	otherDef := pluginDefinition("builtin/other", "other", true)
+	def := pluginDefinition("owner", true)
+	otherDef := pluginDefinition("other", true)
 	service, _ := syncPluginCatalog(t, db, def, otherDef)
 	userA := insertPluginUser(t, db, "plugin-a@example.test", false)
 	userB := insertPluginUser(t, db, "plugin-b@example.test", false)
@@ -321,7 +322,7 @@ func TestUnifiedPluginAccessOwnerCASAndReset(t *testing.T) {
 func TestUnifiedPluginPayloadValidatorSeparatesNegativeAndReady(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
-	def := pluginDefinition("builtin/shape", "shape", true)
+	def := pluginDefinition("shape", true)
 	catalog := plugin.NewCatalog()
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)
@@ -364,7 +365,7 @@ func TestUnifiedPluginPayloadValidatorSeparatesNegativeAndReady(t *testing.T) {
 func TestUnifiedPluginSafetyCallbackRunsForWritesUnderSystemDeny(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
-	def := pluginDefinition("builtin/deny", "deny", true)
+	def := pluginDefinition("deny", true)
 	catalog := plugin.NewCatalog()
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)
@@ -446,16 +447,16 @@ func TestUnifiedPluginSafetyCallbackRunsForWritesUnderSystemDeny(t *testing.T) {
 	}
 }
 
-func TestUnifiedPluginNegativeResetKeepsNullPayloadAndNoNamespaceClaim(t *testing.T) {
+func TestUnifiedPluginNegativeResetKeepsNullPayload(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
-	first := pluginDefinition("builtin/negative-one", "negative-shared", true)
-	second := pluginDefinition("builtin/negative-two", "negative-shared", true)
+	first := pluginDefinition("negative-one", true)
+	second := pluginDefinition("negative-two", true)
 	syncPluginCatalog(t, db, first)
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_definition (id, namespace, display_name, backend, source, implementation_key, spec)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, second.ID, second.Namespace, second.DisplayName, second.Backend, second.Source, second.ImplementationKey, second.Spec); err != nil {
+		INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, second.ID, second.DisplayName, second.Backend, second.Source, second.ImplementationKey, second.Spec); err != nil {
 		t.Fatal(err)
 	}
 	catalog := plugin.NewCatalog()
@@ -494,8 +495,8 @@ func TestUnifiedPluginNegativeResetKeepsNullPayloadAndNoNamespaceClaim(t *testin
 	if err != nil {
 		t.Fatalf("payload config after negative reset: %v", err)
 	}
-	if claimed.Namespace != first.Namespace {
-		t.Fatalf("shared namespace changed: %q", claimed.Namespace)
+	if claimed.PluginID != second.ID || claimed.Revision != 1 {
+		t.Fatalf("payload config identity = %#v", claimed)
 	}
 }
 
@@ -503,15 +504,15 @@ func TestUnifiedPluginSharedCustomVisibleWithoutSystemPayload(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_definition (id, namespace, display_name, backend, source, implementation_key, spec)
-		VALUES ('custom/shared', 'shared', 'Shared', 'mcp', 'custom', 'mcp', '{}'::jsonb)
+		INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec)
+		VALUES ('shared', 'Shared', 'mcp', 'custom', 'mcp', '{}'::jsonb)
 	`); err != nil {
 		t.Fatal(err)
 	}
 	var configID string
 	if err := db.QueryRow(ctx, `
-		INSERT INTO plugin_config (plugin_id, namespace, scope, enabled, config)
-		VALUES ('custom/shared', 'shared', 'system', true, '{"secret":"do-not-return"}'::jsonb)
+		INSERT INTO plugin_config (plugin_id, scope, enabled, config)
+		VALUES ('shared', 'system', true, '{"secret":"do-not-return"}'::jsonb)
 		RETURNING id
 	`).Scan(&configID); err != nil {
 		t.Fatal(err)
@@ -522,8 +523,8 @@ func TestUnifiedPluginSharedCustomVisibleWithoutSystemPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	def, err := access.GetDefinition(ctx, "custom/shared")
-	if err != nil || def.ID != "custom/shared" {
+	def, err := access.GetDefinition(ctx, "shared")
+	if err != nil || def.ID != "shared" {
 		t.Fatalf("shared definition lookup = %#v, %v", def, err)
 	}
 	definitions, err := access.ListDefinitions(ctx)
@@ -532,24 +533,24 @@ func TestUnifiedPluginSharedCustomVisibleWithoutSystemPayload(t *testing.T) {
 	}
 	found := false
 	for _, candidate := range definitions {
-		if candidate.ID == "custom/shared" {
+		if candidate.ID == "shared" {
 			found = true
 		}
 	}
 	if !found {
 		t.Fatal("shared custom definition was hidden")
 	}
-	if _, err := access.GetConfig(ctx, "custom/shared", configID); !errors.Is(err, plugin.ErrNotFound) {
+	if _, err := access.GetConfig(ctx, "shared", configID); !errors.Is(err, plugin.ErrNotFound) {
 		t.Fatalf("system payload read = %v, want not found", err)
 	}
 }
 
-func TestUnifiedPluginCustomIdentityValidationAndNamespaceRollback(t *testing.T) {
+func TestUnifiedPluginCustomIdentityValidationAndRollback(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
 	user := insertPluginUser(t, db, "plugin-custom@example.test", false)
 	catalog := plugin.NewCatalog()
-	if err := catalog.Register(pluginDefinition("builtin/taken", "taken", true)); err != nil {
+	if err := catalog.Register(pluginDefinition("taken", true)); err != nil {
 		t.Fatal(err)
 	}
 	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Validate: noopPluginValidator, Transition: noopBackendTransition}, inlinePluginMutationFence)
@@ -558,12 +559,12 @@ func TestUnifiedPluginCustomIdentityValidationAndNamespaceRollback(t *testing.T)
 		t.Fatal(err)
 	}
 	createdDef, createdConfig, err := access.CreateCustom(ctx,
-		plugin.Definition{Namespace: "requested_name", DisplayName: "Remote", Backend: plugin.BackendMCP, Spec: json.RawMessage(`{"description":"safe"}`)},
+		plugin.Definition{ID: "remote", DisplayName: "Remote", Backend: plugin.BackendMCP, Spec: json.RawMessage(`{"description":"safe"}`)},
 		plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(false)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if createdDef.Source != plugin.SourceCustom || createdDef.DefaultEnabled || createdDef.Revision != 1 || createdDef.CreatorUserID != string(user.UserID()) || createdDef.Namespace != "requested_name" || createdConfig.PluginID != createdDef.ID || createdDef.ID != "custom/"+createdConfig.ID || createdConfig.Revision != 1 {
+	if createdDef.ID != "remote" || createdDef.Source != plugin.SourceCustom || createdDef.DefaultEnabled || createdDef.Revision != 1 || createdDef.CreatorUserID != string(user.UserID()) || createdConfig.PluginID != createdDef.ID || createdConfig.Revision != 1 {
 		t.Fatalf("custom identity = %#v / %#v", createdDef, createdConfig)
 	}
 	displayName, description := "Renamed", "Updated description"
@@ -580,7 +581,7 @@ func TestUnifiedPluginCustomIdentityValidationAndNamespaceRollback(t *testing.T)
 		t.Fatal(err)
 	}
 	if _, _, err := access.CreateCustom(ctx,
-		plugin.Definition{Namespace: "bad_endpoint", DisplayName: "Bad", Backend: plugin.BackendMCP, Spec: json.RawMessage(`{"endpoint":"https://secret.example"}`)},
+		plugin.Definition{ID: "bad-endpoint", DisplayName: "Bad", Backend: plugin.BackendMCP, Spec: json.RawMessage(`{"endpoint":"https://secret.example"}`)},
 		plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(false)}); !errors.Is(err, plugin.ErrInvalidDefinition) {
 		t.Fatalf("endpoint in custom spec = %v, want invalid definition", err)
 	}
@@ -593,22 +594,18 @@ func TestUnifiedPluginCustomIdentityValidationAndNamespaceRollback(t *testing.T)
 	}
 
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_definition (id, namespace, display_name, backend, source, implementation_key, spec, default_enabled)
-		VALUES ('builtin/taken', 'taken', 'Taken', 'cli', 'builtin', 'builtin/taken', '{}'::jsonb, true)
+		INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec, default_enabled)
+		VALUES ('taken', 'Taken', 'cli', 'builtin', 'taken', '{}'::jsonb, true)
 	`); err != nil {
 		t.Fatal(err)
 	}
-	value := true
-	if _, err := access.CreateConfig(ctx, plugin.Config{PluginID: "builtin/taken", Scope: plugin.ScopeUser, Enabled: &value, Payload: json.RawMessage(`{}`)}); err != nil {
-		t.Fatal(err)
-	}
 	if _, _, err := access.CreateCustom(ctx,
-		plugin.Definition{Namespace: "taken", DisplayName: "Conflict", Backend: plugin.BackendMCP, Spec: json.RawMessage(`{}`)},
-		plugin.Config{Scope: plugin.ScopeUser, Enabled: &value, Payload: json.RawMessage(`{}`)}); err == nil {
-		t.Fatal("namespace payload conflict was accepted")
+		plugin.Definition{ID: "taken", DisplayName: "Conflict", Backend: plugin.BackendMCP, Spec: json.RawMessage(`{}`)},
+		plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(true), Payload: json.RawMessage(`{}`)}); !errors.Is(err, plugin.ErrConflict) {
+		t.Fatalf("definition ID conflict = %v, want conflict", err)
 	}
 	var customCount int
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM plugin_definition WHERE source = 'custom' AND namespace = 'taken'`).Scan(&customCount); err != nil {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM plugin_definition WHERE source = 'custom' AND id = 'taken'`).Scan(&customCount); err != nil {
 		t.Fatal(err)
 	}
 	if customCount != 0 {
@@ -626,7 +623,7 @@ func TestUnifiedPluginDefinitionDeleteCASAndPolicyRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	def, config, err := access.CreateCustom(ctx,
-		plugin.Definition{Namespace: "deletable", DisplayName: "Deletable", Backend: plugin.BackendMCP, Spec: json.RawMessage(`{}`)},
+		plugin.Definition{ID: "deletable", DisplayName: "Deletable", Backend: plugin.BackendMCP, Spec: json.RawMessage(`{}`)},
 		plugin.Config{Scope: plugin.ScopeUser, Enabled: boolPtr(false)})
 	if err != nil {
 		t.Fatal(err)

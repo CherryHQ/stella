@@ -21,7 +21,7 @@ func TestUnifiedPluginAdministrativeCap(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db := newTestDB(t)
 			ctx := t.Context()
-			def := pluginDefinition("channel/test", "test", tc.shipped)
+			def := pluginDefinition("test", tc.shipped)
 			catalog := plugin.NewCatalog()
 			if err := catalog.Register(def); err != nil {
 				t.Fatal(err)
@@ -40,14 +40,14 @@ func TestUnifiedPluginAdministrativeCap(t *testing.T) {
 			if _, err := db.Exec(ctx, `INSERT INTO agent(id,name,workspace) VALUES('agent-a','A',''),('agent-b','B','')`); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := db.Exec(ctx, `INSERT INTO plugin_config(plugin_id,namespace,scope,agent_id,enabled,config) VALUES($1,$2,'system_agent','agent-a',$3,'{}')`, def.ID, def.Namespace, tc.agent); err != nil {
+			if _, err := db.Exec(ctx, `INSERT INTO plugin_config(plugin_id,scope,agent_id,enabled,config) VALUES($1,'system_agent','agent-a',$2,'{}')`, def.ID, tc.agent); err != nil {
 				t.Fatal(err)
 			}
 			got, err := svc.AdministrativeCap(ctx, def.ID, tc.target)
 			if err != nil || got != tc.want {
 				t.Fatalf("cap = %v, %v; want %v", got, err, tc.want)
 			}
-			for _, id := range []string{"custom/missing", "channel/missing"} {
+			for _, id := range []string{"missing", "other-missing"} {
 				if got, err := svc.AdministrativeCap(ctx, id, tc.target); err == nil || got {
 					t.Fatalf("unknown %s permitted: %v %v", id, got, err)
 				}

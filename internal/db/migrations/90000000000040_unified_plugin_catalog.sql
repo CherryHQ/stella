@@ -4,7 +4,6 @@
 -- cutover imports them and records its durable marker.
 CREATE TABLE "plugin_definition" (
     "id" TEXT PRIMARY KEY,
-    "namespace" TEXT NOT NULL,
     "display_name" TEXT NOT NULL,
     "backend" TEXT NOT NULL,
     "source" TEXT NOT NULL,
@@ -15,7 +14,7 @@ CREATE TABLE "plugin_definition" (
     "creator_user_id" UUID REFERENCES "auth_user" ("id") ON DELETE RESTRICT,
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
     "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT "plugin_definition_identity_key" UNIQUE ("id", "namespace"),
+    CONSTRAINT "plugin_definition_name_check" CHECK (char_length("id") BETWEEN 1 AND 64 AND "id" ~ '^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$' AND "id" !~ '--' AND "id" !~ '\.\.'),
     CONSTRAINT "plugin_definition_revision_check" CHECK ("revision" > 0),
     CONSTRAINT "plugin_definition_spec_object_check" CHECK (jsonb_typeof("spec") = 'object'),
     CONSTRAINT "plugin_definition_builtin_creator_check" CHECK ("source" <> 'builtin' OR "creator_user_id" IS NULL)
@@ -25,7 +24,6 @@ CREATE INDEX "idx_plugin_definition_creator_user_id" ON "plugin_definition" ("cr
 CREATE TABLE "plugin_config" (
     "id" UUID PRIMARY KEY DEFAULT uuidv7(),
     "plugin_id" TEXT NOT NULL,
-    "namespace" TEXT NOT NULL,
     "scope" TEXT NOT NULL,
     "user_id" UUID REFERENCES "auth_user" ("id") ON DELETE CASCADE,
     "agent_id" TEXT REFERENCES "agent" ("id") ON DELETE CASCADE,
@@ -36,8 +34,8 @@ CREATE TABLE "plugin_config" (
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
     "updated_at" TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT "plugin_config_definition_fkey"
-        FOREIGN KEY ("plugin_id", "namespace")
-        REFERENCES "plugin_definition" ("id", "namespace") ON DELETE RESTRICT,
+        FOREIGN KEY ("plugin_id")
+        REFERENCES "plugin_definition" ("id") ON DELETE RESTRICT,
     CONSTRAINT "plugin_config_scope_owner_check" CHECK (
         ("scope" = 'system' AND "user_id" IS NULL AND "agent_id" IS NULL)
         OR ("scope" = 'system_agent' AND "user_id" IS NULL AND "agent_id" IS NOT NULL)
@@ -52,9 +50,6 @@ CREATE TABLE "plugin_config" (
 );
 CREATE UNIQUE INDEX "uniq_plugin_config_owner" ON "plugin_config"
     ("plugin_id", "scope", "user_id", "agent_id") NULLS NOT DISTINCT;
-CREATE UNIQUE INDEX "uniq_plugin_config_namespace_payload" ON "plugin_config"
-    ("namespace", "scope", "user_id", "agent_id") NULLS NOT DISTINCT
-    WHERE "config" IS NOT NULL;
 CREATE INDEX "idx_plugin_config_user" ON "plugin_config" ("user_id");
 CREATE INDEX "idx_plugin_config_agent" ON "plugin_config" ("agent_id");
 

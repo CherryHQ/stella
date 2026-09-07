@@ -18,7 +18,7 @@ func TestMoveConfigScopeAuthNonePreservesIDAndUsesTargetOwner(t *testing.T) {
 	svc, _, userID, agentID := setupInternal(t)
 	svc.bindVault = nil
 	svc.vault = nil
-	configID, pluginID, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeNone)
+	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeNone)
 	authority := mustMoveAuthority(t, userID, true)
 
 	reg, err := svc.MoveConfigScope(t.Context(), authority, ScopeMoveRequest{
@@ -40,7 +40,7 @@ func TestMoveConfigScopeAuthNoneCleansHistoricalCredentialFamily(t *testing.T) {
 	// vault key. This also proves auth-none moves work without a vault binding.
 	svc.bindVault = nil
 	svc.vault = nil
-	configID, pluginID, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeNone)
+	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeNone)
 	for _, prefix := range []string{"MCP_TOKEN_", "MCP_OAUTH_", "MCP_OAUTH_CLIENT_"} {
 		name := prefix + strings.ToUpper(strings.ReplaceAll(configID, "-", "_"))
 		if _, err := svc.pool.Exec(t.Context(), `INSERT INTO vault_entry (id, scope, user_id, name, ciphertext) VALUES ($1, 'user', $2, $3, 'historical')`, uuid.NewString(), userID, name); err != nil {
@@ -68,7 +68,7 @@ func TestMoveConfigScopeAuthNoneCleansHistoricalCredentialFamily(t *testing.T) {
 
 func TestMoveConfigScopeBearerReplacesExactVaultTuple(t *testing.T) {
 	svc, _, userID, agentID := setupInternal(t)
-	configID, pluginID, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeBearer)
+	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeBearer)
 	seedBearerMoveRefs(t, svc, configID, plugin.ScopeUser, userID, "")
 	if err := svc.vault.SetScoped(t.Context(), ScopeUser, userID, "", credentialName(configID), "old-token"); err != nil {
 		t.Fatal(err)
@@ -96,7 +96,7 @@ func TestMoveConfigScopeBearerReplacesExactVaultTuple(t *testing.T) {
 
 func TestMoveConfigScopeBearerRequiresReplacementWithoutMutation(t *testing.T) {
 	svc, _, userID, agentID := setupInternal(t)
-	configID, pluginID, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeBearer)
+	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeBearer)
 	seedBearerMoveRefs(t, svc, configID, plugin.ScopeUser, userID, "")
 	if err := svc.vault.SetScoped(t.Context(), ScopeUser, userID, "", credentialName(configID), "old-token"); err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestMoveConfigScopeBearerRequiresReplacementWithoutMutation(t *testing.T) {
 
 func TestMoveConfigScopeBearerVaultFailureRollsBackConfigAndOldToken(t *testing.T) {
 	svc, _, userID, agentID := setupInternal(t)
-	configID, pluginID, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeBearer)
+	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeBearer)
 	seedBearerMoveRefs(t, svc, configID, plugin.ScopeUser, userID, "")
 	if err := svc.vault.SetScoped(t.Context(), ScopeUser, userID, "", credentialName(configID), "old-token"); err != nil {
 		t.Fatal(err)
@@ -144,7 +144,7 @@ func TestMoveConfigScopeBearerVaultFailureRollsBackConfigAndOldToken(t *testing.
 func TestMoveConfigScopeRejectsStaleCASAndUnauthorizedTarget(t *testing.T) {
 	t.Run("stale CAS", func(t *testing.T) {
 		svc, _, userID, agentID := setupInternal(t)
-		configID, pluginID, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeNone)
+		configID, pluginID := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeNone)
 		authority := mustMoveAuthority(t, userID, true)
 		_, err := svc.MoveConfigScope(t.Context(), authority, ScopeMoveRequest{
 			PluginID: pluginID, ConfigID: configID, ExpectedRevision: 6,
@@ -158,7 +158,7 @@ func TestMoveConfigScopeRejectsStaleCASAndUnauthorizedTarget(t *testing.T) {
 
 	t.Run("unauthorized target", func(t *testing.T) {
 		svc, _, userID, _ := setupInternal(t)
-		configID, pluginID, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeNone)
+		configID, pluginID := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeNone)
 		authority := mustMoveAuthority(t, userID, false)
 		_, err := svc.MoveConfigScope(t.Context(), authority, ScopeMoveRequest{
 			PluginID: pluginID, ConfigID: configID, ExpectedRevision: 7,
@@ -173,7 +173,7 @@ func TestMoveConfigScopeRejectsStaleCASAndUnauthorizedTarget(t *testing.T) {
 
 func TestMoveConfigScopeRejectsOAuthBeforeMutation(t *testing.T) {
 	svc, _, userID, agentID := setupInternal(t)
-	configID, pluginID, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeOAuth)
+	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeOAuth)
 	authority := mustMoveAuthority(t, userID, true)
 
 	_, err := svc.MoveConfigScope(t.Context(), authority, ScopeMoveRequest{
@@ -190,7 +190,7 @@ func TestUpdateAndUpdateIfVersionReachCommonScopeMove(t *testing.T) {
 	svc, _, userID, agentID := setupInternal(t)
 	svc.bindVault = nil
 	svc.vault = nil
-	configID, _, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeNone)
+	configID, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeNone)
 	authority := mustMoveAuthority(t, userID, true)
 	ctx := authz.WithAuthority(context.Background(), authority)
 	before, err := svc.Get(ctx, configID, ScopeUser, userID, "")
@@ -226,7 +226,7 @@ func TestUpdateAndUpdateIfVersionReachCommonScopeMove(t *testing.T) {
 
 func TestUpdateMovesBearerWithReplacement(t *testing.T) {
 	svc, _, userID, agentID := setupInternal(t)
-	configID, _, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeBearer)
+	configID, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeBearer)
 	seedBearerMoveRefs(t, svc, configID, plugin.ScopeUser, userID, "")
 	if err := svc.vault.SetScoped(t.Context(), ScopeUser, userID, "", credentialName(configID), "old-token"); err != nil {
 		t.Fatal(err)
@@ -257,7 +257,7 @@ func TestUpdateScopeMoveRejectsSpoofedOwnerAndCombinedEdits(t *testing.T) {
 	svc, _, userID, agentID := setupInternal(t)
 	svc.bindVault = nil
 	svc.vault = nil
-	configID, _, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeNone)
+	configID, _ := seedCommonConfig(t, svc.pool, userID, 7, AuthTypeNone)
 	authority := mustMoveAuthority(t, userID, true)
 	ctx := authz.WithAuthority(context.Background(), authority)
 	before, err := svc.Get(ctx, configID, ScopeUser, userID, "")

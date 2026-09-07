@@ -99,7 +99,7 @@ x-agent-tool:
 
 ## 4. 命名
 
-**插件工具名使用 `{namespace}__{local_name}`**，例如 `recally__feed_add`、`scheduler__job_pause`。Go 与 MCP 使用相同规则。Namespace 不允许包含 `__`，完整名称最多 64 字符。授权使用可信元数据中的 plugin ID 与 local name，不能解析导出名称的前缀来授予权限。
+**Native 工具保留已注册的静态名称**，例如 `recally__feed_add`、`scheduler__job_pause`。MCP 统一通过 `agentpackage.ExportedToolName` 将包 ID、server key 和远端 local name 适配为最多 64 字符的 ASCII 名称，附加 12 位十六进制哈希后缀，并检查实际暴露集合是否重名。可信元数据单独携带身份，不能解析导出名来授予权限。Core 和已注册 Native 工具名保留，Agent Plugin 不能占用。
 
 **Core 工具保留 `<domain>_<resource>_<action>`**，resource 与 domain 同名时省略，例如 `goal_create`。动词用小而无聊的那一组：`create`、`get`、`list`、`update`、`delete`、`search`、`add`、`remove`、`save`、`send`。资源用单数，并与 HTTP 资源名对齐。禁止裸名词、复数和动宾倒置。
 

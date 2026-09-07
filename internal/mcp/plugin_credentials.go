@@ -26,13 +26,12 @@ type credentialSnapshot struct {
 }
 
 type pluginConfigIdentity struct {
-	ID        string
-	PluginID  string
-	Namespace string
-	Scope     string
-	UserID    string
-	AgentID   string
-	Revision  int64
+	ID       string
+	PluginID string
+	Scope    string
+	UserID   string
+	AgentID  string
+	Revision int64
 }
 
 // loadCredentialSnapshot reads the exact common config and its vault entries
@@ -139,13 +138,13 @@ func readPluginConfigIdentityForUpdate(ctx context.Context, tx pgx.Tx, id string
 }
 
 func readPluginConfigIdentityQuery(ctx context.Context, tx pgx.Tx, id string, lock bool) (pluginConfigIdentity, error) {
-	query := `SELECT id, plugin_id, namespace, scope, user_id, agent_id, revision FROM plugin_config WHERE id = $1::uuid`
+	query := `SELECT id, plugin_id, scope, user_id, agent_id, revision FROM plugin_config WHERE id = $1::uuid`
 	if lock {
 		query += " FOR UPDATE"
 	}
 	var row pluginConfigIdentity
 	var userID, agentID pgtype.Text
-	err := tx.QueryRow(ctx, query, id).Scan(&row.ID, &row.PluginID, &row.Namespace, &row.Scope, &userID, &agentID, &row.Revision)
+	err := tx.QueryRow(ctx, query, id).Scan(&row.ID, &row.PluginID, &row.Scope, &userID, &agentID, &row.Revision)
 	if err != nil {
 		return pluginConfigIdentity{}, err
 	}
@@ -160,7 +159,7 @@ func readPluginConfigIdentityQuery(ctx context.Context, tx pgx.Tx, id string, lo
 
 func validatePluginConfigIdentity(identity pluginConfigIdentity, reg Registration) error {
 	if identity.Revision < 1 || reg.ConfigRevision < 1 ||
-		identity.ID != reg.ID || identity.PluginID != reg.PluginID || identity.Namespace != reg.Namespace ||
+		identity.ID != reg.ID || identity.PluginID != reg.PluginID ||
 		identity.Scope != reg.Scope || identity.UserID != reg.UserID || identity.AgentID != reg.AgentID ||
 		identity.Revision != reg.ConfigRevision {
 		return fmt.Errorf("%w for %q", errPluginConfigIdentity, reg.ID)

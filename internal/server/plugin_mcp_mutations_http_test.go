@@ -54,7 +54,7 @@ func setupPluginMutationHTTP(t *testing.T) (*testEnv, *vault.Service) {
 func TestPluginMCPHTTPAtomicCredentialsAndClosedProjection(t *testing.T) {
 	env, secrets := setupPluginMutationHTTP(t)
 	body := map[string]any{
-		"namespace": "http_mcp", "display_name": "HTTP MCP", "backend": "mcp", "definition_spec": map[string]any{},
+		"name": "http-mcp", "display_name": "HTTP MCP", "backend": "mcp", "definition_spec": map[string]any{},
 		"initial_config": map[string]any{"scope": "user", "is_enabled": true, "config": map[string]any{"url": "https://mcp.example.test/path/endpoint-secret", "auth_type": "bearer", "transport": "streamable_http"}, "credentials": map[string]any{"token": "first-bearer-secret"}},
 	}
 	if rr := doUnauthRequest(t, env.srv, http.MethodPost, "/api/plugins", body); rr.Code != http.StatusUnauthorized {
@@ -165,7 +165,7 @@ func TestPluginMCPHTTPAtomicCredentialsAndClosedProjection(t *testing.T) {
 func TestPluginMCPHTTPRejectsRawLocatorsAndForeignScope(t *testing.T) {
 	env, _ := setupPluginMutationHTTP(t)
 	_, token := createTestUserWithToken(t, env.authStore, env.oidcStore, "plugin-http-user", "user")
-	body := map[string]any{"namespace": "forbidden_mcp", "display_name": "Forbidden MCP", "backend": "mcp", "definition_spec": map[string]any{}, "initial_config": map[string]any{"scope": "system", "config": map[string]any{"url": "https://mcp.example.test", "auth_type": "none", "transport": "streamable_http"}}}
+	body := map[string]any{"name": "forbidden-mcp", "display_name": "Forbidden MCP", "backend": "mcp", "definition_spec": map[string]any{}, "initial_config": map[string]any{"scope": "system", "config": map[string]any{"url": "https://mcp.example.test", "auth_type": "none", "transport": "streamable_http"}}}
 	rr := doRequestWithSession(t, env.srv, token, http.MethodPost, "/api/plugins", body)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("foreign scope=%d %s", rr.Code, rr.Body.String())
@@ -176,7 +176,7 @@ func TestPluginMCPHTTPRejectsRawLocatorsAndForeignScope(t *testing.T) {
 		t.Fatalf("raw locator=%d %s", rr.Code, rr.Body.String())
 	}
 	var rows int
-	if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM plugin_definition WHERE namespace='forbidden_mcp'`).Scan(&rows); err != nil {
+	if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM plugin_definition WHERE id='forbidden-mcp'`).Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
 	if rows != 0 {
@@ -190,7 +190,7 @@ func TestPluginMCPHTTPInvalidBackendInput(t *testing.T) {
 		t.Run(field, func(t *testing.T) {
 			cfg := map[string]any{"url": "https://mcp.example.test/private-path", "auth_type": "none", "transport": "streamable_http"}
 			cfg[field] = "invalid-secret-value"
-			body := map[string]any{"namespace": "invalid_mcp", "display_name": "Invalid MCP", "backend": "mcp", "definition_spec": map[string]any{}, "initial_config": map[string]any{"scope": "user", "is_enabled": true, "config": cfg}}
+			body := map[string]any{"name": "invalid-mcp", "display_name": "Invalid MCP", "backend": "mcp", "definition_spec": map[string]any{}, "initial_config": map[string]any{"scope": "user", "is_enabled": true, "config": cfg}}
 			rr := doRequest(t, env, http.MethodPost, "/api/plugins", body)
 			if rr.Code != http.StatusBadRequest {
 				t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -206,32 +206,32 @@ func TestPluginMCPHTTPInvalidBackendInput(t *testing.T) {
 
 func TestPluginHTTPDefinitionLifecycleAndConfigIsolation(t *testing.T) {
 	env, secrets := setupPluginMutationHTTP(t)
-	create := func(namespace, displayName, endpoint string) apitypes.CreatePluginResponse {
+	create := func(name, displayName, endpoint string) apitypes.CreatePluginResponse {
 		t.Helper()
 		rr := doRequest(t, env, http.MethodPost, "/api/plugins", map[string]any{
-			"namespace": namespace, "display_name": displayName, "backend": "mcp",
+			"name": name, "display_name": displayName, "backend": "mcp",
 			"definition_spec": map[string]any{},
 			"initial_config": map[string]any{
 				"scope": "user", "is_enabled": true,
 				"config":      map[string]any{"url": endpoint, "auth_type": "bearer", "transport": "streamable_http"},
-				"credentials": map[string]any{"token": namespace + "-token"},
+				"credentials": map[string]any{"token": name + "-token"},
 			},
 		})
 		if rr.Code != http.StatusCreated {
-			t.Fatalf("create %s = %d: %s", namespace, rr.Code, rr.Body.String())
+			t.Fatalf("create %s = %d: %s", name, rr.Code, rr.Body.String())
 		}
 		var created apitypes.CreatePluginResponse
 		if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
-			t.Fatalf("decode create %s: %v", namespace, err)
+			t.Fatalf("decode create %s: %v", name, err)
 		}
-		if created.Plugin.Namespace != namespace || created.Plugin.DisplayName != displayName {
+		if created.Plugin.Id != name || created.Plugin.DisplayName != displayName {
 			t.Fatalf("created plugin = %#v", created.Plugin)
 		}
 		return created
 	}
 
-	first := create("lifecycle_a", "Lifecycle A", "https://a.example.test/mcp")
-	second := create("lifecycle_b", "Lifecycle B", "https://b.example.test/mcp")
+	first := create("lifecycle-a", "Lifecycle A", "https://a.example.test/mcp")
+	second := create("lifecycle-b", "Lifecycle B", "https://b.example.test/mcp")
 	var before []byte
 	if err := env.db.QueryRow(t.Context(), `SELECT config FROM plugin_config WHERE id = $1`, second.Config.Id.String()).Scan(&before); err != nil {
 		t.Fatalf("read second config: %v", err)
@@ -256,7 +256,7 @@ func TestPluginHTTPDefinitionLifecycleAndConfigIsolation(t *testing.T) {
 
 	catalog := pluginpkg.NewCatalog()
 	if err := catalog.Register(pluginpkg.Definition{
-		ID: "builtin/lifecycle", Namespace: "lifecycle_builtin", DisplayName: "Builtin lifecycle",
+		ID: "builtin.lifecycle", DisplayName: "Builtin lifecycle",
 		Backend: pluginpkg.BackendMCP, Source: pluginpkg.SourceBuiltin, ImplementationKey: "lifecycle",
 		Spec: json.RawMessage(`{}`), DefaultEnabled: true, Revision: 1,
 	}); err != nil {
@@ -273,12 +273,12 @@ func TestPluginHTTPDefinitionLifecycleAndConfigIsolation(t *testing.T) {
 	if err := plugins.SyncBuiltinDefaults(t.Context()); err != nil {
 		t.Fatalf("sync builtin: %v", err)
 	}
-	builtinDelete := doRequest(t, env, http.MethodDelete, pluginAPIPath("builtin/lifecycle")+"?expected_revision=1", nil)
+	builtinDelete := doRequest(t, env, http.MethodDelete, pluginAPIPath("builtin.lifecycle")+"?expected_revision=1", nil)
 	if builtinDelete.Code != http.StatusForbidden {
 		t.Fatalf("builtin delete = %d, want 403: %s", builtinDelete.Code, builtinDelete.Body.String())
 	}
 	var builtinCount int
-	if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM plugin_definition WHERE id = 'builtin/lifecycle'`).Scan(&builtinCount); err != nil {
+	if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM plugin_definition WHERE id = 'builtin.lifecycle'`).Scan(&builtinCount); err != nil {
 		t.Fatal(err)
 	}
 	if builtinCount != 1 {

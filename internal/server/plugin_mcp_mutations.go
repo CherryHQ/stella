@@ -111,7 +111,7 @@ func (s *Server) createMCPPlugin(w http.ResponseWriter, r *http.Request, authori
 		writePluginError(w, err)
 		return
 	}
-	definition, config, err := s.mcpSvc.CreateCustom(authz.WithAuthority(r.Context(), authority), pluginpkg.Definition{Namespace: request.Namespace, DisplayName: request.DisplayName, Backend: pluginpkg.BackendMCP, Spec: mustJSON(request.DefinitionSpec)}, input)
+	definition, config, err := s.mcpSvc.CreateCustom(authz.WithAuthority(r.Context(), authority), pluginpkg.Definition{ID: request.Name, DisplayName: request.DisplayName, Backend: pluginpkg.BackendMCP, Spec: mustJSON(request.DefinitionSpec)}, input)
 	if err != nil {
 		writePluginError(w, err)
 		return

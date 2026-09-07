@@ -6,15 +6,39 @@ import (
 
 	"github.com/CherryHQ/stella/internal/mcp"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 )
 
-func TestMCPToolNameRequiresPluginNamespace(t *testing.T) {
-	if got, ok := mcpToolName(mcp.Registration{Namespace: "settings_server"}, mcp.CatalogTool{Name: "list"}); !ok || got != "settings_server__list" {
-		t.Fatalf("mcpToolName with namespace = %q, %v; want settings_server__list, true", got, ok)
+func TestMCPToolNameRequiresPluginID(t *testing.T) {
+	want, err := agentpackage.ExportedToolName("settings.server", "main", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := mcpToolName(mcp.Registration{PluginID: "settings.server"}, mcp.CatalogTool{Name: "list"}); !ok || got != want {
+		t.Fatalf("mcpToolName with plugin ID = %q, %v; want %q, true", got, ok, want)
 	}
 	if got, ok := mcpToolName(mcp.Registration{Name: "settings_server"}, mcp.CatalogTool{Name: "list"}); ok || got != "" {
-		t.Fatalf("mcpToolName without namespace = %q, %v; want empty, false", got, ok)
+		t.Fatalf("mcpToolName without plugin ID = %q, %v; want empty, false", got, ok)
+	}
+}
+
+func TestMCPToolIdentityPreservesRemoteToolName(t *testing.T) {
+	reg := mcp.Registration{PluginID: "settings.server"}
+	tool := mcp.CatalogTool{Name: "list-items"}
+	identity, ok := mcpToolIdentity(reg, tool)
+	if !ok {
+		t.Fatal("mcpToolIdentity rejected a valid registration")
+	}
+	if identity.PluginID != reg.PluginID || identity.LocalToolName != tool.Name {
+		t.Fatalf("mcpToolIdentity = %+v, want plugin=%q local=%q", identity, reg.PluginID, tool.Name)
+	}
+	want, err := agentpackage.ExportedToolName(reg.PluginID, "main", tool.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := mcpToolName(reg, tool); !ok || got != want {
+		t.Fatalf("mcpToolName = %q, %v; want %q, true", got, ok, want)
 	}
 }
 

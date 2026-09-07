@@ -63,13 +63,13 @@ var builtinAssetFS embed.FS
 
 var builtinSkillAssets = []BuiltinSkillAsset{
 	{Name: "email", SourceRoot: "agent/email/skills/email", LogicalRoot: "plugins/agent/email/email", OwnerPluginID: "email"},
-	{Name: "html-artifact", SourceRoot: "guidance/html-artifact/skills/html-artifact", LogicalRoot: "core/html-artifact", OwnerPluginID: "skill/html-artifact"},
-	{Name: "lark-cli", SourceRoot: "tools/lark-cli/skills/lark-cli", LogicalRoot: "plugins/tool/lark-cli/lark-cli", OwnerPluginID: "tool/lark-cli"},
-	{Name: "python-script", SourceRoot: "tools/uv/skills/python-script", LogicalRoot: "core/python-script", OwnerPluginID: "tool/uv"},
+	{Name: "html-artifact", SourceRoot: "guidance/html-artifact/skills/html-artifact", LogicalRoot: "core/html-artifact", OwnerPluginID: "html-artifact"},
+	{Name: "lark-cli", SourceRoot: "tools/lark-cli/skills/lark-cli", LogicalRoot: "plugins/tool/lark-cli/lark-cli", OwnerPluginID: "lark-cli"},
+	{Name: "python-script", SourceRoot: "tools/uv/skills/python-script", LogicalRoot: "core/python-script", OwnerPluginID: "uv"},
 	{Name: "recally", SourceRoot: "agent/recally/skills/recally", LogicalRoot: "plugins/agent/recally/recally", OwnerPluginID: "recally"},
 	{Name: "scheduler", SourceRoot: "agent/scheduler/skills/scheduler", LogicalRoot: "plugins/agent/scheduler/scheduler", OwnerPluginID: "scheduler"},
-	{Name: "skill-creator", SourceRoot: "guidance/skill-creator/skills/skill-creator", LogicalRoot: "core/skill-creator", OwnerPluginID: "skill/skill-creator"},
-	{Name: "stella", SourceRoot: "system/stella/skills/stella", LogicalRoot: "core/stella", OwnerPluginID: "system/stella"},
-	{Name: "web", SourceRoot: "tools/bun/skills/web", LogicalRoot: "core/web", OwnerPluginID: "tool/bun"},
-	{Name: "xberg", SourceRoot: "system/xberg/skills/xberg", LogicalRoot: "core/xberg", OwnerPluginID: "system/xberg"},
+	{Name: "skill-creator", SourceRoot: "guidance/skill-creator/skills/skill-creator", LogicalRoot: "core/skill-creator", OwnerPluginID: "skill-creator"},
+	{Name: "stella", SourceRoot: "system/stella/skills/stella", LogicalRoot: "core/stella", OwnerPluginID: "stella"},
+	{Name: "web", SourceRoot: "tools/bun/skills/web", LogicalRoot: "core/web", OwnerPluginID: "bun"},
+	{Name: "xberg", SourceRoot: "system/xberg/skills/xberg", LogicalRoot: "core/xberg", OwnerPluginID: "xberg"},
 }

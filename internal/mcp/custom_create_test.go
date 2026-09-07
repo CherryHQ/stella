@@ -9,11 +9,12 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
 
 func customMCPDefinition(name string) plugin.Definition {
 	return plugin.Definition{
-		Namespace:   "custom_mcp_resource",
+		ID:          "custom-mcp-resource",
 		DisplayName: name,
 		Backend:     plugin.BackendMCP,
 		Spec:        []byte(`{"description":"custom MCP"}`),
@@ -34,8 +35,8 @@ func TestCreateCustomMCPUsesSharedUUIDAndStoresBearerInSameMutation(t *testing.T
 	if err != nil {
 		t.Fatalf("CreateCustom: %v", err)
 	}
-	if def.Source != plugin.SourceCustom || def.ID != "custom/"+cfg.ID {
-		t.Fatalf("custom identity = definition %q/config %q, want shared UUID", def.ID, cfg.ID)
+	if def.Source != plugin.SourceCustom || def.ID != "custom-mcp-resource" || def.ID == cfg.ID {
+		t.Fatalf("custom identity = definition %q/config %q, want canonical name plus distinct UUID", def.ID, cfg.ID)
 	}
 	if _, err := uuid.Parse(cfg.ID); err != nil {
 		t.Fatalf("config id is not UUID: %v", err)
@@ -75,7 +76,7 @@ func TestCreateCustomMCPOAuthSecretUsesConfigOwner(t *testing.T) {
 	}
 }
 
-func TestAccessCreateSettingsPathCreatesNamespaceParent(t *testing.T) {
+func TestAccessCreateSettingsPathUsesCanonicalPackageName(t *testing.T) {
 	svc, _, userID, _ := setupInternal(t)
 	authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
 	if err != nil {
@@ -87,7 +88,7 @@ func TestAccessCreateSettingsPathCreatesNamespaceParent(t *testing.T) {
 	}
 	ctx := authz.WithAuthority(context.Background(), authority)
 	result, err := (managementHandler{access: access}).Create(ctx, SettingsMcpCreateInput{
-		Scope: ScopeUser, Name: "settings_server", Url: "https://mcp.example.test",
+		Scope: ScopeUser, Name: "settings-server", Url: "https://mcp.example.test",
 	})
 	if err != nil {
 		t.Fatalf("settings create adapter: %v", err)
@@ -100,18 +101,18 @@ func TestAccessCreateSettingsPathCreatesNamespaceParent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read settings-created registration: %v", err)
 	}
-	if reg.Namespace != "settings_server" || reg.PluginID != "custom/"+reg.ID {
-		t.Fatalf("created registration = namespace %q/plugin %q, want verbatim namespace and shared UUID", reg.Namespace, reg.PluginID)
+	if reg.PluginID != "settings-server" {
+		t.Fatalf("created registration = plugin %q, want canonical package name", reg.PluginID)
 	}
-	got, err := plugin.ExportedToolName(reg.Namespace, "list")
+	got, err := agentpackage.ExportedToolName(reg.PluginID, "main", "list")
 	if err != nil {
 		t.Fatalf("export settings tool name: %v", err)
 	}
-	if got != "settings_server__list" {
-		t.Fatalf("tool namespace parent = %q", got)
+	if got == "" || len(got) > 64 {
+		t.Fatalf("tool package identity = %q, want a bounded exported name", got)
 	}
 	if _, err := access.Create(ctx, CreateInput{Scope: ScopeUser, Name: "settings server", URL: "https://mcp.example.test"}); err == nil {
-		t.Fatal("invalid namespace must be rejected instead of slugified")
+		t.Fatal("invalid package name must be rejected instead of slugified")
 	}
 	if _, err := access.Create(ctx, CreateInput{Scope: ScopeUser, Name: "settings_secret", URL: "https://mcp.example.test", AuthType: AuthTypeBearer, Token: "raw-secret"}); !errors.Is(err, errPluginCredentialsUnavailable) {
 		t.Fatalf("settings raw credential error = %v, want unavailable", err)
@@ -138,7 +139,7 @@ func TestCreateCustomMCPSecretFailureRollsBackDefinitionAndConfig(t *testing.T) 
 	if err := svc.pool.QueryRow(t.Context(), `SELECT count(*) FROM plugin_definition WHERE display_name = $1`, def.DisplayName).Scan(&definitions); err != nil {
 		t.Fatalf("count rolled-back definition: %v", err)
 	}
-	if err := svc.pool.QueryRow(t.Context(), `SELECT count(*) FROM plugin_config WHERE namespace = $1`, def.Namespace).Scan(&configs); err != nil {
+	if err := svc.pool.QueryRow(t.Context(), `SELECT count(*) FROM plugin_config WHERE plugin_id = $1`, def.ID).Scan(&configs); err != nil {
 		t.Fatalf("count rolled-back config: %v", err)
 	}
 	if err := svc.pool.QueryRow(t.Context(), `SELECT count(*) FROM mcp_server WHERE name = $1`, def.DisplayName).Scan(&legacy); err != nil {

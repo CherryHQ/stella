@@ -34,7 +34,7 @@ tokens cannot reach it.
 
 ## Definition and configuration
 
-`PluginDefinition` identifies an integration and its namespace. It describes the
+`PluginDefinition.ID` is the unique canonical package name. It describes the
 backend, shipped resources and default enabled state. Builtin definitions come
 from trusted release declarations; persisted builtin rows are projections.
 Agent definitions contain only CLI or MCP resources. Compiled Go implementations
@@ -43,6 +43,10 @@ are registered and managed through the separate Native path.
 Management routes use `/api/plugins/{plugin_id}` and its sub-resources. Pass the
 exact ID returned by the catalog as one URL-encoded path segment. Backend and
 source-directory categories do not participate in request addressing.
+Names use 1–64 lowercase letters, digits, periods and hyphens, start and end
+with a letter or digit, and cannot contain `..` or `--`. A name conflict fails;
+Stella does not add a suffix. The identity is fixed after creation; the display
+name can change.
 
 `PluginConfig` records one decision for a definition at one scope:
 
@@ -62,7 +66,7 @@ default of the selected definition.
 This is the Agent Plugin configuration model: one `PluginDefinition` plus at most
 one `PluginConfig` for each of the four scope tuples. `user_id` and `agent_id`
 come from the trusted authority and are never accepted as caller-owned identity.
-The definition owns stable implementation and namespace identity; the selected
+The definition owns stable package identity and implementation; the selected
 config owns its backend payload and credentials for that scope.
 
 The selected scope owns its configuration. It can override fields in the
@@ -76,12 +80,17 @@ The common service resolves a snapshot from trusted user, Agent or group
 identity. A runner captures that snapshot once for Agent Plugin resources,
 Skills and environment. Native tools and hooks read their separate policy.
 
-Agent Plugin resources follow the namespace winner. Native tools and hooks are
-absent from that snapshot, so a custom MCP integration cannot acquire Native
-capabilities by claiming a matching namespace. Native admission uses the trusted
-registration ID and its independent policy.
-Model-facing plugin tools use `{namespace}__{local_name}`. Authorization uses
-trusted plugin ID and local tool identity, never a parsed display name.
+Each Agent Plugin resolves by its exact package ID. Different packages do not
+replace each other's resources. Native tools and hooks are absent from that
+snapshot; a matching Agent package name cannot grant Native admission, which
+uses the trusted registration ID and independent policy.
+
+MCP exported names adapt the package name, server key and remote tool name into
+an ASCII name of at most 64 characters, with a deterministic 12-hex-character
+hash suffix. The current single-server configuration uses server key `main`.
+The actual exposed set is checked for collisions. Authorization uses trusted
+package and local tool identity, never a parsed display name. Native tools keep
+their registered static names.
 
 Configuration writes run under the admission boundary and commit atomically.
 Idle runners are retired; an admitted turn can finish before its runner is

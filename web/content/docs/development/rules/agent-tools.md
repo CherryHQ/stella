@@ -168,11 +168,12 @@ entry_update takes this"` is union-era text that a split tool inherits and
 
 ## 4. Naming
 
-**Plugin tool names are `{namespace}__{local_name}`**: `recally__feed_add` and
-`scheduler__job_pause`. Go and MCP backends use the same exported identity.
-Namespaces cannot contain `__`; the complete name is at most 64 characters.
-Trusted metadata carries plugin ID and local name; never derive authorization
-from an exported prefix.
+**Native tools keep their registered static names**, including
+`recally__feed_add` and `scheduler__job_pause`. MCP names use the shared
+`agentpackage.ExportedToolName` adapter over package ID, server key and remote
+local name. It produces at most 64 ASCII characters with a 12-hex-character
+hash suffix; check collisions across the actual exposed set. Trusted metadata
+carries identity separately; never derive authorization from an exported name.
 
 **Core names remain `<domain>_<resource>_<action>`**, dropping a repeated resource:
 `goal_create`.
@@ -303,9 +304,9 @@ action needs no registration edit.
   construction abort, `GET /api/agents/{id}/tools` returns 5xx, and no partial
   subset is cached. A tool set that quietly lost a tool is worse than a request
   that failed, because the model reasons about the gap as if it were the truth.
-- **Core names are reserved.** A builtin or plugin may not take a core tool's
-  name. Plugin namespaces are selected by the common snapshot; there is no
-  backend-specific MCP prefix or implicit capability attached to a name.
+- **Core and registered Native names are reserved.** An Agent Plugin may not
+  take them. The common snapshot selects configuration by exact package ID;
+  an exported name carries no implicit capability.
 - **The Code Mode hot set is small on purpose.** `HotToolNames` in
   `pkg/agent/code_strategy.go` lists the tools worth putting in front of the
   model every turn instead of behind `tools.search`. It is exported so the prose

@@ -1286,11 +1286,11 @@ func deploymentAndMCPSmokeCases() []smokeCase {
 		}, check: captureVersion("settings_embedding_setting_update", "embedding_setting_version")},
 		{tool: "settings_plugin_list", args: noArgs},
 		{tool: "settings_plugin_disable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"plugin_id": "system/stella"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("system/stella", false)}},
+			return map[string]any{"plugin_id": "stella"}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("stella", false)}},
 		{tool: "settings_plugin_enable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"plugin_id": "system/stella"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("system/stella", true)}},
+			return map[string]any{"plugin_id": "stella"}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("stella", true)}},
 		{tool: "settings_mcp_server_list", args: noArgs},
 		{tool: "settings_mcp_server_create", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"scope": "user", "name": "tool-smoke-mcp-" + s.values["runID"], "url": "https://mcp.example.test"}

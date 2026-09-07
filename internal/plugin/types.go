@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
-	"strings"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
 
 // Backend identifies the implementation that supplies a plugin's capabilities.
@@ -42,7 +42,6 @@ var scopePrecedence = [...]Scope{ScopeUserAgent, ScopeUser, ScopeSystemAgent, Sc
 // Definition is the authored, non-secret identity of a plugin.
 type Definition struct {
 	ID                string
-	Namespace         string
 	DisplayName       string
 	Backend           Backend
 	Source            Source
@@ -60,7 +59,6 @@ type Definition struct {
 type Config struct {
 	ID             string
 	PluginID       string
-	Namespace      string
 	Scope          Scope
 	UserID         string
 	AgentID        string
@@ -75,7 +73,6 @@ type Config struct {
 // Effective is the winner-first resolution result for one trusted context.
 type Effective struct {
 	PluginID             string
-	Namespace            string
 	ConfigID             string
 	SourceScope          Scope
 	IsEffectivelyEnabled bool
@@ -89,13 +86,11 @@ var (
 	ErrUnknownScope      = errors.New("plugin: unknown scope")
 )
 
-var namespacePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-
 func (d Definition) Validate() error {
-	if d.ID == "" || d.Namespace == "" || d.DisplayName == "" || d.ImplementationKey == "" || d.Revision < 1 {
+	if d.DisplayName == "" || d.ImplementationKey == "" || d.Revision < 1 {
 		return fmt.Errorf("%w: identity or revision", ErrInvalidDefinition)
 	}
-	if err := ValidateNamespace(d.Namespace); err != nil {
+	if err := ValidateName(d.ID); err != nil {
 		return err
 	}
 	if d.Backend != BackendCLI && d.Backend != BackendMCP {
@@ -120,34 +115,16 @@ func (d Definition) Validate() error {
 	return nil
 }
 
-// ValidateNamespace enforces the stable exported namespace format. It is
-// independent of display names, URLs, and definition IDs.
-func ValidateNamespace(namespace string) error {
-	if namespace == "" || strings.Contains(namespace, "__") || !namespacePattern.MatchString(namespace) {
-		return fmt.Errorf("%w: invalid namespace %q", ErrInvalidDefinition, namespace)
+// ValidateName enforces the standard Agent Plugin package name contract.
+func ValidateName(name string) error {
+	if !agentpackage.ValidName(name) {
+		return fmt.Errorf("%w: invalid plugin name %q", ErrInvalidDefinition, name)
 	}
 	return nil
 }
 
-// ExportedToolName validates the complete model-facing name. Namespace alone
-// has no length ceiling because the local tool name participates in the final
-// 64-byte contract.
-func ExportedToolName(namespace, local string) (string, error) {
-	if err := ValidateNamespace(namespace); err != nil {
-		return "", err
-	}
-	if local == "" || !namespacePattern.MatchString(local) {
-		return "", fmt.Errorf("%w: invalid local tool name %q", ErrInvalidDefinition, local)
-	}
-	name := namespace + "__" + local
-	if len(name) > 64 {
-		return "", fmt.Errorf("%w: exported tool name exceeds 64 bytes", ErrInvalidDefinition)
-	}
-	return name, nil
-}
-
 func (c Config) Validate() error {
-	if c.ID == "" || c.PluginID == "" || c.Namespace == "" || c.Revision < 1 {
+	if c.ID == "" || c.PluginID == "" || c.Revision < 1 {
 		return fmt.Errorf("%w: identity or revision", ErrInvalidConfig)
 	}
 	if !validScope(c.Scope) {

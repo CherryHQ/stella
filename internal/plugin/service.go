@@ -240,7 +240,7 @@ func (b *Access) CreateConfig(ctx context.Context, config Config) (Config, error
 	if err != nil {
 		return Config{}, err
 	}
-	config.PluginID, config.Namespace = def.ID, def.Namespace
+	config.PluginID = def.ID
 	config.UserID, config.AgentID = userID, agentID
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -512,14 +512,14 @@ func (s *Service) syncBuiltinDefaultsTx(ctx context.Context) error {
 			return err
 		}
 		_, err := q.UpsertPluginDefinition(ctx, sqlc.UpsertPluginDefinitionParams{
-			ID: def.ID, Namespace: def.Namespace, DisplayName: def.DisplayName,
+			ID: def.ID, DisplayName: def.DisplayName,
 			Backend: string(def.Backend), Source: string(def.Source), ImplementationKey: def.ImplementationKey,
 			Spec: def.Spec, DefaultEnabled: def.DefaultEnabled, Revision: def.Revision,
 		})
 		if err != nil {
 			return fmt.Errorf("sync definition %s: %w", def.ID, err)
 		}
-		if _, err := q.EnsureSystemPluginConfig(ctx, sqlc.EnsureSystemPluginConfigParams{PluginID: def.ID, Namespace: def.Namespace}); err != nil {
+		if _, err := q.EnsureSystemPluginConfig(ctx, def.ID); err != nil {
 			return fmt.Errorf("sync config %s: %w", def.ID, err)
 		}
 	}
@@ -550,7 +550,7 @@ func (b *Access) CreateCustom(ctx context.Context, def Definition, config Config
 	if err != nil {
 		return Definition{}, Config{}, err
 	}
-	def.ID, def.Source, def.Revision = "custom/"+id.String(), SourceCustom, 1
+	def.Source, def.Revision = SourceCustom, 1
 	def.ImplementationKey, def.CreatorUserID, def.DefaultEnabled = string(def.Backend), string(b.authority.UserID()), false
 	if b.authority.IsAdmin() {
 		def.CreatorUserID = ""
@@ -563,7 +563,7 @@ func (b *Access) CreateCustom(ctx context.Context, def Definition, config Config
 	if err != nil {
 		return Definition{}, Config{}, err
 	}
-	config.ID, config.PluginID, config.Namespace = id.String(), def.ID, def.Namespace
+	config.ID, config.PluginID = id.String(), def.ID
 	config.UserID, config.AgentID, config.Revision = userID, agentID, 1
 	config.CredentialRefs = nonEmptyJSON(config.CredentialRefs)
 	if err := config.Validate(); err != nil {

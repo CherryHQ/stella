@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -15,7 +14,7 @@ import (
 func TestSnapshotAccessDefensivelyCopiesNestedValues(t *testing.T) {
 	enabled := true
 	def := Definition{
-		ID: "builtin/demo", Namespace: "demo", DisplayName: "Demo", Backend: BackendCLI,
+		ID: "demo", DisplayName: "Demo", Backend: BackendCLI,
 		Source: SourceBuiltin, ImplementationKey: "demo", Revision: 1,
 		Spec: json.RawMessage(`{"base":"definition"}`),
 	}
@@ -25,8 +24,7 @@ func TestSnapshotAccessDefensivelyCopiesNestedValues(t *testing.T) {
 	}
 	snapshot := Snapshot{catalog: catalog, configs: []Config{{
 		ID:             "config-1",
-		PluginID:       "builtin/demo",
-		Namespace:      "demo",
+		PluginID:       "demo",
 		Scope:          ScopeSystem,
 		Enabled:        &enabled,
 		Payload:        json.RawMessage(`{"key":"config"}`),
@@ -34,7 +32,7 @@ func TestSnapshotAccessDefensivelyCopiesNestedValues(t *testing.T) {
 		Revision:       1,
 	}}}
 
-	got, ok := snapshot.Get("builtin/demo")
+	got, ok := snapshot.Get("demo")
 	if !ok {
 		t.Fatal("Get returned no plugin")
 	}
@@ -44,7 +42,7 @@ func TestSnapshotAccessDefensivelyCopiesNestedValues(t *testing.T) {
 	*got.Config.Enabled = false
 	got.Effective.Payload[0] = 'X'
 
-	again, ok := snapshot.Get("builtin/demo")
+	again, ok := snapshot.Get("demo")
 	if !ok {
 		t.Fatal("second Get returned no plugin")
 	}
@@ -54,12 +52,12 @@ func TestSnapshotAccessDefensivelyCopiesNestedValues(t *testing.T) {
 
 	defs := snapshot.Definitions()
 	defs[0].Spec[0] = 'Y'
-	resolved, err := snapshot.Resolve("builtin/demo")
+	resolved, err := snapshot.Resolve("demo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resolved.Payload[0] = 'Z'
-	resolvedAgain, err := snapshot.Resolve("builtin/demo")
+	resolvedAgain, err := snapshot.Resolve("demo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,10 +66,10 @@ func TestSnapshotAccessDefensivelyCopiesNestedValues(t *testing.T) {
 	}
 }
 
-func TestSnapshotResolveNamespaceMissingIsNotFound(t *testing.T) {
-	_, err := (Snapshot{}).ResolveNamespace("missing")
-	if !errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), "not configured") {
-		t.Fatalf("missing namespace error = %v", err)
+func TestSnapshotResolveMissingIsNotFound(t *testing.T) {
+	_, err := (Snapshot{}).Resolve("missing")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing plugin error = %v", err)
 	}
 }
 

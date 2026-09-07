@@ -50,6 +50,8 @@ func writePluginError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, pluginpkg.ErrConflict), errors.Is(err, mcp.ErrVersionConflict):
 		status, message = http.StatusConflict, "resource revision conflict"
+	case isUniqueViolation(err):
+		status, message = http.StatusConflict, "resource already exists"
 	case errors.Is(err, pluginpkg.ErrBuiltinConfig):
 		status, message = http.StatusConflict, "builtin system configuration cannot be deleted"
 	case errors.Is(err, pluginpkg.ErrUnknownScope), errors.Is(err, pluginpkg.ErrInvalidConfig), errors.Is(err, pluginpkg.ErrInvalidDefinition):
@@ -79,7 +81,7 @@ func pluginDefinitionView(def pluginpkg.Definition) (apitypes.PluginDefinition, 
 	revision := def.Revision
 	createdAt, updatedAt := def.CreatedAt.UTC(), def.UpdatedAt.UTC()
 	return apitypes.PluginDefinition{
-		Id: def.ID, Namespace: def.Namespace, DisplayName: def.DisplayName,
+		Id: def.ID, DisplayName: def.DisplayName,
 		Backend: apitypes.PluginDefinitionBackend(def.Backend), IsBuiltin: &isBuiltin,
 		IsDefaultEnabled: &isDefault, Spec: spec, Revision: &revision,
 		CreatedAt: &createdAt, UpdatedAt: &updatedAt,
@@ -321,7 +323,7 @@ func (s *Server) getPluginEffective(w http.ResponseWriter, r *http.Request, plug
 		sourceScope = &scope
 	}
 	writeData(w, http.StatusOK, apitypes.PluginEffective{
-		PluginId: effective.PluginID, Namespace: effective.Namespace, ConfigId: configID,
+		PluginId: effective.PluginID, ConfigId: configID,
 		SourceScope: sourceScope, IsEffectivelyEnabled: effective.IsEffectivelyEnabled,
 		AvailabilityReason: effective.AvailabilityReason, Readiness: apitypes.PluginEffectiveReadiness("unknown"),
 	})

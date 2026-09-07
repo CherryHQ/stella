@@ -22,6 +22,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
@@ -248,7 +249,7 @@ func TestToolMutationSchemasRequireNonEmptyExpectedVersion(t *testing.T) {
 
 func TestToolMutationDispatchRejectsBlankExpectedVersionBeforeService(t *testing.T) {
 	svc, userID, _, ctx := commonMCPTestService(t)
-	configID, _, _ := seedCommonConfig(t, svc.pool, userID, 1, AuthTypeNone)
+	configID, _ := seedCommonConfig(t, svc.pool, userID, 1, AuthTypeNone)
 	authority, err := authz.NewUserAuthority(authz.UserID(userID), true)
 	if err != nil {
 		t.Fatalf("new authority: %v", err)
@@ -285,7 +286,7 @@ func TestToolMutationDispatchRejectsBlankExpectedVersionBeforeService(t *testing
 
 func TestUpdateIfVersionRejectsChangedRegistration(t *testing.T) {
 	svc, userID, _, ctx := commonMCPTestService(t)
-	configID, _, _ := seedCommonConfig(t, svc.pool, userID, 1, AuthTypeNone)
+	configID, _ := seedCommonConfig(t, svc.pool, userID, 1, AuthTypeNone)
 	observed, err := svc.Get(ctx, configID, ScopeUser, userID, "")
 	if err != nil {
 		t.Fatalf("get common registration: %v", err)
@@ -314,7 +315,7 @@ func TestUpdateIfVersionRejectsChangedRegistration(t *testing.T) {
 
 func TestToolVersionPathsRejectBlankBeforeMutation(t *testing.T) {
 	svc, userID, _, ctx := commonMCPTestService(t)
-	configID, _, _ := seedCommonConfig(t, svc.pool, userID, 1, AuthTypeNone)
+	configID, _ := seedCommonConfig(t, svc.pool, userID, 1, AuthTypeNone)
 	name := "after"
 	if _, err := svc.UpdateIfVersion(ctx, UpdateInput{ID: configID, Scope: ScopeUser, UserID: userID, Name: &name}, ""); !errors.Is(err, ErrVersionConflict) {
 		t.Fatalf("blank UpdateIfVersion = %v, want version conflict", err)
@@ -343,13 +344,12 @@ func newFakeVault() *fakeVault { return &fakeVault{stored: map[string]string{}} 
 func commonMCPTestService(t *testing.T) (*Service, string, string, context.Context) {
 	t.Helper()
 	svc, _, userID, _ := setupInternal(t)
-	pluginID := "custom/" + uuid.NewString()
-	namespace := "mcp_test_" + strings.ReplaceAll(pluginID[len("custom/"):], "-", "")[:8]
+	pluginID := "mcp-test-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
 	if _, err := svc.pool.Exec(t.Context(), `
-		INSERT INTO plugin_definition(id, namespace, display_name, backend, source,
+		INSERT INTO plugin_definition(id, display_name, backend, source,
 			implementation_key, spec, default_enabled, revision, creator_user_id)
-		VALUES ($1, $2, $3, 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1, $4::uuid)`,
-		pluginID, namespace, "MCP test", userID); err != nil {
+		VALUES ($1, $2, 'mcp', 'custom', 'mcp', '{}'::jsonb, false, 1, $3::uuid)`,
+		pluginID, "MCP test", userID); err != nil {
 		t.Fatalf("seed common MCP definition: %v", err)
 	}
 	preparePluginToolOverrideIdentitySchema(t, svc.pool)
@@ -383,7 +383,7 @@ func preparePluginToolOverrideIdentitySchema(t *testing.T, pool interface {
 func commonMCPRegistration(t *testing.T, authType string) (*Service, Registration, string, context.Context) {
 	t.Helper()
 	svc, _, userID, _ := setupInternal(t)
-	configID, _, _ := seedCommonConfig(t, svc.pool, userID, 1, authType)
+	configID, pluginID := seedCommonConfig(t, svc.pool, userID, 1, authType)
 	authority, err := authz.NewUserAuthority(authz.UserID(userID), true)
 	if err != nil {
 		t.Fatalf("new test authority: %v", err)
@@ -393,7 +393,7 @@ func commonMCPRegistration(t *testing.T, authType string) (*Service, Registratio
 	if err != nil {
 		t.Fatalf("get common MCP registration: %v", err)
 	}
-	reg.Name, reg.Namespace = "gh", "gh"
+	reg.Name, reg.PluginID = "gh", pluginID
 	return svc, reg, userID, ctx
 }
 
@@ -785,9 +785,9 @@ func catalogRow(d *fakeDB, id, name string, toolNames ...string) {
 	seedRow(d, id, name, StatusOK, now, tools)
 }
 
-func providerRegistration(d *fakeDB, id, namespace string) Registration {
+func providerRegistration(d *fakeDB, id, pluginID string) Registration {
 	reg := registrationFromRow(d.rows[id])
-	reg.Namespace = namespace
+	reg.PluginID = pluginID
 	return reg
 }
 
@@ -806,7 +806,11 @@ func TestToolProviderUsesPersistedCatalogWithoutConnecting(t *testing.T) {
 	if connects != 0 {
 		t.Fatalf("connects = %d, want 0 with a fresh persisted catalog", connects)
 	}
-	if len(tools) != 1 || tools[0].Definition().Name != "gh__create_issue" {
+	want, err := agentpackage.ExportedToolName("gh", "main", "create_issue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tools) != 1 || tools[0].Definition().Name != want {
 		t.Fatalf("tools = %#v, want the cataloged tool", tools)
 	}
 }
@@ -830,7 +834,11 @@ func TestToolProviderStaleCatalogTriggersColdDiscovery(t *testing.T) {
 	if connects != 1 {
 		t.Fatalf("connects = %d, want 1 cold discovery", connects)
 	}
-	if len(tools) != 1 || tools[0].Definition().Name != "gh__new_tool" {
+	want, err := agentpackage.ExportedToolName(reg.PluginID, "main", "new_tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tools) != 1 || tools[0].Definition().Name != want {
 		t.Fatalf("tools = %#v, want tools from the refreshed catalog", tools)
 	}
 	stateCount := 0
@@ -896,7 +904,7 @@ func TestToolProviderDiscoversServersConcurrently(t *testing.T) {
 			t.Fatalf("Create concurrent config %d: %v", i, err)
 		}
 		copy.Name = fmt.Sprintf("gh%d", i)
-		copy.Namespace = reg.Namespace
+		copy.PluginID = reg.PluginID
 		regs = append(regs, copy)
 	}
 	tools := provider.toolsForRegistrations(ctx, regs, true, userID)
@@ -910,7 +918,7 @@ func TestToolProviderDiscoversServersConcurrently(t *testing.T) {
 
 func TestToolProviderFailedDiscoveryPersistsErrorAndSkips(t *testing.T) {
 	svc, reg, userID, ctx := commonMCPRegistration(t, AuthTypeNone)
-	reg.Name, reg.Namespace, reg.Status, reg.ProbedAt, reg.Tools = "broken", "broken", StatusUnknown, time.Time{}, nil
+	reg.Name, reg.Status, reg.ProbedAt, reg.Tools = "broken", StatusUnknown, time.Time{}, nil
 	svc.probeTimeout = time.Second
 	client := &fakeMCPClient{listErr: errors.New("list failed")}
 	svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) { return client, nil }
@@ -941,13 +949,17 @@ func TestToolProviderSkipsCollidingToolNames(t *testing.T) {
 	}
 
 	tools := NewToolProvider(svc).toolsForRegistrations(context.Background(), []Registration{
-		providerRegistration(db, "srv1", "git_hub"),
-		providerRegistration(db, "srv2", "git_hub"),
+		providerRegistration(db, "srv1", "git-hub"),
+		providerRegistration(db, "srv2", "git-hub"),
 	}, false, "u1")
 	if len(tools) != 1 {
 		t.Fatalf("tools = %d, want one duplicate skipped", len(tools))
 	}
-	if got := tools[0].Definition().Name; got != "git_hub__foo_bar" {
+	want, err := agentpackage.ExportedToolName("git-hub", "main", "foo-bar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tools[0].Definition().Name; got != want {
 		t.Fatalf("tool name = %q", got)
 	}
 }
@@ -1075,9 +1087,9 @@ func TestProbeSkipsOAuthWhenObservationNeedsAuth(t *testing.T) {
 
 func TestExecuteContentConvertsImageBlocks(t *testing.T) {
 	proxy := &toolProxy{
-		reg:        Registration{Name: "gh", Namespace: "gh"},
+		reg:        Registration{PluginID: "gh", Name: "gh"},
 		remoteName: "render",
-		def:        pkgtools.Definition{Name: "gh__render"},
+		def:        pkgtools.Definition{Name: "gh_main_render"},
 		svc:        NewService(newFakeDB(), newFakeVault()),
 	}
 	svc := proxy.svc
@@ -1124,9 +1136,9 @@ func TestCallTimeoutReturnsContextErrorWithoutStatusChange(t *testing.T) {
 	db := newFakeDB()
 	db.rows["srv1"] = sqlc.McpServer{ID: "srv1", Scope: ScopeUser, Name: "gh", Url: "https://mcp.example.com", Enabled: true}
 	proxy := &toolProxy{
-		reg:        Registration{ID: "srv1", Name: "gh", Namespace: "gh", Metadata: map[string]any{"call_timeout_seconds": float64(1)}},
+		reg:        Registration{ID: "srv1", PluginID: "gh", Name: "gh", Metadata: map[string]any{"call_timeout_seconds": float64(1)}},
 		remoteName: "slow",
-		def:        pkgtools.Definition{Name: "gh__slow"},
+		def:        pkgtools.Definition{Name: "gh_main_slow"},
 		svc:        NewService(db, newFakeVault()),
 	}
 	proxy.svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) {
@@ -1151,11 +1163,11 @@ func TestCallTimeoutReturnsContextErrorWithoutStatusChange(t *testing.T) {
 
 func TestCredentialRejectionMarksNeedsAuth(t *testing.T) {
 	svc, reg, userID, ctx := commonMCPRegistration(t, AuthTypeNone)
-	reg.Name, reg.Namespace = "gh", "gh"
+	reg.Name = "gh"
 	proxy := &toolProxy{
 		reg:        reg,
 		remoteName: "list",
-		def:        pkgtools.Definition{Name: "gh__list"},
+		def:        pkgtools.Definition{Name: "gh_main_list"},
 		svc:        svc,
 	}
 	proxy.svc.connect = func(context.Context, Registration, CredentialOwner) (RemoteClient, error) {

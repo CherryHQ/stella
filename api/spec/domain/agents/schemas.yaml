@@ -396,7 +396,6 @@ components:
       required: [
         plugin_id,
         config_id,
-        namespace,
         scope,
         enabled,
         credential_mode,
@@ -412,7 +411,6 @@ components:
       properties:
         plugin_id: { type: string }
         config_id: { type: string }
-        namespace: { type: string }
         scope:
           type: string
           enum: [user, user_agent, system, system_agent]

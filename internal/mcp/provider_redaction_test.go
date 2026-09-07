@@ -29,7 +29,7 @@ func TestToolProviderConnectDiagnosticRedactsEndpointSecrets(t *testing.T) {
 	provider.log = slog.New(slog.NewTextHandler(&logs, nil))
 
 	reg := registrationFromRow(db.forCtx[0])
-	reg.Namespace = "broken"
+	reg.PluginID = "broken"
 	if tools := provider.toolsForRegistrations(context.Background(), []Registration{reg}, true, "u1"); len(tools) != 0 {
 		t.Fatalf("provider returned %d tools, want none", len(tools))
 	}

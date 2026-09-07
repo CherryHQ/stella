@@ -40,12 +40,12 @@ func TestSystemCLIResourcesStayOutsideScopedSelections(t *testing.T) {
 			t.Fatal(err)
 		}
 		insertDefinition(t, db, definition)
-		if _, err := db.Exec(t.Context(), `INSERT INTO plugin_config (plugin_id, namespace, scope, enabled, config, credential_refs, revision) VALUES ($1, $2, 'system', TRUE, '{}'::jsonb, '{}'::jsonb, 1)`, definition.ID, definition.Namespace); err != nil {
+		if _, err := db.Exec(t.Context(), `INSERT INTO plugin_config (plugin_id, scope, enabled, config, credential_refs, revision) VALUES ($1, 'system', TRUE, '{}'::jsonb, '{}'::jsonb, 1)`, definition.ID); err != nil {
 			t.Fatal(err)
 		}
 		systemIDs = append(systemIDs, definition.ID)
 	}
-	if !slices.Contains(systemIDs, "system/stella") || !slices.Contains(systemIDs, "system/xberg") {
+	if !slices.Contains(systemIDs, "stella") || !slices.Contains(systemIDs, "xberg") {
 		t.Fatal("system skill owners are missing from the catalog")
 	}
 	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Transition: noopBackendTransition}, inlinePluginMutationFence)
@@ -80,9 +80,9 @@ func TestSessionPluginViewRejectsIncompletePayloadAfterCapabilityLift(t *testing
 	ctx := context.Background()
 	db := dbtest.New(t)
 	definition := plugin.Definition{
-		ID: "tool/lift", Namespace: "lift", DisplayName: "Lift",
+		ID: "lift", DisplayName: "Lift",
 		Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin,
-		ImplementationKey: "tool/lift", DefaultEnabled: false, Revision: 1,
+		ImplementationKey: "lift", DefaultEnabled: false, Revision: 1,
 		Spec: json.RawMessage(`{"binaries":[{"name":"lift","tool":"github:owner/lift","version":"1.0.0"}]}`),
 	}
 	catalog := plugin.NewCatalog()
@@ -356,14 +356,14 @@ func insertUser(t *testing.T, db *pgxpool.Pool, id string) {
 
 func insertDefinition(t *testing.T, db *pgxpool.Pool, definition plugin.Definition) {
 	t.Helper()
-	if _, err := db.Exec(context.Background(), `INSERT INTO plugin_definition (id, namespace, display_name, backend, source, implementation_key, spec, default_enabled, revision) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, definition.ID, definition.Namespace, definition.DisplayName, definition.Backend, definition.Source, definition.ImplementationKey, definition.Spec, definition.DefaultEnabled, definition.Revision); err != nil {
+	if _, err := db.Exec(context.Background(), `INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec, default_enabled, revision) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, definition.ID, definition.DisplayName, definition.Backend, definition.Source, definition.ImplementationKey, definition.Spec, definition.DefaultEnabled, definition.Revision); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func insertConfig(t *testing.T, db *pgxpool.Pool, id string, definition plugin.Definition, scope, userID string, enabled bool, payload string) {
 	t.Helper()
-	if _, err := db.Exec(context.Background(), `INSERT INTO plugin_config (id, plugin_id, namespace, scope, user_id, enabled, config, credential_refs, revision) VALUES ($1, $2, $3, $4, $5, $6, $7, '{}'::jsonb, 1)`, id, definition.ID, definition.Namespace, scope, userID, enabled, payload); err != nil {
+	if _, err := db.Exec(context.Background(), `INSERT INTO plugin_config (id, plugin_id, scope, user_id, enabled, config, credential_refs, revision) VALUES ($1, $2, $3, $4, $5, $6, '{}'::jsonb, 1)`, id, definition.ID, scope, userID, enabled, payload); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -371,7 +371,7 @@ func insertConfig(t *testing.T, db *pgxpool.Pool, id string, definition plugin.D
 func TestPromptUsesFrozenCLIConfig(t *testing.T) {
 	db := dbtest.New(t)
 	ctx := t.Context()
-	def := plugin.Definition{ID: "tool/prompted", Namespace: "prompted", DisplayName: "Prompted", Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin, ImplementationKey: "tool/prompted", DefaultEnabled: true, Revision: 1, Spec: []byte(`{"prompt":"shipped guidance"}`)}
+	def := plugin.Definition{ID: "prompted", DisplayName: "Prompted", Backend: plugin.BackendCLI, Source: plugin.SourceBuiltin, ImplementationKey: "prompted", DefaultEnabled: true, Revision: 1, Spec: []byte(`{"prompt":"shipped guidance"}`)}
 	catalog := plugin.NewCatalog()
 	if err := catalog.Register(def); err != nil {
 		t.Fatal(err)

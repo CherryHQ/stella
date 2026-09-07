@@ -3,7 +3,14 @@
 import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
 import { expectStatus } from "./lib/api.ts";
 import { expect, test } from "./lib/fixtures.ts";
-import { createMcpPlugin, type McpFixture, pluginConfigPath, pluginDefinitionPath, startMcpFixture } from "./lib/mcp-fixture.ts";
+import {
+  createMcpPlugin,
+  exportedMcpName,
+  type McpFixture,
+  pluginConfigPath,
+  pluginDefinitionPath,
+  startMcpFixture,
+} from "./lib/mcp-fixture.ts";
 import { ensureProvider } from "./lib/provider.ts";
 import { AgentTool, type CreatePluginResponse, type PluginConfig, type PluginDefinition } from "./lib/types.ts";
 
@@ -12,6 +19,7 @@ test.describe.configure({ mode: "serial" });
 let open: McpFixture;
 let guarded: McpFixture;
 const created: CreatePluginResponse[] = [];
+const e2eAdd = exportedMcpName("e2e", "add");
 
 test.beforeAll(async () => {
   open = await startMcpFixture();
@@ -83,7 +91,7 @@ test("probe endpoint re-lists tools and refreshes probed_at", async ({ admin, db
 });
 
 test("unreachable endpoint records an error and an empty catalog after explicit probe", async ({ admin, db }) => {
-  const body = await createMcpPlugin(admin, open, { namespace: "e2e-dead", displayName: "e2e-dead", url: "http://127.0.0.1:9/mcp" });
+  const body = await createMcpPlugin(admin, open, { name: "e2e-dead", displayName: "e2e-dead", url: "http://127.0.0.1:9/mcp" });
   created.push(body);
   expect(body.config.backend_summary).toMatchObject({ backend: "mcp", endpoint_configured: true, auth_type: "none" });
   expectStatus(await admin.post<PluginConfig>(`${pluginConfigPath(body.plugin, body.config)}/probe`), 200, "probe dead plugin");
@@ -96,7 +104,7 @@ test("unreachable endpoint records an error and an empty catalog after explicit 
 
 test("bearer token lives in the vault and an explicit probe reports needs_auth", async ({ admin, db }) => {
   const body = await createMcpPlugin(admin, guarded, {
-    namespace: "e2e-guarded",
+    name: "e2e-guarded",
     displayName: "e2e-guarded",
     authType: "bearer",
     token: "wrong-token",
@@ -142,7 +150,7 @@ test("expected_revision enforces optimistic concurrency on PATCH and DELETE", as
   expect(ok.revision).toBeGreaterThan(current.revision);
 
   const victim = await createMcpPlugin(admin, open, {
-    namespace: "e2e-victim",
+    name: "e2e-victim",
     displayName: "e2e-victim",
     url: open.url.replace("/mcp", "/victim"),
   });
@@ -172,7 +180,7 @@ test("an agent calls the remote tool through one shared session @model", async (
   // turn tests tool use, not catalog-publish timing.
   await expect.poll(async () => {
     const listed = expectStatus(await admin.get<{ tools: AgentTool[]; }>(`/api/agents/${agentId}/tools`), 200, "list agent tools").tools;
-    return listed.some((t) => t.name === "e2e__add");
+    return listed.some((t) => t.name === e2eAdd);
   }, { timeout: 30_000 }).toBe(true);
   const sessionId = await createChatSession(admin, agentId);
   const initBefore = open.methods.get("initialize") ?? 0;
@@ -182,10 +190,10 @@ test("an agent calls the remote tool through one shared session @model", async (
     admin,
     agentId,
     sessionId,
-    "Use the tool e2e__add twice: first with a=17 and b=25, then with a=3 and b=4. Reply with only the two results separated by a space.",
+    `Use the tool ${e2eAdd} twice: first with a=17 and b=25, then with a=3 and b=4. Reply with only the two results separated by a space.`,
   );
   expect(turn.errors, JSON.stringify(turn.events.slice(-5))).toEqual([]);
-  const addCalls = turn.toolCalls.filter((c) => c.toolName === "e2e__add");
+  const addCalls = turn.toolCalls.filter((c) => c.toolName === e2eAdd);
   expect(addCalls.length).toBeGreaterThanOrEqual(2);
   const seen = open.calls.slice(callsBefore).filter((c) => c.tool === "add").map((c) => `${c.args.a}+${c.args.b}`);
   expect(seen).toContain("17+25");
@@ -201,14 +209,14 @@ test("an agent calls the remote tool through one shared session @model", async (
   // Under Code Mode the model may issue both calls from one `code` block, which
   // persists as a single tool_call row, so the row count is not the call count.
   // The transcript audit below counts the actual invocations.
-  const persistedCalls = rows.filter((r) => r.event_type === "tool_call" && String(r.content).includes("e2e__add"));
+  const persistedCalls = rows.filter((r) => r.event_type === "tool_call" && String(r.content).includes(e2eAdd));
   expect(persistedCalls.length, JSON.stringify(rows.map((r) => [r.role, r.event_type, String(r.content).slice(0, 80)])))
     .toBeGreaterThanOrEqual(1);
 
   // The transcript API shows the call either as a direct tool_call block or,
   // under Code Mode, in the child-call audit of the outer `code` result.
   const messages = await sessionMessages(admin, agentId, sessionId);
-  const invoked = invokedToolNames(messages).filter((n) => n === "e2e__add");
+  const invoked = invokedToolNames(messages).filter((n) => n === e2eAdd);
   expect(invoked.length, JSON.stringify(messages).slice(0, 3000)).toBeGreaterThanOrEqual(2);
 });
 

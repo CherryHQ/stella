@@ -482,7 +482,6 @@ components:
       required: [
         plugin_id,
         config_id,
-        namespace,
         scope,
         enabled,
         credential_mode,
@@ -498,8 +497,6 @@ components:
         plugin_id:
           type: string
         config_id:
-          type: string
-        namespace:
           type: string
         scope:
           type: string
@@ -2828,7 +2825,6 @@ components:
       additionalProperties: false
       required: [
         id,
-        namespace,
         display_name,
         backend,
         is_builtin,
@@ -2840,8 +2836,6 @@ components:
       ]
       properties:
         id:
-          type: string
-        namespace:
           type: string
         display_name:
           type: string
@@ -3039,7 +3033,6 @@ components:
       additionalProperties: false
       required: [
         plugin_id,
-        namespace,
         config_id,
         source_scope,
         is_effectively_enabled,
@@ -3048,8 +3041,6 @@ components:
       ]
       properties:
         plugin_id:
-          type: string
-        namespace:
           type: string
         config_id:
           type: string
@@ -3113,18 +3104,17 @@ components:
     CreatePluginRequest:
       type: object
       additionalProperties: false
-      required: [
-        display_name,
-        namespace,
-        backend,
-        definition_spec,
-        initial_config,
-      ]
+      required: [display_name, name, backend, definition_spec, initial_config]
       properties:
         display_name:
           type: string
-        namespace:
+        name:
           type: string
+          minLength: 1
+          maxLength: 64
+          pattern: "^(?!.*(?:--|\\.\\.))[a-z0-9](?:[a-z0-9.-]{0,62}[a-z0-9])?$"
+          description: >-
+            Canonical immutable plugin ID. It uses lowercase letters, digits, dots, and hyphens, starts and ends with a letter or digit, and cannot contain consecutive dots or hyphens.
         backend:
           type: string
           enum: [cli, mcp]

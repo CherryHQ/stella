@@ -103,7 +103,7 @@ func TestBuildAuthorizedPromptSectionKeepsProjectSkillsWhenManagedUnavailable(t 
 func TestBuildAuthorizedPromptSectionFiltersRegistryPluginSkill(t *testing.T) {
 	reader := &projectionReader{}
 	disabled, err := BuildAuthorizedPromptSection(context.Background(), pkgplugins.SystemPromptContext{
-		RegisteredPluginIDs: []string{"tool/lark-cli"},
+		RegisteredPluginIDs: []string{"lark-cli"},
 	}, nil, reader, allowAllSkillReads{})
 	if err != nil {
 		t.Fatal(err)
@@ -113,8 +113,8 @@ func TestBuildAuthorizedPromptSectionFiltersRegistryPluginSkill(t *testing.T) {
 	}
 
 	enabled, err := BuildAuthorizedPromptSection(context.Background(), pkgplugins.SystemPromptContext{
-		RegisteredPluginIDs: []string{"tool/lark-cli"},
-		EnabledPluginIDs:    []string{"tool/lark-cli"},
+		RegisteredPluginIDs: []string{"lark-cli"},
+		EnabledPluginIDs:    []string{"lark-cli"},
 	}, nil, reader, allowAllSkillReads{})
 	if err != nil {
 		t.Fatal(err)

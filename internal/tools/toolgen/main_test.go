@@ -601,7 +601,7 @@ func TestRenderSplitToolEmitsPrefixNamesAndStrictDecode(t *testing.T) {
 	}
 	// A split domain emits one exact-schema tool per action instead of a union
 	// with an `action` enum, so the provider can validate each call.
-	if !strings.Contains(text, `{Name: "recally__article_list", PluginID: "system/recally", Namespace: "recally", LocalName: "article_list", Family: "recally", Action: "article_list"`) || strings.Contains(text, `"action"`) {
+	if !strings.Contains(text, `{Name: "recally__article_list", PluginID: "system/recally", LocalName: "article_list", Family: "recally", Action: "article_list"`) || strings.Contains(text, `"action"`) {
 		t.Fatalf("recally render did not split into per-action tools:\n%s", text)
 	}
 	for _, want := range []string{

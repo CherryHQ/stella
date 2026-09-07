@@ -9,12 +9,13 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
 
-func TestToolsForRegistrationsUsesPluginNamespaceForExport(t *testing.T) {
+func TestToolsForRegistrationsUsesPackageComponentTupleForExport(t *testing.T) {
 	provider := NewToolProvider(NewService(newFakeDB(), nil))
 	registration := Registration{
-		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", Namespace: "remote_namespace",
+		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", PluginID: "remote.package",
 		Scope: ScopeSystem, Enabled: true, Status: StatusOK, ProbedAt: time.Now().UTC(),
 		Tools: []CatalogTool{{Name: "remote tool", Description: "remote"}},
 	}
@@ -23,12 +24,16 @@ func TestToolsForRegistrationsUsesPluginNamespaceForExport(t *testing.T) {
 	if len(tools) != 1 {
 		t.Fatalf("tools = %d, want 1", len(tools))
 	}
-	if got := tools[0].Definition().Name; got != "remote_namespace__remote_tool" {
-		t.Fatalf("exported tool name = %q, want stable namespace plus sanitized remote name", got)
+	want, err := agentpackage.ExportedToolName(registration.PluginID, "main", "remote tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tools[0].Definition().Name; got != want {
+		t.Fatalf("exported tool name = %q, want tuple projection %q", got, want)
 	}
 }
 
-func TestToolsForRegistrationsSkipsLegacyRegistrationWithoutNamespace(t *testing.T) {
+func TestToolsForRegistrationsSkipsLegacyRegistrationWithoutPackageID(t *testing.T) {
 	provider := NewToolProvider(NewService(newFakeDB(), nil))
 	registration := Registration{
 		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", Name: "settings_server",
@@ -38,16 +43,16 @@ func TestToolsForRegistrationsSkipsLegacyRegistrationWithoutNamespace(t *testing
 
 	tools := provider.toolsForRegistrations(t.Context(), []Registration{registration}, false, "user-1")
 	if len(tools) != 0 {
-		t.Fatalf("tools = %d, want legacy registration without namespace to be skipped", len(tools))
+		t.Fatalf("tools = %d, want legacy registration without package ID to be skipped", len(tools))
 	}
 }
 
 func TestToolProxyExposesDurablePluginIdentity(t *testing.T) {
-	proxy := &toolProxy{reg: Registration{PluginID: "custom/settings", Namespace: "settings_server"}, remoteName: "list"}
+	proxy := &toolProxy{reg: Registration{PluginID: "settings.server"}, remoteName: "list"}
 
 	pluginID, local, ok := proxy.PluginToolIdentity()
-	if !ok || pluginID != "custom/settings" || local != "list" {
-		t.Fatalf("PluginToolIdentity = %q, %q, %v; want custom/settings, list, true", pluginID, local, ok)
+	if !ok || pluginID != "settings.server" || local != "list" {
+		t.Fatalf("PluginToolIdentity = %q, %q, %v; want settings.server, list, true", pluginID, local, ok)
 	}
 	legacy := &toolProxy{reg: Registration{Name: "settings_server"}, remoteName: "list"}
 	if pluginID, local, ok := legacy.PluginToolIdentity(); ok || pluginID != "" || local != "" {
@@ -58,7 +63,7 @@ func TestToolProxyExposesDurablePluginIdentity(t *testing.T) {
 func TestToolsForRegistrationsSkipsDisabledWinner(t *testing.T) {
 	provider := NewToolProvider(NewService(newFakeDB(), nil))
 	registration := Registration{
-		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", Namespace: "remote_namespace",
+		ID: "0198f9a4-1b2c-7def-8123-456789abcdef", PluginID: "remote.package",
 		Scope: ScopeSystem, Enabled: false, Status: StatusOK, ProbedAt: time.Now().UTC(),
 		Tools: []CatalogTool{{Name: "remote tool"}},
 	}
@@ -68,14 +73,17 @@ func TestToolsForRegistrationsSkipsDisabledWinner(t *testing.T) {
 	}
 }
 
-func TestValidateCatalogToolsRejectsSanitizedCollisionAndOversizeName(t *testing.T) {
-	reg := Registration{Namespace: "remote_namespace"}
-	if err := validateCatalogTools(reg, []CatalogTool{{Name: "a.b"}, {Name: "a_b"}}); err == nil {
-		t.Fatal("sanitized catalog collision was accepted")
+func TestValidateCatalogToolsPreservesRawTupleAndRejectsExactCollision(t *testing.T) {
+	reg := Registration{PluginID: "remote.package"}
+	if err := validateCatalogTools(reg, []CatalogTool{{Name: "a.b"}, {Name: "a_b"}}); err != nil {
+		t.Fatalf("distinct raw names collided: %v", err)
+	}
+	if err := validateCatalogTools(reg, []CatalogTool{{Name: "same"}, {Name: "same"}}); err == nil {
+		t.Fatal("exact duplicate catalog name was accepted")
 	}
 	long := strings.Repeat("x", 64)
-	if err := validateCatalogTools(reg, []CatalogTool{{Name: long}}); err == nil {
-		t.Fatal("oversize exported catalog name was accepted")
+	if err := validateCatalogTools(reg, []CatalogTool{{Name: long}}); err != nil {
+		t.Fatalf("long raw tool name should be truncated into a valid exported name: %v", err)
 	}
 }
 
@@ -88,12 +96,12 @@ func TestSnapshotMCPExportBoundaries(t *testing.T) {
 		wantError string
 		wantCount int
 	}{
-		{name: "negative only does not claim namespace", payload: nil},
+		{name: "negative only does not expose package", payload: nil},
 		{name: "disabled malformed payload is not decoded", payload: func() *string { s := `{"url":17}`; return &s }()},
-		{name: "normalized remote names collide", enabled: true, payload: func() *string {
+		{name: "exact remote names collide", enabled: true, payload: func() *string {
 			s := `{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"none"}`
 			return &s
-		}(), tools: []CatalogTool{{Name: "remote tool"}, {Name: "remote_tool"}}, wantError: "duplicate exported tool name"},
+		}(), tools: []CatalogTool{{Name: "same"}, {Name: "same"}}, wantError: "collide on exported tool name"},
 		{name: "valid winner contributes", enabled: true, payload: func() *string {
 			s := `{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":"none"}`
 			return &s
@@ -104,14 +112,14 @@ func TestSnapshotMCPExportBoundaries(t *testing.T) {
 			ctx := t.Context()
 			const userID = "10000000-0000-0000-0000-000000000071"
 			const configID = "20000000-0000-0000-0000-000000000071"
-			const pluginID = "custom/20000000-0000-0000-0000-000000000071"
+			const pluginID = "remote.package"
 			if _, err := pool.Exec(ctx, `INSERT INTO auth_user(id,email) VALUES($1,$2)`, userID, "snapshot-boundary@test.invalid"); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := pool.Exec(ctx, `INSERT INTO plugin_definition(id,namespace,display_name,backend,source,implementation_key,spec,default_enabled,revision,creator_user_id) VALUES($1,'remote','Remote','mcp','custom','mcp','{}',false,1,$2)`, pluginID, userID); err != nil {
+			if _, err := pool.Exec(ctx, `INSERT INTO plugin_definition(id,display_name,backend,source,implementation_key,spec,default_enabled,revision,creator_user_id) VALUES($1,'Remote','mcp','custom','mcp','{}',false,1,$2)`, pluginID, userID); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := pool.Exec(ctx, `INSERT INTO plugin_config(id,plugin_id,namespace,scope,user_id,enabled,config,credential_refs,revision) VALUES($1,$2,'remote','user',$3,$4,$5,'{}',1)`, configID, pluginID, userID, tc.enabled, tc.payload); err != nil {
+			if _, err := pool.Exec(ctx, `INSERT INTO plugin_config(id,plugin_id,scope,user_id,enabled,config,credential_refs,revision) VALUES($1,$2,'user',$3,$4,$5,'{}',1)`, configID, pluginID, userID, tc.enabled, tc.payload); err != nil {
 				t.Fatal(err)
 			}
 			authority, err := authz.NewUserAuthority(authz.UserID(userID), false)

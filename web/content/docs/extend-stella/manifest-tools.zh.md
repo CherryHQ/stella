@@ -13,21 +13,21 @@ Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集�
 
 `plugins/` 支持任意层级的分类目录。纯声明式 CLI 插件在自己的目录中放置一份 `plugin.yaml`，内容复用现有插件声明，不需要外层 `plugins:` 列表。构建生成器递归发现这些文件，生成内嵌目录；运行时不扫描源码目录。
 
-插件由声明中的 ID 和 namespace 标识。分类目录名不影响工具名、配置键或权限，因此移动分类不会改变插件身份。空分类目录不产生插件。重复 ID 或 namespace、未知 YAML 字段、额外 YAML 文档和符号链接声明都会使生成失败，且不会替换已有生成物。
+插件由声明中的规范裸 ID 标识。分类目录名不影响工具名、配置键或权限，因此移动分类不会改变插件身份。空分类目录不产生插件。重复 ID、未知 YAML 字段、额外 YAML 文档和符号链接声明都会使生成失败，且不会替换已有生成物。
 
-Native 能力继续显式编译注册，与 Agent Plugin 分开管理，不另加一份 YAML 身份声明。`plugins/system/` 将系统 CLI 声明与自己的 skill 放在一起，Stella 自身的指南归 `system/stella`。email、recally 和 scheduler 指南是 `plugins/agent/` 下由 `plugin.json` 声明的独立包；启用指南不会启用对应的 Native 能力。共享 OAuth provider 声明仍位于 `resources/oauth.yaml`。
+Native 能力继续显式编译注册，与 Agent Plugin 分开管理，不另加一份 YAML 身份声明。`plugins/system/` 将发行 CLI 声明与自己的 skill 放在一起，Stella 自身的指南归 `stella`。email、recally 和 scheduler 指南是 `plugins/agent/` 下由 `plugin.json` 声明的独立包；启用指南不会启用对应的 Native 能力。共享 OAuth provider 声明仍位于 `resources/oauth.yaml`。
 
 插件自带的技能文件只保存在所属插件目录，通过构建时的资源声明直接嵌入，不再镜像到全局 resources skills 目录。分类目录不决定资产身份。`web` 归 bun，`python-script` 归 uv；`html-artifact` 和 `skill-creator` 是默认启用的纯 skills 插件，可使用正常插件开关禁用。项目 `.agents/skills/` 不参与这套插件发布机制。
 
 ## 必备 builtin
 
-随版本发布的 `kind: system` 插件只要声明 CLI，就必须安装。Runtime 清单从这些插件声明生成，不再维护另一份工具白名单。`system/mise` 和 `system/xberg` 用 `bundled_binaries` 声明内嵌可执行文件；`system/fd` 和 `system/rg` 用 `binaries` 声明固定版本的 mise 安装。新增 system CLI 会自动进入启动准备流程。
+随版本发布的 `kind: system` 插件只要声明 CLI，就必须安装。Runtime 清单从这些插件声明生成，不再维护另一份工具白名单。`mise` 和 `xberg` 用 `bundled_binaries` 声明内嵌可执行文件；`fd` 和 `rg` 用 `binaries` 声明固定版本的 mise 安装。分类取决于不可变的发行声明，不依赖包名前缀。
 
-必备命令的安装与可用性不受插件配置或启停影响，版本和安装选项随 Stella 发布。Skill 等可配置能力仍受所属插件的启停与权限控制：Stella 指南归 `system/stella`，Xberg 指南归 `system/xberg`。既有的平台支持限制仍然适用，包括 Windows 不提供 Xberg。
+必备命令的安装与可用性不受插件配置或启停影响，版本和安装选项随 Stella 发布。Skill 等可配置能力仍受所属插件的启停与权限控制：Stella 指南归 `stella`，Xberg 指南归 `xberg`。既有的平台支持限制仍然适用，包括 Windows 不提供 Xberg。
 
 这些 runtime 随 Stella 版本提供。Docker 在构建镜像时安装；Native 在开始接收对话前准备，已有完整本地文件时不会再次调用安装器。可选 CLI 插件仍使用下面的四层范围配置，其 binary 名称不能覆盖必备 runtime。
 
-`tool/lark-cli` 仍是可配置的 CLI 插件。随插件提供的指南通过 `lark-cli skills read` 读取各领域文档，让命令与文档保持同一版本。Stella 通过插件环境注入已配置的凭据或托管 OAuth 凭据；CLI 不再自行初始化登录或 token 存储。
+`lark-cli` 仍是可配置的 CLI 插件。随插件提供的指南通过 `lark-cli skills read` 读取各领域文档，让命令与文档保持同一版本。Stella 通过插件环境注入已配置的凭据或托管 OAuth 凭据；CLI 不再自行初始化登录或 token 存储。
 
 Docker 构建将本次准备好的完整 runtime 目录发布到固定镜像路径，保留可执行文件依赖的附属文件。构建发布参数见 `stellad system-bundle install --help`。
 
@@ -81,7 +81,7 @@ CLI 版本可以独立调整；插件自带的 skills 由发行版固定，四�
 
 ```yaml
 plugins:
-  - id: tool/my-cli
+  - id: my-cli
     kind: tool
     name: my-cli
     display_name: My CLI
@@ -102,7 +102,7 @@ plugins:
 
 | 字段             | 必填 | 描述                                                                             |
 | ---------------- | ---- | -------------------------------------------------------------------------------- |
-| `id`             | 是   | 唯一插件 ID，格式为 `kind/name`，例如 `tool/my-cli`                              |
+| `id`             | 是   | 唯一的规范裸包名，例如 `my-cli`                                                  |
 | `kind`           | 是   | 插件类型，通常为 `tool`                                                          |
 | `name`           | 是   | 简短的机器可读名称                                                               |
 | `display_name`   | 否   | 在管理界面显示的人类可读标签                                                     |
@@ -226,7 +226,7 @@ binaries:
 
 清单驱动的插件只显示一次，并出现在符合其类型的标签页中：
 
-- `tool/gh`、`tool/lark-cli` 和 `tool/lightpanda` 显示在 **Tools**。
+- `gh`、`lark-cli` 和 `lightpanda` 显示在 **Tools**。
 
 由清单管理的行会显示 `manifest` 标记，并提供 **Edit definition** 操作用于编辑插件定义。二进制文件和会话环境变量会以表单行编辑。如果同一个插件还提供运行时配置，该行也会显示 **Configure**。启用开关与定义分开存储，因此禁用内置插件不算自定义；而把某个二进制固定到指定版本，则是一次普通的定义编辑。
 

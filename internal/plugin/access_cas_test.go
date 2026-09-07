@@ -21,8 +21,8 @@ func TestAccessUpdateConfigUsesExpectedRevision(t *testing.T) {
 	db := dbtest.New(t)
 	catalog := NewCatalog()
 	definition := Definition{
-		ID: "tool/cas", Namespace: "cas", DisplayName: "CAS",
-		Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "tool/cas",
+		ID: "cas", DisplayName: "CAS",
+		Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "cas",
 		Spec: []byte(`{}`), DefaultEnabled: true, Revision: 1,
 	}
 	if err := catalog.Register(definition); err != nil {
@@ -221,7 +221,7 @@ func TestAccessMoveConfigValidatesBeforeMutation(t *testing.T) {
 func newMoveService(t *testing.T, db *pgxpool.Pool, agents *agentaccess.Service, validate PayloadValidator) (*Service, Definition) {
 	t.Helper()
 	catalog := NewCatalog()
-	definition := Definition{ID: "tool/move", Namespace: "move", DisplayName: "Move", Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "tool/move", Spec: []byte(`{}`), DefaultEnabled: false, Revision: 1}
+	definition := Definition{ID: "move", DisplayName: "Move", Backend: BackendCLI, Source: SourceBuiltin, ImplementationKey: "move", Spec: []byte(`{}`), DefaultEnabled: false, Revision: 1}
 	if err := catalog.Register(definition); err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +406,7 @@ func sameBackendPolicyBool(left, right *bool) bool {
 
 func backendPolicyDefinition(id string, defaultEnabled bool) Definition {
 	return Definition{
-		ID: id, Namespace: id, DisplayName: id, Backend: BackendCLI, Source: SourceBuiltin,
+		ID: id, DisplayName: id, Backend: BackendCLI, Source: SourceBuiltin,
 		ImplementationKey: id, Spec: []byte(`{}`), DefaultEnabled: defaultEnabled, Revision: 1,
 	}
 }

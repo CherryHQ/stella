@@ -29,8 +29,8 @@ func TestRegistryToolsReturnsStableSnapshot(t *testing.T) {
 }
 
 var recallyTools = []ActionTool{
-	{Name: "recally__feed_add", PluginID: "system/recally", Namespace: "recally", LocalName: "feed_add", Family: "recally", Resource: "feed", Action: "feed_add", InputSchemaJSON: `{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`},
-	{Name: "recally__digest_get", PluginID: "system/recally", Namespace: "recally", LocalName: "digest_get", Family: "recally", Resource: "digest", Action: "digest_get", InputSchemaJSON: `{"type":"object","properties":{},"additionalProperties":false}`},
+	{Name: "recally__feed_add", PluginID: "system/recally", LocalName: "feed_add", Family: "recally", Resource: "feed", Action: "feed_add", InputSchemaJSON: `{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`},
+	{Name: "recally__digest_get", PluginID: "system/recally", LocalName: "digest_get", Family: "recally", Resource: "digest", Action: "digest_get", InputSchemaJSON: `{"type":"object","properties":{},"additionalProperties":false}`},
 }
 
 func TestFamilyComesFromTheRegistryNotTheName(t *testing.T) {

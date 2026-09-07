@@ -2,7 +2,6 @@ export type PluginScope = "system" | "system_agent" | "user" | "user_agent";
 
 export interface PluginDefinition {
   id: string;
-  namespace: string;
   display_name: string;
   backend: "cli" | "mcp";
   is_builtin: boolean;

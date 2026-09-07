@@ -30,7 +30,7 @@ func (s *Service) AdministrativeCap(ctx context.Context, pluginID, agentID strin
 		return false, mapNotFound(err)
 	}
 	persisted := fromSQLDefinition(row)
-	if persisted.Source != SourceBuiltin || persisted.Namespace != def.Namespace || persisted.ImplementationKey != def.ImplementationKey || persisted.Backend != def.Backend {
+	if persisted.Source != SourceBuiltin || persisted.ImplementationKey != def.ImplementationKey || persisted.Backend != def.Backend {
 		return false, ErrInvalidDefinition
 	}
 	var configs []Config

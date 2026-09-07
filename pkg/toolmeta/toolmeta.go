@@ -22,9 +22,6 @@ type ActionTool struct {
 	// PluginID is the trusted logical plugin identity. It is empty for core
 	// tools; callers must not infer ownership from Name.
 	PluginID string
-	// Namespace is the stable plugin namespace used in Name. It is empty for
-	// core tools and is validated by toolgen for generated plugin tools.
-	Namespace string
 	// LocalName is the plugin-local tool name. It is empty for core tools.
 	LocalName string
 	// Family groups tools that share a domain, e.g. "recally".

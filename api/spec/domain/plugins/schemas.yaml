@@ -53,7 +53,6 @@ components:
       additionalProperties: false
       required: [
         id,
-        namespace,
         display_name,
         backend,
         is_builtin,
@@ -65,7 +64,6 @@ components:
       ]
       properties:
         id: { type: string }
-        namespace: { type: string }
         display_name: { type: string }
         backend: { type: string, enum: [cli, mcp] }
         is_builtin: { type: boolean, readOnly: true }
@@ -200,7 +198,6 @@ components:
       additionalProperties: false
       required: [
         plugin_id,
-        namespace,
         config_id,
         source_scope,
         is_effectively_enabled,
@@ -209,7 +206,6 @@ components:
       ]
       properties:
         plugin_id: { type: string }
-        namespace: { type: string }
         config_id: { type: string, nullable: true }
         source_scope: { type: string, nullable: true }
         is_effectively_enabled: { type: boolean }
@@ -250,14 +246,22 @@ components:
       additionalProperties: false
       required: [
         display_name,
-        namespace,
+        name,
         backend,
         definition_spec,
         initial_config,
       ]
       properties:
         display_name: { type: string }
-        namespace: { type: string }
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: "^(?!.*(?:--|\\.\\.))[a-z0-9](?:[a-z0-9.-]{0,62}[a-z0-9])?$"
+          description: >-
+            Canonical immutable plugin ID. It uses lowercase letters, digits,
+            dots, and hyphens, starts and ends with a letter or digit, and
+            cannot contain consecutive dots or hyphens.
         backend: { type: string, enum: [cli, mcp] }
         definition_spec: { type: object, additionalProperties: true }
         initial_config: { $ref: "#/components/schemas/PluginConfigInput" }

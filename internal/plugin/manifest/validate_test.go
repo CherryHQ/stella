@@ -15,7 +15,7 @@ func TestValidate_NoID(t *testing.T) {
 
 func TestValidate_RequiresManifestContent(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
-		{ID: "tool/empty"},
+		{ID: "empty"},
 	}}
 	if err := Validate(m); err == nil {
 		t.Error("expected error for plugin with no binaries/skills/session_env")
@@ -25,7 +25,7 @@ func TestValidate_RequiresManifestContent(t *testing.T) {
 func TestValidate_BinaryNoTool(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{
-			ID:                       "tool/x",
+			ID:                       "x",
 			ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{{Name: "x"}}},
 		},
 	}}
@@ -37,7 +37,7 @@ func TestValidate_BinaryNoTool(t *testing.T) {
 func TestValidate_BinaryMiseRegistryTool(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{
-			ID:                       "tool/uv",
+			ID:                       "uv",
 			ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{{Name: "uv", Tool: "uv"}}},
 		},
 	}}
@@ -49,7 +49,7 @@ func TestValidate_BinaryMiseRegistryTool(t *testing.T) {
 func TestValidate_LeavesToolKeysToMise(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{
-			ID:                       "tool/x",
+			ID:                       "x",
 			ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{{Name: "x", Tool: "github:repo"}}},
 		},
 	}}
@@ -61,7 +61,7 @@ func TestValidate_LeavesToolKeysToMise(t *testing.T) {
 func TestValidate_SessionEnvInvalidSource(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{
-			ID: "tool/x",
+			ID: "x",
 			ManifestPluginDefinition: ManifestPluginDefinition{
 				SessionEnvs: []ManifestSessionEnv{
 					{EnvVar: "MY_TOKEN", Source: "invalid_source"},

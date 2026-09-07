@@ -79,8 +79,8 @@ func TestBuildToolRegistryClosesFilteredCandidateAndLaterError(t *testing.T) {
 		return []pkgtools.Tool{filtered, invalid}, nil
 	}
 	cfg.ToolMetaRegistry = toolmeta.NewRegistry(
-		toolmeta.ActionTool{Name: "hidden__run", PluginID: "hidden-plugin", Namespace: "hidden", LocalName: "run"},
-		toolmeta.ActionTool{Name: "broken", PluginID: "broken-plugin", Namespace: "broken"},
+		toolmeta.ActionTool{Name: "hidden__run", PluginID: "hidden-plugin", LocalName: "run"},
+		toolmeta.ActionTool{Name: "broken", PluginID: "broken-plugin"},
 	)
 
 	_, _, _, err := buildToolRegistry(context.Background(), cfg, &fakeSession{alive: true}, nil, ai.Model{}, "")
@@ -103,8 +103,8 @@ func TestBuildToolRegistryClosesAllPluginToolsWhenIdentityFails(t *testing.T) {
 		return []pkgtools.Tool{first, second}, nil
 	}
 	cfg.ToolMetaRegistry = toolmeta.NewRegistry(
-		toolmeta.ActionTool{Name: "broken-one", PluginID: "plugin", Namespace: "plugin"},
-		toolmeta.ActionTool{Name: "broken-two", PluginID: "plugin", Namespace: "plugin"},
+		toolmeta.ActionTool{Name: "broken-one", PluginID: "plugin"},
+		toolmeta.ActionTool{Name: "broken-two", PluginID: "plugin"},
 	)
 
 	_, _, _, err := buildToolRegistry(context.Background(), cfg, &fakeSession{alive: true}, nil, ai.Model{}, "")

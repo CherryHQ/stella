@@ -304,7 +304,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
   const [registryOpen, setRegistryOpen] = useState(false);
   const [newMcpName, setNewMcpName] = useState("");
   const [newMcpURL, setNewMcpURL] = useState("");
-  const [newMcpNamespace, setNewMcpNamespace] = useState("");
+  const [newMcpID, setNewMcpID] = useState("");
   const [newMcpDescription, setNewMcpDescription] = useState("");
   const [newMcpScope, setNewMcpScope] = useState<PluginScope>(visibleScopes[0]);
   const [newScope, setNewScope] = useState<PluginScope>(visibleScopes[0]);
@@ -452,8 +452,8 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
       credentials: PluginConfigCredentials;
     }) => {
       const displayName = newMcpName.trim();
-      const namespace = newMcpNamespace.trim();
-      if (!displayName || !namespace) throw new Error(t("plugins.mcpIdentityRequired"));
+      const pluginID = newMcpID.trim();
+      if (!displayName || !pluginID) throw new Error(t("plugins.mcpIdentityRequired"));
       const initialConfig: ComponentsPluginConfigInputWritable = {
         scope: newMcpScope,
         is_enabled: false,
@@ -467,7 +467,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
       }
       const body: ComponentsCreatePluginRequestWritable = {
         display_name: displayName,
-        namespace,
+        name: pluginID,
         backend: "mcp",
         definition_spec: newMcpDescription.trim() ? { description: newMcpDescription.trim() } : {},
         initial_config: initialConfig,
@@ -482,7 +482,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
       void queryClient.invalidateQueries({ queryKey: ["plugins"] });
       closeNewMcp();
       setNewMcpName("");
-      setNewMcpNamespace("");
+      setNewMcpID("");
       setNewMcpDescription("");
       showToast(t("plugins.created"));
     },
@@ -784,9 +784,9 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
         defaultScope={scopeBand === "system" ? "system" : "user"}
         isAdmin={scopeBand === "system"}
         agentId={selectedAgentID || undefined}
-        onRequestManual={({ name, namespace, url }) => {
+        onRequestManual={({ name, pluginID, url }) => {
           setNewMcpName(name);
-          setNewMcpNamespace(namespace);
+          setNewMcpID(pluginID);
           setNewMcpURL(url);
           setNewMcpOpen(true);
         }}
@@ -808,11 +808,11 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
               />
             </Field>
             <Field>
-              <FieldLabel>{t("plugins.mcpNamespace")}</FieldLabel>
+              <FieldLabel>{t("plugins.mcpID")}</FieldLabel>
               <Input
-                value={newMcpNamespace}
-                onChange={(event) => setNewMcpNamespace(event.target.value)}
-                placeholder={t("plugins.mcpNamespacePlaceholder")}
+                value={newMcpID}
+                onChange={(event) => setNewMcpID(event.target.value)}
+                placeholder={t("plugins.mcpIDPlaceholder")}
                 nativeInput
               />
             </Field>

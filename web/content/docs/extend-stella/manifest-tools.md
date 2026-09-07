@@ -13,21 +13,21 @@ Stella ships with a built-in manifest that declares the default manifest-managed
 
 Source plugins can be grouped under any number of category folders in `plugins/`. A manifest-only CLI plugin has one `plugin.yaml` containing its existing plugin declaration, without an enclosing `plugins:` list. Build generation recursively discovers these files and produces the embedded catalog. Runtime startup does not scan the source tree.
 
-The declared ID and namespace identify the plugin. Category folder names do not affect tool names, configuration keys or permissions, so moving a plugin between categories preserves its identity. Empty category folders do not create plugins. Duplicate IDs or namespaces, unknown YAML fields, extra YAML documents and symlink declarations fail generation before the generated catalog is replaced.
+The declared canonical bare ID identifies the plugin. Category folder names do not affect tool names, configuration keys or permissions, so moving a plugin between categories preserves its identity. Empty category folders do not create plugins. Duplicate IDs, unknown YAML fields, extra YAML documents and symlink declarations fail generation before the generated catalog is replaced.
 
-Native capabilities retain explicit compiled registration and are managed separately from Agent Plugins. They do not add a second identity declaration in YAML. `plugins/system/` groups system CLI declarations with their skills, and Stella's own guide belongs to `system/stella`. The email, recally and scheduler guides are independent packages under `plugins/agent/`, declared by `plugin.json`; enabling a guide does not enable its Native capability. Shared OAuth provider declarations remain in `resources/oauth.yaml`.
+Native capabilities retain explicit compiled registration and are managed separately from Agent Plugins. They do not add a second identity declaration in YAML. `plugins/system/` groups shipped CLI declarations with their skills, and Stella's own guide belongs to `stella`. The email, recally and scheduler guides are independent packages under `plugins/agent/`, declared by `plugin.json`; enabling a guide does not enable its Native capability. Shared OAuth provider declarations remain in `resources/oauth.yaml`.
 
 Bundled skill files live only inside their owning plugin directory and are embedded directly through build-time asset declarations. There is no global resource skill mirror, and category folders do not determine asset identity. `web` belongs to bun and `python-script` to uv. `html-artifact` and `skill-creator` are default-enabled skill-only plugins that can be disabled normally. Project `.agents/skills/` stays independent of plugin packaging.
 
 ## Required builtins
 
-Every CLI declared by a release-owned `kind: system` plugin is required. The runtime catalog is generated from those plugin declarations, not a separate tool allowlist. `system/mise` and `system/xberg` declare embedded executables with `bundled_binaries`; `system/fd` and `system/rg` declare pinned mise installations with `binaries`. Adding a system CLI automatically includes it in startup preparation.
+Every CLI declared by a release-owned `kind: system` plugin is required. The runtime catalog is generated from those plugin declarations, not a separate tool allowlist. `mise` and `xberg` declare embedded executables with `bundled_binaries`; `fd` and `rg` declare pinned mise installations with `binaries`. The immutable release declaration determines this classification, not the package name prefix.
 
-Required commands are installed and available regardless of plugin configuration or enablement. Their versions and installation options are release-owned. Skills and other configurable capabilities still follow the owning plugin's enablement and authorization: Stella's guide belongs to `system/stella`, and Xberg's guide belongs to `system/xberg`. The existing platform support limits still apply, including the absence of Xberg on Windows.
+Required commands are installed and available regardless of plugin configuration or enablement. Their versions and installation options are release-owned. Skills and other configurable capabilities still follow the owning plugin's enablement and authorization: Stella's guide belongs to `stella`, and Xberg's guide belongs to `xberg`. The existing platform support limits still apply, including the absence of Xberg on Windows.
 
 These runtimes follow the Stella release. Docker images install them during the image build; native startup prepares them before accepting conversations and reuses complete local artifacts without running the installer again. Optional CLI plugins continue to use the four-scope configuration model below. Their binary names cannot replace a required runtime.
 
-`tool/lark-cli` remains a configurable CLI plugin. Its bundled guide delegates domain documentation to `lark-cli skills read`, so the commands and documentation share a version. Stella supplies authentication through the plugin environment, using configured credentials or managed OAuth; the CLI does not initialize its own login or token store.
+`lark-cli` remains a configurable CLI plugin. Its bundled guide delegates domain documentation to `lark-cli skills read`, so the commands and documentation share a version. Stella supplies authentication through the plugin environment, using configured credentials or managed OAuth; the CLI does not initialize its own login or token store.
 
 The Docker build publishes the exact prepared runtime tree at a stable image path, including executable sidecars. See `stellad system-bundle install --help` for build-time publication options.
 
@@ -81,7 +81,7 @@ CLI versions can be adjusted independently. Bundled skills are release-owned; co
 
 ```yaml
 plugins:
-  - id: tool/my-cli
+  - id: my-cli
     kind: tool
     name: my-cli
     display_name: My CLI
@@ -102,7 +102,7 @@ plugins:
 
 | Field            | Required | Description                                                                                                       |
 | ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
-| `id`             | Yes      | Unique plugin ID in `kind/name` form, e.g. `tool/my-cli`                                                          |
+| `id`             | Yes      | Unique canonical bare package name, e.g. `my-cli`                                                                 |
 | `kind`           | Yes      | Plugin kind, typically `tool`                                                                                     |
 | `name`           | Yes      | Short machine-readable name                                                                                       |
 | `display_name`   | No       | Human-readable label shown in the admin UI                                                                        |
@@ -226,7 +226,7 @@ Prepared selections are cached by their captured plugin configuration. Docker al
 
 Manifest-backed plugins are shown once, in the tab that matches their kind:
 
-- `tool/gh`, `tool/lark-cli`, and `tool/lightpanda` appear in **Tools**.
+- `gh`, `lark-cli`, and `lightpanda` appear in **Tools**.
 
 Rows with manifest backing show a `manifest` badge and an **Edit definition** action for the plugin definition. Binaries and session environment variables are edited as form rows. If the same plugin also exposes runtime config, the row also shows **Configure**. The enable switch is stored separately from the definition, so disabling a built-in does not count as customizing it, and pinning a binary to a specific version is an ordinary definition edit.
 

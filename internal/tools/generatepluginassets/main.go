@@ -195,6 +195,9 @@ func loadAgentPackage(root string) (*agentpackage.Package, error) {
 	if pkg == nil {
 		return nil, fmt.Errorf("load Agent package %q: %v", root, diagnostics)
 	}
+	if filepath.Base(root) != pkg.Manifest.Name {
+		return nil, fmt.Errorf("agent package %q directory must match manifest name %q", root, pkg.Manifest.Name)
+	}
 	for _, legacy := range []string{"assets.yaml", "plugin.yaml"} {
 		if _, err := os.Stat(filepath.Join(root, legacy)); err == nil {
 			return nil, fmt.Errorf("agent package %q cannot also contain %s", root, legacy)
@@ -242,8 +245,11 @@ func validateEntry(entry assetEntry) error {
 	if path.Base(entry.LogicalRoot) != entry.Name {
 		return fmt.Errorf("logical root %q does not end in asset name %q", entry.LogicalRoot, entry.Name)
 	}
-	if entry.OwnerPluginID == "" {
-		return fmt.Errorf("asset %q has no owner", entry.Name)
+	if !agentpackage.ValidName(entry.OwnerPluginID) {
+		if entry.OwnerPluginID == "" {
+			return fmt.Errorf("asset %q has no owner", entry.Name)
+		}
+		return fmt.Errorf("asset %q has invalid bare owner %q", entry.Name, entry.OwnerPluginID)
 	}
 	return nil
 }

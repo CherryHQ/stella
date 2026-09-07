@@ -19,11 +19,15 @@ export type InstallArgs = {
   bearerSecret?: string;
 };
 
-/** Registry IDs can contain vendor path punctuation; plugin namespaces cannot. */
-export function registryPluginNamespace(id: string): string {
-  const namespace = id.replace(/[^A-Za-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
-  if (!namespace) throw new Error("registry server id cannot produce a valid plugin namespace");
-  return namespace;
+/** Registry IDs can contain vendor path punctuation; plugin IDs cannot. */
+export function registryPluginID(id: string): string {
+  const pluginID = id
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!pluginID) throw new Error("registry server id cannot produce a valid plugin ID");
+  return pluginID;
 }
 
 // The notify/t callbacks come from the host sheet; call sites only pass
@@ -64,7 +68,7 @@ export function useMcpMarketInstall(
       const { data } = await createPlugin({
         body: {
           display_name: server.name,
-          namespace: registryPluginNamespace(server.id),
+          name: registryPluginID(server.id),
           backend: "mcp",
           definition_spec: {},
           initial_config: {

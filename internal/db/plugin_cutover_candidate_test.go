@@ -46,7 +46,7 @@ func TestPluginCutoverMigrationThroughGoose(t *testing.T) {
 	var configID string
 	if err := db.QueryRow(ctx, `
 		SELECT id::text FROM plugin_config WHERE id = $1::uuid AND plugin_id = $2
-	`, registrationID, "custom/"+registrationID).Scan(&configID); err != nil {
+	`, registrationID, "candidate-oauth").Scan(&configID); err != nil {
 		t.Fatal(err)
 	}
 	if configID != registrationID {

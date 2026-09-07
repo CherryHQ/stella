@@ -20,8 +20,7 @@ type ResolvedPlugin struct {
 }
 
 // Snapshot is an immutable view of visible plugin definitions and context
-// configuration for one trusted authority. ID and namespace resolution remain
-// separate: a namespace winner must not hide another definition's ID lookup.
+// configuration for one trusted authority.
 type Snapshot struct {
 	catalog   *Catalog
 	configs   []Config
@@ -61,22 +60,8 @@ func (s Snapshot) Resolve(pluginID string) (Effective, error) {
 	return cloneEffective(effective), nil
 }
 
-// ResolveNamespace selects the namespace winner from the snapshot's same
-// context. A disabled or invalid winner is returned as such and cannot fall
-// back to another definition.
-func (s Snapshot) ResolveNamespace(namespace string) (Effective, error) {
-	if s.catalog == nil {
-		return Effective{}, fmt.Errorf("%w: namespace %q is not configured", ErrNotFound, namespace)
-	}
-	effective, err := ResolveNamespace(s.catalog, s.configs, namespace, s.userID, s.agentID)
-	if err != nil {
-		return Effective{}, err
-	}
-	return cloneEffective(effective), nil
-}
-
 // Definitions returns defensive copies of all definitions visible in this
-// snapshot, in deterministic namespace and ID order.
+// snapshot, in deterministic ID order.
 func (s Snapshot) Definitions() []Definition {
 	if s.catalog == nil {
 		return nil
@@ -143,7 +128,7 @@ func (s *Service) ResolveSnapshot(ctx context.Context, authority authz.Authority
 			continue // Configs for dormant definitions are not part of a snapshot.
 		}
 		config := cloneConfig(fromSQLConfig(row))
-		if config.PluginID != def.ID || config.Namespace != def.Namespace || !matchesContext(config, userID, resolvedAgentID) {
+		if config.PluginID != def.ID || !matchesContext(config, userID, resolvedAgentID) {
 			return Snapshot{}, fmt.Errorf("%w: definition or owner mismatch", ErrInvalidConfig)
 		}
 		if err := config.Validate(); err != nil {
@@ -160,9 +145,7 @@ func (s *Service) ResolveSnapshot(ctx context.Context, authority authz.Authority
 		visibleDefs = append(visibleDefs, def)
 	}
 
-	// ResolveNamespace needs one catalog containing both shipped and custom
-	// definitions. It still chooses by payload-bearing owner before Resolve,
-	// preserving winner-first semantics for same-namespace definitions.
+	// The snapshot catalog contains all visible shipped and custom definitions.
 	contextCatalog := NewCatalog()
 	for _, def := range visibleDefs {
 		if err := contextCatalog.Register(def); err != nil {

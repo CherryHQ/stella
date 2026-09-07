@@ -2,4 +2,4 @@ assets:
   - name: lark-cli
     source: skills/lark-cli
     logical_root: plugins/tool/lark-cli/lark-cli
-    owner_plugin_id: tool/lark-cli
+    owner_plugin_id: lark-cli

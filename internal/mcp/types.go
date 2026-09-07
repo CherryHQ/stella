@@ -132,7 +132,6 @@ type CatalogTool struct {
 type Registration struct {
 	ID             string
 	PluginID       string
-	Namespace      string
 	ConfigRevision int64
 	Scope          string
 	UserID         string
@@ -159,7 +158,7 @@ type Registration struct {
 }
 
 // SanitizeIdent normalizes a server or tool name to the [A-Za-z0-9_] charset
-// used inside namespaced MCP tool names.
+// used inside exported MCP tool names.
 func SanitizeIdent(s, fallback string) string {
 	return sanitizeIdent(s, fallback)
 }

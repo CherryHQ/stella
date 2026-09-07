@@ -214,7 +214,6 @@ func validateBuiltinPlugins(plugins []ManifestPlugin, reservedRuntimeNames, oaut
 		return errors.Join(errs...)
 	}
 	seenIDs := make(map[string]struct{}, len(plugins))
-	seenNamespaces := make(map[string]string, len(plugins))
 	seenResources := make(map[string]string)
 	reservedIDs := make(map[string]struct{}, len(reservedRuntimeNames))
 	reservedBinaryNames := make(map[string]struct{}, len(reservedRuntimeNames))
@@ -231,31 +230,25 @@ func validateBuiltinPlugins(plugins []ManifestPlugin, reservedRuntimeNames, oaut
 		reservedRuntimeNames = append(reservedRuntimeNames, plugin.BundledBinaries...)
 	}
 	for _, name := range reservedRuntimeNames {
-		reservedIDs["tool/"+name] = struct{}{}
+		reservedIDs[name] = struct{}{}
 		reservedBinaryNames[name] = struct{}{}
 	}
 	for _, plugin := range plugins {
-		if plugin.Kind == "" || !builtinPluginIdentifier.MatchString(plugin.Kind) || plugin.Name == "" || !builtinPluginIdentifier.MatchString(plugin.Name) || strings.Contains(plugin.Name, "__") || plugin.DisplayName == "" {
+		if plugin.Kind == "" || !builtinPluginIdentifier.MatchString(plugin.Kind) || plugin.Name == "" || !agentpackage.ValidName(plugin.Name) || plugin.DisplayName == "" {
 			return fmt.Errorf("builtin plugin %q has invalid kind, namespace, or display_name", plugin.ID)
 		}
-		if plugin.Kind == "agent" {
-			if plugin.ID != plugin.Name {
-				return fmt.Errorf("builtin Agent plugin %q must use bare ID %s", plugin.ID, plugin.Name)
-			}
-		} else if plugin.ID != plugin.Kind+"/"+plugin.Name {
-			return fmt.Errorf("builtin plugin %q must use ID %s/%s", plugin.ID, plugin.Kind, plugin.Name)
+		if plugin.ID != plugin.Name {
+			return fmt.Errorf("builtin plugin %q must use canonical bare ID %s", plugin.ID, plugin.Name)
 		}
-		if _, reserved := reservedIDs[plugin.ID]; reserved {
-			return fmt.Errorf("builtin plugin %q uses reserved core ID %q", plugin.ID, plugin.ID)
+		if plugin.Kind != "system" {
+			if _, reserved := reservedIDs[plugin.ID]; reserved {
+				return fmt.Errorf("builtin plugin %q uses reserved core ID %q", plugin.ID, plugin.ID)
+			}
 		}
 		if _, exists := seenIDs[plugin.ID]; exists {
 			return fmt.Errorf("duplicate builtin plugin ID %q", plugin.ID)
 		}
 		seenIDs[plugin.ID] = struct{}{}
-		if previous, exists := seenNamespaces[plugin.Name]; exists {
-			return fmt.Errorf("duplicate builtin plugin namespace %q in %q and %q", plugin.Name, previous, plugin.ID)
-		}
-		seenNamespaces[plugin.Name] = plugin.ID
 		for _, binary := range plugin.Binaries {
 			if _, reserved := reservedBinaryNames[binary.Name]; reserved && plugin.Kind != "system" {
 				return fmt.Errorf("builtin plugin %q uses reserved core binary name %q", plugin.ID, binary.Name)

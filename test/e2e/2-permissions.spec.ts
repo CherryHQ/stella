@@ -3,7 +3,7 @@
 import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
 import { expectStatus } from "./lib/api.ts";
 import { expect, test } from "./lib/fixtures.ts";
-import { type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
+import { exportedMcpName, type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
 import { ensureProvider } from "./lib/provider.ts";
 import type { AgentTool } from "./lib/types.ts";
 
@@ -16,6 +16,9 @@ let configRevision = 0;
 let pluginRevision = 0;
 let agentId = "";
 let sessionId = "";
+const permissionsAdd = exportedMcpName("permissions", "add");
+const permissionsEcho = exportedMcpName("permissions", "echo");
+const permissionsMissing = exportedMcpName("permissions", "missing");
 
 function pluginPath(): string {
   return `/api/plugins/${encodeURIComponent(pluginId)}`;
@@ -28,7 +31,7 @@ type PluginCreate = {
 };
 type AgentMCPServer = {
   config_id: string;
-  namespace: string;
+  plugin_id: string;
   scope: string;
   status: string;
   tools: { name: string; }[];
@@ -78,7 +81,7 @@ test("catalog endpoint exposes effective MCP registration and tools", async ({ a
 
   const created = expectStatus(
     await admin.post<PluginCreate>("/api/plugins", {
-      namespace: "permissions",
+      name: "permissions",
       display_name: "permissions",
       backend: "mcp",
       definition_spec: {},
@@ -119,7 +122,7 @@ test("catalog endpoint exposes effective MCP registration and tools", async ({ a
     (server) => server.config_id === configId,
   );
   expect(registration).toMatchObject({
-    namespace: "permissions",
+    plugin_id: "permissions",
     scope: "user",
     status: "ok",
     readable: true,
@@ -131,7 +134,7 @@ test("catalog endpoint exposes effective MCP registration and tools", async ({ a
   expect(registration?.shadowed_scopes ?? []).toEqual([]);
 
   const tools = await agentTools(admin);
-  for (const name of ["permissions__add", "permissions__echo"]) {
+  for (const name of [permissionsAdd, permissionsEcho]) {
     expect(findTool(tools, name)).toMatchObject({
       source: "mcp",
       control: "override",
@@ -160,7 +163,7 @@ test("catalog endpoint exposes effective MCP registration and tools", async ({ a
 });
 
 test("PATCH writes all four scopes and admin disable wins", async ({ admin, db }) => {
-  const add = "permissions__add";
+  const add = permissionsAdd;
 
   for (
     const [scope, enabled, origin] of [
@@ -205,7 +208,7 @@ test("PATCH writes all four scopes and admin disable wins", async ({ admin, db }
   });
 
   const unknown = await admin.patch(
-    `/api/agents/${agentId}/tools/permissions__missing`,
+    `/api/agents/${agentId}/tools/${permissionsMissing}`,
     { enabled: false },
   );
   expect(unknown.status).toBe(400);
@@ -216,7 +219,7 @@ test("profile UI groups MCP tools and persists a browser toggle", async ({ page,
   // surface the browser uses, so the UI has both effective states to render.
   expectStatus(
     await admin.patch<AgentTool>(
-      `/api/agents/${agentId}/tools/permissions__add`,
+      `/api/agents/${agentId}/tools/${permissionsAdd}`,
       {
         enabled: true,
         scope: "user_agent",
@@ -227,7 +230,7 @@ test("profile UI groups MCP tools and persists a browser toggle", async ({ page,
   );
   expectStatus(
     await admin.patch<AgentTool>(
-      `/api/agents/${agentId}/tools/permissions__echo`,
+      `/api/agents/${agentId}/tools/${permissionsEcho}`,
       {
         enabled: false,
         scope: "user_agent",
@@ -240,13 +243,13 @@ test("profile UI groups MCP tools and persists a browser toggle", async ({ page,
   await loginAsAdmin();
   await page.goto(`/agents/${agentId}/profile?tab=tools`);
   await expect(page.getByText("MCP servers", { exact: true })).toBeVisible();
-  await expect(page.getByText("permissions", { exact: true })).toBeVisible();
-  await page.getByText("permissions", { exact: true }).click();
+  await expect(page.getByRole("button", { name: "permissions", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "permissions", exact: true }).click();
   await expect(
-    page.getByText("permissions__add", { exact: true }),
+    page.getByText(permissionsAdd, { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("permissions__echo", { exact: true }),
+    page.getByText(permissionsEcho, { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText("Disabled", { exact: true }).first(),
@@ -254,7 +257,7 @@ test("profile UI groups MCP tools and persists a browser toggle", async ({ page,
 
   const echoCard = page
     .locator('[data-slot="card"]')
-    .filter({ hasText: "permissions__echo" });
+    .filter({ hasText: permissionsEcho });
   await echoCard.getByRole("switch").click();
   await expect
     .poll(async () => {
@@ -278,7 +281,7 @@ test.describe("real model permissions turn", () => {
       agentId = await ensureAgent(admin, modelRef, "e2e-mcp-permissions");
       const setup = expectStatus(
         await admin.post<PluginCreate>("/api/plugins", {
-          namespace: "permissions",
+          name: "permissions",
           display_name: "permissions",
           backend: "mcp",
           definition_spec: {},
@@ -301,8 +304,8 @@ test.describe("real model permissions turn", () => {
       pluginRevision = setup.plugin.revision ?? 1;
       await admin.post(`${pluginPath()}/configs/${configId}/probe`);
     }
-    const add = "permissions__add";
-    const echo = "permissions__echo";
+    const add = permissionsAdd;
+    const echo = permissionsEcho;
     // The serial mutation cases above leave higher-precedence overrides on these
     // tools (an admin `system_agent` disable on add wins over any user setting).
     // Clear every scope first, then set only the two effective user_agent
@@ -353,7 +356,7 @@ test.describe("real model permissions turn", () => {
       admin,
       agentId,
       sessionId,
-      "Use permissions__add with a=17 and b=25. Do not use echo. Reply with only the result.",
+      `Use ${permissionsAdd} with a=17 and b=25. Do not use echo. Reply with only the result.`,
     );
     expect(turn.errors, JSON.stringify(turn.events.slice(-5))).toEqual([]);
     expect(turn.text).toContain("42");

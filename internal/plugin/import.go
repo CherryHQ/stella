@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 )
@@ -113,7 +114,6 @@ type ToolOverrideMigration struct {
 	NewName   string
 	PluginID  string
 	ConfigID  string
-	Namespace string
 	LocalTool string
 	Scope     Scope
 	UserID    string
@@ -157,31 +157,36 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, native N
 			return ImportPlan{}, fmt.Errorf("%w: duplicate manifest override %q", ErrLegacyMigrationConflict, override.PluginID)
 		}
 		overrides[override.PluginID] = override
-		if _, trusted := defs[override.PluginID]; trusted || override.Config == "" {
+		legacyID := canonicalLegacyID(override.PluginID)
+		if _, trusted := defs[legacyID]; trusted || override.Config == "" {
 			continue
 		}
-		newID := legacyCustomDefinitionID(override.PluginID)
-		def, err := customDefinitionFromManifest(newID, override.Config)
+		def, err := customDefinitionFromManifest(override.Config)
 		if err != nil {
 			return ImportPlan{}, err
 		}
 		if err := def.Validate(); err != nil {
 			return ImportPlan{}, fmt.Errorf("legacy manifest %s: %w", override.PluginID, err)
 		}
+		if _, exists := defs[def.ID]; exists {
+			return ImportPlan{}, fmt.Errorf("%w: canonical plugin name %q is duplicated", ErrLegacyMigrationConflict, def.ID)
+		}
 		defs[def.ID] = def
 		legacyIDs[override.PluginID] = def.ID
-		configIDs[def.ID] = strings.TrimPrefix(def.ID, "custom/")
+		legacyIDs[legacyID] = def.ID
+		configIDs[def.ID] = stableLegacyConfigID("legacy-definition/" + override.PluginID)
 	}
 
 	configs := make(map[string]ConfigAccumulator)
 	for _, legacy := range snapshot.Plugins {
-		legacyID := legacyPluginID(legacy)
-		if isTrustedLegacyNativePlugin(legacyID, native) {
+		rawID := legacyPluginID(legacy)
+		if isTrustedLegacyNativePlugin(rawID, native) {
 			// Native global rows remain in the legacy plugin table. NativePolicy
 			// reads that table directly, and importing them as Agent definitions
 			// would turn a deployment switch into an Agent-scoped plugin config.
 			continue
 		}
+		legacyID := canonicalLegacyID(rawID)
 		id := legacyIDs[legacyID]
 		if id == "" {
 			id = legacyID
@@ -205,7 +210,7 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, native N
 		}
 		pluginID := legacyIDs[override.PluginID]
 		if pluginID == "" {
-			pluginID = override.PluginID
+			pluginID = canonicalLegacyID(override.PluginID)
 		}
 		def, ok := defs[pluginID]
 		if !ok {
@@ -226,10 +231,8 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, native N
 		if err := def.Validate(); err != nil {
 			return ImportPlan{}, fmt.Errorf("MCP %s: %w", legacy.ID, err)
 		}
-		if existing, exists := defs[def.ID]; exists {
-			if existing.Namespace != def.Namespace || existing.Backend != def.Backend || existing.ImplementationKey != def.ImplementationKey {
-				return ImportPlan{}, fmt.Errorf("%w: MCP definition %s", ErrLegacyMigrationConflict, def.ID)
-			}
+		if _, exists := defs[def.ID]; exists {
+			return ImportPlan{}, fmt.Errorf("%w: canonical plugin name %q is duplicated", ErrLegacyMigrationConflict, def.ID)
 		} else {
 			defs[def.ID] = def
 		}
@@ -262,10 +265,6 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, native N
 		}
 		plan.Configs = append(plan.Configs, config)
 	}
-	if err := validateNamespaceOwners(plan.Configs, plan.Definitions); err != nil {
-		return ImportPlan{}, err
-	}
-
 	seenToolOverrides := make(map[string]string, len(snapshot.ToolOverrides))
 	for _, override := range snapshot.ToolOverrides {
 		migration, err := ConvertLegacyToolOverride(override, snapshot.MCP, native, metadata)
@@ -273,16 +272,13 @@ func NormalizeLegacySnapshot(snapshot LegacySnapshot, catalog *Catalog, native N
 			return ImportPlan{}, err
 		}
 		if migration.PluginID != "" {
-			def, ok := defs[migration.PluginID]
+			_, ok := defs[migration.PluginID]
 			if !ok {
 				return ImportPlan{}, fmt.Errorf("%w: tool override %s references unknown plugin %s", ErrLegacyMigrationConflict, override.ID, migration.PluginID)
 			}
-			if migration.Namespace != def.Namespace {
-				return ImportPlan{}, fmt.Errorf("%w: tool override %s namespace %q does not match plugin %s namespace %q", ErrLegacyMigrationConflict, override.ID, migration.Namespace, migration.PluginID, def.Namespace)
-			}
 			if migration.ConfigID != "" {
 				config, found := findConfigByID(plan.Configs, migration.ConfigID)
-				if !found || config.PluginID != migration.PluginID || config.Namespace != migration.Namespace {
+				if !found || config.PluginID != migration.PluginID {
 					return ImportPlan{}, fmt.Errorf("%w: tool override %s references mismatched config %s", ErrLegacyMigrationConflict, override.ID, migration.ConfigID)
 				}
 			}
@@ -399,7 +395,7 @@ func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, 
 	q := sqlc.New(tx)
 	for _, def := range plan.Definitions {
 		if _, err := q.UpsertPluginDefinition(ctx, sqlc.UpsertPluginDefinitionParams{
-			ID: def.ID, Namespace: def.Namespace, DisplayName: def.DisplayName,
+			ID: def.ID, DisplayName: def.DisplayName,
 			Backend: string(def.Backend), Source: string(def.Source),
 			ImplementationKey: def.ImplementationKey, Spec: def.Spec,
 			DefaultEnabled: def.DefaultEnabled, Revision: def.Revision,
@@ -415,7 +411,7 @@ func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, 
 	configs := make(map[string]Config, len(plan.Configs))
 	for _, config := range plan.Configs {
 		if _, err := q.CreatePluginConfig(ctx, sqlc.CreatePluginConfigParams{
-			ID: config.ID, PluginID: config.PluginID, Namespace: config.Namespace,
+			ID: config.ID, PluginID: config.PluginID,
 			Scope: string(config.Scope), UserID: nullableText(config.UserID),
 			AgentID: nullableText(config.AgentID), Enabled: nullableBool(config.Enabled),
 			Config: config.Payload, CredentialRefs: nonEmptyJSON(config.CredentialRefs),
@@ -436,9 +432,7 @@ func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, 
 		if def.Source != SourceBuiltin {
 			continue
 		}
-		if _, err := q.EnsureSystemPluginConfig(ctx, sqlc.EnsureSystemPluginConfigParams{
-			PluginID: def.ID, Namespace: def.Namespace,
-		}); err != nil {
+		if _, err := q.EnsureSystemPluginConfig(ctx, def.ID); err != nil {
 			return fmt.Errorf("ensure builtin plugin config %s: %w", def.ID, err)
 		}
 	}
@@ -610,7 +604,7 @@ func verifyCoreOverrides(ctx context.Context, tx pgx.Tx, overrides []LegacyToolO
 		}
 		spec, known := metadata.Lookup(targetName)
 		if known {
-			if spec.Name != targetName || (override.NewToolName == "" && (spec.PluginID != "" || spec.Namespace != "" || spec.LocalName != "")) {
+			if spec.Name != targetName || (override.NewToolName == "" && (spec.PluginID != "" || spec.LocalName != "")) {
 				return fmt.Errorf("%w: legacy override %s is not a trusted core tool", ErrLegacyMigrationConflict, override.ToolName)
 			}
 			if override.NewToolName != "" && !isTrustedLegacyNativePlugin(spec.PluginID, native) {
@@ -902,48 +896,19 @@ func legacyPluginID(row LegacyPlugin) string {
 	return row.Kind + "/" + row.Name
 }
 
+// canonicalLegacyID performs the one-time main-era Agent conversion. Native
+// IDs are checked against their explicit registry before this conversion.
+func canonicalLegacyID(id string) string {
+	for _, prefix := range []string{"agent/", "tool/"} {
+		if after, ok := strings.CutPrefix(id, prefix); ok {
+			return after
+		}
+	}
+	return id
+}
+
 func stableLegacyConfigID(pluginID string) string {
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("stella://plugin-config/"+pluginID)).String()
-}
-
-func legacyCustomDefinitionID(oldID string) string {
-	return "custom/" + stableLegacyConfigID("legacy-definition/"+oldID)
-}
-
-type namespaceOwner struct {
-	namespace string
-	scope     Scope
-	userID    string
-	agentID   string
-}
-
-func validateNamespaceOwners(configs []Config, definitions []Definition) error {
-	claims := slices.Clone(configs)
-	systemOverrides := make(map[string]bool)
-	for _, config := range configs {
-		if config.Scope == ScopeSystem {
-			systemOverrides[config.PluginID] = true
-		}
-	}
-	// Missing builtin rows will acquire a payload-bearing system projection.
-	// These are conflict-check claims only, never fabricated persistent UUIDs.
-	for _, def := range definitions {
-		if def.Source == SourceBuiltin && !systemOverrides[def.ID] {
-			claims = append(claims, Config{PluginID: def.ID, Namespace: def.Namespace, Scope: ScopeSystem, Payload: json.RawMessage(`{}`)})
-		}
-	}
-	owners := make(map[namespaceOwner]string, len(claims))
-	for _, config := range claims {
-		if len(config.Payload) == 0 {
-			continue
-		}
-		key := namespaceOwner{namespace: config.Namespace, scope: config.Scope, userID: config.UserID, agentID: config.AgentID}
-		if prior, exists := owners[key]; exists && prior != config.PluginID {
-			return fmt.Errorf("%w: namespace %q is claimed by %s and %s for %s/%s/%s", ErrLegacyMigrationConflict, config.Namespace, prior, config.PluginID, config.Scope, config.UserID, config.AgentID)
-		}
-		owners[key] = config.PluginID
-	}
-	return nil
 }
 
 func findConfigByID(configs []Config, id string) (Config, bool) {
@@ -961,7 +926,7 @@ type ConfigAccumulator struct {
 
 func (a *ConfigAccumulator) addLegacyPlugin(def Definition, row LegacyPlugin) error {
 	if !a.hasConfig {
-		a.config = Config{PluginID: def.ID, Namespace: def.Namespace, Scope: ScopeSystem, Revision: 1}
+		a.config = Config{PluginID: def.ID, Scope: ScopeSystem, Revision: 1}
 		a.hasConfig = true
 	}
 	if a.config.Enabled != nil && *a.config.Enabled != row.Enabled {
@@ -981,7 +946,7 @@ func (a *ConfigAccumulator) addLegacyPlugin(def Definition, row LegacyPlugin) er
 
 func (a *ConfigAccumulator) addManifestOverride(def Definition, row LegacyManifestOverride, creatingDefinition bool) error {
 	if !a.hasConfig {
-		a.config = Config{PluginID: def.ID, Namespace: def.Namespace, Scope: ScopeSystem, Revision: 1}
+		a.config = Config{PluginID: def.ID, Scope: ScopeSystem, Revision: 1}
 		a.hasConfig = true
 	}
 	if row.Enabled != nil {
@@ -1089,7 +1054,7 @@ func rejectManifestIdentityOverride(def Definition, raw string) error {
 	if err := json.Unmarshal([]byte(raw), &object); err != nil || object == nil {
 		return fmt.Errorf("%w: manifest %s identity JSON: %w", ErrLegacyMigrationConflict, def.ID, err)
 	}
-	for field, expected := range map[string]string{"name": def.Namespace, "display_name": def.DisplayName} {
+	for field, expected := range map[string]string{"name": def.ID, "display_name": def.DisplayName} {
 		value, ok := object[field]
 		if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			continue
@@ -1102,14 +1067,18 @@ func rejectManifestIdentityOverride(def Definition, raw string) error {
 	return nil
 }
 
-func customDefinitionFromManifest(id, raw string) (Definition, error) {
+func customDefinitionFromManifest(raw string) (Definition, error) {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &object); err != nil || object == nil {
-		return Definition{}, fmt.Errorf("%w: manifest %s JSON: %w", ErrLegacyMigrationConflict, id, err)
+		return Definition{}, fmt.Errorf("%w: manifest JSON: %w", ErrLegacyMigrationConflict, err)
 	}
 	name := jsonString(object["name"])
 	if name == "" {
-		name = id
+		return Definition{}, fmt.Errorf("%w: manifest name is required", ErrLegacyMigrationConflict)
+	}
+	id, err := canonicalLegacyName(name)
+	if err != nil {
+		return Definition{}, fmt.Errorf("%w: manifest name %q: %w", ErrLegacyMigrationConflict, name, err)
 	}
 	defSpec, err := normalizeManifestConfig(raw)
 	if err != nil {
@@ -1124,7 +1093,7 @@ func customDefinitionFromManifest(id, raw string) (Definition, error) {
 		return Definition{}, fmt.Errorf("%w: custom Go implementation %s", ErrLegacyMigrationConflict, id)
 	}
 	return Definition{
-		ID: id, Namespace: sanitizeLegacyIdent(name, "plugin"), DisplayName: displayName,
+		ID: id, DisplayName: displayName,
 		Backend: BackendCLI, Source: SourceCustom, ImplementationKey: "cli",
 		Spec: defSpec, DefaultEnabled: false, Revision: 1,
 	}, nil
@@ -1153,8 +1122,11 @@ func normalizeMCP(row LegacyMCPRegistration) (Definition, Config, error) {
 	if err := validateLegacyMCPCredentialRefs(row, parsedID); err != nil {
 		return Definition{}, Config{}, err
 	}
-	namespace := sanitizeLegacyIdent(row.Name, "mcp")
-	if _, err := normalizeMCPTools(namespace, row.Tools); err != nil {
+	pluginID, err := canonicalLegacyName(row.Name)
+	if err != nil {
+		return Definition{}, Config{}, fmt.Errorf("%w: MCP %s name: %w", ErrLegacyMigrationConflict, row.ID, err)
+	}
+	if _, err := normalizeMCPTools(pluginID, row.Tools); err != nil {
 		return Definition{}, Config{}, fmt.Errorf("MCP %s tools: %w", row.ID, err)
 	}
 	metadata, err := normalizeMCPMetadata(row.Metadata)
@@ -1178,12 +1150,12 @@ func normalizeMCP(row LegacyMCPRegistration) (Definition, Config, error) {
 		creator = row.UserID
 	}
 	def := Definition{
-		ID: "custom/" + row.ID, Namespace: namespace, DisplayName: row.Name,
+		ID: pluginID, DisplayName: row.Name,
 		Backend: BackendMCP, Source: SourceCustom, ImplementationKey: "mcp", Spec: json.RawMessage(`{}`),
 		DefaultEnabled: false, Revision: 1, CreatorUserID: creator,
 	}
 	config := Config{
-		ID: row.ID, PluginID: def.ID, Namespace: namespace, Scope: Scope(row.Scope), UserID: row.UserID, AgentID: row.AgentID,
+		ID: row.ID, PluginID: def.ID, Scope: Scope(row.Scope), UserID: row.UserID, AgentID: row.AgentID,
 		Enabled: cloneBool(&row.Enabled), Payload: encodedPayload, CredentialRefs: refs, Revision: 1,
 	}
 	return def, config, nil
@@ -1209,7 +1181,7 @@ func validateLegacyMCPCredentialRefs(row LegacyMCPRegistration, id uuid.UUID) er
 	return nil
 }
 
-func normalizeMCPTools(namespace string, raw json.RawMessage) ([]map[string]string, error) {
+func normalizeMCPTools(pluginID string, raw json.RawMessage) ([]map[string]string, error) {
 	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return nil, nil
 	}
@@ -1222,12 +1194,17 @@ func normalizeMCPTools(namespace string, raw json.RawMessage) ([]map[string]stri
 	seen := make(map[string]string, len(tools))
 	result := make([]map[string]string, 0, len(tools))
 	for _, tool := range tools {
-		local := sanitizeLegacyIdent(tool.Name, "tool")
+		if tool.Name == "" {
+			return nil, fmt.Errorf("remote tool name must not be empty")
+		}
+		// Keep the remote name as the local identity. Sanitizing here would
+		// merge distinct remote tools such as a-b and a_b.
+		local := tool.Name
 		if prior, ok := seen[local]; ok {
 			return nil, fmt.Errorf("local tool names %q and %q collide as %q", prior, tool.Name, local)
 		}
 		seen[local] = tool.Name
-		name, err := ExportedToolName(namespace, local)
+		name, err := agentpackage.ExportedToolName(pluginID, "main", local)
 		if err != nil {
 			return nil, err
 		}
@@ -1386,14 +1363,14 @@ func ConvertLegacyToolOverride(override LegacyToolOverride, registrations []Lega
 		var match toolmeta.ActionTool
 		matched := false
 		for _, spec := range metadata.Tools() {
-			if spec.PluginID == "" || spec.Namespace == "" || spec.LocalName == "" {
+			if spec.PluginID == "" || spec.LocalName == "" {
 				continue
 			}
 			legacyName := spec.Family + "_" + spec.LocalName
 			if override.ToolName != legacyName {
 				continue
 			}
-			if matched && (match.PluginID != spec.PluginID || match.Namespace != spec.Namespace || match.LocalName != spec.LocalName) {
+			if matched && (match.PluginID != spec.PluginID || match.LocalName != spec.LocalName) {
 				return ToolOverrideMigration{}, fmt.Errorf("%w: legacy Go tool %q maps to multiple plugin identities", ErrLegacyMigrationConflict, override.ToolName)
 			}
 			match, matched = spec, true
@@ -1416,7 +1393,7 @@ func ConvertLegacyToolOverride(override LegacyToolOverride, registrations []Lega
 		}
 		return ToolOverrideMigration{}, nil
 	}
-	var matches []LegacyMCPRegistration
+	var matches []legacyMCPToolMatch
 	for _, registration := range registrations {
 		if !validLegacyScope(registration.Scope) || !legacyOwnerMatches(registration.Scope, registration.UserID, registration.AgentID) {
 			return ToolOverrideMigration{}, ErrLegacyMigrationConflict
@@ -1438,26 +1415,43 @@ func ConvertLegacyToolOverride(override LegacyToolOverride, registrations []Lega
 		if err := json.Unmarshal(registration.Tools, &tools); err != nil {
 			return ToolOverrideMigration{}, fmt.Errorf("%w: MCP %s tools catalog: %w", ErrLegacyMigrationConflict, registration.ID, err)
 		}
+		var localNames []string
 		for _, tool := range tools {
-			if sanitizeLegacyIdent(tool.Name, "tool") == remote {
-				matches = append(matches, registration)
+			if tool.Name != "" && sanitizeLegacyIdent(tool.Name, "tool") == remote {
+				localNames = append(localNames, tool.Name)
 			}
+		}
+		if len(localNames) > 1 {
+			return ToolOverrideMigration{}, fmt.Errorf("%w: %s maps to multiple remote tools in MCP registration %s", ErrLegacyMigrationConflict, override.ToolName, registration.ID)
+		}
+		if len(localNames) == 1 {
+			matches = append(matches, legacyMCPToolMatch{registration: registration, localName: localNames[0]})
 		}
 	}
 	if len(matches) != 1 {
 		return ToolOverrideMigration{}, fmt.Errorf("%w: %s matches %d MCP registrations", ErrLegacyMigrationConflict, override.ToolName, len(matches))
 	}
-	registration := matches[0]
-	local := sanitizeLegacyIdent(remote, "tool")
-	newName, err := ExportedToolName(sanitizeLegacyIdent(registration.Name, "mcp"), local)
+	match := matches[0]
+	registration := match.registration
+	local := match.localName
+	pluginID, err := canonicalLegacyName(registration.Name)
+	if err != nil {
+		return ToolOverrideMigration{}, fmt.Errorf("%w: MCP registration name %q: %w", ErrLegacyMigrationConflict, registration.Name, err)
+	}
+	newName, err := agentpackage.ExportedToolName(pluginID, "main", local)
 	if err != nil {
 		return ToolOverrideMigration{}, err
 	}
 	return ToolOverrideMigration{
 		LegacyID: override.ID, OldName: override.ToolName, NewName: newName,
-		PluginID: "custom/" + registration.ID, ConfigID: registration.ID, Namespace: sanitizeLegacyIdent(registration.Name, "mcp"), LocalTool: local,
+		PluginID: pluginID, ConfigID: registration.ID, LocalTool: local,
 		Scope: Scope(override.Scope), UserID: override.UserID, AgentID: override.AgentID, Enabled: override.Enabled,
 	}, nil
+}
+
+type legacyMCPToolMatch struct {
+	registration LegacyMCPRegistration
+	localName    string
 }
 
 func validLegacyScope(scope string) bool {
@@ -1505,6 +1499,24 @@ func sanitizeLegacyIdent(value, fallback string) string {
 		result = fallback
 	}
 	return result
+}
+
+func canonicalLegacyName(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var builder strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '.':
+			builder.WriteRune(r)
+		default:
+			builder.WriteByte('-')
+		}
+	}
+	name := strings.Trim(builder.String(), "-.")
+	if err := ValidateName(name); err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 func validLegacyMCPAuth(auth string) bool {

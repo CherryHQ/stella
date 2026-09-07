@@ -7,7 +7,7 @@ import (
 
 func TestSkillsToolIgnoresLegacyBuiltinPolicy(t *testing.T) {
 	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).
-		WithPluginVisibility([]string{"system/stella"}, []string{"system/stella"}).
+		WithPluginVisibility([]string{"stella"}, []string{"stella"}).
 		WithAgentSkillPolicy([]string{"builtin:stella"})
 	ctx := t.Context()
 

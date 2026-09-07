@@ -607,20 +607,13 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 		if !ok || !resolved.Effective.IsEffectivelyEnabled {
 			continue
 		}
-		winner, err := snapshot.ResolveNamespace(definition.Namespace)
-		if err != nil {
-			return nil, err
-		}
-		if winner.PluginID != definition.ID || !winner.IsEffectivelyEnabled {
-			continue
-		}
 		if _, err := selectedResourceIdentity(definition, resolved); err != nil {
 			return nil, err
 		}
 		if err := validateResolvedCLIPayload(definition, resolved); err != nil {
 			return nil, err
 		}
-		payload, err := manifest.DecodeCLIPayload(winner.Payload, "prompt CLI payload")
+		payload, err := manifest.DecodeCLIPayload(resolved.Effective.Payload, "prompt CLI payload")
 		if err != nil {
 			return nil, err
 		}

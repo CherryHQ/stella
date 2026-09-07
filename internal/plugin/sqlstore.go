@@ -57,7 +57,7 @@ func (s *Service) listConfigs(ctx context.Context, pluginID string, scope Scope,
 
 func (s *Service) createConfig(ctx context.Context, config Config) (Config, error) {
 	row, err := s.q.CreatePluginConfig(ctx, sqlc.CreatePluginConfigParams{
-		ID: config.ID, PluginID: config.PluginID, Namespace: config.Namespace, Scope: string(config.Scope),
+		ID: config.ID, PluginID: config.PluginID, Scope: string(config.Scope),
 		UserID: nullableText(config.UserID), AgentID: nullableText(config.AgentID), Enabled: nullableBool(config.Enabled),
 		Config: config.Payload, CredentialRefs: nonEmptyJSON(config.CredentialRefs), Revision: config.Revision,
 	})
@@ -112,14 +112,14 @@ func (s *Service) resetBuiltinConfig(ctx context.Context, id string, revision in
 
 func (s *Service) createCustom(ctx context.Context, def Definition, config Config) (Definition, Config, error) {
 	defRow, err := s.q.CreatePluginDefinition(ctx, sqlc.CreatePluginDefinitionParams{
-		ID: def.ID, Namespace: def.Namespace, DisplayName: def.DisplayName, Backend: string(def.Backend), Source: string(def.Source),
+		ID: def.ID, DisplayName: def.DisplayName, Backend: string(def.Backend), Source: string(def.Source),
 		ImplementationKey: def.ImplementationKey, Spec: def.Spec, DefaultEnabled: def.DefaultEnabled, Revision: def.Revision, CreatorUserID: nullableText(def.CreatorUserID),
 	})
 	if err != nil {
-		return Definition{}, Config{}, err
+		return Definition{}, Config{}, mapConflict(err)
 	}
 	configRow, err := s.q.CreatePluginConfig(ctx, sqlc.CreatePluginConfigParams{
-		ID: config.ID, PluginID: config.PluginID, Namespace: config.Namespace, Scope: string(config.Scope), UserID: nullableText(config.UserID), AgentID: nullableText(config.AgentID),
+		ID: config.ID, PluginID: config.PluginID, Scope: string(config.Scope), UserID: nullableText(config.UserID), AgentID: nullableText(config.AgentID),
 		Enabled: nullableBool(config.Enabled), Config: config.Payload, CredentialRefs: nonEmptyJSON(config.CredentialRefs), Revision: config.Revision,
 	})
 	if err != nil {
@@ -160,11 +160,11 @@ func nonEmptyJSON(value json.RawMessage) json.RawMessage {
 }
 
 func fromSQLDefinition(row sqlc.PluginDefinition) Definition {
-	return Definition{ID: row.ID, Namespace: row.Namespace, DisplayName: row.DisplayName, Backend: Backend(row.Backend), Source: Source(row.Source), ImplementationKey: row.ImplementationKey, Spec: row.Spec, DefaultEnabled: row.DefaultEnabled, Revision: row.Revision, CreatorUserID: textValue(row.CreatorUserID), CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC()}
+	return Definition{ID: row.ID, DisplayName: row.DisplayName, Backend: Backend(row.Backend), Source: Source(row.Source), ImplementationKey: row.ImplementationKey, Spec: row.Spec, DefaultEnabled: row.DefaultEnabled, Revision: row.Revision, CreatorUserID: textValue(row.CreatorUserID), CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC()}
 }
 
 func fromSQLConfig(row sqlc.PluginConfig) Config {
-	return Config{ID: row.ID, PluginID: row.PluginID, Namespace: row.Namespace, Scope: Scope(row.Scope), UserID: textValue(row.UserID), AgentID: textValue(row.AgentID), Enabled: boolValue(row.Enabled), Payload: row.Config, CredentialRefs: row.CredentialRefs, Revision: row.Revision, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC()}
+	return Config{ID: row.ID, PluginID: row.PluginID, Scope: Scope(row.Scope), UserID: textValue(row.UserID), AgentID: textValue(row.AgentID), Enabled: boolValue(row.Enabled), Payload: row.Config, CredentialRefs: row.CredentialRefs, Revision: row.Revision, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC()}
 }
 
 func mapNotFound(err error) error {

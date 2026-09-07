@@ -3,7 +3,7 @@ import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMess
 import { expectStatus } from "./lib/api.ts";
 import type { ApiClient } from "./lib/api.ts";
 import { expect, loginWithPassword, test } from "./lib/fixtures.ts";
-import { type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
+import { exportedMcpName, type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
 import { expireAccessToken, type OAuthFixture, setTokenFailure, startOAuthFixture, tokenHits } from "./lib/oauth-fixture.ts";
 import { ensureProvider } from "./lib/provider.ts";
 
@@ -36,18 +36,20 @@ type ConnectionState = {
 const created: OAuthServer[] = [];
 let oauthServer: OAuthServer;
 let agentID = "";
+const oauthPerUserPlugin = "oauth-per-user";
+const oauthPerUserAdd = exportedMcpName(oauthPerUserPlugin, "add");
 
 async function createOAuthPlugin(
   api: ApiClient,
-  namespace: string,
+  name: string,
   scope: string,
   url: string,
   credentialMode = "shared",
 ): Promise<OAuthServer> {
   const created = expectStatus(
     await api.post<PluginCreate>("/api/plugins", {
-      namespace,
-      display_name: namespace,
+      name,
+      display_name: name,
       backend: "mcp",
       definition_spec: {},
       initial_config: {
@@ -62,7 +64,7 @@ async function createOAuthPlugin(
       },
     }),
     201,
-    `create ${namespace} plugin`,
+    `create ${name} plugin`,
   );
   return {
     pluginId: created.plugin.id,
@@ -400,7 +402,7 @@ test("per-user bundles isolate users and a real agent calls OAuth MCP @model", a
   agentID = await ensureAgent(admin, modelRef, "e2e-oauth-agent");
   const perUser = await createOAuthPlugin(
     admin,
-    "oauth_per_user",
+    oauthPerUserPlugin,
     "system",
     mcp.url,
     "per_user",
@@ -424,7 +426,7 @@ test("per-user bundles isolate users and a real agent calls OAuth MCP @model", a
   expect(
     userStillNeedsAuth.body.tools.some(
       (tool) =>
-        tool.name === "oauth_per_user__add"
+        tool.name === oauthPerUserAdd
         && tool.availability_reason === "mcp_needs_auth",
     ),
     JSON.stringify(userStillNeedsAuth.body),
@@ -443,7 +445,7 @@ test("per-user bundles isolate users and a real agent calls OAuth MCP @model", a
     admin,
     agentID,
     session,
-    "Call oauth_per_user__add with a=17 and b=25. Reply with only the result.",
+    `Call ${oauthPerUserAdd} with a=17 and b=25. Reply with only the result.`,
   );
   expect(turn.errors, JSON.stringify(turn.events.slice(-5))).toEqual([]);
   expect(turn.text).toContain("42");
@@ -454,5 +456,5 @@ test("per-user bundles isolate users and a real agent calls OAuth MCP @model", a
   ).toBe(true);
   expect(
     invokedToolNames(await sessionMessages(admin, agentID, session)),
-  ).toContain("oauth_per_user__add");
+  ).toContain(oauthPerUserAdd);
 });

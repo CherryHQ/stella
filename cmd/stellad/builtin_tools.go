@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skill"
@@ -408,8 +409,8 @@ func mcpCatalogFunc(svc *mcp.Service) agent.MCPCatalogFunc {
 		catalog := make([]agent.MCPCatalogEntry, 0)
 		for _, reg := range regs {
 			for _, tool := range reg.Tools {
-				local := mcp.SanitizeIdent(tool.Name, "tool")
-				name, err := pluginpkg.ExportedToolName(reg.Namespace, local)
+				local := tool.Name
+				name, err := agentpackage.ExportedToolName(reg.PluginID, "main", local)
 				if err != nil {
 					return nil, err
 				}

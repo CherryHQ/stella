@@ -47,10 +47,10 @@ func RegistrationFromPluginConfig(def plugin.Definition, cfg plugin.Config, effe
 	if err := cfg.Validate(); err != nil {
 		return Registration{}, fmt.Errorf("mcp plugin config: %w", err)
 	}
-	if cfg.PluginID != def.ID || cfg.Namespace != def.Namespace {
+	if cfg.PluginID != def.ID {
 		return Registration{}, errors.New("mcp plugin config does not match its definition")
 	}
-	if effective.PluginID != def.ID || effective.Namespace != def.Namespace || effective.ConfigID != cfg.ID {
+	if effective.PluginID != def.ID || effective.ConfigID != cfg.ID {
 		return Registration{}, errors.New("mcp effective config does not match its source config")
 	}
 	if effective.SourceScope != cfg.Scope {
@@ -79,7 +79,6 @@ func RegistrationFromPluginConfig(def plugin.Definition, cfg plugin.Config, effe
 	return Registration{
 		ID:                   cfg.ID,
 		PluginID:             def.ID,
-		Namespace:            def.Namespace,
 		ConfigRevision:       cfg.Revision,
 		Scope:                string(cfg.Scope),
 		UserID:               cfg.UserID,
@@ -138,7 +137,7 @@ func ValidateMCPPayload(_ context.Context, policy EndpointPolicy, definition plu
 	if err := config.Validate(); err != nil {
 		return fmt.Errorf("MCP config: %w", err)
 	}
-	if config.PluginID != definition.ID || config.Namespace != definition.Namespace {
+	if config.PluginID != definition.ID {
 		return errors.New("MCP config does not match its definition")
 	}
 	if err := validateMCPDefinitionSpec(definition.Spec); err != nil {

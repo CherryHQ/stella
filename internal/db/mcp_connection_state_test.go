@@ -18,11 +18,11 @@ func TestMCPConnectionStateReadsSharedAndTrustedUserOnly(t *testing.T) {
 	ctx := t.Context()
 	userA := insertPluginUser(t, db, "mcp-state-a@example.test", false)
 	userB := insertPluginUser(t, db, "mcp-state-b@example.test", false)
-	definitionID := "builtin/mcp-connection-state-read"
-	insertMCPConnectionStateDefinition(t, db, definitionID, "mcp-state-read")
-	sharedConfigID := insertMCPConnectionStateConfig(t, db, definitionID, "mcp-state-read", string(plugin.ScopeSystem), "", 7)
-	perUserConfigID := insertMCPConnectionStateConfig(t, db, definitionID, "mcp-state-read", string(plugin.ScopeUser), string(userA.UserID()), 3)
-	foreignConfigID := insertMCPConnectionStateConfig(t, db, definitionID, "mcp-state-read", string(plugin.ScopeUser), string(userB.UserID()), 3)
+	definitionID := "mcp-connection-state-read"
+	insertMCPConnectionStateDefinition(t, db, definitionID)
+	sharedConfigID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeSystem), "", 7)
+	perUserConfigID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeUser), string(userA.UserID()), 3)
+	foreignConfigID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeUser), string(userB.UserID()), 3)
 
 	now := time.Now().UTC()
 	storeMCPConnectionState(t, db, MCPConnectionState{
@@ -64,9 +64,9 @@ func TestMCPConnectionStateRevisionFenceAndCascade(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
 	user := insertPluginUser(t, db, "mcp-state-cascade@example.test", false)
-	definitionID := "builtin/mcp-connection-state-write"
-	insertMCPConnectionStateDefinition(t, db, definitionID, "mcp-state-write")
-	configID := insertMCPConnectionStateConfig(t, db, definitionID, "mcp-state-write", string(plugin.ScopeSystem), "", 7)
+	definitionID := "mcp-connection-state-write"
+	insertMCPConnectionStateDefinition(t, db, definitionID)
+	configID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeSystem), "", 7)
 	state := MCPConnectionState{ConfigID: configID, Status: "ok", Tools: json.RawMessage(`[]`), ConfigRevision: 7}
 	storeMCPConnectionState(t, db, state)
 
@@ -90,7 +90,7 @@ func TestMCPConnectionStateRevisionFenceAndCascade(t *testing.T) {
 		t.Fatalf("config cascade left %d observation rows", count)
 	}
 
-	userConfigID := insertMCPConnectionStateConfig(t, db, definitionID, "mcp-state-write", string(plugin.ScopeUser), string(user.UserID()), 1)
+	userConfigID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeUser), string(user.UserID()), 1)
 	storeMCPConnectionState(t, db, MCPConnectionState{ConfigID: userConfigID, CredentialUserID: stringPtr(string(user.UserID())), Status: "needs_auth", ConfigRevision: 1})
 	if _, err := db.Exec(ctx, `DELETE FROM auth_user WHERE id = $1`, user.UserID()); err != nil {
 		t.Fatal(err)
@@ -106,9 +106,9 @@ func TestMCPConnectionStateRevisionFenceAndCascade(t *testing.T) {
 func TestMCPConnectionStateRejectsStaleFirstInsert(t *testing.T) {
 	db := newTestDB(t)
 	ctx := t.Context()
-	definitionID := "builtin/mcp-connection-state-empty"
-	insertMCPConnectionStateDefinition(t, db, definitionID, "mcp-state-empty")
-	configID := insertMCPConnectionStateConfig(t, db, definitionID, "mcp-state-empty", string(plugin.ScopeSystem), "", 8)
+	definitionID := "mcp-connection-state-empty"
+	insertMCPConnectionStateDefinition(t, db, definitionID)
+	configID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeSystem), "", 8)
 	if err := storeMCPConnectionStateErr(t, db, MCPConnectionState{ConfigID: configID, Status: "ok", ConfigRevision: 7}); !errors.Is(err, ErrMCPConnectionStateStale) {
 		t.Fatalf("stale first insert error = %v, want ErrMCPConnectionStateStale", err)
 	}
@@ -123,9 +123,9 @@ func TestMCPConnectionStateRevisionFenceSerializesProbeAndConfigCAS(t *testing.T
 	db := newTestDB(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	definitionID := "builtin/mcp-connection-state-race"
-	insertMCPConnectionStateDefinition(t, db, definitionID, "mcp-state-race")
-	configID := insertMCPConnectionStateConfig(t, db, definitionID, "mcp-state-race", string(plugin.ScopeSystem), "", 7)
+	definitionID := "mcp-connection-state-race"
+	insertMCPConnectionStateDefinition(t, db, definitionID)
+	configID := insertMCPConnectionStateConfig(t, db, definitionID, string(plugin.ScopeSystem), "", 7)
 
 	probeTx, err := db.Begin(ctx)
 	if err != nil {
@@ -168,23 +168,23 @@ func TestMCPConnectionStateRevisionFenceSerializesProbeAndConfigCAS(t *testing.T
 	}
 }
 
-func insertMCPConnectionStateDefinition(t *testing.T, db *pgxpool.Pool, id, namespace string) {
+func insertMCPConnectionStateDefinition(t *testing.T, db *pgxpool.Pool, id string) {
 	t.Helper()
 	if _, err := db.Exec(t.Context(), `
-		INSERT INTO plugin_definition (id, namespace, display_name, backend, source, implementation_key, spec, default_enabled, revision)
-		VALUES ($1, $2, $1, 'mcp', 'builtin', 'mcp', '{}'::jsonb, false, 1)
-	`, id, namespace); err != nil {
+		INSERT INTO plugin_definition (id, display_name, backend, source, implementation_key, spec, default_enabled, revision)
+		VALUES ($1, $1, 'mcp', 'builtin', 'mcp', '{}'::jsonb, false, 1)
+	`, id); err != nil {
 		t.Fatalf("insert definition %s: %v", id, err)
 	}
 }
 
-func insertMCPConnectionStateConfig(t *testing.T, db *pgxpool.Pool, definitionID, namespace, scope, userID string, revision int64) string {
+func insertMCPConnectionStateConfig(t *testing.T, db *pgxpool.Pool, definitionID, scope, userID string, revision int64) string {
 	t.Helper()
 	id := uuid.NewString()
 	if _, err := db.Exec(t.Context(), `
-		INSERT INTO plugin_config (id, plugin_id, namespace, scope, user_id, enabled, config, credential_refs, revision)
-		VALUES ($1, $2, $3, $4, NULLIF($5, '')::uuid, true, '{}'::jsonb, '{}'::jsonb, $6)
-	`, id, definitionID, namespace, scope, userID, revision); err != nil {
+		INSERT INTO plugin_config (id, plugin_id, scope, user_id, enabled, config, credential_refs, revision)
+		VALUES ($1, $2, $3, NULLIF($4, '')::uuid, true, '{}'::jsonb, '{}'::jsonb, $5)
+	`, id, definitionID, scope, userID, revision); err != nil {
 		t.Fatalf("insert config %s: %v", id, err)
 	}
 	return id

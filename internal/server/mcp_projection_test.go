@@ -10,7 +10,7 @@ import (
 
 func TestAgentMCPServerResponseOmitsPrivateRegistrationFields(t *testing.T) {
 	response := agentMCPServerResponse(mcp.Registration{
-		ID: "config-1", PluginID: "mcp/github", Namespace: "github",
+		ID: "config-1", PluginID: "mcp.github",
 		Scope: "system", URL: "https://secret.example.test/mcp",
 		CredentialRef: "vault://credential", AuthType: "bearer",
 		Status: mcp.StatusOK, CredentialMode: "shared", Enabled: true,
@@ -26,7 +26,7 @@ func TestAgentMCPServerResponseOmitsPrivateRegistrationFields(t *testing.T) {
 			t.Fatalf("safe effective response contains %q: %s", private, body)
 		}
 	}
-	if response.Readable || response.PluginId != "mcp/github" || response.ConfigId != "config-1" {
+	if response.Readable || response.PluginId != "mcp.github" || response.ConfigId != "config-1" {
 		t.Fatalf("unexpected identity/readability projection: %+v", response)
 	}
 }
