@@ -181,7 +181,16 @@ func TestCreateSessionMountsOnlySuccessfulPackageCaches(t *testing.T) {
 		{PluginID: "good", ConfigID: "good-config", Scope: "user", Revision: 1, PackageDigest: "sha256:good", Name: "good", Tool: "bun", Version: "1"},
 	}
 	api := &packageMountRecordingAPI{}
-	workspace := t.TempDir()
+	// Linux's /tmp is also a container mount, making host paths there ambiguous.
+	workspace, err := os.MkdirTemp(".", "docker-package-workspace-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(workspace) })
+	workspace, err = filepath.Abs(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
 	factory := &dockerFactory{
 		cfg: Config{
 			Image: "test:latest", RuntimeMode: DockerSandboxModeHost, SelectionToolBinaries: binaries,
