@@ -25,6 +25,10 @@ const (
 	RootSystemAgentSkills
 	RootUserSkills
 	RootUserAgentSkills
+	RootSystemResources
+	RootSystemAgentResources
+	RootUserResources
+	RootUserAgentResources
 )
 
 type RootAccess uint8
@@ -160,7 +164,7 @@ func (m *WorkspaceManager) openRoot(ctx context.Context, req WorkspaceRequest, s
 			unlock()
 		}
 	}()
-	if validateOwner && (scope == RootAgentWorkspace || scope == RootPrincipalData || scope == RootSystemAgentSkills || scope == RootUserAgentSkills) {
+	if validateOwner && (scope == RootAgentWorkspace || scope == RootPrincipalData || scope == RootSystemAgentSkills || scope == RootUserAgentSkills || scope == RootSystemAgentResources || scope == RootUserAgentResources) {
 		if err = m.agentExists(ctx, req.AgentID); err != nil {
 			return nil, err
 		}
@@ -174,7 +178,7 @@ func (m *WorkspaceManager) openRoot(ctx context.Context, req WorkspaceRequest, s
 		if err = m.ownerExists(ctx, kind, id); err != nil {
 			return nil, err
 		}
-	case RootUserSkills, RootUserAgentSkills:
+	case RootUserSkills, RootUserAgentSkills, RootUserResources, RootUserAgentResources:
 		if !validateOwner {
 			break
 		}
@@ -218,6 +222,29 @@ func principal(req WorkspaceRequest) (PrincipalKind, string) {
 
 func (m *WorkspaceManager) rootSelection(req WorkspaceRequest, scope RootScope) ([]string, []string, error) {
 	switch scope {
+	case RootSystemResources:
+		return []string{".agents"}, []string{"system:skills"}, nil
+	case RootSystemAgentResources:
+		if err := validID(req.AgentID); err != nil {
+			return nil, nil, err
+		}
+		return []string{"agents", req.AgentID, ".agents"}, []string{"agent:" + req.AgentID}, nil
+	case RootUserResources, RootUserAgentResources:
+		if req.GroupID != "" {
+			return nil, nil, errors.New("home: personal resource root does not accept group owner")
+		}
+		if err := validID(req.UserID); err != nil {
+			return nil, nil, err
+		}
+		parts, keys := []string{"users", req.UserID}, []string{"user:" + req.UserID}
+		if scope == RootUserAgentResources {
+			if err := validID(req.AgentID); err != nil {
+				return nil, nil, err
+			}
+			parts = append(parts, "agents", req.AgentID)
+			keys = append(keys, "agent:"+req.AgentID)
+		}
+		return append(parts, ".agents"), keys, nil
 	case RootSystemSkills:
 		return []string{".agents", "db-skills"}, []string{"system:skills"}, nil
 	case RootSystemAgentSkills:

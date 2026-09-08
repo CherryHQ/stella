@@ -23,6 +23,8 @@ import (
 	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/CherryHQ/stella/internal/core/mcpconfig"
 )
 
 const (
@@ -146,6 +148,7 @@ type StellaExtension struct {
 	Prompt      string
 	Binaries    []BinaryRequirement
 	SessionEnv  []SessionEnvRequirement
+	MCPAuth     map[string]mcpconfig.Authentication
 	OAuth       []OAuthRequirement
 }
 
@@ -176,6 +179,40 @@ func load(root string, strict bool) (*Package, Diagnostics) {
 		return nil, diagnostics
 	}
 	defer func() { _ = packageRoot.Close() }()
+	return loadFiles(diskFiles{packageRoot}, resolvedRoot, strict)
+}
+
+// LoadFS parses an already captured filesystem. The caller must exclude links
+// and special files before capture; no source paths are opened by this reader.
+func LoadFS(files fs.FS) (*Package, Diagnostics) {
+	return loadFiles(capturedFiles{files}, ".", false)
+}
+
+type packageFiles interface {
+	Open(string) (fs.File, error)
+	Stat(string) (fs.FileInfo, error)
+	Lstat(string) (fs.FileInfo, error)
+	FS() fs.FS
+}
+
+type diskFiles struct{ *os.Root }
+
+func (r diskFiles) Open(name string) (fs.File, error) { return r.Root.Open(name) }
+
+type capturedFiles struct{ files fs.FS }
+
+func (r capturedFiles) Open(name string) (fs.File, error) {
+	return r.files.Open(filepath.ToSlash(name))
+}
+
+func (r capturedFiles) Stat(name string) (fs.FileInfo, error) {
+	return fs.Stat(r.files, filepath.ToSlash(name))
+}
+func (r capturedFiles) Lstat(name string) (fs.FileInfo, error) { return r.Stat(name) }
+func (r capturedFiles) FS() fs.FS                              { return r.files }
+
+func loadFiles(packageRoot packageFiles, rootPath string, strict bool) (*Package, Diagnostics) {
+	var diagnostics Diagnostics
 	manifestInfo, err := packageRoot.Stat("plugin.json")
 	if err != nil {
 		code := "manifest.read"
@@ -199,7 +236,7 @@ func load(root string, strict bool) (*Package, Diagnostics) {
 		return nil, diagnostics
 	}
 
-	pkg := &Package{Root: resolvedRoot, Manifest: manifest}
+	pkg := &Package{Root: rootPath, Manifest: manifest}
 	if extensionRaw != nil {
 		if raw, exists := extensionRaw[StellaNamespace]; exists {
 			extension := parseStellaExtension(raw, strict, &diagnostics)
@@ -210,7 +247,7 @@ func load(root string, strict bool) (*Package, Diagnostics) {
 	}
 
 	loadSkills(packageRoot, pkg, strict, &diagnostics)
-	loadMCP(packageRoot, resolvedRoot, manifest.Schema, pkg, strict, &diagnostics)
+	loadMCP(packageRoot, rootPath, manifest.Schema, pkg, strict, &diagnostics)
 	return pkg, diagnostics
 }
 
@@ -235,7 +272,7 @@ func resolveRoot(root string, diagnostics *Diagnostics) (string, bool) {
 	return filepath.Clean(resolved), true
 }
 
-func optionalPackagePath(root *os.Root, relative string, strict bool, diagnostics *Diagnostics, kind string) (bool, bool) {
+func optionalPackagePath(root packageFiles, relative string, strict bool, diagnostics *Diagnostics, kind string) (bool, bool) {
 	if _, err := root.Lstat(relative); errors.Is(err, fs.ErrNotExist) {
 		return false, true
 	} else if err != nil {
@@ -249,7 +286,7 @@ func optionalPackagePath(root *os.Root, relative string, strict bool, diagnostic
 	return true, true
 }
 
-func readLimited(root *os.Root, relative string, limit int64) ([]byte, error) {
+func readLimited(root packageFiles, relative string, limit int64) ([]byte, error) {
 	file, err := root.Open(relative)
 	if err != nil {
 		return nil, err
@@ -401,7 +438,7 @@ func ValidName(name string) bool {
 	return utf8.RuneCountInString(name) >= 1 && utf8.RuneCountInString(name) <= 64 && pluginNamePattern.MatchString(name) && !strings.Contains(name, "--") && !strings.Contains(name, "..")
 }
 
-func loadSkills(root *os.Root, pkg *Package, strict bool, diagnostics *Diagnostics) {
+func loadSkills(root packageFiles, pkg *Package, strict bool, diagnostics *Diagnostics) {
 	exists, ok := optionalPackagePath(root, "skills", strict, diagnostics, "skills")
 	if !exists || !ok {
 		return
@@ -464,7 +501,7 @@ func loadSkills(root *os.Root, pkg *Package, strict bool, diagnostics *Diagnosti
 			diagnostics.add(componentSeverity(strict), "skill.invalid", filepath.ToSlash(relative), "%v; skill skipped", err)
 			continue
 		}
-		if frontmatter.Name != entry.Name() || !validSkillName(frontmatter.Name) || frontmatter.Description == "" || len([]rune(frontmatter.Description)) > 1024 {
+		if frontmatter.Name != entry.Name() || !ValidSkillName(frontmatter.Name) || frontmatter.Description == "" || len([]rune(frontmatter.Description)) > 1024 {
 			diagnostics.add(componentSeverity(strict), "skill.metadata", filepath.ToSlash(relative), "skill name must match its directory and use the Agent Skills name rules; description must be 1-1024 characters; skill skipped")
 			continue
 		}
@@ -529,7 +566,20 @@ func parseSkillFrontmatter(data []byte) (skillFrontmatter, error) {
 	return frontmatter, nil
 }
 
-func validSkillName(name string) bool {
+// ParseSkill validates an independent Skill using the same frontmatter
+// contract as a Skill inside a package.
+func ParseSkill(name string, content []byte, mode fs.FileMode) (Skill, error) {
+	metadata, err := parseSkillFrontmatter(content)
+	if err != nil {
+		return Skill{}, err
+	}
+	if metadata.Name != name || !ValidSkillName(name) || metadata.Description == "" || len([]rune(metadata.Description)) > 1024 {
+		return Skill{}, errors.New("invalid Skill name or description")
+	}
+	return Skill{Name: name, Directory: ".", Path: "SKILL.md", Content: bytes.Clone(content), Mode: mode, Description: metadata.Description}, nil
+}
+
+func ValidSkillName(name string) bool {
 	runes := []rune(name)
 	if len(runes) < 1 || len(runes) > 64 || runes[0] == '-' || runes[len(runes)-1] == '-' || strings.Contains(name, "--") {
 		return false
@@ -575,7 +625,7 @@ func validateSkillFrontmatterNode(document *yaml.Node) error {
 	return nil
 }
 
-func loadMCP(root *os.Root, rootPath, manifestSchema string, pkg *Package, strict bool, diagnostics *Diagnostics) {
+func loadMCP(root packageFiles, rootPath, manifestSchema string, pkg *Package, strict bool, diagnostics *Diagnostics) {
 	exists, ok := optionalPackagePath(root, "mcp.json", strict, diagnostics, "MCP")
 	if !exists || !ok {
 		return
@@ -624,7 +674,7 @@ func loadMCP(root *os.Root, rootPath, manifestSchema string, pkg *Package, stric
 	}
 }
 
-func parseMCPServer(name string, data json.RawMessage, packageRoot *os.Root, rootPath string, strict bool, diagnostics *Diagnostics) (MCPServer, bool) {
+func parseMCPServer(name string, data json.RawMessage, packageRoot packageFiles, rootPath string, strict bool, diagnostics *Diagnostics) (MCPServer, bool) {
 	var values map[string]json.RawMessage
 	if err := decodeObject(data, &values); err != nil {
 		diagnostics.add(componentSeverity(strict), "mcp.server.invalid", "mcp.json", "server %q is not an object; skipped", name)
@@ -701,7 +751,7 @@ func parseMCPServer(name string, data json.RawMessage, packageRoot *os.Root, roo
 
 func validRemoteURL(raw string) bool {
 	parsed, err := url.Parse(raw)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" {
 		return false
 	}
 	if parsed.Scheme == "https" {
@@ -715,28 +765,9 @@ func validRemoteURL(raw string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func validHeaders(headers map[string]string) bool {
-	seen := make(map[string]struct{}, len(headers))
-	for name, value := range headers {
-		canonical := strings.ToLower(name)
-		if _, exists := seen[canonical]; exists || !validHeaderField(name) || !validHeaderValue(value) || credentialHeader(canonical) {
-			return false
-		}
-		seen[canonical] = struct{}{}
-	}
-	return true
-}
+func validHeaders(headers map[string]string) bool { return mcpconfig.ValidHeaders(headers) }
 
-func credentialHeader(name string) bool {
-	switch name {
-	case "authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key":
-		return true
-	default:
-		return false
-	}
-}
-
-func validStdioCWD(cwd string, packageRoot *os.Root, rootPath string) bool {
+func validStdioCWD(cwd string, packageRoot packageFiles, rootPath string) bool {
 	if cwd == "${PLUGIN_DATA}" || strings.HasPrefix(cwd, "${PLUGIN_DATA}/") {
 		return true
 	}
@@ -759,7 +790,7 @@ func validStdioCWD(cwd string, packageRoot *os.Root, rootPath string) bool {
 	return withinRootLexical(rootPath, filepath.Join(rootPath, relative))
 }
 
-func validPluginRelativePath(value string, packageRoot *os.Root) bool {
+func validPluginRelativePath(value string, packageRoot packageFiles) bool {
 	if !strings.HasPrefix(value, "./") {
 		return true
 	}
@@ -786,27 +817,6 @@ func hasReservedEnv(values map[string]string) bool {
 	return false
 }
 
-func validHeaderField(value string) bool {
-	if value == "" {
-		return false
-	}
-	for _, char := range value {
-		if char <= 0x20 || char >= 0x7f || strings.ContainsRune("()<>@,;:\\\"/[]?={} \t", char) {
-			return false
-		}
-	}
-	return true
-}
-
-func validHeaderValue(value string) bool {
-	for _, char := range value {
-		if (char < 0x20 && char != '\t') || char == 0x7f {
-			return false
-		}
-	}
-	return true
-}
-
 func withinRootLexical(root, candidate string) bool {
 	relative, err := filepath.Rel(root, candidate)
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
@@ -818,7 +828,7 @@ func parseStellaExtension(data json.RawMessage, strict bool, diagnostics *Diagno
 		diagnostics.add(componentSeverity(strict), "extension.invalid", "plugin.json", "Stella extension must be an object and is ignored")
 		return nil
 	}
-	known := map[string]bool{"version": true, "display_name": true, "prompt": true, "binaries": true, "session_env": true, "oauth": true}
+	known := map[string]bool{"version": true, "display_name": true, "prompt": true, "binaries": true, "session_env": true, "oauth": true, "mcp_auth": true}
 	for key := range values {
 		if !known[key] {
 			severity := SeverityWarning
@@ -839,6 +849,23 @@ func parseStellaExtension(data json.RawMessage, strict bool, diagnostics *Diagno
 			return nil
 		}
 	}
+	if raw, exists := values["mcp_auth"]; exists {
+		var entries map[string]json.RawMessage
+		if decodeObject(raw, &entries) != nil {
+			diagnostics.add(componentSeverity(strict), "extension.mcp_auth", "plugin.json", "invalid MCP authentication declarations")
+			return nil
+		}
+		extension.MCPAuth = make(map[string]mcpconfig.Authentication, len(entries))
+		for key, entry := range entries {
+			auth, err := mcpconfig.ParseAuthentication(entry)
+			if err != nil {
+				diagnostics.add(componentSeverity(strict), "extension.mcp_auth", "plugin.json", "invalid MCP authentication fields")
+				return nil
+			}
+			extension.MCPAuth[key] = auth
+		}
+	}
+
 	if raw, exists := values["binaries"]; exists && (validateArrayObjects(raw, map[string]bool{"name": true, "tool": true, "version": true, "options": true}) != nil || json.Unmarshal(raw, &extension.Binaries) != nil) {
 		diagnostics.add(componentSeverity(strict), "extension.binaries", "plugin.json", "invalid Stella binaries declaration; extension is ignored")
 		return nil
