@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 import shlex
+import os
+from pathlib import Path
 from typing import Any, override
 
 from harbor.agents.installed.base import with_prompt_template
@@ -26,21 +28,37 @@ class HermesGateway(Hermes):
         return "hermes-gateway"
 
     @override
+    def get_version_command(self) -> str:
+        return 'export PATH="$HOME/.local/bin:$PATH"; hermes --version'
+
+    @override
     async def install(self, environment: BaseEnvironment) -> None:
-        # Pin the installer too: Harbor's upstream adapter downloads main even
-        # when the agent release itself is pinned.
+        # Use the release archive: raw.githubusercontent.com and git fetch can
+        # be throttled independently of GitHub's archive endpoint.
         if not self._version or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", self._version):
             raise ValueError("Hermes requires a release tag in version")
         await self.ensure_system_dependencies(environment, ("curl", "git", "ripgrep", "xz"))
-        url = f"https://raw.githubusercontent.com/NousResearch/hermes-agent/{self._version}/scripts/install.sh"
+        url = f"https://codeload.github.com/NousResearch/hermes-agent/tar.gz/refs/tags/{self._version}"
+        archive = os.environ.get("HERMES_RELEASE_ARCHIVE")
+        if archive:
+            await environment.upload_file(Path(archive), "/tmp/hermes-release.tar.gz")
+        download = ("" if archive else
+                    f"curl -fsSL --retry 3 --retry-delay 5 {shlex.quote(url)} -o /tmp/hermes-release.tar.gz; ")
         await self.exec_as_agent(environment, command=(
             "set -euo pipefail; "
-            f"curl -fsSL {shlex.quote(url)} | bash -s -- --skip-setup --branch {shlex.quote(self._version)}; "
-            'export PATH="$HOME/.local/bin:$PATH"; hermes version'
+            'install_dir="$HOME/.local/share/hermes-agent"; mkdir -p "$install_dir"; '
+            f'{download}tar -xzf /tmp/hermes-release.tar.gz -C "$install_dir" --strip-components=1; '
+            'for stage in prerequisites venv python-deps node-deps path config; do '
+            'bash "$install_dir/scripts/install.sh" --dir "$install_dir" '
+            '--skip-setup --non-interactive --stage "$stage"; done; '
+            'export PATH="$HOME/.local/bin:$PATH"; hermes --version'
         ))
 
     def gateway_config(self, model: str, base_url: str) -> dict[str, Any]:
         config = yaml.safe_load(super()._build_config_yaml(model))
+        # Session titles are UI metadata; their auxiliary model request does
+        # not inherit the declared reasoning/output controls.
+        config["auxiliary"] = {"title_generation": {"enabled": False}}
         extra: dict[str, Any] = {}
         if self.thinking:
             extra["reasoning"] = {"effort": self.thinking}

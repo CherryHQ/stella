@@ -58,6 +58,10 @@ the agent's working budget.
 
 External workers first run a short shell-tool round trip through a local proxy that checks the actual model, reasoning effort, and output cap before forwarding to the gateway. This calls the model but runs no benchmark tasks or task images. The contract must pass before any dataset attempt is consumed. Use the `stella_harbor.harness_contract` module without `--live` for a fake-API-only check.
 
+Hermes downloads its pinned release archive once per host and installs it in each container using the release's official installer stages. Automatic session titles are disabled because their auxiliary requests do not inherit the declared model controls. Failed native checks retain a redacted `diagnostics/harness-contract.json` in the local run directory before cloud cleanup.
+
+Set `HERMES_RELEASE_ARCHIVE` to a local copy of the selected release archive to reuse verified bytes on AWS. The controller uploads it to the private run bucket and the worker verifies its SHA-256 before installation.
+
 For coordinated hosts, add `--defer-start`. After every worker reports `ready-for-start`, release each with `mise run eval:tb21:aws -- --release-start RUN_DIR`. Preparation includes native request contracts; the release refuses a worker that is not ready for its recorded commit. The normal timeout lease and cleanup still apply while waiting.
 
 ## Performance experiments

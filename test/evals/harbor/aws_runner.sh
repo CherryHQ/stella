@@ -168,6 +168,19 @@ until docker info >/dev/null 2>&1; do sleep 1; done
 
 # Validate a short tool round trip through a local field-checking proxy.
 # No benchmark task or task image is used before the start barrier.
+if [ "$HARNESS" = hermes ]; then
+  export HERMES_RELEASE_ARCHIVE="$ROOT/hermes-release.tar.gz"
+  if [ -n "${HARNESS_ARCHIVE_SHA256:-}" ]; then
+    aws s3 cp "s3://$BUCKET/input/hermes-release.tar.gz" "$HERMES_RELEASE_ARCHIVE" --only-show-errors
+    printf '%s  %s\n' "$HARNESS_ARCHIVE_SHA256" "$HERMES_RELEASE_ARCHIVE" | sha256sum -c -
+  else
+    curl -fsSL --retry 3 --retry-delay 5 \
+      "https://codeload.github.com/NousResearch/hermes-agent/tar.gz/refs/tags/$HARNESS_VERSION" \
+      -o "$HERMES_RELEASE_ARCHIVE"
+  fi
+  chmod 644 "$HERMES_RELEASE_ARCHIVE"
+  sha256sum "$HERMES_RELEASE_ARCHIVE" > "$ROOT/metrics/hermes-release.sha256"
+fi
 if [ "$HARNESS" != stella ]; then
   [ -n "$THINKING_LEVEL" ] && [ "$CONTEXT_WINDOW" -gt 0 ] && [ "$MAX_TOKENS" -gt 0 ] || {
     echo "external harnesses require explicit thinking and positive model limits" >&2
@@ -178,6 +191,11 @@ if [ "$HARNESS" != stella ]; then
     --agent "$HARNESS" --version "$HARNESS_VERSION" --model "$MODEL_ID" --thinking "$THINKING_LEVEL" \
     --context-window "$CONTEXT_WINDOW" --max-tokens "$MAX_TOKENS" --output "$ROOT/contracts" --live \
     > "$ROOT/logs/harness-contract.log" 2>&1; then
+    # The contract contains only request controls and a redacted error, never
+    # benchmark output. Save it before the worker's termination cleanup.
+    if [ -f "$ROOT/contracts/contract.json" ]; then
+      aws s3 cp "$ROOT/contracts/contract.json" "s3://$BUCKET/diagnostics/harness-contract.json" --only-show-errors
+    fi
     journal harness-contract-failed
     exit 1
   fi

@@ -52,6 +52,10 @@ Stella 按每题 agent timeout 及 Harbor 覆盖参数计算预算，在总预�
 
 外部 harness 主机会先通过本地校验代理完成一次简短的 shell 工具往返。代理在转发到真实网关前核对模型名、thinking 和输出上限。它会调用模型，但不运行任何 benchmark 题目或题目镜像；通过后才消耗正式尝试次数。单独运行 `stella_harbor.harness_contract` 且不传 `--live` 时，只使用假接口。
 
+Hermes 每台主机只下载一次固定版本的发布归档，再使用该版本官方安装器的分阶段流程安装到各容器。自动会话标题已关闭，因为它的辅助请求不会继承指定的模型参数。原生检查失败时，会在清理云资源前将脱敏的 `diagnostics/harness-contract.json` 保留到本地运行目录。
+
+将 `HERMES_RELEASE_ARCHIVE` 设为所选版本归档的本地路径，可在 AWS 复用已验证的文件。控制器会将其上传到本次运行的私有存储桶，远端在安装前校验 SHA-256。
+
 多机协调启动时加入 `--defer-start`。所有主机报告 `ready-for-start` 后，分别执行 `mise run eval:tb21:aws -- --release-start RUN_DIR` 放行。准备阶段包含原生请求契约检查；主机未就绪或提交不匹配时拒绝放行。等待期间仍受原有超时租约和清理机制约束。
 
 ## 性能实验

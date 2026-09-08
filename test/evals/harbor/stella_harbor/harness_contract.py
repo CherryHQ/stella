@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -23,6 +24,7 @@ from harbor.models.trial.paths import TrialPaths
 
 from stella_harbor.hermes_gateway import HermesGateway
 from stella_harbor.pi_gateway import PiGateway
+from stella_harbor.archive import _replace_known
 
 
 def response_events(model: str) -> list[dict]:
@@ -54,6 +56,8 @@ async def verify(args: argparse.Namespace) -> None:
     if args.live and (not upstream_url or not upstream_key):
         raise ValueError("live contract requires gateway credentials")
     contract_key = secrets.token_urlsafe(32)
+    archive = os.environ.get("HERMES_RELEASE_ARCHIVE") if args.agent == "hermes" else None
+    archive_sha256 = hashlib.sha256(Path(archive).read_bytes()).hexdigest() if archive else None
 
     def matches(request: dict) -> bool:
         return (request.get("model") == args.model
@@ -155,12 +159,14 @@ async def verify(args: argparse.Namespace) -> None:
             raise ValueError("live gateway did not complete a verified shell tool round trip")
     except BaseException as exc:
         error = f"{type(exc).__name__}: {exc}"
+        error = _replace_known(error, upstream_key)[0].replace(contract_key, "[redacted_secret]")
         raise
     finally:
         server.shutdown()
         server.server_close()
         await env.stop(delete=True)
         (args.output / "contract.json").write_text(json.dumps({"agent": args.agent, "version": args.version,
+            "release_archive_sha256": archive_sha256,
             "context_window": args.context_window, "expected": expected, "requests": requests,
             "live_gateway": args.live, "returned_models": sorted(returned_models), "gateway_errors": gateway_errors,
             "passed": error is None, "error": error}, indent=2) + "\n")

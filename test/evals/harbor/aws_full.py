@@ -452,6 +452,10 @@ def provision(
     # reports an empty repository. Publish the target as a normal branch.
     create_source_bundle(root, bundle, state["commit"], run_id)
     aws.run("s3", "cp", str(bundle), f"s3://{bucket}/input/stella.bundle", "--only-show-errors")
+    if state.get("agent") == "hermes" and os.environ.get("HERMES_RELEASE_ARCHIVE"):
+        archive = Path(os.environ["HERMES_RELEASE_ARCHIVE"]).resolve(strict=True)
+        aws.run("s3", "cp", str(archive), f"s3://{bucket}/input/hermes-release.tar.gz", "--only-show-errors")
+        update_state(state_path, state, harness_archive_sha256=sha256(archive))
     bundle.unlink()
     for local, remote in (
         (root / "test/evals/harbor/aws_runner.sh", "input/aws_runner.sh"),
@@ -780,6 +784,7 @@ def provision(
             "MODEL_ID": state["model_id"],
             "HARNESS": state.get("agent", "stella"),
             "HARNESS_VERSION": state.get("agent_version", ""),
+            "HARNESS_ARCHIVE_SHA256": state.get("harness_archive_sha256", ""),
             "THINKING_LEVEL": state.get("thinking_level", ""),
             "CONTEXT_WINDOW": state.get("context_window", 0),
             "MAX_TOKENS": state.get("max_tokens", 0),
@@ -1180,6 +1185,11 @@ def main(argv: list[str] | None = None) -> int:
         except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001  # cleanup is mandatory
             run_error = exc
             download_remote_journal(aws, state, run_dir)
+            if state.get("bucket_created"):
+                try:
+                    aws.run("s3", "sync", f"s3://{state['bucket']}/diagnostics", str(run_dir / "diagnostics"), "--only-show-errors")
+                except RuntimeError:
+                    journal.record("diagnostics-unavailable")
             if state.get("run_mode") in {"capacity", "throughput", "queued"} and state.get("bucket_created"):
                 try:
                     download_artifacts(aws, state, run_dir, journal)
