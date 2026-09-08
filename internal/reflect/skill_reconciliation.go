@@ -1,7 +1,6 @@
 package reflect
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -119,14 +118,9 @@ func skillRefsFromCandidates(candidates []skillCandidate) []CandidateRef {
 }
 
 func isReflectOwnedActiveUserAgentSkill(skill skill.Skill) bool {
-	if skill.Scope != "user_agent" || skill.Status != "active" {
-		return false
-	}
-	var metadata struct {
-		CreatedBy string `json:"created_by"`
-	}
-	if len(skill.Metadata) == 0 || json.Unmarshal(skill.Metadata, &metadata) != nil {
-		return false
-	}
-	return metadata.CreatedBy == "reflect"
+	// The related bundle is built from ListActiveReflectOwnedUserAgentSkills,
+	// which authenticates ownership from changelog evidence and the current
+	// file digest. Re-checking Metadata.created_by here would reject file-backed
+	// Skills, whose frontmatter deliberately strips that forgeable marker.
+	return skill.Scope == "user_agent" && skill.Status == "active"
 }

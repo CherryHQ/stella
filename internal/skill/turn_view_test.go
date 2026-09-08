@@ -3,9 +3,120 @@ package skill
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"strings"
 	"testing"
 )
+
+type capturedSkillReader struct {
+	*projectionReader
+	visible   []ManagedRevision
+	masked    []string
+	forbidden []string
+	captures  int
+}
+
+func (r *capturedSkillReader) CaptureVisible(context.Context, ViewContext) (SkillCapture, error) {
+	r.captures++
+	return SkillCapture{Revisions: r.visible, MaskedNames: append([]string(nil), r.masked...), ForbiddenNames: append([]string(nil), r.forbidden...)}, nil
+}
+
+func TestCaptureSkillTurnViewConsumersUseOneCapturedRevision(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	identity := Skill{ID: "managed-file", Scope: "user_agent", UserID: "user-1", AgentID: "agent-1", Name: "runbook", Description: "old description", Status: SkillStatusActive}
+	old := promptRevision(identity, digest, "# old bytes")
+	reader := &capturedSkillReader{
+		projectionReader: &projectionReader{revisions: map[string]ManagedRevision{identity.ID: old}},
+		visible:          []ManagedRevision{old},
+	}
+	ctx := t.Context()
+	view, err := CaptureSkillTurnView(ctx, reader, allowAllSkillReads{}, nil, nil, ViewContext{UserID: identity.UserID, AgentID: identity.AgentID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reader.captures != 1 {
+		t.Fatalf("CaptureVisible calls = %d, want 1", reader.captures)
+	}
+
+	reader.revisions[identity.ID] = promptRevision(identity, digest, "# changed source")
+	tool := newProjectionTool(t, reader, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{})
+	turnCtx := WithSkillTurnView(ctx, view)
+	loaded, err := skillAction(tool, "load").Execute(turnCtx, map[string]any{"name": identity.Name})
+	if err != nil || !strings.Contains(loaded, "# old bytes") || strings.Contains(loaded, "# changed source") {
+		t.Fatalf("captured load = %q, %v", loaded, err)
+	}
+	if reader.loads != 0 {
+		t.Fatalf("captured load reopened mutable revision = %d times", reader.loads)
+	}
+	search, err := skillAction(tool, "search").Execute(turnCtx, map[string]any{"q": "old description"})
+	if err != nil || !strings.Contains(search, identity.Name) {
+		t.Fatalf("captured search = %q, %v", search, err)
+	}
+}
+
+func TestCapturedRevisionCopiesBytesAndModes(t *testing.T) {
+	digest := strings.Repeat("b", 64)
+	identity := Skill{ID: "managed-file", Scope: "user", UserID: "user-1", Name: "copy", Status: SkillStatusActive}
+	source := promptRevision(identity, digest, "bytes")
+	reader := &capturedSkillReader{projectionReader: &projectionReader{}, visible: []ManagedRevision{source}}
+	view, err := CaptureSkillTurnView(t.Context(), reader, allowAllSkillReads{}, nil, nil, ViewContext{UserID: identity.UserID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Files[MainFile][0] = 'X'
+	source.Modes[MainFile] = fs.FileMode(0o600)
+	revision, ok := view.ManagedRevision(identity.ID)
+	if !ok || string(revision.Files[MainFile]) != "bytes" || revision.Modes[MainFile] != 0o644 {
+		t.Fatalf("captured revision mutated through input: %#v", revision)
+	}
+}
+
+func TestFilesystemMaskKeepsProjectWinnerButForbiddenHidesIt(t *testing.T) {
+	project := &ProjectSnapshot{skills: []Skill{{ID: "project:same", Scope: "project", Name: "same", Description: "project runbook", Status: SkillStatusActive}}}
+	reader := &capturedSkillReader{projectionReader: &projectionReader{}, masked: []string{"same"}}
+	view, err := CaptureSkillTurnView(t.Context(), reader, allowAllSkillReads{}, project, nil, ViewContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := newProjectionTool(t, reader, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{})
+	search, err := skillAction(tool, "search").Execute(WithSkillTurnView(t.Context(), view), map[string]any{"q": "project runbook"})
+	if err != nil || !strings.Contains(search, "same") {
+		t.Fatalf("ordinary masked project winner = %q, %v", search, err)
+	}
+
+	reader.forbidden = []string{"same"}
+	forbiddenView, err := CaptureSkillTurnView(t.Context(), reader, allowAllSkillReads{}, project, nil, ViewContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	search, err = skillAction(tool, "search").Execute(WithSkillTurnView(t.Context(), forbiddenView), map[string]any{"q": "project runbook"})
+	if err != nil || search != noInstalledSkills {
+		t.Fatalf("forbidden project winner = %q, %v", search, err)
+	}
+}
+
+func TestFilesystemForbiddenMasksManagedAndPackageWinners(t *testing.T) {
+	identity := Skill{ID: "managed-file", Scope: "user", UserID: "user-1", Name: "same", Description: "managed", Status: SkillStatusActive}
+	digest := strings.Repeat("f", 64)
+	reader := &capturedSkillReader{
+		projectionReader: &projectionReader{},
+		visible:          []ManagedRevision{promptRevision(identity, digest, "managed")},
+		forbidden:        []string{"same"},
+	}
+	packageRefs := []PackageSkillRef{{PackageID: "pkg-a", PackageDigest: "sha256:" + digest, Name: "same", Masked: true}, {PackageID: "pkg-b", PackageDigest: "sha256:" + digest, Name: "same"}}
+	view, err := CaptureSkillTurnView(t.Context(), reader, allowAllSkillReads{}, nil, packageRefs, ViewContext{UserID: identity.UserID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.ManagedIdentities()) != 0 {
+		t.Fatalf("forbidden managed winner survived: %#v", view.ManagedIdentities())
+	}
+	tool := newProjectionTool(t, reader, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).WithPluginVisibility([]string{"pkg"}, []string{"pkg"})
+	search, err := skillAction(tool, "search").Execute(WithSkillTurnView(t.Context(), view), map[string]any{"q": "same"})
+	if err != nil || search != noInstalledSkills {
+		t.Fatalf("forbidden package winner survived: %q, %v", search, err)
+	}
+}
 
 func TestCaptureSkillTurnViewPinsDigestAndContextCopies(t *testing.T) {
 	digest := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

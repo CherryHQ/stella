@@ -3,6 +3,8 @@ package skill
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -250,6 +252,10 @@ func filterMaskedSkills(skills []ResolvedSkill, names []string) []ResolvedSkill 
 	}
 	out := make([]ResolvedSkill, 0, len(skills))
 	for _, candidate := range skills {
+		if candidate.project != nil {
+			out = append(out, candidate)
+			continue
+		}
 		if _, ok := masked[candidate.Name]; !ok {
 			out = append(out, candidate)
 		}
@@ -288,6 +294,14 @@ func (t *Tool) hydrateAuthorized(ctx context.Context, merged []ResolvedSkill) ([
 }
 
 func (t *Tool) loadSelectedRevision(ctx context.Context, rs ResolvedSkill) (ManagedRevision, error) {
+	if turn, ok := SkillTurnViewFromContext(ctx); ok {
+		if revision, captured := turn.ManagedRevision(rs.ID); captured {
+			return revision, nil
+		}
+		if isFileSkillID(rs.ID) {
+			return ManagedRevision{}, ErrInvalidSkillRevision
+		}
+	}
 	identity := resolvedIdentity(rs)
 	if validSkillDigest(rs.ContentDigest) {
 		return t.runtime.LoadExactRevision(ctx, identity, rs.ContentDigest)
@@ -441,7 +455,8 @@ func packageSkillProjection(revision PackageSkillRevision) (immutableSkillProjec
 }
 
 func managedSkillProjection(revision ManagedRevision) (immutableSkillProjection, error) {
-	if !validInventoryComponent(revision.Skill.Scope) || !validInventoryComponent(revision.Skill.ID) || !validSkillDigest(revision.Skill.ContentDigest) {
+	validID := validInventoryComponent(revision.Skill.ID) || isFileSkillID(revision.Skill.ID)
+	if !validInventoryComponent(revision.Skill.Scope) || !validID || !validSkillDigest(revision.Skill.ContentDigest) {
 		return immutableSkillProjection{}, ErrInvalidSkillRevision
 	}
 	if len(revision.Modes) != len(revision.Files) {
@@ -469,10 +484,18 @@ func managedSkillProjection(revision ManagedRevision) (immutableSkillProjection,
 	}
 	return immutableSkillProjection{
 		kind:   revision.Skill.Scope,
-		id:     revision.Skill.ID,
+		id:     skillProjectionID(revision.Skill),
 		digest: revision.Skill.ContentDigest,
 		files:  projected,
 	}, nil
+}
+
+func skillProjectionID(skill Skill) string {
+	if !isFileSkillID(skill.ID) {
+		return skill.ID
+	}
+	digest := sha256.Sum256([]byte(skill.ID))
+	return hex.EncodeToString(digest[:])
 }
 
 func (t *Tool) projectSkill(projection immutableSkillProjection) (string, error) {
@@ -517,7 +540,7 @@ func (t *Tool) touchReflectSkillRuntimeUse(ctx context.Context, resolved *Resolv
 	if resolved == nil || resolved.Scope != "user_agent" || resolved.UserID != vc.UserID || resolved.AgentID != vc.AgentID {
 		return nil
 	}
-	if !IsReflectOwned(Skill{Metadata: resolved.Metadata}) {
+	if !isFileSkillID(resolved.ID) && !IsReflectOwned(Skill{Metadata: resolved.Metadata}) {
 		return nil
 	}
 	touchCtx, cancel := context.WithTimeout(ctx, runtimeUsageTouchTimeout)

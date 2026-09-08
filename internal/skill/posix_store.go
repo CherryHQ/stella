@@ -738,7 +738,7 @@ func (s *POSIXStore) recordManagedEvidence(ctx context.Context, before, after Sk
 		_, err = q.InsertSkillChangelog(ctx, sqlc.InsertSkillChangelogParams{
 			SkillID: after.ID, UserID: pgtype.Text{String: after.UserID, Valid: after.UserID != ""}, AgentID: pgtype.Text{String: after.AgentID, Valid: after.AgentID != ""},
 			Scope: after.Scope, Action: "patch", VersionBefore: pgtype.Int8{Int64: before.Version, Valid: true}, VersionAfter: after.Version,
-			ContentDigest: digestText(after.ContentDigest), Metadata: json.RawMessage(`{}`),
+			ContentDigest: digestText(after.ContentDigest), Writer: ManualSkillCreatedBy, Metadata: json.RawMessage(`{}`),
 		})
 	}
 	if err != nil {
@@ -922,6 +922,7 @@ func mapChangelogRow(row sqlc.SkillChangelog) SkillChangelog {
 		VersionBefore: row.VersionBefore.Int64,
 		VersionAfter:  row.VersionAfter,
 		ContentDigest: row.ContentDigest.String,
+		Writer:        row.Writer,
 		Metadata:      row.Metadata,
 		CreatedAt:     row.CreatedAt.UTC(),
 	}

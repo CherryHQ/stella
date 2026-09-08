@@ -164,7 +164,7 @@ func TestFilesystemResourceConflicts(t *testing.T) {
 		t.Fatalf("capture: %v %v", resources, err)
 	}
 	for _, resource := range resources {
-		if resource.Key.Kind == ResourceSkill && len(resource.Skills) != 1 {
+		if resource.Key.Kind == ResourceSkill && (resource.Content == nil || len(resource.Diagnostics) != 0) {
 			t.Fatal("independent Skill did not win")
 		}
 		if resource.Key.Kind == ResourcePlugin && (len(resource.Skills) != 0 || len(resource.Diagnostics) != 0) {

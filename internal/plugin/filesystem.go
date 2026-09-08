@@ -58,6 +58,7 @@ type FileResource struct {
 	Skills        []agentpackage.Skill
 	MCP           map[string]mcpconfig.Declaration
 	Disabled      bool
+	Forbidden     bool
 	DisabledTools []string
 	Diagnostics   agentpackage.Diagnostics
 }
@@ -114,7 +115,7 @@ func DiscoverResources(ctx context.Context, roots []ResourceRoot) ([]FileResourc
 				if kind == ResourceMCP {
 					dir = "mcp"
 				}
-				entries, err := opened.List(ctx, dir, home.ListOptions{Limit: resourceMaxEntries})
+				entries, err := opened.List(ctx, dir, home.ListOptions{Limit: ResourceMaxEntries})
 				if errors.Is(err, fs.ErrNotExist) {
 					continue
 				}
@@ -154,18 +155,7 @@ func DiscoverResources(ctx context.Context, roots []ResourceRoot) ([]FileResourc
 							}
 						}
 					} else {
-						resource.Content, captureErr = captureResource(ctx, opened, dir+"/"+entry.Name())
-						if captureErr == nil && kind == ResourceSkill {
-							data, err := fs.ReadFile(resource.Content.FS(), "SKILL.md")
-							if err == nil {
-								var parsed agentpackage.Skill
-								parsed, err = agentpackage.ParseSkill(name, data, 0o444)
-								if err == nil {
-									resource.Skills = []agentpackage.Skill{parsed}
-								}
-							}
-							captureErr = err
-						}
+						resource.Content, captureErr = CaptureResource(ctx, opened, dir+"/"+entry.Name())
 						if captureErr == nil && kind == ResourcePlugin {
 							resource.Package, resource.Diagnostics = agentpackage.LoadFS(resource.Content.FS())
 							if resource.Package != nil && resource.Package.Manifest.Name != name {
@@ -182,7 +172,7 @@ func DiscoverResources(ctx context.Context, roots []ResourceRoot) ([]FileResourc
 						totalBytes += capturedBytes
 						totalFiles++
 					}
-					if totalBytes > resourceMaxBytes || totalFiles > resourceMaxFiles {
+					if totalBytes > ResourceMaxBytes || totalFiles > ResourceMaxFiles {
 						return ErrResourceLimit
 					}
 					if resource.Package != nil {
@@ -234,6 +224,7 @@ func DiscoverResources(ctx context.Context, roots []ResourceRoot) ([]FileResourc
 	for _, name := range slices.Sorted(maps.Keys(selected)) {
 		resource := selected[name]
 		resource.Disabled = resource.Disabled || forbidden[name]
+		resource.Forbidden = forbidden[name]
 		resource.DisabledTools = append(resource.DisabledTools, toolLimits[name]...)
 		slices.Sort(resource.DisabledTools)
 		resource.DisabledTools = slices.Compact(resource.DisabledTools)

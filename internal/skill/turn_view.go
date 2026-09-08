@@ -1,9 +1,11 @@
 package skill
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"path"
 	"slices"
@@ -42,6 +44,19 @@ type PackageSkillRef struct {
 // every search/load; this snapshot never extends authorization after revocation.
 type ManagedSkillRef struct {
 	Identity Skill
+
+	// captured is non-nil for filesystem-backed Skills. The bytes and modes are
+	// the only content source for this turn; consumers must not reopen a
+	// mutable path or call LoadExactRevision for these refs. Nil means legacy
+	// POSIX identity-only behavior.
+	captured *ManagedRevision
+}
+
+// visibleSkillCapture is intentionally local to the turn admission path. It
+// lets the new filesystem store provide one bounded capture without changing
+// the temporary IdentityReader contract used by legacy POSIX callers.
+type visibleSkillCapture interface {
+	CaptureVisible(context.Context, ViewContext) (SkillCapture, error)
 }
 
 // CaptureSkillTurnView snapshots the visible managed identities and their
@@ -50,6 +65,9 @@ type ManagedSkillRef struct {
 func CaptureSkillTurnView(ctx context.Context, reader IdentityReader, authorizer SkillReadAuthorizer, project *ProjectSnapshot, packages []PackageSkillRef, vc ViewContext) (SkillTurnView, error) {
 	if reader == nil || authorizer == nil {
 		return SkillTurnView{}, ErrManagedSkillsUnavailable
+	}
+	if capture, ok := reader.(visibleSkillCapture); ok {
+		return captureFilesystemSkillTurnView(ctx, capture, authorizer, project, packages, vc)
 	}
 	identities, err := listManagedIdentitiesWhenAvailable(ctx, reader, vc)
 	if err != nil {
@@ -104,6 +122,152 @@ func CaptureSkillTurnView(ctx context.Context, reader IdentityReader, authorizer
 	}
 	masked = append(masked, packageMaskedNamesForSelection(project, selected, packages, masked)...)
 	return newSkillTurnView(project, managed, packages, vc.DisabledSkillRefs, masked)
+}
+
+func captureFilesystemSkillTurnView(ctx context.Context, capture visibleSkillCapture, authorizer SkillReadAuthorizer, project *ProjectSnapshot, packages []PackageSkillRef, vc ViewContext) (SkillTurnView, error) {
+	// BeginRead validates the trusted actor before CaptureVisible opens any
+	// user-owned root. An unauthenticated caller can still see immutable
+	// project/package/release skills, but receives no filesystem diagnostics.
+	decision, err := authorizer.BeginRead(ctx)
+	if errors.Is(err, authz.ErrUnauthenticated) {
+		view, viewErr := newSkillTurnView(project, nil, packages, vc.DisabledSkillRefs, packageMaskedNamesForSelection(project, nil, packages, nil))
+		if viewErr != nil {
+			return SkillTurnView{}, viewErr
+		}
+		return view, ValidateSkillTurnSelection(view)
+	}
+	if err != nil {
+		return SkillTurnView{}, err
+	}
+	if decision == nil {
+		return SkillTurnView{}, ErrSkillReadUnavailable
+	}
+
+	captured, err := capture.CaptureVisible(ctx, vc)
+	if err != nil {
+		return SkillTurnView{}, err
+	}
+	project = projectWithoutForbiddenNames(project, captured.ForbiddenNames)
+	masked := append(slices.Clone(captured.MaskedNames), captured.ForbiddenNames...)
+	revisions := captured.Revisions
+	identities := make([]Skill, 0, len(revisions))
+	byID := make(map[string]ManagedRevision, len(revisions))
+	forbiddenSet := make(map[string]struct{}, len(captured.ForbiddenNames))
+	for _, name := range captured.ForbiddenNames {
+		forbiddenSet[name] = struct{}{}
+	}
+	for _, revision := range revisions {
+		if !validCapturedManagedRevision(revision) {
+			return SkillTurnView{}, ErrInvalidSkillRevision
+		}
+		if _, forbidden := forbiddenSet[revision.Skill.Name]; forbidden {
+			continue
+		}
+		identities = append(identities, revision.Skill)
+		byID[revision.Skill.ID] = revision
+	}
+	selectionPackages := slices.Clone(packages)
+	for i := range selectionPackages {
+		if _, forbidden := forbiddenSet[selectionPackages[i].Name]; forbidden {
+			selectionPackages[i].Disabled = true
+			selectionPackages[i].Masked = false
+		}
+	}
+	selected, err := selectManagedSkillIdentities(project, identities, selectionPackages, masked)
+	if err != nil {
+		return SkillTurnView{}, err
+	}
+	managed := make([]ManagedSkillRef, 0, len(selected))
+	for _, identity := range selected {
+		if isDisabledIdentity(identity, vc.DisabledSkillRefs) {
+			masked = append(masked, identity.Name)
+			continue
+		}
+		canRead, err := decision.AllowRead(ctx, identity.ID, identity.Scope, identity.UserID, identity.AgentID)
+		if err != nil {
+			return SkillTurnView{}, err
+		}
+		if !canRead {
+			masked = append(masked, identity.Name)
+			continue
+		}
+		revision, ok := byID[identity.ID]
+		if !ok || !sameSkillIdentity(identity, revision.Skill) {
+			return SkillTurnView{}, ErrInvalidSkillRevision
+		}
+		capturedRevision := cloneManagedRevision(revision)
+		managed = append(managed, ManagedSkillRef{Identity: capturedRevision.Skill, captured: &capturedRevision})
+	}
+	masked = append(masked, packageMaskedNamesForSelection(project, selected, selectionPackages, masked)...)
+	view, err := newSkillTurnView(project, managed, selectionPackages, vc.DisabledSkillRefs, masked)
+	if err != nil {
+		return SkillTurnView{}, err
+	}
+	return view, ValidateSkillTurnSelection(view)
+}
+
+// projectWithoutForbiddenNames removes administrator-forbidden project Skills
+// before the ordinary mask is attached to the view. Ordinary malformed or
+// disabled managed Skills still leave a same-name project winner intact.
+func projectWithoutForbiddenNames(project *ProjectSnapshot, names []string) *ProjectSnapshot {
+	if project == nil || len(names) == 0 {
+		return project
+	}
+	blocked := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		blocked[name] = struct{}{}
+	}
+	clone := &ProjectSnapshot{
+		dirs:   maps.Clone(project.dirs),
+		files:  maps.Clone(project.files),
+		modes:  maps.Clone(project.modes),
+		skills: make([]Skill, 0, len(project.skills)),
+	}
+	for _, skill := range project.skills {
+		if _, forbidden := blocked[skill.Name]; forbidden {
+			continue
+		}
+		skill.Metadata = bytes.Clone(skill.Metadata)
+		clone.skills = append(clone.skills, skill)
+	}
+	for name, dir := range clone.dirs {
+		if _, forbidden := blocked[name]; !forbidden {
+			continue
+		}
+		delete(clone.dirs, name)
+		prefix := dir + "/"
+		maps.DeleteFunc(clone.files, func(filename string, _ string) bool { return strings.HasPrefix(filename, prefix) })
+		maps.DeleteFunc(clone.modes, func(filename string, _ fs.FileMode) bool { return strings.HasPrefix(filename, prefix) })
+	}
+	return clone
+}
+
+func validCapturedManagedRevision(revision ManagedRevision) bool {
+	if revision.Skill.ID == "" || revision.Skill.Name == "" || !validSkillDigest(revision.Skill.ContentDigest) {
+		return false
+	}
+	if len(revision.Files) == 0 || len(revision.Files) != len(revision.Modes) {
+		return false
+	}
+	for filename := range revision.Files {
+		mode, ok := revision.Modes[filename]
+		if !ok || mode&fs.ModeType != 0 || mode.Perm()&0o444 == 0 || !fs.ValidPath(filename) || filename == "." {
+			return false
+		}
+	}
+	_, hasMain := revision.Files[MainFile]
+	return hasMain
+}
+
+func cloneManagedRevision(revision ManagedRevision) ManagedRevision {
+	clone := revision
+	clone.Skill.Metadata = bytes.Clone(revision.Skill.Metadata)
+	clone.Files = make(map[string][]byte, len(revision.Files))
+	for filename, content := range revision.Files {
+		clone.Files[filename] = bytes.Clone(content)
+	}
+	clone.Modes = maps.Clone(revision.Modes)
+	return clone
 }
 
 func selectManagedSkillIdentities(project *ProjectSnapshot, managed []Skill, packages []PackageSkillRef, masked []string) ([]Skill, error) {
@@ -285,6 +449,13 @@ func newSkillTurnView(project *ProjectSnapshot, managed []ManagedSkillRef, packa
 		if !validSkillDigest(view.managed[i].Identity.ContentDigest) || view.managed[i].Identity.ID == "" || view.managed[i].Identity.Name == "" {
 			return SkillTurnView{}, ErrInvalidSkillRevision
 		}
+		if view.managed[i].captured != nil {
+			captured := cloneManagedRevision(*view.managed[i].captured)
+			view.managed[i].captured = &captured
+			if !sameSkillIdentity(view.managed[i].Identity, captured.Skill) || !validCapturedManagedRevision(captured) {
+				return SkillTurnView{}, ErrInvalidSkillRevision
+			}
+		}
 	}
 	for _, ref := range view.packages {
 		if !validInventoryComponent(ref.PackageID) || !validInventoryComponent(ref.Name) || !validPackageDigest(ref.PackageDigest) {
@@ -326,16 +497,32 @@ func (v SkillTurnView) ManagedSkills() []ManagedSkillRef {
 	out := slices.Clone(v.managed)
 	for i := range out {
 		out[i].Identity.Metadata = slices.Clone(out[i].Identity.Metadata)
+		if out[i].captured != nil {
+			captured := cloneManagedRevision(*out[i].captured)
+			out[i].captured = &captured
+		}
 	}
 	return out
 }
 
+// ManagedRevision returns a detached copy of the exact bytes captured for a
+// filesystem-backed ref. Legacy POSIX refs return false and are loaded through
+// the existing revision reader.
+func (v SkillTurnView) ManagedRevision(id string) (ManagedRevision, bool) {
+	for _, ref := range v.managed {
+		if ref.captured != nil && ref.Identity.ID == id {
+			return cloneManagedRevision(*ref.captured), true
+		}
+	}
+	return ManagedRevision{}, false
+}
+
 // ManagedIdentities returns the selected managed rows with their exact digest.
 func (v SkillTurnView) ManagedIdentities() []Skill {
-	refs := v.ManagedSkills()
-	out := make([]Skill, 0, len(refs))
-	for _, ref := range refs {
-		out = append(out, ref.Identity)
+	out := make([]Skill, len(v.managed))
+	for i, ref := range v.managed {
+		out[i] = ref.Identity
+		out[i].Metadata = slices.Clone(ref.Identity.Metadata)
 	}
 	return out
 }
@@ -385,6 +572,10 @@ func (v SkillTurnView) Clone() SkillTurnView {
 	}
 	for i := range clone.managed {
 		clone.managed[i].Identity.Metadata = slices.Clone(clone.managed[i].Identity.Metadata)
+		if clone.managed[i].captured != nil {
+			captured := cloneManagedRevision(*clone.managed[i].captured)
+			clone.managed[i].captured = &captured
+		}
 	}
 	return clone
 }

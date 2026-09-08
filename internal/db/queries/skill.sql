@@ -46,6 +46,7 @@ INSERT INTO skill_changelog (
   version_before,
   version_after,
   content_digest,
+  writer,
   metadata
 )
 VALUES (
@@ -57,6 +58,7 @@ VALUES (
   sqlc.narg(version_before),
   sqlc.arg(version_after),
   sqlc.narg(content_digest),
+  sqlc.arg(writer),
   sqlc.arg(metadata)
 )
 RETURNING *;
@@ -64,8 +66,14 @@ RETURNING *;
 -- name: ListSkillChangelogBySkill :many
 SELECT * FROM skill_changelog
 WHERE skill_id = sqlc.arg(skill_id)
-ORDER BY version_after DESC, created_at DESC, id DESC
+ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(limit_count);
+
+-- name: GetLatestSkillChangelogBySkill :one
+SELECT * FROM skill_changelog
+WHERE skill_id = sqlc.arg(skill_id)
+ORDER BY created_at DESC, id DESC
+LIMIT 1;
 
 -- name: GetUserAgentSkillByName :one
 SELECT * FROM skill

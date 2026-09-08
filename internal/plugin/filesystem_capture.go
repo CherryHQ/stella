@@ -20,11 +20,11 @@ import (
 // Capture limits match project Skill snapshots. Large CLI artifacts belong in
 // the installer cache, never inside the authored resource tree.
 const (
-	resourceMaxFiles     = 512
-	resourceMaxFileBytes = 1 << 20
-	resourceMaxBytes     = 16 << 20
-	resourceMaxEntries   = 4096
-	resourceMaxDepth     = 64
+	ResourceMaxFiles     = 512
+	ResourceMaxFileBytes = 1 << 20
+	ResourceMaxBytes     = 16 << 20
+	ResourceMaxEntries   = 4096
+	ResourceMaxDepth     = 64
 )
 
 var ErrResourceLimit = errors.New("plugin: resource capture limit exceeded")
@@ -39,13 +39,13 @@ type ResourceContent struct {
 
 func (c *ResourceContent) FS() fs.FS { return c.fs }
 
-func captureResource(ctx context.Context, root home.RootOperations, base string) (*ResourceContent, error) {
+func CaptureResource(ctx context.Context, root home.RootOperations, base string) (*ResourceContent, error) {
 	var archive bytes.Buffer
 	writer := zip.NewWriter(&archive)
 	count, entries, total := 0, 0, 0
 	var walk func(string, int) error
 	walk = func(dir string, depth int) error {
-		if depth > resourceMaxDepth {
+		if depth > ResourceMaxDepth {
 			return ErrResourceLimit
 		}
 		children, err := root.List(ctx, dir, home.ListOptions{Limit: 1024})
@@ -55,7 +55,7 @@ func captureResource(ctx context.Context, root home.RootOperations, base string)
 		slices.SortFunc(children, func(a, b fs.DirEntry) int { return cmp.Compare(a.Name(), b.Name()) })
 		for _, child := range children {
 			entries++
-			if entries > resourceMaxEntries {
+			if entries > ResourceMaxEntries {
 				return ErrResourceLimit
 			}
 			name := child.Name()
@@ -77,15 +77,15 @@ func captureResource(ctx context.Context, root home.RootOperations, base string)
 				return fmt.Errorf("plugin: unsupported resource file %q", relative)
 			}
 			count++
-			if count > resourceMaxFiles {
+			if count > ResourceMaxFiles {
 				return ErrResourceLimit
 			}
 			var data bytes.Buffer
-			if err := root.Read(ctx, relative, &data, home.ReadOptions{MaxBytes: resourceMaxFileBytes}); err != nil {
+			if err := root.Read(ctx, relative, &data, home.ReadOptions{MaxBytes: ResourceMaxFileBytes}); err != nil {
 				return err
 			}
 			total += data.Len()
-			if total > resourceMaxBytes {
+			if total > ResourceMaxBytes {
 				return ErrResourceLimit
 			}
 			capturedName := strings.TrimPrefix(relative, base+"/")

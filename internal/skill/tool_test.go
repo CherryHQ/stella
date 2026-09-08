@@ -2,6 +2,8 @@ package skill
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -146,6 +148,19 @@ func TestPackageSkillLoadRejectsReaderForAnotherPath(t *testing.T) {
 	_, err = tool.Load(WithSkillTurnView(t.Context(), view), SkillLoadInput{Name: "docs"})
 	if !errors.Is(err, ErrInvalidSkillRevision) {
 		t.Fatalf("load mismatched package path error = %v, want ErrInvalidSkillRevision", err)
+	}
+}
+
+func TestManagedFileSkillProjectionHashesLongLogicalID(t *testing.T) {
+	logicalID := fileSkillID("user_agent", strings.Repeat("u", 180), strings.Repeat("a", 180), "docs")
+	revision := promptRevision(Skill{ID: logicalID, Scope: "user_agent", UserID: strings.Repeat("u", 180), AgentID: strings.Repeat("a", 180), Name: "docs"}, strings.Repeat("e", 64), "# Docs")
+	projection, err := managedSkillProjection(revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := sha256.Sum256([]byte(logicalID))
+	if projection.id != hex.EncodeToString(want[:]) || len(projection.id) > 128 {
+		t.Fatalf("projection id = %q, want sha256 logical id", projection.id)
 	}
 }
 

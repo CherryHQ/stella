@@ -46,9 +46,7 @@ func insertReflectEvidence(ctx context.Context, q *sqlc.Queries, before *Skill, 
 	}
 	var err error
 	if action == "create" {
-		err = q.UpsertSkillUsageOnReflectCreate(ctx, sqlc.UpsertSkillUsageOnReflectCreateParams{
-			SkillID: usage.SkillID, UserID: usage.UserID, AgentID: usage.AgentID, ContentDigest: usage.ContentDigest,
-		})
+		err = q.UpsertSkillUsageOnReflectCreate(ctx, sqlc.UpsertSkillUsageOnReflectCreateParams(usage))
 	} else {
 		err = q.RefreshSkillUsageOnReflectPatch(ctx, usage)
 	}
@@ -57,7 +55,7 @@ func insertReflectEvidence(ctx context.Context, q *sqlc.Queries, before *Skill, 
 	}
 	params := sqlc.InsertSkillChangelogParams{
 		SkillID: after.ID, UserID: pgtype.Text{String: after.UserID, Valid: true}, AgentID: pgtype.Text{String: after.AgentID, Valid: true},
-		Scope: after.Scope, Action: action, VersionAfter: after.Version, ContentDigest: digestText(after.ContentDigest), Metadata: metadata,
+		Scope: after.Scope, Action: action, VersionAfter: after.Version, ContentDigest: digestText(after.ContentDigest), Writer: ReflectSkillCreatedBy, Metadata: metadata,
 	}
 	if before != nil {
 		params.VersionBefore = pgtype.Int8{Int64: before.Version, Valid: true}
@@ -97,9 +95,7 @@ func (s *POSIXStore) ensureReflectEvidence(ctx context.Context, before *Skill, a
 	q := s.q.WithTx(tx)
 	usage := sqlc.RefreshSkillUsageOnReflectPatchParams{SkillID: after.ID, UserID: after.UserID, AgentID: after.AgentID, ContentDigest: digestText(after.ContentDigest)}
 	if action == "create" {
-		err = q.UpsertSkillUsageOnReflectCreate(ctx, sqlc.UpsertSkillUsageOnReflectCreateParams{
-			SkillID: usage.SkillID, UserID: usage.UserID, AgentID: usage.AgentID, ContentDigest: usage.ContentDigest,
-		})
+		err = q.UpsertSkillUsageOnReflectCreate(ctx, sqlc.UpsertSkillUsageOnReflectCreateParams(usage))
 	} else {
 		err = q.RefreshSkillUsageOnReflectPatch(ctx, usage)
 	}

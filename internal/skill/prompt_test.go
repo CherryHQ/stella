@@ -52,6 +52,31 @@ func TestBuildAuthorizedPromptSectionUsesExactManagedAuthority(t *testing.T) {
 	}
 }
 
+func TestBuildAuthorizedPromptSectionUsesCapturedFilesystemMetadata(t *testing.T) {
+	digest := strings.Repeat("d", 64)
+	identity := Skill{ID: "managed-file", Scope: "system", Name: "captured", Description: "old description", Status: SkillStatusActive}
+	old := promptRevision(identity, digest, "# old")
+	reader := &capturedSkillReader{
+		projectionReader: &projectionReader{revisions: map[string]ManagedRevision{identity.ID: old}},
+		visible:          []ManagedRevision{old},
+	}
+	view, err := CaptureSkillTurnView(t.Context(), reader, allowAllSkillReads{}, nil, nil, ViewContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.revisions[identity.ID] = promptRevision(identity, digest, "# changed")
+	section, err := BuildAuthorizedPromptSection(WithSkillTurnView(t.Context(), view), pkgplugins.SystemPromptContext{}, nil, reader, allowAllSkillReads{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(section.Content, "<name>captured</name>") || !strings.Contains(section.Content, "old description") || strings.Contains(section.Content, "changed") {
+		t.Fatalf("captured prompt = %s", section.Content)
+	}
+	if reader.loads != 0 {
+		t.Fatalf("captured prompt reopened mutable revision = %d times", reader.loads)
+	}
+}
+
 func TestBuildAuthorizedPromptSectionFailsClosedWithoutAuthority(t *testing.T) {
 	reader := &projectionReader{}
 	for name, call := range map[string]func() error{

@@ -44,6 +44,7 @@ type SkillChangelog struct {
 	VersionBefore int64
 	VersionAfter  int64
 	ContentDigest string
+	Writer        string
 	Metadata      json.RawMessage
 	CreatedAt     time.Time
 }

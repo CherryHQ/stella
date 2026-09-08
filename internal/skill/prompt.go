@@ -64,7 +64,18 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 			continue
 		}
 		var revision ManagedRevision
-		if validSkillDigest(rs.ContentDigest) {
+		if turn, hasTurn := SkillTurnViewFromContext(ctx); hasTurn {
+			var captured bool
+			revision, captured = turn.ManagedRevision(rs.ID)
+			if !captured && isFileSkillID(rs.ID) {
+				return pkgplugins.SystemPromptSection{}, ErrInvalidSkillRevision
+			}
+			if !captured && validSkillDigest(rs.ContentDigest) {
+				revision, err = reader.LoadExactRevision(ctx, resolvedIdentity(rs), rs.ContentDigest)
+			} else if !captured {
+				revision, err = reader.LoadCurrentRevision(ctx, resolvedIdentity(rs))
+			}
+		} else if validSkillDigest(rs.ContentDigest) {
 			revision, err = reader.LoadExactRevision(ctx, resolvedIdentity(rs), rs.ContentDigest)
 		} else {
 			revision, err = reader.LoadCurrentRevision(ctx, resolvedIdentity(rs))

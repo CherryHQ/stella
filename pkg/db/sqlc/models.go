@@ -1120,6 +1120,7 @@ type SkillChangelog struct {
 	Metadata      json.RawMessage `json:"metadata"`
 	CreatedAt     time.Time       `json:"created_at"`
 	ContentDigest pgtype.Text     `json:"content_digest"`
+	Writer        string          `json:"writer"`
 }
 
 type SkillFile struct {
