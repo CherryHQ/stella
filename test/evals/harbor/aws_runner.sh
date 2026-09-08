@@ -328,7 +328,7 @@ run_eval() {
       testbed_diagnostic=$(safe_testbed_diagnostic)
       [ -z "$testbed_diagnostic" ] || diagnostic="$diagnostic testbed=$testbed_diagnostic"
     fi
-    journal "$group-failed" "exit=$eval_status diagnostic=$diagnostic"
+    journal "$group-failed" "exit=$eval_status diagnostic=$diagnostic $(safe_process_error "$log")"
     if [ "$RUN_MODE" = capacity ] || [ "$RUN_MODE" = throughput ] || [ "$RUN_MODE" = queued ]; then
       # Preserve the failed primary instead of retrying away capacity failures.
       LAST_EVAL_STATUS=$eval_status

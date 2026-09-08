@@ -142,4 +142,4 @@ def test_deepseek_uses_literal_max_and_requested_model_limits(tmp_path):
     assert model["maxTokens"] == 384000
     assert model["thinkingLevelMap"]["max"] == "max"
     agent = PiGateway(logs_dir=tmp_path, model_name="gateway/deepseek/deepseek-v4-flash", thinking="max", version="0.85.1")
-    assert agent.build_cli_flags() == "--thinking max"
+    assert agent.build_cli_flags() == "--thinking max --"

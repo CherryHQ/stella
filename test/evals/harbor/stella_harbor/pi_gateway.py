@@ -106,6 +106,12 @@ class PiGateway(Pi):
     def name() -> str:
         return "pi-gateway"
 
+    @override
+    def build_cli_flags(self) -> str:
+        # Benchmark instructions can begin with a Markdown bullet. Keep the
+        # instruction positional instead of letting Pi parse it as an option.
+        return f"{super().build_cli_flags()} --".strip()
+
     def _credentials(self) -> tuple[str, str]:
         base_url = self._get_env("OPENAI_BASE_URL")
         api_key = self._get_env("OPENAI_API_KEY")

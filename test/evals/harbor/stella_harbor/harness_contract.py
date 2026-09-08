@@ -152,6 +152,8 @@ async def verify(args: argparse.Namespace) -> None:
         await env.exec("mkdir -p /logs/agent /logs/verifier")
         await asyncio.wait_for(agent.setup(env), timeout=600)
         instruction = "Use a shell tool to print contract-ok, then reply with only OK." if args.live else "Reply with only OK. Do not call tools."
+        if args.agent == "pi":
+            instruction = "- " + instruction
         await asyncio.wait_for(agent.run(instruction, env, AgentContext()), timeout=120)
         if not requests or not all(matches(request) for request in requests):
             raise ValueError("native harness did not send the declared model controls")

@@ -352,6 +352,7 @@ export STELLA_EVAL_ADMIN_TOKEN STELLA_EVAL_PROVIDER_EVIDENCE_FILE STELLA_EVAL_MO
 export STELLA_EVAL_EXCLUDED_TOOLS=$EXCLUDED_TOOLS
 
 if [ -n "${STELLA_EVAL_THINKING_LEVEL:-}" ]; then
+  mkdir -p "$(dirname "$JOB")"
   python3 - "$WORK/default-models.json" <<'PYTHINKING'
 import json, os, sys
 json.dump({"model": os.environ["MODEL"], "model_thinking": os.environ["STELLA_EVAL_THINKING_LEVEL"]}, open(sys.argv[1], "w"))
