@@ -16,6 +16,13 @@ type ManagementAccess interface {
 	ManageByID(context.Context, authz.Authority, string, authz.Action) (Skill, error)
 }
 
+// PackageSkillCopyReader is the authority-bound plugin read seam used by
+// CopyPackageSkill. It accepts only durable package identity, digest, and
+// declared Skill name; it never accepts a host path.
+type PackageSkillCopyReader interface {
+	ReadPackageSkill(context.Context, authz.Authority, string, string, string) (PackageSkillRevision, error)
+}
+
 // WorkerAccess is the narrow PEP used by Reflect's fixed user_agent worker.
 type WorkerAccess interface {
 	AuthorizeWorkerWrite(context.Context, string, string, string, bool) error
@@ -25,6 +32,7 @@ type WorkerAccess interface {
 type ManagementStore interface {
 	IdentityReader
 	CreateManagedSkill(context.Context, Skill, map[string]string) (SkillSnapshot, error)
+	CreateManagedSkillWithFiles(context.Context, Skill, map[string]ManagedSkillFile) (SkillSnapshot, error)
 	UpdateManagedSkill(context.Context, ManagedSkillUpdate) (SkillSnapshot, error)
 	DeleteManagedSkill(context.Context, ManagedSkillDelete) error
 }
@@ -33,12 +41,25 @@ type ManagementStore interface {
 // Install and multipart upload remain HTTP-only because they accept external or
 // unbounded sources; the model path accepts one bounded sandbox content_path.
 type Management struct {
-	store  ManagementStore
-	access ManagementAccess
+	store         ManagementStore
+	access        ManagementAccess
+	packageReader PackageSkillCopyReader
 }
 
-func NewManagement(store ManagementStore, access ManagementAccess) *Management {
-	return &Management{store: store, access: access}
+type ManagementOption func(*Management)
+
+func WithPackageSkillReader(reader PackageSkillCopyReader) ManagementOption {
+	return func(management *Management) { management.packageReader = reader }
+}
+
+func NewManagement(store ManagementStore, access ManagementAccess, options ...ManagementOption) *Management {
+	management := &Management{store: store, access: access}
+	for _, option := range options {
+		if option != nil {
+			option(management)
+		}
+	}
+	return management
 }
 
 func (m *Management) List(ctx context.Context, authority authz.Authority, scope, targetAgentID string) ([]Skill, error) {

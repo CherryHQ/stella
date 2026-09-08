@@ -785,16 +785,21 @@ func TestAdjustPolicyUsesMountedNativeSelectionPath(t *testing.T) {
 	hostSH := "/home/user/.stella"
 	sandboxSH := adjustStellaHome(hostSH)
 	selection := hostSH + "/.mise-tools/public/selection"
+	second := hostSH + "/.mise-tools/public/second"
+	userSelection := hostSH + "/.mise-managed/users/u/public/selection"
+	userSecond := hostSH + "/.mise-managed/users/u/public/second"
 	core := hostSH + "/core-runtime"
 	adjusted := (&Factory{cfg: Config{StellaHome: hostSH}}).adjustPolicy(
 		sandboxpkg.Policy{Env: map[string]string{
-			sandboxpkg.EnvNativeSelectionDir: selection,
-			sandboxpkg.EnvCoreRuntimeDir:     core,
+			sandboxpkg.EnvNativeSelectionDir:     strings.Join([]string{selection, second}, string(filepath.ListSeparator)),
+			sandboxpkg.EnvUserNativeSelectionDir: strings.Join([]string{userSelection, userSecond}, string(filepath.ListSeparator)),
+			sandboxpkg.EnvCoreRuntimeDir:         core,
 		}},
 		"/workspace", "/workspace", "", "",
 	)
 	path := adjusted.Env["PATH"]
-	if !strings.HasPrefix(path, sandboxSH+"/.mise-tools/public/selection"+string(filepath.ListSeparator)) {
+	wantSelections := []string{sandboxSH + "/.mise-managed/users/u/public/selection", sandboxSH + "/.mise-managed/users/u/public/second", sandboxSH + "/.mise-tools/public/selection", sandboxSH + "/.mise-tools/public/second"}
+	if !strings.HasPrefix(path, strings.Join(wantSelections, string(filepath.ListSeparator))+string(filepath.ListSeparator)) {
 		t.Fatalf("native selection PATH lost optional selection: %q", path)
 	}
 	wantCore := sandboxSH + "/bin"

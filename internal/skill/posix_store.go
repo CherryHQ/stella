@@ -477,6 +477,14 @@ func revisionFilesFromStrings(source map[string]string) ([]revisionFile, error) 
 	return validateRevisionFiles(files)
 }
 
+func revisionFilesFromManaged(source map[string]ManagedSkillFile) ([]revisionFile, error) {
+	files := make([]revisionFile, 0, len(source))
+	for filename, file := range source {
+		files = append(files, revisionFile{Path: filename, Mode: file.Mode, Content: bytes.Clone(file.Content)})
+	}
+	return validateRevisionFiles(files)
+}
+
 func desiredRevisionDigest(skill Skill, files []revisionFile) (string, error) {
 	manifest, err := canonicalManifest(skill)
 	if err != nil {
@@ -595,6 +603,25 @@ func isSkillNameConflict(err error) bool {
 }
 
 func (s *POSIXStore) CreateManagedSkill(ctx context.Context, skill Skill, source map[string]string) (snapshot SkillSnapshot, resultErr error) {
+	files, err := revisionFilesFromStrings(source)
+	if err != nil {
+		return SkillSnapshot{}, err
+	}
+	return s.createManagedSkill(ctx, skill, files)
+}
+
+// CreateManagedSkillWithFiles is the mode-preserving create path used for
+// package copies. Keeping it separate from the legacy string map prevents
+// binary and executable resources from silently becoming 0644.
+func (s *POSIXStore) CreateManagedSkillWithFiles(ctx context.Context, skill Skill, source map[string]ManagedSkillFile) (snapshot SkillSnapshot, resultErr error) {
+	files, err := revisionFilesFromManaged(source)
+	if err != nil {
+		return SkillSnapshot{}, err
+	}
+	return s.createManagedSkill(ctx, skill, files)
+}
+
+func (s *POSIXStore) createManagedSkill(ctx context.Context, skill Skill, files []revisionFile) (snapshot SkillSnapshot, resultErr error) {
 	release, err := s.lockManagedMutations(ctx)
 	if err != nil {
 		return SkillSnapshot{}, err
@@ -605,10 +632,6 @@ func (s *POSIXStore) CreateManagedSkill(ctx context.Context, skill Skill, source
 	}
 	if !validInventoryComponent(skill.ID) || !validInventoryComponent(skill.Name) {
 		return SkillSnapshot{}, fmt.Errorf("%w: invalid identity", ErrInvalidSkillRevision)
-	}
-	files, err := revisionFilesFromStrings(source)
-	if err != nil {
-		return SkillSnapshot{}, err
 	}
 	metadata, err := MarkManualOwnedMetadata(skill.Metadata)
 	if err != nil {

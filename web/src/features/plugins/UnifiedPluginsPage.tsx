@@ -12,15 +12,21 @@ import {
   resetPluginConfig,
   disconnectMcpServerOAuth,
   startMcpServerOAuth,
+  importPluginPackage,
+  copyPackageSkill,
+  previewPluginPackageUpdate,
   updateMcpServer,
+  updatePluginPackage,
   updatePluginConfig,
 } from "@/lib/api-client/sdk.gen";
 import type {
   ComponentsCreatePluginRequestWritable,
+  ImportPluginRequestWritable,
   ComponentsPluginConfigInputWritable,
   ComponentsUpdatePluginConfigRequestWritable,
   PluginConfig,
   PluginDefinition,
+  PreviewPluginPackageResponse,
 } from "@/lib/api-client";
 import {
   pluginConfigsQueryOptions,
@@ -426,6 +432,16 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
   const [newMcpDescription, setNewMcpDescription] = useState("");
   const [newMcpScope, setNewMcpScope] = useState<PluginScope>(visibleScopes[0]);
   const [newScope, setNewScope] = useState<PluginScope>(visibleScopes[0]);
+  const [packageImportOpen, setPackageImportOpen] = useState(false);
+  const [packageImportPath, setPackageImportPath] = useState("");
+  const [packageUpdateOpen, setPackageUpdateOpen] = useState(false);
+  const [packageUpdatePath, setPackageUpdatePath] = useState("");
+  const [packagePreview, setPackagePreview] = useState<PreviewPluginPackageResponse | null>(null);
+  const [packagePreviewKey, setPackagePreviewKey] = useState("");
+  const [copyingSkillName, setCopyingSkillName] = useState<string | null>(null);
+  const currentPackagePreviewKey = selectedPlugin
+    ? `${selectedPlugin.id}:${selectedPlugin.revision}:${packageUpdatePath.trim()}`
+    : "";
   const closeNewMcp = () => {
     setNewMcpOpen(false);
     setNewMcpURL("");
@@ -701,6 +717,106 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     },
     onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
   });
+  const importPackageMutation = useMutation({
+    mutationFn: async () => {
+      const sourcePath = packageImportPath.trim();
+      if (!sourcePath) throw new Error(t("plugins.packagePathRequired"));
+      const body: ImportPluginRequestWritable = {
+        source_path: sourcePath,
+        initial_config: { scope: "system", is_enabled: false },
+      };
+      const { data } = await importPluginPackage({ body, throwOnError: true });
+      return data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["plugins"] });
+      setPackageImportOpen(false);
+      setPackageImportPath("");
+      showToast(t("plugins.packageImported"));
+    },
+    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
+  });
+  const updatePackageMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedPlugin) throw new Error(t("plugins.noSelection"));
+      const sourcePath = packageUpdatePath.trim();
+      if (!sourcePath) throw new Error(t("plugins.packagePathRequired"));
+      const candidateDigest = packagePreview?.candidate_digest;
+      if (!candidateDigest) throw new Error(t("plugins.previewPackage"));
+      const { data } = await updatePluginPackage({
+        path: { plugin_id: selectedPlugin.id },
+        body: {
+          source_path: sourcePath,
+          expected_revision: selectedPlugin.revision,
+          expected_package_digest: candidateDigest,
+        },
+        throwOnError: true,
+      });
+      return data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["plugins"] });
+      setPackageUpdateOpen(false);
+      setPackageUpdatePath("");
+      setPackagePreview(null);
+      setPackagePreviewKey("");
+      showToast(t("plugins.packageUpdated"));
+    },
+    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
+  });
+  const previewPackageMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedPlugin) throw new Error(t("plugins.noSelection"));
+      const sourcePath = packageUpdatePath.trim();
+      if (!sourcePath) throw new Error(t("plugins.packagePathRequired"));
+      const { data } = await previewPluginPackageUpdate({
+        path: { plugin_id: selectedPlugin.id },
+        body: { source_path: sourcePath, expected_revision: selectedPlugin.revision },
+        throwOnError: true,
+      });
+      return data;
+    },
+    onSuccess: (data) => {
+      setPackagePreview(data);
+      setPackagePreviewKey(currentPackagePreviewKey);
+    },
+    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
+  });
+  const copyPackageSkillMutation = useMutation({
+    mutationFn: async (skillName: string) => {
+      if (!selectedPlugin) throw new Error(t("plugins.noSelection"));
+      const content = selectedPlugin.spec.content;
+      const digest =
+        content &&
+        typeof content === "object" &&
+        "digest" in content &&
+        typeof content.digest === "string"
+          ? content.digest
+          : "";
+      if (!digest) throw new Error(t("plugins.copySkillUnavailable"));
+      setCopyingSkillName(skillName);
+      const { data } = await copyPackageSkill({
+        body: {
+          source_id: selectedPlugin.id,
+          expected_digest: digest,
+          skill_name: skillName,
+          scope: "user",
+        },
+        throwOnError: true,
+      });
+      if (!data?.id) throw new Error(t("plugins.copySkillUnavailable"));
+      return data;
+    },
+    onSuccess: (data) => {
+      setCopyingSkillName(null);
+      showToast(t("plugins.skillCopied"));
+      void navigate({ to: "/settings/skills", search: { skill_id: data.id } });
+    },
+    onError: (error) => {
+      setCopyingSkillName(null);
+      showToast(pluginErrorMessage(error, t), "error");
+    },
+  });
   const definitionDeleteMutation = useMutation({
     mutationFn: async (plugin: PluginDefinition) => {
       await deletePlugin({
@@ -742,11 +858,40 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                 {t("plugins.builtin")}
               </Badge>
             )}
+            {selectedPlugin.spec.origin === "package" && (
+              <Badge variant="info" size="sm">
+                {t("plugins.packageInstalled")}
+              </Badge>
+            )}
           </div>
         }
       />
       {typeof selectedPlugin.spec.description === "string" && selectedPlugin.spec.description && (
         <p className="text-sm text-muted-foreground">{selectedPlugin.spec.description}</p>
+      )}
+      {selectedPlugin.resource_summary.skills.length > 0 && (
+        <section className="space-y-2 border-y border-border py-4">
+          <p className="text-xs font-semibold text-muted-foreground">
+            {t("plugins.packageSkills")}
+          </p>
+          {selectedPlugin.resource_summary.skills.map((skill) => (
+            <div
+              key={skill.name}
+              className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2"
+            >
+              <span className="min-w-0 flex-1 truncate font-mono text-sm">{skill.name}</span>
+              <Button
+                size="xs"
+                variant="outline"
+                loading={copyingSkillName === skill.name}
+                disabled={copyPackageSkillMutation.isPending}
+                onClick={() => copyPackageSkillMutation.mutate(skill.name)}
+              >
+                {t("plugins.copySkill")}
+              </Button>
+            </div>
+          ))}
+        </section>
       )}
       <Field>
         <FieldLabel>{t("plugins.agent")}</FieldLabel>
@@ -906,15 +1051,23 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
       </div>
       {!selectedPlugin.is_builtin && (
         <div className="border-t border-border pt-4">
-          <Button
-            variant="destructive"
-            size="sm"
-            loading={definitionDeleteMutation.isPending}
-            onClick={() => setPendingPluginDelete(selectedPlugin)}
-          >
-            <Trash2 className="size-3.5" />
-            {t("common.delete")}
-          </Button>
+          <div className="flex gap-2">
+            {scopeBand === "system" && selectedPlugin.spec.origin === "package" && (
+              <Button variant="outline" size="sm" onClick={() => setPackageUpdateOpen(true)}>
+                <Package className="size-3.5" />
+                {t("plugins.updatePackage")}
+              </Button>
+            )}
+            <Button
+              variant="destructive"
+              size="sm"
+              loading={definitionDeleteMutation.isPending}
+              onClick={() => setPendingPluginDelete(selectedPlugin)}
+            >
+              <Trash2 className="size-3.5" />
+              {t("common.delete")}
+            </Button>
+          </div>
         </div>
       )}
     </DetailPanel>
@@ -943,6 +1096,12 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
         title={t("plugins.title")}
         action={
           <div className="flex gap-2">
+            {scopeBand === "system" && (
+              <Button size="sm" variant="outline" onClick={() => setPackageImportOpen(true)}>
+                <Package className="size-3.5" />
+                {t("plugins.importPackage")}
+              </Button>
+            )}
             <Button size="sm" variant="outline" onClick={() => setRegistryOpen(true)}>
               {t("mcp.market.title")}
             </Button>
@@ -993,6 +1152,11 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                                 {t("plugins.builtin")}
                               </Badge>
                             )}
+                            {plugin.spec.origin === "package" && (
+                              <Badge variant="info" size="sm">
+                                {t("plugins.packageInstalled")}
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-xs text-muted-foreground">
                             {typeof plugin.spec.description === "string" && plugin.spec.description
@@ -1024,6 +1188,100 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
       />
       <SettingsDetailSheet open={detail !== null} onClose={closeDetail}>
         {detail}
+      </SettingsDetailSheet>
+      <SettingsDetailSheet open={packageImportOpen} onClose={() => setPackageImportOpen(false)}>
+        <DetailPanel>
+          <DetailPanelHeader title={t("plugins.importPackage")} />
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">{t("plugins.packagePathHelp")}</p>
+            <Field>
+              <FieldLabel>{t("plugins.packagePath")}</FieldLabel>
+              <Input
+                value={packageImportPath}
+                onChange={(event) => setPackageImportPath(event.target.value)}
+                placeholder={t("plugins.packagePathPlaceholder")}
+                nativeInput
+              />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setPackageImportOpen(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                size="sm"
+                loading={importPackageMutation.isPending}
+                onClick={() => importPackageMutation.mutate()}
+              >
+                {t("plugins.importPackage")}
+              </Button>
+            </div>
+          </div>
+        </DetailPanel>
+      </SettingsDetailSheet>
+      <SettingsDetailSheet open={packageUpdateOpen} onClose={() => setPackageUpdateOpen(false)}>
+        <DetailPanel>
+          <DetailPanelHeader title={t("plugins.updatePackage")} />
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">{t("plugins.packagePathHelp")}</p>
+            <Field>
+              <FieldLabel>{t("plugins.packagePath")}</FieldLabel>
+              <Input
+                value={packageUpdatePath}
+                onChange={(event) => {
+                  setPackageUpdatePath(event.target.value);
+                  setPackagePreview(null);
+                  setPackagePreviewKey("");
+                }}
+                placeholder={t("plugins.packagePathPlaceholder")}
+                nativeInput
+              />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setPackageUpdateOpen(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={previewPackageMutation.isPending}
+                onClick={() => previewPackageMutation.mutate()}
+              >
+                {t("plugins.previewPackage")}
+              </Button>
+              <Button
+                size="sm"
+                loading={updatePackageMutation.isPending}
+                disabled={!packagePreview || packagePreviewKey !== currentPackagePreviewKey}
+                onClick={() => updatePackageMutation.mutate()}
+              >
+                {t("plugins.updatePackage")}
+              </Button>
+            </div>
+            {packagePreview && (
+              <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                <p>{t("plugins.previewVersion", { version: packagePreview.candidate_version })}</p>
+                <p>{t("plugins.previewDigest", { digest: packagePreview.candidate_digest })}</p>
+                {packagePreview.oauth_changes.map((change) => (
+                  <p key={change.provider}>
+                    {change.provider}: +{change.added_scopes.join(", ") || "-"} / -
+                    {change.removed_scopes.join(", ") || "-"}
+                    {change.added_bindings.length > 0 &&
+                      `; bindings +${change.added_bindings.join(", ")}`}
+                    {change.removed_bindings.length > 0 &&
+                      `; bindings -${change.removed_bindings.join(", ")}`}
+                  </p>
+                ))}
+                {packagePreview.incompatible_scopes.length > 0 && (
+                  <p className="text-destructive-foreground">
+                    {t("plugins.previewIncompatible", {
+                      scopes: packagePreview.incompatible_scopes.join(", "),
+                    })}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </DetailPanel>
       </SettingsDetailSheet>
       <SettingsDetailSheet open={newMcpOpen} onClose={closeNewMcp}>
         <DetailPanel>

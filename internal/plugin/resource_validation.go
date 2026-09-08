@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"reflect"
 	"strings"
 	"unicode"
@@ -154,6 +155,9 @@ func validateResources(payload ResourcePayload, name string, complete, allowEmpt
 		if err := validateString(skill.Name, "skill name"); err != nil {
 			return err
 		}
+		if skill.Path != "" && (path.IsAbs(skill.Path) || strings.Contains(skill.Path, `\`) || path.Clean(skill.Path) != skill.Path || !strings.HasPrefix(skill.Path, "skills/"+skill.Name+"/")) {
+			return invalidPayload("%s skills[%d] has invalid package path %q", name, i, skill.Path)
+		}
 		if _, ok := seenSkills[skill.Name]; ok {
 			return invalidPayload("%s skills[%d] duplicates %q", name, i, skill.Name)
 		}
@@ -258,7 +262,7 @@ func validateUserOverlay(shipped, resolved ResourcePayload, config Config) error
 		if err := validateUserOptions(want.Options, got.Options, got.Version); err != nil {
 			return fmt.Errorf("%w: binary[%d] options: %w", ErrInvalidConfig, i, err)
 		}
-		if err := validateVersion(got.Version); err != nil {
+		if err := ValidateBinaryVersion(got.Version); err != nil {
 			return err
 		}
 	}
@@ -313,7 +317,8 @@ func validateUserOptions(shipped, resolved map[string]any, version string) error
 	return nil
 }
 
-func validateVersion(version string) error {
+// ValidateBinaryVersion accepts a published version or tag, never a new tool source.
+func ValidateBinaryVersion(version string) error {
 	if err := validateString(version, "binary version"); err != nil {
 		return err
 	}

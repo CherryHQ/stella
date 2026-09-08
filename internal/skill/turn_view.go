@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"path"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -19,11 +22,19 @@ var (
 // captured for a runner. The package owns the bytes; a turn only carries this
 // reference so consumers cannot re-resolve a mutable package catalog.
 type PackageSkillRef struct {
-	PackageID     string
+	PackageID string
+	// PackageDigest is the published asset-tree digest used to resolve the
+	// immutable package directory, not the mutable definition revision.
 	PackageDigest string
 	Name          string
 	Path          string
+	Description   string
 	Disabled      bool
+	Builtin       bool
+	// Masked records a package preparation failure. It is deliberately smaller
+	// than a per-Skill status machine: the admission layer marks every Skill in
+	// a failed package, preserving same-name masking for this turn.
+	Masked bool
 }
 
 // ManagedSkillRef pins one managed Skill identity to the exact revision chosen
@@ -53,7 +64,7 @@ func CaptureSkillTurnView(ctx context.Context, reader IdentityReader, authorizer
 	}
 	decision, err := authorizer.BeginRead(ctx)
 	if errors.Is(err, authz.ErrUnauthenticated) {
-		view, viewErr := newSkillTurnView(project, nil, packages, vc.DisabledSkillRefs, nil)
+		view, viewErr := newSkillTurnView(project, nil, packages, vc.DisabledSkillRefs, packageMaskedNamesForSelection(project, nil, packages, nil))
 		if viewErr != nil {
 			return SkillTurnView{}, viewErr
 		}
@@ -91,18 +102,27 @@ func CaptureSkillTurnView(ctx context.Context, reader IdentityReader, authorizer
 		}
 		managed = append(managed, ManagedSkillRef{Identity: revision.Skill})
 	}
+	masked = append(masked, packageMaskedNamesForSelection(project, selected, packages, masked)...)
 	return newSkillTurnView(project, managed, packages, vc.DisabledSkillRefs, masked)
 }
 
 func selectManagedSkillIdentities(project *ProjectSnapshot, managed []Skill, packages []PackageSkillRef, masked []string) ([]Skill, error) {
 	shadowed := make(map[string]struct{})
+	packageMasked := make(map[string]struct{})
+	for _, candidate := range packages {
+		if candidate.Masked && candidate.Name != "" {
+			packageMasked[candidate.Name] = struct{}{}
+		}
+	}
 	if project != nil {
 		for _, candidate := range project.list() {
 			shadowed[candidate.Name] = struct{}{}
 		}
 	}
 	for _, name := range masked {
-		shadowed[name] = struct{}{}
+		if _, packageFailure := packageMasked[name]; !packageFailure {
+			shadowed[name] = struct{}{}
+		}
 	}
 	byName := make(map[string]Skill)
 	for _, candidate := range managed {
@@ -123,8 +143,13 @@ func selectManagedSkillIdentities(project *ProjectSnapshot, managed []Skill, pac
 		selected = append(selected, candidate)
 	}
 	packageNames := make(map[string]struct{})
+	builtinNames := make(map[string]struct{})
 	for _, candidate := range packages {
 		if candidate.Disabled || candidate.Name == "" {
+			continue
+		}
+		if candidate.Builtin {
+			builtinNames[candidate.Name] = struct{}{}
 			continue
 		}
 		if _, shadowed := shadowed[candidate.Name]; shadowed {
@@ -138,7 +163,38 @@ func selectManagedSkillIdentities(project *ProjectSnapshot, managed []Skill, pac
 		}
 		packageNames[candidate.Name] = struct{}{}
 	}
+	for name := range packageNames {
+		if _, conflict := builtinNames[name]; conflict {
+			return nil, errors.Join(ErrSkillSelectionConflict, fmt.Errorf("package Skill %q conflicts with builtin Skill", name))
+		}
+	}
 	return selected, nil
+}
+
+func packageMaskedNamesForSelection(project *ProjectSnapshot, managed []Skill, packages []PackageSkillRef, masked []string) []string {
+	shadowed := make(map[string]struct{})
+	if project != nil {
+		for _, candidate := range project.list() {
+			shadowed[candidate.Name] = struct{}{}
+		}
+	}
+	for _, candidate := range managed {
+		shadowed[candidate.Name] = struct{}{}
+	}
+	for _, name := range masked {
+		delete(shadowed, name)
+	}
+	seen := make(map[string]struct{})
+	for _, ref := range packages {
+		if !ref.Masked || ref.Name == "" {
+			continue
+		}
+		if _, ok := shadowed[ref.Name]; ok {
+			continue
+		}
+		seen[ref.Name] = struct{}{}
+	}
+	return slices.Sorted(maps.Keys(seen))
 }
 
 func isDisabledIdentity(identity Skill, disabled []string) bool {
@@ -231,11 +287,26 @@ func newSkillTurnView(project *ProjectSnapshot, managed []ManagedSkillRef, packa
 		}
 	}
 	for _, ref := range view.packages {
-		if ref.PackageID == "" || ref.Name == "" || !validSkillDigest(ref.PackageDigest) {
+		if !validInventoryComponent(ref.PackageID) || !validInventoryComponent(ref.Name) || !validPackageDigest(ref.PackageDigest) {
+			return SkillTurnView{}, ErrInvalidSkillRevision
+		}
+		if ref.Path != "" && !validPackageSkillPath(ref.Path, ref.Name) {
 			return SkillTurnView{}, ErrInvalidSkillRevision
 		}
 	}
 	return view, nil
+}
+
+func validPackageSkillPath(value, name string) bool {
+	return !path.IsAbs(value) && !strings.Contains(value, `\`) && path.Clean(value) == value && strings.HasPrefix(value, "skills/"+name+"/")
+}
+
+func validPackageDigest(digest string) bool {
+	return strings.HasPrefix(digest, "sha256:") && validSkillDigest(strings.TrimPrefix(digest, "sha256:"))
+}
+
+func packageDigestHex(digest string) string {
+	return strings.TrimPrefix(digest, "sha256:")
 }
 
 // ProjectSnapshot returns the bounded project snapshot selected for this turn.
@@ -272,8 +343,8 @@ func (v SkillTurnView) MaskedSkillNames() []string { return slices.Clone(v.maske
 
 // ValidateSkillTurnSelection enforces the fixed precedence boundary before
 // prompt/tool consumers run: project > managed > package. A disabled package
-// is removed before package conflict checking. Managed conflicts are resolved
-// by the existing scope order; ties remain an error instead of last-write-wins.
+// is removed before package conflict checking. A masked package remains in
+// same-layer conflict checks, then blocks lower builtin fallback.
 func ValidateSkillTurnSelection(view SkillTurnView) error {
 	_, err := selectManagedSkillIdentities(view.ProjectSnapshot(), view.ManagedIdentities(), view.PackageSkills(), view.MaskedSkillNames())
 	return err

@@ -101,9 +101,6 @@ func RefreshSessionEnv(ctx context.Context, session pkgsandbox.Session, cfg Conf
 		}
 		for _, spec := range specs {
 			bound := cfg.OAuthEnvBindings.Has(spec.EnvVar)
-			if !spec.Required && !bound {
-				continue
-			}
 			if !bound && policyEnv[spec.EnvVar] != "" {
 				continue
 			}

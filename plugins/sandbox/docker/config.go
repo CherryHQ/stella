@@ -1,6 +1,10 @@
 package docker
 
-import "strings"
+import (
+	"strings"
+
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+)
 
 // DockerSandboxMode describes how the Docker daemon sees STELLA_HOME.
 type DockerSandboxMode string
@@ -78,6 +82,9 @@ type Config struct {
 	// from the resolved image, never from the host filesystem. Writable per-user
 	// trees remain ordered ahead of this immutable selection in PATH.
 	SelectionToolBinaries []ToolBinary
+	// SessionEnvRollbacks contains only package env values that survived all
+	// runner-owned overlays. Docker restores these values when a package fails.
+	SessionEnvRollbacks map[string]pkgplugins.SessionEnvRollback
 }
 
 // TranslateToDaemonPath rewrites a stella-process-view absolute path into the

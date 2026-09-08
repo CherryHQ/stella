@@ -182,6 +182,25 @@ func TestAdjustPolicyPreservesCoreAndOptionalSelectionMarkers(t *testing.T) {
 	}
 }
 
+func TestAdjustPolicyPreservesEveryPackageSelection(t *testing.T) {
+	stellaHome := t.TempDir()
+	system := []string{filepath.Join(stellaHome, "public", "system-a"), filepath.Join(stellaHome, "public", "system-b")}
+	user := []string{filepath.Join(stellaHome, "public", "user-a"), filepath.Join(stellaHome, "public", "user-b")}
+	adjusted, err := (&Factory{cfg: Config{StellaHome: stellaHome}}).adjustPolicy(
+		sandboxpkg.Policy{Env: map[string]string{
+			sandboxpkg.EnvNativeSelectionDir:     strings.Join(system, string(filepath.ListSeparator)),
+			sandboxpkg.EnvUserNativeSelectionDir: strings.Join(user, string(filepath.ListSeparator)),
+		}}, t.TempDir(), "", t.TempDir(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join(append(user, system...), string(filepath.ListSeparator)) + string(filepath.ListSeparator)
+	if !strings.HasPrefix(adjusted.Env["PATH"], want) {
+		t.Fatalf("backend dropped or reordered package selections: PATH = %q, want prefix %q", adjusted.Env["PATH"], want)
+	}
+}
+
 func TestNativeSelectionPathRunsSelectedCommand(t *testing.T) {
 	stellaHome := t.TempDir()
 	selection := filepath.Join(stellaHome, ".mise-tools", "public", "selection")

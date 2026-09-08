@@ -120,7 +120,9 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, workspace, userData, tm
 		}
 		bundledShims := env[sandboxpkg.EnvCoreRuntimeDir]
 		userSelectionShims := env[sandboxpkg.EnvUserNativeSelectionDir]
-		env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome, userShims, userSelectionShims, selectionShims, bundledShims)
+		selections := append(filepath.SplitList(userSelectionShims), filepath.SplitList(selectionShims)...)
+		selections = append(selections, bundledShims)
+		env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome, userShims, selections...)
 		env[sandboxpkg.EnvRunnerPath] = env["PATH"]
 	}
 	policy.Env = env

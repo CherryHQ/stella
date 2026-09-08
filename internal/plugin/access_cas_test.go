@@ -220,13 +220,16 @@ func TestAccessDirectoryPackageIdentityCASAndConfigIdentity(t *testing.T) {
 	}
 	configID := configs[0].ID
 
-	if _, err := access.UpdateDefinitionFromDirectory(t.Context(), first.ID, first.Revision, testPackageDirectory(t, "other.package", "wrong id")); !errors.Is(err, ErrInvalidDefinition) {
+	wrongPackage := testPackageDirectory(t, "other.package", "wrong id")
+	if _, err := access.UpdateDefinitionFromDirectory(t.Context(), first.ID, first.Revision, wrongPackage, testPackageDigest(t, wrongPackage)); !errors.Is(err, ErrInvalidDefinition) {
 		t.Fatalf("different package identity update = %v, want ErrInvalidDefinition", err)
 	}
-	if _, err := access.UpdateDefinitionFromDirectory(t.Context(), first.ID, first.Revision+1, testPackageDirectory(t, "cas.package", "stale")); !errors.Is(err, ErrConflict) {
+	stalePackage := testPackageDirectory(t, "cas.package", "stale")
+	if _, err := access.UpdateDefinitionFromDirectory(t.Context(), first.ID, first.Revision+1, stalePackage, testPackageDigest(t, stalePackage)); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale package update = %v, want ErrConflict", err)
 	}
-	updated, err := access.UpdateDefinitionFromDirectory(t.Context(), first.ID, first.Revision, testPackageDirectory(t, "cas.package", "two"))
+	updatedPackage := testPackageDirectory(t, "cas.package", "two")
+	updated, err := access.UpdateDefinitionFromDirectory(t.Context(), first.ID, first.Revision, updatedPackage, testPackageDigest(t, updatedPackage))
 	if err != nil {
 		t.Fatalf("same identity package update: %v", err)
 	}
@@ -237,6 +240,15 @@ func TestAccessDirectoryPackageIdentityCASAndConfigIdentity(t *testing.T) {
 	if err != nil || len(configs) != 1 || configs[0].ID != configID {
 		t.Fatalf("config identity after package update = %#v/%v, want %q", configs, err, configID)
 	}
+}
+
+func testPackageDigest(t *testing.T, root string) string {
+	t.Helper()
+	digest, err := agentpackage.DirectoryDigest(root)
+	if err != nil {
+		t.Fatalf("package digest: %v", err)
+	}
+	return digest
 }
 
 func testPackageDirectory(t *testing.T, name, description string) string {

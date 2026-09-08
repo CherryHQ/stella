@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,10 +29,13 @@ type BackendRequest struct {
 	GroupID      string
 	// Plugin plans capture authorized optional tools; SystemRuntimePlan contains
 	// required release runtimes independently of plugin configuration.
-	ContextBinaryPlan *BinaryInstallPlan
-	UserBinaryPlan    *BinaryInstallPlan
-	SystemRuntimePlan *systemplugins.RuntimePlan
-	BinarySpecs       []pkgplugins.PluginBinarySpec
+	ContextBinaryPlan   *BinaryInstallPlan
+	UserBinaryPlan      *BinaryInstallPlan
+	SystemRuntimePlan   *systemplugins.RuntimePlan
+	BinaryInstallResult *BinaryInstallResult
+	BinarySpecs         []pkgplugins.PluginBinarySpec
+	SessionEnvSpecs     []pkgplugins.SessionEnvSpec
+	SessionEnvRollbacks map[string]pkgplugins.SessionEnvRollback
 }
 
 // Backend creates one raw sandbox session from host-prepared input.
@@ -142,6 +146,17 @@ func hasUserBinarySpecs(specs []pkgplugins.PluginBinarySpec) bool {
 // ResolveSession creates a sandbox session from configuration.
 // The active backend is determined by SandboxBackendFn, defaulting to local.
 func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
+	if cfg.SessionEnvRollbacks == nil {
+		cfg.SessionEnvRollbacks = make(map[string]pkgplugins.SessionEnvRollback)
+	}
+	if cfg.PluginPreparationResult == nil {
+		result := PrepareOAuthPackages(ctx, cfg, cfg.PluginRequirements)
+		cfg.PluginPreparationResult = &result
+	}
+	cfg.BinarySpecs = readyBinarySpecs(cfg.BinarySpecs, *cfg.PluginPreparationResult)
+	cfg.SessionEnvSpecs = readySessionEnvSpecs(cfg.SessionEnvSpecs, *cfg.PluginPreparationResult)
+	var mergedBinaryResult BinaryInstallResult
+	cfg.BinaryInstallResult = &mergedBinaryResult
 	name := resolveBackendName(ctx, cfg)
 	// ResolvePaths canonicalizes STELLA_HOME before building backend mounts. Do
 	// the same before host-side binary publication so plan paths and the final
@@ -180,12 +195,16 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 			recordSandboxError(span, err)
 			return nil, fmt.Errorf("verify core runtimes: %w", err)
 		}
-		plan, err := InstallContextBinaries(ctx, cfg.Paths.StellaHome, cfg.BinarySpecs)
+		result, err := InstallContextBinaries(ctx, cfg.Paths.StellaHome, cfg.BinarySpecs)
 		if err != nil {
 			recordSandboxError(span, err)
 			return nil, fmt.Errorf("install context plugin binaries: %w", err)
 		}
-		cfg.ContextBinaryPlan = &plan
+		cfg.ContextBinaryPlan = &result.Plan
+		mergeBinaryInstallResult(cfg.BinaryInstallResult, result)
+		*cfg.PluginPreparationResult = cfg.PluginPreparationResult.Merge(result.PreparationResult())
+		cfg.BinarySpecs = readyBinarySpecs(cfg.BinarySpecs, *cfg.PluginPreparationResult)
+		cfg.SessionEnvSpecs = readySessionEnvSpecs(cfg.SessionEnvSpecs, *cfg.PluginPreparationResult)
 	}
 
 	create := func(ctx context.Context) (pkgsandbox.Session, error) {
@@ -212,29 +231,42 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 			if err != nil {
 				return nil, err
 			}
-			userPlan, err := InstallSandboxBinaries(ctx, prep, cfg.BinarySpecs)
+			userResult, err := InstallSandboxBinaries(ctx, prep, readyBinarySpecs(cfg.BinarySpecs, *cfg.PluginPreparationResult))
 			if err != nil {
-				_ = prep.Close()
+				closeErr := prep.Close()
+				if closeErr != nil {
+					return nil, fmt.Errorf("install sandbox plugin binaries: %w; close preparation session: %w", err, closeErr)
+				}
 				_ = cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
 				return nil, fmt.Errorf("install sandbox plugin binaries: %w", err)
 			}
 			if err := prep.Close(); err != nil {
-				_ = cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
 				return nil, fmt.Errorf("close sandbox binary preparation: %w", err)
 			}
 			// InstallSandboxBinaries operates in the preparation session's process
 			// coordinates. Restore host coordinates for the final mount plan.
-			userPlan.DataDir = prepCfg.ManagedBinaryRoot
-			userPlan.PublicDir = filepath.Join(prepCfg.ManagedBinaryRoot, "public", userPlan.Identity)
-			userPlan.PublicBinDir = userPlan.PublicDir
+			userPlan := relocateBinaryPlan(userResult.Plan, prepCfg.ManagedBinaryRoot)
 			if err := cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot); err != nil {
 				return nil, fmt.Errorf("sandbox: clean managed binary preparation: %w", err)
 			}
 			cfg.UserBinaryPlan = &userPlan
+			mergeBinaryInstallResult(cfg.BinaryInstallResult, userResult)
+			*cfg.PluginPreparationResult = cfg.PluginPreparationResult.Merge(userResult.PreparationResult())
+			cfg.SessionEnvSpecs = readySessionEnvSpecs(cfg.SessionEnvSpecs, *cfg.PluginPreparationResult)
 		}
 		session, err := createSessionForBackend(ctx, cfg, name)
 		if err != nil {
 			return nil, err
+		}
+		// Docker may complete package preparation inside its Linux helper while
+		// creating the raw session. Merge that provider result before wrapping it
+		// in ResilientSession so prompt, env, and tool admission see one result.
+		if provider, ok := session.(interface {
+			PluginPreparationResult() pkgplugins.PluginPreparationResult
+		}); ok && cfg.PluginPreparationResult != nil {
+			*cfg.PluginPreparationResult = cfg.PluginPreparationResult.Merge(provider.PluginPreparationResult())
+			cfg.BinarySpecs = readyBinarySpecs(cfg.BinarySpecs, *cfg.PluginPreparationResult)
+			cfg.SessionEnvSpecs = readySessionEnvSpecs(cfg.SessionEnvSpecs, *cfg.PluginPreparationResult)
 		}
 		return session, nil
 	}
@@ -250,6 +282,74 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 	// between an isolating /workspace view and a host-coordinate view would make
 	// paths already retained by tools ambiguous.
 	return pkgsandbox.NewResilientSession(session, create), nil
+}
+
+func mergeBinaryInstallResult(dst *BinaryInstallResult, src BinaryInstallResult) {
+	if dst == nil {
+		return
+	}
+	if dst.Plan.Identity == "" {
+		dst.Plan = src.Plan
+	} else {
+		dst.Plan.Selections = append(dst.Plan.Selections, src.Plan.Selections...)
+	}
+	dst.SuccessfulPackages = append(dst.SuccessfulPackages, src.SuccessfulPackages...)
+	dst.FailedPackages = append(dst.FailedPackages, src.FailedPackages...)
+}
+
+func readyBinarySpecs(specs []pkgplugins.PluginBinarySpec, result pkgplugins.PluginPreparationResult) []pkgplugins.PluginBinarySpec {
+	if len(specs) == 0 || len(result.Packages) == 0 {
+		return slices.Clone(specs)
+	}
+	ready := make(map[string]bool, len(result.Packages))
+	for _, status := range result.Packages {
+		ready[status.PluginID] = status.Ready
+	}
+	filtered := make([]pkgplugins.PluginBinarySpec, 0, len(specs))
+	for _, spec := range specs {
+		if spec.PluginID == "" {
+			filtered = append(filtered, spec)
+			continue
+		}
+		if ok, known := ready[spec.PluginID]; known && !ok {
+			continue
+		}
+		filtered = append(filtered, spec)
+	}
+	return filtered
+}
+
+func readySessionEnvSpecs(specs []pkgplugins.SessionEnvSpec, result pkgplugins.PluginPreparationResult) []pkgplugins.SessionEnvSpec {
+	if len(specs) == 0 || len(result.Packages) == 0 {
+		return slices.Clone(specs)
+	}
+	ready := make(map[string]bool, len(result.Packages))
+	for _, status := range result.Packages {
+		ready[status.PluginID] = status.Ready
+	}
+	filtered := make([]pkgplugins.SessionEnvSpec, 0, len(specs))
+	for _, spec := range specs {
+		if spec.PluginID == "" {
+			filtered = append(filtered, spec)
+			continue
+		}
+		if ok, known := ready[spec.PluginID]; known && !ok {
+			continue
+		}
+		filtered = append(filtered, spec)
+	}
+	return filtered
+}
+
+func relocateBinaryPlan(plan BinaryInstallPlan, managedRoot string) BinaryInstallPlan {
+	plan.DataDir = managedRoot
+	for i := range plan.Selections {
+		selection := &plan.Selections[i]
+		selection.DataDir = managedRoot
+		selection.PublicDir = filepath.Join(managedRoot, "public", selection.Identity)
+		selection.PublicBinDir = selection.PublicDir
+	}
+	return plan
 }
 
 func cleanupManagedBinaryPrep(root string) error {
@@ -299,14 +399,17 @@ func createSessionForBackend(ctx context.Context, cfg Config, name string) (pkgs
 		"network_mode", cfg.SandboxConfig.Network.Mode,
 	)
 	return backend(ctx, BackendRequest{
-		Paths:             paths,
-		Policy:            policy,
-		MountSources:      mountSources,
-		UserID:            cfg.UserID,
-		GroupID:           cfg.GroupID,
-		ContextBinaryPlan: cfg.ContextBinaryPlan,
-		UserBinaryPlan:    cfg.UserBinaryPlan,
-		SystemRuntimePlan: cfg.SystemRuntimePlan,
-		BinarySpecs:       slices.Clone(cfg.BinarySpecs),
+		Paths:               paths,
+		Policy:              policy,
+		MountSources:        mountSources,
+		UserID:              cfg.UserID,
+		GroupID:             cfg.GroupID,
+		ContextBinaryPlan:   cfg.ContextBinaryPlan,
+		UserBinaryPlan:      cfg.UserBinaryPlan,
+		SystemRuntimePlan:   cfg.SystemRuntimePlan,
+		BinaryInstallResult: cfg.BinaryInstallResult,
+		BinarySpecs:         slices.Clone(cfg.BinarySpecs),
+		SessionEnvSpecs:     slices.Clone(cfg.SessionEnvSpecs),
+		SessionEnvRollbacks: maps.Clone(cfg.SessionEnvRollbacks),
 	})
 }

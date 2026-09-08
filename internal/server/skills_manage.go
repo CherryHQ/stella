@@ -11,6 +11,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/authz"
+	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/skill/access"
 )
@@ -62,6 +63,28 @@ func (s *Server) writeManagedSkillError(w http.ResponseWriter, err error) {
 		return
 	}
 	s.writeInternalError(w, err)
+}
+
+// writePackageCopyError keeps source visibility and destination authorization
+// separate. Package access deliberately returns opaque 404s for a source the
+// caller cannot see, while the destination PEP's denial is a 403. Do not pass
+// these domain errors through writeConflictOrInternal: its generic skill
+// mapping would leak plugin lifecycle details as 500s.
+func (s *Server) writePackageCopyError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, pluginpkg.ErrNotFound), errors.Is(err, pluginpkg.ErrRetiredDefinition):
+		writeError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, pluginpkg.ErrConflict):
+		writeError(w, http.StatusConflict, "resource revision conflict")
+	case errors.Is(err, pluginpkg.ErrInvalidDefinition), errors.Is(err, skill.ErrInvalidSkillRevision):
+		writeError(w, http.StatusBadRequest, "invalid package Skill")
+	case errors.Is(err, access.ErrForbidden), errors.Is(err, access.ErrNotFound), errors.Is(err, authz.ErrForbidden):
+		writeError(w, http.StatusForbidden, "forbidden")
+	case errors.Is(err, skill.ErrSkillNameConflict), isUniqueViolation(err):
+		writeError(w, http.StatusConflict, "a skill with this name already exists in this scope")
+	default:
+		s.writeManagedSkillError(w, err)
+	}
 }
 
 // Scoped skill management API (/api/skills*) powers the dedicated Settings →
@@ -280,6 +303,48 @@ func (s *Server) InstallScopedSkill(w http.ResponseWriter, r *http.Request) {
 	snapshot, err := s.skillManagement.Install(ctx, authority, skill.ManagedInstall{Source: req.Source, Scope: req.Scope, TargetAgentID: req.AgentID})
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
+		return
+	}
+	writeData(w, http.StatusCreated, committedSkillView(snapshot))
+}
+
+// CopyPackageSkill creates an independent managed Skill from one immutable
+// plugin package revision. The package reader owns source visibility and the
+// digest/name checks; this handler only validates the transport scope and
+// delegates destination authorization to Management.
+func (s *Server) CopyPackageSkill(w http.ResponseWriter, r *http.Request) {
+	if UserFromContext(r.Context()) == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	var req apiserver.CopyPackageSkillJSONRequestBody
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.SourceId == "" || req.ExpectedDigest == "" || req.SkillName == "" || !req.Scope.Valid() {
+		writeError(w, http.StatusBadRequest, "source_id, expected_digest, skill_name, and scope are required")
+		return
+	}
+	agentID := ""
+	if req.AgentId != nil {
+		agentID = *req.AgentId
+	}
+	if !validateSkillManageScope(w, string(req.Scope), agentID) {
+		return
+	}
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return
+	}
+	snapshot, err := s.skillManagement.CopyPackageSkill(r.Context(), authority, skill.ManagedPackageCopy{
+		SourcePluginID: req.SourceId, ExpectedPackageDigest: req.ExpectedDigest, SkillName: req.SkillName,
+		Scope: string(req.Scope), TargetAgentID: agentID,
+	})
+	if err != nil {
+		s.writePackageCopyError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, committedSkillView(snapshot))

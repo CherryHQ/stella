@@ -26,6 +26,7 @@ type pluginSetup struct {
 	oauthRegistry          *oauth.ProviderRegistry
 	nativePolicy           *plugin.NativePolicy
 	nativeRegistry         plugin.NativeRegistry
+	bundled                *resources.Registry
 }
 
 // nativeRegistry is composed only from Go-owned registration and generated
@@ -116,5 +117,6 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 		oauthRegistry:          oauthRegistry,
 		nativePolicy:           nativePolicy,
 		nativeRegistry:         nativeIDs,
+		bundled:                bundled,
 	}, nil
 }

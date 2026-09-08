@@ -38,7 +38,14 @@ type Config struct {
 	BinarySpecs       []pkgplugins.PluginBinarySpec
 	ContextBinaryPlan *BinaryInstallPlan
 	UserBinaryPlan    *BinaryInstallPlan
-	SystemRuntimePlan *systemplugins.RuntimePlan
+	// BinaryInstallResult carries package-scoped CLI readiness to the caller
+	// that projects model-facing resources. It is populated during preparation.
+	BinaryInstallResult *BinaryInstallResult
+	// PluginRequirements and PluginPreparationResult keep OAuth and CLI
+	// readiness in the same package-scoped admission result.
+	PluginRequirements      []pkgplugins.PluginPackageRequirement
+	PluginPreparationResult *pkgplugins.PluginPreparationResult
+	SystemRuntimePlan       *systemplugins.RuntimePlan
 	// ManagedBinaryRoot is used only by the short preparation session. The final
 	// session receives UserBinaryPlan and never mounts this private tree.
 	ManagedBinaryRoot   string
@@ -51,6 +58,10 @@ type Config struct {
 	// pointer with the retained runner config so RefreshSessionEnv sees what
 	// buildSandboxEnv recorded.
 	OAuthEnvBindings *OAuthEnvBindings
+	// SessionEnvRollbacks records only package env values that survive all
+	// runner-owned overlays. Backends use it to remove failed package inputs
+	// without touching runner-owned variables such as STELLA_HOME.
+	SessionEnvRollbacks map[string]pkgplugins.SessionEnvRollback
 	// ChatTimeout is the wall-clock budget for one chat turn. OAuth-derived env
 	// is refreshed to stay valid for at least this long plus a safety margin so a
 	// token injected at turn start outlives the turn (#722). Zero uses the

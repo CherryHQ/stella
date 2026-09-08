@@ -157,3 +157,13 @@ type SessionEnvSpec struct {
 	OAuthProviderID string   // set when source is oauth.*; identifies which provider bundle to load
 	OAuthScopes     []string // scopes required from the provider before OAuth values are injected
 }
+
+// SessionEnvRollback records one package-owned environment value that survived
+// all runner-owned overlays and can therefore be removed if that package's
+// preparation fails. PriorPresent distinguishes an absent key from an empty
+// value so restoration never invents runner environment.
+type SessionEnvRollback struct {
+	PluginID     string
+	PriorPresent bool
+	PriorValue   string
+}

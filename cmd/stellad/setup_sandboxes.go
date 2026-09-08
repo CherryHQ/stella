@@ -35,12 +35,13 @@ func setupSandboxBackends() (*agentsandbox.BackendRegistry, error) {
 				Image:                  sandboxDockerImage(),
 				StellaHome:             request.Paths.StellaHome,
 				ExpectedBundleRevision: resourceRegistry.BundleRevision(),
+				SessionEnvRollbacks:    maps.Clone(request.SessionEnvRollbacks),
 			}
 			// Every resolved selection is prepared in the isolated Linux helper.
 			// User-scoped installers never execute on the host.
 			for _, spec := range request.BinarySpecs {
 				backendConfig.SelectionToolBinaries = append(backendConfig.SelectionToolBinaries, dockerbackend.ToolBinary{
-					PluginID: spec.PluginID, ConfigID: spec.ConfigID, Scope: spec.Scope, Revision: spec.Revision,
+					PluginID: spec.PluginID, ConfigID: spec.ConfigID, Scope: spec.Scope, Revision: spec.Revision, PackageDigest: spec.PackageDigest,
 					Name: spec.Name, Tool: spec.Tool, Version: spec.Version, Options: maps.Clone(spec.Options),
 				})
 			}

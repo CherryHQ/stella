@@ -296,6 +296,38 @@ paths:
           $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
         }
 
+  /api/plugins/import:
+    post:
+      tags: [plugins]
+      summary: Import a plugin package directory (admin only)
+      operationId: importPluginPackage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/ImportPluginRequest",
+            }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/CreatePluginResponse",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
   /api/plugins/{plugin_id}:
     parameters:
       - { name: plugin_id, in: path, required: true, schema: { type: string } }
@@ -379,6 +411,76 @@ paths:
           }
       responses:
         "204": { description: deleted }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/plugins/{plugin_id}/update:
+    parameters:
+      - { name: plugin_id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [plugins]
+      summary: Replace a plugin definition from a package directory (admin only)
+      operationId: updatePluginPackage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdatePluginPackageRequest",
+            }
+      responses:
+        "200":
+          description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PluginDefinition",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/plugins/{plugin_id}/update/preview:
+    parameters:
+      - { name: plugin_id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [plugins]
+      summary: Preview a plugin package update without installing it (admin only)
+      operationId: previewPluginPackageUpdate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/PreviewPluginPackageRequest",
+            }
+      responses:
+        "200":
+          description: package impact preview
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PreviewPluginPackageResponse",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }

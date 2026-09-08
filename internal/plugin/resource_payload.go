@@ -46,6 +46,10 @@ type SkillResource struct {
 	// Name is the local, release-owned skill identity. A manifest cannot point
 	// at a repository or another source; the asset descriptor owns its bytes.
 	Name string `json:"name"`
+	// Path and Description are package metadata. Builtin declarations may omit
+	// Path; the runtime derives the conventional skills/<name>/SKILL.md path.
+	Path        string `json:"path,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 type SessionEnvResource struct {

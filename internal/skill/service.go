@@ -31,14 +31,19 @@ func newService(registry *resources.Registry) *Service {
 // or against a mutable store identity. Physical provider paths are never retained.
 type ResolvedSkill struct {
 	Skill
-	project  *ProjectSnapshot
-	builtin  *resources.BuiltinSkillDescriptor
-	registry *resources.Registry
+	project    *ProjectSnapshot
+	builtin    *resources.BuiltinSkillDescriptor
+	registry   *resources.Registry
+	packageRef *PackageSkillRef
 }
 
-// OwnerPluginID returns the trusted owner for a builtin skill. Mutable skill
-// metadata and project frontmatter never participate in ownership decisions.
+// OwnerPluginID returns the trusted owner for an immutable plugin-owned Skill.
+// Mutable skill metadata and project frontmatter never participate in
+// ownership decisions.
 func (s ResolvedSkill) OwnerPluginID() string {
+	if s.packageRef != nil {
+		return s.packageRef.PackageID
+	}
 	if s.builtin == nil {
 		return ""
 	}
@@ -65,8 +70,12 @@ func (s *ResolvedSkill) BuiltinFiles() []string {
 }
 
 // ImmutableFiles lists files from an immutable builtin or project snapshot.
-// A nil result means the Skill is backed by the trusted runtime cache instead.
+// Package Skills are read through PackageSkillReader, so their list is not
+// exposed from the logical identity projection.
 func (s *ResolvedSkill) ImmutableFiles() []string {
+	if s.packageRef != nil {
+		return nil
+	}
 	if s.project != nil {
 		files, err := s.project.listFiles(s.Name)
 		if err != nil {
@@ -78,6 +87,9 @@ func (s *ResolvedSkill) ImmutableFiles() []string {
 }
 
 func (s *ResolvedSkill) LoadImmutableFile(filePath string) (string, error) {
+	if s.packageRef != nil {
+		return "", fmt.Errorf("package Skill %q requires the package reader", s.Name)
+	}
 	if s.project != nil {
 		data, err := s.project.load(s.Name, filePath)
 		return data, err
@@ -87,7 +99,20 @@ func (s *ResolvedSkill) LoadImmutableFile(filePath string) (string, error) {
 
 // IsImmutable reports whether the Skill comes from a captured project tree or
 // the embedded release registry rather than a mutable store identity.
-func (s ResolvedSkill) IsImmutable() bool { return s.project != nil || s.builtin != nil }
+func (s ResolvedSkill) IsImmutable() bool {
+	return s.project != nil || s.builtin != nil || s.packageRef != nil
+}
+
+// IsPackage reports whether this immutable Skill belongs to an admitted Agent
+// package. Its bytes are loaded by Tool through the restricted package reader.
+func (s ResolvedSkill) IsPackage() bool { return s.packageRef != nil }
+
+func (s ResolvedSkill) PackageRef() (PackageSkillRef, bool) {
+	if s.packageRef == nil {
+		return PackageSkillRef{}, false
+	}
+	return *s.packageRef, true
+}
 
 func (s *ResolvedSkill) immutableProjection() (immutableSkillProjection, error) {
 	if s.project != nil {
@@ -115,14 +140,26 @@ func (s *ResolvedSkill) immutableProjection() (immutableSkillProjection, error) 
 }
 
 func (s *Service) ListMerged(managedSkills []Skill, snapshot *ProjectSnapshot) []ResolvedSkill {
+	return s.ListMergedWithPackages(managedSkills, snapshot, nil, nil)
+}
+
+// ListMergedWithPackages merges one already-selected turn view. Package
+// entries share the builtin layer; callers validate same-layer conflicts
+// before this projection is consumed. Keeping this method total preserves the
+// existing Service API used by previews and non-turn callers.
+func (s *Service) ListMergedWithPackages(managedSkills []Skill, snapshot *ProjectSnapshot, packages []PackageSkillRef, masked []string) []ResolvedSkill {
 	projSkills := snapshot.list()
 	builtinSkills, err := s.builtinSkills()
 	if err != nil {
 		return nil
 	}
 
-	seen := make(map[string]bool, len(projSkills)+len(managedSkills)+len(builtinSkills))
-	out := make([]ResolvedSkill, 0, len(projSkills)+len(managedSkills)+len(builtinSkills))
+	seen := make(map[string]bool, len(projSkills)+len(managedSkills)+len(packages)+len(builtinSkills))
+	out := make([]ResolvedSkill, 0, len(projSkills)+len(managedSkills)+len(packages)+len(builtinSkills))
+	blocked := make(map[string]struct{}, len(masked))
+	for _, name := range masked {
+		blocked[name] = struct{}{}
+	}
 
 	for _, sk := range projSkills {
 		seen[sk.Name] = true
@@ -135,8 +172,26 @@ func (s *Service) ListMerged(managedSkills []Skill, snapshot *ProjectSnapshot) [
 		seen[sk.Name] = true
 		out = append(out, ResolvedSkill{Skill: sk})
 	}
+	for _, ref := range packages {
+		if ref.Disabled || ref.Masked || ref.Builtin || ref.Name == "" {
+			continue
+		}
+		if _, ok := blocked[ref.Name]; ok || seen[ref.Name] {
+			continue
+		}
+		seen[ref.Name] = true
+		copy := ref
+		out = append(out, ResolvedSkill{
+			// The package digest remains in PackageRef and identifies the immutable
+			// bytes. Keep the logical ID path-safe on Windows; a colon in a
+			// package ID would otherwise become an invalid Home directory name.
+			Skill:      Skill{ID: ref.Name, Scope: "package", Name: ref.Name, Description: ref.Description, Status: SkillStatusActive},
+			packageRef: &copy,
+		})
+	}
 	for _, sk := range builtinSkills {
-		if seen[sk.Name] {
+		_, isBlocked := blocked[sk.Name]
+		if seen[sk.Name] || isBlocked {
 			continue
 		}
 		seen[sk.Name] = true

@@ -24,9 +24,8 @@ func TestRunnerFilesystemPolicyMountsCoreAndSelectedMiseContext(t *testing.T) {
 	}
 	corePlan := fixtureSystemRuntimePlan(t, stellaHome)
 	plan := &BinaryInstallPlan{
-		Identity:     "selected",
-		PublicDir:    publicRoot,
-		PublicBinDir: publicRoot,
+		Identity:   "selected",
+		Selections: []BinarySelectionPlan{{PublicDir: publicRoot, PublicBinDir: publicRoot}},
 	}
 	policy, sources := runnerFilesystemPolicy(Paths{StellaHome: stellaHome, WorkspaceRoot: t.TempDir()}, Config{
 		SystemRuntimePlan: corePlan,
@@ -284,6 +283,7 @@ func TestBuildSandboxEnvVaultSecretOverridesOAuthSessionEnv(t *testing.T) {
 			}
 			secretValues := NewSessionSecretValues()
 			oauthBindings := NewOAuthEnvBindings()
+			rollbacks := make(map[string]pkgplugins.SessionEnvRollback)
 			env, err := buildSandboxEnv(ctx, Config{
 				UserID:              userID,
 				AgentID:             "agent-1",
@@ -291,6 +291,7 @@ func TestBuildSandboxEnvVaultSecretOverridesOAuthSessionEnv(t *testing.T) {
 				SessionSecretValues: secretValues,
 				TokenManager:        tm,
 				OAuthEnvBindings:    oauthBindings,
+				SessionEnvRollbacks: rollbacks,
 				SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
 					{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "github"},
 				},
@@ -307,8 +308,37 @@ func TestBuildSandboxEnvVaultSecretOverridesOAuthSessionEnv(t *testing.T) {
 			if got := oauthBindings.Has("GH_TOKEN"); got != tt.wantOAuthBind {
 				t.Fatalf("OAuth binding recorded = %v, want %v", got, tt.wantOAuthBind)
 			}
+			if tt.vaultSecret {
+				if _, ok := rollbacks["GH_TOKEN"]; ok {
+					t.Fatalf("Vault-overridden OAuth env must have no rollback: %v", rollbacks)
+				}
+			} else {
+				rollback, ok := rollbacks["GH_TOKEN"]
+				if !ok || rollback.PriorPresent || rollback.PriorValue != "" {
+					t.Fatalf("OAuth session env rollback = %+v, want absent prior", rollback)
+				}
+			}
 			requireSessionSecretValues(t, secretValues.Values(), tt.wantRedacted, tt.absentSecrets)
 		})
+	}
+}
+
+func TestBuildSandboxEnvDoesNotRollbackRunnerOwnedSessionEnv(t *testing.T) {
+	rollbacks := make(map[string]pkgplugins.SessionEnvRollback)
+	env, err := buildSandboxEnv(context.Background(), Config{
+		SessionEnvRollbacks: rollbacks,
+		SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
+			{PluginID: "package", EnvVar: "STELLA_HOME", Source: pkgplugins.SessionEnvSourceStatic, Value: "/package-owned-home"},
+		},
+	}, Paths{StellaHome: "/runner/stella-home"})
+	if err != nil {
+		t.Fatalf("buildSandboxEnv: %v", err)
+	}
+	if got := env["STELLA_HOME"]; got != "/runner/stella-home" {
+		t.Fatalf("STELLA_HOME = %q, want runner-owned value", got)
+	}
+	if _, ok := rollbacks["STELLA_HOME"]; ok {
+		t.Fatalf("runner-owned STELLA_HOME must not be rollback eligible: %+v", rollbacks)
 	}
 }
 

@@ -84,6 +84,27 @@ func TestPluginAccessAuthenticationPrecedesUnavailableService(t *testing.T) {
 	if serviceUnavailable.Code != http.StatusServiceUnavailable {
 		t.Fatalf("unavailable service status = %d, want %d", serviceUnavailable.Code, http.StatusServiceUnavailable)
 	}
+
+	for name, handler := range map[string]func(http.ResponseWriter, *http.Request){
+		"import package": server.ImportPluginPackage,
+		"update package": func(w http.ResponseWriter, r *http.Request) {
+			server.UpdatePluginPackage(w, r, "example")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			unauthenticated := httptest.NewRecorder()
+			handler(unauthenticated, request)
+			if unauthenticated.Code != http.StatusUnauthorized {
+				t.Fatalf("unauthenticated status = %d, want %d", unauthenticated.Code, http.StatusUnauthorized)
+			}
+
+			serviceUnavailable := httptest.NewRecorder()
+			handler(serviceUnavailable, authenticatedRequest)
+			if serviceUnavailable.Code != http.StatusServiceUnavailable {
+				t.Fatalf("unavailable service status = %d, want %d", serviceUnavailable.Code, http.StatusServiceUnavailable)
+			}
+		})
+	}
 }
 
 func TestCompactMCPInputDoesNotClassifyParentResourceOverlays(t *testing.T) {
@@ -129,6 +150,21 @@ func TestPluginDefinitionViewProjectsOnlySafeSummary(t *testing.T) {
 	}
 	if _, ok := view.Spec["credential_refs"]; ok {
 		t.Fatal("definition view exposed credential refs")
+	}
+}
+
+func TestPluginDefinitionViewKeepsPackageDigestForSkillCopy(t *testing.T) {
+	definition := pluginpkg.Definition{
+		ID: "package", DisplayName: "Package", Source: pluginpkg.SourceCustom, Revision: 1,
+		Spec: json.RawMessage(`{"origin":"package","content":{"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`),
+	}
+	view, err := pluginDefinitionView(definition)
+	if err != nil {
+		t.Fatalf("pluginDefinitionView: %v", err)
+	}
+	content, ok := view.Spec["content"].(map[string]string)
+	if !ok || content["digest"] == "" {
+		t.Fatalf("package digest missing from safe spec: %#v", view.Spec)
 	}
 }
 

@@ -3,12 +3,15 @@ package runtime
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/CherryHQ/stella/internal/plugin"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
+
+const packageConfigUnavailableReason = "selected package configuration is incompatible"
 
 // projectSessionPluginView derives resources and prompts together from the
 // authority-bound snapshot captured when the runner is admitted.
@@ -34,21 +37,44 @@ func projectSessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPlugi
 		}
 		view.ExposedPluginIDs = append(view.ExposedPluginIDs, definition.ID)
 
+		payloadSource := resolved.Effective.Payload
+		payloadName := "selected resource payload"
+		unavailableReason := ""
 		if err := validateResolvedResourcePayload(definition, resolved); err != nil {
-			return pkgplugins.SessionPluginView{}, err
+			if !errors.Is(err, plugin.ErrInvalidConfig) {
+				return pkgplugins.SessionPluginView{}, err
+			}
+			// A published definition can advance independently of a user's saved
+			// CLI/MCP pin. Keep the current declaration in the immutable view so
+			// global conflict checks and Skill masking still see it, then mark the
+			// whole package unavailable. No package resource survives the readiness
+			// projection below.
+			payloadSource = definition.Spec
+			payloadName = "published resource payload"
+			unavailableReason = packageConfigUnavailableReason
 		}
-		payload, err := plugin.DecodeResourcePayload(resolved.Effective.Payload, "selected resource payload")
+		payload, err := plugin.DecodeResourcePayload(payloadSource, payloadName)
 		if err != nil {
 			return pkgplugins.SessionPluginView{}, fmt.Errorf("plugin %q: %w", definition.ID, err)
 		}
+		view.PackageRequirements = append(view.PackageRequirements, packageRequirement(definition.ID, payload.OAuth, unavailableReason))
+		view.PackageResults.Packages = append(view.PackageResults.Packages, pkgplugins.PluginPackageStatus{
+			PluginID: definition.ID,
+			Ready:    unavailableReason == "",
+			Reason:   unavailableReason,
+		})
 		appendCLIResources(&view, identity, payload)
+		appendSkillResources(&view, identity, payload, definition.Source == plugin.SourceBuiltin)
 		if payload.Prompt != "" {
-			view.PromptSections = append(view.PromptSections, pkgplugins.SystemPromptSection{Title: definition.DisplayName, Content: payload.Prompt, Inline: true})
+			view.PromptSections = append(view.PromptSections, pkgplugins.SystemPromptSection{PluginID: definition.ID, Title: definition.DisplayName, Content: payload.Prompt, Inline: true})
 		}
 	}
 
 	slices.Sort(view.RegisteredPluginIDs)
 	slices.Sort(view.ExposedPluginIDs)
+	slices.SortFunc(view.PackageResults.Packages, func(left, right pkgplugins.PluginPackageStatus) int {
+		return cmp.Compare(left.PluginID, right.PluginID)
+	})
 	slices.SortFunc(view.SessionEnvSpecs, func(left, right pkgplugins.SessionEnvSpec) int {
 		if left.EnvVar != right.EnvVar {
 			return cmp.Compare(left.EnvVar, right.EnvVar)
@@ -73,7 +99,52 @@ func projectSessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPlugi
 		}
 		return cmp.Compare(left.ConfigID, right.ConfigID)
 	})
+	slices.SortFunc(view.SkillSpecs, func(left, right pkgplugins.PluginSkillSpec) int {
+		if left.PluginID != right.PluginID {
+			return cmp.Compare(left.PluginID, right.PluginID)
+		}
+		if left.Name != right.Name {
+			return cmp.Compare(left.Name, right.Name)
+		}
+		return cmp.Compare(left.ConfigID, right.ConfigID)
+	})
 	return view, nil
+}
+
+func packageRequirement(pluginID string, requirements []plugin.OAuthRequirement, unavailableReason string) pkgplugins.PluginPackageRequirement {
+	result := pkgplugins.PluginPackageRequirement{PluginID: pluginID, UnavailableReason: unavailableReason, OAuth: make([]pkgplugins.PluginOAuthRequirement, 0, len(requirements))}
+	for _, requirement := range requirements {
+		converted := pkgplugins.PluginOAuthRequirement{Provider: requirement.Provider, Scopes: slices.Clone(requirement.Scopes), Bindings: make([]pkgplugins.PluginOAuthBinding, 0, len(requirement.Bindings))}
+		for _, binding := range requirement.Bindings {
+			converted.Bindings = append(converted.Bindings, pkgplugins.PluginOAuthBinding{Credential: binding.Credential, EnvVar: binding.EnvVar, Connection: binding.Connection})
+		}
+		result.OAuth = append(result.OAuth, converted)
+	}
+	return result
+}
+
+func appendSkillResources(view *pkgplugins.SessionPluginView, identity pkgplugins.PluginResourceIdentity, payload plugin.ResourcePayload, builtin bool) {
+	packageDigest := payload.ContentDigest
+	if payload.Content != nil && payload.Content.Digest != "" {
+		// Skill bytes live below the published asset tree. The definition
+		// digest identifies the declaration, but the content reference is the
+		// immutable directory the package reader must open.
+		packageDigest = payload.Content.Digest
+	}
+	for _, skill := range payload.Skills {
+		path := skill.Path
+		if path == "" {
+			path = "skills/" + skill.Name + "/SKILL.md"
+		}
+		view.SkillSpecs = append(view.SkillSpecs, pkgplugins.PluginSkillSpec{
+			PluginResourceIdentity: identity,
+			PackageDigest:          packageDigest,
+			Name:                   skill.Name,
+			Path:                   path,
+			Description:            skill.Description,
+			Builtin:                builtin,
+		})
+	}
 }
 
 // validateResolvedResourcePayload re-runs the backend boundary after resolution.
@@ -113,6 +184,7 @@ func appendCLIResources(view *pkgplugins.SessionPluginView, identity pkgplugins.
 	for _, binary := range payload.Binaries {
 		view.BinarySpecs = append(view.BinarySpecs, pkgplugins.PluginBinarySpec{
 			PluginResourceIdentity: identity,
+			PackageDigest:          payload.ContentDigest,
 			Name:                   binary.Name,
 			Tool:                   binary.Tool,
 			Version:                binary.Version,

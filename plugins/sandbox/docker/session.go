@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
@@ -261,6 +262,43 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		Name: "stella-sandbox-" + sessionID,
 	}
 
+	var selectionCaches *selectionToolCacheSet
+	var toolPreparation ToolPreparationResult
+	if f.cfg.ExpectedBundleRevision != "" || len(f.cfg.SelectionToolBinaries) > 0 {
+		if err := client.EnsureImageReady(ctx, f.cfg.Image, opts.Name); err != nil {
+			recordError(span, err)
+			span.End()
+			return nil, fmt.Errorf("docker session: selection image: %w", err)
+		}
+		imageInfo, err := client.ImageInfo(ctx, f.cfg.Image)
+		if err != nil {
+			recordError(span, err)
+			span.End()
+			return nil, fmt.Errorf("docker session: resolve selection image: %w", err)
+		}
+		if imageInfo.ID == "" {
+			err := fmt.Errorf("docker session: image inspect returned an empty image ID")
+			recordError(span, err)
+			span.End()
+			return nil, err
+		}
+		if expected := f.cfg.ExpectedBundleRevision; expected != "" && imageInfo.Labels[builtinBundleRevisionLabel] != expected {
+			err := fmt.Errorf("docker session: image bundle revision does not match expected revision")
+			recordError(span, err)
+			span.End()
+			return nil, err
+		}
+		opts.Image = imageInfo.ID
+		selectionCaches, err = ensureSelectionToolCacheSet(ctx, client, f.cfg, imageInfo.ID)
+		if err != nil {
+			recordError(span, err)
+			span.End()
+			return nil, err
+		}
+		toolPreparation = selectionCaches.Preparation
+		filterFailedPackageEnv(policy.Env, toolPreparation, f.cfg.SessionEnvRollbacks)
+	}
+
 	mountedPolicyMounts, mountedTempDirHost, mountedUserDataHost, err := f.configureSessionMounts(&opts, providerMounts, workspaceHost, userDataHost, tempDir)
 	if err != nil {
 		recordError(span, err)
@@ -351,54 +389,31 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	// even when the snapshot selects no plugin binaries. Lightweight callers
 	// using arbitrary images without a bundle revision retain the client seam.
 	if f.cfg.ExpectedBundleRevision != "" || len(f.cfg.SelectionToolBinaries) > 0 {
-		if err := client.EnsureImageReady(ctx, f.cfg.Image, opts.Name); err != nil {
-			recordError(span, err)
-			span.End()
-			return nil, fmt.Errorf("docker session: selection image: %w", err)
-		}
-		imageInfo, err := client.ImageInfo(ctx, f.cfg.Image)
-		if err != nil {
-			recordError(span, err)
-			span.End()
-			return nil, fmt.Errorf("docker session: resolve selection image: %w", err)
-		}
-		if imageInfo.ID == "" {
-			err := fmt.Errorf("docker session: image inspect returned an empty image ID")
-			recordError(span, err)
-			span.End()
-			return nil, err
-		}
-		// Pin the session to the same immutable image used by the helper cache.
-		if expected := f.cfg.ExpectedBundleRevision; expected != "" && imageInfo.Labels[builtinBundleRevisionLabel] != expected {
-			recordError(span, fmt.Errorf("docker session: builtin bundle revision mismatch"))
-			span.End()
-			return nil, fmt.Errorf("docker session: image bundle revision does not match expected revision")
-		}
-		opts.Image = imageInfo.ID
-		selectionCache, err := ensureSelectionToolCache(ctx, client, f.cfg, imageInfo.ID)
-		if err != nil {
-			recordError(span, err)
-			span.End()
-			return nil, err
-		}
 		// Mount the public root for sidecars and its bin subpath separately.
 		// The latter overlays the image bin with NoCopy, so image-only tools do
 		// not become visible through Docker's volume copy-up behavior.
 		opts.ExtraMounts = append(opts.ExtraMounts,
 			dockerclient.Mount{
-				HostPath: selectionCache.VolumeName, ContainerPath: containerSelectionRoot,
+				HostPath: selectionCaches.Core.VolumeName, ContainerPath: containerSelectionRoot,
 				ReadOnly: true, Type: dockerclient.MountTypeVolume, NoCopy: true,
 			},
 			dockerclient.Mount{
-				HostPath: selectionCache.VolumeName, ContainerPath: containerSelectionBin,
+				HostPath: selectionCaches.Core.VolumeName, ContainerPath: containerSelectionBin,
 				ReadOnly: true, Type: dockerclient.MountTypeVolume, VolumeSubpath: "bin", NoCopy: true,
 			},
 			dockerclient.Mount{
-				HostPath: selectionCache.MaskVolumeName, ContainerPath: stellaHomeMount + "/.mise-tools",
+				HostPath: selectionCaches.Core.MaskVolumeName, ContainerPath: stellaHomeMount + "/.mise-tools",
 				ReadOnly: true, Type: dockerclient.MountTypeVolume, NoCopy: true,
 			},
 		)
-		toolBinPaths = append(toolBinPaths, selectionCache.BinPath)
+		toolBinPaths = append(toolBinPaths, selectionCaches.Core.BinPath)
+		for _, selectionCache := range selectionCaches.Packages {
+			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+				HostPath: selectionCache.VolumeName, ContainerPath: selectionCache.RootPath,
+				ReadOnly: true, Type: dockerclient.MountTypeVolume, NoCopy: true,
+			})
+			toolBinPaths = append(toolBinPaths, selectionCache.BinPath)
+		}
 	}
 
 	slog.Info("docker session: creating sandbox container",
@@ -438,18 +453,19 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	))
 
 	session := &dockerSession{
-		id:           sessionID,
-		policy:       policy,
-		client:       client,
-		containerID:  containerID,
-		mountTable:   mountTable,
-		envPathMaps:  envMaps,
-		toolBinPaths: toolBinPaths,
-		ownedTempDir: tempDir,
-		resolver:     resolver,
-		files:        sessionfs.NewAccessWithTempDir(resolver, policy.Env[sandboxpkg.EnvTempDir]),
-		done:         make(chan struct{}),
-		traceSpan:    span,
+		id:              sessionID,
+		policy:          policy,
+		client:          client,
+		containerID:     containerID,
+		mountTable:      mountTable,
+		envPathMaps:     envMaps,
+		toolBinPaths:    toolBinPaths,
+		ownedTempDir:    tempDir,
+		resolver:        resolver,
+		files:           sessionfs.NewAccessWithTempDir(resolver, policy.Env[sandboxpkg.EnvTempDir]),
+		done:            make(chan struct{}),
+		traceSpan:       span,
+		toolPreparation: toolPreparation,
 	}
 	session.host = &dockerHost{session: session}
 	transferredTempOwnership = true
@@ -471,26 +487,52 @@ func mapNetworkMode(policy sandboxpkg.Policy) dockerclient.NetworkMode {
 	}
 }
 
+// filterFailedPackageEnv removes package-owned variables before Docker creates
+// the container. A failed optional CLI package must not retain credentials or
+// other session inputs while its binaries and resources are hidden.
+func filterFailedPackageEnv(env map[string]string, preparation ToolPreparationResult, rollbacks map[string]pkgplugins.SessionEnvRollback) {
+	if len(env) == 0 || len(rollbacks) == 0 || len(preparation.FailedPackages) == 0 {
+		return
+	}
+	failed := make(map[string]struct{}, len(preparation.FailedPackages))
+	for _, failure := range preparation.FailedPackages {
+		if failure.Package.PluginID != "" {
+			failed[failure.Package.PluginID] = struct{}{}
+		}
+	}
+	for envVar, rollback := range rollbacks {
+		if _, failedPackage := failed[rollback.PluginID]; !failedPackage {
+			continue
+		}
+		if rollback.PriorPresent {
+			env[envVar] = rollback.PriorValue
+		} else {
+			delete(env, envVar)
+		}
+	}
+}
+
 // dockerSession is a docker-backed sandbox session backed by a single container.
 type dockerSession struct {
-	id           string
-	policy       sandboxpkg.Policy
-	client       *dockerclient.Client
-	containerID  string
-	mountTable   []dockerclient.Mount
-	envPathMaps  []envPathMap
-	toolBinPaths []string
-	ownedTempDir string
-	host         *dockerHost
-	resolver     *sessionfs.Resolver
-	files        sandboxpkg.FileAccess
-	done         chan struct{}
-	doneOnce     sync.Once
-	closed       bool
-	closeErr     error
-	traceSpan    trace.Span
-	traceOnce    sync.Once
-	mu           sync.RWMutex
+	id              string
+	policy          sandboxpkg.Policy
+	client          *dockerclient.Client
+	containerID     string
+	mountTable      []dockerclient.Mount
+	envPathMaps     []envPathMap
+	toolBinPaths    []string
+	ownedTempDir    string
+	host            *dockerHost
+	resolver        *sessionfs.Resolver
+	files           sandboxpkg.FileAccess
+	done            chan struct{}
+	doneOnce        sync.Once
+	closed          bool
+	closeErr        error
+	traceSpan       trace.Span
+	traceOnce       sync.Once
+	toolPreparation ToolPreparationResult
+	mu              sync.RWMutex
 }
 
 func (s *dockerSession) Policy() sandboxpkg.Policy {
@@ -508,6 +550,21 @@ func (s *dockerSession) StartProcess(ctx context.Context, req sandboxpkg.Process
 }
 func (s *dockerSession) Files() sandboxpkg.FileAccess { return s.files }
 func (s *dockerSession) WorkingDir() string           { return s.host.WorkingDir() }
+
+// PluginPreparationResult implements the provider-neutral readiness bridge.
+// Only package identities and bounded reasons cross the plugin boundary.
+func (s *dockerSession) PluginPreparationResult() pkgplugins.PluginPreparationResult {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := pkgplugins.PluginPreparationResult{Packages: make([]pkgplugins.PluginPackageStatus, 0, len(s.toolPreparation.SuccessfulPackages)+len(s.toolPreparation.FailedPackages))}
+	for _, packageID := range s.toolPreparation.SuccessfulPackages {
+		result.Packages = append(result.Packages, pkgplugins.PluginPackageStatus{PluginID: packageID.PluginID, Ready: true})
+	}
+	for _, failure := range s.toolPreparation.FailedPackages {
+		result.Packages = append(result.Packages, pkgplugins.PluginPackageStatus{PluginID: failure.Package.PluginID, Reason: "Docker tool preparation failed"})
+	}
+	return result
+}
 
 func (s *dockerSession) Alive() bool {
 	s.mu.RLock()

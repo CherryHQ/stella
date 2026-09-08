@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -32,7 +33,23 @@ type Tool struct {
 	disabledSkillRefs   []string
 	// readAuthz enforces Skill read authorization on every managed Skill before
 	// Home content is opened. It is mandatory at construction.
-	readAuthz SkillReadAuthorizer
+	readAuthz     SkillReadAuthorizer
+	packageReader PackageSkillReader
+}
+
+// PackageSkillReader is the narrow immutable package-store seam. It resolves
+// only the digest/path selected for this turn; it is not a general filesystem
+// or source registry.
+type PackageSkillReader interface {
+	LoadPackageSkill(context.Context, PackageSkillRef) (PackageSkillRevision, error)
+}
+
+// PackageSkillRevision contains the complete files of one package Skill,
+// relative to its Skill directory. The reader owns integrity verification.
+type PackageSkillRevision struct {
+	Ref   PackageSkillRef
+	Files map[string][]byte
+	Modes map[string]fs.FileMode
 }
 
 func (t *Tool) WithProjectSnapshot(snapshot *ProjectSnapshot) *Tool {
@@ -69,6 +86,11 @@ func (t *Tool) WithPluginVisibility(registered, enabled []string) *Tool {
 // next runner observes a committed mutation after local invalidation.
 func (t *Tool) WithAgentSkillPolicy(disabled []string) *Tool {
 	t.disabledSkillRefs = append([]string(nil), disabled...)
+	return t
+}
+
+func (t *Tool) WithPackageReader(reader PackageSkillReader) *Tool {
+	t.packageReader = reader
 	return t
 }
 
@@ -206,7 +228,7 @@ func (t *Tool) identityMerged(ctx context.Context, vc ViewContext) ([]ResolvedSk
 		if err := ValidateSkillTurnSelection(turn); err != nil {
 			return nil, err
 		}
-		merged := t.svc.ListMerged(turn.ManagedIdentities(), turn.ProjectSnapshot())
+		merged := t.svc.ListMergedWithPackages(turn.ManagedIdentities(), turn.ProjectSnapshot(), turn.PackageSkills(), turn.MaskedSkillNames())
 		merged = filterMaskedSkills(merged, turn.MaskedSkillNames())
 		return filterDisabled(merged, turn.DisabledSkillRefs()), nil
 	}
@@ -309,7 +331,29 @@ func (t *Tool) loadManagedOrImmutable(ctx context.Context, name, filename string
 
 	var data string
 	var projection immutableSkillProjection
-	if !isDBSkill(*resolved) {
+	switch {
+	case resolved.IsPackage():
+		if t.packageReader == nil {
+			return "", errors.New("package Skills are unavailable: package reader is not configured")
+		}
+		ref, _ := resolved.PackageRef()
+		revision, readErr := t.packageReader.LoadPackageSkill(ctx, ref)
+		if readErr != nil {
+			return "", fmt.Errorf("load package skill %q: %w", name, readErr)
+		}
+		if !samePackageSkillRef(ref, revision.Ref) {
+			return "", ErrInvalidSkillRevision
+		}
+		projection, err = packageSkillProjection(revision)
+		if err != nil {
+			return "", fmt.Errorf("prepare package skill %q projection: %w", name, err)
+		}
+		dataBytes, ok := revision.Files[filename]
+		if !ok {
+			return "", fmt.Errorf("load package skill %q file %q: %w", name, filename, fs.ErrNotExist)
+		}
+		data = string(dataBytes)
+	case !isDBSkill(*resolved):
 		data, err = resolved.LoadImmutableFile(filename)
 		if err != nil {
 			return "", fmt.Errorf("load %s skill %q file %q: %w", resolved.Scope, name, filename, err)
@@ -318,7 +362,7 @@ func (t *Tool) loadManagedOrImmutable(ctx context.Context, name, filename string
 		if err != nil {
 			return "", fmt.Errorf("prepare %s skill %q projection: %w", resolved.Scope, name, err)
 		}
-	} else {
+	default:
 		revision, readErr := t.loadSelectedRevision(ctx, *resolved)
 		if readErr != nil {
 			return "", fmt.Errorf("load skill %q: %w", name, readErr)
@@ -352,6 +396,48 @@ func (t *Tool) loadManagedOrImmutable(ctx context.Context, name, filename string
 	fmt.Fprintf(&out, "<skill_dir>%s</skill_dir>\n", skillDir)
 	fmt.Fprintf(&out, "<skill_content name=%q path=%q>\n%s\n</skill_content>", name, filename, data)
 	return out.String(), nil
+}
+
+func samePackageSkillRef(expected, actual PackageSkillRef) bool {
+	if expected.PackageID != actual.PackageID || expected.PackageDigest != actual.PackageDigest || expected.Name != actual.Name {
+		return false
+	}
+	expectedPath := expected.Path
+	if expectedPath == "" {
+		expectedPath = "skills/" + expected.Name + "/SKILL.md"
+	}
+	actualPath := actual.Path
+	if actualPath == "" {
+		actualPath = "skills/" + actual.Name + "/SKILL.md"
+	}
+	return expectedPath == actualPath
+}
+
+func packageSkillProjection(revision PackageSkillRevision) (immutableSkillProjection, error) {
+	if revision.Ref.PackageID == "" || !validPackageDigest(revision.Ref.PackageDigest) || revision.Ref.Name == "" || len(revision.Files) == 0 {
+		return immutableSkillProjection{}, ErrInvalidSkillRevision
+	}
+	files := make([]revisionFile, 0, len(revision.Files))
+	for filename, content := range revision.Files {
+		mode := revision.Modes[filename]
+		if mode == 0 {
+			mode = 0o444
+		}
+		mode = mode.Perm() & 0o555
+		if mode&0o444 == 0 {
+			return immutableSkillProjection{}, ErrInvalidSkillRevision
+		}
+		files = append(files, revisionFile{Path: filename, Content: bytes.Clone(content), Mode: mode})
+	}
+	files, err := validateRevisionFiles(files)
+	if err != nil {
+		return immutableSkillProjection{}, err
+	}
+	projected := make([]immutableSkillFile, 0, len(files))
+	for _, file := range files {
+		projected = append(projected, immutableSkillFile{path: file.Path, content: file.Content, mode: file.Mode})
+	}
+	return immutableSkillProjection{kind: "package", id: revision.Ref.PackageID + ":" + revision.Ref.Name, digest: packageDigestHex(revision.Ref.PackageDigest), files: projected}, nil
 }
 
 func managedSkillProjection(revision ManagedRevision) (immutableSkillProjection, error) {

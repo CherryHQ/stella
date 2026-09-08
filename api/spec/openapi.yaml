@@ -131,6 +131,8 @@ paths:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills"
   /api/skills/install:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1install"
+  /api/skills/copy-package:
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1copy-package"
   /api/skills/upload:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1upload"
   /api/skills/{id}:
@@ -498,8 +500,14 @@ paths:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1native-plugins~1{kind}~1{name}~1agent-denials~1{agent_id}"
   /api/plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"
+  /api/plugins/import:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1import"
   /api/plugins/{plugin_id}:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}"
+  /api/plugins/{plugin_id}/update:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1update"
+  /api/plugins/{plugin_id}/update/preview:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1update~1preview"
   /api/plugins/{plugin_id}/configs:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs"
   /api/plugins/{plugin_id}/configs/{config_id}:

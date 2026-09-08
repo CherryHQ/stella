@@ -159,6 +159,12 @@ func WithSkillRevisionReader(r skillstool.RuntimeReader) PoolManagerOption {
 	return func(pm *PoolManager) { pm.skillRevisionReader = r }
 }
 
+// WithSkillPackageReader injects the immutable package CAS reader used by
+// package-owned Skills in each runner.
+func WithSkillPackageReader(r skillstool.PackageSkillReader) PoolManagerOption {
+	return func(pm *PoolManager) { pm.skillPackageReader = r }
+}
+
 // WithSkillReadAuthorizer injects Skill domain read access into every runner's
 // skills tool, so DB-backed reads (load/search_installed) are authorized.
 func WithSkillReadAuthorizer(a skillstool.SkillReadAuthorizer) PoolManagerOption {
@@ -238,6 +244,7 @@ type PoolManager struct {
 	providerStreamBuilder ProviderStreamBuilder
 	sandboxBackends       *sandbox.BackendRegistry
 	skillRevisionReader   skillstool.RuntimeReader
+	skillPackageReader    skillstool.PackageSkillReader
 	skillReadAuthz        skillstool.SkillReadAuthorizer
 	mcpToolProvider       MCPToolProvider
 	toolOverrideFetcher   ToolOverrideFetcher
@@ -494,6 +501,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	pm.mu.RLock()
 	pluginContextBuilder := pm.pluginContextBuilder
 	mcpToolProvider := pm.mcpToolProvider
+	tokenManager := pm.tokenManager
 	pm.mu.RUnlock()
 	if pluginContextBuilder != nil {
 		freshPluginContext = func(buildCtx context.Context, authority authz.Authority, targetAgentID string) (agentruntime.PluginContext, error) {
@@ -501,13 +509,20 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 			if err != nil {
 				return agentruntime.PluginContext{}, err
 			}
-			if provider, ok := mcpToolProvider.(MCPToolSnapshotProvider); ok {
-				mcpSnapshot, snapshotErr := provider.ToolsForSnapshotWithDirectory(buildCtx, pluginContext.Snapshot())
-				if snapshotErr != nil {
-					return agentruntime.PluginContext{}, snapshotErr
-				}
-				pluginContext = pluginContext.WithMCPToolSnapshot(mcpSnapshot)
+			view := pluginContext.SessionPluginView()
+			preparation := sandbox.PrepareOAuthPackages(buildCtx, sandbox.Config{
+				UserID:       string(authority.UserID()),
+				GroupID:      string(authority.GroupID()),
+				AgentID:      targetAgentID,
+				TokenManager: tokenManager,
+				ChatTimeout:  defaultChatTimeout,
+			}, view.PackageRequirements)
+			pluginContext = pluginContext.WithOAuthPreparationResult(preparation)
+			mcpSnapshot, snapshotErr := mcpToolProvider.ToolsForSnapshotWithDirectoryForPlugins(buildCtx, pluginContext.Snapshot(), pluginContext.SessionPluginView().ExposedPluginIDs)
+			if snapshotErr != nil {
+				return agentruntime.PluginContext{}, snapshotErr
 			}
+			pluginContext = pluginContext.WithMCPToolSnapshot(mcpSnapshot)
 			return pluginContext, nil
 		}
 	}
@@ -554,7 +569,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 // callbacks live on the Runtime boundary so overrides, delegation, and
 // auto-compaction all inherit the same context.
 func (pm *PoolManager) skillTurnHooks(snap *config.Snapshot) agentruntime.SkillTurnCapture {
-	capture := func(ctx context.Context, info session.Info, _ agentruntime.PluginContext) (context.Context, error) {
+	capture := func(ctx context.Context, info session.Info, pluginContext agentruntime.PluginContext) (context.Context, error) {
 		var project *skillstool.ProjectSnapshot
 		var projectContext prompt.ProjectContext
 		if info.ProjectID != "" && info.UserID != "" {
@@ -582,7 +597,8 @@ func (pm *PoolManager) skillTurnHooks(snap *config.Snapshot) agentruntime.SkillT
 		if info.GroupID != "" {
 			viewUserID = ""
 		}
-		view, err := skillstool.CaptureSkillTurnView(ctx, pm.skillRevisionReader, pm.skillReadAuthz, project, nil, skillstool.ViewContext{
+		packages := pluginSkillRefs(pluginContext)
+		view, err := skillstool.CaptureSkillTurnView(ctx, pm.skillRevisionReader, pm.skillReadAuthz, project, packages, skillstool.ViewContext{
 			UserID: viewUserID, AgentID: info.AgentID, DisabledSkillRefs: disabled,
 		})
 		if err != nil {
@@ -595,6 +611,31 @@ func (pm *PoolManager) skillTurnHooks(snap *config.Snapshot) agentruntime.SkillT
 		return ctx, nil
 	}
 	return capture
+}
+
+func pluginSkillRefs(pluginContext PluginContext) []skillstool.PackageSkillRef {
+	specs := pluginContext.SelectedPluginSkillSpecs()
+	if len(specs) == 0 {
+		return nil
+	}
+	view := pluginContext.SessionPluginView()
+	refs := make([]skillstool.PackageSkillRef, 0, len(specs))
+	for _, spec := range specs {
+		masked := false
+		if len(view.PackageResults.Packages) > 0 {
+			masked = !view.PackageResults.Status(spec.PluginID).Ready
+		}
+		refs = append(refs, skillstool.PackageSkillRef{
+			PackageID:     spec.PluginID,
+			PackageDigest: spec.PackageDigest,
+			Name:          spec.Name,
+			Path:          spec.Path,
+			Description:   spec.Description,
+			Builtin:       spec.Builtin,
+			Masked:        masked,
+		})
+	}
+	return refs
 }
 
 // promptScope computes only the logical profile subject. Group sessions blank
@@ -975,6 +1016,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		PluginHooksBuilder:    pm.pluginHooksBuilder,
 		ToolLifecycleBuilder:  pm.toolLifecycleBuilder,
 		SkillRevisionReader:   pm.skillRevisionReader,
+		SkillPackageReader:    pm.skillPackageReader,
 		SkillReadAuthorizer:   pm.skillReadAuthz,
 		MCPToolProvider:       pm.mcpToolProvider,
 		ToolOverrideFetcher:   pm.toolOverrideFetcher,

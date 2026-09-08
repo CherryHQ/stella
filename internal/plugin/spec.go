@@ -80,6 +80,12 @@ func validSHA256Digest(value string) bool {
 	return err == nil
 }
 
+// ValidContentDigest validates a content-addressed package digest at an HTTP
+// boundary without exposing the canonicalization implementation.
+func ValidContentDigest(value string) bool {
+	return validSHA256Digest(value)
+}
+
 func decodeSpecObject(raw json.RawMessage) (map[string]json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {

@@ -146,6 +146,15 @@ func safeDefinitionSpec(def pluginpkg.Definition) (map[string]any, error) {
 			}
 		}
 	}
+	// The content digest is the immutable package identity required to copy a
+	// declared Skill. It is safe to expose; the package tree and all credentials
+	// remain behind the plugin access boundary.
+	var content struct {
+		Digest string `json:"digest"`
+	}
+	if json.Unmarshal(source["content"], &content) == nil && pluginpkg.ValidContentDigest(content.Digest) {
+		out["content"] = map[string]string{"digest": content.Digest}
+	}
 	return out, nil
 }
 

@@ -62,3 +62,41 @@ func TestPluginContextIdentityIncludesMCPDirectoryAndSuccessfulSet(t *testing.T)
 		t.Fatal("successful package set changes must invalidate plugin identity")
 	}
 }
+
+func TestPluginContextOnlyRetiresOAuthReadyCLIFailures(t *testing.T) {
+	oauthUnavailable := pkgplugins.PluginPreparationResult{Packages: []pkgplugins.PluginPackageStatus{{
+		PluginID: "package", Reason: "OAuth unavailable",
+	}}}
+	ctx := PluginContext{}.WithOAuthPreparationResult(oauthUnavailable).WithPreparationResult(oauthUnavailable)
+	if ctx.HasFailedPackagePreparation() {
+		t.Fatal("stable OAuth failure should not retire a cached runner")
+	}
+
+	oauthReady := pkgplugins.PluginPreparationResult{Packages: []pkgplugins.PluginPackageStatus{{
+		PluginID: "package", Ready: true,
+	}}}
+	cliUnavailable := pkgplugins.PluginPreparationResult{Packages: []pkgplugins.PluginPackageStatus{{
+		PluginID: "package", Reason: "CLI preparation failed",
+	}}}
+	ctx = PluginContext{}.WithOAuthPreparationResult(oauthReady).WithPreparationResult(cliUnavailable)
+	if !ctx.HasFailedPackagePreparation() {
+		t.Fatal("CLI failure after OAuth admission should retire the cached runner")
+	}
+}
+
+func TestPluginContextPreparationDoesNotResurrectStaticFailure(t *testing.T) {
+	base := pkgplugins.PluginPreparationResult{Packages: []pkgplugins.PluginPackageStatus{
+		{PluginID: "healthy", Ready: true},
+		{PluginID: "incompatible", Reason: "selected package configuration is incompatible"},
+	}}
+	ctx := PluginContext{view: pkgplugins.SessionPluginView{PackageResults: base}}
+	readyOnly := pkgplugins.PluginPreparationResult{Packages: []pkgplugins.PluginPackageStatus{{PluginID: "healthy", Ready: true}}}
+	view := ctx.WithOAuthPreparationResult(readyOnly).SessionPluginView()
+	if status := view.PackageResults.Status("incompatible"); status.Ready || status.Reason != "selected package configuration is incompatible" {
+		t.Fatalf("OAuth result resurrected static failure: %+v", status)
+	}
+	view = ctx.WithPreparationResult(readyOnly).SessionPluginView()
+	if status := view.PackageResults.Status("incompatible"); status.Ready || status.Reason != "selected package configuration is incompatible" {
+		t.Fatalf("CLI result resurrected static failure: %+v", status)
+	}
+}

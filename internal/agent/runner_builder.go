@@ -43,19 +43,12 @@ type (
 )
 
 // MCPToolProvider surfaces external MCP-server tools from the runner's
-// authority-bound plugin snapshot. Implemented by *mcp.ToolProvider; kept as
-// an interface here so the agent package need not depend on MCP internals.
+// authority-bound plugin snapshot. The package allow-list is mandatory so a
+// failed package cannot reach MCP connection or discovery code. Implemented by
+// *mcp.ToolProvider; kept as an interface here so the agent package need not
+// depend on MCP internals.
 type MCPToolProvider interface {
-	ToolsForSnapshot(ctx context.Context, snapshot plugin.Snapshot) ([]tools.Tool, error)
-}
-
-// MCPToolSnapshotProvider is the stronger runner-build seam. It returns the
-// tools and the exact observation-backed directory in one read, so cache
-// identity and model-facing tools cannot be assembled from different MCP
-// observations. Providers that only implement MCPToolProvider remain valid
-// for compatibility, but their directory identity is necessarily empty.
-type MCPToolSnapshotProvider interface {
-	ToolsForSnapshotWithDirectory(ctx context.Context, snapshot plugin.Snapshot) (pkgplugins.MCPToolSnapshot, error)
+	ToolsForSnapshotWithDirectoryForPlugins(context.Context, plugin.Snapshot, []string) (pkgplugins.MCPToolSnapshot, error)
 }
 
 type ToolUnavailableReason string
@@ -201,6 +194,7 @@ type runnerBuilderConfig struct {
 	ToolLifecycleBuilder  ToolLifecycleBuilder
 	SkillRevisionReader   skillstool.RuntimeReader
 	SkillReadAuthorizer   skillstool.SkillReadAuthorizer
+	SkillPackageReader    skillstool.PackageSkillReader
 	MCPToolProvider       MCPToolProvider
 	ToolOverrideFetcher   ToolOverrideFetcher
 	ToolLifecycle         *coreagent.ToolLifecycle
@@ -275,7 +269,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 	return func(ctx context.Context, params RunnerParams) (built Runner, err error) {
 		var scratchCleanup func() error
 		var pluginHooks []hooks.HookPlugin
-		runnerOwnsPluginHooks := false
 		factoryCalled := false
 		partialOwnerAttached := false
 		partial := &runner{
@@ -303,17 +296,13 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		}
 		defer func() {
 			panicValue := recover()
-			// Once newRunner is called, its partial runner owns scratch cleanup,
-			// including failed tool/session construction. Before that boundary the
-			// builder still owns the scratch root itself.
-			if (err != nil || panicValue != nil) && !partialOwnerAttached && !factoryCalled && scratchCleanup != nil {
-				_ = scratchCleanup()
-			}
-			// newRunner closes hooks on an ordinary error. A panic can unwind
-			// before that transfer point, so retain the builder as the cleanup
-			// owner for panic paths too.
-			if !partialOwnerAttached && !runnerOwnsPluginHooks && (err != nil || panicValue != nil) {
-				err = errors.Join(err, closeHookPlugins(pluginHooks))
+			// Before newRunner takes ownership, the partial runner owns every
+			// resource acquired by this builder, including a session created for
+			// prompt/Skill admission. Without a BuildOwner there is no later cache
+			// retry, so close it here. Calling partial.Close also closes hooks and
+			// scratch in dependency order, avoiding a second hook close.
+			if (err != nil || panicValue != nil) && !partialOwnerAttached && !factoryCalled {
+				err = errors.Join(err, partial.Close())
 			}
 			if panicValue != nil {
 				panic(panicValue)
@@ -447,6 +436,83 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			}
 		}
 		pluginView := pluginContext.SessionPluginView()
+		if err := sandbox.ValidateSelectedBinarySpecs(pluginContext.SelectedPluginBinarySpecs()); err != nil {
+			return nil, fmt.Errorf("runner: validate selected plugin binaries: %w", err)
+		}
+		if hasPluginAuthority && cfg.PluginHooksBuilder != nil {
+			pluginHooks, err = cfg.PluginHooksBuilder(ctx, params.AgentID)
+			partial.pluginHooks = pluginHooks
+			if err != nil {
+				return nil, fmt.Errorf("runner: build plugin hooks: %w", err)
+			}
+		}
+		// Resolve lifecycle dependencies before creating the sandbox. A lifecycle
+		// admission failure must not allocate a session that has to be retired.
+		toolLifecycle := cfg.ToolLifecycle
+		if !hasPluginAuthority {
+			toolLifecycle = nil
+		}
+		if hasPluginAuthority && cfg.ToolLifecycleBuilder != nil {
+			toolLifecycle, err = cfg.ToolLifecycleBuilder(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("runner: build tool lifecycle: %w", err)
+			}
+		}
+		sessionSecretValues := sandbox.NewSessionSecretValues()
+		sandboxCfg := sandbox.Config{
+			SandboxConfig:     cfg.Snap.Sandbox,
+			SandboxBackendFn:  cfg.SandboxBackendFn,
+			SystemRuntimePlan: cfg.SystemRuntimePlan,
+			Backends:          cfg.SandboxBackends,
+			Paths: sandbox.Paths{
+				StellaHome:    config.StellaHome(),
+				AgentRoot:     cfg.Snap.Workspace,
+				UserRoot:      userRoot,
+				WorkspaceRoot: workspaceRoot,
+				UserDataDir:   userDataDir,
+				ProjectRoot:   projectRoot,
+			},
+			UserID:              params.UserID,
+			GroupID:             params.GroupID,
+			AgentID:             params.AgentID,
+			SessionID:           params.SessionID,
+			ProjectID:           params.ProjectID,
+			SessionEnvSpecs:     slices.Clone(pluginView.SessionEnvSpecs),
+			BinarySpecs:         slices.Clone(pluginView.BinarySpecs),
+			PluginRequirements:  slices.Clone(pluginView.PackageRequirements),
+			VaultEnvLoader:      cfg.VaultEnvLoader,
+			SessionSecretValues: sessionSecretValues,
+			TokenManager:        cfg.TokenManager,
+			OAuthEnvBindings:    sandbox.NewOAuthEnvBindings(),
+			ChatTimeout:         defaultChatTimeout,
+		}
+		preparation := pluginContext.OAuthPreparationResult()
+		if len(preparation.Packages) == 0 && len(pluginView.PackageRequirements) > 0 {
+			preparation = sandbox.PrepareOAuthPackages(ctx, sandboxCfg, pluginView.PackageRequirements)
+			pluginContext = pluginContext.WithOAuthPreparationResult(preparation)
+			pluginView = pluginContext.SessionPluginView()
+		}
+		sandboxCfg.SessionEnvSpecs = slices.Clone(pluginView.SessionEnvSpecs)
+		sandboxCfg.BinarySpecs = slices.Clone(pluginView.BinarySpecs)
+		sandboxCfg.PluginRequirements = slices.Clone(pluginView.PackageRequirements)
+		sandboxCfg.PluginPreparationResult = &preparation
+
+		// CLI installation is package-scoped, but the final session must be
+		// created only after its failures have been merged into the same result.
+		// The partial runner already belongs to BuildOwner, so any prompt/Skill
+		// error after this point retains the session for retryable cleanup.
+		preparedSession, err := sandbox.ResolveSession(ctx, sandboxCfg)
+		if err != nil {
+			return nil, fmt.Errorf("runner: %w", err)
+		}
+		partial.session = preparedSession
+		if sandboxCfg.PluginPreparationResult != nil {
+			preparation = sandboxCfg.PluginPreparationResult.Clone()
+			pluginContext = pluginContext.WithPreparationResult(preparation)
+			pluginView = pluginContext.SessionPluginView()
+			sandboxCfg.SessionEnvSpecs = slices.Clone(pluginView.SessionEnvSpecs)
+			sandboxCfg.BinarySpecs = slices.Clone(pluginView.BinarySpecs)
+		}
 		backendName := config.SandboxBackendLocal
 		if cfg.SandboxBackendFn != nil {
 			if selected := cfg.SandboxBackendFn(ctx); selected != "" {
@@ -525,14 +591,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			Sections:       sections,
 		})
 
-		// Resolve hooks from RunnerParams — injected by Pool, not the builder.
-		if hasPluginAuthority && cfg.PluginHooksBuilder != nil {
-			pluginHooks, err = cfg.PluginHooksBuilder(ctx, params.AgentID)
-			partial.pluginHooks = pluginHooks
-			if err != nil {
-				return nil, fmt.Errorf("runner: build plugin hooks: %w", err)
-			}
-		}
 		partial.pluginContext = pluginContext
 		partial.pluginHooks = pluginHooks
 		hookPlugins := pluginHooks
@@ -543,53 +601,14 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if !hasPluginAuthority {
 			pluginToolsBuilder = nil
 		}
-		toolLifecycle := cfg.ToolLifecycle
-		if !hasPluginAuthority {
-			toolLifecycle = nil
-		}
-		if hasPluginAuthority && cfg.ToolLifecycleBuilder != nil {
-			toolLifecycle, err = cfg.ToolLifecycleBuilder(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("runner: build tool lifecycle: %w", err)
-			}
-		}
-
-		sessionSecretValues := sandbox.NewSessionSecretValues()
-		sandboxCfg := sandbox.Config{
-			SandboxConfig:     cfg.Snap.Sandbox,
-			SandboxBackendFn:  cfg.SandboxBackendFn,
-			SystemRuntimePlan: cfg.SystemRuntimePlan,
-			Backends:          cfg.SandboxBackends,
-			Paths: sandbox.Paths{
-				StellaHome:    config.StellaHome(),
-				AgentRoot:     cfg.Snap.Workspace,
-				UserRoot:      userRoot,
-				WorkspaceRoot: workspaceRoot,
-				UserDataDir:   userDataDir,
-				ProjectRoot:   projectRoot,
-			},
-			UserID:              params.UserID,
-			GroupID:             params.GroupID,
-			AgentID:             params.AgentID,
-			SessionID:           params.SessionID,
-			ProjectID:           params.ProjectID,
-			SessionEnvSpecs:     slices.Clone(pluginView.SessionEnvSpecs),
-			BinarySpecs:         slices.Clone(pluginView.BinarySpecs),
-			VaultEnvLoader:      cfg.VaultEnvLoader,
-			SessionSecretValues: sessionSecretValues,
-			TokenManager:        cfg.TokenManager,
-			OAuthEnvBindings:    sandbox.NewOAuthEnvBindings(),
-		}
-
 		builtinTools := append([]BuiltinTool(nil), cfg.BuiltinTools...)
 		perRunTools := append([]tools.Tool(nil), params.ExtraTools...)
 
 		canonicalImages := canonicalImageConfig(cfg.SessionImages, params)
 
 		// Ownership transfers to newRunner before the call. It closes the
-		// hooks on every construction error, including provider setup failures;
-		// this defer handles errors that occur before that handoff.
-		runnerOwnsPluginHooks = true
+		// partial runner on every construction error, including provider setup
+		// failures; this defer handles errors that occur before that handoff.
 		factoryCalled = true
 		built, err = newRunner(ctx, runnerConfig{
 			Provider: providerConfig{
@@ -603,7 +622,9 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				Builder:    cfg.ProviderStreamBuilder,
 			},
 			Thinking:             params.Thinking,
+			ChatTimeout:          defaultChatTimeout,
 			Sandbox:              sandboxCfg,
+			PreparedSession:      preparedSession,
 			System:               system,
 			Sections:             sections,
 			BuiltinTools:         builtinTools,
@@ -611,6 +632,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			DisabledSkillRefs:    slices.Clone(disabledSkillRefs),
 			PerRunTools:          perRunTools,
 			SkillRevisionReader:  cfg.SkillRevisionReader,
+			SkillPackageReader:   cfg.SkillPackageReader,
 			ProjectSkillSnapshot: projectSkillSnapshot,
 			SkillReadAuthorizer:  cfg.SkillReadAuthorizer,
 			PluginContext:        pluginContext,

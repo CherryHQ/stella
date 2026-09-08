@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -156,6 +157,23 @@ type setupResult struct {
 	metricHook             *metrichook.Hook
 }
 
+type pluginSkillCopyReader struct{ service *plugin.Service }
+
+func (r pluginSkillCopyReader) ReadPackageSkill(ctx context.Context, authority authz.Authority, pluginID, digest, name string) (skill.PackageSkillRevision, error) {
+	access, err := r.service.Begin(authority)
+	if err != nil {
+		return skill.PackageSkillRevision{}, err
+	}
+	files, err := access.ReadPackageSkill(ctx, pluginID, digest, name)
+	if err != nil {
+		return skill.PackageSkillRevision{}, err
+	}
+	return skill.PackageSkillRevision{
+		Ref:   skill.PackageSkillRef{PackageID: files.PluginID, PackageDigest: files.Digest, Name: files.Name, Description: files.Description},
+		Files: files.Files, Modes: files.Modes,
+	}, nil
+}
+
 // setup builds every subsystem. baseURL is the final public URL resolved once at
 // the startup boundary; the shared credentials/share services are constructed
 // with it directly, so no service is built with a localhost placeholder and
@@ -214,6 +232,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build plugin content store: %w", err)
 	}
+	packageSkillReader, err := skill.NewStorePackageSkillReader(contentStore.ReadPackageSkill)
+	if err != nil {
+		return nil, fmt.Errorf("build package Skill reader: %w", err)
+	}
 	pluginSvc := plugin.NewService(db, agentAccess, ps.catalog, pluginBackendPolicy(cfg.MCP.AllowPrivateEndpoints), func(ctx context.Context, mutate func() error) error {
 		// Startup has no admitted runners or listeners yet.
 		if poolMgr == nil {
@@ -230,7 +252,32 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			}
 		}
 		return err
-	}, plugin.WithContentStore(contentStore))
+	}, plugin.WithContentStore(contentStore), plugin.WithBuiltinSkillReader(func(ctx context.Context, pluginID, skillName string) (map[string][]byte, map[string]fs.FileMode, error) {
+		if ps.bundled == nil {
+			return nil, nil, errors.New("builtin Skill registry unavailable")
+		}
+		descriptor, ok := ps.bundled.BuiltinSkill(skillName)
+		if !ok || descriptor.OwnerPluginID != pluginID {
+			return nil, nil, fmt.Errorf("builtin Skill %q is not owned by plugin %q", skillName, pluginID)
+		}
+		files := make(map[string][]byte, len(descriptor.Files))
+		modes := make(map[string]fs.FileMode, len(descriptor.Files))
+		for _, entry := range descriptor.Files {
+			if err := ctx.Err(); err != nil {
+				return nil, nil, err
+			}
+			data, actual, err := ps.bundled.ReadBuiltinSkillFile(skillName, entry.Path)
+			if err != nil {
+				return nil, nil, err
+			}
+			if actual != entry {
+				return nil, nil, fmt.Errorf("builtin Skill %q descriptor changed", skillName)
+			}
+			files[entry.Path] = append([]byte(nil), data...)
+			modes[entry.Path] = entry.Mode
+		}
+		return files, modes, nil
+	}))
 	ps.nativePolicy.SetMutationFence(func(ctx context.Context, mutate func() error) error {
 		if poolMgr == nil {
 			return mutate()
@@ -309,7 +356,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	skillAccess := access.NewService(skillStore, agentAccess)
 	// Managed Skill CRUD is shared by HTTP and the Stella-only tool adapter;
 	// both resolve scope and owner through the same PEP.
-	skillManagement := skill.NewManagement(skillStore, skillAccess)
+	skillManagement := skill.NewManagement(skillStore, skillAccess, skill.WithPackageSkillReader(pluginSkillCopyReader{service: pluginSvc}))
 
 	// Bind account enrollment after Vault initialization and before host Seal.
 	// Catalog construction needs no runtime backing services.
@@ -682,6 +729,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithToolLifecycleBuilder(toolLifecycleBuilder),
 		agent.WithToolOverrideFetcher(agent.NewToolOverrideStore(db).Fetch),
 		agent.WithSkillRevisionReader(skillStore),
+		agent.WithSkillPackageReader(packageSkillReader),
 		agent.WithSkillReadAuthorizer(skillAccess),
 		agent.WithProjectResolver(projectStore.Resolve),
 		agent.WithHomeWorkspace(homeRegistry),

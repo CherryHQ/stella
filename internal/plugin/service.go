@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"slices"
 
@@ -73,21 +74,31 @@ const (
 
 // Service owns persistence; Access is its only caller-facing authorization boundary.
 type Service struct {
-	db            *pgxpool.Pool
-	q             *sqlc.Queries
-	agents        *agentaccess.Service
-	catalog       *Catalog
-	policy        BackendPolicy
-	mutationTx    pgx.Tx
-	mutationFence MutationFence
-	txBound       bool
-	contentStore  *ContentStore
+	db                 *pgxpool.Pool
+	q                  *sqlc.Queries
+	agents             *agentaccess.Service
+	catalog            *Catalog
+	policy             BackendPolicy
+	mutationTx         pgx.Tx
+	mutationFence      MutationFence
+	txBound            bool
+	contentStore       *ContentStore
+	builtinSkillReader BuiltinSkillReader
 }
 
 type ServiceOption func(*Service)
 
+// BuiltinSkillReader reads the complete immutable files of a release-owned
+// Skill. The Access boundary has already checked plugin visibility and the
+// declaration before invoking it.
+type BuiltinSkillReader func(context.Context, string, string) (map[string][]byte, map[string]fs.FileMode, error)
+
 func WithContentStore(store *ContentStore) ServiceOption {
 	return func(service *Service) { service.contentStore = store }
+}
+
+func WithBuiltinSkillReader(reader BuiltinSkillReader) ServiceOption {
+	return func(service *Service) { service.builtinSkillReader = reader }
 }
 
 func NewService(db *pgxpool.Pool, agents *agentaccess.Service, catalog *Catalog, policy BackendPolicy, mutationFence MutationFence, options ...ServiceOption) *Service {

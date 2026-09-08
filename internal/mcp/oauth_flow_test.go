@@ -469,8 +469,8 @@ func TestOAuthPerUserBundlesAreIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve A snapshot: %v", err)
 	}
-	if tools, err := provider.ToolsForSnapshot(context.Background(), snapshotA); err != nil || len(tools) != 1 {
-		t.Fatalf("A tools = %d, err=%v, want 1", len(tools), err)
+	if tools, err := provider.ToolsForSnapshotWithDirectoryForPlugins(context.Background(), snapshotA, []string{reg.PluginID}); err != nil || len(tools.Tools) != 1 {
+		t.Fatalf("A tools = %d, err=%v, want 1", len(tools.Tools), err)
 	}
 	authorityB, err := authz.NewUserAuthority(authz.UserID(userB), false)
 	if err != nil {
@@ -480,8 +480,8 @@ func TestOAuthPerUserBundlesAreIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve B snapshot: %v", err)
 	}
-	if tools, err := provider.ToolsForSnapshot(context.Background(), snapshotB); err != nil || len(tools) != 0 {
-		t.Fatalf("B tools = %d, err=%v, want 0 (no bundle)", len(tools), err)
+	if tools, err := provider.ToolsForSnapshotWithDirectoryForPlugins(context.Background(), snapshotB, []string{reg.PluginID}); err != nil || len(tools.Tools) != 0 {
+		t.Fatalf("B tools = %d, err=%v, want 0 (no bundle)", len(tools.Tools), err)
 	}
 	if !svc.HasUserCredential(context.Background(), reg, userA) {
 		t.Fatal("user A must have a credential after connecting")

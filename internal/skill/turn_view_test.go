@@ -3,6 +3,7 @@ package skill
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -15,7 +16,8 @@ func TestCaptureSkillTurnViewPinsDigestAndContextCopies(t *testing.T) {
 			identity.ID: {Skill: Skill{ID: identity.ID, Scope: identity.Scope, UserID: identity.UserID, Name: identity.Name, ContentDigest: digest}},
 		},
 	}
-	view, err := CaptureSkillTurnView(t.Context(), reader, allowAllSkillReads{}, nil, []PackageSkillRef{{PackageID: "pkg", PackageDigest: digest, Name: "pkg-skill"}}, ViewContext{UserID: identity.UserID})
+	packageDigest := "sha256:" + digest
+	view, err := CaptureSkillTurnView(t.Context(), reader, allowAllSkillReads{}, nil, []PackageSkillRef{{PackageID: "pkg", PackageDigest: packageDigest, Name: "pkg-skill"}}, ViewContext{UserID: identity.UserID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +34,7 @@ func TestCaptureSkillTurnViewPinsDigestAndContextCopies(t *testing.T) {
 	if got := view.ManagedSkills()[0].Identity.Name; got != identity.Name {
 		t.Fatalf("view was mutable through a returned copy: %q", got)
 	}
-	if len(copy.PackageSkills()) != 1 || copy.PackageSkills()[0].PackageDigest != digest {
+	if len(copy.PackageSkills()) != 1 || copy.PackageSkills()[0].PackageDigest != packageDigest {
 		t.Fatalf("package refs = %#v", copy.PackageSkills())
 	}
 }
@@ -117,25 +119,118 @@ func TestCaptureSkillTurnViewDoesNotPrepareShadowedManagedWinner(t *testing.T) {
 	}
 }
 
+func TestCaptureFailedPackageDoesNotMaskHealthyManagedWinner(t *testing.T) {
+	digest := strings.Repeat("1", 64)
+	managed := Skill{ID: "managed-foo", Scope: "user", UserID: "user-1", Name: "foo", Description: "managed foo"}
+	reader := &projectionReader{
+		identities: []Skill{managed},
+		revisions: map[string]ManagedRevision{
+			managed.ID: promptRevision(managed, digest, "managed bytes"),
+		},
+	}
+	view, err := CaptureSkillTurnView(t.Context(), reader, allowAllSkillReads{}, nil, []PackageSkillRef{{
+		PackageID: "failed-package", PackageDigest: "sha256:" + digest, Name: "foo", Masked: true,
+	}}, ViewContext{UserID: managed.UserID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := view.ManagedIdentities(); len(got) != 1 || got[0].Name != managed.Name {
+		t.Fatalf("managed winner = %#v, want %q", got, managed.Name)
+	}
+	tool := newProjectionTool(t, reader, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{})
+	ctx := WithSkillTurnView(t.Context(), view)
+	search, err := skillAction(tool, "search").Execute(ctx, map[string]any{"q": "managed foo"})
+	if err != nil || !strings.Contains(search, `"name": "foo"`) {
+		t.Fatalf("managed search = %q, %v", search, err)
+	}
+	loaded, err := skillAction(tool, "load").Execute(ctx, map[string]any{"name": "foo"})
+	if err != nil || !strings.Contains(loaded, "managed bytes") {
+		t.Fatalf("managed load = %q, %v", loaded, err)
+	}
+}
+
+func TestCaptureFailedPackageDoesNotMaskProjectWinner(t *testing.T) {
+	digest := strings.Repeat("2", 64)
+	project := &ProjectSnapshot{skills: []Skill{{ID: "project:foo", Scope: "project", Name: "foo", Description: "project foo", Status: SkillStatusActive}}}
+	view, err := CaptureSkillTurnView(t.Context(), &projectionReader{}, allowAllSkillReads{}, project, []PackageSkillRef{{
+		PackageID: "failed-package", PackageDigest: "sha256:" + digest, Name: "foo", Masked: true,
+	}}, ViewContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := view.ProjectSnapshot(); got == nil || len(got.list()) != 1 || got.list()[0].ID != "project:foo" {
+		t.Fatalf("project winner = %#v, want project foo", got)
+	}
+	if len(view.ManagedIdentities()) != 0 || len(view.MaskedSkillNames()) != 0 {
+		t.Fatalf("failed package altered project precedence: managed=%#v masked=%v", view.ManagedIdentities(), view.MaskedSkillNames())
+	}
+}
+
 type nilDecisionAuthorizer struct{}
 
 func (nilDecisionAuthorizer) BeginRead(context.Context) (SkillReadDecision, error) { return nil, nil }
 
 func TestValidateSkillTurnSelectionKeepsPrecedenceAndRejectsPackageTie(t *testing.T) {
 	digest := "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	view, err := NewSkillTurnView(nil, []ManagedSkillRef{{Identity: Skill{ID: "managed", Scope: "user", Name: "same", ContentDigest: digest}}}, []PackageSkillRef{{PackageID: "a", PackageDigest: digest, Name: "same"}, {PackageID: "b", PackageDigest: digest, Name: "same"}}, nil)
+	packageDigest := "sha256:" + digest
+	view, err := NewSkillTurnView(nil, []ManagedSkillRef{{Identity: Skill{ID: "managed", Scope: "user", Name: "same", ContentDigest: digest}}}, []PackageSkillRef{{PackageID: "a", PackageDigest: packageDigest, Name: "same"}, {PackageID: "b", PackageDigest: packageDigest, Name: "same"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := ValidateSkillTurnSelection(view); err != nil {
 		t.Fatalf("package shadowed by managed Skill should not conflict: %v", err)
 	}
-	view, err = NewSkillTurnView(nil, nil, []PackageSkillRef{{PackageID: "a", PackageDigest: digest, Name: "same"}, {PackageID: "b", PackageDigest: digest, Name: "same"}}, nil)
+	view, err = NewSkillTurnView(nil, nil, []PackageSkillRef{{PackageID: "a", PackageDigest: packageDigest, Name: "same"}, {PackageID: "b", PackageDigest: packageDigest, Name: "same"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := ValidateSkillTurnSelection(view); err == nil {
 		t.Fatal("same-layer package Skills were silently accepted")
+	}
+}
+
+func TestFailedPackageStillConflictsButExplicitDisableRemovesCandidate(t *testing.T) {
+	digest := "abababababababababababababababababababababababababababababababab"
+	packageDigest := "sha256:" + digest
+	failed := PackageSkillRef{PackageID: "failed", PackageDigest: packageDigest, Name: "same", Masked: true}
+	active := PackageSkillRef{PackageID: "active", PackageDigest: packageDigest, Name: "same"}
+	view, err := NewSkillTurnView(nil, nil, []PackageSkillRef{failed, active}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateSkillTurnSelection(view); err == nil {
+		t.Fatal("failed package silently removed same-layer conflict")
+	}
+	failed.Disabled = true
+	failed.Masked = false
+	view, err = NewSkillTurnView(nil, nil, []PackageSkillRef{failed, active}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateSkillTurnSelection(view); err != nil {
+		t.Fatalf("explicitly disabled package kept conflict: %v", err)
+	}
+}
+
+func TestExternalPackageConflictsWithBuiltinAtSharedPackageLayer(t *testing.T) {
+	digest := "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+	view, err := NewSkillTurnView(nil, nil, []PackageSkillRef{{PackageID: "external", PackageDigest: "sha256:" + digest, Name: "email"}, {PackageID: "builtin-email", PackageDigest: "sha256:" + digest, Name: "email", Builtin: true}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateSkillTurnSelection(view); err == nil {
+		t.Fatal("external package silently shadowed builtin Skill")
+	}
+}
+
+func TestFailedExternalPackageMasksBuiltinFallback(t *testing.T) {
+	digest := "dededededededededededededededededededededededededededededededede"
+	view, err := NewSkillTurnView(nil, nil, []PackageSkillRef{{PackageID: "external", PackageDigest: "sha256:" + digest, Name: "email", Masked: true}, {PackageID: "builtin-email", PackageDigest: "sha256:" + digest, Name: "email", Builtin: true}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateSkillTurnSelection(view); err == nil {
+		t.Fatal("failed external package silently shadowed active builtin Skill")
 	}
 }
 

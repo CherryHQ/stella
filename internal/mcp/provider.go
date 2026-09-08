@@ -55,24 +55,11 @@ func NewToolProvider(svc *Service) *ToolProvider {
 	}
 }
 
-// ToolsForSnapshot builds MCP tools from an already resolved plugin snapshot.
-// The snapshot is the single source of truth for definition/config entries;
-// this method never re-queries plugin configuration or falls back to another
-// package. It reads observations internally for this snapshot's
-// trusted authority, so callers never supply an arbitrary owner or cache.
-func (p *ToolProvider) ToolsForSnapshot(ctx context.Context, snapshot plugin.Snapshot) ([]tools.Tool, error) {
-	result, err := p.ToolsForSnapshotWithDirectory(ctx, snapshot)
-	if err != nil {
-		return nil, err
-	}
-	return result.Tools, nil
-}
-
-// ToolsForSnapshotWithDirectory projects the MCP directory and its successful
-// tool set in one observation read. The runner stores both parts in its
-// immutable PluginContext, so cache identity and model-facing tools cannot be
-// assembled from different probe generations.
-func (p *ToolProvider) ToolsForSnapshotWithDirectory(ctx context.Context, snapshot plugin.Snapshot) (pkgplugins.MCPToolSnapshot, error) {
+// ToolsForSnapshotWithDirectoryForPlugins projects the MCP directory and its
+// successful tool set in one observation read. The allow-list is applied
+// before registration discovery so a failed package cannot trigger an MCP
+// connection or tools/list side effect.
+func (p *ToolProvider) ToolsForSnapshotWithDirectoryForPlugins(ctx context.Context, snapshot plugin.Snapshot, allowedPluginIDs []string) (pkgplugins.MCPToolSnapshot, error) {
 	authority := snapshot.Authority()
 	if !authority.Valid() {
 		return pkgplugins.MCPToolSnapshot{}, authz.ErrForbidden
@@ -84,6 +71,14 @@ func (p *ToolProvider) ToolsForSnapshotWithDirectory(ctx context.Context, snapsh
 	if err != nil {
 		return pkgplugins.MCPToolSnapshot{}, err
 	}
+	allowed := make(map[string]struct{}, len(allowedPluginIDs))
+	for _, pluginID := range allowedPluginIDs {
+		allowed[pluginID] = struct{}{}
+	}
+	registrations = slices.DeleteFunc(registrations, func(reg Registration) bool {
+		_, ok := allowed[reg.PluginID]
+		return !ok
+	})
 	tools, outcomes := p.toolsForRegistrationsDetailed(ctx, registrations, true, string(authority.UserID()))
 	return pkgplugins.MCPToolSnapshot{
 		Tools:               tools,

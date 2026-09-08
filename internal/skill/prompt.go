@@ -34,7 +34,11 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 		}
 	}
 	svc := NewService()
-	merged := filterDisabled(svc.ListMerged(identities, project), build.DisabledSkillRefs)
+	var packages []PackageSkillRef
+	if turn, ok := SkillTurnViewFromContext(ctx); ok {
+		packages = turn.PackageSkills()
+	}
+	merged := filterDisabled(svc.ListMergedWithPackages(identities, project, packages, masked), build.DisabledSkillRefs)
 	merged = filterMaskedSkills(merged, masked)
 	decision, err := authorizer.BeginRead(ctx)
 	if errors.Is(err, authz.ErrUnauthenticated) {

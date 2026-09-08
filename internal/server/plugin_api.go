@@ -119,6 +119,55 @@ func (s *Server) CreatePlugin(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, apitypes.CreatePluginResponse{Plugin: definitionView, Config: configView})
 }
 
+func (s *Server) ImportPluginPackage(w http.ResponseWriter, r *http.Request) {
+	access, _, ok := s.beginPluginAccess(w, r)
+	if !ok {
+		return
+	}
+	data, err := readPluginBody(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	var request apitypes.ImportPluginRequest
+	if err := json.Unmarshal(data, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if request.SourcePath == "" || request.InitialConfig.Scope == "" {
+		writeError(w, http.StatusBadRequest, "source_path and initial_config.scope are required")
+		return
+	}
+	if rawContainsAnyKey(data, "credentials", "credential_refs") {
+		writePluginError(w, pluginpkg.ErrInvalidConfig)
+		return
+	}
+	config := pluginpkg.Config{
+		Scope:   pluginpkg.Scope(request.InitialConfig.Scope),
+		Enabled: request.InitialConfig.IsEnabled,
+		Payload: mustJSONPtr(request.InitialConfig.Config),
+	}
+	if request.InitialConfig.AgentId != nil {
+		config.AgentID = *request.InitialConfig.AgentId
+	}
+	definition, createdConfig, err := access.CreateCustomFromDirectory(r.Context(), request.SourcePath, config)
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
+	definitionView, err := pluginDefinitionView(definition)
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
+	configView, err := pluginConfigView(definition, createdConfig)
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
+	writeData(w, http.StatusCreated, apitypes.CreatePluginResponse{Plugin: definitionView, Config: configView})
+}
+
 func (s *Server) UpdatePlugin(w http.ResponseWriter, r *http.Request, pluginID string) {
 	access, _, ok := s.beginPluginAccess(w, r)
 	if !ok {
@@ -159,6 +208,91 @@ func (s *Server) UpdatePlugin(w http.ResponseWriter, r *http.Request, pluginID s
 		return
 	}
 	writeData(w, http.StatusOK, view)
+}
+
+func (s *Server) UpdatePluginPackage(w http.ResponseWriter, r *http.Request, pluginID string) {
+	access, _, ok := s.beginPluginAccess(w, r)
+	if !ok {
+		return
+	}
+	data, err := readPluginBody(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	var request apitypes.UpdatePluginPackageRequest
+	if err := json.Unmarshal(data, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if request.SourcePath == "" || request.ExpectedRevision < 1 || request.ExpectedPackageDigest == "" {
+		writeError(w, http.StatusBadRequest, "source_path, expected_revision, and expected_package_digest are required")
+		return
+	}
+	expectedDigest := request.ExpectedPackageDigest
+	if !pluginpkg.ValidContentDigest(expectedDigest) {
+		writeError(w, http.StatusBadRequest, "expected_package_digest must be a sha256 digest")
+		return
+	}
+	definition, err := access.UpdateDefinitionFromDirectory(r.Context(), pluginID, request.ExpectedRevision, request.SourcePath, expectedDigest)
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
+	view, err := pluginDefinitionView(definition)
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, view)
+}
+
+func (s *Server) PreviewPluginPackageUpdate(w http.ResponseWriter, r *http.Request, pluginID string) {
+	access, _, ok := s.beginPluginAccess(w, r)
+	if !ok {
+		return
+	}
+	data, err := readPluginBody(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	var request apitypes.PreviewPluginPackageRequest
+	if err := json.Unmarshal(data, &request); err != nil || request.SourcePath == "" || request.ExpectedRevision < 1 {
+		writeError(w, http.StatusBadRequest, "source_path and expected_revision are required")
+		return
+	}
+	preview, err := access.PreviewDefinitionFromDirectory(r.Context(), pluginID, request.ExpectedRevision, request.SourcePath)
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, apitypes.PreviewPluginPackageResponse{
+		PluginId: preview.PluginID, CurrentRevision: preview.CurrentRevision, CandidateDigest: preview.CandidateDigest,
+		CandidateVersion: preview.CandidateVersion,
+		BinaryNames:      preview.BinaryNames, SkillNames: preview.SkillNames,
+		OauthChanges:       oauthPreviewChanges(preview.OAuthChanges),
+		IncompatibleScopes: scopesToStrings(preview.IncompatibleScopes),
+	})
+}
+
+func oauthPreviewChanges(changes []pluginpkg.OAuthPreviewChange) []apitypes.PluginOAuthPreviewChange {
+	result := make([]apitypes.PluginOAuthPreviewChange, 0, len(changes))
+	for _, change := range changes {
+		result = append(result, apitypes.PluginOAuthPreviewChange{
+			Provider: change.Provider, AddedScopes: change.AddedScopes, RemovedScopes: change.RemovedScopes,
+			AddedBindings: change.AddedBindings, RemovedBindings: change.RemovedBindings,
+		})
+	}
+	return result
+}
+
+func scopesToStrings(scopes []pluginpkg.Scope) []string {
+	result := make([]string, len(scopes))
+	for i, scope := range scopes {
+		result[i] = string(scope)
+	}
+	return result
 }
 
 func (s *Server) DeletePlugin(w http.ResponseWriter, r *http.Request, pluginID string, params apiserver.DeletePluginParams) {

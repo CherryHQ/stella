@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -86,10 +88,11 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mcpTools, err := (migratedMCPToolProvider{pluginID: "remote"}).ToolsForSnapshot(ctx, snapshot)
+	mcpSnapshot, err := (migratedMCPToolProvider{pluginID: "remote"}).ToolsForSnapshotWithDirectoryForPlugins(ctx, snapshot, []string{"remote"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	mcpTools := mcpSnapshot.Tools
 	registry, _, _, err := buildToolRegistry(ctx, runnerConfig{
 		Sandbox: sandbox.Config{Paths: sandbox.Paths{
 			StellaHome: home,
@@ -151,10 +154,11 @@ func TestDisabledHostToolNameRemainsReservedFromMCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mcpTools, err := (migratedMCPToolProvider{pluginID: "remote"}).ToolsForSnapshot(ctx, snapshot)
+	mcpSnapshot, err := (migratedMCPToolProvider{pluginID: "remote"}).ToolsForSnapshotWithDirectoryForPlugins(ctx, snapshot, []string{"remote"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	mcpTools := mcpSnapshot.Tools
 	exportedName, err := agentpackage.ExportedToolName("remote", "main", "list")
 	if err != nil {
 		t.Fatal(err)
@@ -237,10 +241,11 @@ func TestMigratedMCPPackageDenyDoesNotFallThrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mcpTools, err := (migratedMCPToolProvider{pluginID: packageID}).ToolsForSnapshot(ctx, snapshot)
+	mcpSnapshot, err := (migratedMCPToolProvider{pluginID: packageID}).ToolsForSnapshotWithDirectoryForPlugins(ctx, snapshot, []string{packageID})
 	if err != nil {
 		t.Fatal(err)
 	}
+	mcpTools := mcpSnapshot.Tools
 	_, _, _, err = buildToolRegistry(ctx, runnerConfig{
 		Sandbox: sandbox.Config{Paths: sandbox.Paths{
 			StellaHome: home,
@@ -273,12 +278,16 @@ func noopBackendTransition(context.Context, pgx.Tx, authz.Authority, plugin.Muta
 
 type migratedMCPToolProvider struct{ pluginID string }
 
-func (p migratedMCPToolProvider) ToolsForSnapshot(context.Context, plugin.Snapshot) ([]tools.Tool, error) {
+func (p migratedMCPToolProvider) ToolsForSnapshotWithDirectoryForPlugins(_ context.Context, _ plugin.Snapshot, allowed []string) (pkgplugins.MCPToolSnapshot, error) {
+	allowedPackage := slices.Contains(allowed, p.pluginID)
+	if !allowedPackage {
+		return pkgplugins.MCPToolSnapshot{}, nil
+	}
 	name, err := agentpackage.ExportedToolName(p.pluginID, "main", "list")
 	if err != nil {
-		return nil, err
+		return pkgplugins.MCPToolSnapshot{}, err
 	}
-	return []tools.Tool{migratedMCPTool{staticTool{name: name}, p.pluginID, "list"}}, nil
+	return pkgplugins.MCPToolSnapshot{Tools: []tools.Tool{migratedMCPTool{staticTool{name: name}, p.pluginID, "list"}}, SuccessfulPluginIDs: []string{p.pluginID}}, nil
 }
 
 type migratedMCPTool struct {

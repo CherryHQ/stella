@@ -442,7 +442,7 @@ func TestRunnerFilesystemPolicyKeepsCoreAndOptionalSelectionsSeparate(t *testing
 	cfg := Config{
 		SystemRuntimePlan: corePlan,
 		ContextBinaryPlan: &BinaryInstallPlan{
-			PublicDir: optionalDir, PublicBinDir: optionalDir,
+			Selections: []BinarySelectionPlan{{PublicDir: optionalDir, PublicBinDir: optionalDir}},
 		},
 	}
 	_, sources := runnerFilesystemPolicy(paths, cfg)
@@ -470,10 +470,10 @@ func TestCreateSessionForBackendOverlaysCoreWithoutClobberingOptionalState(t *te
 		}
 	}
 	contextPlan := &BinaryInstallPlan{
-		Identity: "context", PublicDir: optionalDir, PublicBinDir: optionalDir,
+		Identity: "context", Selections: []BinarySelectionPlan{{PublicDir: optionalDir, PublicBinDir: optionalDir}},
 	}
 	userPlan := &BinaryInstallPlan{
-		Identity: "user", PublicDir: userDir, PublicBinDir: userDir,
+		Identity: "user", Selections: []BinarySelectionPlan{{PublicDir: userDir, PublicBinDir: userDir}},
 	}
 	workspace := t.TempDir()
 	userRoot := canonicalTempDir(t)
@@ -522,13 +522,13 @@ func TestCreateSessionForBackendOverlaysCoreWithoutClobberingOptionalState(t *te
 	if _, ok := env["MISE_SHIMS_DIR"]; ok {
 		t.Fatalf("private selection shims leaked into final runner: %q", env["MISE_SHIMS_DIR"])
 	}
-	if got, want := env[pkgsandbox.EnvUserNativeSelectionDir], userPlan.PublicBinDir; got != want {
+	if got, want := env[pkgsandbox.EnvUserNativeSelectionDir], userPlan.Selections[0].PublicBinDir; got != want {
 		t.Fatalf("user optional marker = %q, want %q", got, want)
 	}
 	if got, want := env[pkgsandbox.EnvCoreRuntimeDir], corePlan.PublicBinDir; got != want {
 		t.Fatalf("core marker = %q, want %q", got, want)
 	}
-	if got, want := env[pkgsandbox.EnvNativeSelectionDir], contextPlan.PublicBinDir; got != want {
+	if got, want := env[pkgsandbox.EnvNativeSelectionDir], contextPlan.Selections[0].PublicBinDir; got != want {
 		t.Fatalf("system optional marker = %q, want %q", got, want)
 	}
 	pathEntries := strings.Split(env["PATH"], string(os.PathListSeparator))
@@ -537,7 +537,7 @@ func TestCreateSessionForBackendOverlaysCoreWithoutClobberingOptionalState(t *te
 			t.Fatalf("PATH contains empty element at index %d: %q", i, env["PATH"])
 		}
 	}
-	if !strings.Contains(env["PATH"], userPlan.PublicBinDir) || !strings.Contains(env["PATH"], corePlan.PublicBinDir) {
+	if !strings.Contains(env["PATH"], userPlan.Selections[0].PublicBinDir) || !strings.Contains(env["PATH"], corePlan.PublicBinDir) {
 		t.Fatalf("PATH lost user/core selections: %q", env["PATH"])
 	}
 }

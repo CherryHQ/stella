@@ -98,6 +98,57 @@ func TestPluginSkillVisibilityAppliesToSearchAndLoad(t *testing.T) {
 	}
 }
 
+type packageRevisionReader struct{ revision PackageSkillRevision }
+
+func (r packageRevisionReader) LoadPackageSkill(context.Context, PackageSkillRef) (PackageSkillRevision, error) {
+	return r.revision, nil
+}
+
+func TestPackageSkillSearchAndLoadUseTurnDigest(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	ref := PackageSkillRef{PackageID: "demo", PackageDigest: digest, Name: "docs", Path: "skills/docs/SKILL.md", Description: "package documentation"}
+	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).
+		WithPackageReader(packageRevisionReader{revision: PackageSkillRevision{
+			Ref:   ref,
+			Files: map[string][]byte{MainFile: []byte("# Docs"), "references/api.md": []byte("api reference")},
+			Modes: map[string]fs.FileMode{MainFile: 0o644, "references/api.md": 0o644},
+		}}).
+		WithPluginVisibility([]string{"demo"}, []string{"demo"})
+	view, err := NewSkillTurnView(nil, nil, []PackageSkillRef{ref}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := WithSkillTurnView(t.Context(), view)
+	out, err := skillAction(tool, "search").Execute(ctx, map[string]any{"q": "package documentation"})
+	if err != nil || !strings.Contains(out, `"name": "docs"`) {
+		t.Fatalf("package search = %q, %v", out, err)
+	}
+	out, err = skillAction(tool, "load").Execute(ctx, map[string]any{"name": "docs", "path": "references/api.md"})
+	if err != nil || !strings.Contains(out, "api reference") || !strings.Contains(out, "stella-skills/package/demo:docs/") {
+		t.Fatalf("package load = %q, %v", out, err)
+	}
+}
+
+func TestPackageSkillLoadRejectsReaderForAnotherPath(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("b", 64)
+	ref := PackageSkillRef{PackageID: "demo", PackageDigest: digest, Name: "docs", Path: "skills/docs/SKILL.md"}
+	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).
+		WithPackageReader(packageRevisionReader{revision: PackageSkillRevision{
+			Ref:   PackageSkillRef{PackageID: ref.PackageID, PackageDigest: ref.PackageDigest, Name: ref.Name, Path: "skills/other/SKILL.md"},
+			Files: map[string][]byte{MainFile: []byte("# Docs")},
+			Modes: map[string]fs.FileMode{MainFile: 0o644},
+		}}).
+		WithPluginVisibility([]string{"demo"}, []string{"demo"})
+	view, err := NewSkillTurnView(nil, nil, []PackageSkillRef{ref}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = tool.Load(WithSkillTurnView(t.Context(), view), SkillLoadInput{Name: "docs"})
+	if !errors.Is(err, ErrInvalidSkillRevision) {
+		t.Fatalf("load mismatched package path error = %v, want ErrInvalidSkillRevision", err)
+	}
+}
+
 func TestLoadProjectsImmutableProjectSnapshotThroughSessionFiles(t *testing.T) {
 	snapshot, err := SnapshotProjectSkills(t.Context(), snapshotRoot{fstest.MapFS{
 		".agents/skills/deploy/SKILL.md":       {Data: []byte("---\nname: deploy\ndescription: deploy app\n---\n# Deploy")},

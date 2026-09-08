@@ -157,6 +157,13 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 		p = remapToSandboxRoot(p, realRoot, sandboxRoot)
 		return remapStellaHomePath(p, hostSH, sandboxSH)
 	}
+	remapSelection := func(value string) string {
+		paths := filepath.SplitList(value)
+		for i, path := range paths {
+			paths[i] = remapMise(path)
+		}
+		return strings.Join(paths, string(filepath.ListSeparator))
+	}
 	// Recover the per-user mise home from the runtime env (MISE_DATA_DIR, still a
 	// host path here) and remap it to the sandbox tree to put its shims on PATH.
 	userShims := ""
@@ -167,13 +174,13 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 	userSelectionShims := ""
 	if dir := env[sandboxpkg.EnvNativeSelectionDir]; dir != "" {
 		// Optional selections retain separate mounts; core owns STELLA_HOME/bin.
-		selectionShims = remapMise(dir)
+		selectionShims = remapSelection(dir)
 		env[sandboxpkg.EnvNativeSelectionDir] = selectionShims
 	} else if dir := env["MISE_SHIMS_DIR"]; dir != "" {
 		selectionShims = remapMise(dir)
 	}
 	if dir := env[sandboxpkg.EnvUserNativeSelectionDir]; dir != "" {
-		userSelectionShims = remapMise(dir)
+		userSelectionShims = remapSelection(dir)
 		env[sandboxpkg.EnvUserNativeSelectionDir] = userSelectionShims
 	}
 	bundledShims := ""
@@ -183,7 +190,9 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 			bundledShims = filepath.Join(sandboxSH, "bin")
 		}
 	}
-	env["PATH"] = sandboxpkg.HostEnvBuildPath(hostSH, userShims, userSelectionShims, selectionShims, bundledShims)
+	selections := append(filepath.SplitList(userSelectionShims), filepath.SplitList(selectionShims)...)
+	selections = append(selections, bundledShims)
+	env["PATH"] = sandboxpkg.HostEnvBuildPath(hostSH, userShims, selections...)
 	env[sandboxpkg.EnvRunnerPath] = env["PATH"]
 	env["STELLA_HOME"] = sandboxSH
 	if shellEnv := env["BASH_ENV"]; shellEnv != "" {

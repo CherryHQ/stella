@@ -100,6 +100,13 @@ type ManagedRevision struct {
 	Modes map[string]fs.FileMode
 }
 
+// ManagedSkillFile preserves the authored bytes and permission bits when a
+// package Skill is copied into the managed store.
+type ManagedSkillFile struct {
+	Content []byte
+	Mode    fs.FileMode
+}
+
 // IdentityReader exposes PostgreSQL identity inventory separately from Home
 // current state so consumers can authorize an actor before opening Home.
 type IdentityReader interface {

@@ -50,13 +50,13 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) (pkgsandbox.FilesystemPolic
 		sources[pkgsandbox.MountBuiltinSkills] = paths.BuiltinBundle
 	}
 	if cfg.ContextBinaryPlan != nil {
-		appendNativeSecondarySelectionMount(&mounts, sources, paths.StellaHome, cfg.ContextBinaryPlan.PublicDir, coreSelection)
+		appendNativeSelectionMounts(&mounts, sources, paths.StellaHome, *cfg.ContextBinaryPlan, coreSelection)
 	}
 	if cfg.SystemRuntimePlan != nil {
 		appendNativeSecondarySelectionMount(&mounts, sources, paths.StellaHome, cfg.SystemRuntimePlan.PublicDir, coreSelection)
 	}
 	if cfg.UserBinaryPlan != nil {
-		appendNativeSecondarySelectionMount(&mounts, sources, paths.StellaHome, cfg.UserBinaryPlan.PublicDir, coreSelection)
+		appendNativeSelectionMounts(&mounts, sources, paths.StellaHome, *cfg.UserBinaryPlan, coreSelection)
 	}
 	if cfg.ManagedBinaryRoot != "" {
 		sandboxPath := remapStellaHomePolicyPath(cfg.ManagedBinaryRoot, paths.StellaHome)
@@ -76,6 +76,12 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) (pkgsandbox.FilesystemPolic
 		workingDir = path.Join(workingDir, filepath.ToSlash(rel))
 	}
 	return pkgsandbox.FilesystemPolicy{WorkingDir: workingDir, Mounts: mounts}, sources
+}
+
+func appendNativeSelectionMounts(mounts *[]pkgsandbox.Mount, sources map[string]string, stellaHome string, plan BinaryInstallPlan, core string) {
+	for _, selection := range plan.Selections {
+		appendNativeSecondarySelectionMount(mounts, sources, stellaHome, selection.PublicDir, core)
+	}
 }
 
 func nativeCoreSelection(cfg Config) string {
@@ -201,21 +207,49 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// Defense in depth: the vault-side system-managed filter is authoritative,
 	// but the OAuth bundle must still never reach the sandbox.
 	delete(env, oauth.VaultKeyGitHub)
+	priorSessionEnv := make(map[string]pkgplugins.SessionEnvRollback, len(cfg.SessionEnvSpecs))
+	for _, spec := range cfg.SessionEnvSpecs {
+		value, present := env[spec.EnvVar]
+		priorSessionEnv[spec.EnvVar] = pkgplugins.SessionEnvRollback{
+			PluginID:     spec.PluginID,
+			PriorPresent: present,
+			PriorValue:   value,
+		}
+	}
+	injectedSessionEnv := make(map[string]struct{}, len(cfg.SessionEnvSpecs))
 	if cfg.GroupID == "" {
+		for _, spec := range cfg.SessionEnvSpecs {
+			if spec.Source == pkgplugins.SessionEnvSourceStatic {
+				injectedSessionEnv[spec.EnvVar] = struct{}{}
+			}
+		}
 		if err := injectSessionEnv(ctx, cfg, env, vaultEnv, sessionSecretEnv); err != nil {
 			return nil, err
+		}
+		for _, spec := range cfg.SessionEnvSpecs {
+			if cfg.OAuthEnvBindings.Has(spec.EnvVar) {
+				if _, ok := env[spec.EnvVar]; ok {
+					injectedSessionEnv[spec.EnvVar] = struct{}{}
+				}
+			}
 		}
 	}
 
 	// The scoped sandbox token is retired; nothing may smuggle a value in
 	// under its old name (e.g. a pre-validation vault row).
 	delete(env, "STELLA_TOKEN")
+	delete(injectedSessionEnv, "STELLA_TOKEN")
 
 	// Runner-set vars overlay vault entries so they always take precedence.
-	maps.Copy(env, ProcessEnv(paths))
+	processEnv := ProcessEnv(paths)
+	for key := range processEnv {
+		delete(injectedSessionEnv, key)
+	}
+	maps.Copy(env, processEnv)
 	// Runtime files are session-scoped and must never be redirected into the
 	// persistent principal root (or accepted from a vault/session env entry).
 	delete(env, "XDG_RUNTIME_DIR")
+	delete(injectedSessionEnv, "XDG_RUNTIME_DIR")
 	// Every backend resolves tools through mise's native system < global <
 	// workspace layers. Installs stay in the per-user STELLA_HOME tree so their
 	// relative links to the shared system base survive backend remapping; the
@@ -229,13 +263,24 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	if cfg.ManagedBinaryRoot != "" {
 		managedToolsDir = cfg.ManagedBinaryRoot
 		env["STELLA_NATIVE_PREP"] = "true"
+		delete(injectedSessionEnv, "STELLA_NATIVE_PREP")
 	}
-	maps.Copy(env, toolinstall.RuntimeMiseEnv(
+	runtimeMiseEnv := toolinstall.RuntimeMiseEnv(
 		paths.StellaHome,
 		managedToolsDir,
 		userConfigDir,
 		paths.WorkspaceRoot,
-	))
+	)
+	for key := range runtimeMiseEnv {
+		delete(injectedSessionEnv, key)
+	}
+	maps.Copy(env, runtimeMiseEnv)
+	if cfg.SessionEnvRollbacks != nil {
+		clear(cfg.SessionEnvRollbacks)
+		for envVar := range injectedSessionEnv {
+			cfg.SessionEnvRollbacks[envVar] = priorSessionEnv[envVar]
+		}
+	}
 	recordSessionSecretValues(cfg.SessionSecretValues, env, vaultEnv, sessionSecretEnv)
 
 	return env, nil

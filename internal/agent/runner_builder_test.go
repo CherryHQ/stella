@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
 
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -21,8 +23,62 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
+
+type closeCountingSession struct {
+	pkgsandbox.Session
+	closes atomic.Int32
+}
+
+func (s *closeCountingSession) Close() error {
+	s.closes.Add(1)
+	return s.Session.Close()
+}
+
+func TestRunnerBuilderClosesPreparedSessionBeforeRunnerFactoryOnError(t *testing.T) {
+	stellaHome := t.TempDir()
+	prepared := &closeCountingSession{Session: pkgsandbox.NopSession()}
+	backends, err := sandbox.NewBackendRegistry(sandbox.BackendDefinition{
+		Name: config.SandboxBackendNone,
+		Create: func(context.Context, sandbox.BackendRequest) (pkgsandbox.Session, error) {
+			return prepared, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap := &config.Snapshot{
+		AgentID: "cleanup-agent", Provider: "anthropic", Model: "test-model",
+		APIKey: "test-key", Workspace: t.TempDir(),
+	}
+	wantErr := errors.New("prompt admission failed")
+	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
+		Snap:              snap,
+		Home:              testWorkspaceViewer{root: stellaHome},
+		SandboxBackends:   backends,
+		SystemRuntimePlan: fixtureRunnerSystemRuntimePlan(t, stellaHome),
+		SandboxBackendFn:  func(context.Context) string { return config.SandboxBackendNone },
+		PluginContextBuilder: func(context.Context, authz.Authority, string) (PluginContext, error) {
+			return PluginContext{}, nil
+		},
+		PromptSectionsBuilder: func(context.Context, plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
+			return nil, wantErr
+		},
+		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
+		},
+	}))
+
+	_, err = build(t.Context(), RunnerParams{UserID: "user-1", AgentID: snap.AgentID})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("build error = %v, want %v", err, wantErr)
+	}
+	if got := prepared.closes.Load(); got != 1 {
+		t.Fatalf("prepared session close count = %d, want 1", got)
+	}
+}
 
 func TestNewRunnerFuncReturnsNilInterfaceOnConstructionError(t *testing.T) {
 	snap := &config.Snapshot{AgentID: "typed-nil-agent", Provider: "anthropic", Model: "test-model"}

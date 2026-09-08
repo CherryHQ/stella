@@ -325,6 +325,18 @@ func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, inf
 			cs.stale = false
 			cs.failedAdmission = false
 		}
+		// A package-scoped CLI failure is a usable partial runner for this
+		// admission, but it must not become a permanent cache decision. Retire
+		// it before the next ordinary selection so the failed package gets a
+		// fresh installation attempt while healthy packages remain available in
+		// the runner that just completed.
+		if cs.r != nil && !wasReserved && cs.r.PluginContext().HasFailedPackagePreparation() {
+			stale = cs.r
+			c.retireLocked(cs.r)
+			cs.r = nil
+			cs.stale = false
+			cs.failedAdmission = false
+		}
 		// Reservation is authoritative. Do not inspect a runner owned by an
 		// admitted turn; only cache/request metadata may make its successor stale.
 		if cs.r != nil && wasReserved {

@@ -59,7 +59,7 @@ func ResourcePayloadFromAgentPackage(pkg *agentpackage.Package) (ResourcePayload
 		}
 	}
 	for _, skill := range pkg.Skills {
-		payload.Skills = append(payload.Skills, SkillResource{Name: skill.Name})
+		payload.Skills = append(payload.Skills, SkillResource{Name: skill.Name, Path: skill.Path, Description: skill.Description})
 	}
 	return payload, nil
 }

@@ -52,6 +52,7 @@ import {
   type ScopeBand,
 } from "@/lib/scope-band";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
+import { SkillInspectorPanel } from "@/features/skills/SkillInspectorPanel";
 import {
   SettingsDetailSheet,
   SettingsGridPage,
@@ -120,6 +121,11 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const [detailFileContent, setDetailFileContent] = useState("");
   const [detailFileEncoding, setDetailFileEncoding] = useState<string | undefined>(undefined);
   const [detailFileLoading, setDetailFileLoading] = useState(false);
+  const [autoOpenSkillID] = useState(() =>
+    typeof window === "undefined"
+      ? ""
+      : (new URLSearchParams(window.location.search).get("skill_id") ?? ""),
+  );
 
   // One confirm dialog serves the whole list: a row menu item only has to name
   // its target, so there is no need for a dialog instance per row.
@@ -331,6 +337,14 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
     [openDetailFile],
   );
 
+  useEffect(() => {
+    if (!autoOpenSkillID || skills.length === 0) return;
+    const skill = skills.find((item) => item.id === autoOpenSkillID);
+    if (!skill) return;
+    void openDetail(skill);
+    window.history.replaceState({}, "", window.location.pathname);
+  }, [autoOpenSkillID, openDetail, skills]);
+
   const agentName = (id?: string | null) =>
     (id && agents.find((a) => a.id === id)?.name) || id || "";
   const skillGroups = SCOPE_ORDER.filter((scope) => managedScopes.includes(scope))
@@ -462,63 +476,74 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
     </DetailPanel>
   );
 
-  const detailPanel = detailSkill ? (
-    <DetailPanel>
-      <DetailPanelHeader
-        title={<span className="font-mono">{detailSkill.name}</span>}
-        subtitle={
-          <div className="flex items-center gap-1.5">
-            <Badge variant="outline" size="sm">
-              {t(skillScopeLabelKey(detailSkill.scope) ?? "skills.scope.project.label")}
-            </Badge>
-            {detailSkill.agent_id && (
-              <Badge variant="secondary" size="sm">
-                {agentName(detailSkill.agent_id)}
+  const detailEditorAgentID = formAgentID || agents[0]?.id;
+  const detailPanel =
+    detailSkill &&
+    detailEditorAgentID &&
+    !isSkillReadOnly(detailSkill.scope, scopeBand === "system") ? (
+      <SkillInspectorPanel
+        agentId={detailEditorAgentID}
+        skill={detailSkill}
+        notify={showToast}
+        onClose={() => setDetailSkill(null)}
+      />
+    ) : detailSkill ? (
+      <DetailPanel>
+        <DetailPanelHeader
+          title={<span className="font-mono">{detailSkill.name}</span>}
+          subtitle={
+            <div className="flex items-center gap-1.5">
+              <Badge variant="outline" size="sm">
+                {t(skillScopeLabelKey(detailSkill.scope) ?? "skills.scope.project.label")}
               </Badge>
+              {detailSkill.agent_id && (
+                <Badge variant="secondary" size="sm">
+                  {agentName(detailSkill.agent_id)}
+                </Badge>
+              )}
+            </div>
+          }
+        />
+
+        {detailSkill.description && (
+          <p className="text-xs leading-relaxed text-muted-foreground">{detailSkill.description}</p>
+        )}
+
+        {detailLoading ? (
+          <div className="flex justify-center py-8">
+            <Spinner className="size-5" />
+          </div>
+        ) : (
+          <div className="space-y-3 border-t border-border pt-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={detailFile}
+                onChange={(e) => void openDetailFile(detailSkill.id, e.target.value)}
+                className="min-w-0 max-w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-mono outline-none cursor-pointer sm:max-w-sm"
+              >
+                {(detailSkill.files ?? ["SKILL.md"]).map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {detailFileLoading ? (
+              <div className="flex justify-center py-8">
+                <Spinner className="size-5" />
+              </div>
+            ) : (
+              <SkillFilePreview
+                path={detailFile}
+                content={detailFileContent}
+                encoding={detailFileEncoding}
+                emptyText={t("skills.noContent")}
+              />
             )}
           </div>
-        }
-      />
-
-      {detailSkill.description && (
-        <p className="text-xs leading-relaxed text-muted-foreground">{detailSkill.description}</p>
-      )}
-
-      {detailLoading ? (
-        <div className="flex justify-center py-8">
-          <Spinner className="size-5" />
-        </div>
-      ) : (
-        <div className="space-y-3 border-t border-border pt-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={detailFile}
-              onChange={(e) => void openDetailFile(detailSkill.id, e.target.value)}
-              className="min-w-0 max-w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-mono outline-none cursor-pointer sm:max-w-sm"
-            >
-              {(detailSkill.files ?? ["SKILL.md"]).map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
-          </div>
-          {detailFileLoading ? (
-            <div className="flex justify-center py-8">
-              <Spinner className="size-5" />
-            </div>
-          ) : (
-            <SkillFilePreview
-              path={detailFile}
-              content={detailFileContent}
-              encoding={detailFileEncoding}
-              emptyText={t("skills.noContent")}
-            />
-          )}
-        </div>
-      )}
-    </DetailPanel>
-  ) : null;
+        )}
+      </DetailPanel>
+    ) : null;
 
   return (
     <>

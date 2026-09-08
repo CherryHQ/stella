@@ -30,13 +30,13 @@ func TestContextBinaryInstallPlanIsolatedBySelectionIdentity(t *testing.T) {
 	other.Revision = 7
 	other.Version = "2.0.0"
 
-	first, err := ContextBinaryInstallPlan(stellaHome, []pkgplugins.PluginBinarySpec{base})
+	first, err := testContextSelectionPlan(stellaHome, []pkgplugins.PluginBinarySpec{base})
 	if err != nil {
-		t.Fatalf("ContextBinaryInstallPlan(first): %v", err)
+		t.Fatalf("testContextSelectionPlan(first): %v", err)
 	}
-	second, err := ContextBinaryInstallPlan(stellaHome, []pkgplugins.PluginBinarySpec{other})
+	second, err := testContextSelectionPlan(stellaHome, []pkgplugins.PluginBinarySpec{other})
 	if err != nil {
-		t.Fatalf("ContextBinaryInstallPlan(second): %v", err)
+		t.Fatalf("testContextSelectionPlan(second): %v", err)
 	}
 	if first.Identity == second.Identity || first.PublicDir == second.PublicDir || first.PublicBinDir == second.PublicBinDir {
 		t.Fatalf("selection identities must isolate public selections: first=%+v second=%+v", first, second)
@@ -57,7 +57,7 @@ func TestContextBinaryInstallPlanRejectsPathTraversal(t *testing.T) {
 	if err := os.WriteFile(victim, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ContextBinaryInstallPlan(filepath.Dir(victim), []pkgplugins.PluginBinarySpec{spec}); err == nil {
+	if _, err := testContextSelectionPlan(filepath.Dir(victim), []pkgplugins.PluginBinarySpec{spec}); err == nil {
 		t.Fatal("path traversal name must be rejected before publication")
 	}
 	data, err := os.ReadFile(victim)
@@ -77,15 +77,15 @@ func TestContextBinaryInstallPlanRejectsNonPositiveRevision(t *testing.T) {
 		t.Run(fmt.Sprintf("revision_%d", revision), func(t *testing.T) {
 			spec := base
 			spec.Revision = revision
-			if _, err := ContextBinaryInstallPlan(t.TempDir(), []pkgplugins.PluginBinarySpec{spec}); err == nil || !strings.Contains(err.Error(), "non-positive config revision") {
-				t.Fatalf("ContextBinaryInstallPlan() error = %v, want non-positive revision", err)
+			if _, err := testContextSelectionPlan(t.TempDir(), []pkgplugins.PluginBinarySpec{spec}); err == nil || !strings.Contains(err.Error(), "non-positive config revision") {
+				t.Fatalf("testContextSelectionPlan() error = %v, want non-positive revision", err)
 			}
 		})
 	}
 }
 
 func TestOverlayNativeSelectionDropsSharedMisePaths(t *testing.T) {
-	plan := BinaryInstallPlan{PublicDir: "/opt/stella/.mise-tools/public/selection", PublicBinDir: "/opt/stella/.mise-tools/public/selection"}
+	plan := BinaryInstallPlan{Selections: []BinarySelectionPlan{{PublicDir: "/opt/stella/.mise-tools/public/selection", PublicBinDir: "/opt/stella/.mise-tools/public/selection"}}}
 	base := map[string]string{
 		"PATH":                      "/usr/bin",
 		"MISE_DATA_DIR":             "/opt/stella/.mise-tools",
@@ -101,16 +101,16 @@ func TestOverlayNativeSelectionDropsSharedMisePaths(t *testing.T) {
 			t.Fatalf("native selection retained shared mise path %s=%q", key, env[key])
 		}
 	}
-	if !strings.HasPrefix(env["PATH"], plan.PublicBinDir+string(filepath.ListSeparator)) {
+	if !strings.HasPrefix(env["PATH"], plan.Selections[0].PublicBinDir+string(filepath.ListSeparator)) {
 		t.Fatalf("native selection PATH = %q, want public selection first", env["PATH"])
 	}
-	if env[pkgsandbox.EnvNativeSelectionDir] != plan.PublicBinDir {
-		t.Fatalf("native selection marker = %q, want %q", env[pkgsandbox.EnvNativeSelectionDir], plan.PublicBinDir)
+	if env[pkgsandbox.EnvNativeSelectionDir] != plan.Selections[0].PublicBinDir {
+		t.Fatalf("native selection marker = %q, want %q", env[pkgsandbox.EnvNativeSelectionDir], plan.Selections[0].PublicBinDir)
 	}
 }
 
 func TestOverlayNativeSelectionKeepsPrivateUserMiseTree(t *testing.T) {
-	plan := BinaryInstallPlan{PublicDir: "/opt/stella/.mise-tools/public/selection", PublicBinDir: "/opt/stella/.mise-tools/public/selection"}
+	plan := BinaryInstallPlan{Selections: []BinarySelectionPlan{{PublicDir: "/opt/stella/.mise-tools/public/selection", PublicBinDir: "/opt/stella/.mise-tools/public/selection"}}}
 	base := map[string]string{
 		"PATH":                        "/usr/bin",
 		"MISE_DATA_DIR":               "/opt/stella/users/u/.mise-tools",
@@ -134,7 +134,7 @@ func TestContextBinaryInstallRejectsConflictingMiseToolSelections(t *testing.T) 
 		{PluginResourceIdentity: baseIdentity, Name: "one", Tool: "github:owner/shared", Version: "1.0.0"},
 		{PluginResourceIdentity: pkgplugins.PluginResourceIdentity{PluginID: "two", ConfigID: "cfg-two", Scope: string(plugin.ScopeSystemAgent), Revision: 1}, Name: "two", Tool: "github:owner/shared", Version: "2.0.0"},
 	}
-	if _, err := ContextBinaryInstallPlan(t.TempDir(), specs); err != nil {
+	if _, err := testContextSelectionPlan(t.TempDir(), specs); err != nil {
 		t.Fatalf("identity should accept distinct resources: %v", err)
 	}
 	if _, err := InstallContextBinaries(t.Context(), t.TempDir(), specs); err == nil || !strings.Contains(err.Error(), "disagree on mise tool") {
@@ -170,10 +170,11 @@ func TestInstallContextBinariesUsesSelectionLocalConfigAndShims(t *testing.T) {
 		},
 		Name: "one", Tool: "github:owner/one", Version: "1.0.0", Options: map[string]any{"private": "secret"},
 	}
-	plan, err := InstallContextBinaries(t.Context(), stellaHome, []pkgplugins.PluginBinarySpec{spec})
+	result, err := InstallContextBinaries(t.Context(), stellaHome, []pkgplugins.PluginBinarySpec{spec})
 	if err != nil {
 		t.Fatalf("InstallContextBinaries: %v", err)
 	}
+	plan := result.Plan.Selections[0]
 	if _, err := os.Stat(filepath.Join(stellaHome, ".mise-tools", "_builtin.toml")); !os.IsNotExist(err) {
 		t.Fatalf("context installer must not rewrite _builtin.toml, stat err=%v", err)
 	}
@@ -230,6 +231,72 @@ func TestInstallContextBinariesUsesSelectionLocalConfigAndShims(t *testing.T) {
 	}
 }
 
+func TestInstallContextBinariesResultKeepsSuccessfulPackages(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake mise script uses POSIX shell")
+	}
+	stellaHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(stellaHome, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fake := `#!/bin/sh
+set -eu
+case "$1" in
+trust|reshim) exit 0 ;;
+install)
+  mkdir -p "$MISE_DATA_DIR/installs/good/1/bin"
+  printf '#!/bin/sh\necho good\n' > "$MISE_DATA_DIR/installs/good/1/bin/good"
+  chmod 755 "$MISE_DATA_DIR/installs/good/1/bin/good"
+  exit 0 ;;
+where)
+  case "$2" in *bad*) exit 17 ;; esac
+  printf '%s\n' "$MISE_DATA_DIR/installs/good/1"
+  exit 0 ;;
+which)
+  case "$2" in *bad*) exit 17 ;; esac
+  printf '%s\n' "$MISE_DATA_DIR/installs/good/1/bin/good"
+  exit 0 ;;
+*) exit 9 ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(stellaHome, "bin", "mise"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	good := pkgplugins.PluginBinarySpec{
+		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{PluginID: "good", ConfigID: "cfg-good", Scope: string(plugin.ScopeSystem), Revision: 1},
+		Name:                   "good", Tool: "github:owner/good", Version: "1.0.0",
+	}
+	bad := pkgplugins.PluginBinarySpec{
+		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{PluginID: "bad", ConfigID: "cfg-bad", Scope: string(plugin.ScopeSystem), Revision: 1},
+		Name:                   "bad", Tool: "github:owner/bad", Version: "1.0.0",
+	}
+	result, err := InstallContextBinaries(t.Context(), stellaHome, []pkgplugins.PluginBinarySpec{bad, good})
+	if err != nil {
+		t.Fatalf("InstallContextBinariesResult: %v", err)
+	}
+	if len(result.SuccessfulPackages) != 1 || result.SuccessfulPackages[0].PluginID != "good" {
+		t.Fatalf("successful packages = %+v, want good only", result.SuccessfulPackages)
+	}
+	if len(result.FailedPackages) != 1 || result.FailedPackages[0].Package.PluginID != "bad" {
+		t.Fatalf("failed packages = %+v, want bad only", result.FailedPackages)
+	}
+	if len(result.Plan.Selections) != 1 || result.Plan.Selections[0].Package.PluginID != "good" {
+		t.Fatalf("published selections = %+v, want good only", result.Plan.Selections)
+	}
+	if _, err := os.Stat(filepath.Join(result.Plan.Selections[0].PublicBinDir, "good")); err != nil {
+		t.Fatalf("successful package was not published: %v", err)
+	}
+	env := OverlayBinaryInstallPlan(map[string]string{"PATH": "/usr/bin"}, result.Plan, BinarySystemLayer)
+	if !strings.HasPrefix(env["PATH"], result.Plan.Selections[0].PublicBinDir+string(filepath.ListSeparator)) {
+		t.Fatalf("successful package selection missing from PATH: %q", env["PATH"])
+	}
+	for _, selection := range result.Plan.Selections {
+		if selection.Package.PluginID == "bad" {
+			t.Fatalf("failed package has a published selection: %+v", selection)
+		}
+	}
+}
+
 func TestInstallContextBinariesSkipsEmptySystemSelection(t *testing.T) {
 	spec := pkgplugins.PluginBinarySpec{
 		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
@@ -237,12 +304,12 @@ func TestInstallContextBinariesSkipsEmptySystemSelection(t *testing.T) {
 		},
 		Name: "one", Tool: "github:owner/one", Version: "1.0.0",
 	}
-	plan, err := InstallContextBinaries(t.Context(), t.TempDir(), []pkgplugins.PluginBinarySpec{spec})
+	result, err := InstallContextBinaries(t.Context(), t.TempDir(), []pkgplugins.PluginBinarySpec{spec})
 	if err != nil {
 		t.Fatalf("InstallContextBinaries: %v", err)
 	}
-	if plan.PublicDir == "" || plan.PublicBinDir == "" {
-		t.Fatalf("user-only context selection must still publish a core selection: %+v", plan)
+	if len(result.Plan.Selections) != 1 || result.Plan.Selections[0].Package.PluginID != "" {
+		t.Fatalf("user-only context selection must still publish an empty selection: %+v", result.Plan)
 	}
 }
 
@@ -256,17 +323,18 @@ func TestInstallContextBinariesDoesNotExposeMiseWhenDisabled(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	plan, err := InstallContextBinaries(t.Context(), stellaHome, nil)
+	result, err := InstallContextBinaries(t.Context(), stellaHome, nil)
 	if err != nil {
 		t.Fatalf("InstallContextBinaries: %v", err)
 	}
+	plan := result.Plan.Selections[0]
 	if _, err := os.Stat(filepath.Join(plan.PublicBinDir, "mise")); !os.IsNotExist(err) {
 		t.Fatalf("disabled mise selection exposed mise, stat err=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(plan.PublicBinDir, ".stella-shell-env")); err != nil {
 		t.Fatalf("disabled mise selection lost runner PATH restoration file: %v", err)
 	}
-	env := OverlayBinaryInstallPlan(map[string]string{"PATH": plan.PublicBinDir}, plan, BinarySystemLayer)
+	env := OverlayBinaryInstallPlan(map[string]string{"PATH": plan.PublicBinDir}, result.Plan, BinarySystemLayer)
 	cmd := exec.Command("/bin/sh", "-c", "command -v mise")
 	cmd.Env = append(os.Environ(), "PATH="+env["PATH"])
 	if result, err := cmd.CombinedOutput(); err == nil {
@@ -326,13 +394,14 @@ func TestInstallSandboxBinariesUsesSessionOnly(t *testing.T) {
 		Name: "user-tool", Tool: "github:owner/user-tool", Version: "3.0.0",
 	}
 	originalPath := session.Policy().Env["PATH"]
-	plan, err := InstallSandboxBinaries(t.Context(), session, []pkgplugins.PluginBinarySpec{spec})
+	result, err := InstallSandboxBinaries(t.Context(), session, []pkgplugins.PluginBinarySpec{spec})
 	if err != nil {
 		t.Fatalf("InstallSandboxBinaries: %v", err)
 	}
-	if plan.PublicDir == "" {
-		t.Fatalf("returned plan must expose only exact public selection: %+v", plan)
+	if len(result.Plan.Selections) != 1 {
+		t.Fatalf("returned plan must expose one exact public selection: %+v", result.Plan)
 	}
+	plan := result.Plan.Selections[0]
 	if _, err := session.Files().Stat(filepath.Join(plan.PublicDir, "user-tool")); err != nil {
 		t.Fatalf("sandbox public selection was not materialized: %v", err)
 	}
@@ -360,9 +429,13 @@ func TestInstallContextErrorsHideStderr(t *testing.T) {
 		},
 		Name: "secret-tool", Tool: "github:owner/secret-tool", Version: "1.0.0",
 	}
-	_, err := InstallContextBinaries(t.Context(), stellaHome, []pkgplugins.PluginBinarySpec{spec})
-	if err == nil || strings.Contains(err.Error(), "secret-install-output") || strings.Contains(err.Error(), "secret-install-stdout") || strings.Contains(err.Error(), "secret-where-output") || strings.Contains(err.Error(), spec.Tool) || len(err.Error()) > 256 {
-		t.Fatalf("InstallContextBinaries error = %v, want bounded closed error", err)
+	result, err := InstallContextBinaries(t.Context(), stellaHome, []pkgplugins.PluginBinarySpec{spec})
+	if err != nil || len(result.FailedPackages) != 1 {
+		t.Fatalf("InstallContextBinaries result = %+v, error = %v; want one failed package", result, err)
+	}
+	failure := result.FailedPackages[0].Err
+	if strings.Contains(failure.Error(), "secret-install-output") || strings.Contains(failure.Error(), "secret-install-stdout") || strings.Contains(failure.Error(), "secret-where-output") || strings.Contains(failure.Error(), spec.Tool) || len(failure.Error()) > 256 {
+		t.Fatalf("InstallContextBinaries failure = %v, want bounded closed error", failure)
 	}
 }
 

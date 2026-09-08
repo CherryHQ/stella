@@ -46,10 +46,15 @@ type providerConfig struct {
 
 // runnerConfig configures the runner implementation.
 type runnerConfig struct {
-	NoCapabilities       bool // guest mode: empty tool registry, no hooks or media
-	Provider             providerConfig
-	Thinking             ai.ThinkingLevel
-	Sandbox              sandbox.Config
+	NoCapabilities bool // guest mode: empty tool registry, no hooks or media
+	Provider       providerConfig
+	Thinking       ai.ThinkingLevel
+	Sandbox        sandbox.Config
+	// PreparedSession is created by the outer builder after package-level
+	// preparation has settled. Keeping it on the config prevents prompt and
+	// Skill construction from racing a later CLI failure and avoids creating
+	// the sandbox twice.
+	PreparedSession      pkgsandbox.Session
 	System               string // optional system prompt override (bypasses default prompt building)
 	Sections             []pkgplugins.SystemPromptSection
 	BuiltinTools         []BuiltinTool
@@ -57,6 +62,7 @@ type runnerConfig struct {
 	DisabledSkillRefs    []string
 	PerRunTools          []tools.Tool
 	SkillRevisionReader  skillstool.RuntimeReader
+	SkillPackageReader   skillstool.PackageSkillReader
 	ProjectSkillSnapshot *skillstool.ProjectSnapshot
 	SkillReadAuthorizer  skillstool.SkillReadAuthorizer
 	PluginContext        PluginContext
@@ -177,11 +183,18 @@ func newRunner(ctx context.Context, cfg runnerConfig) (built *runner, err error)
 		// timeout (#722). cfg is a value copy, so this stays local to this runner.
 		cfg.Sandbox.ChatTimeout = cfg.ChatTimeout
 
-		session, err = sandbox.ResolveSession(ctx, cfg.Sandbox)
-		if err != nil {
-			return nil, fmt.Errorf("runner: %w", err)
+		session = cfg.PreparedSession
+		if session == nil {
+			session, err = sandbox.ResolveSession(ctx, cfg.Sandbox)
+			if err != nil {
+				return nil, fmt.Errorf("runner: %w", err)
+			}
 		}
 		built.session = session
+		if cfg.Sandbox.PluginPreparationResult != nil {
+			prepared := *cfg.Sandbox.PluginPreparationResult
+			cfg.PluginContext = cfg.PluginContext.WithPreparationResult(prepared)
+		}
 	}
 
 	if systemPrompt == "" {
@@ -193,11 +206,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (built *runner, err error)
 		prepared := preparedMCP
 		var snapshotErr error
 		if !prepared && cfg.MCPToolProvider != nil {
-			if provider, ok := cfg.MCPToolProvider.(MCPToolSnapshotProvider); ok {
-				mcpSnapshot, snapshotErr = provider.ToolsForSnapshotWithDirectory(ctx, cfg.PluginContext.Snapshot())
-			} else {
-				mcpSnapshot.Tools, snapshotErr = cfg.MCPToolProvider.ToolsForSnapshot(ctx, cfg.PluginContext.Snapshot())
-			}
+			mcpSnapshot, snapshotErr = cfg.MCPToolProvider.ToolsForSnapshotWithDirectoryForPlugins(ctx, cfg.PluginContext.Snapshot(), cfg.PluginContext.SessionPluginView().ExposedPluginIDs)
 		}
 		if snapshotErr != nil {
 			return nil, fmt.Errorf("runner: build MCP tools: %w", snapshotErr)
@@ -562,6 +571,9 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		WithProjectSnapshot(cfg.ProjectSkillSnapshot).
 		WithPluginVisibility(pluginView.RegisteredPluginIDs, pluginView.ExposedPluginIDs).
 		WithAgentSkillPolicy(cfg.DisabledSkillRefs)
+	if cfg.SkillPackageReader != nil {
+		skillsTool = skillsTool.WithPackageReader(cfg.SkillPackageReader)
+	}
 	// One Tool per Session, one registered tool per action: the actions share
 	// the Session's projection lock and its visibility snapshot.
 	for _, spec := range skillstool.RuntimeActionTools() {
@@ -956,7 +968,18 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 		// an expired OAuth token. A no-op on a fresh credential, on group
 		// sessions, and on sessions without OAuth-sourced env (#722).
 		if r.session != nil {
-			sandbox.RefreshSessionEnv(ctx, r.session, r.sandboxCfg)
+			if len(r.sandboxCfg.PluginRequirements) > 0 {
+				readiness := sandbox.PrepareOAuthPackages(ctx, r.sandboxCfg, r.sandboxCfg.PluginRequirements)
+				if failed := newlyUnavailablePluginIDs(readiness, r.pluginContext.OAuthPreparationResult()); len(failed) > 0 {
+					sendEvent(ctx, out, Event{Err: fmt.Errorf("plugin OAuth readiness unavailable for %s", strings.Join(failed, ", "))})
+					return
+				}
+			}
+			refresh := sandbox.RefreshSessionEnv(ctx, r.session, r.sandboxCfg)
+			if failed := newlyUnavailablePluginIDsFromIDs(refresh.UnavailablePluginIDs, r.pluginContext.OAuthPreparationResult()); len(failed) > 0 {
+				sendEvent(ctx, out, Event{Err: fmt.Errorf("plugin OAuth readiness unavailable for %s", strings.Join(failed, ", "))})
+				return
+			}
 		}
 		loopRunner.SetSecretValues(r.sandboxCfg.SessionSecretValues.Values())
 
@@ -990,6 +1013,27 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 	}()
 
 	return out
+}
+
+func newlyUnavailablePluginIDs(current, baseline pkgplugins.PluginPreparationResult) []string {
+	failed := make([]string, 0)
+	for _, status := range current.Packages {
+		if status.Ready || !baseline.Status(status.PluginID).Ready {
+			continue
+		}
+		failed = append(failed, status.PluginID)
+	}
+	return failed
+}
+
+func newlyUnavailablePluginIDsFromIDs(ids []string, baseline pkgplugins.PluginPreparationResult) []string {
+	failed := make([]string, 0, len(ids))
+	for _, pluginID := range ids {
+		if baseline.Status(pluginID).Ready {
+			failed = append(failed, pluginID)
+		}
+	}
+	return failed
 }
 
 // Alive reports whether the runner is healthy. Capability-bearing runners

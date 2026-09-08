@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -116,8 +117,107 @@ func TestSessionPluginViewRejectsIncompletePayloadAfterCapabilityLift(t *testing
 	if err != nil {
 		t.Fatalf("ResolveSnapshot lifted: %v", err)
 	}
-	if _, err := sessionPluginView(snapshot); err == nil {
-		t.Fatal("capability lift exposed an incomplete CLI payload")
+	view, err = sessionPluginView(snapshot)
+	if err != nil {
+		t.Fatalf("SessionPluginView lifted: %v", err)
+	}
+	if status := view.PackageResults.Status(definition.ID); status.Ready || status.Reason == "" {
+		t.Fatalf("incomplete package status = %+v, want bounded failure", status)
+	}
+	if slices.Contains(view.ExposedPluginIDs, definition.ID) || len(view.BinarySpecs) != 0 {
+		t.Fatalf("incomplete package resources leaked: %+v", view)
+	}
+}
+
+func TestIncompatiblePackagePinIsMaskedWithoutBlockingHealthyPackage(t *testing.T) {
+	db := dbtest.New(t)
+	const userID = "10000000-0000-0000-0000-000000000081"
+	insertUser(t, db, userID)
+	a := plugin.Definition{
+		ID: "healthy", DisplayName: "Healthy", Source: plugin.SourceBuiltin, Revision: 1,
+		Spec: publishedRuntimeSpec(t, `{"binaries":[{"name":"healthy","tool":"github:owner/healthy","version":"1.0.0"}],"skills":[{"name":"healthy-skill"}],"session_env":[{"env_var":"HEALTHY_TOKEN","source":"static"}]}`),
+	}
+	b := plugin.Definition{
+		ID: "pinned", DisplayName: "Pinned", Source: plugin.SourceBuiltin, Revision: 1,
+		Spec: publishedRuntimeSpec(t, `{"binaries":[{"name":"old","tool":"github:owner/pinned","version":"1.0.0"}],"skills":[{"name":"shared-skill"}],"session_env":[{"env_var":"PINNED_TOKEN","source":"oauth.access_token"}],"oauth":[{"provider":"demo","scopes":["read"],"bindings":[{"credential":"access_token","env_var":"PINNED_TOKEN"}]}]}`),
+	}
+	catalog := plugin.NewCatalog()
+	for _, definition := range []plugin.Definition{a, b} {
+		if err := catalog.Register(definition); err != nil {
+			t.Fatal(err)
+		}
+		insertDefinition(t, db, definition)
+	}
+	insertConfig(t, db, "20000000-0000-0000-0000-000000000080", a, "user", userID, true, `{}`)
+	insertConfig(t, db, "20000000-0000-0000-0000-000000000081", b, "user", userID, true, `{"binaries":{"old":{"version":"1.0.0"}}}`)
+	service := plugin.NewService(db, nil, catalog, plugin.BackendPolicy{Transition: noopBackendTransition}, inlinePluginMutationFence)
+	authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := service.ResolveSnapshot(t.Context(), authority, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1Context, err := agentruntime.NewPluginContext(snapshot)
+	if err != nil {
+		t.Fatalf("v1 context: %v", err)
+	}
+	v1View := v1Context.SessionPluginView()
+	if status := v1View.PackageResults.Status(b.ID); !status.Ready {
+		t.Fatalf("v1 pinned package status = %+v, want ready", status)
+	}
+	if !slices.ContainsFunc(v1View.BinarySpecs, func(spec pkgplugins.PluginBinarySpec) bool {
+		return spec.PluginID == b.ID && spec.Name == "old" && spec.Version == "1.0.0"
+	}) {
+		t.Fatalf("v1 pinned binary missing: %+v", v1View.BinarySpecs)
+	}
+
+	v2 := publishedRuntimeSpec(t, `{"binaries":[{"name":"new","tool":"github:owner/pinned","version":"2.0.0"}],"skills":[{"name":"shared-skill"}],"session_env":[{"env_var":"PINNED_TOKEN","source":"oauth.access_token"}],"oauth":[{"provider":"demo","scopes":["read"],"bindings":[{"credential":"access_token","env_var":"PINNED_TOKEN"}]}]}`)
+	if _, err := db.Exec(t.Context(), `UPDATE plugin_definition SET spec=$1, revision=2 WHERE id='pinned'`, v2); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = service.ResolveSnapshot(t.Context(), authority, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	context, err := agentruntime.NewPluginContext(snapshot)
+	if err != nil {
+		t.Fatalf("v2 context: %v", err)
+	}
+	view := context.SessionPluginView()
+	if status := view.PackageResults.Status(a.ID); !status.Ready {
+		t.Fatalf("healthy package status = %+v, want ready", status)
+	}
+	if !slices.Contains(view.ExposedPluginIDs, a.ID) || slices.Contains(view.ExposedPluginIDs, b.ID) {
+		t.Fatalf("exposed packages = %v, want only healthy", view.ExposedPluginIDs)
+	}
+	if len(view.BinarySpecs) != 1 || view.BinarySpecs[0].PluginID != a.ID {
+		t.Fatalf("visible binaries = %+v, want healthy only", view.BinarySpecs)
+	}
+	if len(view.SessionEnvSpecs) != 1 || view.SessionEnvSpecs[0].PluginID != a.ID {
+		t.Fatalf("visible env = %+v, want healthy only", view.SessionEnvSpecs)
+	}
+	if !slices.ContainsFunc(view.SkillSpecs, func(spec pkgplugins.PluginSkillSpec) bool {
+		return spec.PluginID == b.ID && spec.Name == "shared-skill"
+	}) {
+		t.Fatalf("failed package Skill declaration was not retained for masking: %+v", view.SkillSpecs)
+	}
+	if !slices.ContainsFunc(context.SelectedPluginBinarySpecs(), func(spec pkgplugins.PluginBinarySpec) bool {
+		return spec.PluginID == b.ID && spec.Name == "new"
+	}) {
+		t.Fatalf("failed package binary declaration was not retained for conflict checks: %+v", context.SelectedPluginBinarySpecs())
+	}
+	status := view.PackageResults.Status(b.ID)
+	if status.Ready || status.Reason != "selected package configuration is incompatible" {
+		t.Fatalf("failed package status = %+v, want config incompatibility", status)
+	}
+	preparation := sandbox.PrepareOAuthPackages(t.Context(), sandbox.Config{UserID: userID}, view.PackageRequirements)
+	if got := preparation.Status(a.ID); !got.Ready {
+		t.Fatalf("healthy package OAuth status = %+v, want ready", got)
+	}
+	if got := preparation.Status(b.ID); got.Ready || got.Reason != "selected package configuration is incompatible" {
+		t.Fatalf("failed package OAuth status = %+v, want unchanged config incompatibility", got)
 	}
 }
 

@@ -13,12 +13,12 @@ import (
 // value; user configuration must not supply it.
 const EnvRunnerPath = "STELLA_RUNNER_PATH"
 
-// EnvNativeSelectionDir carries the exact native selection directory through
+// EnvNativeSelectionDir carries an ordered path list of native selection directories through
 // backend policy rendering. It is runtime-owned; backends must prefer it over
 // the legacy mise shims field when rebuilding PATH.
 const EnvNativeSelectionDir = "STELLA_NATIVE_SELECTION_DIR"
 
-// EnvUserNativeSelectionDir carries the exact user/user-agent selection. It
+// EnvUserNativeSelectionDir carries an ordered path list of user/user-agent selections. It
 // stays separate from the system selection because Linux maps system binaries
 // onto /opt/stella/bin while user selections remain secondary mounts.
 const EnvUserNativeSelectionDir = "STELLA_USER_NATIVE_SELECTION_DIR"

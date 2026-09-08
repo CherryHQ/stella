@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"maps"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -23,10 +25,59 @@ import (
 // derived from every selected binary, including scope and revision, so two
 // runners cannot overwrite one another's selection tree.
 type BinaryInstallPlan struct {
+	Identity   string
+	DataDir    string
+	Selections []BinarySelectionPlan
+}
+
+// BinaryPackage identifies the immutable package resource that owns a binary.
+// A package can declare several binaries; it is ready only when all of them
+// publish successfully.
+type BinaryPackage struct {
+	pkgplugins.PluginResourceIdentity
+	PackageDigest string
+}
+
+// BinarySelectionPlan describes one package-owned immutable selection tree.
+type BinarySelectionPlan struct {
+	Package      BinaryPackage
 	Identity     string
 	DataDir      string
 	PublicDir    string
 	PublicBinDir string
+}
+
+// BinaryInstallFailure records a package-scoped preparation error. A failed
+// package is omitted from the resulting plan; other packages remain usable.
+type BinaryInstallFailure struct {
+	Package BinaryPackage
+	Err     error
+}
+
+// BinaryInstallResult is the package-scoped outcome of CLI preparation.
+type BinaryInstallResult struct {
+	Plan               BinaryInstallPlan
+	SuccessfulPackages []BinaryPackage
+	FailedPackages     []BinaryInstallFailure
+}
+
+// PreparationResult projects package-scoped CLI outcomes into the shared
+// runtime result. It contains no command output or credential material.
+func (r BinaryInstallResult) PreparationResult() pkgplugins.PluginPreparationResult {
+	result := pkgplugins.PluginPreparationResult{Packages: make([]pkgplugins.PluginPackageStatus, 0, len(r.SuccessfulPackages)+len(r.FailedPackages))}
+	for _, pkg := range r.SuccessfulPackages {
+		if pkg.PluginID == "" {
+			continue
+		}
+		result.Packages = append(result.Packages, pkgplugins.PluginPackageStatus{PluginID: pkg.PluginID, Ready: true})
+	}
+	for _, failure := range r.FailedPackages {
+		if failure.Package.PluginID == "" {
+			continue
+		}
+		result.Packages = append(result.Packages, pkgplugins.PluginPackageStatus{PluginID: failure.Package.PluginID, Reason: "CLI preparation failed"})
+	}
+	return result
 }
 
 // BinaryConfigLayer selects which mise precedence layer a plan represents.
@@ -37,107 +88,203 @@ const (
 	BinaryUserLayer
 )
 
-// ContextBinaryInstallPlan returns the host-visible paths for one selected
-// binary set. Selection identity is intentionally owned by the sandbox layer,
-// where authorization and resource revisions are available.
-func ContextBinaryInstallPlan(stellaHome string, specs []pkgplugins.PluginBinarySpec) (BinaryInstallPlan, error) {
+// InstallContextBinaries installs each authorized system package into its own
+// immutable public tree. Candidate conflicts are checked before any
+// installation so a failed package cannot change the interpretation of the
+// remaining packages.
+func InstallContextBinaries(ctx context.Context, stellaHome string, specs []pkgplugins.PluginBinarySpec) (BinaryInstallResult, error) {
 	if stellaHome == "" {
-		return BinaryInstallPlan{}, errors.New("sandbox: stella home is required")
-	}
-	identity, err := binarySelectionIdentity(specs)
-	if err != nil {
-		return BinaryInstallPlan{}, err
+		return BinaryInstallResult{}, errors.New("sandbox: stella home is required")
 	}
 	dataDir := pkgsandbox.MiseToolsDir(stellaHome)
-	return BinaryInstallPlan{
-		Identity:     identity,
-		DataDir:      dataDir,
-		PublicDir:    filepath.Join(dataDir, "public", identity),
-		PublicBinDir: filepath.Join(dataDir, "public", identity),
-	}, nil
+	identity, err := binarySelectionIdentity(specs, dataDir)
+	if err != nil {
+		return BinaryInstallResult{}, err
+	}
+	if err := validateBinaryCandidates(specs); err != nil {
+		return BinaryInstallResult{}, err
+	}
+	plan := BinaryInstallPlan{Identity: identity, DataDir: dataDir}
+	result := BinaryInstallResult{Plan: plan}
+	groups := groupedBinarySpecs(specs, isSystemBinary)
+	if len(groups) == 0 {
+		selection := selectionPlan(identity, BinaryPackage{}, dataDir, filepath.Join(dataDir, "public"))
+		if err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
+			DataDir: dataDir, PublicDir: selection.PublicDir, PublicBinDir: selection.PublicBinDir,
+		}, nil); err != nil {
+			return BinaryInstallResult{}, err
+		}
+		result.Plan.Selections = []BinarySelectionPlan{selection}
+		return result, nil
+	}
+	for _, group := range groups {
+		packageIdentity, err := binarySelectionIdentity(group.specs, dataDir)
+		if err != nil {
+			return BinaryInstallResult{}, err
+		}
+		selection := selectionPlan(packageIdentity, group.pkg, dataDir, filepath.Join(dataDir, "public"))
+		tools, err := miseToolsFromSpecs(group.specs, isSystemBinary)
+		if err != nil {
+			return BinaryInstallResult{}, err
+		}
+		if err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
+			DataDir: dataDir, PublicDir: selection.PublicDir, PublicBinDir: selection.PublicBinDir,
+		}, tools); err != nil {
+			result.FailedPackages = append(result.FailedPackages, BinaryInstallFailure{Package: group.pkg, Err: err})
+			continue
+		}
+		result.SuccessfulPackages = append(result.SuccessfulPackages, group.pkg)
+		result.Plan.Selections = append(result.Plan.Selections, selection)
+	}
+	return result, nil
 }
 
-// InstallContextBinaries installs authorized system selections through the
-// generic tool installer. The adapter here is where plugin resource scopes are
-// filtered and converted into identity-free Tool values.
-func InstallContextBinaries(ctx context.Context, stellaHome string, specs []pkgplugins.PluginBinarySpec) (BinaryInstallPlan, error) {
-	plan, err := ContextBinaryInstallPlan(stellaHome, specs)
-	if err != nil {
-		return BinaryInstallPlan{}, err
-	}
-	tools, err := miseToolsFromSpecs(specs, func(spec pkgplugins.PluginBinarySpec) bool {
-		return spec.Scope == string(plugin.ScopeSystem) || spec.Scope == string(plugin.ScopeSystemAgent)
-	})
-	if err != nil {
-		return BinaryInstallPlan{}, err
-	}
-	selection := toolinstall.Selection{
-		DataDir: plan.DataDir, PublicDir: plan.PublicDir, PublicBinDir: plan.PublicBinDir,
-	}
-	if err := toolinstall.InstallSelection(ctx, stellaHome, selection, tools); err != nil {
-		return BinaryInstallPlan{}, err
-	}
-	return plan, nil
-}
-
-// InstallSandboxBinaries installs user selections through the already-created
-// sandbox session. The host supplies only the validated selection and tools;
-// mise, its config, and its cache writes stay inside the session capability.
-func InstallSandboxBinaries(ctx context.Context, session pkgsandbox.Session, specs []pkgplugins.PluginBinarySpec) (BinaryInstallPlan, error) {
+// InstallSandboxBinaries installs each user package through the already-created
+// sandbox session. Each package receives an isolated config and public tree.
+func InstallSandboxBinaries(ctx context.Context, session pkgsandbox.Session, specs []pkgplugins.PluginBinarySpec) (BinaryInstallResult, error) {
 	if session == nil {
-		return BinaryInstallPlan{}, errors.New("sandbox: sandbox session is required")
-	}
-	identity, err := binarySelectionIdentity(specs)
-	if err != nil {
-		return BinaryInstallPlan{}, err
+		return BinaryInstallResult{}, errors.New("sandbox: sandbox session is required")
 	}
 	baseEnv := session.Policy().Env
 	dataDir := baseEnv["MISE_DATA_DIR"]
 	if dataDir == "" || baseEnv["MISE_NOT_FOUND_AUTO_INSTALL"] != "true" {
-		return BinaryInstallPlan{}, errors.New("sandbox: user CLI install requires a writable sandbox mise home")
+		return BinaryInstallResult{}, errors.New("sandbox: user CLI install requires a writable sandbox mise home")
 	}
-	root := filepath.Join(dataDir, "contexts", identity)
-	plan := BinaryInstallPlan{
-		Identity:     identity,
-		DataDir:      dataDir,
-		PublicDir:    filepath.Join(dataDir, "public", identity),
-		PublicBinDir: filepath.Join(dataDir, "public", identity),
-	}
-	tools, err := miseToolsFromSpecs(specs, func(spec pkgplugins.PluginBinarySpec) bool {
-		return spec.Scope == string(plugin.ScopeUser) || spec.Scope == string(plugin.ScopeUserAgent)
-	})
+	identity, err := binarySelectionIdentity(specs, dataDir)
 	if err != nil {
-		return BinaryInstallPlan{}, err
+		return BinaryInstallResult{}, err
 	}
-	selection := toolinstall.Selection{
-		DataDir: plan.DataDir, ConfigPath: filepath.Join(root, "config.toml"), ShimsDir: filepath.Join(root, "shims"),
-		PublicDir: plan.PublicDir, PublicBinDir: plan.PublicBinDir,
+	if err := validateBinaryCandidates(specs); err != nil {
+		return BinaryInstallResult{}, err
 	}
-	if err := toolinstall.InstallSession(ctx, session, selection, tools); err != nil {
-		return BinaryInstallPlan{}, err
+	plan := BinaryInstallPlan{Identity: identity, DataDir: dataDir}
+	result := BinaryInstallResult{Plan: plan}
+	for _, group := range groupedBinarySpecs(specs, isUserBinary) {
+		packageIdentity, err := binarySelectionIdentity(group.specs, dataDir)
+		if err != nil {
+			return BinaryInstallResult{}, err
+		}
+		root := filepath.Join(dataDir, "contexts", packageIdentity)
+		selection := selectionPlan(packageIdentity, group.pkg, dataDir, filepath.Join(dataDir, "public"))
+		tools, err := miseToolsFromSpecs(group.specs, isUserBinary)
+		if err != nil {
+			return BinaryInstallResult{}, err
+		}
+		if err := toolinstall.InstallSession(ctx, session, toolinstall.Selection{
+			DataDir: plan.DataDir, ConfigPath: filepath.Join(root, "config.toml"), ShimsDir: filepath.Join(root, "shims"),
+			PublicDir: selection.PublicDir, PublicBinDir: selection.PublicBinDir,
+		}, tools); err != nil {
+			result.FailedPackages = append(result.FailedPackages, BinaryInstallFailure{Package: group.pkg, Err: err})
+			continue
+		}
+		result.SuccessfulPackages = append(result.SuccessfulPackages, group.pkg)
+		result.Plan.Selections = append(result.Plan.Selections, selection)
 	}
-	return plan, nil
+	return result, nil
 }
 
 // OverlayBinaryInstallPlan applies a completed plan to a runner environment.
 func OverlayBinaryInstallPlan(base map[string]string, plan BinaryInstallPlan, layer BinaryConfigLayer) map[string]string {
 	env := maps.Clone(base)
-	if plan.PublicBinDir != "" {
+	publicDirs := plan.publicBinDirs()
+	if len(publicDirs) > 0 {
 		if layer == BinarySystemLayer {
 			clearNativeMisePaths(env)
 		}
 		if layer == BinaryUserLayer {
-			env[pkgsandbox.EnvUserNativeSelectionDir] = plan.PublicBinDir
+			env[pkgsandbox.EnvUserNativeSelectionDir] = strings.Join(publicDirs, string(filepath.ListSeparator))
 		} else {
-			env[pkgsandbox.EnvNativeSelectionDir] = plan.PublicBinDir
+			env[pkgsandbox.EnvNativeSelectionDir] = strings.Join(publicDirs, string(filepath.ListSeparator))
 		}
-		env["PATH"] = prependPath(env["PATH"], plan.PublicBinDir)
+		for i := len(publicDirs) - 1; i >= 0; i-- {
+			env["PATH"] = prependPath(env["PATH"], publicDirs[i])
+		}
 	}
 	// The private preparation session's config and shims never cross into the
 	// final runner, even when a caller supplies a stale base environment.
 	delete(env, "MISE_SHIMS_DIR")
 	env[pkgsandbox.EnvRunnerPath] = env["PATH"]
 	return env
+}
+
+func (plan BinaryInstallPlan) publicBinDirs() []string {
+	dirs := make([]string, 0, len(plan.Selections))
+	for _, selection := range plan.Selections {
+		if selection.PublicBinDir != "" {
+			dirs = append(dirs, selection.PublicBinDir)
+		}
+	}
+	return dirs
+}
+
+func selectionPlan(identity string, pkg BinaryPackage, dataDir, publicRoot string) BinarySelectionPlan {
+	publicDir := filepath.Join(publicRoot, identity)
+	return BinarySelectionPlan{
+		Package:      pkg,
+		Identity:     identity,
+		DataDir:      dataDir,
+		PublicDir:    publicDir,
+		PublicBinDir: publicDir,
+	}
+}
+
+func isSystemBinary(spec pkgplugins.PluginBinarySpec) bool {
+	return spec.Scope == string(plugin.ScopeSystem) || spec.Scope == string(plugin.ScopeSystemAgent)
+}
+
+func isUserBinary(spec pkgplugins.PluginBinarySpec) bool {
+	return spec.Scope == string(plugin.ScopeUser) || spec.Scope == string(plugin.ScopeUserAgent)
+}
+
+type binarySpecGroup struct {
+	pkg   BinaryPackage
+	specs []pkgplugins.PluginBinarySpec
+}
+
+func groupedBinarySpecs(specs []pkgplugins.PluginBinarySpec, keep func(pkgplugins.PluginBinarySpec) bool) []binarySpecGroup {
+	groups := make(map[BinaryPackage][]pkgplugins.PluginBinarySpec)
+	for _, spec := range specs {
+		if keep(spec) {
+			pkg := BinaryPackage{PluginResourceIdentity: spec.PluginResourceIdentity, PackageDigest: spec.PackageDigest}
+			groups[pkg] = append(groups[pkg], spec)
+		}
+	}
+	result := make([]binarySpecGroup, 0, len(groups))
+	for pkg, group := range groups {
+		result = append(result, binarySpecGroup{pkg: pkg, specs: group})
+	}
+	slices.SortFunc(result, func(left, right binarySpecGroup) int {
+		for _, pair := range [][2]string{
+			{left.pkg.PluginID, right.pkg.PluginID},
+			{left.pkg.ConfigID, right.pkg.ConfigID},
+			{left.pkg.Scope, right.pkg.Scope},
+			{left.pkg.PackageDigest, right.pkg.PackageDigest},
+		} {
+			if pair[0] != pair[1] {
+				return strings.Compare(pair[0], pair[1])
+			}
+		}
+		return cmp.Compare(left.pkg.Revision, right.pkg.Revision)
+	})
+	return result
+}
+
+func validateBinaryCandidates(specs []pkgplugins.PluginBinarySpec) error {
+	tools, err := miseToolsFromSpecs(specs, func(pkgplugins.PluginBinarySpec) bool { return true })
+	if err != nil {
+		return err
+	}
+	if _, err := toolinstall.RenderTOML(tools); err != nil {
+		return fmt.Errorf("sandbox: validate binary aliases: %w", err)
+	}
+	return nil
+}
+
+// ValidateSelectedBinarySpecs checks aliases and mise keys across the complete
+// selected set before OAuth filtering. A failed package cannot silently allow
+// a conflicting ready package to take over the same executable name.
+func ValidateSelectedBinarySpecs(specs []pkgplugins.PluginBinarySpec) error {
+	return validateBinaryCandidates(specs)
 }
 
 func clearNativeMisePaths(env map[string]string) {
@@ -194,21 +341,28 @@ func binaryLookupName(name string, options map[string]any) string {
 	return name
 }
 
-func binarySelectionIdentity(specs []pkgplugins.PluginBinarySpec) (string, error) {
+// binarySelectionIdentity identifies the complete logical
+// selection. The coordinate is the principal-owned install root for user
+// selections; including it keeps two users from sharing a logical selection
+// even when their config revisions and pins happen to match.
+func binarySelectionIdentity(specs []pkgplugins.PluginBinarySpec, coordinate string) (string, error) {
 	canonical := slices.Clone(specs)
 	slices.SortFunc(canonical, func(left, right pkgplugins.PluginBinarySpec) int {
-		for _, pair := range [][2]string{{left.PluginID, right.PluginID}, {left.Name, right.Name}, {left.Tool, right.Tool}, {left.Version, right.Version}, {left.ConfigID, right.ConfigID}, {left.Scope, right.Scope}} {
+		for _, pair := range [][2]string{{left.PluginID, right.PluginID}, {left.ConfigID, right.ConfigID}, {left.Scope, right.Scope}, {left.PackageDigest, right.PackageDigest}, {left.Name, right.Name}, {left.Tool, right.Tool}, {left.Version, right.Version}} {
 			if pair[0] != pair[1] {
 				return strings.Compare(pair[0], pair[1])
 			}
 		}
-		return cmpRevision(left.Revision, right.Revision)
+		return cmp.Compare(left.Revision, right.Revision)
 	})
 	for _, spec := range canonical {
 		if spec.PluginID == "" || spec.ConfigID == "" || spec.Scope == "" || spec.Name == "" || spec.Tool == "" {
 			return "", fmt.Errorf("sandbox: binary %q is missing resource identity", spec.Name)
 		}
 		if err := validateBinaryName(spec.Name); err != nil {
+			return "", fmt.Errorf("sandbox: binary %q: %w", spec.Name, err)
+		}
+		if err := plugin.ValidateBinaryVersion(spec.Version); err != nil {
 			return "", fmt.Errorf("sandbox: binary %q: %w", spec.Name, err)
 		}
 		switch spec.Scope {
@@ -220,22 +374,38 @@ func binarySelectionIdentity(specs []pkgplugins.PluginBinarySpec) (string, error
 			return "", fmt.Errorf("sandbox: binary %q has non-positive config revision", spec.Name)
 		}
 	}
-	payload, err := json.Marshal(canonical)
+	type selectionBinary struct {
+		PluginID      string `json:"plugin_id"`
+		ConfigID      string `json:"config_id"`
+		Scope         string `json:"scope"`
+		Revision      int64  `json:"revision"`
+		PackageDigest string `json:"package_digest"`
+		Artifact      string `json:"artifact"`
+	}
+	entries := make([]selectionBinary, 0, len(canonical))
+	for _, spec := range canonical {
+		artifact, err := pkgplugins.BinaryArtifactIdentity(spec)
+		if err != nil {
+			return "", fmt.Errorf("sandbox: binary %q artifact identity: %w", spec.Name, err)
+		}
+		entries = append(entries, selectionBinary{
+			PluginID: spec.PluginID, ConfigID: spec.ConfigID, Scope: spec.Scope,
+			Revision: spec.Revision, PackageDigest: spec.PackageDigest, Artifact: artifact,
+		})
+	}
+	payload, err := json.Marshal(struct {
+		GOOS       string            `json:"goos"`
+		GOARCH     string            `json:"goarch"`
+		Coordinate string            `json:"coordinate,omitempty"`
+		Binaries   []selectionBinary `json:"binaries"`
+	}{
+		GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Coordinate: coordinate, Binaries: entries,
+	})
 	if err != nil {
 		return "", fmt.Errorf("sandbox: encode binary selection identity: %w", err)
 	}
 	digest := sha256.Sum256(payload)
 	return hex.EncodeToString(digest[:16]), nil
-}
-
-func cmpRevision(left, right int64) int {
-	if left < right {
-		return -1
-	}
-	if left > right {
-		return 1
-	}
-	return 0
 }
 
 func validateBinaryName(name string) error {

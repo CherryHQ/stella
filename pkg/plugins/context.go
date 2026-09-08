@@ -95,6 +95,19 @@ type PluginBinarySpec struct {
 	Options       map[string]any
 }
 
+// PluginSkillSpec is the immutable package-owned Skill projection used by an
+// admitted runner. PackageDigest is the published asset-tree identity, not a
+// mutable source path; the Skill runtime resolves bytes through its restricted
+// package store reader.
+type PluginSkillSpec struct {
+	PluginResourceIdentity
+	PackageDigest string
+	Name          string
+	Path          string
+	Description   string
+	Builtin       bool
+}
+
 // MCPDirectoryEntry is the immutable, model-facing identity of one selected
 // MCP child and the catalog tools successfully projected for it. It deliberately
 // carries no endpoint or credential material. The config revision and complete
@@ -134,7 +147,13 @@ type SessionPluginView struct {
 	ExposedPluginIDs []string
 	SessionEnvSpecs  []SessionEnvSpec
 	BinarySpecs      []PluginBinarySpec
+	SkillSpecs       []PluginSkillSpec
 	PromptSections   []SystemPromptSection
+	// PackageRequirements is the immutable OAuth declaration for each exposed
+	// package. PackageResults is populated by runtime admission and consumed by
+	// every resource surface from the same snapshot.
+	PackageRequirements []PluginPackageRequirement
+	PackageResults      PluginPreparationResult
 	// MCPDirectory is the exact selected MCP child/tool directory used by the
 	// runner. It lives here because it is an observation-backed capability set,
 	// not part of the authored plugin snapshot.

@@ -273,6 +273,83 @@ components:
       properties:
         plugin: { $ref: "#/components/schemas/PluginDefinition" }
         config: { $ref: "#/components/schemas/PluginConfig" }
+    ImportPluginRequest:
+      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
+      type: object
+      additionalProperties: false
+      required: [source_path, initial_config]
+      properties:
+        source_path:
+          type: string
+          minLength: 1
+          description: Server-local path to an Agent Plugin package directory.
+        initial_config: { $ref: "#/components/schemas/PluginConfigInput" }
+    UpdatePluginPackageRequest:
+      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
+      type: object
+      additionalProperties: false
+      required: [source_path, expected_revision, expected_package_digest]
+      properties:
+        source_path:
+          type: string
+          minLength: 1
+          description: Server-local path to the complete replacement package directory.
+        expected_revision: { type: integer, format: int64, minimum: 1 }
+        expected_package_digest:
+          type: string
+          pattern: "^sha256:[0-9a-f]{64}$"
+          description: Digest returned by the update preview. The server rejects a changed directory.
+    PreviewPluginPackageRequest:
+      description: Request for a bounded, read-only package update preview.
+      type: object
+      additionalProperties: false
+      required: [source_path, expected_revision]
+      properties:
+        source_path:
+          type: string
+          minLength: 1
+          description: Server-local path to the candidate package directory.
+        expected_revision: { type: integer, format: int64, minimum: 1 }
+    PluginOAuthPreviewChange:
+      type: object
+      additionalProperties: false
+      required: [
+        provider,
+        added_scopes,
+        removed_scopes,
+        added_bindings,
+        removed_bindings,
+      ]
+      properties:
+        provider: { type: string }
+        added_scopes: { type: array, items: { type: string } }
+        removed_scopes: { type: array, items: { type: string } }
+        added_bindings: { type: array, items: { type: string } }
+        removed_bindings: { type: array, items: { type: string } }
+    PreviewPluginPackageResponse:
+      type: object
+      additionalProperties: false
+      required: [
+        plugin_id,
+        current_revision,
+        candidate_digest,
+        candidate_version,
+        oauth_changes,
+        binary_names,
+        skill_names,
+        incompatible_scopes,
+      ]
+      properties:
+        plugin_id: { type: string }
+        current_revision: { type: integer, format: int64 }
+        candidate_digest: { type: string }
+        candidate_version: { type: string }
+        oauth_changes:
+          type: array
+          items: { $ref: "#/components/schemas/PluginOAuthPreviewChange" }
+        binary_names: { type: array, items: { type: string } }
+        skill_names: { type: array, items: { type: string } }
+        incompatible_scopes: { type: array, items: { type: string } }
     UpdatePluginRequest:
       description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
       type: object

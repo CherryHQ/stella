@@ -81,9 +81,12 @@ func (i PromptToolInfo) Clone() PromptToolInfo {
 // Inline sections render as bullet items; non-inline sections render as
 // full heading blocks in the system prompt.
 type SystemPromptSection struct {
-	Title   string `json:"title"`
-	Content string `json:"content"`
-	Inline  bool   `json:"inline,omitempty"`
+	// PluginID identifies package-owned prompt text. Empty means a native or
+	// otherwise shared section that is not filtered by package readiness.
+	PluginID string `json:"plugin_id,omitempty"`
+	Title    string `json:"title"`
+	Content  string `json:"content"`
+	Inline   bool   `json:"inline,omitempty"`
 }
 
 // BeforeRunResult is the mutable per-run output from lifecycle plugins.
