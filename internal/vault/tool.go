@@ -123,7 +123,6 @@ func (h vaultHandler) Delete(ctx context.Context, in DeleteInput) (any, error) {
 	if err := acc.DeleteScoped(ctx, scope, h.agentID, in.Name); err != nil {
 		return nil, err
 	}
-	h.invalidate(scope, acc.userID, in.Name, "delete")
 	return map[string]any{"name": in.Name, "scope": scope, "status": "deleted"}, nil
 }
 

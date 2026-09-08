@@ -162,6 +162,26 @@ func (r *ProviderRegistry) DeleteBundle(ctx context.Context, vs VaultStore, prov
 	return err
 }
 
+// DeleteBundleWithMutation acquires the per-user/provider bundle lock before
+// invoking apply. This ordering is required when apply is the process-wide
+// runtime revocation gate: a refresh may hold this lock across an OAuth
+// network request, but it must never hold the global admission gate while a
+// disconnect waits for it. The mutation callback is still run under both
+// locks, so delete and the runtime cutoff remain one ordered operation.
+func (r *ProviderRegistry) DeleteBundleWithMutation(ctx context.Context, vs VaultStore, providerID, userID string, apply func(func() error) error) error {
+	cfg, ok := r.providerConfig(providerID)
+	if !ok {
+		return fmt.Errorf("oauth: unknown provider: %s", providerID)
+	}
+	if apply == nil {
+		return fmt.Errorf("oauth: delete bundle mutation callback is nil")
+	}
+	_, err := withBundleLock(r, providerID, userID, func() (*OAuthBundle, error) {
+		return nil, apply(func() error { return DeleteBundle(ctx, vs, userID, cfg.VaultKey) })
+	})
+	return err
+}
+
 func withBundleLock[T any](r *ProviderRegistry, providerID, userID string, fn func() (T, error)) (T, error) {
 	key := providerID + "\x00" + userID
 	value, _ := r.bundleLocks.LoadOrStore(key, &sync.Mutex{})

@@ -75,6 +75,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	s := &noneSession{
 		id:           id,
 		policy:       policy,
+		stellaHome:   f.cfg.StellaHome,
 		ownedTempDir: tmpDir,
 		done:         make(chan struct{}),
 	}
@@ -194,17 +195,21 @@ func directoryExists(name string) bool {
 
 // noneSession implements sandboxpkg.Session with zero isolation.
 type noneSession struct {
-	id           string
-	policy       sandboxpkg.Policy
-	done         chan struct{}
-	doneOnce     sync.Once
-	mu           sync.RWMutex
-	closed       bool
-	closeErr     error
-	procs        []*noneProcess
-	ownedTempDir string
-	resolver     *sessionfs.Resolver
-	files        sandboxpkg.FileAccess
+	id            string
+	policy        sandboxpkg.Policy
+	stellaHome    string
+	done          chan struct{}
+	doneOnce      sync.Once
+	closeMu       sync.Mutex
+	mu            sync.RWMutex
+	closed        bool
+	closing       bool
+	nativePending bool
+	closeErr      error
+	procs         []*noneProcess
+	ownedTempDir  string
+	resolver      *sessionfs.Resolver
+	files         sandboxpkg.FileAccess
 }
 
 func (s *noneSession) Policy() sandboxpkg.Policy {
@@ -226,37 +231,60 @@ func (s *noneSession) WorkingDir() string {
 func (s *noneSession) Alive() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return !s.closed
+	return !s.closed && !s.closing
 }
 
 func (s *noneSession) Done() <-chan struct{} { return s.done }
 
 func (s *noneSession) Close() error {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+
+	s.mu.Lock()
+	if s.closed {
+		closeErr := s.closeErr
+		s.mu.Unlock()
+		return closeErr
+	}
+	s.closing = true
+	procs := append([]*noneProcess(nil), s.procs...)
+	resolver := s.resolver
+	tmpDir := s.ownedTempDir
+	s.mu.Unlock()
+
+	var closeErr error
+	for _, p := range procs {
+		closeErr = errors.Join(closeErr, p.Close())
+	}
+	if resolver != nil {
+		closeErr = errors.Join(closeErr, resolver.Close())
+	}
+	s.mu.RLock()
+	noProcs := len(s.procs) == 0
+	nativePending := s.nativePending
+	s.mu.RUnlock()
+	if closeErr == nil && noProcs && !nativePending && tmpDir != "" {
+		closeErr = errors.Join(closeErr, os.RemoveAll(tmpDir))
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed {
-		return s.closeErr
+	if closeErr != nil {
+		s.closeErr = closeErr
+		return closeErr
 	}
 	s.closed = true
-	procs := s.procs
+	s.closing = false
+	s.closeErr = nil
 	s.procs = nil
-	for _, p := range procs {
-		p.Close() //nolint:errcheck
-	}
-	if s.resolver != nil {
-		s.closeErr = s.resolver.Close()
-	}
-	if s.ownedTempDir != "" {
-		s.closeErr = errors.Join(s.closeErr, os.RemoveAll(s.ownedTempDir))
-	}
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "none", "explicit_close")
-	return s.closeErr
+	return nil
 }
 
 func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
 	s.mu.RLock()
-	closed := s.closed
+	closed := s.closed || s.closing
 	policy := s.policy
 	s.mu.RUnlock()
 	if closed {
@@ -293,6 +321,14 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	if s.stellaHome != "" {
+		s.mu.Lock()
+		s.nativePending = true
+		s.mu.Unlock()
+	}
+	if err := sandboxpkg.MarkNativeCleanupPending(s.stellaHome, s.id, "none"); err != nil {
+		return sandboxpkg.ExecResult{}, fmt.Errorf("none: recovery marker: %w", err)
+	}
 
 	if err := cmd.Start(); err != nil {
 		return sandboxpkg.ExecResult{}, err
@@ -326,7 +362,7 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 
 func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
 	s.mu.RLock()
-	closed := s.closed
+	closed := s.closed || s.closing
 	policy := s.policy
 	s.mu.RUnlock()
 	if closed {
@@ -380,6 +416,18 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 		cancel()
 		return nil, err
 	}
+	if s.stellaHome != "" {
+		s.mu.Lock()
+		s.nativePending = true
+		s.mu.Unlock()
+	}
+	if err := sandboxpkg.MarkNativeCleanupPending(s.stellaHome, s.id, "none"); err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
+		cancel()
+		return nil, fmt.Errorf("none: recovery marker: %w", err)
+	}
 
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
@@ -390,7 +438,7 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 	}
 
 	s.mu.Lock()
-	if s.closed {
+	if s.closed || s.closing {
 		s.mu.Unlock()
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()

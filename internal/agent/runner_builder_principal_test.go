@@ -357,3 +357,24 @@ func TestNewRunnerScratchCleanupUsesOpenedRootAfterPathReplacement(t *testing.T)
 		t.Fatalf("replacement root was modified: %v", err)
 	}
 }
+
+func TestNewRunnerScratchCleanupRetainsPendingNativeOwner(t *testing.T) {
+	home := t.TempDir()
+	dir, cleanup, err := newRunnerScratch(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pkgsandbox.MarkNativeCleanupPending(home, "native-session", "local"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cleanup(); err != nil {
+		t.Fatalf("cleanup with pending native owner: %v", err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("pending native owner scratch was removed: %v", err)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatalf("idempotent cleanup after retained scratch: %v", err)
+	}
+}

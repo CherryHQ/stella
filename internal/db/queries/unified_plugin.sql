@@ -56,7 +56,12 @@ RETURNING *;
 
 -- name: DeletePluginDefinitionCAS :execrows
 DELETE FROM plugin_definition
-WHERE id = $1 AND revision = $2 AND source = 'custom';
+WHERE id = $1 AND revision = $2 AND source = 'custom' AND retired_at IS NOT NULL;
+
+-- name: LockRetiredPluginDefinitionCAS :one
+SELECT * FROM plugin_definition
+WHERE id = $1 AND revision = $2 AND source = 'custom' AND retired_at IS NOT NULL
+FOR UPDATE;
 
 -- name: RetirePluginDefinitionCAS :one
 UPDATE plugin_definition
@@ -131,6 +136,10 @@ LIMIT 1;
 
 -- name: DeletePluginToolPolicies :exec
 DELETE FROM tool_override WHERE plugin_id = $1;
+
+-- name: DeleteRetiredPluginConfigs :exec
+DELETE FROM plugin_config
+WHERE plugin_id = $1;
 
 -- name: GetPluginConfigForOwner :one
 SELECT * FROM plugin_config

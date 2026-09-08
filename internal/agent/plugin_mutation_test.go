@@ -105,6 +105,32 @@ func TestPluginMutationCanceledFenceDoesNotWrite(t *testing.T) {
 	}
 }
 
+func TestPluginMutationFenceRejectsAfterPoolManagerStartsClosing(t *testing.T) {
+	for _, state := range []struct {
+		name   string
+		closed bool
+	}{
+		{name: "closing"},
+		{name: "closed", closed: true},
+	} {
+		t.Run(state.name, func(t *testing.T) {
+			pm := NewPoolManager(nil, memorytest.New())
+			pm.mu.Lock()
+			pm.closing = !state.closed
+			pm.closed = state.closed
+			pm.mu.Unlock()
+			called := false
+			err := pm.ApplyPluginMutationAsync(t.Context(), func() error {
+				called = true
+				return nil
+			})
+			if err == nil || called {
+				t.Fatalf("mutation after %s: err=%v, called=%v", state.name, err, called)
+			}
+		})
+	}
+}
+
 func TestPluginMutationCloseFailureKeepsCommittedResult(t *testing.T) {
 	pm := NewPoolManager(nil, memorytest.New())
 	var builds atomic.Int32
@@ -140,6 +166,43 @@ func TestPluginMutationCloseFailureKeepsCommittedResult(t *testing.T) {
 	run()
 	if builds.Load() != 2 || first.closed.Load() != 1 {
 		t.Fatalf("builds=%d, retired=%d", builds.Load(), first.closed.Load())
+	}
+}
+
+func TestPluginMutationAsyncReturnsBeforeRunnerCloseAndPoolCloseJoins(t *testing.T) {
+	pm := NewPoolManager(nil, memorytest.New())
+	svc, runner := newBlockingCloseService(t, "agent")
+	svc.lifecycle = pm.lifecycle
+	pm.services[svc.AgentID] = svc
+
+	mutationDone := make(chan error, 1)
+	go func() {
+		mutationDone <- pm.ApplyPluginMutationAsync(t.Context(), func() error { return nil })
+	}()
+	select {
+	case <-runner.closeEntered:
+	case <-t.Context().Done():
+		t.Fatal("async mutation did not start runner cleanup")
+	}
+	select {
+	case err := <-mutationDone:
+		if err != nil {
+			t.Fatalf("async mutation: %v", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("async mutation waited for runner close")
+	}
+
+	poolClosed := make(chan error, 1)
+	go func() { poolClosed <- pm.Close() }()
+	select {
+	case err := <-poolClosed:
+		t.Fatalf("PoolManager.Close returned while runner close was blocked: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(runner.releaseClose)
+	if err := <-poolClosed; err != nil {
+		t.Fatalf("PoolManager.Close: %v", err)
 	}
 }
 

@@ -50,6 +50,9 @@ type POSIXStore struct {
 	db                 *pgxpool.Pool
 	q                  *sqlc.Queries
 	roots              home.SkillRootOpener
+	activeSkillTurns   func(context.Context) ([]SkillTurnView, error)
+	revisionChange     func()
+	revisionGuard      func(context.Context) error
 	now                func() time.Time
 	random             func([]byte) error
 	acquireManagedLock func(context.Context) (managedSkillLockSession, error)
@@ -91,6 +94,11 @@ func (s *POSIXStore) BeginStartupReconciliation() {
 
 func (s *POSIXStore) setAvailable() {
 	s.unavailable.Store(nil)
+	// Startup reconciliation is itself a reachability edge. The bound trigger
+	// only coalesces a background request, so this cannot block startup.
+	if trigger := s.revisionChange; trigger != nil {
+		trigger()
+	}
 }
 
 func (s *POSIXStore) checkAvailable() error {
@@ -208,6 +216,13 @@ func (s *POSIXStore) lockManagedMutationsForMigration(ctx context.Context) (func
 func finishManagedMutation(release func() error, resultErr *error) {
 	if err := release(); err != nil {
 		*resultErr = errors.Join(*resultErr, err)
+	}
+}
+
+func finishManagedMutationAndNotify(release func() error, resultErr *error, notify func()) {
+	finishManagedMutation(release, resultErr)
+	if *resultErr == nil && notify != nil {
+		notify()
 	}
 }
 
@@ -626,7 +641,7 @@ func (s *POSIXStore) createManagedSkill(ctx context.Context, skill Skill, files 
 	if err != nil {
 		return SkillSnapshot{}, err
 	}
-	defer finishManagedMutation(release, &resultErr)
+	defer finishManagedMutationAndNotify(release, &resultErr, s.revisionChange)
 	if skill.ID == "" {
 		skill.ID = uuid.NewString()[:8]
 	}
@@ -743,7 +758,7 @@ func (s *POSIXStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpda
 	if err != nil {
 		return SkillSnapshot{}, err
 	}
-	defer finishManagedMutation(release, &resultErr)
+	defer finishManagedMutationAndNotify(release, &resultErr, s.revisionChange)
 	identity, err := s.GetIdentity(ctx, in.ID)
 	if err != nil || identity == nil {
 		return SkillSnapshot{}, errors.Join(err, pgx.ErrNoRows)
@@ -853,7 +868,7 @@ func (s *POSIXStore) DeleteManagedSkill(ctx context.Context, in ManagedSkillDele
 	if err != nil {
 		return err
 	}
-	defer finishManagedMutation(release, &resultErr)
+	defer finishManagedMutationAndNotify(release, &resultErr, s.revisionChange)
 	identity, err := s.GetIdentity(ctx, in.ID)
 	if err != nil || identity == nil {
 		return errors.Join(err, pgx.ErrNoRows)

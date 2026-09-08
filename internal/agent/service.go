@@ -76,6 +76,11 @@ type Service struct {
 	// admissionMu linearizes runner selection with committed Agent Skill policy
 	// replacement for this agent. Admitted turns keep their selected snapshot.
 	admissionMu contextMutex
+	// ownerBlocked is checked while lifecycle/admission ownership is held. Home
+	// deletion installs this short-lived block before releasing the lifecycle
+	// gate, so a new channel or foreground reference cannot slip between
+	// runner detachment and the owner transaction.
+	ownerBlocked func(session.Info) bool
 }
 
 func (s *Service) sessionTurnQueue() *turnqueue.Queue {
@@ -412,6 +417,9 @@ func (s *Service) admit(ctx context.Context, info session.Info, message MessageC
 func (s *Service) admitPhased(ctx context.Context, info session.Info, message MessageContent, beforeStart func() error, opts ...agentruntime.Option) (<-chan Event, error) {
 	var admission *agentruntime.ChatAdmission
 	if err := s.withAdmissionLock(ctx, func() error {
+		if s.ownerBlocked != nil && s.ownerBlocked(info) {
+			return errors.New("agent: session owner is being removed")
+		}
 		var err error
 		admission, err = s.Runtime.BeginChatAdmission(ctx, info, message, beforeStart, opts...)
 		return err

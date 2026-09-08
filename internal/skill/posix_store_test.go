@@ -473,6 +473,165 @@ func TestPOSIXStoreDeleteLeavesCatalogHealthyWhenSelectorCleanupFails(t *testing
 	}
 }
 
+func TestCleanupUnreachableRevisionsRemovesDeletedSelectorAfterOwnerCommit(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	created, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "gc-deleted", "user"), map[string]string{MainFile: "gc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := NewSkillTurnView(nil, []ManagedSkillRef{{Identity: created.Skill}}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	faults := &faultRootOpener{base: f.manager}
+	faults.selectorRemoveErr.Store(true)
+	store, err := NewPOSIXStore(f.store.db, faults)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteManagedSkill(t.Context(), ManagedSkillDelete{ID: created.Skill.ID, Scope: created.Skill.Scope, UserID: created.Skill.UserID, ExpectedDigest: created.Skill.ContentDigest}); !home.IsOutcomeUnknown(err) {
+		t.Fatalf("delete with interrupted selector cleanup = %v", err)
+	}
+	f.store.BindActiveSkillTurnSnapshot(func(context.Context) ([]SkillTurnView, error) { return []SkillTurnView{view}, nil })
+	if err := f.store.CleanupUnreachableRevisions(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(f.base, "users", f.userID, ".agents", "skills")
+	selector := filepath.Join(root, created.Skill.ID)
+	if _, err := os.Lstat(selector); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale selector after GC = %v", err)
+	}
+	revision := filepath.Join(root, managedRevisionRoot, created.Skill.ID, created.Skill.ContentDigest)
+	if _, err := os.Stat(revision); err != nil {
+		t.Fatalf("active revision removed by GC: %v", err)
+	}
+	f.store.BindActiveSkillTurnSnapshot(nil)
+	if err := f.store.CleanupUnreachableRevisions(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(revision); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unreachable revision after GC = %v", err)
+	}
+}
+
+func TestCleanupUnreachableRevisionsWaitsForStartupReconciliation(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	f.store.BeginStartupReconciliation()
+	if err := f.store.CleanupUnreachableRevisions(t.Context()); !errors.Is(err, ErrManagedSkillsPending) {
+		t.Fatalf("cleanup during startup reconciliation = %v", err)
+	}
+}
+
+func TestRegisterSkillTurnViewRechecksCurrentRevisionUnderManagedLock(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	created, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "turn-register", "user"), map[string]string{MainFile: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := NewSkillTurnView(nil, []ManagedSkillRef{{Identity: created.Skill}}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var registered bool
+	if err := f.store.RegisterSkillTurnView(t.Context(), "turn-1", view, func(id string, got SkillTurnView) error {
+		registered = id == "turn-1" && got.ManagedIdentities()[0].ContentDigest == created.Skill.ContentDigest
+		return nil
+	}); err != nil || !registered {
+		t.Fatalf("register current view = %v, registered=%v", err, registered)
+	}
+	updated, err := f.store.UpdateManagedSkill(t.Context(), ManagedSkillUpdate{
+		ID: created.Skill.ID, Scope: created.Skill.Scope, UserID: created.Skill.UserID, AgentID: created.Skill.AgentID,
+		ExpectedDigest: created.Skill.ContentDigest, Files: map[string]string{MainFile: "new"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.RegisterSkillTurnView(t.Context(), "turn-2", view, func(string, SkillTurnView) error { return nil }); !errors.Is(err, ErrSkillTurnRevisionChanged) {
+		t.Fatalf("stale turn view = %v", err)
+	}
+	if updated.Skill.ContentDigest == created.Skill.ContentDigest {
+		t.Fatal("update did not publish a new digest")
+	}
+}
+
+func TestCleanupUnreachableRevisionsKeepsBytesWhenTerminationGuardFails(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	created, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "gc-guard", "user"), map[string]string{MainFile: "guard"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	faults := &faultRootOpener{base: f.manager}
+	faults.selectorRemoveErr.Store(true)
+	store, err := NewPOSIXStore(f.store.db, faults)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteManagedSkill(t.Context(), ManagedSkillDelete{ID: created.Skill.ID, Scope: created.Skill.Scope, UserID: created.Skill.UserID, ExpectedDigest: created.Skill.ContentDigest}); !home.IsOutcomeUnknown(err) {
+		t.Fatalf("delete with interrupted selector cleanup = %v", err)
+	}
+	guardErr := errors.New("backend termination is unknown")
+	f.store.BindRevisionCleanupGuard(func(context.Context) error { return guardErr })
+	if err := f.store.CleanupUnreachableRevisions(t.Context()); !errors.Is(err, guardErr) {
+		t.Fatalf("guard failure = %v", err)
+	}
+	selector := filepath.Join(f.base, "users", f.userID, ".agents", "skills", created.Skill.ID)
+	if _, err := os.Lstat(selector); err != nil {
+		t.Fatalf("selector removed despite guard failure: %v", err)
+	}
+	revision := filepath.Join(filepath.Dir(selector), managedRevisionRoot, created.Skill.ID, created.Skill.ContentDigest)
+	if _, err := os.Stat(revision); err != nil {
+		t.Fatalf("revision removed despite guard failure: %v", err)
+	}
+}
+
+func TestSkillMutationCleanupTriggerRunsAfterManagedLockRelease(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	var triggerErr error
+	f.store.BindRevisionCleanupTrigger(func() {
+		release, err := f.store.lockManagedMutations(context.Background())
+		if err != nil {
+			triggerErr = err
+			return
+		}
+		triggerErr = release()
+	})
+	if _, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "gc-trigger", "user"), map[string]string{MainFile: "trigger"}); err != nil {
+		t.Fatal(err)
+	}
+	if triggerErr != nil {
+		t.Fatalf("cleanup trigger ran before lock release: %v", triggerErr)
+	}
+}
+
+func TestCleanupUnreachableRevisionsRetriesExistingQuarantine(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	created, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "gc-quarantine", "user"), map[string]string{MainFile: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := f.store.UpdateManagedSkill(t.Context(), ManagedSkillUpdate{
+		ID: created.Skill.ID, Scope: created.Skill.Scope, UserID: created.Skill.UserID,
+		ExpectedDigest: created.Skill.ContentDigest, Files: map[string]string{MainFile: "new"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(f.base, "users", f.userID, ".agents", "skills", managedRevisionRoot, created.Skill.ID)
+	quarantine := filepath.Join(root, revisionQuarantinePrefix+created.Skill.ContentDigest)
+	if err := os.Rename(filepath.Join(root, created.Skill.ContentDigest), quarantine); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.CleanupUnreachableRevisions(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(quarantine); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("quarantine after retry = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, updated.Skill.ContentDigest)); err != nil {
+		t.Fatalf("current revision removed while retrying quarantine: %v", err)
+	}
+}
+
 func TestPOSIXStoreDeleteFailsClosedWhenCurrentSelectorIsMissing(t *testing.T) {
 	f := newPOSIXStoreFixture(t)
 	created, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "delete-retry", "user"), map[string]string{MainFile: "retry"})

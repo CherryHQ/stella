@@ -3,6 +3,7 @@
 package home
 
 import (
+	"context"
 	"errors"
 	"os"
 )
@@ -21,3 +22,6 @@ func openRootFile(*os.Root, string, int, os.FileMode) (*os.File, error) {
 	return nil, errUnsupported
 }
 func closeWorkspaceRoot(int) error { return nil }
+func (m *WorkspaceManager) WalkExistingSkillRoots(context.Context, func(WorkspaceRequest, RootScope, SkillRootOperations) error) error {
+	return errUnsupported
+}

@@ -33,6 +33,12 @@ type SessionImages interface {
 // the whole turn, including prompt overrides and delegated calls.
 type SkillTurnCapture func(context.Context, session.Info, PluginContext) (context.Context, error)
 
+// SkillTurnRegistrar verifies a captured view under the Skill store's
+// publication lock before registering it as an active turn owner. The
+// callback receives the owner's Register operation so the runtime remains the
+// sole holder of active-turn state.
+type SkillTurnRegistrar func(context.Context, string, skill.SkillTurnView, func(string, skill.SkillTurnView) error) error
+
 type Runtime struct {
 	cache                *runnerCache
 	pluginContextBuilder PluginContextBuilder
@@ -45,6 +51,8 @@ type Runtime struct {
 	sessionImages        SessionImages
 	skillTurnCapture     SkillTurnCapture
 	skillTurnOwner       *skill.ActiveTurnOwner
+	skillTurnRegistrar   SkillTurnRegistrar
+	ownerRelease         func()
 	active               sync.Map // session ID → *activeTurn, tracks in-flight turns
 	turns                turnTracker
 	hub                  *SessionHub
@@ -157,6 +165,8 @@ type Config struct {
 	SessionImages        SessionImages
 	SkillTurnCapture     SkillTurnCapture
 	SkillTurnOwner       *skill.ActiveTurnOwner
+	SkillTurnRegistrar   SkillTurnRegistrar
+	OwnerRelease         func()
 }
 
 // New creates a Runtime from the given config.
@@ -176,6 +186,7 @@ func New(cfg Config) (*Runtime, error) {
 	cache.defaultModel = cfg.DefaultModel
 	cache.defaultThinking = cfg.DefaultThinking
 	cache.hooksFn = cfg.HooksFn
+	cache.ownerRelease = cfg.OwnerRelease
 	return &Runtime{
 		cache:                cache,
 		pluginContextBuilder: cfg.PluginContextBuilder,
@@ -187,6 +198,8 @@ func New(cfg Config) (*Runtime, error) {
 		sessionImages:        cfg.SessionImages,
 		skillTurnCapture:     cfg.SkillTurnCapture,
 		skillTurnOwner:       cfg.SkillTurnOwner,
+		skillTurnRegistrar:   cfg.SkillTurnRegistrar,
+		ownerRelease:         cfg.OwnerRelease,
 		hub:                  NewSessionHub(),
 	}, nil
 }
@@ -199,6 +212,29 @@ func (rt *Runtime) ActiveSkillTurnViews() []skill.SkillTurnView {
 		return nil
 	}
 	return rt.skillTurnOwner.Snapshot()
+}
+
+func (rt *Runtime) releaseSkillTurn(turnID string, registered bool) {
+	if rt == nil {
+		return
+	}
+	if !registered || rt.skillTurnOwner == nil {
+		return
+	}
+	rt.skillTurnOwner.Release(turnID)
+	if rt.ownerRelease != nil {
+		rt.ownerRelease()
+	}
+}
+
+// PluginContexts returns the immutable plugin contexts still owned by this
+// runtime. Building, active, and closing runners are all included; a closing
+// runner remains here until its external cleanup succeeds.
+func (rt *Runtime) PluginContexts() []PluginContext {
+	if rt == nil || rt.cache == nil {
+		return nil
+	}
+	return rt.cache.pluginContexts()
 }
 
 // Subscribe registers a read-only listener for a session's live turn events.
@@ -294,6 +330,17 @@ func (rt *Runtime) Close() error {
 	return rt.cache.closeAll()
 }
 
+// DetachClose marks this runtime closed and returns slow runner cleanup. The
+// returned operation must run after lifecycle/admission locks are released.
+func (rt *Runtime) DetachClose() func() error {
+	if rt == nil || rt.cache == nil {
+		return func() error { return nil }
+	}
+	rt.closed.Store(true)
+	rt.cancelAllActive()
+	return rt.cache.detachCloseAll()
+}
+
 // StartReaper begins the idle-runner eviction loop. Call in a goroutine.
 func (rt *Runtime) StartReaper(ctx context.Context) {
 	rt.cache.StartReaper(ctx)
@@ -316,11 +363,80 @@ func (rt *Runtime) ResetRunnersForUser(userID string) error {
 	return rt.cache.resetWhere(func(cs *cachedSession) bool { return cs.info.UserID == userID })
 }
 
+// DetachStaleRunnersForUser marks matching busy runners stale and detaches
+// matching idle runners. The returned cleanup must run outside lifecycle and
+// admission locks; an admitted turn keeps its immutable snapshot to completion.
+func (rt *Runtime) DetachStaleRunnersForUser(userID string) func() error {
+	return rt.cache.detachResetWhere(func(cs *cachedSession) bool { return cs.info.UserID == userID })
+}
+
+// DetachStaleRunners detaches idle runners globally while allowing admitted
+// turns to finish with their captured context.
+func (rt *Runtime) DetachStaleRunners() func() error {
+	return rt.cache.detachReset()
+}
+
 // TerminalCloseWhere immediately detaches matching runners, including busy and
 // reserved ones. It is solely for destructive owner deletion after admission is
 // blocked by the caller.
 func (rt *Runtime) TerminalCloseWhere(include func(session.Info) bool) error {
-	return rt.cache.closeWhere(func(cs *cachedSession) bool { return include(cs.info) })
+	return rt.DetachRunnersWhere(include)()
+}
+
+// DetachRunnersWhere removes matching runners synchronously and returns a
+// cleanup operation. Detaching is the lifecycle-critical part; callers must
+// run the returned operation after releasing global lifecycle and admission
+// locks because runner close may block on a process or container.
+func (rt *Runtime) DetachRunnersWhere(include func(session.Info) bool) func() error {
+	if rt == nil || rt.cache == nil {
+		return func() error { return nil }
+	}
+	ids, closeDetached := rt.cache.detachWhereWithIDs(func(cs *cachedSession) bool {
+		return include == nil || include(cs.info)
+	})
+	// The cache may not contain a session yet while PrepareChatAdmission is
+	// doing slow plugin/OAuth work. Match the active admission directly as well
+	// as the detached cache IDs, so terminal revocation closes that pre-cache
+	// window without introducing a second ownership registry.
+	rt.cancelActiveWhere(include, ids)
+	return closeDetached
+}
+
+func (rt *Runtime) cancelActiveWhere(include func(session.Info) bool, ids []string) {
+	known := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		known[id] = struct{}{}
+	}
+	rt.active.Range(func(key, value any) bool {
+		turn, ok := value.(*activeTurn)
+		if !ok {
+			return true
+		}
+		id, _ := key.(string)
+		_, detached := known[id]
+		if detached || include == nil || include(turn.info) {
+			turn.cancel()
+		}
+		return true
+	})
+}
+
+func (rt *Runtime) cancelAllActive() {
+	rt.active.Range(func(_, value any) bool {
+		if turn, ok := value.(*activeTurn); ok {
+			turn.cancel()
+		}
+		return true
+	})
+}
+
+// RetryCleanup retries closing every detached runner whose cleanup is still
+// pending. Failed entries remain owned and enumerable until a later retry.
+func (rt *Runtime) RetryCleanup() error {
+	if rt == nil || rt.cache == nil {
+		return nil
+	}
+	return rt.cache.closeRetiredBatch(nil)
 }
 
 // NewRunnerFunc returns the current runner builder. Used by the task system to
@@ -360,6 +476,10 @@ func safeClose(ch chan Event) {
 type activeTurn struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	// info is captured at admission so terminal detachment can cancel a turn
+	// while it is still preparing a runner and therefore not yet represented in
+	// runnerCache.sessions.
+	info session.Info
 	// ctx retains the prepared immutable turn view while this turn is visible
 	// in Runtime.active. Reapers and policy cleanup therefore share the same
 	// owner boundary as admission, with no capture-to-register gap.

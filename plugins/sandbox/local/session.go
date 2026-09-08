@@ -390,8 +390,11 @@ type localSession struct {
 	files           sandboxpkg.FileAccess
 	done            chan struct{}
 	doneOnce        sync.Once
+	closeMu         sync.Mutex
 	mu              sync.RWMutex
 	closed          bool
+	closing         bool
+	nativePending   bool
 	procs           []*localProcess
 }
 
@@ -413,33 +416,56 @@ func (s *localSession) WorkingDir() string {
 func (s *localSession) Alive() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return !s.closed
+	return !s.closed && !s.closing
 }
 
 func (s *localSession) Done() <-chan struct{} { return s.done }
 
 func (s *localSession) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
 
+	s.mu.Lock()
 	if s.closed {
+		s.mu.Unlock()
 		return nil
 	}
-	s.closed = true
+	s.closing = true
 
-	// Snapshot and clear the process list, then close each.
-	// localProcess.Close() is idempotent so double-close from natural exit is safe.
-	procs := s.procs
-	s.procs = nil
-	for _, p := range procs {
-		p.Close() //nolint:errcheck
-	}
+	// Snapshot the process list, but retain ownership until every teardown step
+	// succeeds. A failed close is retried by the next lifecycle caller.
+	procs := append([]*localProcess(nil), s.procs...)
+	resolver := s.resolver
+	tmpMounts := append([]tmpMount(nil), s.tmpMounts...)
+	s.mu.Unlock()
 
 	var closeErr error
-	if s.resolver != nil {
-		closeErr = s.resolver.Close()
+	for _, p := range procs {
+		closeErr = errors.Join(closeErr, p.Close())
 	}
-	cleanupOwnedTmpMounts(s.tmpMounts)
+	if resolver != nil {
+		closeErr = errors.Join(closeErr, resolver.Close())
+	}
+	s.mu.RLock()
+	noProcs := len(s.procs) == 0
+	nativePending := s.nativePending
+	s.mu.RUnlock()
+	if closeErr == nil && noProcs && !nativePending {
+		for _, mount := range tmpMounts {
+			if mount.owned {
+				closeErr = errors.Join(closeErr, os.RemoveAll(mount.realPath))
+			}
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if closeErr != nil {
+		return closeErr
+	}
+	s.closed = true
+	s.closing = false
+	s.procs = nil
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "local", "explicit_close")
 	return closeErr
@@ -505,7 +531,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	// Finding 5: check closed before starting. Per-exec env reads take a policy
 	// snapshot under the same lock.
 	s.mu.RLock()
-	closed := s.closed
+	closed := s.closed || s.closing
 	policy := s.policy
 	s.mu.RUnlock()
 	if closed {
@@ -551,6 +577,14 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	stderr := sandboxpkg.NewExecOutputBuffer()
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	if s.stellaHomeHost != "" {
+		s.mu.Lock()
+		s.nativePending = true
+		s.mu.Unlock()
+	}
+	if err := sandboxpkg.MarkNativeCleanupPending(s.stellaHomeHost, s.id, "local"); err != nil {
+		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: recovery marker: %w", err)
+	}
 
 	if startErr := cmd.Start(); startErr != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: start: %w", startErr)
@@ -594,7 +628,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
 	// Per-exec env reads take a policy snapshot under the lock.
 	s.mu.RLock()
-	closed := s.closed
+	closed := s.closed || s.closing
 	policy := s.policy
 	s.mu.RUnlock()
 	if closed {
@@ -664,6 +698,18 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		cancel()
 		return nil, fmt.Errorf("local start_process: stderr pipe: %w", err)
 	}
+	if s.stellaHomeHost != "" {
+		s.mu.Lock()
+		s.nativePending = true
+		s.mu.Unlock()
+	}
+	if err := sandboxpkg.MarkNativeCleanupPending(s.stellaHomeHost, s.id, "local"); err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
+		cancel()
+		return nil, fmt.Errorf("local start_process: recovery marker: %w", err)
+	}
 
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
@@ -683,7 +729,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 
 	// Finding 5: check closed and register atomically under write lock.
 	s.mu.Lock()
-	if s.closed {
+	if s.closed || s.closing {
 		s.mu.Unlock()
 		killProcessGroup(cmd)
 		_ = cmd.Wait()

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -220,6 +221,8 @@ func TestManagedSkillStoreFailsClosedAfterReconciliationDegrades(t *testing.T) {
 func TestManagedSkillStoreUnavailableUntilStartupReconciliationCompletes(t *testing.T) {
 	f := newSkillMigrationFixture(t)
 	f.insertLegacySkill(t, "startup-gated", "system", false)
+	var cleanupRequests atomic.Int32
+	f.migrator.store.BindRevisionCleanupTrigger(func() { cleanupRequests.Add(1) })
 	f.migrator.store.BeginStartupReconciliation()
 	if _, err := f.migrator.store.CreateManagedSkill(t.Context(), Skill{Name: "too-early", Scope: "system"}, map[string]string{MainFile: "# blocked"}); !errors.Is(err, ErrManagedSkillsUnavailable) || !errors.Is(err, ErrManagedSkillsPending) {
 		t.Fatalf("runtime write before reconciliation = %v", err)
@@ -231,6 +234,9 @@ func TestManagedSkillStoreUnavailableUntilStartupReconciliationCompletes(t *test
 	result, err := f.migrator.ReconcileStartup(t.Context())
 	if err != nil || result.Degraded != nil {
 		t.Fatalf("startup reconciliation = %#v, %v", result, err)
+	}
+	if got := cleanupRequests.Load(); got != 1 {
+		t.Fatalf("startup reconciliation cleanup trigger count = %d, want 1", got)
 	}
 	if _, err := f.migrator.store.CreateManagedSkill(t.Context(), Skill{Name: "after-cutover", Scope: "system"}, map[string]string{MainFile: "# available"}); err != nil {
 		t.Fatalf("runtime write after reconciliation: %v", err)

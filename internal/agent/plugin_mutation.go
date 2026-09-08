@@ -14,6 +14,18 @@ import (
 // Global admission fence; split by scope when plugin-write contention or
 // tenant-wide runner churn becomes material.
 func (pm *PoolManager) ApplyPluginMutation(ctx context.Context, mutate func() error) error {
+	return pm.applyPluginMutation(ctx, mutate, false)
+}
+
+// ApplyPluginMutationAsync keeps the mutation fence short for plugin content
+// publication. ContentStore holds its lock through the mutation callback, so
+// waiting for runner Close here would block package reads and cleanup behind a
+// potentially slow backend teardown. Close joins the registered teardown work.
+func (pm *PoolManager) ApplyPluginMutationAsync(ctx context.Context, mutate func() error) error {
+	return pm.applyPluginMutation(ctx, mutate, true)
+}
+
+func (pm *PoolManager) applyPluginMutation(ctx context.Context, mutate func() error, asyncClose bool) error {
 	if pm == nil || pm.lifecycle == nil || mutate == nil {
 		return errors.New("plugin mutation fence unavailable")
 	}
@@ -26,6 +38,12 @@ func (pm *PoolManager) ApplyPluginMutation(ctx context.Context, mutate func() er
 			pm.lifecycle.unlockExclusive()
 		}
 	}()
+	pm.mu.RLock()
+	closing := pm.closing || pm.closed
+	pm.mu.RUnlock()
+	if closing {
+		return errors.New("plugin mutation fence unavailable: pool manager is closing")
+	}
 
 	mutationErr := mutate()
 	if mutationErr != nil && !errors.Is(mutationErr, plugin.ErrCommitOutcomeUnknown) {
@@ -34,6 +52,18 @@ func (pm *PoolManager) ApplyPluginMutation(ctx context.Context, mutate func() er
 		return mutationErr
 	}
 	closers := pm.detachPluginRunnersLocked()
+	if asyncClose {
+		pm.pluginCloseWG.Go(func() {
+			if err := runRunnerClosers(closers); err != nil {
+				// Detach has already made the committed capability boundary visible.
+				// Reporting a failed write here would misrepresent the commit.
+				pm.log.Error("close retired plugin runners", "error", err)
+			}
+		})
+		pm.lifecycle.unlockExclusive()
+		locked = false
+		return mutationErr
+	}
 	pm.lifecycle.unlockExclusive()
 	locked = false
 	for _, closeRunners := range closers {

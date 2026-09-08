@@ -452,6 +452,10 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		as, credFrontDoor,
 		slog.With("component", "account"),
 	)
+	// Account deactivation and assignment removal must publish their runtime
+	// cutoff in the same short mutation boundary as the durable write. The pool
+	// manager owns that coordination; slow runner closes happen after it lets go.
+	accountSvc.SetRevocationCoordinator(s.poolManager)
 	provisioningSvc := provisioning.New(s.db, accountSvc, vaultRecipient, slog.With("component", "provisioning"))
 
 	// The Profile service owns the per-(user, agent) memory boundary. The Provider

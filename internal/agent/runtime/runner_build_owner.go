@@ -38,6 +38,20 @@ func (o *RunnerBuildOwner) PluginContext() PluginContext {
 	return o.pluginContext
 }
 
+// SetPluginContext publishes the context resolved by a legacy direct factory
+// fallback after the partial runner has been registered. Production admission
+// normally supplies this before construction; retaining this narrow update
+// keeps ownership snapshots accurate for tests and specialized callers.
+func (o *RunnerBuildOwner) SetPluginContext(pluginContext PluginContext) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.complete {
+		return errors.New("runner build owner is complete")
+	}
+	o.pluginContext = pluginContext
+	return nil
+}
+
 // AdoptRunner publishes the partial runner before the factory reads
 // project/package files. The same object becomes the returned runner on
 // success, or remains the retryable cleanup owner on a failed build.

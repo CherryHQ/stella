@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"filippo.io/age"
@@ -71,6 +72,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/plugins/email"
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
 	"github.com/CherryHQ/stella/resources"
@@ -228,6 +230,28 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	agentAccess := agentaccess.NewService(store, authStore, agentaccess.WithGuestPolicyDecoder(phost.GuestPolicyResolver))
 	ps.nativePolicy.SetAgentAccess(agentAccess)
 	var poolMgr *agent.PoolManager
+	checkSandboxRecovery := captureSandboxRecovery(parent)
+	var sandboxRecoveryReady atomic.Bool
+	cleanupRequests := make(chan struct{}, 1)
+	requestResourceCleanup := func() {
+		select {
+		case cleanupRequests <- struct{}{}:
+		default:
+		}
+	}
+	cleanupGuard := func(ctx context.Context) error {
+		if !sandboxRecoveryReady.Load() {
+			return errors.New("resource cleanup pending: startup Docker containers have not been confirmed stopped")
+		}
+		allowed, err := pkgsandbox.CleanupAllowed(ctx, config.StellaHome())
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return errors.New("resource cleanup pending: sandbox descendants have not been confirmed stopped")
+		}
+		return nil
+	}
 	contentStore, err := plugin.NewContentStore(filepath.Join(config.StellaHome(), "plugins", "content"))
 	if err != nil {
 		return nil, fmt.Errorf("build plugin content store: %w", err)
@@ -241,8 +265,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		if poolMgr == nil {
 			return mutate()
 		}
-		err := poolMgr.ApplyPluginMutation(ctx, mutate)
+		err := poolMgr.ApplyPluginMutationAsync(ctx, mutate)
 		if err == nil || errors.Is(err, plugin.ErrCommitOutcomeUnknown) {
+			requestResourceCleanup()
 			// Event admission already reads the committed cap. Reconcile listeners
 			// after releasing the admission fence, without holding a database tx.
 			reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
@@ -252,7 +277,16 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			}
 		}
 		return err
-	}, plugin.WithContentStore(contentStore), plugin.WithBuiltinSkillReader(func(ctx context.Context, pluginID, skillName string) (map[string][]byte, map[string]fs.FileMode, error) {
+	}, plugin.WithContentStore(contentStore), plugin.WithContentOwnerSnapshot(func(ctx context.Context) (plugin.ContentOwnerSnapshot, error) {
+		if poolMgr == nil {
+			return plugin.ContentOwnerSnapshot{}, errors.New("runtime ownership is not ready")
+		}
+		owners, err := poolMgr.ContentOwnerSnapshot(ctx)
+		if err != nil {
+			return plugin.ContentOwnerSnapshot{}, err
+		}
+		return owners, cleanupGuard(ctx)
+	}), plugin.WithBuiltinSkillReader(func(ctx context.Context, pluginID, skillName string) (map[string][]byte, map[string]fs.FileMode, error) {
 		if ps.bundled == nil {
 			return nil, nil, errors.New("builtin Skill registry unavailable")
 		}
@@ -571,7 +605,15 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	coreHooks := []hooks.HookPlugin{traceHook, usageHook, metricHook}
 
 	toolLifecycleBuilder := func(ctx context.Context) (*coreagent.ToolLifecycle, error) {
-		return buildToolLifecycle(phost), nil
+		lifecycle := buildToolLifecycle(phost)
+		beforeCall := lifecycle.BeforeCall
+		lifecycle.BeforeCall = func(ctx context.Context, call coreagent.ToolCallContext) (coreagent.ToolCallMutation, error) {
+			if err := poolMgr.AdmitToolCall(ctx); err != nil {
+				return coreagent.ToolCallMutation{}, err
+			}
+			return beforeCall(ctx, call)
+		}
+		return lifecycle, nil
 	}
 
 	// A goal worker must not reach the orchestration surface that scheduled it:
@@ -709,6 +751,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	registeredToolMeta = toolmeta.NewRegistry(registeredSpecs...)
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
+		agent.WithOwnerReleaseCallback(requestResourceCleanup),
 		agent.WithSnapshotLoader(snapshotLoader),
 		agent.WithCodeToolSurface(cfg.Agent.CodeToolSurface),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
@@ -729,17 +772,25 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithToolLifecycleBuilder(toolLifecycleBuilder),
 		agent.WithToolOverrideFetcher(agent.NewToolOverrideStore(db).Fetch),
 		agent.WithSkillRevisionReader(skillStore),
+		agent.WithSkillTurnRegistrar(skillStore.RegisterSkillTurnView),
 		agent.WithSkillPackageReader(packageSkillReader),
 		agent.WithSkillReadAuthorizer(skillAccess),
 		agent.WithProjectResolver(projectStore.Resolve),
 		agent.WithHomeWorkspace(homeRegistry),
 		agent.WithSystemRuntimePlan(systemRuntimePlan),
 	)
+	skillStore.BindActiveSkillTurnSnapshot(func(ctx context.Context) ([]skill.SkillTurnView, error) {
+		_, views, err := poolMgr.PluginOwnerSnapshots(ctx)
+		return views, err
+	})
+	skillStore.BindRevisionCleanupTrigger(requestResourceCleanup)
+	skillStore.BindRevisionCleanupGuard(cleanupGuard)
 
 	// Bind the static Vault/MCP/OAuth capabilities into the pool BEFORE StartAll,
 	// as one-shot pre-start binds. Binding them up front means agents are built
 	// once, with the full capability set, rather than rebuilt after a late setter.
 	if vaultSvc != nil {
+		vaultSvc.SetRevocationCoordinator(poolMgr)
 		if err := poolMgr.BindVaultEnvLoader(vaultSvc); err != nil {
 			return nil, fmt.Errorf("bind vault env loader: %w", err)
 		}
@@ -773,6 +824,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// after StartAll; the shared credSvc is then fully configured before it is
 	// handed to the admin server via Deps.
 	credSvc.SetInvalidator(poolMgr)
+	credSvc.SetRevocationCoordinator(poolMgr)
 
 	// Webhook resource domain. It owns the user→Agent binding, opaque capability
 	// verifier, and lifecycle independently from deployment channel management.
@@ -819,7 +871,33 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("seal plugin host: %w", err)
 	}
 
+	skillStore.BeginStartupReconciliation()
 	backgroundTasks := &sync.WaitGroup{}
+	// Coalesce mutation and owner-release events; resource domains own their
+	// scans, and shutdown joins this worker through the existing task group.
+	backgroundTasks.Go(func() {
+		for {
+			select {
+			case <-parent.Done():
+				return
+			case <-cleanupRequests:
+				if !sandboxRecoveryReady.Load() {
+					ready, err := checkSandboxRecovery(parent)
+					if err != nil && parent.Err() == nil {
+						slog.Warn("sandbox recovery pending", "error", err)
+					}
+					sandboxRecoveryReady.Store(ready && err == nil)
+				}
+				if err := pluginSvc.Cleanup(parent); err != nil && parent.Err() == nil {
+					slog.Warn("package cleanup pending", "error", err)
+				}
+				if err := skillStore.CleanupUnreachableRevisions(parent); err != nil && parent.Err() == nil {
+					slog.Warn("Skill revision cleanup pending", "error", err)
+				}
+			}
+		}
+	})
+	requestResourceCleanup()
 
 	// Warm the release cache without delaying admission. A session still
 	// publishes only its authorized snapshot, and shutdown cancels and joins us.
@@ -837,7 +915,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	reconcileProjectCoordinatesInBackground(parent, backgroundTasks, homeRegistry)
 	// Close runtime entry points before setup returns and traffic can beat the
 	// background reconciler to the legacy inventory.
-	skillStore.BeginStartupReconciliation()
 	reconcileSkillHomeInBackground(parent, backgroundTasks, skillMigrator)
 	backfillRecallyContentInBackground(parent, backgroundTasks, recallySvc)
 

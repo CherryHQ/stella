@@ -18,7 +18,6 @@ import (
 
 	"github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/volume"
 	mobyclient "github.com/moby/moby/client"
 	"github.com/pelletier/go-toml/v2"
@@ -801,48 +800,14 @@ func cleanupToolCacheVolumes(ctx context.Context, client *dockerclient.Client, n
 	}
 }
 
-func selectStaleToolCacheVolumes(now time.Time, volumes []volume.Volume, containers []container.Summary) []string {
-	used := referencedVolumeNames(containers)
-	var selected []string
-	for _, v := range volumes {
-		if v.Labels[toolCacheLabel] != "true" {
-			continue
-		}
-		if _, ok := used[v.Name]; ok {
-			continue
-		}
-		if v.UsageData != nil && v.UsageData.RefCount > 0 {
-			continue
-		}
-		createdAt := v.Labels[toolCacheCreatedAtLabel]
-		if createdAt == "" {
-			continue
-		}
-		created, err := time.Parse(time.RFC3339, createdAt)
-		if err != nil {
-			continue
-		}
-		if now.Sub(created) <= toolCacheGCAgeThreshold {
-			continue
-		}
-		selected = append(selected, v.Name)
-	}
-	return selected
-}
-
-func referencedVolumeNames(containers []container.Summary) map[string]struct{} {
-	used := map[string]struct{}{}
-	for _, c := range containers {
-		for _, m := range c.Mounts {
-			if m.Type != mount.TypeVolume {
-				continue
-			}
-			if m.Name != "" {
-				used[m.Name] = struct{}{}
-			}
-		}
-	}
-	return used
+func selectStaleToolCacheVolumes(_ time.Time, _ []volume.Volume, _ []container.Summary) []string {
+	// A volume that is not mounted by a currently listed container is still
+	// ambiguous after a daemon or stellad crash: the durable owner reference is
+	// not represented by Docker's usage count, and a creation age is not proof
+	// that another peer is not between VolumeCreate and ContainerCreate. Keep
+	// caches until the owner/digest reference cleanup path can prove the last
+	// reference was released.
+	return nil
 }
 
 func stringOption(options map[string]any, key string) (string, bool) {

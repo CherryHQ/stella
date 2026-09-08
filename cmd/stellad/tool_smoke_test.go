@@ -117,6 +117,10 @@ type smokeCase struct {
 	// the case's `code` call and before the reply that ends the turn, which is
 	// the order the system makes them in.
 	extraReplies []string
+	// revokesTurn marks a terminal mutation that cancels the turn which invoked
+	// it. Such a turn is proved by the model->code->tool running events only;
+	// its child result and the model's closing text are intentionally absent.
+	revokesTurn bool
 	// assertsErrorShapeOnly names the canonical error a tool must return when its
 	// success precondition cannot be produced in a test deployment. The pattern
 	// is matched against the error text. These cases prove the error contract,
@@ -420,7 +424,8 @@ func vaultSmokeCases() []smokeCase {
 			check: expectMentions("vault_secret_list", "vault_secret_name"),
 		},
 		{
-			tool: "vault_secret_delete",
+			tool:        "vault_secret_delete",
+			revokesTurn: true,
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"name": s.need(t, "vault_secret_name"), "scope": "user"}
 			},
@@ -800,11 +805,11 @@ func oauthSmokeCases() []smokeCase {
 		{
 			// Disconnect is local, so it runs its success path against the seeded
 			// connection and is judged by what oauth_list reports afterwards.
-			tool: "oauth_disconnect",
+			tool:        "oauth_disconnect",
+			revokesTurn: true,
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"provider": smokeOAuthProvider}
 			},
-			check: expectJSONObject("oauth_disconnect"),
 			confirm: &smokeConfirm{
 				tool: "oauth_list",
 				args: noArgs,
@@ -1726,6 +1731,13 @@ func (h *smokeHarness) seedFixtures(t *testing.T) *smokeState {
 // stream, keyed by the tool that produced it.
 func (h *smokeHarness) runSmokeCase(t *testing.T, smoke smokeCase, state *smokeState) {
 	t.Helper()
+	if smoke.revokesTurn {
+		h.runRevokingSmokeCase(t, smoke, state)
+		if smoke.confirm != nil {
+			h.runSmokeConfirm(t, smoke, state)
+		}
+		return
+	}
 	h.fake.enqueueTool("toolu_smoke_"+smoke.tool, "code", h.smokeCodeArgs(t, smoke, state))
 	for _, reply := range smoke.extraReplies {
 		h.fake.enqueueText(reply)
@@ -1768,6 +1780,68 @@ func (h *smokeHarness) runSmokeCase(t *testing.T, smoke smokeCase, state *smokeS
 	}
 	if smoke.confirm != nil {
 		h.runSmokeConfirm(t, smoke, state)
+	}
+}
+
+// runRevokingSmokeCase proves a terminal tool reached its real handler before
+// it revoked the caller's active turn. The revocation deliberately cancels the
+// caller-facing stream before Code Mode can emit a child result or a model
+// closing text. Subscribe to the runtime hub first: runChatForwarder publishes
+// there before it observes the canceled delivery context, so this evidence is
+// independent of the stream the terminal mutation cuts off.
+func (h *smokeHarness) runRevokingSmokeCase(t *testing.T, smoke smokeCase, state *smokeState) {
+	t.Helper()
+	h.fake.enqueueTool("toolu_smoke_"+smoke.tool, "code", h.smokeCodeArgs(t, smoke, state))
+
+	svc := h.setup.poolManager.GetService(h.agentID)
+	if svc == nil {
+		t.Fatalf("tool smoke: no agent service for %s", h.agentID)
+	}
+	ctx, cancel := context.WithTimeout(h.ctx, 3*time.Minute)
+	defer cancel()
+	access, err := svc.SessionAccess.Begin(ctx, h.authority)
+	if err != nil {
+		t.Fatalf("terminal %s: begin session access: %v", smoke.tool, err)
+	}
+	info, err := access.Create(ctx, h.userID, h.agentID, "", session.KindChat, session.ChannelWeb)
+	if err != nil {
+		t.Fatalf("terminal %s: create session: %v", smoke.tool, err)
+	}
+	events, unsubscribe := svc.Runtime.Subscribe(info.ID)
+	defer unsubscribe()
+
+	chat := svc.Chat(ctx, agent.ChatRequest{
+		SessionID: info.ID,
+		UserID:    h.userID, AgentID: h.agentID, Authority: h.authority,
+		Channel: session.ChannelWeb, Kind: session.KindChat, Message: "smoke " + smoke.tool,
+	})
+	for range chat {
+		// The caller-facing stream is intentionally drained, but its post-cancel
+		// delivery is not the evidence. The hub below receives the publication
+		// before the delivery select observes the canceled context.
+	}
+	sawCode, sawSubject := false, false
+hubLoop:
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				break hubLoop
+			}
+			if use := event.ToolUse; use != nil && use.Status == "running" {
+				switch use.Tool {
+				case "code":
+					sawCode = true
+				case smoke.tool:
+					sawSubject = true
+				}
+			}
+		case <-ctx.Done():
+			t.Fatalf("terminal %s hub observation timed out: %v", smoke.tool, ctx.Err())
+		}
+	}
+	if !sawCode || !sawSubject {
+		t.Fatalf("terminal %s did not reach model->code->tool start (code=%t subject=%t)", smoke.tool, sawCode, sawSubject)
 	}
 }
 

@@ -351,6 +351,20 @@ func TestNoneSession_doneChanClosed(t *testing.T) {
 	}
 }
 
+func TestNoneSession_closeRetainsTempWithNativePending(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "owned")
+	if err := os.Mkdir(tmp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := &noneSession{done: make(chan struct{}), nativePending: true, ownedTempDir: tmp}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tmp); err != nil {
+		t.Fatalf("native-pending temp removed: %v", err)
+	}
+}
+
 func TestNoneSession_workingDir(t *testing.T) {
 	tempDir := t.TempDir()
 	policy := sandboxpkg.Policy{

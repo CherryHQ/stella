@@ -178,7 +178,6 @@ func (s *Server) DeleteScopedVaultEntry(w http.ResponseWriter, r *http.Request, 
 		writeVaultError(w, err)
 		return
 	}
-	s.invalidateVaultRunners(scope, info.UserID, agentID, name, "delete")
 	w.WriteHeader(http.StatusNoContent)
 }
 

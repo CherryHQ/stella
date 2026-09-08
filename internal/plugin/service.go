@@ -9,9 +9,11 @@ import (
 	"io/fs"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -83,6 +85,7 @@ type Service struct {
 	mutationFence      MutationFence
 	txBound            bool
 	contentStore       *ContentStore
+	ownerSnapshot      ContentOwnerSnapshotFunc
 	builtinSkillReader BuiltinSkillReader
 }
 
@@ -95,6 +98,13 @@ type BuiltinSkillReader func(context.Context, string, string) (map[string][]byte
 
 func WithContentStore(store *ContentStore) ServiceOption {
 	return func(service *Service) { service.contentStore = store }
+}
+
+// WithContentOwnerSnapshot supplies the process-local owner projection used
+// by Cleanup. The provider is deliberately digest/ID-only so plugin storage
+// never depends on agent runtime types or credentials.
+func WithContentOwnerSnapshot(snapshot ContentOwnerSnapshotFunc) ServiceOption {
+	return func(service *Service) { service.ownerSnapshot = snapshot }
 }
 
 func WithBuiltinSkillReader(reader BuiltinSkillReader) ServiceOption {
@@ -115,6 +125,173 @@ func NewService(db *pgxpool.Pool, agents *agentaccess.Service, catalog *Catalog,
 		}
 	}
 	return service
+}
+
+type retiredCleanupCandidate struct {
+	id     string
+	rev    int64
+	digest string
+	shared bool
+}
+
+type retiredCleanupPlan struct {
+	candidates []retiredCleanupCandidate
+	keep       []string
+	candidate  []string
+}
+
+// Cleanup reclaims retired package definitions after all process-local owners
+// and current definitions have been snapshotted. It is intentionally one-pass
+// and retryable: an unknown owner, failed file removal, or failed CAS leaves
+// the retired row in place and keeps the package name reserved.
+func (s *Service) Cleanup(ctx context.Context) error {
+	if s == nil || s.db == nil || s.q == nil || s.contentStore == nil || s.ownerSnapshot == nil {
+		return errors.New("plugin: cleanup ownership is unavailable")
+	}
+	if ctx == nil || s.txBound {
+		return ErrNestedMutation
+	}
+	var plan retiredCleanupPlan
+	return s.contentStore.cleanup(ctx, func(collectCtx context.Context) (contentCleanupSelection, error) {
+		var err error
+		plan, err = s.collectRetiredCleanup(collectCtx)
+		return contentCleanupSelection{keep: plan.keep, candidates: plan.candidate}, err
+	}, func(finalizeCtx context.Context, removed map[string]bool) error {
+		return s.finalizeRetiredCleanup(finalizeCtx, plan, removed)
+	})
+}
+
+func (s *Service) collectRetiredCleanup(ctx context.Context) (retiredCleanupPlan, error) {
+	rows, err := s.q.ListPluginDefinitions(ctx)
+	if err != nil {
+		return retiredCleanupPlan{}, fmt.Errorf("list plugin definitions for cleanup: %w", err)
+	}
+	owners, err := s.ownerSnapshot(ctx)
+	if err != nil {
+		return retiredCleanupPlan{}, fmt.Errorf("snapshot plugin owners: %w", err)
+	}
+	ownerIDs := make(map[string]struct{}, len(owners.PluginIDs))
+	for _, id := range owners.PluginIDs {
+		if id != "" {
+			ownerIDs[id] = struct{}{}
+		}
+	}
+	ownerDigests := make(map[string]struct{}, len(owners.Digests))
+	for _, digest := range owners.Digests {
+		digest = strings.TrimPrefix(digest, "sha256:")
+		if validStoreDigest(digest) {
+			ownerDigests[digest] = struct{}{}
+		}
+	}
+	activeDigests := make(map[string]struct{})
+	digestsByID := make(map[string]string, len(rows))
+	for _, row := range rows {
+		if row.RetiredAt.Valid && row.Source != string(SourceCustom) {
+			continue
+		}
+		def := fromSQLDefinition(row)
+		digest, digestErr := definitionPackageDigest(def)
+		if digestErr != nil {
+			return retiredCleanupPlan{}, fmt.Errorf("definition %s is unsafe for cleanup: %w", def.ID, digestErr)
+		}
+		digestsByID[def.ID] = digest
+		if !row.RetiredAt.Valid && digest != "" {
+			activeDigests[digest] = struct{}{}
+		}
+	}
+	plan := retiredCleanupPlan{}
+	for digest := range activeDigests {
+		plan.keep = append(plan.keep, digest)
+	}
+	for digest := range ownerDigests {
+		plan.keep = append(plan.keep, digest)
+	}
+	for _, row := range rows {
+		if !row.RetiredAt.Valid || row.Source != string(SourceCustom) {
+			continue
+		}
+		def := fromSQLDefinition(row)
+		digest := digestsByID[def.ID]
+		if _, held := ownerIDs[def.ID]; held {
+			if digest != "" {
+				plan.keep = append(plan.keep, digest)
+			}
+			continue
+		}
+		if digest != "" {
+			if _, held := ownerDigests[digest]; held {
+				plan.keep = append(plan.keep, digest)
+				continue
+			}
+			shared := false
+			if _, shared = activeDigests[digest]; shared {
+				plan.keep = append(plan.keep, digest)
+			}
+			plan.candidate = append(plan.candidate, digest)
+			plan.candidates = append(plan.candidates, retiredCleanupCandidate{id: def.ID, rev: def.Revision, digest: digest, shared: shared})
+			continue
+		}
+		plan.candidates = append(plan.candidates, retiredCleanupCandidate{id: def.ID, rev: def.Revision, digest: digest})
+	}
+	slices.Sort(plan.keep)
+	slices.Sort(plan.candidate)
+	return plan, nil
+}
+
+func (s *Service) finalizeRetiredCleanup(ctx context.Context, plan retiredCleanupPlan, removed map[string]bool) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.q.WithTx(tx)
+	for _, candidate := range plan.candidates {
+		if candidate.digest != "" && !candidate.shared && !removed[candidate.digest] {
+			continue
+		}
+		row, err := q.LockRetiredPluginDefinitionCAS(ctx, sqlc.LockRetiredPluginDefinitionCASParams{ID: candidate.id, Revision: candidate.rev})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			return err
+		}
+		if row.ID != candidate.id || row.Revision != candidate.rev {
+			continue
+		}
+		if err := q.DeletePluginToolPolicies(ctx, pgtype.Text{String: candidate.id, Valid: true}); err != nil {
+			return err
+		}
+		if err := q.DeleteRetiredPluginConfigs(ctx, candidate.id); err != nil {
+			return err
+		}
+		deleted, err := q.DeletePluginDefinitionCAS(ctx, sqlc.DeletePluginDefinitionCASParams{ID: candidate.id, Revision: candidate.rev})
+		if err != nil {
+			return err
+		}
+		if deleted == 0 {
+			return fmt.Errorf("plugin: retired definition %s changed during cleanup", candidate.id)
+		}
+	}
+	return classifyCommitError(tx.Commit(ctx))
+}
+
+func definitionPackageDigest(def Definition) (string, error) {
+	payload, err := DecodeResourcePayload(def.Spec, "plugin definition")
+	if err != nil {
+		return "", err
+	}
+	if payload.Content == nil {
+		return "", nil
+	}
+	if !ValidContentDigest(payload.Content.Digest) {
+		return "", fmt.Errorf("%w: content.digest is invalid", ErrInvalidDefinition)
+	}
+	digest := strings.TrimPrefix(payload.Content.Digest, "sha256:")
+	if digest != strings.ToLower(digest) {
+		return "", fmt.Errorf("%w: content.digest is not canonical", ErrInvalidDefinition)
+	}
+	return digest, nil
 }
 
 func (s *Service) Begin(authority authz.Authority) (*Access, error) {

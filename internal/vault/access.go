@@ -126,10 +126,16 @@ func (a *Access) DeleteScoped(ctx context.Context, scope, agentID, name string) 
 	if err := a.rejectManagedName(name); err != nil {
 		return err
 	}
-	if isSystemScope(scope) {
-		return a.svc.DeleteSystemScoped(ctx, scope, resolvedAgent, name)
+	mutate := func() error {
+		if isSystemScope(scope) {
+			return a.svc.DeleteSystemScoped(ctx, scope, resolvedAgent, name)
+		}
+		return a.svc.DeleteScoped(ctx, scope, userID, resolvedAgent, name)
 	}
-	return a.svc.DeleteScoped(ctx, scope, userID, resolvedAgent, name)
+	if a.svc.revoker == nil {
+		return mutate()
+	}
+	return a.svc.revoker.ApplyUserRevocation(ctx, userID, resolvedAgent, mutate)
 }
 
 func (a *Access) rejectManagedName(name string) error {

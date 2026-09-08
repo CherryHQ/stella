@@ -132,7 +132,7 @@ func (q *Queries) DeletePluginConfigCAS(ctx context.Context, arg DeletePluginCon
 
 const deletePluginDefinitionCAS = `-- name: DeletePluginDefinitionCAS :execrows
 DELETE FROM plugin_definition
-WHERE id = $1 AND revision = $2 AND source = 'custom'
+WHERE id = $1 AND revision = $2 AND source = 'custom' AND retired_at IS NOT NULL
 `
 
 type DeletePluginDefinitionCASParams struct {
@@ -154,6 +154,16 @@ DELETE FROM tool_override WHERE plugin_id = $1
 
 func (q *Queries) DeletePluginToolPolicies(ctx context.Context, pluginID pgtype.Text) error {
 	_, err := q.db.Exec(ctx, deletePluginToolPolicies, pluginID)
+	return err
+}
+
+const deleteRetiredPluginConfigs = `-- name: DeleteRetiredPluginConfigs :exec
+DELETE FROM plugin_config
+WHERE plugin_id = $1
+`
+
+func (q *Queries) DeleteRetiredPluginConfigs(ctx context.Context, pluginID string) error {
+	_, err := q.db.Exec(ctx, deleteRetiredPluginConfigs, pluginID)
 	return err
 }
 
@@ -406,6 +416,35 @@ SELECT pg_advisory_xact_lock(hashtextextended('plugin_cutover_v1', 0))
 func (q *Queries) LockPluginCatalog(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, lockPluginCatalog)
 	return err
+}
+
+const lockRetiredPluginDefinitionCAS = `-- name: LockRetiredPluginDefinitionCAS :one
+SELECT id, display_name, source, spec, default_enabled, revision, creator_user_id, created_at, updated_at, retired_at FROM plugin_definition
+WHERE id = $1 AND revision = $2 AND source = 'custom' AND retired_at IS NOT NULL
+FOR UPDATE
+`
+
+type LockRetiredPluginDefinitionCASParams struct {
+	ID       string `json:"id"`
+	Revision int64  `json:"revision"`
+}
+
+func (q *Queries) LockRetiredPluginDefinitionCAS(ctx context.Context, arg LockRetiredPluginDefinitionCASParams) (PluginDefinition, error) {
+	row := q.db.QueryRow(ctx, lockRetiredPluginDefinitionCAS, arg.ID, arg.Revision)
+	var i PluginDefinition
+	err := row.Scan(
+		&i.ID,
+		&i.DisplayName,
+		&i.Source,
+		&i.Spec,
+		&i.DefaultEnabled,
+		&i.Revision,
+		&i.CreatorUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RetiredAt,
+	)
+	return i, err
 }
 
 const movePluginConfigCAS = `-- name: MovePluginConfigCAS :one

@@ -89,7 +89,7 @@ func TestEnsureSelectionToolCacheSingleflightsConcurrentInstall(t *testing.T) {
 	}
 }
 
-func TestSelectStaleToolCacheVolumes(t *testing.T) {
+func TestSelectStaleToolCacheVolumesRetainsUnprovenOwnership(t *testing.T) {
 	now := time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC)
 	old := now.Add(-toolCacheGCAgeThreshold - time.Hour).Format(time.RFC3339)
 	recent := now.Add(-time.Hour).Format(time.RFC3339)
@@ -106,7 +106,7 @@ func TestSelectStaleToolCacheVolumes(t *testing.T) {
 	}
 
 	got := selectStaleToolCacheVolumes(now, volumes, containers)
-	if len(got) != 1 || got[0] != "remove-old-unused" {
-		t.Fatalf("selected = %v, want [remove-old-unused]", got)
+	if len(got) != 0 {
+		t.Fatalf("selected = %v, want no volumes without durable last-owner proof", got)
 	}
 }

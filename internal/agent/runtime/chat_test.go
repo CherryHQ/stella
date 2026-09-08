@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -192,6 +193,34 @@ func TestChatCapturesAndReleasesTurnContextForEachTurn(t *testing.T) {
 	}
 	if got := len(owner.Snapshot()); got != 0 {
 		t.Fatalf("second turn active owners=%d, want 0", got)
+	}
+}
+
+func TestSkillTurnReleaseNotifiesOwnerCleanup(t *testing.T) {
+	var releases atomic.Int32
+	owner := &skill.ActiveTurnOwner{}
+	rt, err := New(Config{
+		Memory: &recordingMemory{},
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+		},
+		SkillTurnOwner: owner,
+		OwnerRelease:   func() { releases.Add(1) },
+		SkillTurnCapture: func(ctx context.Context, _ session.Info, _ PluginContext) (context.Context, error) {
+			view, err := skill.NewSkillTurnView(nil, nil, nil, nil)
+			if err != nil {
+				return nil, err
+			}
+			return skill.WithSkillTurnView(ctx, view), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range rt.Chat(t.Context(), session.Info{ID: "owner-release-turn", UserID: "user", AgentID: "agent"}, "hello") {
+	}
+	if got := releases.Load(); got != 1 {
+		t.Fatalf("turn release callback count = %d, want 1", got)
 	}
 }
 

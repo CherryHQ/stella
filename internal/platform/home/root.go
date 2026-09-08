@@ -114,25 +114,32 @@ type SkillRootOpener interface {
 	OpenExistingSkillRoot(context.Context, WorkspaceRequest, RootScope) (SkillRootOperations, error)
 }
 
+// SkillRootMaintenance walks existing typed Skill roots for internal
+// reconciliation. It never creates a root or validates that its durable owner
+// still exists; callers must keep this capability behind the maintenance path.
+type SkillRootMaintenance interface {
+	WalkExistingSkillRoots(context.Context, func(WorkspaceRequest, RootScope, SkillRootOperations) error) error
+}
+
 func (m *WorkspaceManager) OpenRoot(ctx context.Context, req WorkspaceRequest, scope RootScope, access RootAccess) (RootOperations, error) {
-	return m.openRoot(ctx, req, scope, access, true)
+	return m.openRoot(ctx, req, scope, access, true, true)
 }
 
 func (m *WorkspaceManager) OpenSkillRoot(ctx context.Context, req WorkspaceRequest, scope RootScope, access RootAccess) (SkillRootOperations, error) {
 	if !isSkillRootScope(scope) {
 		return nil, errors.New("home: Skill root scope is required")
 	}
-	return m.openRoot(ctx, req, scope, access, true)
+	return m.openRoot(ctx, req, scope, access, true, true)
 }
 
 func (m *WorkspaceManager) OpenExistingSkillRoot(ctx context.Context, req WorkspaceRequest, scope RootScope) (SkillRootOperations, error) {
 	if !isSkillRootScope(scope) {
 		return nil, errors.New("home: Skill root scope is required")
 	}
-	return m.openRoot(ctx, req, scope, RootReadOnly, false)
+	return m.openRoot(ctx, req, scope, RootReadOnly, false, true)
 }
 
-func (m *WorkspaceManager) openRoot(ctx context.Context, req WorkspaceRequest, scope RootScope, access RootAccess, create bool) (*Root, error) {
+func (m *WorkspaceManager) openRoot(ctx context.Context, req WorkspaceRequest, scope RootScope, access RootAccess, create, validateOwner bool) (*Root, error) {
 	if err := checkContext(ctx); err != nil {
 		return nil, err
 	}
@@ -153,18 +160,24 @@ func (m *WorkspaceManager) openRoot(ctx context.Context, req WorkspaceRequest, s
 			unlock()
 		}
 	}()
-	if scope == RootAgentWorkspace || scope == RootPrincipalData || scope == RootSystemAgentSkills || scope == RootUserAgentSkills {
+	if validateOwner && (scope == RootAgentWorkspace || scope == RootPrincipalData || scope == RootSystemAgentSkills || scope == RootUserAgentSkills) {
 		if err = m.agentExists(ctx, req.AgentID); err != nil {
 			return nil, err
 		}
 	}
 	switch scope {
 	case RootAgentWorkspace, RootPrincipalData:
+		if !validateOwner {
+			break
+		}
 		kind, id := principal(req)
 		if err = m.ownerExists(ctx, kind, id); err != nil {
 			return nil, err
 		}
 	case RootUserSkills, RootUserAgentSkills:
+		if !validateOwner {
+			break
+		}
 		if err = m.ownerExists(ctx, UserPrincipal, req.UserID); err != nil {
 			return nil, err
 		}
@@ -177,7 +190,7 @@ func (m *WorkspaceManager) openRoot(ctx context.Context, req WorkspaceRequest, s
 			return nil, err
 		}
 	}
-	if access == RootReadWrite && isSkillRootScope(scope) {
+	if create && access == RootReadWrite && isSkillRootScope(scope) {
 		// Fence every visible component, including components created by an
 		// interrupted earlier attempt, before publication can proceed.
 		if err = m.syncChain(parts...); err != nil {

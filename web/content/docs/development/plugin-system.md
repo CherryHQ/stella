@@ -175,6 +175,71 @@ user and user agent installations stay in their own sandbox trees and take
 precedence in PATH. Plugin permissions govern the resources Stella supplies; the
 `none` backend provides no filesystem isolation.
 
+## Managed Skill revision retention
+
+Managed Skills use four typed Stella Home scopes. `system` lives under
+`.agents/db-skills`, `system_agent` under `agents/<agent>/.agents/skills`, `user`
+under `users/<user>/.agents/skills`, and `user_agent` under
+`users/<user>/agents/<agent>/.agents/agent-skills`. Each managed Skill has
+immutable files under `.stella-revisions/<skill-id>/<digest>`; the selector named
+`<skill-id>` chooses the current revision. Project Skills and release-provided
+builtin Skills use their own storage authorities and are outside this collector.
+
+Revision cleanup runs after a successful managed mutation, release of the last
+active turn owner, relevant Reflect usage changes, and successful startup
+reconciliation. While holding the managed advisory lock, the collector snapshots
+database evidence and active turn views, then walks only existing trusted roots.
+It protects the selector's current target, every exact revision held by an active
+turn, and non-null `skill_usage.content_digest` and `skill_changelog.content_digest`
+evidence. A revision is eligible only when its manifest is valid and no such
+evidence reaches it.
+
+The collector first renames proven-unreachable revision directories to a
+`.stella-gc-*` quarantine while the root and managed locks are held. It removes
+quarantine entries after releasing those locks, and retries entries left by an
+interrupted run. It never removes a current selector target. Pending or degraded
+startup reconciliation, malformed ownership or selector evidence, database or
+Home errors, and unknown runtime termination all preserve the affected bytes for
+retry; an uncertain delete outcome does not authorize physical cleanup.
+
+## Package retirement and runtime revocation
+
+Retiring a custom package records `retired_at`; resolution stops admitting it,
+but the definition remains as a retryable cleanup record. Package cleanup keeps
+the digest of every current non-retired definition and every process owner from
+building, active, or closing `PluginContext` views and admitted package Skill
+turns. Only after no runtime owner reaches a retired digest does the content store
+quarantine and remove that content-addressed tree. A shared digest remains while
+any current definition or runtime owner uses it. The finalizer then locks the
+retired definition by its revision and CAS-deletes its configs, tool policies,
+and row. A failed or uncertain file removal or CAS leaves the retired row,
+configuration and package name reserved for a later retry.
+
+Account deactivation or deletion, assignment removal, OAuth disconnect, and Vault
+entry deletion are terminal revocations over the target scope, including user,
+user-agent, shared-agent, and deployment-wide operations. The durable mutation
+runs inside the lifecycle fence; after a successful or uncertain outcome,
+matching active and reserved turns are cancelled or detached, and slow runner
+`Close` work runs after the fence. Ordinary plugin and configuration changes only
+mark busy runners stale, so an admitted turn finishes with its captured snapshot
+and the next turn builds the new one.
+
+## Sandbox recovery evidence
+
+Before starting a process, the local and `none` backends persist a
+`cache/sandbox-recovery/<session>.json` marker. Descendants can outlive the leader,
+so a normal `Close` does not clear this marker and the runner scratch bytes stay
+available for recovery. Any marker globally blocks package and managed-Skill
+resource cleanup; this is conservative evidence, not an automatic final cleanup
+promise, and there is no TTL or PID guess that clears it.
+
+The Docker backend snapshots only the scoped container IDs that existed before
+the current runtime starts. Cleanup is allowed only after each initial ID is
+proven terminal and removed; containers created after the snapshot do not block
+the current runtime. A list, inspect, or remove failure, or a non-terminal state,
+keeps cleanup pending for a later event and retry. Docker does not use TTL or PID
+heuristics to infer ownership.
+
 ## Channels and accounts
 
 A channel plugin describes one platform. Each account remains a separate

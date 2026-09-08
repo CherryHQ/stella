@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -27,6 +28,20 @@ type ContentStore struct {
 	root string
 	mu   sync.Mutex
 }
+
+// ContentOwnerSnapshot is the small cross-package ownership projection needed
+// by package cleanup. The owner provider must return immutable IDs and digests
+// captured from building/active/closing PluginContexts and active turns.
+// Secrets, filesystem paths, and runtime handles never cross this boundary.
+type ContentOwnerSnapshot struct {
+	PluginIDs []string
+	Digests   []string
+}
+
+// ContentOwnerSnapshotFunc is called while the ContentStore lock is held. It
+// must only take the short admission/lifecycle snapshot lock and must not read
+// or mutate package files. This fixed ordering is Store -> admission.
+type ContentOwnerSnapshotFunc func(context.Context) (ContentOwnerSnapshot, error)
 
 func NewContentStore(root string) (*ContentStore, error) {
 	if strings.TrimSpace(root) == "" {
@@ -156,4 +171,209 @@ func (s *ContentStore) withPublished(source string, fn func(agentpackage.Publish
 		return fmt.Errorf("%w: %w", ErrInvalidDefinition, err)
 	}
 	return fn(published)
+}
+
+type quarantinedPackage struct {
+	digest string
+	path   string
+}
+
+type contentCleanupSelection struct {
+	keep       []string
+	candidates []string
+}
+
+// cleanup serializes reachability collection with publication and exact reads.
+// Collection and quarantine happen under the short Store lock; byte deletion
+// and the database finalizer happen after it is released. A failed removal is
+// deliberately returned before finalization, leaving the retired row retryable.
+func (s *ContentStore) cleanup(ctx context.Context, collect func(context.Context) (contentCleanupSelection, error), finalize func(context.Context, map[string]bool) error) error {
+	if s == nil || s.root == "" || collect == nil || finalize == nil {
+		return errors.New("plugin: content store unavailable")
+	}
+	if ctx == nil {
+		return errors.New("plugin: cleanup context is nil")
+	}
+	s.mu.Lock()
+	selection, err := collect(ctx)
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	keep := make(map[string]struct{}, len(selection.keep))
+	for _, digest := range selection.keep {
+		digest = strings.TrimPrefix(digest, "sha256:")
+		if validStoreDigest(digest) {
+			keep[digest] = struct{}{}
+		}
+	}
+	unique := make(map[string]struct{}, len(selection.candidates))
+	restored := false
+	for _, digest := range selection.candidates {
+		digest = strings.TrimPrefix(digest, "sha256:")
+		if validStoreDigest(digest) {
+			if _, referenced := keep[digest]; referenced {
+				continue
+			}
+			unique[digest] = struct{}{}
+		}
+	}
+	entries, readErr := os.ReadDir(s.root)
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		s.mu.Unlock()
+		return readErr
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if validStoreDigest(entry.Name()) {
+			if _, referenced := keep[entry.Name()]; !referenced {
+				unique[entry.Name()] = struct{}{}
+			}
+			continue
+		}
+		if digest, ok := quarantineDigest(entry.Name()); ok {
+			if _, referenced := keep[digest]; referenced {
+				live := filepath.Join(s.root, digest)
+				if _, liveErr := os.Stat(live); errors.Is(liveErr, os.ErrNotExist) {
+					if err := os.Rename(filepath.Join(s.root, entry.Name()), live); err != nil {
+						s.mu.Unlock()
+						return fmt.Errorf("restore referenced package %s: %w", digest, err)
+					}
+					restored = true
+				} else if liveErr == nil {
+					// A republish won the live name while the old quarantine was
+					// pending. The digest identity is the same, so the stale
+					// quarantine can be removed after leaving the live root intact.
+					unique[digest] = struct{}{}
+				}
+				continue
+			}
+			unique[digest] = struct{}{}
+		}
+	}
+	if restored {
+		if err := syncContentRoot(s.root); err != nil {
+			s.mu.Unlock()
+			return fmt.Errorf("sync restored package root: %w", err)
+		}
+	}
+	ordered := make([]string, 0, len(unique))
+	for digest := range unique {
+		ordered = append(ordered, digest)
+	}
+	sort.Strings(ordered)
+	quarantined := make([]quarantinedPackage, 0, len(ordered))
+	removed := make(map[string]bool, len(ordered))
+	for _, digest := range ordered {
+		if err := ctx.Err(); err != nil {
+			s.restoreQuarantine(quarantined)
+			_ = syncContentRoot(s.root)
+			s.mu.Unlock()
+			return err
+		}
+		quarantinePath, found, err := s.quarantinePath(digest)
+		if err != nil {
+			s.restoreQuarantine(quarantined)
+			_ = syncContentRoot(s.root)
+			s.mu.Unlock()
+			return err
+		}
+		if found {
+			quarantined = append(quarantined, quarantinedPackage{digest: digest, path: quarantinePath})
+		} else {
+			// Absence of both the live digest and its quarantine is the only
+			// durable evidence available after a restart; treat it as removed.
+			removed[digest] = true
+		}
+	}
+	if len(quarantined) != 0 {
+		if err := syncContentRoot(s.root); err != nil {
+			s.restoreQuarantine(quarantined)
+			_ = syncContentRoot(s.root)
+			s.mu.Unlock()
+			return fmt.Errorf("sync quarantined package root: %w", err)
+		}
+	}
+	s.mu.Unlock()
+
+	for _, item := range quarantined {
+		if err := os.RemoveAll(item.path); err != nil {
+			return fmt.Errorf("remove quarantined package %s: %w", item.digest, err)
+		}
+		removed[item.digest] = true
+	}
+	return finalize(ctx, removed)
+}
+
+// quarantinePath moves a digest directory out of the live namespace while the
+// Store lock is held. Existing quarantine directories are resumed after a
+// previous cleanup failure, so a retry never mistakes pending bytes for a
+// successful removal.
+func (s *ContentStore) quarantinePath(digest string) (string, bool, error) {
+	prefix := ".quarantine-" + digest + "-"
+	entries, err := os.ReadDir(s.root)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), prefix) {
+			return filepath.Join(s.root, entry.Name()), true, nil
+		}
+	}
+	packagePath := filepath.Join(s.root, digest)
+	if _, err := os.Stat(packagePath); errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	} else if err != nil {
+		return "", false, err
+	}
+	tmp, err := os.MkdirTemp(s.root, prefix)
+	if err != nil {
+		return "", false, err
+	}
+	if err := os.Remove(tmp); err != nil {
+		return "", false, err
+	}
+	if err := os.Rename(packagePath, tmp); err != nil {
+		return "", false, err
+	}
+	return tmp, true, nil
+}
+
+func (s *ContentStore) restoreQuarantine(items []quarantinedPackage) {
+	for _, item := range items {
+		if _, err := os.Stat(item.path); err != nil {
+			continue
+		}
+		live := filepath.Join(s.root, item.digest)
+		if _, err := os.Stat(live); err == nil {
+			continue
+		}
+		_ = os.Rename(item.path, live)
+	}
+}
+
+func quarantineDigest(name string) (string, bool) {
+	const prefix = ".quarantine-"
+	if !strings.HasPrefix(name, prefix) {
+		return "", false
+	}
+	value := strings.TrimPrefix(name, prefix)
+	if len(value) < 65 || value[64] != '-' || !validStoreDigest(value[:64]) {
+		return "", false
+	}
+	return value[:64], true
+}
+
+func syncContentRoot(root string) error {
+	file, err := os.Open(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	return file.Sync()
 }

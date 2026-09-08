@@ -130,6 +130,56 @@ Bun 运行抓取与搜索脚本。
 managed tree；User 和 user agent 的安装在各自沙箱目录内执行，并在 PATH 中优先。插件权限控制
 Stella 提供的资源；`none` 后端不提供文件系统隔离。
 
+## Managed Skill 修订保留
+
+Managed Skill 使用 Stella Home 中四个类型化范围。`system` 位于
+`.agents/db-skills`，`system_agent` 位于 `agents/<agent>/.agents/skills`，`user`
+位于 `users/<user>/.agents/skills`，`user_agent` 位于
+`users/<user>/agents/<agent>/.agents/agent-skills`。每个 Managed Skill 的不可变文件
+位于 `.stella-revisions/<skill-id>/<digest>`，名为 `<skill-id>` 的 selector 选择当前修订。
+Project Skill 和发行版 builtin Skill 使用各自的存储 authority，不由此 collector 回收。
+
+修订回收发生在 Managed mutation 成功、最后一个 active turn owner 释放、相关 Reflect
+使用状态变更以及 startup reconciliation 成功之后。collector 持有 Managed advisory lock，
+先快照数据库证据和 active turn view，再只遍历已存在且可信的 root。它保护 selector 的当前
+目标、active turn 持有的每个精确修订，以及非空的 `skill_usage.content_digest` 和
+`skill_changelog.content_digest` 证据。只有 manifest 有效且没有这些证据指向的修订才可回收。
+
+collector 在 root 和 Managed lock 仍持有时，先把已证明不可达的修订目录重命名为
+`.stella-gc-*` 隔离目录；释放 lock 后才删除隔离目录，并在中断后重试遗留项。它永远不会删除
+当前 selector 指向的修订。startup reconciliation 处于 pending 或 degraded、owner 或 selector
+证据格式异常、数据库或 Home 出错、runtime 终止状态未知时，相关 bytes 都会保留并等待重试；
+删除结果不确定时不能据此进行物理清理。
+
+## Package 退休与运行时撤权
+
+退休自定义 package 会记录 `retired_at`；解析流程不再准入它，但 definition 会作为可重试的
+清理记录保留。Package cleanup 保留每个当前未退休 definition 的 digest，以及 building、active
+或 closing `PluginContext` 快照和已准入 package Skill turn 的所有运行时 owner。只有没有运行时
+owner 指向退休 digest 后，content store 才会隔离并删除对应的 content-addressed tree。多个
+definition 共用的 digest 只要仍被当前 definition 或 runtime owner 使用就继续保留。随后 finalizer
+按 revision 锁定退休 definition，通过 CAS 删除其 configs、tool policies 和 definition row。
+文件删除或 CAS 失败、结果不确定时，退休 row、配置和 package 名称都会保留，等待下次重试。
+
+账号停用或删除、移除 assignment、断开 OAuth 连接和删除 Vault entry，都是按目标范围执行的终止性
+撤权，可覆盖 user、user-agent、shared-agent 和全局部署范围。持久化 mutation 在 lifecycle fence
+内执行；结果成功或不确定后，匹配目标范围的 active/reserved turn 会被取消或 detach，慢速 runner
+`Close` 在释放 fence 后执行。普通 plugin 或配置变更只会把忙碌 runner 标为 stale，已准入 turn
+用捕获的 snapshot 完成，下一轮再构建新 snapshot。
+
+## Sandbox 恢复证据
+
+local 和 `none` backend 在启动进程前都会持久化
+`cache/sandbox-recovery/<session>.json` marker。后台 descendant 可能比 leader 活得更久，因此
+正常 `Close` 也不会清除 marker，runner scratch bytes 会保留以便恢复。任意 marker 都会全局阻止
+package 和 managed Skill 资源清理；它是保守证据，不代表会自动完成最终清理，也没有 TTL 或 PID
+猜测逻辑可以清除它。
+
+Docker backend 只快照当前 runtime 启动前已存在的、属于该 scope 的 container ID。只有每个初始
+ID 都被证明处于 terminal 状态并成功 remove 后才允许清理；快照之后创建的 container 不会阻塞
+当前 runtime。list、inspect 或 remove 失败，以及非 terminal 状态，都会让清理保持 pending，等待
+后续事件重试。Docker 不用 TTL 或 PID 启发式推断 owner。
+
 ## Channel 与账号
 
 一个 channel 插件代表一个平台。每个账号仍是独立 channel 实例，拥有自己的精确 ID、

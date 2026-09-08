@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,92 @@ func TestContentStoreReadPackageSkillReturnsFilesAndModes(t *testing.T) {
 	}
 	if len(files) == 0 || modes["SKILL.md"] == 0 {
 		t.Fatalf("files/modes = %#v/%#v", files, modes)
+	}
+}
+
+func TestContentStoreCleanupEnumeratesOrphansAndResumesMissingRoots(t *testing.T) {
+	store, err := NewContentStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	retired := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	orphan := "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	for _, digest := range []string{keep, retired, orphan} {
+		if err := os.Mkdir(filepath.Join(store.root, digest), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got map[string]bool
+	err = store.cleanup(context.Background(), func(context.Context) (contentCleanupSelection, error) {
+		return contentCleanupSelection{keep: []string{keep}, candidates: []string{keep, retired}}, nil
+	}, func(_ context.Context, removed map[string]bool) error {
+		got = removed
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got[retired] || !got[orphan] || got[keep] {
+		t.Fatalf("removed roots = %#v, want retired and orphan only", got)
+	}
+	for _, digest := range []string{retired, orphan} {
+		if _, err := os.Stat(filepath.Join(store.root, digest)); !os.IsNotExist(err) {
+			t.Fatalf("digest %s still exists: %v", digest, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(store.root, keep)); err != nil {
+		t.Fatalf("kept digest missing: %v", err)
+	}
+
+	// A failed DB finalizer after byte removal leaves no live or quarantine
+	// directory. The next pass must still report the retired root as removed,
+	// including after a fresh ContentStore is constructed for restart recovery.
+	store, err = NewContentStore(store.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var retried bool
+	err = store.cleanup(context.Background(), func(context.Context) (contentCleanupSelection, error) {
+		return contentCleanupSelection{candidates: []string{retired}}, nil
+	}, func(_ context.Context, removed map[string]bool) error {
+		retried = removed[retired]
+		return nil
+	})
+	if err != nil || !retried {
+		t.Fatalf("restart cleanup removed=%v err=%v, want absence success", retried, err)
+	}
+}
+
+func TestContentStoreCleanupRemovesStaleQuarantineKeepsRepublishedLiveRoot(t *testing.T) {
+	store, err := NewContentStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	if err := os.Mkdir(filepath.Join(store.root, digest), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	quarantine := filepath.Join(store.root, ".quarantine-"+digest+"-stale")
+	if err := os.Mkdir(quarantine, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err = store.cleanup(context.Background(), func(context.Context) (contentCleanupSelection, error) {
+		return contentCleanupSelection{keep: []string{digest}}, nil
+	}, func(_ context.Context, removed map[string]bool) error {
+		if !removed[digest] {
+			t.Fatal("stale quarantine was not removed")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(store.root, digest)); err != nil {
+		t.Fatalf("republished live digest was removed: %v", err)
+	}
+	if _, err := os.Stat(quarantine); !os.IsNotExist(err) {
+		t.Fatalf("stale quarantine remains: %v", err)
 	}
 }
 

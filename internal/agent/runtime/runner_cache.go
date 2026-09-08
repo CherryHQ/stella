@@ -81,6 +81,9 @@ type runnerCache struct {
 	retired []*retiredRunner
 	mu      sync.Mutex
 	log     *slog.Logger
+	// ownerRelease is notified only after a detached runner has closed
+	// successfully and has been removed from retired ownership.
+	ownerRelease func()
 }
 
 // maxConcurrentRunnerCloses bounds Docker and filesystem cleanup pressure
@@ -674,6 +677,32 @@ func (c *runnerCache) removeRetired(entry *retiredRunner, err error) {
 	}
 }
 
+// pluginContexts returns every still-owned immutable plugin context. The
+// cache keeps building, active, and retired entries reachable until cleanup
+// succeeds, so callers can derive file ownership without a second registry.
+func (c *runnerCache) pluginContexts() []PluginContext {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	contexts := make([]PluginContext, 0, len(c.sessions)+len(c.retired))
+	for _, cs := range c.sessions {
+		if cs.building != nil {
+			contexts = append(contexts, cs.building.PluginContext())
+		}
+		if cs.r != nil {
+			contexts = append(contexts, cs.r.PluginContext())
+		}
+	}
+	for _, entry := range c.retired {
+		switch {
+		case entry.runner != nil:
+			contexts = append(contexts, entry.runner.PluginContext())
+		case entry.owner != nil:
+			contexts = append(contexts, entry.owner.PluginContext())
+		}
+	}
+	return contexts
+}
+
 func (c *runnerCache) closeRetiredEntry(entry *retiredRunner) error {
 	var err error
 	if entry.runner != nil {
@@ -682,6 +711,9 @@ func (c *runnerCache) closeRetiredEntry(entry *retiredRunner) error {
 		err = c.closeBuildOwner(entry.owner)
 	}
 	c.removeRetired(entry, err)
+	if err == nil && c.ownerRelease != nil {
+		c.ownerRelease()
+	}
 	return err
 }
 
@@ -843,6 +875,12 @@ func (c *runnerCache) resetWhere(include func(*cachedSession) bool) error {
 	if include == nil {
 		return c.detachReset()()
 	}
+	return c.detachResetWhere(include)()
+}
+
+// detachResetWhere marks busy/reserved runners stale and detaches idle ones,
+// returning cleanup that can run after lifecycle/admission locks are released.
+func (c *runnerCache) detachResetWhere(include func(*cachedSession) bool) func() error {
 	c.mu.Lock()
 	for _, cs := range c.sessions {
 		if !include(cs) {
@@ -873,12 +911,12 @@ func (c *runnerCache) resetWhere(include func(*cachedSession) bool) error {
 		cs.thinking = ""
 	}
 	c.mu.Unlock()
-	return c.closeRetiredBatch(nil)
+	return func() error { return c.closeRetiredBatch(nil) }
 }
 
 // invalidateSkillPolicy retires idle runners immediately and marks busy runners
 // for replacement after their current turn. This is the local boundary for a
-// committed AgentSkillPolicy; cross-replica digest invalidation is Phase 4.
+// committed AgentSkillPolicy in this single-daemon deployment.
 func (c *runnerCache) invalidateSkillPolicy() error {
 	func() {
 		c.mu.Lock()
@@ -924,6 +962,12 @@ func (c *runnerCache) invalidateSkillPolicy() error {
 
 // closeAll shuts down all runners.
 func (c *runnerCache) closeAll() error {
+	return c.detachCloseAll()()
+}
+
+// detachCloseAll marks all sessions detached and returns slow cleanup for
+// execution after lifecycle/admission locks are released.
+func (c *runnerCache) detachCloseAll() func() error {
 	c.mu.Lock()
 	sessions := c.sessions
 	c.sessions = make(map[string]*cachedSession)
@@ -936,18 +980,31 @@ func (c *runnerCache) closeAll() error {
 		}
 	}
 	c.mu.Unlock()
-	return c.closeRetiredBatch(nil)
+	return func() error { return c.closeRetiredBatch(nil) }
 }
 
 // closeWhere is terminal: unlike resetWhere it removes every matching cache
 // entry and closes busy or reserved runners too. Owner deletion is allowed to
 // interrupt work; ordinary policy invalidation must never use this path.
 func (c *runnerCache) closeWhere(include func(*cachedSession) bool) error {
+	return c.detachWhere(include)()
+}
+
+// detachWhere removes matching sessions and returns a close operation. The
+// returned operation must run after lifecycle/admission locks are released.
+func (c *runnerCache) detachWhere(include func(*cachedSession) bool) func() error {
+	_, closeDetached := c.detachWhereWithIDs(include)
+	return closeDetached
+}
+
+func (c *runnerCache) detachWhereWithIDs(include func(*cachedSession) bool) ([]string, func() error) {
 	c.mu.Lock()
+	ids := make([]string, 0)
 	for id, cs := range c.sessions {
 		if !include(cs) {
 			continue
 		}
+		ids = append(ids, id)
 		delete(c.sessions, id)
 		if cs.building != nil {
 			c.retireBuildLocked(cs.building)
@@ -957,7 +1014,7 @@ func (c *runnerCache) closeWhere(include func(*cachedSession) bool) error {
 		}
 	}
 	c.mu.Unlock()
-	return c.closeRetiredBatch(nil)
+	return ids, func() error { return c.closeRetiredBatch(nil) }
 }
 
 // reap closes runners that are idle or dead.

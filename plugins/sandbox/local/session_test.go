@@ -228,6 +228,20 @@ func TestLocalSession_doneChanClosed(t *testing.T) {
 	}
 }
 
+func TestLocalSession_closeRetainsTempWithNativePending(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "owned")
+	if err := os.Mkdir(tmp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := &localSession{done: make(chan struct{}), nativePending: true, tmpMounts: []tmpMount{{realPath: tmp, owned: true}}}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tmp); err != nil {
+		t.Fatalf("native-pending temp removed: %v", err)
+	}
+}
+
 func TestLocalSession_workspaceAndWorkingDir(t *testing.T) {
 	root := t.TempDir()
 	resolved, _ := filepath.EvalSymlinks(root)

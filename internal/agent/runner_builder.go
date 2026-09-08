@@ -32,6 +32,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
@@ -151,6 +152,21 @@ func newRunnerScratch(stellaHome string) (string, func() error, error) {
 		defer cleanupMu.Unlock()
 		if cleaned {
 			return nil
+		}
+		allowed, err := sandboxpkg.CleanupAllowed(context.Background(), stellaHome)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			// A native backend left a durable recovery marker. Its process may
+			// still use this directory as cwd after Close returned, so retain the
+			// bytes for recovery but release this runner's root handle. The marker
+			// owns later cleanup; this path must not strand a dead runner.
+			cleanupErr := root.Close()
+			if cleanupErr == nil {
+				cleaned = true
+			}
+			return cleanupErr
 		}
 		if err := root.RemoveAll(name); err != nil {
 			return err
@@ -431,6 +447,11 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				pluginContext, err = cfg.PluginContextBuilder(ctx, authority, params.AgentID)
 				if err != nil {
 					return nil, fmt.Errorf("runner: build plugin context: %w", err)
+				}
+				if params.BuildOwner != nil {
+					if err := params.BuildOwner.SetPluginContext(pluginContext); err != nil {
+						return nil, fmt.Errorf("runner: publish plugin context ownership: %w", err)
+					}
 				}
 				hasPluginAuthority = true
 			}

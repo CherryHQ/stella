@@ -119,7 +119,7 @@ func (s *POSIXStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in Re
 	if err != nil {
 		return Skill{}, err
 	}
-	defer finishManagedMutation(release, &resultErr)
+	defer finishManagedMutationAndNotify(release, &resultErr, s.revisionChange)
 	if err := validateReflectSkillName(in.Name); err != nil {
 		return Skill{}, err
 	}
@@ -243,7 +243,7 @@ func (s *POSIXStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in Ref
 	if err != nil {
 		return Skill{}, err
 	}
-	defer finishManagedMutation(release, &resultErr)
+	defer finishManagedMutationAndNotify(release, &resultErr, s.revisionChange)
 	identity, err := s.GetIdentity(ctx, in.ID)
 	if err != nil || identity == nil {
 		return Skill{}, errors.Join(err, pgx.ErrNoRows)
@@ -329,7 +329,7 @@ func (s *POSIXStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in Re
 	if err != nil {
 		return Skill{}, err
 	}
-	defer finishManagedMutation(release, &resultErr)
+	defer finishManagedMutationAndNotify(release, &resultErr, s.revisionChange)
 	identity, err := s.GetIdentity(ctx, in.ID)
 	if err != nil || identity == nil {
 		return Skill{}, errors.Join(err, pgx.ErrNoRows)

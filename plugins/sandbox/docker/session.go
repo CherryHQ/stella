@@ -148,7 +148,15 @@ func (f *dockerFactory) EnsureReady(ctx context.Context) error {
 		// Reap containers before their owned temp directories. A directory is
 		// deleted only after this pass confirms no scoped container still names
 		// its session, so startup never unmounts a live session's /tmp backing.
-		dockerclient.CleanupOrphanedContainers(ctx, client, scope)
+		orphanCleanupComplete, err := dockerclient.CleanupOrphanedContainers(ctx, client, scope)
+		if err != nil {
+			slog.Warn("docker factory: orphan cleanup failed; retaining session temp directories", "error", err)
+			return
+		}
+		if !orphanCleanupComplete {
+			slog.Warn("docker factory: orphan cleanup incomplete; retaining session temp directories")
+			return
+		}
 		cleanupStaleSessionTempDirs(ctx, client, scope, f.cfg.StellaHome)
 	})
 	f.toolCacheGCOnce.Do(func() {
@@ -527,7 +535,9 @@ type dockerSession struct {
 	files           sandboxpkg.FileAccess
 	done            chan struct{}
 	doneOnce        sync.Once
+	closeMu         sync.Mutex
 	closed          bool
+	closing         bool
 	closeErr        error
 	traceSpan       trace.Span
 	traceOnce       sync.Once
@@ -569,23 +579,13 @@ func (s *dockerSession) PluginPreparationResult() pkgplugins.PluginPreparationRe
 func (s *dockerSession) Alive() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return !s.closed
+	return !s.closed && !s.closing
 }
 
 func (s *dockerSession) Done() <-chan struct{} { return s.done }
 
 func (s *dockerSession) closeDone() {
 	s.doneOnce.Do(func() { close(s.done) })
-}
-
-func (s *dockerSession) markClosed() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return false
-	}
-	s.closed = true
-	return true
 }
 
 func (s *dockerSession) endTrace(reason string, err error) {
@@ -602,14 +602,14 @@ func (s *dockerSession) endTrace(reason string, err error) {
 }
 
 // watchContainer polls ContainerAlive every 5s. If the container dies unexpectedly,
-// it asks the watcher close path to mark the session closed and best-effort reap
-// the stopped container so long-running stellad processes do not accumulate corpses.
+// it asks the watcher close path to best-effort reap the stopped container so
+// long-running stellad processes do not accumulate corpses.
 func (s *dockerSession) watchContainer() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
 		s.mu.RLock()
-		closed := s.closed
+		closed := s.closed || s.closing
 		s.mu.RUnlock()
 		if closed {
 			return
@@ -629,66 +629,77 @@ func (s *dockerSession) watchContainer() {
 }
 
 func (s *dockerSession) closeFromWatcher(reason string, livenessErr error) {
-	if !s.markClosed() {
+	// An explicit close already owns the teardown attempt. The watcher must not
+	// block behind it or start a second Stop call against the same container;
+	// the explicit path leaves closing latched on failure so a later retry can
+	// finish the lifecycle.
+	s.mu.RLock()
+	busy := s.closed || s.closing
+	s.mu.RUnlock()
+	if busy {
 		return
 	}
-
-	s.clearContainerTemp()
-	reapCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	stopErr := s.client.Stop(reapCtx, s.containerID)
-	if stopErr != nil {
-		slog.Warn("docker session: failed to reap exited container", "session_id", s.id, "container_id", s.containerID, "error", stopErr)
+	if err := s.closeLifecycle(reason, livenessErr); err != nil {
+		slog.Warn("docker session: failed to reap exited container", "session_id", s.id, "container_id", s.containerID, "error", err)
 	}
-	closeErr := stopErr
-	if s.resolver != nil {
-		closeErr = errors.Join(closeErr, s.resolver.Close())
-	}
-	if stopErr == nil {
-		closeErr = errors.Join(closeErr, s.cleanupOwnedTempDir())
-	}
-	s.finishClose(reason, closeErr, errors.Join(livenessErr, closeErr))
 }
 
-// finishClose publishes the final cleanup result before Done closes. Losers of
-// markClosed wait on Done, so this assignment establishes their result boundary.
-func (s *dockerSession) finishClose(reason string, closeErr, traceErr error) {
+// closeLifecycle serializes teardown attempts. A failed attempt leaves the
+// session open and its resources owned so a later Close can retry safely.
+func (s *dockerSession) closeLifecycle(reason string, traceErr error) error {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+
+	s.mu.Lock()
+	if s.closed {
+		closeErr := s.closeErr
+		s.mu.Unlock()
+		return closeErr
+	}
+	s.closing = true
+	s.mu.Unlock()
+
+	s.clearContainerTemp()
+	stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	stopErr := s.client.Stop(stopCtx, s.containerID)
+	cancel()
+	closeErr := stopErr
+	if stopErr == nil && s.resolver != nil {
+		closeErr = errors.Join(closeErr, s.resolver.Close())
+	}
+	if closeErr == nil {
+		closeErr = s.cleanupOwnedTempDir()
+	}
+
 	s.mu.Lock()
 	s.closeErr = closeErr
+	if closeErr == nil {
+		s.closing = false
+		s.closed = true
+	}
 	s.mu.Unlock()
-	s.endTrace(reason, traceErr)
-	logSessionClosed(s.id, "docker", reason)
-	s.closeDone()
+	if closeErr == nil {
+		s.endTrace(reason, errors.Join(traceErr, closeErr))
+		logSessionClosed(s.id, "docker", reason)
+		s.closeDone()
+	}
+	return closeErr
 }
 
 // Close stops the container and marks the session closed.
 // Uses a fresh background context with a 30s timeout so that cancellation of the
 // caller's context does not leave the container running.
 func (s *dockerSession) Close() error {
-	if !s.markClosed() {
-		<-s.Done()
-		s.mu.RLock()
-		closeErr := s.closeErr
-		s.mu.RUnlock()
-		return closeErr
-	}
-
-	s.clearContainerTemp()
-	stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	stopErr := s.client.Stop(stopCtx, s.containerID)
-	closeErr := stopErr
-	if s.resolver != nil {
-		closeErr = errors.Join(closeErr, s.resolver.Close())
-	}
-	if stopErr == nil {
-		closeErr = errors.Join(closeErr, s.cleanupOwnedTempDir())
-	}
-	s.finishClose("explicit_close", closeErr, closeErr)
-	return closeErr
+	return s.closeLifecycle("explicit_close", nil)
 }
 
 func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
+	h.session.mu.RLock()
+	closed := h.session.closed || h.session.closing
+	h.session.mu.RUnlock()
+	if closed {
+		return sandboxpkg.ExecResult{}, errors.New("docker: session is closed")
+	}
 	cwd := opts.Cwd
 	if cwd == "" {
 		cwd = h.session.policy.Filesystem.WorkingDir
@@ -734,6 +745,12 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 }
 
 func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
+	h.session.mu.RLock()
+	closed := h.session.closed || h.session.closing
+	h.session.mu.RUnlock()
+	if closed {
+		return nil, errors.New("docker: session is closed")
+	}
 	cwd := req.Cwd
 	if cwd == "" {
 		cwd = h.session.policy.Filesystem.WorkingDir

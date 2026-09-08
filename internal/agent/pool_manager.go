@@ -171,6 +171,20 @@ func WithSkillReadAuthorizer(a skillstool.SkillReadAuthorizer) PoolManagerOption
 	return func(pm *PoolManager) { pm.skillReadAuthz = a }
 }
 
+// WithSkillTurnRegistrar installs the store-side capture-to-registration
+// validation. It rechecks the selected revision under the managed Skill lock
+// before the runtime publishes the active owner view.
+func WithSkillTurnRegistrar(reg agentruntime.SkillTurnRegistrar) PoolManagerOption {
+	return func(pm *PoolManager) { pm.skillTurnRegistrar = reg }
+}
+
+// WithOwnerReleaseCallback receives one event after a detached runner has
+// closed successfully. The callback is an event edge, not a resource lease;
+// it should schedule reconciliation without blocking the close worker.
+func WithOwnerReleaseCallback(callback func()) PoolManagerOption {
+	return func(pm *PoolManager) { pm.ownerRelease = callback }
+}
+
 func WithToolOverrideFetcher(f ToolOverrideFetcher) PoolManagerOption {
 	return func(pm *PoolManager) { pm.toolOverrideFetcher = f }
 }
@@ -207,7 +221,11 @@ func WithGroupRosterLoader(loader func(context.Context, string, string) prompt.G
 // per agent.
 type PoolManager struct {
 	services map[string]*Service
-	store    config.Store
+	// ownerBlocks is guarded by lifecycle. It remains set from the short
+	// detach boundary through the Home owner transaction, then is cleared on
+	// commit or rollback. Service admission reads it under the shared gate.
+	ownerBlocks map[home.OwnerKind]map[string]struct{}
+	store       config.Store
 	// snapshots loads the per-agent config Snapshot. It is the credential-aware
 	// loader when one is wired (overlaying per-Agent Provider key overrides),
 	// otherwise it falls back to store. Kept separate from store so only the
@@ -216,8 +234,13 @@ type PoolManager struct {
 	mem       memory.Provider
 	// lifecycle serializes process-local service publication/removal and retained
 	// Home owner fences with synchronous runner admission.
-	lifecycle                    *lifecycleGate
-	mu                           sync.RWMutex
+	lifecycle *lifecycleGate
+	mu        sync.RWMutex
+	closeMu   sync.Mutex
+	// pluginCloseWG tracks runner teardown detached by the asynchronous plugin
+	// mutation fence. Close waits for it after taking lifecycle exclusive, so no
+	// mutation can register more work while shutdown joins the existing work.
+	pluginCloseWG                sync.WaitGroup
 	closing                      bool
 	closed                       bool
 	startAgentBuiltHook          func(*Service)
@@ -246,6 +269,8 @@ type PoolManager struct {
 	skillRevisionReader   skillstool.RuntimeReader
 	skillPackageReader    skillstool.PackageSkillReader
 	skillReadAuthz        skillstool.SkillReadAuthorizer
+	skillTurnRegistrar    agentruntime.SkillTurnRegistrar
+	ownerRelease          func()
 	mcpToolProvider       MCPToolProvider
 	toolOverrideFetcher   ToolOverrideFetcher
 	vaultEnvLoader        sandbox.VaultEnvLoader
@@ -265,6 +290,7 @@ type PoolManager struct {
 func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManagerOption) *PoolManager {
 	pm := &PoolManager{
 		services:        make(map[string]*Service),
+		ownerBlocks:     make(map[home.OwnerKind]map[string]struct{}),
 		store:           store,
 		snapshots:       store,
 		mem:             mem,
@@ -542,10 +568,12 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,
 		},
+		OwnerRelease: pm.ownerRelease,
 	}
 	if pm.skillRevisionReader != nil && pm.skillReadAuthz != nil {
 		cfg.SkillTurnCapture = pm.skillTurnHooks(snap)
 		cfg.SkillTurnOwner = &skillstool.ActiveTurnOwner{}
+		cfg.SkillTurnRegistrar = pm.skillTurnRegistrar
 	}
 	rt, err := agentruntime.New(cfg)
 	if err != nil {
@@ -559,7 +587,11 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	if sessionAccess == nil {
 		return nil, errors.New("session access is not bound")
 	}
-	svc := &Service{Sessions: reg, Runtime: rt, SessionAccess: sessionAccess, SessionInbox: pm.sessionInbox, AgentID: agentID, lifecycle: pm.lifecycle}
+	svc := &Service{
+		Sessions: reg, Runtime: rt, SessionAccess: sessionAccess, SessionInbox: pm.sessionInbox,
+		AgentID: agentID, lifecycle: pm.lifecycle,
+		ownerBlocked: pm.ownerBlocked,
+	}
 	rt.SetDelegateRunner(svc)
 	return svc, nil
 }
@@ -1060,20 +1092,23 @@ func (pm *PoolManager) AddBuiltinTool(_ context.Context, tool tools.Tool) error 
 // InvalidateUser closes all live runners for userID across all services.
 func (pm *PoolManager) InvalidateUser(userID string) error {
 	_ = pm.lifecycle.lockShared(context.Background())
-	defer pm.lifecycle.unlockShared()
 	pm.mu.RLock()
 	services := make(map[string]*Service, len(pm.services))
 	maps.Copy(services, pm.services)
 	pm.mu.RUnlock()
 
 	var lastErr error
+	closers := make([]func() error, 0, len(services))
 	for _, svc := range services {
 		_ = svc.admissionMu.Lock(context.Background())
-		err := svc.Runtime.ResetRunnersForUser(userID)
+		closers = append(closers, svc.Runtime.DetachStaleRunnersForUser(userID))
 		svc.admissionMu.Unlock()
-		if err != nil {
-			pm.log.Error("reset runners for user", "user_id", userID, "error", err)
-			lastErr = err
+	}
+	pm.lifecycle.unlockShared()
+	for _, closeRunners := range closers {
+		if err := closeRunners(); err != nil {
+			pm.log.Error("close revoked user runners", "user_id", userID, "error", err)
+			lastErr = errors.Join(lastErr, err)
 		}
 	}
 	return lastErr
@@ -1082,17 +1117,19 @@ func (pm *PoolManager) InvalidateUser(userID string) error {
 // InvalidateUserAgent closes live runners for one user on one agent.
 func (pm *PoolManager) InvalidateUserAgent(userID, agentID string) error {
 	_ = pm.lifecycle.lockShared(context.Background())
-	defer pm.lifecycle.unlockShared()
 	pm.mu.RLock()
 	svc, ok := pm.services[agentID]
 	pm.mu.RUnlock()
 	if !ok {
+		pm.lifecycle.unlockShared()
 		return nil
 	}
 	_ = svc.admissionMu.Lock(context.Background())
-	defer svc.admissionMu.Unlock()
-	if err := svc.Runtime.ResetRunnersForUser(userID); err != nil {
-		pm.log.Error("reset runners for user agent", "user_id", userID, "agent_id", agentID, "error", err)
+	closeRunners := svc.Runtime.DetachStaleRunnersForUser(userID)
+	svc.admissionMu.Unlock()
+	pm.lifecycle.unlockShared()
+	if err := closeRunners(); err != nil {
+		pm.log.Error("close revoked user agent runners", "user_id", userID, "agent_id", agentID, "error", err)
 		return err
 	}
 	return nil
@@ -1101,20 +1138,56 @@ func (pm *PoolManager) InvalidateUserAgent(userID, agentID string) error {
 // InvalidateAgent closes all live runners for one agent across every user.
 func (pm *PoolManager) InvalidateAgent(agentID string) error {
 	_ = pm.lifecycle.lockShared(context.Background())
-	defer pm.lifecycle.unlockShared()
 	pm.mu.RLock()
 	svc, ok := pm.services[agentID]
 	pm.mu.RUnlock()
 	if !ok {
+		pm.lifecycle.unlockShared()
 		return nil
 	}
 	_ = svc.admissionMu.Lock(context.Background())
-	defer svc.admissionMu.Unlock()
-	if err := svc.Runtime.ResetRunners(); err != nil {
-		pm.log.Error("reset runners for agent", "agent_id", agentID, "error", err)
+	closeRunners := svc.Runtime.DetachStaleRunners()
+	svc.admissionMu.Unlock()
+	pm.lifecycle.unlockShared()
+	if err := closeRunners(); err != nil {
+		pm.log.Error("close revoked agent runners", "agent_id", agentID, "error", err)
 		return err
 	}
 	return nil
+}
+
+// AdmitToolCall crosses the process lifecycle boundary for one model tool
+// call.  The shared hold is intentionally short, and must be released before
+// the tool itself runs.  A destructive revocation therefore waits for a
+// currently executing BeforeCall admission, then prevents later calls by
+// cancelling detached turns.  Checking ctx before and after the gate closes
+// the small hand-off race where cancellation happens while an exclusive
+// revocation is waiting.
+func (pm *PoolManager) AdmitToolCall(ctx context.Context) error {
+	if pm == nil || pm.lifecycle == nil {
+		return errors.New("agent: tool admission coordinator unavailable")
+	}
+	if ctx == nil {
+		return errors.New("agent: tool admission context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := pm.lifecycle.lockShared(ctx); err != nil {
+		return err
+	}
+	defer pm.lifecycle.unlockShared()
+	return ctx.Err()
+}
+
+func runRunnerClosers(closers []func() error) error {
+	var joined error
+	for _, closeRunners := range closers {
+		if err := closeRunners(); err != nil {
+			joined = errors.Join(joined, err)
+		}
+	}
+	return joined
 }
 
 // homeOwnerFenceLease retains process-wide lifecycle exclusion through the
@@ -1124,33 +1197,188 @@ type homeOwnerFenceLease struct {
 	kind    home.OwnerKind
 	ownerID string
 	service *Service
+	closers []func() error
 	once    sync.Once
 }
 
 // Commit applies the only post-commit structural effect: an Agent's closed
 // Service is unpublished after, never before, its durable owner row is gone.
+// The lifecycle gate is released before any runner or backend close.
 func (l *homeOwnerFenceLease) Commit() {
-	if l.kind != home.OwnerAgent {
-		return
-	}
-	if l.service == nil {
-		return
-	}
-	svc := l.service
-	if err := svc.Runtime.Close(); err != nil {
-		l.pm.log.Error("close committed deleted Agent service", "agent_id", l.ownerID, "error", err)
-	}
-	l.pm.mu.Lock()
-	if l.pm.services[l.ownerID] == svc {
-		delete(l.pm.services, l.ownerID)
-	}
-	l.pm.mu.Unlock()
+	l.once.Do(func() {
+		if l.kind == home.OwnerAgent && l.service != nil {
+			closeService := l.service.Runtime.DetachClose()
+			l.pm.lifecycle.unlockExclusive()
+			if err := closeService(); err != nil {
+				l.pm.log.Error("close committed deleted Agent service", "agent_id", l.ownerID, "error", err)
+				return
+			}
+			l.pm.mu.Lock()
+			if l.pm.services[l.ownerID] == l.service {
+				delete(l.pm.services, l.ownerID)
+			}
+			l.pm.clearOwnerBlockLocked(l.kind, l.ownerID)
+			l.pm.mu.Unlock()
+			return
+		}
+		l.pm.lifecycle.unlockExclusive()
+		if l.runClosers() == nil {
+			l.pm.mu.Lock()
+			l.pm.clearOwnerBlockLocked(l.kind, l.ownerID)
+			l.pm.mu.Unlock()
+		}
+	})
+}
+
+// CommitUnknown releases the short lifecycle gate after reconciliation failed
+// but keeps the owner block installed. Matching admissions therefore remain
+// fail-closed while unrelated users and agents continue to make progress. A
+// later owner reconciliation can acquire a fresh fence and clear the block on
+// the known-alive rollback path.
+func (l *homeOwnerFenceLease) CommitUnknown() {
+	l.once.Do(func() {
+		l.pm.lifecycle.unlockExclusive()
+		_ = l.runClosers()
+	})
 }
 
 func (l *homeOwnerFenceLease) Release() {
 	l.once.Do(func() {
+		l.pm.mu.Lock()
+		l.pm.clearOwnerBlockLocked(l.kind, l.ownerID)
+		l.pm.mu.Unlock()
 		l.pm.lifecycle.unlockExclusive()
+		_ = l.runClosers()
 	})
+}
+
+func (l *homeOwnerFenceLease) runClosers() error {
+	var joined error
+	for _, closeRunners := range l.closers {
+		if err := closeRunners(); err != nil {
+			l.pm.log.Error("close Home owner runners", "owner", l.ownerID, "error", err)
+			joined = errors.Join(joined, err)
+		}
+	}
+	return joined
+}
+
+func (pm *PoolManager) ownerBlocked(info session.Info) bool {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	if _, blocked := pm.ownerBlocks[home.OwnerUser][info.UserID]; blocked && info.GroupID == "" {
+		return true
+	}
+	if _, blocked := pm.ownerBlocks[home.OwnerGroup][info.GroupID]; blocked && info.GroupID != "" {
+		return true
+	}
+	if _, blocked := pm.ownerBlocks[home.OwnerAgent][info.AgentID]; blocked {
+		return true
+	}
+	return false
+}
+
+// PluginOwnerSnapshots returns the existing immutable plugin and Skill views
+// held by this process. Storage adapters derive their narrow digest projection
+// from these values; no second runtime ownership registry is introduced.
+func (pm *PoolManager) PluginOwnerSnapshots(ctx context.Context) ([]plugin.Snapshot, []skillstool.SkillTurnView, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	if err := pm.lifecycle.lockShared(ctx); err != nil {
+		return nil, nil, err
+	}
+	defer pm.lifecycle.unlockShared()
+	pm.mu.RLock()
+	services := make([]*Service, 0, len(pm.services))
+	for _, svc := range pm.services {
+		services = append(services, svc)
+	}
+	pm.mu.RUnlock()
+	pluginSnapshots := make([]plugin.Snapshot, 0, len(services))
+	skillViews := make([]skillstool.SkillTurnView, 0)
+	for _, svc := range services {
+		if err := svc.admissionMu.Lock(ctx); err != nil {
+			return nil, nil, err
+		}
+		for _, pluginContext := range svc.Runtime.PluginContexts() {
+			pluginSnapshots = append(pluginSnapshots, pluginContext.Snapshot())
+		}
+		skillViews = append(skillViews, svc.Runtime.ActiveSkillTurnViews()...)
+		svc.admissionMu.Unlock()
+	}
+	return pluginSnapshots, skillViews, nil
+}
+
+// ContentOwnerSnapshot projects the existing runtime views into the narrow
+// package-cleanup boundary. It creates no second ownership registry: every ID
+// and digest comes from a building, active, or closing PluginContext, or from
+// an admitted whole-turn Skill view captured above.
+func (pm *PoolManager) ContentOwnerSnapshot(ctx context.Context) (plugin.ContentOwnerSnapshot, error) {
+	pluginSnapshots, skillViews, err := pm.PluginOwnerSnapshots(ctx)
+	if err != nil {
+		return plugin.ContentOwnerSnapshot{}, err
+	}
+	ids := make(map[string]struct{})
+	digests := make(map[string]struct{})
+	for _, snapshot := range pluginSnapshots {
+		for _, definition := range snapshot.Definitions() {
+			resolved, ok := snapshot.Get(definition.ID)
+			if !ok {
+				return plugin.ContentOwnerSnapshot{}, fmt.Errorf("runtime plugin owner snapshot: resolve %q", definition.ID)
+			}
+			if !resolved.Effective.IsEffectivelyEnabled {
+				continue
+			}
+			if definition.ID != "" {
+				ids[definition.ID] = struct{}{}
+			}
+			payload, decodeErr := plugin.DecodeResourcePayload(resolved.Effective.Payload, "runtime plugin owner snapshot")
+			if decodeErr != nil {
+				return plugin.ContentOwnerSnapshot{}, decodeErr
+			}
+			if payload.Content != nil && payload.Content.Digest != "" {
+				digests[payload.Content.Digest] = struct{}{}
+			}
+		}
+	}
+	for _, view := range skillViews {
+		for _, reference := range view.PackageSkills() {
+			if reference.PackageID != "" {
+				ids[reference.PackageID] = struct{}{}
+			}
+			if reference.PackageDigest != "" {
+				digests[reference.PackageDigest] = struct{}{}
+			}
+		}
+	}
+	owner := plugin.ContentOwnerSnapshot{
+		PluginIDs: make([]string, 0, len(ids)),
+		Digests:   make([]string, 0, len(digests)),
+	}
+	for id := range ids {
+		owner.PluginIDs = append(owner.PluginIDs, id)
+	}
+	for digest := range digests {
+		owner.Digests = append(owner.Digests, digest)
+	}
+	sort.Strings(owner.PluginIDs)
+	sort.Strings(owner.Digests)
+	return owner, nil
+}
+
+func (pm *PoolManager) setOwnerBlockLocked(kind home.OwnerKind, ownerID string) {
+	blocks := pm.ownerBlocks[kind]
+	if blocks == nil {
+		blocks = make(map[string]struct{})
+		pm.ownerBlocks[kind] = blocks
+	}
+	blocks[ownerID] = struct{}{}
+}
+
+func (pm *PoolManager) clearOwnerBlockLocked(kind home.OwnerKind, ownerID string) {
+	blocks := pm.ownerBlocks[kind]
+	delete(blocks, ownerID)
 }
 
 // AcquireHomeOwnerFence closes matching cached execution while retaining
@@ -1167,6 +1395,9 @@ func (pm *PoolManager) AcquireHomeOwnerFence(ctx context.Context, kind home.Owne
 	if err := pm.lifecycle.lockExclusive(ctx); err != nil {
 		return nil, err
 	}
+	pm.mu.Lock()
+	pm.setOwnerBlockLocked(kind, ownerID)
+	pm.mu.Unlock()
 	pm.mu.RLock()
 	services := make([]*Service, 0, len(pm.services))
 	var agentService *Service
@@ -1183,20 +1414,17 @@ func (pm *PoolManager) AcquireHomeOwnerFence(ctx context.Context, kind home.Owne
 	pm.mu.RUnlock()
 
 	lease := &homeOwnerFenceLease{pm: pm, kind: kind, ownerID: ownerID, service: agentService}
-	var fenceErr error
 	for _, svc := range services {
 		match := func(info session.Info) bool { return matchesHomeOwner(info, kind, ownerID) }
 		if kind == home.OwnerAgent {
 			match = func(session.Info) bool { return true }
 		}
-		if err := svc.Runtime.TerminalCloseWhere(match); err != nil {
-			pm.log.Error("terminal close Home owner runners", "owner", ownerID, "agent_id", svc.AgentID, "error", err)
-			fenceErr = err
+		if err := svc.admissionMu.Lock(ctx); err != nil {
+			lease.Release()
+			return nil, err
 		}
-	}
-	if fenceErr != nil {
-		lease.Release()
-		return nil, fenceErr
+		lease.closers = append(lease.closers, svc.Runtime.DetachRunnersWhere(match))
+		svc.admissionMu.Unlock()
 	}
 	return lease, nil
 }
@@ -1316,47 +1544,80 @@ func (pm *PoolManager) WaitInFlight(ctx context.Context) error {
 
 // Close shuts down all services and hook plugins.
 func (pm *PoolManager) Close() error {
-	_ = pm.lifecycle.lockExclusive(context.Background())
-	defer pm.lifecycle.unlockExclusive()
+	pm.closeMu.Lock()
+	defer pm.closeMu.Unlock()
+	if err := pm.lifecycle.lockExclusive(context.Background()); err != nil {
+		return err
+	}
 	pm.mu.Lock()
 	if pm.closed {
 		pm.mu.Unlock()
+		pm.lifecycle.unlockExclusive()
 		return nil
 	}
 	pm.closing = true
 	services := make(map[string]*Service, len(pm.services))
 	maps.Copy(services, pm.services)
-	hookPlugins := pm.hookPlugins
-	pm.hookPlugins = nil
-	coreHooks := pm.coreHooks
-	pm.coreHooks = nil
 	pm.mu.Unlock()
+
+	// Only detach ownership under the lifecycle gate. Runner teardown can block
+	// on Docker or filesystem work, so it must run after the gate is released.
+	closers := make(map[string]func() error, len(services))
+	for id, svc := range services {
+		if err := svc.admissionMu.Lock(context.Background()); err != nil {
+			pm.lifecycle.unlockExclusive()
+			return err
+		}
+		closers[id] = svc.Runtime.DetachClose()
+		svc.admissionMu.Unlock()
+	}
+	pm.lifecycle.unlockExclusive()
+
+	// Async plugin cleanup may own retired runners from before shutdown. Join it
+	// after releasing lifecycle so a callback needing the gate cannot deadlock.
+	pm.pluginCloseWG.Wait()
 
 	var lastErr error
 	for id, svc := range services {
 		pm.log.Info("closing agent service", "agent_id", id)
-		if err := svc.Runtime.Close(); err != nil {
+		if err := closers[id](); err != nil {
 			pm.log.Error("failed to close service runtime", "agent_id", id, "error", err)
-			lastErr = err
+			lastErr = errors.Join(lastErr, err)
+			continue
 		}
-	}
-	pm.mu.Lock()
-	for id, svc := range services {
+		pm.mu.Lock()
 		if pm.services[id] == svc {
 			delete(pm.services, id)
 		}
+		pm.mu.Unlock()
 	}
-	pm.closed = true
-	pm.mu.Unlock()
+	if lastErr != nil {
+		// Keep failed Service ownership and all dependent process resources
+		// enumerable for a later Close retry. Do not tear down shared hooks or
+		// memory while a runtime still owns backend resources.
+		return lastErr
+	}
+	pm.mu.RLock()
+	hookPlugins := append([]hooks.HookPlugin(nil), pm.hookPlugins...)
+	coreHooks := append([]hooks.HookPlugin(nil), pm.coreHooks...)
+	pm.mu.RUnlock()
 	lastErr = errors.Join(lastErr, closeHookPlugins(hookPlugins))
-	// Core hooks (trace) are closed last so their end-of-session spans flush
-	// after every runtime has stopped producing new ones.
 	lastErr = errors.Join(lastErr, closeHookPlugins(coreHooks))
+	if lastErr != nil {
+		return lastErr
+	}
+	pm.mu.Lock()
+	pm.hookPlugins = nil
+	pm.coreHooks = nil
+	pm.mu.Unlock()
 	if pm.mem != nil {
 		if err := pm.mem.Close(); err != nil {
-			lastErr = err
+			return err
 		}
 	}
+	pm.mu.Lock()
+	pm.closed = true
+	pm.mu.Unlock()
 	return lastErr
 }
 

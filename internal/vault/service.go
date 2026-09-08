@@ -52,11 +52,19 @@ type Service struct {
 	// agents powers the ResourceVault access rules (see access.go). It may be nil
 	// for trusted-only Service instances that never open an Access (e.g. tests of
 	// the raw crypto/persistence methods).
-	agents *agentaccess.Service
+	agents  *agentaccess.Service
+	revoker RevocationCoordinator
 
 	systemManagedMu       sync.RWMutex
 	systemManagedNames    map[string]struct{}
 	systemManagedPrefixes []string
+}
+
+// SetRevocationCoordinator wires terminal runtime revocation for authorized
+// vault deletions. Raw Service methods intentionally remain uncoordinated for
+// trusted callers such as OAuth, whose outer service owns its mutation fence.
+func (s *Service) SetRevocationCoordinator(revoker RevocationCoordinator) {
+	s.revoker = revoker
 }
 
 // NewService creates a vault Service. masterIdentityStr is the raw age secret
