@@ -1160,3 +1160,34 @@ func TestRunnerCacheDoesNotCacheAFailedBuild(t *testing.T) {
 		t.Fatalf("retry returned %#v, want the runner built after recovery", r)
 	}
 }
+
+func TestOwnerCloseFailureRemainsFencedUntilRetry(t *testing.T) {
+	r := newFakeRunner()
+	r.closeErr = errors.New("termination unconfirmed")
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	info := session.Info{ID: "session", UserID: "owner", AgentID: "agent"}
+	cache.sessions[info.ID] = &cachedSession{r: r, info: info}
+	include := func(cs *cachedSession) bool { return cs.info.UserID == "owner" }
+	for range 2 {
+		if err := cache.closeWhere(include); err == nil {
+			t.Fatal("failed termination became successful owner deletion")
+		}
+	}
+	if _, _, err := cache.getOrCreate(t.Context(), info, "", "", nil); err == nil {
+		t.Fatal("admitted work on pending termination")
+	}
+	if err := cache.reset(); err != nil {
+		t.Fatal(err)
+	}
+	cache.reap()
+	if cache.sessions[info.ID] == nil {
+		t.Fatal("reset or reap lost the owner fence")
+	}
+	r.closeErr = nil
+	if err := cache.closeWhere(include); err != nil {
+		t.Fatal(err)
+	}
+	if cache.sessions[info.ID] != nil {
+		t.Fatal("successful cleanup retained tombstone")
+	}
+}

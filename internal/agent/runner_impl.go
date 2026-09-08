@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path"
@@ -673,7 +674,7 @@ func (r *runner) RunManagedSession(ctx context.Context, req delegatetool.Managed
 func (r *runner) SandboxSession() pkgsandbox.Session { return r.session }
 
 // Close shuts down any subprocess-backed tools and the sandbox session.
-// Guarantees cleanup of session resources regardless of state.
+// Scratch cleanup waits for confirmed sandbox termination; failed Close is retryable.
 func (r *runner) Close() error {
 	var errs []error
 
@@ -686,6 +687,7 @@ func (r *runner) Close() error {
 	if r.session != nil {
 		if err := r.session.Close(); err != nil {
 			errs = append(errs, err)
+			return errors.Join(errs...)
 		}
 	}
 	if r.cleanup != nil {

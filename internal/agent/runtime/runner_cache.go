@@ -24,6 +24,7 @@ type cachedSession struct {
 	model    string
 	thinking ai.ThinkingLevel
 	stale    bool
+	closing  bool // Retained until destructive owner cleanup confirms termination.
 	// failedAdmission marks a stale runner left behind by a recovered synchronous
 	// lookup panic. It must be retired without invoking it again: Alive/Busy may
 	// be the operation that panicked.
@@ -156,6 +157,10 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 			c.sessions[info.ID] = cs
 			created = true
 		}
+		if cs.closing {
+			err = errors.New("runner termination is pending")
+			return
+		}
 		wasReserved := cs.reserved
 		reservationOwned = reserve && !wasReserved
 		if cs.failedAdmission && cs.r == nil && !wasReserved {
@@ -267,6 +272,9 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 		cachedModel = cs.model
 		cachedThinking = cs.thinking
 	}()
+	if err != nil {
+		return runnerSelection{}, err
+	}
 	if selected {
 		return selection, nil
 	}
@@ -415,6 +423,10 @@ func (c *runnerCache) close(sessionID string) error {
 func (c *runnerCache) closeWithSandbox(sessionID string, cb SandboxSessionCallback) error {
 	c.mu.Lock()
 	cs, ok := c.sessions[sessionID]
+	if ok && cs.closing {
+		c.mu.Unlock()
+		return c.closeWhere(func(other *cachedSession) bool { return other == cs })
+	}
 	if ok {
 		delete(c.sessions, sessionID)
 	}
@@ -447,6 +459,9 @@ func (c *runnerCache) resetWhere(include func(*cachedSession) bool) error {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		for _, cs := range c.sessions {
+			if cs.closing {
+				continue
+			}
 			if include != nil && !include(cs) {
 				continue
 			}
@@ -494,6 +509,9 @@ func (c *runnerCache) invalidateSkillPolicy() error {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		for _, cs := range c.sessions {
+			if cs.closing {
+				continue
+			}
 			// Defensive ordering: a reservation is authoritative even if another
 			// cache path has temporarily cleared r. The next lookup must rebuild.
 			if cs.failedAdmission && cs.reserved {
@@ -561,24 +579,29 @@ func (c *runnerCache) closeAll() error {
 // interrupt work; ordinary policy invalidation must never use this path.
 func (c *runnerCache) closeWhere(include func(*cachedSession) bool) error {
 	c.mu.Lock()
-	closing := make([]Runner, 0)
-	for id, cs := range c.sessions {
-		if !include(cs) {
-			continue
-		}
-		delete(c.sessions, id)
-		if cs.r != nil {
-			closing = append(closing, cs.r)
+	var closing []*cachedSession
+	for _, cs := range c.sessions {
+		if include(cs) {
+			cs.closing = true
+			closing = append(closing, cs)
 		}
 	}
 	c.mu.Unlock()
-	var lastErr error
-	for _, r := range closing {
-		if err := c.closeRetired(r); err != nil {
-			lastErr = err
+	var errs []error
+	for _, cs := range closing {
+		if cs.r != nil {
+			if err := c.closeRetired(cs.r); err != nil {
+				errs = append(errs, err)
+				continue
+			}
 		}
+		c.mu.Lock()
+		if c.sessions[cs.info.ID] == cs {
+			delete(c.sessions, cs.info.ID)
+		}
+		c.mu.Unlock()
 	}
-	return lastErr
+	return errors.Join(errs...)
 }
 
 // reap closes runners that are idle or dead.
@@ -589,6 +612,9 @@ func (c *runnerCache) reap() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		for id, cs := range c.sessions {
+			if cs.closing {
+				continue
+			}
 			if cs.failedAdmission && cs.reserved {
 				cs.stale = true
 				continue
