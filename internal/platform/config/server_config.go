@@ -70,6 +70,7 @@ const (
 // NOT here; the allowlist in env_scan_test.go enumerates every such exception
 // with the reason it stays a direct read.
 type ServerConfig struct {
+	KubernetesSandbox KubernetesSandboxConfig
 	// Database selects between the embedded PostgreSQL convenience cluster and an
 	// external server.
 	Database DatabaseConfig
@@ -109,6 +110,12 @@ type ServerConfig struct {
 	Observability ObservabilityConfig
 	Agent         AgentConfig
 	MCP           MCPConfig
+}
+
+// KubernetesSandboxConfig contains deployment-owned in-cluster coordinates.
+type KubernetesSandboxConfig struct {
+	Namespace, PodName, PodUID, NodeName, Deployment, PVC, Image, ServerURL string
+	StartupTimeout                                                          time.Duration
 }
 
 // MCPConfig carries deploy-time policy for remote MCP server registrations.
@@ -275,6 +282,13 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 	// preserved exactly. A secret (Vault.Key, OIDC.ClientSecret) is only stored,
 	// never logged.
 	get := func(name string) string { v, _ := lookup(name); return v }
+	cfg.KubernetesSandbox = KubernetesSandboxConfig{
+		Namespace: get("STELLA_KUBERNETES_NAMESPACE"), PodName: get("STELLA_KUBERNETES_POD_NAME"), PodUID: get("STELLA_KUBERNETES_POD_UID"), NodeName: get("STELLA_KUBERNETES_NODE_NAME"), Deployment: get("STELLA_KUBERNETES_DEPLOYMENT"), PVC: get("STELLA_KUBERNETES_PVC"), Image: get("STELLA_KUBERNETES_IMAGE"), ServerURL: get("STELLA_SANDBOX_SERVER_URL"),
+	}
+	cfg.KubernetesSandbox.StartupTimeout, err = parseServerDuration("STELLA_KUBERNETES_STARTUP_TIMEOUT", get("STELLA_KUBERNETES_STARTUP_TIMEOUT"), 120*time.Second)
+	if err != nil {
+		return ServerConfig{}, err
+	}
 	cfg.Database.URL = get(databaseURLEnv)
 	// Legacy ServerURL rule: default only replaces unset/exactly-empty; any
 	// non-empty value (even whitespace) passes through untouched.

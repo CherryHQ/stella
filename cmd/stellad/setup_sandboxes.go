@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
+
+	"k8s.io/apimachinery/pkg/types"
 
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -12,6 +15,7 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	bridgebackend "github.com/CherryHQ/stella/plugins/sandbox/bridge"
 	dockerbackend "github.com/CherryHQ/stella/plugins/sandbox/docker"
+	kubernetesbackend "github.com/CherryHQ/stella/plugins/sandbox/kubernetes"
 	localbackend "github.com/CherryHQ/stella/plugins/sandbox/local"
 	nonebackend "github.com/CherryHQ/stella/plugins/sandbox/none"
 	"github.com/CherryHQ/stella/resources"
@@ -22,8 +26,30 @@ const (
 	dockerDevImage  = "stella-sandbox:dev"
 )
 
-func setupSandboxBackends() (*agentsandbox.BackendRegistry, error) {
+func setupSandboxBackends(ctx context.Context, cfg config.ServerConfig) (*agentsandbox.BackendRegistry, error) {
+	if err := config.ValidateSandboxBackend(); err != nil {
+		return nil, err
+	}
+	var kubeClient *kubernetesbackend.Client
+	if config.ActiveSandboxBackend() == config.SandboxBackendKubernetes {
+		registry, err := resources.Default()
+		if err != nil {
+			return nil, err
+		}
+		initCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+		defer cancel()
+		kubeClient, err = kubernetesbackend.NewInCluster(initCtx, kubernetesbackend.Config{Namespace: cfg.KubernetesSandbox.Namespace, OwnerName: cfg.KubernetesSandbox.PodName, OwnerUID: types.UID(cfg.KubernetesSandbox.PodUID), NodeName: cfg.KubernetesSandbox.NodeName, Deployment: cfg.KubernetesSandbox.Deployment, PVC: cfg.KubernetesSandbox.PVC, Image: cfg.KubernetesSandbox.Image, StartupTimeout: cfg.KubernetesSandbox.StartupTimeout, ServerURL: cfg.KubernetesSandbox.ServerURL, StellaHome: config.StellaHome(), BundleRevision: registry.BundleRevision()})
+		if err != nil {
+			return nil, err
+		}
+	}
 	return agentsandbox.NewBackendRegistry(
+		agentsandbox.BackendDefinition{Name: config.SandboxBackendKubernetes, Create: func(ctx context.Context, request agentsandbox.BackendRequest) (pkgsandbox.Session, error) {
+			if kubeClient == nil {
+				return nil, errors.New("kubernetes backend was not configured at startup")
+			}
+			return kubeClient.Factory(request.MountSources).CreateSession(ctx, request.Policy)
+		}},
 		agentsandbox.BackendDefinition{Name: config.SandboxBackendDocker, Create: func(ctx context.Context, request agentsandbox.BackendRequest) (session pkgsandbox.Session, err error) {
 			request.Policy.InheritEnv = true
 			resourceRegistry, err := resources.Default()
