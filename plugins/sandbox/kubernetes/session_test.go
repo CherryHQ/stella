@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -11,9 +12,11 @@ import (
 	"testing"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	sandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -173,6 +176,26 @@ func TestLive(t *testing.T) {
 		}
 	}
 	network := func(t *testing.T) {
+		if _, err := client.api.CoreV1().Pods("default").List(t.Context(), meta.ListOptions{}); !apierrors.IsForbidden(err) {
+			t.Fatalf("cross-namespace Pod access: %v", err)
+		}
+		if _, err := client.api.CoreV1().Secrets(cfg.Namespace).List(t.Context(), meta.ListOptions{}); !apierrors.IsForbidden(err) {
+			t.Fatalf("Secret access: %v", err)
+		}
+		owner, err := client.api.CoreV1().Pods(cfg.Namespace).Get(t.Context(), cfg.OwnerName, meta.GetOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		database, err := net.Listen("tcp", "0.0.0.0:25432")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = database.Close() }()
+		probe, err := net.DialTimeout("tcp", net.JoinHostPort(owner.Status.PodIP, "25432"), time.Second)
+		if err != nil {
+			t.Fatalf("database control connection: %v", err)
+		}
+		_ = probe.Close()
 		listener, err := net.Listen("tcp", "0.0.0.0:25777")
 		if err != nil {
 			t.Fatal(err)
@@ -185,6 +208,10 @@ func TestLive(t *testing.T) {
 		result, err := allowed.Exec(t.Context(), command, sandbox.ExecOptions{})
 		if err != nil || result.ExitCode != 0 || strings.TrimSpace(result.Stdout) != "callback" {
 			t.Fatalf("callback %+v %v", result, err)
+		}
+		result, err = allowed.Exec(t.Context(), `python3 -c 'import socket; s=socket.socket(); s.settimeout(2); s.connect(("`+owner.Status.PodIP+`",25432))'`, sandbox.ExecOptions{})
+		if err != nil || result.ExitCode == 0 {
+			t.Fatalf("database port was reachable: %+v %v", result, err)
 		}
 		disabled := makeMode(t, sandbox.NetworkDisabled)
 		result, err = disabled.Exec(t.Context(), command, sandbox.ExecOptions{})
@@ -233,6 +260,49 @@ func TestLive(t *testing.T) {
 			t.Fatalf("recovery %+v %v", result, err)
 		}
 	}
+	startupErrors := func(t *testing.T) {
+		for _, failure := range []string{"bundle", "image", "scheduling"} {
+			t.Run(failure, func(t *testing.T) {
+				bad := &Client{api: client.api, rest: client.rest, cfg: client.cfg, boot: sandbox.NewSessionID(), volumePrefix: client.volumePrefix, pending: map[string]*session{}, pullSecrets: client.pullSecrets}
+				bad.cfg.StartupTimeout = 15 * time.Second
+				switch failure {
+				case "bundle":
+					bad.cfg.BundleRevision = "mismatched-bundle"
+				case "image":
+					bad.cfg.Image = "stella-sandbox:missing-test-image"
+					bad.cfg.StartupTimeout = 3 * time.Second
+				case "scheduling":
+					bad.cfg.NodeName = "missing-test-node"
+					bad.cfg.StartupTimeout = 3 * time.Second
+				}
+				policy := sandbox.Policy{Filesystem: sandbox.FilesystemPolicy{WorkingDir: "/workspace", Mounts: []sandbox.Mount{{SandboxPath: "/workspace", Access: sandbox.MountReadWrite}}}}
+				// The source must be inside the same configured PVC subtree.
+				workspace, err := os.MkdirTemp(home, "startup-error-")
+				if err != nil {
+					t.Fatal(err)
+				}
+				started := time.Now()
+				got, err := bad.Factory(map[string]string{sandbox.MountWorkspace: workspace}).CreateSession(t.Context(), policy)
+				if err == nil || got != nil {
+					t.Fatalf("accepted %s failure", failure)
+				}
+				if time.Since(started) > 50*time.Second {
+					t.Fatal("startup failure exceeded bounded cleanup")
+				}
+				// The finalizer patch confirms termination before API deletion finishes.
+				err = wait.PollUntilContextTimeout(t.Context(), 100*time.Millisecond, 5*time.Second, true, func(ctx context.Context) (bool, error) {
+					pods, err := client.api.CoreV1().Pods(cfg.Namespace).List(ctx, meta.ListOptions{LabelSelector: labelBoot + "=" + bad.boot})
+					if err != nil {
+						return false, err
+					}
+					return len(pods.Items) == 0, nil
+				})
+				if err != nil {
+					t.Fatalf("startup failure left Pod objects: %v", err)
+				}
+			})
+		}
+	}
 	for _, suite := range []string{"storage", "process", "all"} {
 		t.Run(suite, func(t *testing.T) {
 			if suite != "process" {
@@ -244,6 +314,7 @@ func TestLive(t *testing.T) {
 			if suite == "all" {
 				t.Run("network", network)
 				t.Run("recovery", recovery)
+				t.Run("startup_errors", startupErrors)
 			}
 		})
 	}

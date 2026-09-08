@@ -13,14 +13,12 @@ import (
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
-
 )
 
 const (
 	labelDeployment = "stella.cherryhq.io/deployment"
 	labelBoot       = "stella.cherryhq.io/boot"
 )
-
 
 // deletePod keeps a finalizer until kubelet reports terminal execution. Object
 // disappearance alone cannot fence a partitioned node or an external force delete.

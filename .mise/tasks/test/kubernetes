@@ -54,7 +54,7 @@ if [ "$suite" = all ]; then
   "${kube[@]}" cp dist/bin/stellad testbed:/data/repo/dist/bin/stellad
   "${kube[@]}" cp dist/kubernetes/system.test testbed:/tmp/system.test
   "${kube[@]}" exec testbed -- /data/repo/dist/bin/stellad postgres download
-  "${kube[@]}" exec testbed -- env STELLA_SANDBOX_BACKEND=kubernetes STELLA_TEST_REPO_ROOT=/data/repo /tmp/system.test -test.v -test.timeout=15m '-test.run=TestSystem/(readiness|startup_and_auth|chat_sse|tool_smoke_canary|scheduler_one_time_job_survives_forced_restart)$'
+  "${kube[@]}" exec testbed -- env STELLA_SANDBOX_BACKEND=kubernetes STELLA_TEST_REPO_ROOT=/data/repo /tmp/system.test -test.v -test.timeout=15m '-test.run=TestSystem/(readiness|startup_and_auth|chat_sse|tool_smoke_canary|image_history|view_image_tool_history|agent_provider_credentials|group_concurrent_counting|scheduler_one_time_job_survives_forced_restart)$'
   "${kube[@]}" exec testbed -- env STELLA_KUBERNETES_RECOVERY=prepare /tmp/contracts.test -test.v -test.timeout=3m -test.run=TestOwnerRecovery
   "${kube[@]}" delete pod testbed --wait=true --timeout=60s
   "${kube[@]}" apply -f test/testbed/kubernetes/fixture.yaml

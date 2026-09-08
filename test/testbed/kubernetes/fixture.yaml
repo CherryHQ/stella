@@ -192,8 +192,8 @@ spec:
     pods: "16"
     persistentvolumeclaims: "1"
     requests.storage: 4Gi
-    limits.cpu: "16"
-    limits.memory: 16Gi
+    limits.cpu: "32"
+    limits.memory: 32Gi
 
 ---
 apiVersion: v1

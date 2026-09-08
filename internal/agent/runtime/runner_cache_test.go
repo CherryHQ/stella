@@ -1191,3 +1191,80 @@ func TestOwnerCloseFailureRemainsFencedUntilRetry(t *testing.T) {
 		t.Fatal("successful cleanup retained tombstone")
 	}
 }
+
+func TestOwnerFenceRetainsFailedGenericRetirement(t *testing.T) {
+	for _, path := range []string{"reset", "reap", "invalidate", "close"} {
+		t.Run(path, func(t *testing.T) {
+			r := newFakeRunner()
+			r.closeErr = errors.New("termination unconfirmed")
+			r.lastAct = time.Now().Add(-time.Hour)
+			cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+			cache.sessions["s"] = &cachedSession{r: r, info: session.Info{ID: "s", UserID: "owner"}}
+			switch path {
+			case "reset":
+				_ = cache.reset()
+			case "reap":
+				cache.reap()
+			case "invalidate":
+				_ = cache.invalidateSkillPolicy()
+			case "close":
+				_ = cache.close("s")
+			}
+			include := func(cs *cachedSession) bool { return cs.info.UserID == "owner" }
+			if err := cache.closeWhere(include); err == nil {
+				t.Fatal("owner deletion bypassed failed generic retirement")
+			}
+			r.closeErr = nil
+			if err := cache.closeWhere(include); err != nil {
+				t.Fatal(err)
+			}
+			if len(cache.retired) != 0 {
+				t.Fatal("confirmed termination retained execution")
+			}
+		})
+	}
+}
+
+type blockingRetiredRunner struct {
+	*fakeRunner
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (r *blockingRetiredRunner) Close() error {
+	r.once.Do(func() { close(r.entered) })
+	<-r.release
+	return errors.New("termination unconfirmed")
+}
+
+func TestOwnerFenceSeesRetirementWhileCloseIsBlocked(t *testing.T) {
+	r := &blockingRetiredRunner{fakeRunner: newFakeRunner(), entered: make(chan struct{}), release: make(chan struct{})}
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	cache.sessions["s"] = &cachedSession{r: r, info: session.Info{ID: "s", UserID: "owner"}}
+	resetDone := make(chan error, 1)
+	go func() { resetDone <- cache.reset() }()
+	<-r.entered
+	seen := make(chan struct{})
+	fenceDone := make(chan error, 1)
+	var once sync.Once
+	go func() {
+		fenceDone <- cache.closeWhere(func(cs *cachedSession) bool {
+			once.Do(func() { close(seen) })
+			return cs.info.UserID == "owner"
+		})
+	}()
+	<-seen
+	select {
+	case <-fenceDone:
+		t.Error("fence returned before pending Close completed")
+	default:
+	}
+	close(r.release)
+	if err := <-resetDone; err == nil {
+		t.Fatal("reset lost close error")
+	}
+	if err := <-fenceDone; err == nil {
+		t.Fatal("fence lost close error")
+	}
+}

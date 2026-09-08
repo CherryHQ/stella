@@ -50,6 +50,7 @@ type runnerSelection struct {
 // runnerCache manages active runners keyed by session ID.
 // It is an implementation detail of Runtime.
 type runnerCache struct {
+	retired         map[*retiredRunner]struct{}
 	sessions        map[string]*cachedSession
 	newRunner       NewRunnerFunc
 	hooksFn         func() []hooks.HookPlugin
@@ -183,7 +184,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 				selected = true
 				return
 			}
-			stale = cs.r
+			stale = c.trackRetiredLocked(cs.info, cs.r)
 			cs.r = nil
 			cs.stale = false
 			cs.failedAdmission = false
@@ -209,7 +210,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 				selected = true
 				return
 			}
-			stale = cs.r
+			stale = c.trackRetiredLocked(cs.info, cs.r)
 			cs.r = nil
 			cs.stale = false
 			cs.failedAdmission = false
@@ -231,24 +232,24 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 			}
 			switch {
 			case cs.stale:
-				stale = cs.r
+				stale = c.trackRetiredLocked(cs.info, cs.r)
 				cs.r = nil
 				cs.stale = false
 				cs.failedAdmission = false
 			case len(extraTools) > 0:
-				stale = cs.r
+				stale = c.trackRetiredLocked(cs.info, cs.r)
 				cs.r = nil
 			case !cs.r.Alive():
 				c.log.Warn("replacing dead runner", "session_id", info.ID)
-				stale = cs.r
+				stale = c.trackRetiredLocked(cs.info, cs.r)
 				cs.r = nil
 			case model != "" && cs.model != model:
 				c.log.Info("switching model", "session_id", info.ID, "from", cs.model, "to", model)
-				stale = cs.r
+				stale = c.trackRetiredLocked(cs.info, cs.r)
 				cs.r = nil
 			case thinking != "" && cs.thinking != thinking:
 				c.log.Info("switching thinking level", "session_id", info.ID, "from", cs.thinking, "to", thinking)
-				stale = cs.r
+				stale = c.trackRetiredLocked(cs.info, cs.r)
 				cs.r = nil
 			default:
 				if reserve {
@@ -326,8 +327,9 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 	if cs.r != nil {
 		// Another goroutine installed a runner; discard ours.
 		selection := runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
+		retired := c.trackRetiredLocked(info, r)
 		c.mu.Unlock()
-		_ = c.closeRetired(r)
+		_ = c.closeRetired(retired)
 		return selection, nil
 	}
 	cs.r = r
@@ -400,9 +402,38 @@ func (c *runnerCache) abortReservedAdmission(cs *cachedSession) {
 	cs.thinking = ""
 }
 
-// closeRetired is best-effort because the cache has already detached r before
-// calling it. A plugin runner must not crash a reaper/reset loop by panicking
-// in Close, and no recovered value is logged because it may contain a secret.
+// retiredRunner keeps detached execution visible to destructive owner cleanup.
+// Registration happens under the same lock as detachment, before Close can block.
+type retiredRunner struct {
+	Runner
+	info   session.Info
+	mu     sync.Mutex
+	closed bool
+}
+
+func (r *retiredRunner) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return nil
+	}
+	if err := r.Runner.Close(); err != nil {
+		return err
+	}
+	r.closed = true
+	return nil
+}
+
+func (c *runnerCache) trackRetiredLocked(info session.Info, r Runner) Runner {
+	retired := &retiredRunner{Runner: r, info: info}
+	if c.retired == nil {
+		c.retired = make(map[*retiredRunner]struct{})
+	}
+	c.retired[retired] = struct{}{}
+	return retired
+}
+
+// A failed or panicking Close remains registered for the next owner fence.
 func (c *runnerCache) closeRetired(r Runner) (err error) {
 	defer func() {
 		if recover() != nil {
@@ -410,7 +441,15 @@ func (c *runnerCache) closeRetired(r Runner) (err error) {
 			err = errors.New("runner close failed")
 		}
 	}()
-	return r.Close()
+	err = r.Close()
+	if err == nil {
+		if retired, ok := r.(*retiredRunner); ok {
+			c.mu.Lock()
+			delete(c.retired, retired)
+			c.mu.Unlock()
+		}
+	}
+	return err
 }
 
 // close shuts down the runner for a single session.
@@ -427,7 +466,11 @@ func (c *runnerCache) closeWithSandbox(sessionID string, cb SandboxSessionCallba
 		c.mu.Unlock()
 		return c.closeWhere(func(other *cachedSession) bool { return other == cs })
 	}
+	var retired Runner
 	if ok {
+		if cs.r != nil {
+			retired = c.trackRetiredLocked(cs.info, cs.r)
+		}
 		delete(c.sessions, sessionID)
 	}
 	c.mu.Unlock()
@@ -443,7 +486,7 @@ func (c *runnerCache) closeWithSandbox(sessionID string, cb SandboxSessionCallba
 			}
 		}
 	}
-	return errors.Join(cbErr, c.closeRetired(cs.r))
+	return errors.Join(cbErr, c.closeRetired(retired))
 }
 
 func (c *runnerCache) reset() error {
@@ -469,7 +512,7 @@ func (c *runnerCache) resetWhere(include func(*cachedSession) bool) error {
 			case cs.failedAdmission && cs.reserved:
 				cs.stale = true
 			case cs.failedAdmission && cs.r != nil:
-				runners = append(runners, cs.r)
+				runners = append(runners, c.trackRetiredLocked(cs.info, cs.r))
 				cs.r = nil
 				cs.stale = false
 				cs.failedAdmission = false
@@ -481,7 +524,7 @@ func (c *runnerCache) resetWhere(include func(*cachedSession) bool) error {
 			case cs.r != nil && cs.r.Busy():
 				cs.stale = true
 			case cs.r != nil:
-				runners = append(runners, cs.r)
+				runners = append(runners, c.trackRetiredLocked(cs.info, cs.r))
 				cs.r = nil
 				cs.stale = false
 				cs.failedAdmission = false
@@ -519,7 +562,7 @@ func (c *runnerCache) invalidateSkillPolicy() error {
 				continue
 			}
 			if cs.failedAdmission && cs.r != nil {
-				runners = append(runners, cs.r)
+				runners = append(runners, c.trackRetiredLocked(cs.info, cs.r))
 				cs.r = nil
 				cs.stale = false
 				cs.failedAdmission = false
@@ -541,7 +584,7 @@ func (c *runnerCache) invalidateSkillPolicy() error {
 				cs.stale = true
 				continue
 			}
-			runners = append(runners, cs.r)
+			runners = append(runners, c.trackRetiredLocked(cs.info, cs.r))
 			cs.r = nil
 			cs.stale = false
 			cs.failedAdmission = false
@@ -558,20 +601,7 @@ func (c *runnerCache) invalidateSkillPolicy() error {
 
 // closeAll shuts down all runners.
 func (c *runnerCache) closeAll() error {
-	c.mu.Lock()
-	sessions := c.sessions
-	c.sessions = make(map[string]*cachedSession)
-	c.mu.Unlock()
-
-	var lastErr error
-	for _, cs := range sessions {
-		if cs.r != nil {
-			if err := c.closeRetired(cs.r); err != nil {
-				lastErr = err
-			}
-		}
-	}
-	return lastErr
+	return c.closeWhere(func(*cachedSession) bool { return true })
 }
 
 // closeWhere is terminal: unlike resetWhere it removes every matching cache
@@ -579,6 +609,12 @@ func (c *runnerCache) closeAll() error {
 // interrupt work; ordinary policy invalidation must never use this path.
 func (c *runnerCache) closeWhere(include func(*cachedSession) bool) error {
 	c.mu.Lock()
+	var pending []*retiredRunner
+	for r := range c.retired {
+		if include(&cachedSession{info: r.info}) {
+			pending = append(pending, r)
+		}
+	}
 	var closing []*cachedSession
 	for _, cs := range c.sessions {
 		if include(cs) {
@@ -588,6 +624,11 @@ func (c *runnerCache) closeWhere(include func(*cachedSession) bool) error {
 	}
 	c.mu.Unlock()
 	var errs []error
+	for _, r := range pending {
+		if err := c.closeRetired(r); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	for _, cs := range closing {
 		if cs.r != nil {
 			if err := c.closeRetired(cs.r); err != nil {
@@ -620,7 +661,7 @@ func (c *runnerCache) reap() {
 				continue
 			}
 			if cs.failedAdmission && cs.r != nil {
-				closing = append(closing, cs.r)
+				closing = append(closing, c.trackRetiredLocked(cs.info, cs.r))
 				cs.r = nil
 				cs.stale = false
 				cs.failedAdmission = false
@@ -640,7 +681,7 @@ func (c *runnerCache) reap() {
 			lastActivity := cs.r.LastActivity()
 			if !cs.r.Alive() {
 				c.log.Warn("removing dead runner", "session_id", id)
-				closing = append(closing, cs.r)
+				closing = append(closing, c.trackRetiredLocked(cs.info, cs.r))
 				cs.r = nil
 				continue
 			}
@@ -648,7 +689,7 @@ func (c *runnerCache) reap() {
 				c.log.Info("reaping idle runner",
 					"session_id", id,
 					"idle_duration", now.Sub(lastActivity).Round(time.Second))
-				closing = append(closing, cs.r)
+				closing = append(closing, c.trackRetiredLocked(cs.info, cs.r))
 				cs.r = nil
 			}
 		}

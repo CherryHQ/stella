@@ -15,7 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
- sandbox "github.com/CherryHQ/stella/pkg/sandbox"
+
+	sandbox "github.com/CherryHQ/stella/pkg/sandbox"
 
 	"k8s.io/apimachinery/pkg/util/validation"
 
