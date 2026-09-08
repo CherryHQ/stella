@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -416,6 +417,12 @@ func (s *ToolOverrideStore) fileOverrides(ctx context.Context, userID, agentID s
 	authority, ok := authz.AuthorityFromContext(ctx)
 	if !ok || !authority.Valid() {
 		return nil, authz.ErrUnauthenticated
+	}
+	if prepared, ok := agentruntime.PreparedPluginContext(ctx); ok {
+		if !prepared.IsFileBased() {
+			return nil, errors.New("tool override: prepared context is not file-backed")
+		}
+		return fileResourceOverrides(prepared.FileResources()), nil
 	}
 	if authority.Kind() == authz.ActorGroupAgent {
 		// Group turns deliberately carry the synthetic group owner in RunnerParams,

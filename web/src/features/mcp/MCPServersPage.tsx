@@ -11,7 +11,7 @@ import {
   updateMcpServerCredentials,
   updateMcpServerFile,
 } from "@/lib/api-client/sdk.gen";
-import type { McpDeclaration, McpServer, ResourceFileContent } from "@/lib/api-client/types.gen";
+import type { CreateMcpServerRequest, McpDeclaration, McpServer } from "@/lib/api-client/types.gen";
 import { mcpServersQueryOptions } from "@/lib/queries/mcp";
 import { allAgentsAdminQueryOptions, agentsQueryOptions } from "@/lib/queries/agents";
 import {
@@ -19,6 +19,7 @@ import {
   scopesForBand,
   type ManagedScope,
   type ScopeBand,
+  isManagedScope,
 } from "@/lib/scope-band";
 import { ErrorState } from "@/components/RouteFallback";
 import { Badge } from "@/components/ui/badge";
@@ -53,7 +54,25 @@ function fromBase64(value: string) {
   }
 }
 function scopeLabel(scope: ManagedScope, t: ReturnType<typeof useI18n>["t"]) {
-  return t(`plugins.scope.${scope}` as never);
+  const labels = {
+    user: t("plugins.scope.user"),
+    user_agent: t("plugins.scope.user_agent"),
+    system: t("plugins.scope.system"),
+    system_agent: t("plugins.scope.system_agent"),
+  };
+  return labels[scope];
+}
+
+function isMcpTransport(value: string): value is McpDeclaration["transport"] {
+  return value === "streamable_http" || value === "sse";
+}
+
+function isMcpAuthType(value: string): value is McpDeclaration["auth_type"] {
+  return value === "none" || value === "bearer" || value === "oauth";
+}
+
+function isMcpCredentialMode(value: string): value is McpDeclaration["credential_mode"] {
+  return value === "shared" || value === "per_user";
 }
 
 function ScopePicker({
@@ -76,9 +95,14 @@ function ScopePicker({
     <div className="flex flex-wrap items-end gap-2">
       <Field className="min-w-40">
         <FieldLabel>{t("plugins.scopeLabel")}</FieldLabel>
-        <Select value={scope} onValueChange={(value) => value && onScope(value as ManagedScope)}>
+        <Select
+          value={scope}
+          onValueChange={(value) => value && isManagedScope(value) && onScope(value)}
+        >
           <SelectTrigger>
-            <SelectValue>{(value) => scopeLabel((value as ManagedScope) || scope, t)}</SelectValue>
+            <SelectValue>
+              {(value) => scopeLabel(value && isManagedScope(value) ? value : scope, t)}
+            </SelectValue>
           </SelectTrigger>
           <SelectPopup>
             {scopesForBand(band).map((value) => (
@@ -142,9 +166,7 @@ function DeclarationFields({
         <FieldLabel>{t("mcp.transport")}</FieldLabel>
         <Select
           value={declaration.transport}
-          onValueChange={(value) =>
-            value && set({ transport: value as McpDeclaration["transport"] })
-          }
+          onValueChange={(value) => value && isMcpTransport(value) && set({ transport: value })}
           disabled={disabled}
         >
           <SelectTrigger>
@@ -161,8 +183,7 @@ function DeclarationFields({
         <Select
           value={declaration.auth_type}
           onValueChange={(value) =>
-            value &&
-            onChange(transitionMcpAuthType(declaration, value as McpDeclaration["auth_type"]))
+            value && isMcpAuthType(value) && onChange(transitionMcpAuthType(declaration, value))
           }
           disabled={disabled}
         >
@@ -181,7 +202,7 @@ function DeclarationFields({
         <Select
           value={declaration.credential_mode}
           onValueChange={(value) =>
-            value && set({ credential_mode: value as McpDeclaration["credential_mode"] })
+            value && isMcpCredentialMode(value) && set({ credential_mode: value })
           }
           disabled={disabled}
         >
@@ -365,7 +386,8 @@ function McpDetail({
         path: { id: server.id },
         throwOnError: true,
       });
-      setRaw(fromBase64((data as ResourceFileContent).content_base64));
+      if (!data) throw new Error(t("mcp.saveFailed"));
+      setRaw(fromBase64(data.content_base64));
       setRawMode(true);
     } catch (error) {
       showToast(apiErrorMessage(error, t("mcp.saveFailed")), "error");
@@ -531,19 +553,21 @@ function CreateMcp({
   const create = useMutation({
     mutationFn: () => {
       if (isAgentManagedScope(scope) && !agentId) throw new Error(t("plugins.selectAgent"));
+      const declaration: McpDeclaration = {
+        url: url.trim(),
+        transport,
+        auth_type: auth,
+        credential_mode: scope === "system" || scope === "system_agent" ? "shared" : "per_user",
+      };
+      if (auth === "bearer") declaration.credential_ref = ensureMcpBearerCredentialRef();
+      const body: CreateMcpServerRequest = {
+        name: name.trim(),
+        scope,
+        declaration,
+      };
+      if (agentId) body.agent_id = agentId;
       return createMcpServer({
-        body: {
-          name: name.trim(),
-          scope,
-          ...(agentId ? { agent_id: agentId } : {}),
-          declaration: {
-            url: url.trim(),
-            transport,
-            auth_type: auth,
-            credential_mode: scope === "system" || scope === "system_agent" ? "shared" : "per_user",
-            ...(auth === "bearer" ? { credential_ref: ensureMcpBearerCredentialRef() } : {}),
-          },
-        },
+        body,
         throwOnError: true,
       });
     },
@@ -581,7 +605,7 @@ function CreateMcp({
       <div className="flex flex-wrap gap-2">
         <Select
           value={transport}
-          onValueChange={(value) => value && setTransport(value as McpDeclaration["transport"])}
+          onValueChange={(value) => value && isMcpTransport(value) && setTransport(value)}
         >
           <SelectTrigger>
             <SelectValue />
@@ -593,7 +617,7 @@ function CreateMcp({
         </Select>
         <Select
           value={auth}
-          onValueChange={(value) => value && setAuth(value as McpDeclaration["auth_type"])}
+          onValueChange={(value) => value && isMcpAuthType(value) && setAuth(value)}
         >
           <SelectTrigger>
             <SelectValue />

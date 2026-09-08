@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import i18n from "@/lib/i18n/config";
 
 vi.hoisted(() => {
   Object.defineProperty(globalThis, "localStorage", {
@@ -38,7 +39,7 @@ import { Route as AdminLibraryRoute } from "@/routes/_app/admin/resources/librar
 
 describe("plugin surface ownership", () => {
   it("detects OAuth from the raw resource summary", () => {
-    const config = {
+    const config: Parameters<typeof configHasMcpOAuth>[0] = {
       resource_summary: {
         binaries: [],
         skills: [],
@@ -55,12 +56,12 @@ describe("plugin surface ownership", () => {
           },
         ],
       },
-    } as Parameters<typeof configHasMcpOAuth>[0];
+    };
     expect(configHasMcpOAuth(config)).toBe(true);
   });
 
   it("turns the OAuth initialization conflict into an actionable prompt", () => {
-    const translate = ((key: string) => key) as unknown as Translate;
+    const translate: Translate = i18n.t;
     expect(
       pluginErrorMessage(
         {
@@ -72,7 +73,7 @@ describe("plugin surface ownership", () => {
         },
         translate,
       ),
-    ).toBe("plugins.oauthAdminInitializationRequired");
+    ).toBe(i18n.t("plugins.oauthAdminInitializationRequired"));
   });
 
   it("keeps personal MCP available to admins through Personal Settings", () => {

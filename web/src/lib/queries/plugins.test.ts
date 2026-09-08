@@ -89,6 +89,7 @@ describe("native capability queries", () => {
       )
       .mockResolvedValueOnce(sdkResponse({ plugins: [{ id: "plugin-b", scope: "user" }] }));
     const options = scopedPluginsQueryOptions("personal", "agent-a");
+    // SAFETY: queryFn is invoked directly with no QueryObserver context in this pagination test.
     const plugins = await (options.queryFn as () => Promise<unknown[]>)();
     expect(plugins).toEqual([
       { id: "plugin-a", scope: "user_agent" },

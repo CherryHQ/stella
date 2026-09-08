@@ -170,20 +170,6 @@ func WithSkillReadAuthorizer(a skillstool.SkillReadAuthorizer) PoolManagerOption
 	return func(pm *PoolManager) { pm.skillReadAuthz = a }
 }
 
-// WithSkillTurnRegistrar installs the store-side capture-to-registration
-// validation. It rechecks the selected revision under the managed Skill lock
-// before the runtime publishes the active owner view.
-func WithSkillTurnRegistrar(reg agentruntime.SkillTurnRegistrar) PoolManagerOption {
-	return func(pm *PoolManager) { pm.skillTurnRegistrar = reg }
-}
-
-// WithOwnerReleaseCallback receives one event after a detached runner has
-// closed successfully. The callback is an event edge, not a resource lease;
-// it should schedule reconciliation without blocking the close worker.
-func WithOwnerReleaseCallback(callback func()) PoolManagerOption {
-	return func(pm *PoolManager) { pm.ownerRelease = callback }
-}
-
 func WithToolOverrideFetcher(f ToolOverrideFetcher) PoolManagerOption {
 	return func(pm *PoolManager) { pm.toolOverrideFetcher = f }
 }
@@ -268,8 +254,6 @@ type PoolManager struct {
 	skillRevisionReader   skillstool.RuntimeReader
 	skillPackageReader    skillstool.PackageSkillReader
 	skillReadAuthz        skillstool.SkillReadAuthorizer
-	skillTurnRegistrar    agentruntime.SkillTurnRegistrar
-	ownerRelease          func()
 	mcpToolProvider       MCPToolProvider
 	toolOverrideFetcher   ToolOverrideFetcher
 	vaultEnvLoader        sandbox.VaultEnvLoader
@@ -541,12 +525,9 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,
 		},
-		OwnerRelease: pm.ownerRelease,
 	}
 	if pm.skillRevisionReader != nil && pm.skillReadAuthz != nil {
 		cfg.SkillTurnCapture = pm.skillTurnHooks(snap)
-		cfg.SkillTurnOwner = &skillstool.ActiveTurnOwner{}
-		cfg.SkillTurnRegistrar = pm.skillTurnRegistrar
 	}
 	rt, err := agentruntime.New(cfg)
 	if err != nil {
@@ -1288,95 +1269,6 @@ func (pm *PoolManager) ownerBlocked(info session.Info) bool {
 		return true
 	}
 	return false
-}
-
-// PluginOwnerSnapshots returns the existing immutable plugin and Skill views
-// held by this process. Storage adapters derive their narrow digest projection
-// from these values; no second runtime ownership registry is introduced.
-func (pm *PoolManager) PluginOwnerSnapshots(ctx context.Context) ([]plugin.Snapshot, []skillstool.SkillTurnView, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
-	}
-	if err := pm.lifecycle.lockShared(ctx); err != nil {
-		return nil, nil, err
-	}
-	defer pm.lifecycle.unlockShared()
-	pm.mu.RLock()
-	services := make([]*Service, 0, len(pm.services))
-	for _, svc := range pm.services {
-		services = append(services, svc)
-	}
-	pm.mu.RUnlock()
-	pluginSnapshots := make([]plugin.Snapshot, 0, len(services))
-	skillViews := make([]skillstool.SkillTurnView, 0)
-	for _, svc := range services {
-		if err := svc.admissionMu.Lock(ctx); err != nil {
-			return nil, nil, err
-		}
-		for _, pluginContext := range svc.Runtime.PluginContexts() {
-			pluginSnapshots = append(pluginSnapshots, pluginContext.Snapshot())
-		}
-		skillViews = append(skillViews, svc.Runtime.ActiveSkillTurnViews()...)
-		svc.admissionMu.Unlock()
-	}
-	return pluginSnapshots, skillViews, nil
-}
-
-// ContentOwnerSnapshot projects the existing runtime views into the narrow
-// package-cleanup boundary. It creates no second ownership registry: every ID
-// and digest comes from a building, active, or closing PluginContext, or from
-// an admitted whole-turn Skill view captured above.
-func (pm *PoolManager) ContentOwnerSnapshot(ctx context.Context) (plugin.ContentOwnerSnapshot, error) {
-	pluginSnapshots, skillViews, err := pm.PluginOwnerSnapshots(ctx)
-	if err != nil {
-		return plugin.ContentOwnerSnapshot{}, err
-	}
-	ids := make(map[string]struct{})
-	digests := make(map[string]struct{})
-	for _, snapshot := range pluginSnapshots {
-		for _, definition := range snapshot.Definitions() {
-			resolved, ok := snapshot.Get(definition.ID)
-			if !ok {
-				return plugin.ContentOwnerSnapshot{}, fmt.Errorf("runtime plugin owner snapshot: resolve %q", definition.ID)
-			}
-			if !resolved.Effective.IsEffectivelyEnabled {
-				continue
-			}
-			if definition.ID != "" {
-				ids[definition.ID] = struct{}{}
-			}
-			payload, decodeErr := plugin.DecodeResourcePayload(resolved.Effective.Payload, "runtime plugin owner snapshot")
-			if decodeErr != nil {
-				return plugin.ContentOwnerSnapshot{}, decodeErr
-			}
-			if payload.Content != nil && payload.Content.Digest != "" {
-				digests[payload.Content.Digest] = struct{}{}
-			}
-		}
-	}
-	for _, view := range skillViews {
-		for _, reference := range view.PackageSkills() {
-			if reference.PackageID != "" {
-				ids[reference.PackageID] = struct{}{}
-			}
-			if reference.PackageDigest != "" {
-				digests[reference.PackageDigest] = struct{}{}
-			}
-		}
-	}
-	owner := plugin.ContentOwnerSnapshot{
-		PluginIDs: make([]string, 0, len(ids)),
-		Digests:   make([]string, 0, len(digests)),
-	}
-	for id := range ids {
-		owner.PluginIDs = append(owner.PluginIDs, id)
-	}
-	for digest := range digests {
-		owner.Digests = append(owner.Digests, digest)
-	}
-	sort.Strings(owner.PluginIDs)
-	sort.Strings(owner.Digests)
-	return owner, nil
 }
 
 func (pm *PoolManager) setOwnerBlockLocked(kind home.OwnerKind, ownerID string) {

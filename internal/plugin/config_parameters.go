@@ -132,8 +132,8 @@ func applyConfigParameters(declaration ResourcePayload, parameters ConfigParamet
 	return declaration, nil
 }
 
-// MergeDefinitionConfig is the existing resolver seam. It accepts only formal
-// parameters; legacy input conversion belongs to migration and HTTP adapters.
+// MergeDefinitionConfig is retained only for decoding legacy rows during the
+// one-way filesystem migration. Runtime resource selection never calls it.
 func MergeDefinitionConfig(base, overlay json.RawMessage) (json.RawMessage, error) {
 	var declaration ResourcePayload
 	if err := json.Unmarshal(base, &declaration); err != nil {

@@ -80,7 +80,7 @@ func (s *Server) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.pluginFiles == nil {
-		writePluginError(w, errPluginCapabilityUnavailable)
+		writePluginError(w, errPluginFilesUnavailable)
 		return
 	}
 	resources, err := s.pluginFiles.Capture(r.Context(), authority, "")

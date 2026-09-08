@@ -116,16 +116,49 @@ func TestPreparePluginBinariesRealDocker(t *testing.T) {
 
 	workspace := t.TempDir()
 	stableRoot := filepath.Join(t.TempDir(), "public-session")
+	type resourceMount struct {
+		name        string
+		sandboxPath string
+		hostPath    string
+		access      sandboxpkg.MountAccess
+	}
+	resourceMounts := []resourceMount{
+		{name: "system", sandboxPath: filepath.Join(sandboxpkg.MountStellaHome, ".agents"), access: sandboxpkg.MountReadOnly},
+		{name: "system-agent", sandboxPath: filepath.Join(sandboxpkg.MountStellaHome, "agents", "real-agent", ".agents"), access: sandboxpkg.MountReadOnly},
+		{name: "user", sandboxPath: filepath.Join(sandboxpkg.MountStellaHome, "users", "real-user", ".agents"), access: sandboxpkg.MountReadOnly},
+		{name: "user-agent", sandboxPath: filepath.Join(sandboxpkg.MountStellaHome, "users", "real-user", "agents", "real-agent", ".agents"), access: sandboxpkg.MountReadWrite},
+	}
+	resourceSources := map[string]string{sandboxpkg.MountWorkspace: workspace}
+	resourcePolicyMounts := []sandboxpkg.Mount{{SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}}
+	for i := range resourceMounts {
+		mount := &resourceMounts[i]
+		mount.hostPath = filepath.Join(t.TempDir(), mount.name)
+		mode := os.FileMode(0o755)
+		if mount.access == sandboxpkg.MountReadWrite {
+			mode = 0o777
+		}
+		if err := os.MkdirAll(mount.hostPath, mode); err != nil {
+			t.Fatalf("create %s resource root: %v", mount.name, err)
+		}
+		if err := os.Chmod(mount.hostPath, mode); err != nil {
+			t.Fatalf("chmod %s resource root: %v", mount.name, err)
+		}
+		if err := os.WriteFile(filepath.Join(mount.hostPath, "host.txt"), []byte(mount.name+"-host\n"), 0o644); err != nil {
+			t.Fatalf("seed %s resource root: %v", mount.name, err)
+		}
+		resourceSources[mount.sandboxPath] = mount.hostPath
+		resourcePolicyMounts = append(resourcePolicyMounts, sandboxpkg.Mount{SandboxPath: mount.sandboxPath, Access: mount.access})
+	}
 	factory := &dockerFactory{
 		cfg: Config{
 			Image: image, RuntimeMode: DockerSandboxModeHost,
 			SelectionToolBinaries: []ToolBinary{{PluginID: "plugin/a", ConfigID: "cfg/plugin/a", Scope: "user", Revision: 1, PackageDigest: "digest/plugin/a", Name: "tool-a", Tool: "uv", Version: "a"}},
 			StableProjectionID:    "real-docker-" + nonce, StableProjectionHostRoot: stableRoot,
 		},
-		mountSources: map[string]string{sandboxpkg.MountWorkspace: workspace},
+		mountSources: resourceSources,
 		clientFn:     func() (*dockerclient.Client, error) { return client, nil },
 	}
-	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: sandboxpkg.MountWorkspace, Mounts: []sandboxpkg.Mount{{SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}}}, Env: map[string]string{"OLD_TOKEN": "synthetic"}, Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled}}
+	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: sandboxpkg.MountWorkspace, Mounts: resourcePolicyMounts}, Env: map[string]string{"OLD_TOKEN": "synthetic"}, Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled}}
 	var session sandboxpkg.Session
 	var raw *dockerSession
 	defer func() {
@@ -174,6 +207,34 @@ func TestPreparePluginBinariesRealDocker(t *testing.T) {
 	initial, err := raw.Exec(ctx, `test "$OLD_TOKEN" = synthetic`, sandboxpkg.ExecOptions{})
 	if err != nil || initial.ExitCode != 0 {
 		t.Fatalf("initial policy token missing: %+v, %v", initial, err)
+	}
+	for _, mount := range resourceMounts {
+		resourceFile := filepath.Join(mount.sandboxPath, "host.txt")
+		read, readErr := raw.Exec(ctx, fmt.Sprintf("test \"$(cat %s)\" = %s", shellQuote(resourceFile), shellQuote(mount.name+"-host")), sandboxpkg.ExecOptions{})
+		if readErr != nil || read.ExitCode != 0 {
+			t.Fatalf("read %s resource mount = %+v, %v", mount.name, read, readErr)
+		}
+		marker := filepath.Join(mount.sandboxPath, "container-write.txt")
+		write, writeErr := raw.Exec(ctx, fmt.Sprintf("printf '%s\\n' container > %s", mount.name, shellQuote(marker)), sandboxpkg.ExecOptions{})
+		if mount.access == sandboxpkg.MountReadOnly {
+			if writeErr != nil {
+				t.Fatalf("write %s read-only resource mount: %v", mount.name, writeErr)
+			}
+			if write.ExitCode == 0 {
+				t.Fatalf("write %s read-only resource mount unexpectedly succeeded", mount.name)
+			}
+			if _, statErr := os.Stat(filepath.Join(mount.hostPath, "container-write.txt")); !os.IsNotExist(statErr) {
+				t.Fatalf("container write leaked into %s host root, stat err=%v", mount.name, statErr)
+			}
+			continue
+		}
+		if writeErr != nil || write.ExitCode != 0 {
+			t.Fatalf("write %s read-write resource mount = %+v, %v", mount.name, write, writeErr)
+		}
+		got, readErr := os.ReadFile(filepath.Join(mount.hostPath, "container-write.txt"))
+		if readErr != nil || string(got) != mount.name+"\n" {
+			t.Fatalf("host view of %s container write = %q, %v", mount.name, got, readErr)
+		}
 	}
 	turnEnv, err := sandboxpkg.RenderEnv(ctx, raw, map[string]string{"CURRENT": "yes"})
 	if err != nil {

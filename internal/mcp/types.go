@@ -9,8 +9,6 @@
 package mcp
 
 import (
-	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -205,18 +203,6 @@ func sanitizeIdent(s, fallback string) string {
 	return out
 }
 
-// The hash deliberately covers only user-editable metadata: probe results
-// (Status, StatusError, ProbedAt, Tools) are observations, so a probe must
-// never change Version() and invalidate a client's If-Match.
-func registrationHash(r Registration) [32]byte {
-	headers, _ := json.Marshal(r.Headers)
-	return sha256.Sum256([]byte(strings.Join([]string{
-		r.ID, r.ParentConfigID, r.ServerKey, fmt.Sprintf("%d", r.ConfigRevision), r.Scope, r.UserID, r.AgentID, r.Name, r.URL, r.Transport,
-		r.AuthType, r.CredentialRef, fmt.Sprintf("%t", r.Enabled),
-		r.CredentialMode, string(headers), r.UpdatedAt.UTC().Format(time.RFC3339Nano),
-	}, "\x00")))
-}
-
 func credentialName(serverID string) string {
 	return "MCP_TOKEN_" + strings.ToUpper(strings.ReplaceAll(serverID, "-", "_"))
 }
@@ -232,45 +218,4 @@ func oauthBundleName(serverID string) string {
 // OAuth client secret. The table stores only the public client_id.
 func oauthClientSecretName(serverID string) string {
 	return oauthClientSecretPrefix + strings.ToUpper(strings.ReplaceAll(serverID, "-", "_"))
-}
-
-// validateCredentialMode enforces the credential-mode enum and its coupling:
-// per_user is only meaningful for OAuth (each user connects their own
-// account). shared stays the default for every auth type.
-func validateCredentialMode(mode, authType string) error {
-	if mode == "" {
-		return nil
-	}
-	if !ValidCredentialMode(mode) {
-		return fmt.Errorf("%w: mcp: invalid credential_mode %q", plugin.ErrInvalidConfig, mode)
-	}
-	if mode == CredentialModePerUser && authType != AuthTypeOAuth {
-		return fmt.Errorf("%w: mcp: credential_mode %q requires auth_type %q", plugin.ErrInvalidConfig, CredentialModePerUser, AuthTypeOAuth)
-	}
-	return nil
-}
-
-// validateRegistration checks the invariants enforced at every write boundary
-// (HTTP/CLI): known scope, HTTP-based transport, known auth type, non-empty
-// url/name. Enum values are enforced here in Go, not by a DB CHECK.
-func validateRegistration(scope, name, rawURL, transport, authType string, policy EndpointPolicy) error {
-	if !ValidScope(scope) {
-		return fmt.Errorf("%w: mcp: invalid scope %q", plugin.ErrInvalidConfig, scope)
-	}
-	if strings.TrimSpace(name) == "" {
-		return fmt.Errorf("%w: mcp: name is required", plugin.ErrInvalidConfig)
-	}
-	if strings.TrimSpace(rawURL) == "" {
-		return fmt.Errorf("%w: mcp: url is required", plugin.ErrInvalidConfig)
-	}
-	if err := policy.validateEndpointURL(rawURL); err != nil {
-		return fmt.Errorf("%w: %w", plugin.ErrInvalidConfig, err)
-	}
-	if !ValidTransport(transport) {
-		return fmt.Errorf("%w: mcp: unsupported transport %q: only %q and %q are allowed (stdio is not supported)", plugin.ErrInvalidConfig, transport, TransportStreamableHTTP, TransportSSE)
-	}
-	if !ValidAuthType(authType) {
-		return fmt.Errorf("%w: mcp: invalid auth_type %q", plugin.ErrInvalidConfig, authType)
-	}
-	return nil
 }

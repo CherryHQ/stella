@@ -198,7 +198,7 @@ func TestGeneratedToolDescriptionsStayWithinTheWordBudget(t *testing.T) {
 		return controlplane.NewPluginManagementTool(s, nil)
 	})
 	collect(mcp.SettingsMcpActionTools(), func(s toolmeta.ActionTool) pkgtools.Tool {
-		return mcp.NewManagementTool(s, nil)
+		return mcp.NewFileManagementTool(s, func() *mcp.FileService { return nil })
 	})
 
 	var seen int

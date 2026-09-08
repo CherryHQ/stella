@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	internalmcp "github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -33,7 +34,7 @@ func (f fakeBuiltinTool) Execute(context.Context, map[string]any) (string, error
 
 type fakeMCPToolProvider struct{}
 
-func (fakeMCPToolProvider) ToolsForSnapshotWithDirectoryForPlugins(context.Context, plugin.Snapshot, []string) (pkgplugins.MCPToolSnapshot, error) {
+func (fakeMCPToolProvider) ToolsForFileSession(context.Context, *internalmcp.FileSession, []plugin.FileResource, authz.Authority) (pkgplugins.MCPToolSnapshot, error) {
 	return pkgplugins.MCPToolSnapshot{}, nil
 }
 

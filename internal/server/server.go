@@ -62,7 +62,6 @@ type Server struct {
 	linkCodes       *auth.LinkCodeStore
 	poolManager     *agent.PoolManager
 	pluginHost      *host.Host
-	pluginSvc       *pluginpkg.Service
 	pluginFiles     *pluginpkg.FileService // optional; file-backed plugin endpoints
 	nativePolicy    *pluginpkg.NativePolicy
 	weixinRegistrar WeixinRegistrar
@@ -78,7 +77,6 @@ type Server struct {
 	mcpFiles             *mcp.FileService      // optional; file-backed MCP endpoints
 	agentMCPCatalog      agent.MCPCatalogFunc  // optional; authority-bound file MCP tools
 	mcpCatalog           mcp.Catalog           // optional; if nil, registry endpoints return 503
-	mcpAccess            *mcp.Access           // optional; shared scoped MCP authority boundary
 	credResolver         *credential.Service   // unified bearer credential front door
 	oauthAS              *oidc.Service         // OAuth2 authorization server
 	controlPlane         *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
@@ -186,14 +184,11 @@ type Deps struct {
 	LinkCodes *auth.LinkCodeStore
 	OIDC      OIDCDeps
 
-	// Agent runtime + plugins.
+	// Agent runtime and native plugin host.
 	PoolManager *agent.PoolManager
 	PluginHost  *host.Host
-	// PluginService is the unified definition/configuration authority. It is
-	// optional during the staged cutover; its API returns 503 when absent.
-	PluginService *pluginpkg.Service
-	// PluginFiles is the authority-bound file-backed plugin capability. It is
-	// optional during the migration; file endpoints return 503 when absent.
+	// PluginFiles is the authority-bound file-backed plugin capability. File
+	// endpoints return 503 when it is absent.
 	PluginFiles  *pluginpkg.FileService
 	NativePolicy *pluginpkg.NativePolicy
 	BuiltinTools []agent.BuiltinTool
@@ -245,7 +240,6 @@ type Deps struct {
 	MCPFiles        *mcp.FileService
 	AgentMCPCatalog agent.MCPCatalogFunc
 	MCPCatalog      mcp.Catalog
-	MCPAccess       *mcp.Access
 	Scheduler       *scheduler.Service
 	Goal            *goal.Service
 	Workflow        *workflowpkg.Service
@@ -355,7 +349,6 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		poolManager:          deps.PoolManager,
 		pinger:               deps.Pinger,
 		pluginHost:           deps.PluginHost,
-		pluginSvc:            deps.PluginService,
 		pluginFiles:          deps.PluginFiles,
 		nativePolicy:         deps.NativePolicy,
 		weixinRegistrar:      deps.WeixinRegistrar,
@@ -370,7 +363,6 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		mcpFiles:             deps.MCPFiles,
 		agentMCPCatalog:      deps.AgentMCPCatalog,
 		mcpCatalog:           deps.MCPCatalog,
-		mcpAccess:            deps.MCPAccess,
 		credResolver:         deps.CredentialFrontDoor,
 		oauthAS:              deps.OAuthAuthServer,
 		controlPlane:         deps.ControlPlane,

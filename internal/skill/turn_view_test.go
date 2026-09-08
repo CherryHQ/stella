@@ -345,28 +345,6 @@ func TestFailedExternalPackageMasksBuiltinFallback(t *testing.T) {
 	}
 }
 
-func TestActiveTurnOwnerReleasesWholeView(t *testing.T) {
-	digest := "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-	view, err := NewSkillTurnView(nil, []ManagedSkillRef{{Identity: Skill{ID: "managed", Scope: "user", Name: "same", ContentDigest: digest}}}, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var owner ActiveTurnOwner
-	if err := owner.Register("turn-1", view); err != nil {
-		t.Fatal(err)
-	}
-	if got := len(owner.Snapshot()); got != 1 {
-		t.Fatalf("active turns=%d, want 1", got)
-	}
-	if err := owner.Register("turn-1", view); err == nil {
-		t.Fatal("duplicate turn registration succeeded")
-	}
-	owner.Release("turn-1")
-	if got := len(owner.Snapshot()); got != 0 {
-		t.Fatalf("active turns after release=%d, want 0", got)
-	}
-}
-
 func TestDisabledManagedWinnerMasksBuiltinWithSameName(t *testing.T) {
 	digest := "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 	view, err := NewSkillTurnView(nil, []ManagedSkillRef{{Identity: Skill{ID: "system-agent-lark", Scope: "system_agent", AgentID: "agent-1", Name: "lark-cli", ContentDigest: digest}}}, nil, []string{"system_agent:lark-cli"})

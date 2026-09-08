@@ -58,9 +58,9 @@ type LegacySkillSettingsExport struct {
 // revision while holding the managed-Skill mutation lock. Callers must run the
 // old PostgreSQL-to-POSIX migrator first so the selector and immutable revision
 // are present in the legacy roots.
-func (s *POSIXStore) PrepareLegacyFileExport(ctx context.Context) (prepared PreparedLegacyFileExport, resultErr error) {
+func (s *LegacySkillStore) PrepareLegacyFileExport(ctx context.Context) (prepared PreparedLegacyFileExport, resultErr error) {
 	if s == nil {
-		return prepared, errors.New("skills: POSIX store is required")
+		return prepared, errors.New("skills: legacy Skill store is required")
 	}
 	release, err := s.lockManagedMutationsForMigration(ctx)
 	if err != nil {
@@ -140,7 +140,7 @@ func (s *POSIXStore) PrepareLegacyFileExport(ctx context.Context) (prepared Prep
 // listIdentityByScopeForMigration is deliberately separate from the runtime
 // method: startup has fenced managed writes and must still read the authority
 // while the runtime availability gate is closed.
-func (s *POSIXStore) listAllIdentitiesForMigration(ctx context.Context) ([]Skill, error) {
+func (s *LegacySkillStore) listAllIdentitiesForMigration(ctx context.Context) ([]Skill, error) {
 	rows, err := s.db.Query(ctx, `SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill ORDER BY created_at, id`)
 	if err != nil {
 		return nil, err
@@ -168,7 +168,7 @@ func legacySelectorUnavailable(err error) bool {
 	return errors.Is(err, errCurrentSkillSelectorMissing) || errors.Is(err, syscall.EINVAL)
 }
 
-func (s *POSIXStore) loadArchivedIdentityForMigration(ctx context.Context, identity Skill) (managedSnapshot, error) {
+func (s *LegacySkillStore) loadArchivedIdentityForMigration(ctx context.Context, identity Skill) (managedSnapshot, error) {
 	root, err := s.openExistingSkillRoot(ctx, identity)
 	if err != nil {
 		return managedSnapshot{}, err

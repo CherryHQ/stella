@@ -49,11 +49,6 @@ func (s *Server) writeConflictOrInternal(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) writeManagedSkillError(w http.ResponseWriter, err error) {
-	if errors.Is(err, skill.ErrManagedSkillsPending) {
-		w.Header().Set("Retry-After", "5")
-		writeError(w, http.StatusServiceUnavailable, "managed Skills are initializing; retry shortly")
-		return
-	}
 	if errors.Is(err, skill.ErrManagedSkillsUnavailable) {
 		writeError(w, http.StatusServiceUnavailable, "managed Skills are unavailable; check the server log, repair the reported storage problem, and restart Stella")
 		return
@@ -199,10 +194,6 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 	out := make([]skillView, 0, len(rows))
 	for i := range rows {
 		revision, err := s.skillManagement.Get(r.Context(), authority, rows[i].ID)
-		if skill.IsCurrentSelectorMissing(err) {
-			s.warnMissingSkillSelector(rows[i], err)
-			continue
-		}
 		if err != nil {
 			s.writeManagedSkillError(w, err)
 			return

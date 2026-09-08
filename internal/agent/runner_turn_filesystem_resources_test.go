@@ -230,10 +230,6 @@ type filesystemMCP struct {
 	calls [][]plugin.FileResource
 }
 
-func (m *filesystemMCP) ToolsForSnapshotWithDirectoryForPlugins(context.Context, plugin.Snapshot, []string) (pkgplugins.MCPToolSnapshot, error) {
-	return pkgplugins.MCPToolSnapshot{}, nil
-}
-
 func (m *filesystemMCP) NewFileSession() *internalmcp.FileSession {
 	return internalmcp.NewFileSession(nil)
 }

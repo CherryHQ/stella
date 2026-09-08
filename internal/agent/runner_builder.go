@@ -33,7 +33,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
@@ -44,19 +43,11 @@ type (
 	PluginContextBuilder = agentruntime.PluginContextBuilder
 )
 
-// MCPToolProvider surfaces external MCP-server tools from the runner's
-// authority-bound plugin snapshot. The package allow-list is mandatory so a
-// failed package cannot reach MCP connection or discovery code. Implemented by
-// *mcp.ToolProvider; kept as an interface here so the agent package need not
-// depend on MCP internals.
+// MCPToolProvider discovers external MCP-server tools from the resources
+// captured for one filesystem-backed turn. Implemented by *mcp.ToolProvider;
+// kept as an interface here so the agent package need not depend on MCP
+// internals.
 type MCPToolProvider interface {
-	ToolsForSnapshotWithDirectoryForPlugins(context.Context, plugin.Snapshot, []string) (pkgplugins.MCPToolSnapshot, error)
-}
-
-// FileMCPToolProvider discovers tools directly from the resources captured for
-// one filesystem-backed turn. It is optional so the legacy database provider
-// and small test providers do not need to own file-session connections.
-type FileMCPToolProvider interface {
 	ToolsForFileSession(context.Context, *internalmcp.FileSession, []plugin.FileResource, authz.Authority) (pkgplugins.MCPToolSnapshot, error)
 }
 
@@ -166,21 +157,6 @@ func newRunnerScratch(stellaHome string) (string, func() error, error) {
 		defer cleanupMu.Unlock()
 		if cleaned {
 			return nil
-		}
-		allowed, err := sandboxpkg.CleanupAllowed(context.Background(), stellaHome)
-		if err != nil {
-			return err
-		}
-		if !allowed {
-			// A native backend left a durable recovery marker. Its process may
-			// still use this directory as cwd after Close returned, so retain the
-			// bytes for recovery but release this runner's root handle. The marker
-			// owns later cleanup; this path must not strand a dead runner.
-			cleanupErr := root.Close()
-			if cleanupErr == nil {
-				cleaned = true
-			}
-			return cleanupErr
 		}
 		if err := root.RemoveAll(name); err != nil {
 			return err
@@ -461,11 +437,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				pluginContext, err = cfg.PluginContextBuilder(ctx, authority, params.AgentID)
 				if err != nil {
 					return nil, fmt.Errorf("runner: build plugin context: %w", err)
-				}
-				if params.BuildOwner != nil {
-					if err := params.BuildOwner.SetPluginContext(pluginContext); err != nil {
-						return nil, fmt.Errorf("runner: publish plugin context ownership: %w", err)
-					}
 				}
 				hasPluginAuthority = true
 			}

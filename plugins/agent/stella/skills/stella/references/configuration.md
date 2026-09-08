@@ -18,132 +18,65 @@ On first run, Stella creates an enabled `stella` agent without a provider or mod
 
 An Agent manager can opt one Agent into a limited subset of conversational
 Settings tools in **Profile → Configuration → Advanced configuration**. Built-in
-Stella starts enabled, including after an upgrade; every other new Agent starts
-disabled until its manager opts in. When enabled, these cold Code Mode tools are discovered only in a signed-in,
-foreground one-to-one `main` or `chat` session. They remain unavailable in group
-or guest chat, webhooks, scheduler/task/delegate workers, and Agent-originated
+Stella starts enabled, including after an upgrade; other Agents start disabled until their manager opts in.
+When enabled, these cold Code Mode tools are available only in a signed-in,
+foreground one-to-one `main` or `chat` session. They remain unavailable in
+groups, guests, webhooks, scheduler/task/delegate workers, and Agent-originated
 `session_send`. Catalog visibility is not permission: every call rechecks the
-durable Agent setting, direct human Authority, and the domain's normal access
-policy.
+durable Agent setting, direct human authority, and domain policy.
 
 ### Capability matrix
 
-| Area                     | Exact tools                                                                                                                                                                  | Who and what they can manage                                                                                                                                                                                                                                                                                                   |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Agents                   | `settings_agent_list`, `settings_agent_get`, `settings_agent_create`, `settings_agent_update`, `settings_agent_delete`                                                       | The caller's normally readable or manageable Agents. Existing Agent policy decides whether a caller may create, manage, or delete a given Agent. Agent workspace, sandbox policy, assignments, and provider credentials are excluded.                                                                                          |
-| Per-Agent tool overrides | `settings_agent_tool_list`, `settings_agent_tool_update`, `settings_agent_tool_delete`                                                                                       | An Agent the caller may manage. Update sets one override; delete removes it and restores the normal visibility decision.                                                                                                                                                                                                       |
-| Library files            | `settings_library_file_list`, `settings_library_file_get`, `settings_library_file_upload`, `settings_library_file_delete`                                                    | `user` and `user_agent` scopes allowed to the caller. An administrator may also use `system` and `system_agent`; an Agent target is separately authorized.                                                                                                                                                                     |
-| Managed Skills           | `settings_skill_list`, `settings_skill_get`, `settings_skill_create`, `settings_skill_update`, `settings_skill_delete`                                                       | The same `user`/`user_agent` scopes, plus `system`/`system_agent` for an administrator and an authorized Agent target. These are managed-Skill records, not `skill_installed_search` or `skill_load`.                                                                                                                          |
-| Providers                | `settings_provider_list`, `settings_provider_get`, `settings_provider_create`, `settings_provider_update`, `settings_provider_delete`                                        | Administrator only. The view is redacted and exposes `credential_configured`, never an API key or credential reference.                                                                                                                                                                                                        |
-| Default models           | `settings_default_model_get`, `settings_default_model_update`                                                                                                                | Administrator only. Covers the deployment's default, thinking, strong, fast, vision, and embedding model roles.                                                                                                                                                                                                                |
-| Embedding settings       | `settings_embedding_setting_get`, `settings_embedding_setting_update`                                                                                                        | Administrator only. Covers enabled state, dimension, and normalization, not a separate provider credential or endpoint.                                                                                                                                                                                                        |
-| Plugins                  | `settings_plugin_list`, `settings_plugin_enable`, `settings_plugin_disable`                                                                                                  | Administrator only. Use the exact `plugin_id` returned by the list; there is no `plugin_get` or arbitrary plugin-config write tool.                                                                                                                                                                                            |
-| MCP registrations        | `settings_mcp_server_list`, `settings_mcp_server_get`, `settings_mcp_server_create`, `settings_mcp_server_update`, `settings_mcp_server_delete`, `settings_mcp_server_probe` | `user` and `user_agent` scopes allowed to the caller; an administrator may also use `system` and `system_agent`, with a separately authorized Agent target. Probe connects, lists the server's tools, and persists status plus the tool catalog; a failed probe still returns the registration with a redacted `status_error`. |
+| Area                                | Tools or surface                                                                  | Scope                                                             |
+| ----------------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Agents and per-Agent tool overrides | `settings_agent_*`, `settings_agent_tool_*`                                       | Agents the caller may manage                                      |
+| Library files                       | `settings_library_file_*`                                                         | user/user-agent, plus system scopes for authorized administrators |
+| Skills and packages                 | `settings_skill_*`, Web UI, resource API                                          | complete files in the caller's writable scope                     |
+| Providers and model defaults        | `settings_provider_*`, `settings_default_model_*`, `settings_embedding_setting_*` | administrator only                                                |
 
-### Read, version, then mutate
+Resource management operates on complete files. Read the current resource before
+an update or delete and use its current digest when the API exposes one. A
+conflict means the bytes changed; read again before retrying. Copying creates an
+independent package and does not establish an update link.
 
-A mutation that replaces or deletes an existing resource requires the opaque
-`version` returned by the corresponding read:
+Runtime `skill_load` reads the selected turn view. It is separate from editing a
+Skill or package. MCP declarations are edited as standalone files or package
+files; their OAuth grants are separate. Delete removes the declaration. Use
+Disconnect to revoke the matching locally stored grant, close its connection,
+and block late callbacks or refreshes; remote provider revocation is not
+guaranteed.
 
-- `settings_agent_update` and `settings_agent_delete` use `settings_agent_get`.
-- `settings_agent_tool_update` and `settings_agent_tool_delete` use `settings_agent_tool_list`. For a
-  first override, use the listed opaque absent version; after that use the
-  override's returned version.
-- `settings_library_file_delete`, `settings_skill_update`, and `settings_skill_delete` use their `get`
-  result.
-- `settings_provider_update` and `settings_provider_delete` use `settings_provider_get`.
-- `settings_default_model_update` and `settings_embedding_setting_update` use their `get`
-  result.
-- `settings_mcp_server_update` and `settings_mcp_server_delete` use `settings_mcp_server_get`.
-- `settings_mcp_server_probe` addresses a registration by `id` and needs no version; it refreshes the probe `status` and the persisted tool catalog.
+The execution summary records the actual files, content summaries, authorization,
+preparation evidence, and selected resources admitted for a turn. It is not
+rebuilt from files after the fact. A turn started before an edit keeps its
+captured view; the next turn reads the new bytes.
 
-A version conflict means the resource changed. Read it again before deciding
-whether to retry. Creation and Library upload do not take an expected version;
-their results include the server-selected ID and current version. Plugin enable
-and disable address `kind` plus `name` and do not take an expected version.
-
-A managed Skill update cannot change its scope or owner. To promote a Skill,
-keep the source in place while creating it in the target scope from the same
-directory, verify the target with `settings_skill_get`, then delete the source
-using its version. The same name may exist in different scopes. If create says
-the name already exists in the target scope, list that scope and update the
-matching Skill instead of retrying create.
-
-`settings_skill_create` and `settings_skill_update` read a complete Agent Skills
-directory or ZIP from a sandbox path. They are management operations, not
-runtime `skill_load`: the latter reads the selected exact revision for the
-current turn. Remote source installation, browser ZIP upload, package import,
-and plugin credential binding remain Web UI or API operations. A successful
-managed-Skill mutation publishes a new immutable revision; an already admitted
-turn keeps the revision it captured.
-
-Plugin configuration summaries and the package update preview describe declared
-or configured resources. Preview validates a candidate package and reports its
-digest, resource names, OAuth changes, and incompatible scopes. It does not
-install a CLI, connect an MCP server, or grant OAuth access. Runtime admission
-prepares the selected package resources and can still fail because an account
-grant, CLI installation, or remote connection is unavailable. Disabling a
-plugin blocks new turns but does not revoke an OAuth grant. Use the owning
-account, OAuth, assignment, or Vault control to revoke access.
-
-The per-user message execution summary is the receipt for an admitted turn. It
-records the immutable package version/digest, config ID/scope/revision,
-authorization/readiness, Skill winner state (`selected`, `masked`, or
-`overridden`), and binary requested/resolved versions with backend, selection
-identity, and source installation evidence. A reused ready cache can leave the
-resolved version or installation evidence unknown. Turns recorded before this
-metadata existed have no historical summary; do not reconstruct one from the
-current package configuration.
-
-Retiring a package or deleting a managed Skill can remain `cleanup_pending` while
-active turns, Reflect usage, or runner resources still reference its files. The
-local and `none` sandbox backends keep a recovery marker when descendant
-termination is uncertain; that marker is never removed automatically and can
-block package and managed-Skill cleanup across the deployment indefinitely,
-including after a normal turn close. There is currently no product command or
-safe automated recovery path that clears it. There is no TTL or PID guess that
-safely clears this state.
+A package or Skill disable blocks future selection but does not revoke OAuth or
+immediately erase resource bytes. Stella does not online-GC resource bytes,
+history, or installation caches. MCP connections are session-owned and close
+with the session; catalog observations are not authority. The local backend
+enforces its sandbox policy but cannot prove detached descendants stopped; the
+`none` backend provides no reliable process isolation. Cleanup requires verified
+process termination.
 
 ### Secrets and trust boundaries
 
 No conversational Settings tool accepts an API key, bearer token, credential
-reference, or another secret. Provider and Agent Provider credentials, MCP
-bearer credentials, and every credential set/replace/delete action remain
-Web UI/API-only. A Provider created through a tool has no key. A Provider whose
-key is already configured cannot change endpoint origin through a tool; use the
-Web UI to intentionally change its credential binding.
+reference, or another secret. Provider credentials, MCP bearer credentials, and
+credential binding changes remain Web UI/API-only. OAuth grants are handled by
+the connection flow and stored in the credential store, never in resource files.
 
-`settings_mcp_server_create` always creates a no-auth registration. `settings_mcp_server_update`
-does not accept auth type or token. A bearer-backed registration may change
-limited safe metadata, but cannot move scope or owner or change endpoint origin
-through a tool. MCP list/get expose redacted metadata such as `auth_type`, `status`, and
-`credential_configured`, never the bearer or credential reference.
-
-The following Settings areas remain Web UI/API-only: Account, Users,
-Provisioning, Channels, Webhooks, OAuth connection configuration, arbitrary
-plugin configuration, Agent workspace and sandbox settings, and every
-credential-binding change. Existing `oauth_*` and `vault_secret_*` tools are
-separate capabilities, not a path to bind credentials to Providers, Agents, or
-MCP registrations.
+Account, Users, Provisioning, Channels, Webhooks, OAuth connection
+configuration, Agent workspace and sandbox settings, and credential changes
+remain outside this capability. Existing OAuth and vault tools are separate
+capabilities, not a path to bind secrets to resource declarations.
 
 ### Result and source bounds
 
-- Agent, Provider, Plugin, and MCP lists return at most 50 entries; a
-  `truncated` flag reports that more entries exist. Agent and MCP calls accept
-  a maximum `limit` of 50.
-- Library list uses `page_size` from 1 through 100 and returns
-  `next_page_token` when another page exists. Library get/list/upload results
-  are metadata only, never raw document bytes.
-- Managed Skill get/list/create/update results expose safe metadata and file
-  names, never file contents. Library upload reads a sandbox file up to 25 MiB;
-  managed Skill create/update reads a complete Agent Skills directory or ZIP
-  archive from `content_path`, including `SKILL.md` and optional resources. A package may
-  contain at most 512 files, 32 MiB per file, and 32 MiB total. Create derives
-  its name, description, and invocation setting from `SKILL.md`; update replaces
-  the complete stored package and requires the same Skill name.
-- Every Code Mode invocation, child result, and final result has a 1 MiB
-  payload ceiling. Treat a bounded or truncated response as incomplete rather
-  than assuming it is a complete export.
+- Resource lists return bounded metadata and may report `truncated`; they never return secret values.
+- Library list uses `page_size` from 1 through 100 and returns `next_page_token` when another page exists.
+- Skill/package create and update read bounded complete trees, including `SKILL.md` and optional resources; malformed or oversized files fail closed.
+- Every Code Mode invocation, child result, and final result has a 1 MiB payload ceiling. Treat a bounded or truncated response as incomplete.
 
 ## Code Mode
 
@@ -163,16 +96,15 @@ The routing rule is deliberately narrow:
 
 Core persisted configuration lives in PostgreSQL tables with domain-specific ownership:
 
-| Table              | Purpose                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------------- |
-| `app_setting`      | Deployment-wide key-value settings                                                          |
-| `agent`            | Agent definitions, model selection, system prompt, and workspace policy                     |
-| `provider`         | Provider type, base URL, models, enabled state, and global credentials                      |
-| `plugin`           | Managed plugin configuration and enabled state; providers and sandbox backends are not rows |
-| `auth_user`        | User accounts and default-Agent preference                                                  |
-| `channel`          | Channel instances, configuration, enabled state, and optional dedicated Agent               |
-| `channel_agent`    | Per-channel chat or group Agent assignment                                                  |
-| `ctx_agent_memory` | Per-user-per-Agent identity, constraints, profile, and memory snapshot state                |
+| Table              | Purpose                                                                       |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `app_setting`      | Deployment-wide key-value settings                                            |
+| `agent`            | Agent definitions, model selection, system prompt, and workspace policy       |
+| `provider`         | Provider type, base URL, models, enabled state, and global credentials        |
+| `auth_user`        | User accounts and default-Agent preference                                    |
+| `channel`          | Channel instances, configuration, enabled state, and optional dedicated Agent |
+| `channel_agent`    | Per-channel chat or group Agent assignment                                    |
+| `ctx_agent_memory` | Per-user-per-Agent identity, constraints, profile, and memory snapshot state  |
 
 ## Multi-agent setup
 
@@ -180,7 +112,7 @@ Each agent has:
 
 - A global Provider + model selection, with an optional API-only key override
 - A system prompt (personality/identity)
-- A user-independent definition and administrator-managed skills area
+- A system-owned resource area and per-Agent resource roots selected by scope
 - A separate sandbox workspace for each user or channel group
 
 Inside a sandbox, `$HOME` is that principal's per-agent workspace, not the
@@ -261,74 +193,93 @@ AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=tenant_key
 
 Built-in OAuth provider IDs: `google`, `github`, `feishu`. Google uses OIDC discovery and verified ID-token email, and must be restricted with `AUTH_OAUTH_GOOGLE_ALLOWED_EMAIL_DOMAINS`; tenant keys are not supported for Google login. Every OAuth provider must set either `AUTH_OAUTH_{PROVIDER}_ALLOWED_EMAIL_DOMAINS` or a provider-supported tenant allowlist; Feishu requires tenant keys because Feishu email fields are directory data, not live mailbox verification. Generic OAuth providers require `email_verified: true` by default; set `AUTH_OAUTH_{PROVIDER}_REQUIRE_EMAIL_VERIFIED=false` only for trusted providers that do not expose that claim. If Feishu does not return an email, Stella uses a stable internal email like `union_id@tenant_key.feishu.local`; configuring `AUTH_OAUTH_FEISHU_ALLOWED_EMAIL_DOMAINS` makes a real matching Feishu email required.
 
-## Settings (key-value)
+## Resource files and settings
 
-Global settings are stored in the `settings` table as JSON values:
+Stella's runtime resource authority is the filesystem. Four typed roots hold
+complete resources:
 
-| Key         | Purpose                                           |
-| ----------- | ------------------------------------------------- |
-| `runner`    | Idle timeout, delegate timeout, compaction config |
-| `scheduler` | Scheduler enabled flag, data directory            |
-| `plugins`   | Array of plugin configs (path + optional config)  |
+| Scope          | Meaning                                                                  |
+| -------------- | ------------------------------------------------------------------------ |
+| `system`       | deployment-wide files at `$STELLA_HOME/.agents/`                         |
+| `system_agent` | files shared by users of one Agent at `agents/{agent}/.agents/`          |
+| `user`         | one user's files across Agents at `users/{user}/.agents/`                |
+| `user_agent`   | one user's files for one Agent at `users/{user}/agents/{agent}/.agents/` |
 
-## Directory layout
+Project Skills live under the project's `.agents/skills/` and take precedence
+only for Skill selection. Complete package selection uses the four roots in the
+order `user_agent > user > system_agent > system`. A narrower package replaces
+the broader package; it does not merge or inherit later source edits. A copied package has no parent link. Standalone
+Skills and `mcp/<name>.json` declarations are independent files.
 
-All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
+`settings.json` is the policy surface for a resource root. It contains only
+`disabled`, administrator-only `forbidden`, and `disabled_tools`. A disabled or
+invalid winner masks the inherited candidate. It does not contain endpoint
+configuration, secret values, database IDs, revisions, or installation state.
 
-| Operator path                                      | Purpose                                                                                                         |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `postgres/`                                        | Embedded PostgreSQL data directory (all config; absent when `STELLA_DATABASE_URL` points at an external server) |
-| `pg-runtime/`                                      | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`                               |
-| `cache/sandbox-tmp/`                               | Docker sandbox temporary directories; scratch, removed when stale                                               |
-| `.agents/db-skills/`                               | Mutable system Skill authority: immutable digest revisions plus atomic current selectors                        |
-| `agents/{agent_id}/`                               | User-independent Agent definition tree                                                                          |
-| `agents/{agent_id}/.agents/skills/`                | Mutable system-Agent Skill authority: immutable digest revisions plus atomic current selectors                  |
-| `users/{user_id}/.agents/skills/`                  | Mutable user Skill authority: immutable digest revisions plus atomic current selectors                          |
-| `users/{user_id}/.agents/agent-skills/{agent_id}/` | Mutable user-Agent Skill authority: immutable digest revisions plus atomic current selectors                    |
-| `users/{user_id}/agents/{agent_id}/`               | This user's per-principal Agent Home; sandbox `$HOME` and initial working directory                             |
-| `users/group-{group_id}/agents/{agent_id}/`        | This channel group's per-principal Agent Home; sandbox `$HOME` and initial working directory                    |
-| `users/{principal}/data/`                          | User or group Principal Home: shared principal data and uploads                                                 |
-| `runner-scratch/runner-*`                          | Disposable user-less-run workspace; never durable Home authority                                                |
-| `users/{principal}/data/assets/`                   | Uploaded assets; inside the sandbox, use `$STELLA_ASSETS_DIR` rather than an operator path                      |
-| `users/{principal}/.mise-tools/`                   | Managed per-user or per-group toolchain; shared by that principal's agents                                      |
+Runtime captures selected bytes at turn admission. File edits affect the next
+turn, while the current turn keeps its fixed Skill, CLI, environment, and MCP
+view. Existing connections and unchanged CLI artifacts may be reused when the
+captured identity still matches. Direct shell edits are supported but are not a
+multi-file transaction.
+
+MCP declarations keep public endpoint fields and opaque credential references
+in files. OAuth grants, bearer tokens, refresh tokens, and client secrets stay
+in the credential store. Deleting a declaration does not disconnect OAuth. Use
+Disconnect to revoke the matching locally stored grant, close its connection,
+and block late callbacks or refreshes; remote provider revocation is not
+guaranteed.
+
+The runtime does not online-GC resource bytes, history, or installation caches.
+MCP connections are session-owned and close with the session. The local backend
+enforces its sandbox policy but cannot prove detached descendants stopped; the
+`none` backend provides no reliable process isolation. Cleanup requires an
+explicit maintenance action after processes and descendants are proven stopped.
+A TTL or guessed PID is not sufficient.
+
+## Operator directory layout
+
+All paths below are relative to `$STELLA_HOME` (`~/.stella` by default).
+
+| Operator path                        | Purpose                                                         |
+| ------------------------------------ | --------------------------------------------------------------- |
+| `postgres/`                          | embedded PostgreSQL data, absent with `STELLA_DATABASE_URL`     |
+| `pg-runtime/`                        | downloaded embedded PostgreSQL runtime                          |
+| `cache/sandbox-tmp/`                 | Docker scratch directories; retain until cleanup is proven safe |
+| `agents/{agent_id}/`                 | one Agent's durable Home and system-agent resources             |
+| `users/{user_id}/agents/{agent_id}/` | one user's Agent Home and user-agent resources                  |
+| `users/{principal}/data/`            | principal-shared data and uploaded assets                       |
+| `users/{principal}/.mise-tools/`     | principal-shared CLI artifacts and cache                        |
+| `runner-scratch/runner-*`            | disposable user-less-run scratch, never durable authority       |
+
+`{principal}` is a user ID or `group-{group_id}`. Agents should use `$HOME` for
+private workspace files and `$STELLA_ASSETS_DIR` for shared deliverables, never
+operator paths. `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, and
+`XDG_CACHE_HOME` are principal-shared CLI state, not Agent resource roots.
+
+PostgreSQL owner rows authorize workspace access. `WorkspaceManager` creates
+missing roots only for live owners and rejects symlinks, non-directories, unsafe
+IDs, and replacement of trusted roots. Run restore and root cleanup while
+Stella is stopped. Physical bytes remain after destructive owner deletion, but
+future access fails owner validation.
 
 ## Skills and release bundles
 
-Release-provided builtins are immutable `builtin:<name>` entries from `resources.Registry`. Their only authority is the content-addressed release bundle. Native `local` and `none` execution installs the exact bundle at `$STELLA_HOME/bundles/<revision>`; isolating execution sees that bundle read-only at `/opt/stella/skills/builtin`. `/opt` is only an execution coordinate. Helper executable modes are preserved.
+Release Skills are immutable files in the release bundle. `local` and `none`
+use `$STELLA_HOME/bundles/<revision>`; isolating backends project the matching
+bundle read-only at their execution coordinate. This bundle is separate from
+mutable `system`, `system_agent`, `user`, and `user_agent` resources.
 
-Project Skills remain ordinary files in durable Agent/project working trees. Mutable `system`, `system_agent`, `user`, and `user_agent` current-state metadata and complete file trees are authoritative only in the typed Home roots above. Each current selector names one immutable content-digest revision; PostgreSQL keeps identity, policy, usage, provenance, and migration evidence, not mutable current-state bytes. `system:<name>` is a mutable administrator-installed global Skill, `system_agent:<name>` is a mutable Agent-bound administrator Skill, and neither is a release builtin.
+Package and standalone Skill files pass the same frontmatter and size checks.
+The model receives only the selected turn view and a disposable load path, not a
+complete authority root or another user's files. Historical usage and changelog
+evidence remain available for reflection, but are not an online byte collector.
 
-The model never receives a complete mutable Skill authority root. After identity and actor/Agent policy authorization, `skill_load` copies only the selected exact current revision to the active sandbox Session's temporary directory and returns that disposable execution path. Historical, deleted, disabled, deprecated, and other actors' revisions are not part of that view.
-
-Skills are enabled per Agent by default. An administrator or durable Agent creator changes one shared setting. Stella selects the precedence winner before applying that policy, so disabling it never reveals a lower same-name Skill. Activation is independent of content-edit permission and `disable_model_invocation`. An admitted turn keeps its snapshot; the next turn sees a committed change. The database migration canonicalizes historical policy shapes before the strict runtime decoder is used; dangling disabled references are inert until explicitly cleared.
-
-For an exact operator command syntax, run `stellad system-bundle --help`. Docker sandbox images bake and label the matching bundle revision, never fall back to host builtins, and Docker provider preflight prevents a runner session from starting if their revision differs from the binary. Developers rebuild the local image with `mise run sandbox:docker:build`; rebuild custom images from the matching Stella revision.
-
-An upgrade with existing PostgreSQL `skill_file` bytes queues their migration in the background and starts serving unrelated capabilities immediately. Managed Skill reads and writes remain unavailable until cutover succeeds, preventing runtime traffic from racing the legacy inventory; Agent turns continue with release-builtin and Project Skills only. Stella inventories the source twice, quarantines conflicting flat filesystem mirrors, publishes and verifies immutable Home revisions, then atomically records completion and scrubs the legacy bytes. Invalid legacy source data keeps managed Skills disabled and logs the affected Skill and recovery action without blocking unrelated server capabilities; repair the reported data and restart Stella to retry.
-
-`{principal}` is a user ID or `group-{group_id}`. These are deterministic paths
-under the single POSIX `STELLA_HOME`, not registry locators. Agents should use their sandbox variables and ordinary relative paths:
-`$HOME` for their workspace and `$STELLA_ASSETS_DIR` for uploaded assets. Persistent
-XDG state is stored under the principal's `data/` tree; it is not an agent
-workspace.
-
-PostgreSQL owner rows authorize workspace access. The sole production
-`WorkspaceManager` creates a missing root for live owners and rejects symlinks,
-non-directories, unsafe IDs, and replacement of the trusted root. The filesystem
-owns the bytes; back it up with PostgreSQL. Any entry at `agents/{id}` reserves
-that global Agent ID. Run restore and root cleanup while Stella is stopped.
-
-An explicit destructive user, group, or Agent delete fences execution before the
-database transaction removes the owner. Physical bytes and inodes remain, while
-subsequent workspace access fails owner validation.
-Removing an assignment or member, archiving a Session, and uninstalling Helm do not
-delete workspace bytes. Do not manually clean workspace roots while Stella is running.
-Multi-replica, Kubernetes, and S3 authority require a future redesign.
-
-`runner-scratch/` is trusted host-owned structural state. Normal close and
-construction failure clean each disposable child best-effort; crash or trusted
-host tampering may leave children. Isolating providers mount only the exact child.
-Clean leftovers only while Stella is stopped or affected consumers are fenced.
+Use `stellad system-bundle --help` for bundle commands. Docker images must be
+built from the matching Stella release; the provider refuses a mismatched
+bundle. During an upgrade, the migration publishes complete files to typed
+roots, records source and target digests, and stops on a conflict. It does not
+silently overwrite a different file tree or use old database declarations as a
+runtime fallback.
 
 ## Environment variables
 

@@ -35,13 +35,43 @@ Use `view_image` to inspect image contents. Use `bash` with `xberg extract` for 
 
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, and `XDG_CACHE_HOME` are principal-shared and CLI-managed, not generic storage. They fall back under `$HOME` without a principal root; `XDG_RUNTIME_DIR` is unset. Mise, Lark, and system directories are tool-managed. Mise resolves Stella's read-only system tools, then principal-global configuration, then workspace configuration. Use `mise use --global --pin <tool>@<version>` for a personal default and project-local `mise use --pin <tool>@<version>` for a workspace requirement.
 
-## Skills
+## File resources and Skills
 
-Release builtins (`builtin:<name>`) are immutable and come only from the release bundle. Administrator-installed global (`system:<name>`) and Agent-bound (`system_agent:<name>`) Skills remain mutable and separately managed. `skill_installed_search` and `skill_load` are runtime read/use tools; when conversational Settings tools are enabled, `settings_skill_list/get/create/update/delete` can manage owned managed Skills. For current authorities, per-Agent activation, package configuration, and upgrade checks, read [references/configuration.md](references/configuration.md) or [references/update.md](references/update.md) before advising an operator.
+Skills and package resources are ordinary files. Stella reads four typed scopes:
+`system`, `system_agent`, `user`, and `user_agent`; project Skills under
+`.agents/skills/` are more specific than resource-root Skills. Complete package
+selection uses the four roots in this order:
 
-Plugin configuration and package update preview describe declared or configured resources. They do not install a CLI, connect an MCP server, or grant OAuth access. Stella prepares the selected package resources at turn admission, so a real turn can still report a missing authorization, failed CLI preparation, or remote connection error. Disabling a plugin blocks new turns but does not revoke an existing OAuth grant; use the owning account, OAuth, assignment, or Vault control for revocation.
+```
+user_agent > user > system_agent > system
+```
 
-For a turn's actual execution details, use the per-user message execution summary, not current package configuration. It records the admitted package version/digest, config ID/scope/revision, authorization/readiness, Skill winner state (`selected`, `masked`, or `overridden`), and CLI requested/resolved versions with backend/source installation evidence. A reused ready cache may leave resolved or installation evidence unknown; turns from before this metadata existed have no historical summary.
+A selected package replaces the complete package at broader scopes. Its Skills,
+CLI entries, environment bindings, and MCP declarations are selected together.
+A copied package is independent and does not receive later source edits.
+Standalone Skills and MCP files remain independent resources.
+
+The Web UI and APIs edit the same files that runtime discovery reads. An edit
+made during a turn applies on the next turn; the current turn keeps its captured
+files and connection targets. `settings.json` can disable resources and carries
+administrator-only `forbidden` and `disabled_tools` limits. A disabled or
+invalid winner masks inherited resources. Native tools remain separate compiled
+capabilities.
+
+`skill_installed_search` and `skill_load` read the selected files. Settings
+Skill tools, when enabled, edit complete owned directories or packages. Do not
+invent a parent revision, package ID, selector, or registration record for a
+file resource. Deleting an MCP file does not revoke OAuth. Use the MCP
+Disconnect action to locally revoke the matching grant, close its connection,
+and block late callbacks or refreshes; remote provider revocation is not
+guaranteed. Resource bytes remain until verified maintenance can clean them.
+
+The local backend enforces its configured sandbox policy but cannot prove that
+detached descendants stopped. The `none` backend provides no reliable process
+isolation. Do not promise that a normal turn close permits cleanup, and do not
+clear retained resource bytes with a TTL or guessed process ID. Read
+[references/configuration.md](references/configuration.md) for operator paths
+and [references/update.md](references/update.md) for upgrades.
 
 ## Architecture
 
@@ -133,8 +163,6 @@ settings_skill_*                # Stella-only managed-Skill CRUD
 settings_provider_*             # Stella-only admin Provider metadata CRUD
 settings_default_model_*        # Stella-only admin deployment default-model read/update
 settings_embedding_setting_*    # Stella-only admin embedding-setting read/update
-settings_plugin_*               # Stella-only admin plugin list/enable/disable
-settings_mcp_server_*           # Stella-only scoped MCP plugin configuration and probing
 session_*                       # agent session discovery, bounded retrieval, and synchronous communication
 ```
 
@@ -158,13 +186,13 @@ administrator instead of retrying.
 
 Configuration tools are cold Code Mode tools. Built-in `stella` starts with them enabled; every other Agent starts disabled until its manager opts in through Profile → Configuration → Advanced configuration. A manager may also turn them off for Stella. An enabled Agent offers them only in a signed-in human's foreground one-to-one `main` or `chat` session. They are unavailable to groups, guests, webhook turns, scheduler/task/delegate workers, and Agent-originated `session_send`. Discovery is not authority: each call rechecks the durable Agent setting, direct human authority, and the relevant domain permission.
 
-Read before you change state. `settings_agent_update`/`settings_agent_delete`, `settings_agent_tool_update`/`settings_agent_tool_delete`, `settings_library_file_delete`, `settings_skill_update`/`settings_skill_delete`, `settings_provider_update`/`settings_provider_delete`, `settings_default_model_update`, `settings_embedding_setting_update`, and `settings_mcp_server_update`/`settings_mcp_server_delete` require the opaque `version` returned by their matching `get` or `list` result. On a conflict, read again before choosing the next mutation. `settings_agent_tool_list` supplies an `absent` version for the first override; later mutations use that override's returned version. MCP tools appear alongside Native tools; use their exact exported names from the catalog. Their catalog follows the selected plugin configuration and credential owner. Tool policies retain plugin ID, server entry key and raw remote tool identity when a configuration changes; never infer permissions from the display name. Create and upload results include the selected ID and current version.
+Read before you change state. `settings_agent_update`/`settings_agent_delete`, `settings_agent_tool_update`/`settings_agent_tool_delete`, `settings_library_file_delete`, `settings_skill_update`/`settings_skill_delete`, `settings_provider_update`/`settings_provider_delete`, `settings_default_model_update`, and `settings_embedding_setting_update` require the current resource digest or version returned by their matching read. On a conflict, read again before choosing the next mutation. `settings_agent_tool_list` supplies an `absent` version for the first override; later mutations use that override's returned version. MCP tools appear alongside Native tools; use their exact exported names from the catalog. Their catalog follows the selected file resource and credential owner. Tool policies retain the package, server entry, and raw remote tool identity when a declaration changes; never infer permissions from a display name. Create and upload results include the selected resource identity and current digest.
 
-The capability matrix is in [references/configuration.md](references/configuration.md). Direct users can operate only the Agents and `user`/`user_agent` Library, managed Skill, and MCP resources their normal permissions allow. Administrators additionally get deployment Provider/default-model/embedding/plugin tools and may operate `system`/`system_agent` Library, Skill, and MCP scopes. Plugin actions address the exact `plugin_id` returned by the catalog.
+The capability matrix is in [references/configuration.md](references/configuration.md). Direct users can operate only the Agents and `user`/`user_agent` Library, Skill, package, and MCP resources their normal permissions allow. Administrators additionally get deployment Provider/default-model/embedding tools and may operate `system`/`system_agent` resource scopes. Resource actions address the selected scope and complete file identity returned by the resource API.
 
-Never pass, request, or invent `api_key`, bearer/token, or credential-reference arguments. Provider and Agent Provider credentials, MCP bearer credentials, and credential binding changes are Web UI/API-only. Provider creation is credential-free; a Provider with a configured key cannot have its endpoint origin changed through a tool. MCP creation is no-auth, and a bearer-backed registration can only receive limited safe metadata changes with the same endpoint origin and scope. Account, Users, Provisioning, Channels, Webhooks, arbitrary plugin configuration, Agent workspace/sandbox settings, and credential changes remain outside this capability.
+Never pass, request, or invent `api_key`, bearer/token, or credential-reference arguments. Provider and Agent Provider credentials, MCP bearer credentials, and credential binding changes are Web UI/API-only. Provider creation is credential-free; a Provider with a configured key cannot have its endpoint origin changed through a tool. MCP declarations can be edited only through their resource file surfaces; secret binding remains outside this capability. Account, Users, Provisioning, Channels, Webhooks, arbitrary credential configuration, Agent workspace/sandbox settings, and credential changes remain outside this capability.
 
-Respect result bounds. Agent, Provider, Plugin, and MCP lists return at most 50 entries and set `truncated` when more exist. Library list uses `page_size` 1–100 and `next_page_token`; Library results never contain raw bytes. Managed Skill results list safe metadata and file names, never file contents. Library uploads read at most 25 MiB from a sandbox path. Managed Skill create/update takes a complete Agent Skills directory or ZIP archive at `content_path`, including `SKILL.md` and optional resources, with at most 512 files, 32 MiB per file, and 32 MiB total. All Code Mode invocation and result payloads are capped at 1 MiB.
+Respect result bounds. Agent, Provider, Plugin, and MCP lists return at most 50 entries and set `truncated` when more exist. Library list uses `page_size` 1–100 and `next_page_token`; Library results never contain raw bytes. Skill and package results list safe metadata and file names, never secret contents. Library uploads read at most 25 MiB from a sandbox path. Skill/package create and update take complete bounded trees including `SKILL.md` and optional resources. All Code Mode invocation and result payloads are capped at 1 MiB.
 
 Humans start and update Stella with `stellad server` and `stellad upgrade`, then manage runtime state in the Web UI.
 

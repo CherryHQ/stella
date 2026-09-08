@@ -609,10 +609,6 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		s.nativePending = true
 		s.mu.Unlock()
 	}
-	if err := sandboxpkg.MarkNativeCleanupPending(s.stellaHomeHost, s.id, "local"); err != nil {
-		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: recovery marker: %w", err)
-	}
-
 	if startErr := cmd.Start(); startErr != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: start: %w", startErr)
 	}
@@ -749,14 +745,6 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		s.nativePending = true
 		s.mu.Unlock()
 	}
-	if err := sandboxpkg.MarkNativeCleanupPending(s.stellaHomeHost, s.id, "local"); err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
-		_ = stderr.Close()
-		cancel()
-		return nil, fmt.Errorf("local start_process: recovery marker: %w", err)
-	}
-
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()

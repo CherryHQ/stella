@@ -7,6 +7,8 @@ import {
 import type { McpServer } from "@/lib/api-client/types.gen";
 import type { ScopeBand } from "@/lib/scope-band";
 
+type McpListQuery = { page_size: number; agent_id?: string; page_token?: string };
+
 /**
  * The MCP registrations effective for one agent, after the backend's
  * name-precedence dedup (user_agent > user > system_agent > system). Each row
@@ -33,12 +35,13 @@ async function fetchMcpServers(scopeBand: ScopeBand, agentId?: string): Promise<
   const servers: McpServer[] = [];
   let pageToken: string | undefined;
   do {
+    const query: McpListQuery = {
+      page_size: 50,
+    };
+    if (agentId) query.agent_id = agentId;
+    if (pageToken) query.page_token = pageToken;
     const { data } = await listMcpServers({
-      query: {
-        page_size: 50,
-        ...(agentId ? { agent_id: agentId } : {}),
-        ...(pageToken ? { page_token: pageToken } : {}),
-      },
+      query,
       throwOnError: true,
     });
     servers.push(...(data?.servers ?? []));

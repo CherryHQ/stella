@@ -308,9 +308,6 @@ func (t *Tool) hydrateAuthorized(ctx context.Context, merged []ResolvedSkill) ([
 			continue
 		}
 		revision, err := t.loadSelectedRevision(ctx, rs)
-		if errors.Is(err, errCurrentSkillSelectorMissing) {
-			continue
-		}
 		if err != nil {
 			return nil, err
 		}

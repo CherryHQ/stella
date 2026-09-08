@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -104,8 +105,32 @@ func TestToolOverrideStoreProjectsRealFilePolicyAndCAS(t *testing.T) {
 	if !writeSeen || len(readScopes) != 3 {
 		t.Fatalf("file policy additive scopes = %#v", fetched)
 	}
+	// A runtime turn owns one captured file view. Mutating settings after
+	// admission must not make an in-flight authorization fetch recapture them.
+	captured, err := files.Capture(ctx, admin, "file-policy-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	turnContext, err := agentruntime.NewFilePluginContext(admin, captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turnCtx := agentruntime.WithPreparedPluginContext(ctx, turnContext)
+	resource, err = access.SetDisabledTools(ctx, resource.Key.ID(), resource.SettingsDigest, []string{"main/read", "main/delete"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turnRows, err := store.Fetch(turnCtx, userID, "file-policy-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range turnRows {
+		if row.Identity.LocalToolName == "delete" {
+			t.Fatalf("in-flight policy fetch recaptured changed settings: %#v", turnRows)
+		}
+	}
 	resources, err := files.ReadSnapshot(ctx, admin, "file-policy-agent")
-	if err != nil || len(resources) != 1 || resources[0].Content == nil || len(resources[0].DisabledTools) != 2 {
+	if err != nil || len(resources) != 1 || resources[0].Content == nil || len(resources[0].DisabledTools) != 3 {
 		t.Fatalf("disabled file catalog resource = %#v, err=%v", resources, err)
 	}
 	// The user-agent settings also contain main/write. The system and user

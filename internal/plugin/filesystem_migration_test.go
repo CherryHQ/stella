@@ -78,7 +78,7 @@ func TestPrepareLegacyFileExportRemoteDisabledUsesMCPNegative(t *testing.T) {
 	if _, err := db.Exec(t.Context(), `INSERT INTO plugin_config_mcp_server(id,config_id,server_key) VALUES($1,$2,'main')`, childID, configID); err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(db, nil, nil, BackendPolicy{}, nil)
+	service := NewLegacyService(db, nil, nil, nil)
 	export, err := service.PrepareLegacyFileExport(t.Context(), resources)
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ type filesystemMigrationFixture struct {
 	db      *pgxpool.Pool
 	manager *home.WorkspaceManager
 	store   *ResourceStore
-	service *Service
+	service *LegacyService
 	userID  string
 	agentID string
 }
@@ -123,7 +123,7 @@ func newFilesystemMigrationFixture(t *testing.T) *filesystemMigrationFixture {
 	store := NewResourceStore(manager)
 	return &filesystemMigrationFixture{
 		db: db, manager: manager, store: store,
-		service: NewService(db, nil, nil, BackendPolicy{}, nil),
+		service: NewLegacyService(db, nil, nil, nil),
 		userID:  userID, agentID: agentID,
 	}
 }
@@ -217,7 +217,7 @@ func TestPrepareLegacyFileExportPreservesCustomCASExecutable(t *testing.T) {
 	spec := migrationDefinitionSpec(t, `{"origin":"package","content":{"digest":"`+published.Digest+`"}}`)
 	insertMigrationDefinition(t, fixture, "custom-cas", SourceCustom, spec, false)
 	insertMigrationConfig(t, fixture, "00000000-0000-4000-8000-000000000461", "custom-cas", ScopeSystem, "", "", true, json.RawMessage(`{}`))
-	fixture.service = NewService(fixture.db, nil, nil, BackendPolicy{}, nil, WithContentStore(contentStore))
+	fixture.service = NewLegacyService(fixture.db, nil, contentStore, nil)
 	// PublishDirectory above wrote to a separate destination. Copy the exact
 	// source into the configured CAS so the migration verifies its digest.
 	if _, err := agentpackage.PublishDirectory(packageRoot, contentStore.root); err != nil {

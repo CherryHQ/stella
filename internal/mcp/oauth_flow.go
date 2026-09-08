@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/oauth2"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -32,6 +33,9 @@ func (s *Service) StartOAuthForAuthority(ctx context.Context, reg Registration, 
 }
 
 func (s *Service) startOAuth(ctx context.Context, reg Registration, userID, callback string, authority authz.Authority) (string, string, time.Time, error) {
+	if !reg.IsFile() {
+		return "", "", time.Time{}, ErrOAuthClientInitializationRequired
+	}
 	if reg.IsFile() {
 		if _, err := FileCredentialOwner(reg, authority); err != nil {
 			return "", "", time.Time{}, err
@@ -48,9 +52,6 @@ func (s *Service) startOAuth(ctx context.Context, reg Registration, userID, call
 	}
 	if reg.Transport != TransportStreamableHTTP {
 		return "", "", time.Time{}, fmt.Errorf("mcp: auth_type %q requires the streamable_http transport", AuthTypeOAuth)
-	}
-	if err := s.validatePluginConfigRegistration(ctx, reg); err != nil {
-		return "", "", time.Time{}, err
 	}
 	challenges, err := fetchChallenge(ctx, reg, s.endpoints)
 	if err != nil {
@@ -82,8 +83,6 @@ func (s *Service) startOAuth(ctx context.Context, reg Registration, userID, call
 	secretRef := ""
 	if reg.OAuthClientSecretRef != "" {
 		secretRef = reg.OAuthClientSecretRef
-	} else if clientSecret != "" && !reg.IsFile() {
-		secretRef = oauthClientSecretName(reg.ID)
 	}
 	fileGeneration := ""
 	if reg.IsFile() {
@@ -138,166 +137,82 @@ func (s *Service) CompleteOAuth(ctx context.Context, flowID, code string) (Regis
 	if err != nil {
 		return Registration{}, err
 	}
-	owner := CredentialOwner{Scope: flow.CredentialScope, UserID: textOrEmpty(flow.CredentialUserID), AgentID: textOrEmpty(flow.CredentialAgentID)}
-	if cfg.File {
-		if cfg.FileIdentity == "" || cfg.FileGeneration == "" {
-			return Registration{}, errFileMCPGrantRevoked
-		}
-		reg, err := commonOAuthRegistration(flow, cfg)
-		if err != nil {
-			return Registration{}, err
-		}
-		if reg.CredentialMode == CredentialModePerUser {
-			if owner.Scope != ScopeUser || owner.UserID != flow.UserID || owner.AgentID != "" {
-				return Registration{}, authz.ErrForbidden
-			}
-		} else if owner.Scope != reg.Scope || owner.UserID != reg.UserID || owner.AgentID != reg.AgentID {
-			return Registration{}, authz.ErrForbidden
-		}
-		if err := fileGenerationIsCurrent(ctx, s, reg, owner, cfg.FileGeneration); err != nil {
-			return Registration{}, err
-		}
-		return s.completeCommonOAuth(ctx, flow, cfg, reg, owner, code)
+	if !cfg.File || cfg.FileIdentity == "" || cfg.FileGeneration == "" {
+		return Registration{}, errFileMCPGrantRevoked
 	}
-	if cfg.PluginID == "" || cfg.ConfigRevision < 1 {
-		return Registration{}, errPluginConfigIdentity
-	}
-	reg, err := commonOAuthRegistration(flow, cfg)
+	owner := CredentialOwner{Scope: flow.CredentialScope, UserID: flowText(flow.CredentialUserID), AgentID: flowText(flow.CredentialAgentID)}
+	reg, err := fileOAuthRegistration(flow, cfg)
 	if err != nil {
 		return Registration{}, err
 	}
-	if err := s.validatePluginConfigRegistration(ctx, reg); err != nil {
+	if err := fileGenerationIsCurrent(ctx, s, reg, owner, cfg.FileGeneration); err != nil {
 		return Registration{}, err
 	}
-	expectedOwner := s.CredentialOwner(reg, flow.UserID)
-	if owner != expectedOwner {
-		return Registration{}, fmt.Errorf("mcp: oauth flow credential owner does not match registration")
-	}
-	return s.completeCommonOAuth(ctx, flow, cfg, reg, owner, code)
+	return s.completeFileOAuth(ctx, flow, cfg, reg, owner, code)
 }
 
-func commonOAuthRegistration(flow McpOauthFlow, cfg oauthFlowConfig) (Registration, error) {
-	if cfg.File {
-		if cfg.FileIdentity == "" || cfg.FileKey.Name == "" || !ValidScope(string(cfg.FileKey.Scope)) || cfg.Endpoint == "" || cfg.Transport == "" || cfg.CredentialMode == "" ||
-			cfg.ConfigScope != string(cfg.FileKey.Scope) || cfg.ConfigUserID != cfg.FileKey.UserID || cfg.ConfigAgentID != cfg.FileKey.AgentID {
-			return Registration{}, fmt.Errorf("mcp: file oauth flow identity is incomplete")
-		}
-		return Registration{
-			IdentityKind: RegistrationIdentityFile, AuthenticationTarget: cfg.FileIdentity,
-			FileKey: cfg.FileKey, PluginID: cfg.PluginID,
-			ID: flow.ServerID, ServerKey: cfg.ServerKey, Scope: cfg.ConfigScope,
-			UserID: cfg.ConfigUserID, AgentID: cfg.ConfigAgentID, Name: cfg.RegistrationName,
-			URL: cfg.Endpoint, Transport: cfg.Transport, AuthType: AuthTypeOAuth,
-			Enabled: true, CredentialMode: cfg.CredentialMode, Headers: cloneHeaders(cfg.Headers),
-			OAuthClientID: cfg.ClientID, OAuthClientSecretRef: cfg.ClientSecretRef,
-			TokenEndpointAuthMethod: cfg.TokenEndpointAuthMethod,
-			CallTimeoutSeconds:      cfg.CallTimeoutSeconds, OAuthScopes: append([]string(nil), cfg.Scopes...),
-		}, nil
+func flowText(v pgtype.Text) string {
+	if !v.Valid {
+		return ""
 	}
-	if cfg.PluginID == "" || cfg.ParentConfigID == "" || cfg.ServerKey == "" || cfg.ConfigRevision < 1 ||
-		cfg.ConfigScope == "" || cfg.Endpoint == "" || cfg.Transport == "" || cfg.CredentialMode == "" {
-		return Registration{}, fmt.Errorf("mcp: oauth flow common plugin identity is incomplete")
-	}
-	if !ValidCredentialMode(cfg.CredentialMode) || !ValidScope(cfg.ConfigScope) {
-		return Registration{}, fmt.Errorf("mcp: oauth flow common plugin identity is invalid")
+	return v.String
+}
+
+func fileOAuthRegistration(flow McpOauthFlow, cfg oauthFlowConfig) (Registration, error) {
+	if !cfg.File || cfg.FileIdentity == "" || cfg.FileKey.Name == "" || !ValidScope(string(cfg.FileKey.Scope)) || cfg.Endpoint == "" || cfg.Transport == "" || cfg.CredentialMode == "" ||
+		cfg.ConfigScope != string(cfg.FileKey.Scope) || cfg.ConfigUserID != cfg.FileKey.UserID || cfg.ConfigAgentID != cfg.FileKey.AgentID {
+		return Registration{}, fmt.Errorf("mcp: file oauth flow identity is incomplete")
 	}
 	return Registration{
-		ID: flow.ServerID, ParentConfigID: cfg.ParentConfigID, ServerKey: cfg.ServerKey, PluginID: cfg.PluginID,
-		ConfigRevision: cfg.ConfigRevision, Scope: cfg.ConfigScope,
-		UserID: cfg.ConfigUserID, AgentID: cfg.ConfigAgentID,
-		Name: cfg.RegistrationName, URL: cfg.Endpoint, Transport: cfg.Transport,
-		AuthType: AuthTypeOAuth, Enabled: true, CredentialMode: cfg.CredentialMode, Headers: cloneHeaders(cfg.Headers),
+		IdentityKind: RegistrationIdentityFile, AuthenticationTarget: cfg.FileIdentity,
+		FileKey: cfg.FileKey, PluginID: cfg.PluginID,
+		ID: flow.ServerID, ServerKey: cfg.ServerKey, Scope: cfg.ConfigScope,
+		UserID: cfg.ConfigUserID, AgentID: cfg.ConfigAgentID, Name: cfg.RegistrationName,
+		URL: cfg.Endpoint, Transport: cfg.Transport, AuthType: AuthTypeOAuth,
+		Enabled: true, CredentialMode: cfg.CredentialMode, Headers: cloneHeaders(cfg.Headers),
 		OAuthClientID: cfg.ClientID, OAuthClientSecretRef: cfg.ClientSecretRef,
+		TokenEndpointAuthMethod: cfg.TokenEndpointAuthMethod,
+		CallTimeoutSeconds:      cfg.CallTimeoutSeconds, OAuthScopes: append([]string(nil), cfg.Scopes...),
 	}, nil
 }
 
-func (s *Service) completeCommonOAuth(ctx context.Context, flow McpOauthFlow, cfg oauthFlowConfig, reg Registration, owner CredentialOwner, code string) (Registration, error) {
-	// Fence immediately before the network exchange. A concurrent config edit
-	// must invalidate this authorization attempt rather than minting a token for
-	// the stale endpoint/config revision.
-	if err := s.validatePluginConfigRegistration(ctx, reg); err != nil {
-		return Registration{}, err
-	}
+func (s *Service) completeFileOAuth(ctx context.Context, flow McpOauthFlow, cfg oauthFlowConfig, reg Registration, owner CredentialOwner, code string) (Registration, error) {
 	exchangeCtx, cancel := context.WithTimeout(oauth2Context(ctx, s.endpoints), oauthExchangeTimeout)
 	defer cancel()
-	clientSecret := ""
-	if cfg.File {
-		state, stateErr := s.loadFileClientState(ctx, reg)
-		if stateErr != nil {
-			return Registration{}, stateErr
-		}
-		clientSecret = state.ClientSecret
-		if cfg.ClientSecretRef != "" {
-			clientSecret, stateErr = s.oauthClientSecret(ctx, reg)
-			if stateErr != nil {
-				return Registration{}, stateErr
-			}
-		}
-	}
-	if !cfg.File && cfg.ClientSecretRef != "" {
-		var secretErr error
-		clientSecret, secretErr = s.oauthClientSecret(ctx, reg)
-		if secretErr != nil {
-			return Registration{}, secretErr
-		}
+	clientSecret, err := s.oauthClientSecret(ctx, reg)
+	if err != nil {
+		return Registration{}, err
 	}
 	tok, err := (&oauth2.Config{
 		ClientID: cfg.ClientID, ClientSecret: clientSecret,
 		Endpoint:    oauth2.Endpoint{TokenURL: cfg.TokenEndpoint, AuthStyle: oauth2.AuthStyle(cfg.AuthStyle)},
 		RedirectURL: cfg.RedirectURI, Scopes: cfg.Scopes,
-	}).Exchange(exchangeCtx, code,
-		oauth2.VerifierOption(flow.PkceVerifier),
-		oauth2.SetAuthURLParam("resource", cfg.Resource))
+	}).Exchange(exchangeCtx, code, oauth2.VerifierOption(flow.PkceVerifier), oauth2.SetAuthURLParam("resource", cfg.Resource))
 	if err != nil {
-		if reg.IsFile() {
-			return Registration{}, fmt.Errorf("mcp: file OAuth authorization failed")
-		}
-		return Registration{}, fmt.Errorf("mcp: exchange authorization code: %w", err)
+		return Registration{}, fmt.Errorf("mcp: file OAuth authorization failed")
 	}
-	// storeBundle takes the config-row lock and validates the captured revision
-	// again before writing the Vault bundle. The callback intentionally does not
-	// update legacy mcp_server status or probe columns.
-	bundle := OAuthBundle{
-		Version: 1, ClientID: cfg.ClientID, TokenEndpoint: cfg.TokenEndpoint,
-		AuthStyle: cfg.AuthStyle, Resource: cfg.Resource,
-		AccessToken: tok.AccessToken, RefreshToken: tok.RefreshToken,
-		AccessExpiresAt: tok.Expiry, GrantedScope: tokenScope(tok),
-	}
-	if cfg.File {
-		bundle.Generation = cfg.FileGeneration
-	}
+	bundle := OAuthBundle{Version: 1, Generation: cfg.FileGeneration, ClientID: cfg.ClientID, TokenEndpoint: cfg.TokenEndpoint, AuthStyle: cfg.AuthStyle, Resource: cfg.Resource, AccessToken: tok.AccessToken, RefreshToken: tok.RefreshToken, AccessExpiresAt: tok.Expiry, GrantedScope: tokenScope(tok)}
 	if err := s.storeBundle(ctx, reg, owner, bundle); err != nil {
 		return Registration{}, err
 	}
-	// Refresh the exact credential owner's observation after the new bundle is
-	// committed. Probe writes only mcp_connection_state and fences the captured
-	// config revision, so a concurrent config edit cannot publish stale tools.
-	if reg.IsFile() {
-		return reg, nil
-	}
-	return s.Probe(ctx, reg, owner)
+	return reg, nil
 }
 
 // Disconnect removes the caller-appropriate bundle and marks the server
 // needs_auth, so subsequent tool calls fail closed until a reconnect.
 func (s *Service) Disconnect(ctx context.Context, reg Registration, userID string) (Registration, error) {
-	owner := s.CredentialOwner(reg, userID)
-	if err := s.withCredentialVault(ctx, reg, owner, func(vault Vault) error {
-		return deleteOAuthBundle(ctx, vault, owner, reg.ID)
-	}); err != nil {
-		return Registration{}, fmt.Errorf("mcp: delete oauth bundle: %w", err)
+	if !reg.IsFile() {
+		return Registration{}, ErrOAuthClientInitializationRequired
 	}
-	if err := s.persistCommonStatus(ctx, reg, owner, StatusNeedsAuth, credentialRejectedHint); err != nil {
+	authority, ok := oauthAuthority(ctx)
+	if !ok {
+		return Registration{}, authz.ErrForbidden
+	}
+	if err := s.DisconnectFile(ctx, reg, authority); err != nil {
 		return Registration{}, err
 	}
 	reg.Status, reg.StatusError, reg.Tools = StatusNeedsAuth, credentialRejectedHint, nil
 	return reg, nil
-}
-
-// GetMCPServerForOwner re-reads a registration by id, unmapped by scope —
-// the callers have already passed the PEP for this exact row.
-func (s *Service) GetMCPServerForOwner(ctx context.Context, id string) (Registration, error) {
-	return Registration{}, fmt.Errorf("mcp: common registration resolution requires an immutable plugin snapshot")
 }
 
 // HasUserCredential reports whether the given user has a credential to use

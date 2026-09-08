@@ -3,104 +3,75 @@ title: 技能
 ---
 
 Skill 是教 Stella 执行某项任务的可复用操作手册。一个 Skill 是包含
-`SKILL.md` 的目录，也可以带有参考文件或脚本。任务符合描述时，Stella
-可以加载它。
+`SKILL.md` 的目录，也可以带有参考文件或脚本。Stella 在每轮开始时读取当前
+Agent 选中的文件。
 
-## Skill 的来源
+## 作用域和优先级
 
-项目 Skill 位于当前项目的 `.agents/skills/`。个人和托管 Skill 可以从
-**个人设置 > 技能** 安装，管理员还可以从 **管理控制台 > 部署资源 > 全局技能**
-安装。Agent Plugin 提供的 Skill 跟随所属插件的启用状态，没有第二个 Skill
-开关。随 Stella 发布的内置 Skill 属于发行版内容。
+Stella 读取四个有明确类型的资源根：
 
-同名 Skill 同时可见时，Stella 按以下顺序选择：
+| 作用域         | 文件位置              | 适用范围             |
+| -------------- | --------------------- | -------------------- |
+| `system`       | 部署资源              | 所有用户和 Agent     |
+| `system_agent` | 某个 Agent 的系统资源 | 该 Agent 的所有用户  |
+| `user`         | 某个用户的资源        | 该用户的所有 Agent   |
+| `user_agent`   | 某个用户的 Agent 资源 | 一个用户和一个 Agent |
+
+项目中的 `.agents/skills/` 只对 Skill 生效，并优先于包内 Skill。对于每个包名，
+Stella 只在四个资源根中按以下顺序选择最具体的完整包：
 
 ```
-项目 > 当前 Agent > 你的 Skill > 共享 Agent > 全局 > 内置
+user_agent > user > system_agent > system
 ```
 
-Stella 先选出胜者，再应用该 Skill 的策略。禁用胜者不会让同名的低优先级
-Skill 重新出现。Stella 在捕获下一轮对话时读取项目文件，因此项目 Skill 的
-修改在下一轮生效。已经开始的 turn 保留自己捕获的 Skill 视图。管理员设置的
-**系统 · 全部 Agent** 或 **系统 · 当前 Agent** 停用是上限，更窄作用域的个人启用
-不能解除它。
+选中的包会整体替换更宽作用域中的同名完整包。包内的文件、Skill、CLI、环境绑定
+和 MCP 声明作为一个整体解析。独立副本没有来源链接，不会自动接收来源后续更新。
+独立 Skill 按名称遵循同样的作用域优先级。
 
-## 安装和配置
+`settings.json` 可以停用资源，也可以添加只有管理员能设置的 `forbidden` 和
+`disabled_tools`。被停用或解析失败的胜者会遮蔽继承资源。更窄作用域的个人设置
+不能解除管理员禁止项。
 
-每次安装或上传前都要选择目标位置。Stella 不会从对话推断目标位置。
+Stella 在接纳 turn 时捕获资源文件。turn 中途的编辑在下一轮生效，本轮继续使用
+已经捕获的内容。搜索、提示词加载、CLI 准备和 MCP 发现也使用同一份捕获视图。
 
-- 在 Agent 的 **技能** 页面中选择 **我的 · 当前 Agent**。管理员还可以选择
-  **系统 · 当前 Agent**。
-- 在 **个人设置 > 技能** 中选择 **我的 · 全部 Agent** 或 **我的 · 当前 Agent**。
-- 在 **管理控制台 > 部署资源 > 全局技能** 中选择 **系统 · 全部 Agent** 或
-  **系统 · 当前 Agent**。
+## 安装和编辑
 
-Web UI 支持从远程来源安装，例如技能名称或 GitHub 仓库，也支持上传 ZIP。
-上传的压缩包必须包含一个带有 `SKILL.md` 的 Skill 目录。插件 Skill 由管理员
-在 Plugins 页面导入，并保留包声明的文件和资源名称。
+每次安装或上传前都要选择目标作用域。Stella 不会从对话推断作用域。Web UI 和
+API 可以在可写作用域创建、复制、编辑和删除完整包或独立 Skill。包编辑会替换
+完整目录；API 提供摘要时，文件编辑必须带当前摘要，过期编辑会返回冲突。Shell
+直接写文件是支持的，但不提供多文件事务或文件系统 compare-and-swap 保证。
 
-安装插件后，在插件设置中配置它的作用域。配置可以启用或禁用插件、选择已声明
-的 CLI 版本、设置 MCP 端点，并启动需要的 OAuth 授权流程。配置页面展示已声明的
-资源，以及端点或 OAuth 客户端字段是否已填写。它不会运行命令、连接每一个 MCP
-服务器，也不能证明下一轮一定能准备好全部资源。这个摘要不是某次执行的回执。
-在该轮用户消息下展开**执行摘要**，可以查看该轮实际接纳的不可变包版本和 digest、配置
-ID/作用域/修订、授权与就绪状态、Skill 胜者状态（`selected`、`masked` 或 `overridden`），
-以及 CLI 请求版本、解析版本和安装证据。复用旧缓存或镜像预装产物时，解析版本或安装证据可能
-未知。加入这项元数据前记录的 turn 没有回溯回执，Stella 不会根据当前配置重建它。
+上传的压缩包必须包含一个带有 `SKILL.md` 的 Skill 目录。复制包会在目标所有者下
+创建新的独立资源，拥有自己的文件、设置、凭据和 OAuth grant；之后编辑来源不会
+升级副本。
 
 ## 使用 Skill
 
 先让 Stella 查找已安装的 Skill，再加载与任务匹配的那个。`skill_installed_search`
-只搜索当前 Agent 已可见的 Skill，不搜索市场。`skill_load` 读取选中的 revision，
-并把它复制到当前会话的临时 sandbox 目录。返回的路径是一次性的，Skill 的脚本和
-附带文件应从这个路径读取。
+只搜索当前 Agent 可见的 Skill，不搜索市场。`skill_load` 把选中的文件读入当前会话的
+临时 sandbox 目录。返回路径是一次性的，Skill 的脚本和附带文件应从该路径读取。
 
-每轮开始时，Stella 选择胜出的 Skill，并按同一套插件配置准备所选资源。资源可能
-包括固定版本的 CLI、环境绑定、MCP 工具目录和所需账号权限。如果插件缺少必需授权
-或 CLI 准备失败，该插件的资源不会进入本轮。Stella 会保留失败原因，也不会静默
-改选同名的低优先级资源。
+如果资源准备失败，Stella 会在本轮保留选中的包为 masked，不会静默恢复更低优先级的
+同名资源。Native 工具属于独立的系统能力，Skill 或同名包不会因此获得 Native 权限。
 
-插件更新的 **预览** 会报告候选版本、内容 digest、资源名称、OAuth 变化，以及现有
-配置不兼容的作用域。预览只读取并校验候选包，不会发布包、安装 CLI、连接 MCP
-服务器或授予账号权限。真实执行仍可能因为账号授权缺失、sandbox 内命令安装失败
-或远端服务不可达而失败。
+## 更新、停用、断开和删除
 
-## 更新、停用、撤权和卸载
+更新 Skill 或包时，在目标作用域编辑或替换完整文件。摘要冲突后先重新读取
+当前资源，再重试。成功写入会在下一轮生效，本轮继续使用已捕获的 Skill 和包视图。
 
-更新托管 Skill 时，用完整目录或 ZIP 替换它，并使用最近一次读取返回的版本重试。
-版本冲突表示其他人已经修改了 Skill，重新读取后再决定下一步。更新插件时先运行
-**预览**，检查候选版本和不兼容作用域，再发布更新。发布成功后，新 turn 使用新的
-插件版本。已经接纳的 turn 会一直使用之前的插件和 Skill 快照，直到它结束。
+停用包或 Skill 会阻止后续选择，不会撤销 OAuth grant，也不会删除资源字节。删除
+MCP 声明文件只删除声明本身。需要撤销本地访问时，使用 MCP 的 **Disconnect**，它会
+撤销匹配的已存 OAuth grant、关闭连接并阻止迟到的回调或刷新；不承诺远端 provider 一定
+撤权。两者是独立动作。
 
-停用插件会阻止新 turn 使用该插件。普通插件或 Skill 配置变化允许已经接纳的 turn
-完成。将 Skill 的 `disable-model-invocation` 设为 `true` 只会禁用该 Skill 的自动调用，
-不会停用 Skill 本身，也不改变编辑权限。停用插件不会撤销已有 OAuth grant。
+卸载 Skill 或删除包会让它不再参与后续选择。Stella 保留 Skill 反射所需的历史 usage
+和 changelog 证据，也不会在线清理资源字节或缓存。只有在能够证明相关进程及其后代
+已经停止后，明确的维护操作才能清理这些数据。
 
-需要撤权时，请使用所属账号、Agent assignment、OAuth 或 Vault 的控制项。Stella 会
-拒绝撤权作用域内的新调用，取消或 detach 匹配的活动工作，并关闭 runner。已经复制
-到 sandbox 的文件和已经在外部服务产生的副作用无法收回。
-
-卸载托管 Skill 会让它不再参与后续选择。退休自定义插件会停止新选择，并等待活动
-turn 及其他仍合法的文件使用者结束后再删除包数据。因此数据库变更完成后，界面仍可能显示
-内部清理状态为 `cleanup_pending`。无法证明进程及其后代已经停止时，Stella 会保留文件。`local`
-和 `none` sandbox backend 会在这种情况下保留恢复 marker；marker 会阻止整个部署的
-插件和托管 Skill 清理，而且永远不会自动移除，因此即使 turn 正常关闭，也可能无限期阻塞
-清理。目前没有可以清除它的产品命令或安全自动恢复路径。没有 TTL 或猜测进程 ID 的逻辑
-可以安全地提前清除它。
-
-## 在对话中管理 Skill
-
-当 Agent 启用了对话式 Settings 工具时，Stella 可以使用以下工具管理托管 Skill：
-
-- `settings_skill_list` 和 `settings_skill_get` 读取安全元数据、文件名和当前版本，
-  不会返回文件内容。
-- `settings_skill_create` 从 sandbox 路径中的完整目录或 ZIP 创建 Skill。
-- `settings_skill_update` 替换完整包，并要求使用 `settings_skill_get` 返回的版本。
-- `settings_skill_delete` 删除 Skill，并要求使用同一个版本。
-
-这些工具仍遵守调用者的所有权和 Agent 权限。远程来源安装、浏览器 ZIP 上传、插件
-包导入和凭据绑定继续使用 Web UI 或 API。`skill_load` 是运行时读取操作，与托管
-Skill 管理分开。
+local backend 会执行配置的沙箱策略，但不能证明脱离进程组的后代已经停止；`none` sandbox
+不提供可靠的进程隔离。不要把正常 turn 关闭当作后代进程已停止的证明，也不要用 TTL
+或猜测进程 ID 清除资源字节。需要严格进程边界的清理场景不适合使用 `none` backend。
 
 ## 创建 Skill
 
@@ -118,11 +89,11 @@ description: Deploy the application to production.
 ```
 
 `name` 只能使用小写字母、数字和连字符，最长 64 个字符。`description` 必填，并会
-显示在搜索结果中。`disable-model-invocation` 可选。需要只有明确请求时才自动调用 Skill
-时，将它设为 `true`；它不会停用 Skill 本身。
+显示在搜索结果中。`disable-model-invocation` 可选。需要只有明确请求时才自动调用
+Skill 时，将它设为 `true`；它不会停用 Skill，也不会改变编辑权限。
 
-团队工作流可以把 Project Skill 提交到 `.agents/skills/`。托管 Skill 则上传完整目录
-或 ZIP 到指定作用域。
+团队工作流可以把 Project Skill 提交到 `.agents/skills/`。共享或个人 Skill 则应在
+指定作用域创建或上传完整目录。
 
 ## 小贴士
 

@@ -27,21 +27,17 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-func newReflectPOSIXSkillStore(t *testing.T, db *pgxpool.Pool) *skills.POSIXStore {
+func newReflectFileSkillStore(t *testing.T, db *pgxpool.Pool) *skills.FileStore {
 	t.Helper()
 	manager, err := home.NewWorkspaceManager(db, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
-	store, err := skills.NewPOSIXStore(db, manager)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return store
+	return skills.NewFileStore(db, manager)
 }
 
-func currentReflectSkill(t *testing.T, store *skills.POSIXStore, id string) *skills.Skill {
+func currentReflectSkill(t *testing.T, store *skills.FileStore, id string) *skills.Skill {
 	t.Helper()
 	identity, err := store.GetIdentity(t.Context(), id)
 	if err != nil || identity == nil {
@@ -598,7 +594,7 @@ func TestUsageCuratorArmedSkipsSkillWhenUsageChangedAfterSelection(t *testing.T)
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-	skillStore := newReflectPOSIXSkillStore(t, db)
+	skillStore := newReflectFileSkillStore(t, db)
 	created, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID:          userID,
 		AgentID:         agentID,
@@ -646,7 +642,7 @@ func TestUsageCuratorArmedSkipsSkillWhenEligibleActivityDisappearsAfterSelection
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-	skillStore := newReflectPOSIXSkillStore(t, db)
+	skillStore := newReflectFileSkillStore(t, db)
 	created, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID: userID, AgentID: agentID, Name: "curator-skill-activity-disappeared",
 		Description: "selected before archive", MainFileContent: "# Selected Before Archive\n",
@@ -736,7 +732,7 @@ func TestSQLUsageCuratorStoreListsOnlyStaleReflectRecordsWithActivity(t *testing
 		t.Fatalf("seed manual knowledge usage: %v", err)
 	}
 
-	skillStore := newReflectPOSIXSkillStore(t, db)
+	skillStore := newReflectFileSkillStore(t, db)
 	staleSkill, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID: userID, AgentID: agentID, Name: "curator-stale-skill", Description: "stale", MainFileContent: "# Stale\n",
 	})

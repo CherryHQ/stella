@@ -9,7 +9,6 @@ import (
 // publish a partial runner before it has a Chat implementation, while the
 // cache only needs the same identity and cleanup surface for retirement.
 type RunnerBuildResource interface {
-	PluginContext() PluginContext
 	Close() error
 }
 
@@ -19,38 +18,14 @@ type RunnerBuildResource interface {
 // The partial resource remains owned after a failure so Close can retry without
 // losing a session, tool registry, hook set, or scratch directory.
 type RunnerBuildOwner struct {
-	mu            sync.Mutex
-	pluginContext PluginContext
-	resource      RunnerBuildResource
-	complete      bool
+	mu       sync.Mutex
+	resource RunnerBuildResource
+	complete bool
 }
 
-// NewRunnerBuildOwner captures the admission identity before the factory can
-// perform slow workspace/package work.
-func NewRunnerBuildOwner(pluginContext PluginContext) *RunnerBuildOwner {
-	return &RunnerBuildOwner{pluginContext: pluginContext}
-}
-
-// PluginContext returns the immutable admission identity captured before build.
-func (o *RunnerBuildOwner) PluginContext() PluginContext {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return o.pluginContext
-}
-
-// SetPluginContext publishes the context resolved by a legacy direct factory
-// fallback after the partial runner has been registered. Production admission
-// normally supplies this before construction; retaining this narrow update
-// keeps ownership snapshots accurate for tests and specialized callers.
-func (o *RunnerBuildOwner) SetPluginContext(pluginContext PluginContext) error {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.complete {
-		return errors.New("runner build owner is complete")
-	}
-	o.pluginContext = pluginContext
-	return nil
-}
+// NewRunnerBuildOwner creates the construction-time cleanup owner. Admission
+// identity belongs to the turn context, not to this temporary resource owner.
+func NewRunnerBuildOwner() *RunnerBuildOwner { return &RunnerBuildOwner{} }
 
 // AdoptRunner publishes the partial runner before the factory reads
 // project/package files. The same object becomes the returned runner on

@@ -526,7 +526,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		MCPFiles:             s.mcpFiles,
 		AgentMCPCatalog:      mcpCatalogFunc(s.mcpFiles),
 		MCPCatalog:           mcp.NewOfficialCatalog(),
-		MCPAccess:            mcp.NewAccess(s.mcpSvc, agentAccess, s.poolManager),
 		Scheduler:            s.schedulerSvc,
 		Goal:                 s.goalSvc,
 		Workflow:             s.workflowSvc,

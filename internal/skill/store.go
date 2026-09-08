@@ -130,6 +130,10 @@ func listManagedIdentitiesWhenAvailable(ctx context.Context, reader IdentityRead
 	return identities, err
 }
 
+func invocationVisible(sk Skill) bool {
+	return sk.Status != SkillStatusDeprecated && !sk.DisableModelInvocation
+}
+
 // RuntimeReader is the complete managed-Skill read boundary used by an Agent
 // turn. Runtime usage is pinned to the exact verified revision that was loaded;
 // an identity-only or digest-free implementation cannot serve executable Skill
@@ -137,10 +141,4 @@ func listManagedIdentitiesWhenAvailable(ctx context.Context, reader IdentityRead
 type RuntimeReader interface {
 	IdentityReader
 	TouchReflectSkillRuntimeUseDigest(context.Context, string, string, string, string) error
-}
-
-// IsCurrentSelectorMissing reports the narrow recoverable catalog state where
-// the identity still exists but its Home current-selector entry is absent.
-func IsCurrentSelectorMissing(err error) bool {
-	return errors.Is(err, errCurrentSkillSelectorMissing)
 }

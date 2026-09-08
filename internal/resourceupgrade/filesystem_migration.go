@@ -44,8 +44,8 @@ func (s State) Completed() bool { return string(s) == stateCompleted }
 type Dependencies struct {
 	DB            *pgxpool.Pool
 	Roots         home.RootOpener
-	LegacyPlugins *plugin.Service
-	LegacySkills  *skill.POSIXStore
+	LegacyPlugins *plugin.LegacyService
+	LegacySkills  *skill.LegacySkillStore
 	MCPService    *mcp.Service
 	Checkpoint    func(string) error
 }

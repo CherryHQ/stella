@@ -99,7 +99,10 @@ func decodeOAuthFlowConfig(raw json.RawMessage) (oauthFlowConfig, error) {
 // owner's vault tuple. A missing entry is not an error: it means "never
 // connected", so it yields a nil bundle.
 func (s *Service) loadBundle(ctx context.Context, reg Registration, owner CredentialOwner) (*OAuthBundle, error) {
-	snapshot, err := s.loadCredentialSnapshot(ctx, reg, owner)
+	if !reg.IsFile() {
+		return nil, errPluginConfigIdentity
+	}
+	snapshot, err := s.loadFileCredentialSnapshot(ctx, reg, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -115,22 +118,8 @@ func (s *Service) storeBundle(ctx context.Context, reg Registration, owner Crede
 // refresh to prevent an older in-flight network response from overwriting a
 // newer bundle written by another process.
 func (s *Service) storeBundleCAS(ctx context.Context, reg Registration, owner CredentialOwner, bundle OAuthBundle, expectedRaw []byte) error {
-	if reg.IsFile() {
-		return s.storeFileBundleCAS(ctx, reg, owner, bundle, expectedRaw)
+	if !reg.IsFile() {
+		return errPluginConfigIdentity
 	}
-	if err := s.withCredentialVault(ctx, reg, owner, func(vault Vault) error {
-		if expectedRaw != nil {
-			current, err := vault.GetScoped(ctx, owner.Scope, owner.UserID, owner.AgentID, oauthBundleName(reg.ID))
-			if err != nil {
-				return fmt.Errorf("mcp: read current oauth bundle for refresh: %w", err)
-			}
-			if !rawBundleMatches([]byte(current), expectedRaw) {
-				return errOAuthBundleChanged
-			}
-		}
-		return writeOAuthBundle(ctx, vault, owner, reg.ID, bundle)
-	}); err != nil {
-		return err
-	}
-	return nil
+	return s.storeFileBundleCAS(ctx, reg, owner, bundle, expectedRaw)
 }

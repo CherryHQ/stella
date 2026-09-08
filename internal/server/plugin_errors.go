@@ -10,9 +10,7 @@ import (
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 )
 
-// errPluginCapabilityUnavailable is retained for the MCP adapter while the
-// file-backed resource service is being wired through the composition root.
-var errPluginCapabilityUnavailable = errors.New("plugin backend capability unavailable")
+var errPluginFilesUnavailable = errors.New("plugin file service unavailable")
 
 func writePluginError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
@@ -22,8 +20,6 @@ func writePluginError(w http.ResponseWriter, err error) {
 		status, message = http.StatusConflict, "resource revision conflict"
 	case isUniqueViolation(err):
 		status, message = http.StatusConflict, "resource already exists"
-	case errors.Is(err, pluginpkg.ErrBuiltinConfig):
-		status, message = http.StatusConflict, "builtin system configuration cannot be deleted"
 	case errors.Is(err, pluginpkg.ErrUnknownScope), errors.Is(err, pluginpkg.ErrInvalidConfig), errors.Is(err, pluginpkg.ErrInvalidDefinition), errors.Is(err, pluginpkg.ErrInvalidResourceID), errors.Is(err, pluginpkg.ErrResourceLimit):
 		status, message = http.StatusBadRequest, "invalid plugin request"
 	case errors.Is(err, mcp.ErrOAuthClientInitializationRequired):
@@ -32,8 +28,8 @@ func writePluginError(w http.ResponseWriter, err error) {
 		status, message = http.StatusForbidden, "forbidden"
 	case errors.Is(err, agentaccess.ErrNotFound), errors.Is(err, authz.ErrNotFound), errors.Is(err, pluginpkg.ErrNotFound):
 		status, message = http.StatusNotFound, "not found"
-	case errors.Is(err, errPluginCapabilityUnavailable):
-		status, message = http.StatusServiceUnavailable, "plugin backend capability unavailable"
+	case errors.Is(err, errPluginFilesUnavailable):
+		status, message = http.StatusServiceUnavailable, "plugin file service unavailable"
 	}
 	writeError(w, status, message)
 }

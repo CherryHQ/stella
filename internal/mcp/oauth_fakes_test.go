@@ -20,20 +20,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/authz"
-	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
-
-func noopBackendTransition(context.Context, pgx.Tx, authz.Authority, plugin.MutationKind, plugin.Definition, *plugin.Config, *plugin.Config) error {
-	return nil
-}
 
 // loopbackDialer is the test dial policy: loopback reaches the fake AS and MCP
 // servers; everything else still goes through the production SSRF dialer, so
@@ -247,10 +239,6 @@ func setupInternal(t *testing.T) (svc *Service, q *sqlc.Queries, userID, agentID
 	svc = NewServiceForPool(pool, vaultSvc, func(tx pgx.Tx) Vault { return vaultSvc.WithTx(tx) })
 	policy := EndpointPolicy{AllowPrivate: true}
 	svc.SetEndpointPolicy(policy)
-	agents := agentaccess.NewService(storepkg.NewDBStore(pool), appdb.NewAuthStore(pool))
-	svc.SetPluginService(plugin.NewService(pool, agents, plugin.NewCatalog(), NewMCPBackendPolicy(policy), func(_ context.Context, fn func() error) error {
-		return fn()
-	}))
 	return svc, q, user.ID, "oauth-test-agent"
 }
 

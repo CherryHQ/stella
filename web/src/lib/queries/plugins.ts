@@ -4,6 +4,7 @@ import type { NativeAgentDeny, NativePlugin, PluginResource } from "@/lib/api-cl
 import type { ScopeBand } from "@/lib/scope-band";
 
 export type PluginScope = "system" | "system_agent" | "user" | "user_agent";
+type PluginListQuery = { page_size: number; agent_id?: string; page_token?: string };
 
 function nativePageQuery(pageToken?: string) {
   return pageToken ? { page_size: 500, page_token: pageToken } : { page_size: 500 };
@@ -13,12 +14,13 @@ async function fetchAllPlugins(agentId?: string): Promise<PluginResource[]> {
   const plugins: PluginResource[] = [];
   let pageToken: string | undefined;
   do {
+    const query: PluginListQuery = {
+      page_size: 500,
+    };
+    if (agentId) query.agent_id = agentId;
+    if (pageToken) query.page_token = pageToken;
     const { data } = await listPlugins({
-      query: {
-        page_size: 500,
-        ...(agentId ? { agent_id: agentId } : {}),
-        ...(pageToken ? { page_token: pageToken } : {}),
-      },
+      query,
       throwOnError: true,
     });
     plugins.push(...(data?.plugins ?? []));

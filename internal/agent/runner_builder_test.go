@@ -88,7 +88,7 @@ func TestNewRunnerFuncReturnsNilInterfaceOnConstructionError(t *testing.T) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
 	})
-	owner := agentruntime.NewRunnerBuildOwner(agentruntime.PluginContext{})
+	owner := agentruntime.NewRunnerBuildOwner()
 	runner, err := build(t.Context(), RunnerParams{GuestID: "guest", BuildOwner: owner})
 	if err == nil {
 		t.Fatal("construction error = nil, want missing API key")

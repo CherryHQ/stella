@@ -13,7 +13,6 @@ import (
 	"github.com/CherryHQ/stella/internal/core/agenterr"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
-	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
@@ -33,12 +32,6 @@ type SessionImages interface {
 // the whole turn, including prompt overrides and delegated calls.
 type SkillTurnCapture func(context.Context, session.Info, PluginContext) (context.Context, error)
 
-// SkillTurnRegistrar verifies a captured view under the Skill store's
-// publication lock before registering it as an active turn owner. The
-// callback receives the owner's Register operation so the runtime remains the
-// sole holder of active-turn state.
-type SkillTurnRegistrar func(context.Context, string, skill.SkillTurnView, func(string, skill.SkillTurnView) error) error
-
 type Runtime struct {
 	cache                *runnerCache
 	pluginContextBuilder PluginContextBuilder
@@ -50,9 +43,6 @@ type Runtime struct {
 	snapshotPrompt       SnapshotPromptFunc
 	sessionImages        SessionImages
 	skillTurnCapture     SkillTurnCapture
-	skillTurnOwner       *skill.ActiveTurnOwner
-	skillTurnRegistrar   SkillTurnRegistrar
-	ownerRelease         func()
 	active               sync.Map // session ID → *activeTurn, tracks in-flight turns
 	turns                turnTracker
 	hub                  *SessionHub
@@ -164,9 +154,6 @@ type Config struct {
 	SnapshotPrompt       SnapshotPromptFunc
 	SessionImages        SessionImages
 	SkillTurnCapture     SkillTurnCapture
-	SkillTurnOwner       *skill.ActiveTurnOwner
-	SkillTurnRegistrar   SkillTurnRegistrar
-	OwnerRelease         func()
 }
 
 // New creates a Runtime from the given config.
@@ -186,7 +173,6 @@ func New(cfg Config) (*Runtime, error) {
 	cache.defaultModel = cfg.DefaultModel
 	cache.defaultThinking = cfg.DefaultThinking
 	cache.hooksFn = cfg.HooksFn
-	cache.ownerRelease = cfg.OwnerRelease
 	return &Runtime{
 		cache:                cache,
 		pluginContextBuilder: cfg.PluginContextBuilder,
@@ -197,44 +183,8 @@ func New(cfg Config) (*Runtime, error) {
 		snapshotPrompt:       cfg.SnapshotPrompt,
 		sessionImages:        cfg.SessionImages,
 		skillTurnCapture:     cfg.SkillTurnCapture,
-		skillTurnOwner:       cfg.SkillTurnOwner,
-		skillTurnRegistrar:   cfg.SkillTurnRegistrar,
-		ownerRelease:         cfg.OwnerRelease,
 		hub:                  NewSessionHub(),
 	}, nil
-}
-
-// ActiveSkillTurnViews exposes the currently admitted immutable Skill views to
-// cleanup/reconciliation code. The owner is whole-turn scoped, so callers
-// never need a per-resource lease table.
-func (rt *Runtime) ActiveSkillTurnViews() []skill.SkillTurnView {
-	if rt == nil || rt.skillTurnOwner == nil {
-		return nil
-	}
-	return rt.skillTurnOwner.Snapshot()
-}
-
-func (rt *Runtime) releaseSkillTurn(turnID string, registered bool) {
-	if rt == nil {
-		return
-	}
-	if !registered || rt.skillTurnOwner == nil {
-		return
-	}
-	rt.skillTurnOwner.Release(turnID)
-	if rt.ownerRelease != nil {
-		rt.ownerRelease()
-	}
-}
-
-// PluginContexts returns the immutable plugin contexts still owned by this
-// runtime. Building, active, and closing runners are all included; a closing
-// runner remains here until its external cleanup succeeds.
-func (rt *Runtime) PluginContexts() []PluginContext {
-	if rt == nil || rt.cache == nil {
-		return nil
-	}
-	return rt.cache.pluginContexts()
 }
 
 // Subscribe registers a read-only listener for a session's live turn events.

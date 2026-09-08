@@ -170,7 +170,7 @@ func TestNewRunnerClosesRegistryWhenCoreRunnerBuildFails(t *testing.T) {
 
 func TestNewRunnerRetainsPartialResourcesForBuildOwner(t *testing.T) {
 	built := &cleanupTool{name: "built"}
-	owner := agentruntime.NewRunnerBuildOwner(agentruntime.PluginContext{})
+	owner := agentruntime.NewRunnerBuildOwner()
 	cfg := withTestRunnerPaths(t, runnerConfig{
 		Provider: providerConfig{
 			API:     "anthropic",

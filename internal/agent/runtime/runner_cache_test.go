@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -89,7 +88,7 @@ func (r *fakeRunner) Close() error {
 
 func TestRunnerBuildOwnerDefersPartialCloseUntilComplete(t *testing.T) {
 	resource := newFakeRunner()
-	owner := NewRunnerBuildOwner(PluginContext{})
+	owner := NewRunnerBuildOwner()
 	if err := owner.AdoptRunner(resource); err != nil {
 		t.Fatalf("adopt partial runner: %v", err)
 	}
@@ -112,7 +111,7 @@ func TestRunnerBuildOwnerRetriesPartialCloseAfterFailure(t *testing.T) {
 	resource := newFakeRunner()
 	want := errors.New("partial close failed")
 	resource.closeErr = want
-	owner := NewRunnerBuildOwner(PluginContext{})
+	owner := NewRunnerBuildOwner()
 	if err := owner.AdoptRunner(resource); err != nil {
 		t.Fatalf("adopt partial runner: %v", err)
 	}
@@ -1036,36 +1035,6 @@ func TestRunnerCacheResetClosesIdleUnreservedRunner(t *testing.T) {
 	}
 	if !runner.closed {
 		t.Fatal("reset did not promptly close an idle unreserved runner")
-	}
-}
-
-func TestRunnerCacheOwnerReleaseOnlyFiresAfterSuccessfulClose(t *testing.T) {
-	var releases atomic.Int32
-	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
-	cache.ownerRelease = func() { releases.Add(1) }
-	good := newFakeRunner()
-	cache.sessions["owner-release-good"] = &cachedSession{r: good, info: validInfo("owner-release-good")}
-	if err := cache.reset(); err != nil {
-		t.Fatal(err)
-	}
-	if got := releases.Load(); got != 1 {
-		t.Fatalf("successful idle close releases = %d, want 1", got)
-	}
-	bad := newFakeRunner()
-	bad.closeErr = errors.New("close failed")
-	cache.sessions["owner-release-bad"] = &cachedSession{r: bad, info: validInfo("owner-release-bad")}
-	if err := cache.reset(); err == nil {
-		t.Fatal("failed idle close returned nil")
-	}
-	if got := releases.Load(); got != 1 {
-		t.Fatalf("failed idle close releases = %d, want 1", got)
-	}
-	bad.closeErr = nil
-	if err := cache.reset(); err != nil {
-		t.Fatal(err)
-	}
-	if got := releases.Load(); got != 2 {
-		t.Fatalf("successful retry releases = %d, want 2", got)
 	}
 }
 

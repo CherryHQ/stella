@@ -55,10 +55,22 @@ Tags: `latest` (stable), `vX.Y.Z` (specific stable release), `vX.Y.Z-rc.N` (rele
 - Refresh the model cache from the Web UI if new models are available
 - Builtin skills update with the binary through its immutable release bundle
 
-## Skill upgrade and downgrade checks
+## Resource upgrade checks
 
-Before upgrading, inspect legacy `$STELLA_HOME/.agents/skills`. Using the old working binary, import each custom Skill root as a managed global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. Back up, verify, and remove other residual paths. The new binary lists every blocking path and stops without deleting or changing anything. Paths owned by the current release manifest are inert even when their contents or modes are stale; every other Skill root or residual path blocks startup.
+Before upgrading, back up PostgreSQL and the durable resource roots. The release
+migration publishes complete packages and standalone Skills/MCP files into the
+four typed scopes, records source and target digests, and stops on a conflict.
+It does not overwrite a different file tree, resurrect a missing declaration,
+or use old database rows as a runtime fallback.
 
-Before downgrading to a binary that predates AgentSkillPolicy v1, re-enable every disabled Skill and explicitly clear dangling disablements in the Web UI. Older binaries ignore canonical policy, and ordinary Agent edits can overwrite the reused column. Retained bundle directories are derived and inert after rollback.
+After the cutover, edit the files directly through the Web UI, API, or an
+intended writable root. Changes take effect on the next turn. A copied package
+is independent and does not follow later source edits. Delete an MCP declaration
+when the resource should disappear; use OAuth Disconnect separately when local
+access must be revoked. Disconnect does not guarantee remote provider revocation.
+Resource bytes and installation caches remain until Stella can prove the relevant
+process and descendants have stopped. The local backend enforces its sandbox
+policy but cannot prove detached descendants stopped; the `none` backend
+provides no reliable process isolation.
 
 Explicit destructive user, group, and Agent deletion fence execution before removing the database owner. Workspace bytes and inodes remain, but subsequent access fails owner validation. For live owners, the sole `WorkspaceManager` creates missing deterministic roots and rejects non-directories, symlinks, unsafe IDs, and trusted-root replacement. Any filesystem entry at `agents/{id}` reserves that Agent ID. Run restore and root cleanup while Stella is stopped. Routine upgrades and Helm uninstall do not delete workspace bytes. This is a trusted-host, single-replica POSIX contract; multi-replica, Kubernetes, and S3 authority require a future redesign.

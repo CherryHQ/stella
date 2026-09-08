@@ -81,9 +81,6 @@ type runnerCache struct {
 	retired []*retiredRunner
 	mu      sync.Mutex
 	log     *slog.Logger
-	// ownerRelease is notified only after a detached runner has closed
-	// successfully and has been removed from retired ownership.
-	ownerRelease func()
 }
 
 // maxConcurrentRunnerCloses bounds Docker and filesystem cleanup pressure
@@ -215,7 +212,7 @@ const maxFactoryGenerationRetries = 8
 var ErrRunnerFactoryChanged = errors.New("runner factory changed during construction")
 
 func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, info session.Info, model string, thinking ai.ThinkingLevel, reserve bool, extraTools []tools.Tool, expectedGeneration *uint64) (selection runnerSelection, err error) {
-	preparedContext, preparedContextReady := preparedPluginContext(ctx)
+	preparedContext, preparedContextReady := PreparedPluginContext(ctx)
 	var (
 		cs               *cachedSession
 		created          bool
@@ -411,11 +408,7 @@ func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, inf
 			cs.reserved = true
 		}
 		newRunner = c.newRunner
-		if preparedContextReady {
-			buildOwner = NewRunnerBuildOwner(preparedContext)
-		} else {
-			buildOwner = NewRunnerBuildOwner(PluginContext{})
-		}
+		buildOwner = NewRunnerBuildOwner()
 		cs.building = buildOwner
 		hooksFn = c.hooksFn
 		defaultModel = c.defaultModel
@@ -653,32 +646,6 @@ func (c *runnerCache) removeRetired(entry *retiredRunner, err error) {
 	}
 }
 
-// pluginContexts returns every still-owned immutable plugin context. The
-// cache keeps building, active, and retired entries reachable until cleanup
-// succeeds, so callers can derive file ownership without a second registry.
-func (c *runnerCache) pluginContexts() []PluginContext {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	contexts := make([]PluginContext, 0, len(c.sessions)+len(c.retired))
-	for _, cs := range c.sessions {
-		if cs.building != nil {
-			contexts = append(contexts, cs.building.PluginContext())
-		}
-		if cs.r != nil {
-			contexts = append(contexts, cs.r.PluginContext())
-		}
-	}
-	for _, entry := range c.retired {
-		switch {
-		case entry.runner != nil:
-			contexts = append(contexts, entry.runner.PluginContext())
-		case entry.owner != nil:
-			contexts = append(contexts, entry.owner.PluginContext())
-		}
-	}
-	return contexts
-}
-
 func (c *runnerCache) closeRetiredEntry(entry *retiredRunner) error {
 	var err error
 	if entry.runner != nil {
@@ -687,9 +654,6 @@ func (c *runnerCache) closeRetiredEntry(entry *retiredRunner) error {
 		err = c.closeBuildOwner(entry.owner)
 	}
 	c.removeRetired(entry, err)
-	if err == nil && c.ownerRelease != nil {
-		c.ownerRelease()
-	}
 	return err
 }
 

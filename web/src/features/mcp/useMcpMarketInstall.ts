@@ -6,7 +6,11 @@ import {
   startMcpServerOAuth,
   updateMcpServerCredentials,
 } from "@/lib/api-client/sdk.gen";
-import type { McpRegistryServer, McpServer } from "@/lib/api-client/types.gen";
+import type {
+  CreateMcpServerRequest,
+  McpRegistryServer,
+  McpServer,
+} from "@/lib/api-client/types.gen";
 import type { InstallRequest, WritableScope } from "@/features/marketplace/InstallScopeStep";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { useI18n } from "@/lib/i18n";
@@ -36,19 +40,21 @@ export function useMcpMarketInstall(
   const [created, setCreated] = useState<McpServer | null>(null);
   const mutation = useMutation({
     mutationFn: async ({ server, scope, agentId, bearerSecret }: InstallArgs) => {
+      const declaration: CreateMcpServerRequest["declaration"] = {
+        url: server.url,
+        transport: server.transport,
+        auth_type: server.auth === "bearer" ? "bearer" : "none",
+        credential_mode: scope === "system" || scope === "system_agent" ? "shared" : "per_user",
+      };
+      if (server.auth === "bearer") declaration.credential_ref = ensureMcpBearerCredentialRef();
+      const body: CreateMcpServerRequest = {
+        name: registryPluginID(server.id),
+        scope,
+        declaration,
+      };
+      if (agentId) body.agent_id = agentId;
       const { data } = await createMcpServer({
-        body: {
-          name: registryPluginID(server.id),
-          scope,
-          ...(agentId ? { agent_id: agentId } : {}),
-          declaration: {
-            url: server.url,
-            transport: server.transport,
-            auth_type: server.auth === "bearer" ? "bearer" : "none",
-            credential_mode: scope === "system" || scope === "system_agent" ? "shared" : "per_user",
-            ...(server.auth === "bearer" ? { credential_ref: ensureMcpBearerCredentialRef() } : {}),
-          },
-        },
+        body,
         throwOnError: true,
       });
       if (!data) throw new Error("MCP server was not returned");

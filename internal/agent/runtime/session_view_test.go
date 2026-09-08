@@ -1,35 +1,11 @@
 package runtime
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/plugin"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
-
-func TestSelectedResourceIdentityRequiresSelectedConfig(t *testing.T) {
-	definition := plugin.Definition{ID: "demo"}
-	if _, err := selectedResourceIdentity(definition, plugin.ResolvedPlugin{}); err == nil {
-		t.Fatal("selectedResourceIdentity accepted an enabled plugin without a selected config")
-	}
-
-	enabled := true
-	resolved := plugin.ResolvedPlugin{Config: &plugin.Config{
-		ID:       "config/user-agent",
-		Scope:    plugin.ScopeUserAgent,
-		Revision: 7,
-		Enabled:  &enabled,
-	}}
-	identity, err := selectedResourceIdentity(definition, resolved)
-	if err != nil {
-		t.Fatalf("selectedResourceIdentity: %v", err)
-	}
-	want := pkgplugins.PluginResourceIdentity{PluginID: "demo", ConfigID: "config/user-agent", Scope: "user_agent", Revision: 7}
-	if identity != want {
-		t.Fatalf("identity = %+v, want %+v", identity, want)
-	}
-}
 
 func TestAppendCLIResourcesCarriesIdentityAndClonesOptions(t *testing.T) {
 	options := map[string]any{"extras": "x"}
@@ -89,26 +65,5 @@ func TestAppendSkillResourcesUsesPublishedAssetDigest(t *testing.T) {
 	}, false)
 	if got := view.SkillSpecs[0].PackageDigest; got != "sha256:assets" {
 		t.Fatalf("skill package digest = %q, want published asset digest", got)
-	}
-}
-
-func TestValidateResolvedResourcePayloadRejectsIncompleteCapabilityLift(t *testing.T) {
-	definition := plugin.Definition{
-		ID: "demo", DisplayName: "Demo",
-		Source:         plugin.SourceBuiltin,
-		DefaultEnabled: false, Revision: 1,
-		Spec: json.RawMessage(`{"binaries":[{"name":"demo","tool":"github:owner/demo","version":"1.0.0"}]}`),
-	}
-	disabled := false
-	resolved := plugin.ResolvedPlugin{
-		Config: &plugin.Config{
-			ID: "cfg-user", PluginID: definition.ID,
-			Scope: plugin.ScopeUser, UserID: "user-1", Enabled: &disabled, Revision: 1,
-			Payload: json.RawMessage(`{"binaries":null}`),
-		},
-		Effective: plugin.Effective{Payload: json.RawMessage(`{}`)},
-	}
-	if err := validateResolvedResourcePayload(definition, resolved); err == nil {
-		t.Fatal("validateResolvedResourcePayload accepted an incomplete payload after capability lift")
 	}
 }

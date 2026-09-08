@@ -189,7 +189,8 @@ The following literal paths describe a process view, not the Agent filesystem AP
 
 Every backend creates a private temporary directory for each sandbox session and removes it when the session closes. Docker stores its backing directory under `$STELLA_HOME/cache/sandbox-tmp/` and mounts it at `/tmp`, so shell commands and file tools access the same content; startup cleanup removes stale Docker directories. This is scratch space, not a durability promise.
 
-Isolating backends also render the system install tree at `/opt/stella` as read-only. Its tool-managed `bin` and `.mise-tools` trees remain available, and builtins appear at `/opt/stella/skills/builtin`; the sibling `users/` and `agents/` trees under `STELLA_HOME` are not exposed. A selected managed Skill is copied separately into a digest-pinned, session-private directory under `$TMPDIR`; its complete authority root and revision history are never mounted into the sandbox. The Docker backend bakes its mise toolchain at `/opt/stella`, and Linux `local` renders the matching system tree there, so tool resolution remains consistent across isolating backends. Mise's system config stays in that read-only tree. Principal-global configuration is writable under `XDG_CONFIG_HOME`, while its installs, cache, and state stay in a separate Stella-managed per-principal tree so relative tool links resolve identically across backends.
+Isolating backends render the selected system resources and release-owned builtin bundle as read-only execution inputs. User and Agent resources are projected only when the current authority selects them. A package or Skill file is not a second sandbox boundary, and its complete source root or history is never mounted as a shortcut. CLI artifacts and MCP connections may be reused when the turn identity is unchanged. MCP connections are session-owned and close with the session;
+resource-derived bytes and installation caches remain until verified maintenance can clean them.
 
 ### Builtin Skill bundle
 
@@ -197,7 +198,7 @@ Native `local` and `none` installs use the exact release bundle at `$STELLA_HOME
 
 The Docker sandbox image bakes and labels the same revision. It does not fall back to host builtins. Docker provider preflight rejects a revision mismatch, so the runner session does not start. For command syntax, run `stellad system-bundle --help`. Developers rebuilding the local sandbox image run `mise run sandbox:docker:build`; custom sandbox images must be rebuilt from the matching Stella revision.
 
-Before upgrading, use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. Back up, verify, and remove other residual paths. Startup lists every blocking path and stops without deleting or changing anything. Paths owned by the current release manifest are inert even when their contents or modes are stale; every other Skill root or residual path blocks startup.
+Before upgrading, let the release migration publish the complete files into their intended typed scope. The migration records source and target digests and stops on a conflict; it does not overwrite a different file tree. After cutover, direct file edits apply on the next turn, copies do not follow source upgrades, and no old database declaration is used as a runtime fallback.
 
 ### Upgrading existing workspaces
 

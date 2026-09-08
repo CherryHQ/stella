@@ -10,16 +10,12 @@ import (
 	"path"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/plugin"
 )
 
-var (
-	ErrSkillSelectionConflict = errors.New("skills: same-layer Skill name conflict")
-	ErrSkillTurnIDRequired    = errors.New("skills: turn owner requires a turn ID")
-)
+var ErrSkillSelectionConflict = errors.New("skills: same-layer Skill name conflict")
 
 // PackageSkillRef identifies a Skill declared by the immutable PluginContext
 // captured for a runner. The package owns the bytes; a turn only carries this
@@ -140,13 +136,13 @@ type ManagedSkillRef struct {
 	// captured is non-nil for filesystem-backed Skills. The bytes and modes are
 	// the only content source for this turn; consumers must not reopen a
 	// mutable path or call LoadExactRevision for these refs. Nil means legacy
-	// POSIX identity-only behavior.
+	// Legacy identity-only behavior.
 	captured *ManagedRevision
 }
 
 // visibleSkillCapture is intentionally local to the turn admission path. It
 // lets the new filesystem store provide one bounded capture without changing
-// the temporary IdentityReader contract used by legacy POSIX callers.
+// the temporary IdentityReader contract used by legacy callers.
 type visibleSkillCapture interface {
 	CaptureVisible(context.Context, ViewContext) (SkillCapture, error)
 }
@@ -501,58 +497,6 @@ type SkillTurnView struct {
 	masked   []string
 }
 
-// ActiveTurnOwner records whole admitted turn views, rather than maintaining a
-// second per-resource lease/refcount model. Cleanup consults this owner while a
-// turn is active; releasing the turn removes every managed digest atomically.
-type ActiveTurnOwner struct {
-	mu    sync.Mutex
-	turns map[string]SkillTurnView
-}
-
-// Register records one admitted turn before it can open managed bytes.
-func (o *ActiveTurnOwner) Register(turnID string, view SkillTurnView) error {
-	if o == nil || turnID == "" {
-		return ErrSkillTurnIDRequired
-	}
-	if err := ValidateSkillTurnSelection(view); err != nil {
-		return err
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.turns == nil {
-		o.turns = make(map[string]SkillTurnView)
-	}
-	if _, exists := o.turns[turnID]; exists {
-		return fmt.Errorf("skills: turn %q is already registered", turnID)
-	}
-	o.turns[turnID] = view.Clone()
-	return nil
-}
-
-// Release removes one completed or canceled turn. Unknown IDs are idempotent.
-func (o *ActiveTurnOwner) Release(turnID string) {
-	if o == nil || turnID == "" {
-		return
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	delete(o.turns, turnID)
-}
-
-// Snapshot returns the active turn views for cleanup reachability checks.
-func (o *ActiveTurnOwner) Snapshot() []SkillTurnView {
-	if o == nil {
-		return nil
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	out := make([]SkillTurnView, 0, len(o.turns))
-	for _, view := range o.turns {
-		out = append(out, view.Clone())
-	}
-	return out
-}
-
 // NewSkillTurnView builds a defensive turn view from trusted admission data.
 // Managed references must carry a valid digest; callers should capture the
 // current revision before constructing the view.
@@ -696,7 +640,7 @@ func (v SkillTurnView) ManagedSkills() []ManagedSkillRef {
 }
 
 // ManagedRevision returns a detached copy of the exact bytes captured for a
-// filesystem-backed ref. Legacy POSIX refs return false and are loaded through
+// filesystem-backed ref. Legacy refs return false and are loaded through
 // the existing revision reader.
 func (v SkillTurnView) ManagedRevision(id string) (ManagedRevision, bool) {
 	for _, ref := range v.managed {

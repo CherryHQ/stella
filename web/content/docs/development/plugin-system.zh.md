@@ -2,7 +2,7 @@
 title: 插件系统
 ---
 
-Agent Plugins 通过一份带范围的包定义组合 Skills、CLI 依赖、环境绑定和 MCP 服务。
+Agent Plugins 通过类型化资源作用域中的一棵完整包文件树组合 Skills、CLI 依赖、环境绑定和 MCP 服务。
 编译进程序的 Stella Native
 Plugins 使用可信 Go 注册、部署级配置，以及管理员设置的逐 Agent 禁用策略。
 
@@ -39,174 +39,72 @@ Native runtime 实现 `Apply`、`Stop` 和 `Snapshot`，运行时查询使用 `G
 `PluginInfo.Capabilities` 声明注册特征，由 Host 对照实际注册验证。
 `RequiredCapabilities` 独立声明宿主端口，继续执行默认拒绝的权限检查。
 
-## 定义与配置
+## 文件资源模型
 
-`PluginDefinition.ID` 是唯一的规范包名，定义还包含发行资源与默认启用状态。
-Builtin 定义来自可信的发行声明，数据库中的 builtin 行只是投影。
-同一 Agent 定义可以同时包含多种资源。传输和安装方式由各自的资源消费者选择，
-定义不再具有根级后端分类。编译进程序的 Go 实现通过独立 Native 路径注册和管理。
+Agent 资源是四个有明确类型的资源根中的普通文件。资源根由可信的组合层提供，
+通过 Home capability 打开；资源文件不能自行声明所有者。
 
-管理路由使用 `/api/plugins/{plugin_id}` 及其子资源。将目录返回的完整 ID 编码为一个
-URL 路径段；源码目录分类不参与请求寻址。
-名称由 1–64 个小写字母、数字、点和短横线组成，首尾必须是字母或数字，不能包含
-`..` 或 `--`。重名创建失败，不自动添加后缀。创建后身份不可修改，显示名称可以修改。
+| 作用域         | 所有者           | 典型资源根          |
+| -------------- | ---------------- | ------------------- |
+| `system`       | 部署             | 系统资源            |
+| `system_agent` | 一个 Agent       | 该 Agent 的系统资源 |
+| `user`         | 一个用户         | 该用户的资源        |
+| `user_agent`   | 一个用户和 Agent | 该用户的 Agent 资源 |
 
-`PluginConfig` 保存某个定义在一个范围内的决策：
+项目还可以提供 `.agents/skills/` 资源，但它只参与 Skill 选择。解析器只在四个资源根中按
+`user_agent > user > system_agent > system` 选择完整包候选。相同名称的
+候选会整体替换更宽作用域的包，不会把落选包的文件、CLI 声明、环境绑定、Skill
+或 MCP 声明合并进来。独立 Skill 和 MCP 文件是独立资源，不会因为名称相同而成为
+包成员。
 
-| 范围         | 适用对象               |
-| ------------ | ---------------------- |
-| System       | 部署中的所有用户       |
-| System agent | 某个 Agent 的所有用户  |
-| User         | 某个用户的所有 Agent   |
-| User agent   | 某个用户使用某个 Agent |
+`settings.json` 是策略文件，不是包内容。它只保存 `disabled`、只有管理员能设置的
+`forbidden` 和 `disabled_tools`。被停用或解析失败的胜者会遮蔽继承资源，个人设置
+不能解除管理员禁止项。Native 能力使用独立注册表和策略，同名包不会因此获得 Native
+工具。
 
-每个定义在一个范围元组内至多一份配置。选择顺序是 user agent、user、system
-agent、system。System 或匹配的 system agent 显式设为 `false`，分别构成独立上限，
-更窄范围的 `true` 不能解除其中任何一个限制。`null` 使用所选定义的发行默认值。
+文件 API 和 Web UI 编辑的就是运行时发现读取的同一批字节。复制完整包会在目标所有者
+下创建新的独立资源，没有父级链接，来源后续编辑不会升级副本。包编辑替换完整目录。
+独立 MCP 声明使用 `mcp/<name>.json`，公开端点和凭据引用写在文件中，秘密值保存在
+独立的授权存储中。
 
-Agent Plugin 的配置模型是一份 `PluginDefinition`，加上四种范围元组各自至多一份
-`PluginConfig`。`user_id` 和 `agent_id` 由可信 authority 推导，不能接受调用方自填身份。
-Definition 拥有稳定的包身份、资源声明、来源、版本和内容 digest。所选 Config 只拥有
-该范围内已声明资源的正式参数与凭据引用。Config 不能新增二进制、Skill、OAuth 要求、
-来源或包成员。它保存的参数对象按已声明的二进制和 MCP 服务命名，resolver 将这些参数
-应用到 Definition 的副本。
+## Turn 捕获和生命周期
 
-所选范围独立拥有配置，可以覆盖发行定义中允许的参数，但不同范围之间不合并字段或凭据。
-所选配置禁用或不完整时，不回退到更宽范围。Builtin 使用相同规则，管理员可以禁用。
+接纳 turn 时，运行时捕获选中的文件，并用同一份固定视图生成提示词、搜索和加载 Skill、
+选择 CLI、绑定环境以及发现 MCP。turn 中途的编辑在下一轮生效，本轮不会重新打开后续
+文件版本。捕获身份仍匹配时，已有连接和未变化的 CLI 产物可以复用。
 
-### HTTP 边界与正式参数
+API 修改使用摘要检测过期的 UI 编辑。Shell 直接写文件仍是普通的非事务编辑。Home
+所有者锁只防止该所有者目录被并发删除，不是任意 Shell 写入的通用 compare-and-swap。
 
-HTTP 请求越过边界后，服务只接受正式参数格式。HTTP adapter 仍会把旧的扁平 MCP 字段和
-二进制数组转换为正式格式，再调用 `Plugin.Access`。持久化的 Definition、Config 和运行时代码
-不再解析旧格式。
+文件删除、策略停用和凭据撤销是三个独立动作。删除文件会移除声明，使它不再参与后续
+选择，但不会撤销 OAuth grant。MCP 的 **Disconnect** 会在本地撤销匹配的已存 grant、
+轮换 generation、关闭匹配连接，并阻止迟到回调和刷新；不承诺远端 provider 一定撤权。
+端点或认证身份变化会产生新的目标，不能复用旧 grant。
+Native 账号和 Agent 撤权继续由各自的 Native 或 Agent 策略负责。
 
-这个 adapter 是兼容边界，不是第二套配置模型。它的退出条件是声明的兼容窗口关闭，并且
-受支持客户端已经使用正式格式。本文不把退出条件绑定到某个发行版本。
+运行时不会在线垃圾回收包字节、Skill 历史、资源派生快照或安装缓存。MCP 连接属于
+Session，会随 Session 关闭；目录观测可以保留供后续发现，但永远不是权威。资源清理
+需要明确且经过验证的维护操作。TTL 或猜测 PID 不能替代进程及其后代已经停止的证据。
 
-## 一份执行快照
+## CLI 和 Skill 资源
 
-公共服务从可信用户、Agent 或群组身份解析快照。Agent 运行时从同一份快照一起生成
-资源可见性、二进制、环境绑定与声明式 Prompt。上下文构造函数只接收快照，调用方
-不能另行传入其他身份或版本的资源。Native Host 只通过独立策略管理 Go 注册的能力
-与原生 Prompt。
+包可以包含二进制文件、Skill、环境声明、提示词片段和 MCP 声明。包解析直接读取本轮
+捕获的文件树，不存在可以覆盖文件的生成运行时目录。包消费者只准备当前轮次选中的条目，
+可以复用匹配的已安装产物。共享安装缓存要等进程清理安全后才处理，不能成为第二份包权威。
 
-插件详情、`PluginConfig.resource_summary` 和 effective 配置接口描述的是已声明或已配置
-的资源。插件更新预览同样是只读操作：它校验候选包并报告 digest、资源名称、OAuth 变化
-和不兼容作用域。这些视图都不会安装 CLI、连接 MCP、获取令牌，也不能证明下一轮一定可以执行。
+Builtin 和发行版 Skill 是带有可信所有权的发布文件。用户 frontmatter 不能声明发行版
+所有者。包内和独立 Skill 仍执行相同的 frontmatter 与大小检查，包准备失败时本轮保留
+masked 状态，不会恢复更低优先级的候选。
 
-turn 准入时，runtime 会重新检查授权并准备每个选中的包。它记录按包划分的 OAuth 和 CLI
-就绪结果，然后只把准备成功的包资源发布给 prompt、工具、sandbox 和环境。失败的包仍作为
-被遮蔽的候选保留，因此同名低优先级资源不会因为准备失败而复活。
+Channel、email、recally 和 scheduler 等 Native 集成属于独立系统能力。它们的编译注册、
+账号凭据和 Agent 策略留在各自领域。停用包只隐藏文件资源，不会停用同名 Native 集成。
 
-Host 会把不含秘密的执行摘要挂到该次准入 turn 的持久用户消息锚点上。每个包记录实际接纳
-的不可变包版本和 digest、配置 ID、作用域与修订、授权和就绪状态。Skill 条目记录实际胜者，
-以及 `selected`、`masked` 或 `overridden` 状态，同时带有版本、来源、作用域和 digest。二进制
-条目记录请求版本、解析版本，以及提供安装证据的 backend、selection identity 和 source。
-如果复用已有 ready cache 但没有证据，解析版本或安装证据会保持未知。在这项元数据存在前
-记录的 turn 没有摘要，Stella 不会根据当前配置重建历史准入结果。
+## Sandbox 进程边界
 
-每个 Agent Plugin 按精确包 ID 解析，不同包不会替换彼此的资源。Native 工具和 hooks
-不进入这份快照；同名 Agent 包不能获得 Native 准入，Native 仍使用可信注册 ID 和独立策略。
-
-MCP 导出名由包名、server key 和远端工具名适配为最多 64 字符的 ASCII 名称，
-带确定性的 12 位十六进制哈希后缀。Server key 使用包中声明的 MCP 条目名，
-导入的旧单服务器使用 `main`。实际暴露前检查整组工具是否重名。
-授权使用包身份、server key 和远端原始工具名，不解析展示名称。
-Native 工具保留已注册的静态名称。
-
-配置写入在执行准入屏障内原子提交。空闲 runner 被回收，已经开始的 turn 可以结束后
-再回收 runner。凭据读取仍必须匹配捕获的配置版本，旧 runner 不能把新凭据发给旧地址。
-插件开关约束 Stella 管理的能力暴露与执行准入；文件系统和网络限制仍由沙箱负责。
-禁用插件不会撤销已有 OAuth grant，也不会抹除此前已加载的 Skill。
-
-## CLI 与 Skill 资源
-
-CLI 集成可以包含二进制、Skills、环境声明和提示。CLI 版本与 Skill 来源是独立字段，
-更新一个不要求更新另一个。`agentpackage` 在构建时读取标准包文件，生成器直接把
-规范化的 Definition 目录内嵌为 JSON。启动时直接读取该目录，不再经过中间 Manifest
-或 YAML 转换。`internal/plugin` 负责已声明资源与正式作用域参数的校验；资源消费者负责安装、
-连接和执行。OAuth provider 文档由 `internal/connections/oauth` 加载和校验。
-
-Builtin Skill 必须显式声明来源路径和所属包，生成与运行时加载共用这份发行声明。
-旧目录扫描器和按目录推断 owner 的路线已移除。旧版提取式 Skill 的升级检查放在
-`cmd/stellad`，继续阻止不安全升级，资源加载器不再理解旧目录布局。
-
-只有 mise 和 Xberg 是同步准备的内嵌发行运行时。其他 CLI，包括 fd 和 rg，
-都在后台通过会话选择共用的安装器预装。`internal/platform/toolinstall` 负责 mise 执行、
-私有配置和 artifact 原子发布，只接收具体工具与路径；作用域、修订号和选择身份
-由 Agent sandbox 代码负责。预热使用临时私有配置填充 mise artifact 缓存，
-不发布会话选择，也不维护第二份安装状态文件。Runner 从匹配缓存准备选中的 snapshot，
-缺失版本在对应沙箱边界内安装。
-
-Builtin Skill 的归属由发行包声明生成，用户 frontmatter 不能认领 owner。
-提示列表、搜索与直接加载都在选定资源后检查同一归属限制。
-
-email、recally、scheduler 指南是位于 `plugins/agent/<name>/` 的标准 Agent 包，
-以 `plugin.json` 和 `skills/<name>/SKILL.md` 为编写来源，Agent Plugin 身份使用包的裸名。
-禁用指南只隐藏它的 Skill，不改变对应 Native 能力。加载指南不会启用 Native 工具；
-指南的 compatibility 说明会指出，对应 Native 能力需要单独可用。
-
-所有内置 Agent 包使用 `plugins/agent/<name>/plugin.json`。Web 拥有自己的 Skill，
-并声明 Bun 与 Lightpanda；禁用独立的 Bun 包不会禁用 Web。Python Script 归 uv 所有。
-禁用包会隐藏该包控制的资源，但不删除共享的二进制缓存。Lightpanda 提供 Web 渲染，
-Bun 运行抓取与搜索脚本。
-
-每个 runner 只获得选中的 CLI 文件及入口。可信 system 安装的私有参数不进入 runner
-可读的文件系统；Docker 在现有工具缓存内按一个解析后的 image ID 和完整四层范围选择
-准备 Linux 文件。selection helper 只提供选中的条目和二进制。Native managed 安装使用
-managed tree；User 和 user agent 的安装在各自沙箱目录内执行，并在 PATH 中优先。插件权限控制
-Stella 提供的资源；`none` 后端不提供文件系统隔离。
-
-## Managed Skill 修订保留
-
-Managed Skill 使用 Stella Home 中四个类型化范围。`system` 位于
-`.agents/db-skills`，`system_agent` 位于 `agents/<agent>/.agents/skills`，`user`
-位于 `users/<user>/.agents/skills`，`user_agent` 位于
-`users/<user>/agents/<agent>/.agents/agent-skills`。每个 Managed Skill 的不可变文件
-位于 `.stella-revisions/<skill-id>/<digest>`，名为 `<skill-id>` 的 selector 选择当前修订。
-Project Skill 和发行版 builtin Skill 使用各自的存储 authority，不由此 collector 回收。
-
-修订回收发生在 Managed mutation 成功、最后一个 active turn owner 释放、相关 Reflect
-使用状态变更以及 startup reconciliation 成功之后。collector 持有 Managed advisory lock，
-先快照数据库证据和 active turn view，再只遍历已存在且可信的 root。它保护 selector 的当前
-目标、active turn 持有的每个精确修订，以及非空的 `skill_usage.content_digest` 和
-`skill_changelog.content_digest` 证据。只有 manifest 有效且没有这些证据指向的修订才可回收。
-
-collector 在 root 和 Managed lock 仍持有时，先把已证明不可达的修订目录重命名为
-`.stella-gc-*` 隔离目录；释放 lock 后才删除隔离目录，并在中断后重试遗留项。它永远不会删除
-当前 selector 指向的修订。startup reconciliation 处于 pending 或 degraded、owner 或 selector
-证据格式异常、数据库或 Home 出错、runtime 终止状态未知时，相关 bytes 都会保留并等待重试；
-删除结果不确定时不能据此进行物理清理。
-
-## Package 退休与运行时撤权
-
-退休自定义 package 会记录 `retired_at`；解析流程不再准入它，但 definition 会作为可重试的
-清理记录保留。Package cleanup 保留每个当前未退休 definition 的 digest，以及 building、active
-或 closing `PluginContext` 快照和已准入 package Skill turn 的所有运行时 owner。只有没有运行时
-owner 指向退休 digest 后，content store 才会隔离并删除对应的 content-addressed tree。多个
-definition 共用的 digest 只要仍被当前 definition 或 runtime owner 使用就继续保留。随后 finalizer
-按 revision 锁定退休 definition，通过 CAS 删除其 configs、tool policies 和 definition row。
-文件删除或 CAS 失败、结果不确定时，退休 row、配置和 package 名称都会保留，等待下次重试。
-
-账号停用或删除、移除 assignment、断开 OAuth 连接和删除 Vault entry，都是按目标范围执行的终止性
-撤权，可覆盖 user、user-agent、shared-agent 和全局部署范围。持久化 mutation 在 lifecycle fence
-内执行；结果成功或不确定后，匹配目标范围的 active/reserved turn 会被取消或 detach，慢速 runner
-`Close` 在释放 fence 后执行。普通 plugin 或配置变更只会把忙碌 runner 标为 stale，已准入 turn
-用捕获的 snapshot 完成，下一轮再构建新 snapshot。
-
-## Sandbox 恢复证据
-
-local 和 `none` backend 在启动进程前都会持久化
-`cache/sandbox-recovery/<session>.json` marker。后台 descendant 可能比 leader 活得更久，因此
-正常 `Close` 也不会清除 marker，runner scratch bytes 会保留以便恢复。任意 marker 都会全局阻止
-package 和 managed Skill 资源清理；它是保守证据，不代表会自动完成最终清理。marker 永远不会
-自动移除，即使正常 `Close` 后也可能无限期阻塞清理。目前没有可以清除它的产品命令或安全自动
-恢复路径，也没有 TTL 或 PID 猜测逻辑可以清除它。
-
-Docker backend 只快照当前 runtime 启动前已存在的、属于该 scope 的 container ID。只有每个初始
-ID 都被证明处于 terminal 状态并成功 remove 后才允许清理；快照之后创建的 container 不会阻塞
-当前 runtime。list、inspect 或 remove 失败，以及非 terminal 状态，都会让清理保持 pending，等待
-后续事件重试。Docker 不用 TTL 或 PID 启发式推断 owner。
+local backend 会执行配置的文件系统和网络策略，但 leader 关闭不能证明脱离进程组的后代
+已经停止。`none` backend 不提供可靠的进程隔离。因此正常关闭 turn 不足以证明可以删除
+资源字节或派生缓存。Docker 负责清理它创建的 Session 资源；包和 MCP 资源的保留独立于
+Session 生命周期。
 
 ## Channel 与账号
 
@@ -224,25 +122,20 @@ Listener 检查 Native 全局开关、逐 Agent 禁用和实例 active 状态。
 
 ## MCP 凭据与观测
 
-每个 MCP 服务都是 Agent Plugin 内的一项资源。所选父配置用 `mcp_servers`
-按声明的服务名保存端点设置，凭据引用使用相同的 key。每个子服务在父配置下具有稳定
-UUID，`(config_id, server_key)` 唯一。子关系只保存身份，不复制第二份端点或认证配置。
-Token 保留在 Vault，shared 与 per-user 凭据互不回退。
+MCP 声明是文件，可以是 `mcp/<name>.json` 独立文件，也可以属于完整包。声明保存
+端点、传输方式、公开请求头、认证类型、凭据模式和不透明的凭据引用。秘密值不会写入
+文件。OAuth grant、刷新令牌、客户端密钥和连接 generation 保存在独立授权存储中，
+通过文件资源的规范身份和凭据所有者寻址。
 
-凭据、OAuth flow 和连接观测使用子服务 UUID；范围、调用者授权与版本屏障属于父配置。
-子服务写入必须验证归属，并只消费一次父版本。修改端点或认证身份只清理受影响子服务
-的状态；移动或删除父配置时，全部子服务在一个事务内处理。一个子服务失败不会隐藏
-正常的兄弟服务或包内 Skill。
+发现过程读取当前 turn 捕获的声明。工具目录和状态只是当前目标与所有者的观测，不是
+权威 registration 表。目录缺失或过期时，后续 turn 可以再次发现；未变化的会话可以
+复用连接。Skill、描述或其他非认证文件编辑不会改变 grant；只有端点、授权服务器、client
+或其他认证身份变化才会生成新目标，不能复用旧 grant。
 
-OAuth 客户端注册属于各个子服务，由父配置所有者管理。System 和 system agent 配置缺少客户端时，
-管理员先通过 OAuth start 初始化，随后用户授权自己的账号。User 和 user agent
-配置的所有者可以自行初始化。旧系统级配置若没有 client ID，升级后需要这一次管理员
-操作；各用户的 token 仍独立保存。禁用和 reset 保留 grant，删除配置才原子清理其 grant。
-
-远端工具目录和连接状态以子服务 UUID 及凭据所有者为键，并检查父配置版本。
-某个用户的工具目录不能成为另一个用户的工具列表。旧 per-user 目录没有可信 owner
-来源，迁移后必须冷探测。内部 OAuth bundle 不允许通过公开 Vault 接口访问，也不进入
-通用环境变量。
+删除文件会移除声明和后续选择，但不会撤销 grant。Disconnect 是明确的本地撤权动作：它
+撤销匹配的已存 grant、轮换 generation、关闭匹配连接，并拒绝迟到回调或刷新；不承诺远端
+provider 一定撤权。共享 system-agent 资源使用共享 owner tuple，per-user 资源使用已验证
+的用户 tuple。所有者不会从请求 payload 推断，迁移也不会伪造所有者。
 
 ## Core 边界与升级
 
@@ -253,6 +146,7 @@ Library 通过显式路径调用的内部解析器依赖仍可用。
 `cmd/stellad` 组合各后端和公共 catalog。后端不能另建 scope 或 enabled 解析规则。
 Provider 与沙箱 adapter 的生产代码依赖 `pkg/**` 公开契约，不依赖 `internal/**`。
 
-旧数据切换需要维护升级：先停止所有旧写入进程，再启动新运行态。一个事务导入并验证
-配置、凭据关联与工具策略，最后记录完成。导入后的旧 Agent Plugin 行保留供检查，
-Native 全局配置继续使用现有存储。这次切换不支持新旧进程对同一数据库滚动写入。
+旧数据切换需要维护升级：先停止所有旧写入进程，再启动新运行态。迁移把完整文件发布到
+四个类型化资源根，校验凭据关联和工具策略，并记录来源与目标摘要。历史行保留供业务
+证据读取，但运行时发现不依赖它们。Native 全局配置继续使用现有存储。这次切换不支持
+新旧进程对同一数据库滚动写入。

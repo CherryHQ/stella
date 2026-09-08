@@ -16,40 +16,30 @@ import (
 
 type preparedPluginContextKey struct{}
 
-func withPreparedPluginContext(ctx context.Context, pluginContext PluginContext) context.Context {
+// WithPreparedPluginContext carries the exact admission context into turn
+// consumers such as tool-policy checks. It avoids a second filesystem capture
+// after the runner has already prepared the turn view.
+func WithPreparedPluginContext(ctx context.Context, pluginContext PluginContext) context.Context {
 	return context.WithValue(ctx, preparedPluginContextKey{}, pluginContext)
 }
 
-func preparedPluginContext(ctx context.Context) (PluginContext, bool) {
+// PreparedPluginContext returns the immutable resource view attached to the
+// current admission, when one exists.
+func PreparedPluginContext(ctx context.Context) (PluginContext, bool) {
 	pluginContext, ok := ctx.Value(preparedPluginContextKey{}).(PluginContext)
 	return pluginContext, ok
 }
 
-// PluginContext is the immutable plugin state captured while admitting a
-// runner. The snapshot and session view are built from the same authority and
-// must travel together for the lifetime of the runner and every turn using it.
+// PluginContext is the immutable file resource state captured while admitting
+// a runner and every turn using it.
 type PluginContext struct {
-	snapshot      plugin.Snapshot
 	view          pkgplugins.SessionPluginView
-	mcp           *pkgplugins.MCPToolSnapshot
 	authority     authz.Authority
 	fileBased     bool
 	fileResources []plugin.FileResource
-	// oauthResult is the admission-time OAuth predicate. It is separate from
-	// view.PackageResults because the latter also contains CLI preparation;
-	// cache identity must notice an OAuth permission change without making a
-	// successful CLI install part of every fresh-context comparison.
+	// oauthResult is the admission-time OAuth predicate, kept beside the
+	// preparation evidence used in the turn execution receipt.
 	oauthResult pkgplugins.PluginPreparationResult
-}
-
-// NewPluginContext derives every Agent resource from the same frozen snapshot.
-// Callers cannot supply a view from another authority or configuration revision.
-func NewPluginContext(snapshot plugin.Snapshot) (PluginContext, error) {
-	view, err := projectSessionPluginView(snapshot)
-	if err != nil {
-		return PluginContext{}, err
-	}
-	return PluginContext{snapshot: snapshot, view: view, authority: snapshot.Authority()}, nil
 }
 
 // NewFilePluginContext builds a runner context directly from the trusted file
@@ -108,14 +98,11 @@ func fileResourceVisibleToAuthority(key plugin.ResourceKey, authority authz.Auth
 
 // Authority returns the trusted actor that produced this context.
 func (c PluginContext) Authority() authz.Authority {
-	if c.authority.Valid() {
-		return c.authority
-	}
-	return c.snapshot.Authority()
+	return c.authority
 }
 
 // IsFileBased reports whether this context was projected from filesystem
-// resources rather than the legacy database snapshot.
+// resources.
 func (c PluginContext) IsFileBased() bool { return c.fileBased }
 
 // InfrastructureContext drops captured file resources before a runner is
@@ -137,33 +124,10 @@ func (c PluginContext) FileResources() []plugin.FileResource {
 	return cloneFileResources(c.fileResources)
 }
 
-// Snapshot returns the authority-bound plugin snapshot captured for this
-// runner.
-func (c PluginContext) Snapshot() plugin.Snapshot { return c.snapshot }
-
 // SessionPluginView returns a defensive copy of the session setup and plugin
 // visibility captured for this runner.
 func (c PluginContext) SessionPluginView() pkgplugins.SessionPluginView {
 	return applyPreparationResult(cloneSessionPluginView(c.view))
-}
-
-// WithMCPResources returns a copy whose view includes the one-shot
-// observation-backed MCP projection used to build the runner. Keeping this
-// projection beside the authored snapshot makes cache identity cover both
-// durable configuration and the successful remote capability set.
-func (c PluginContext) WithMCPResources(directory []pkgplugins.MCPDirectoryEntry, successful []string) PluginContext {
-	view := cloneSessionPluginView(c.view)
-	view.MCPDirectory = slices.Clone(directory)
-	for i := range view.MCPDirectory {
-		view.MCPDirectory[i].Tools = slices.Clone(view.MCPDirectory[i].Tools)
-		for j := range view.MCPDirectory[i].Tools {
-			view.MCPDirectory[i].Tools[j].InputSchema = clonePluginOptions(view.MCPDirectory[i].Tools[j].InputSchema)
-			view.MCPDirectory[i].Tools[j].Annotations = clonePluginOptions(view.MCPDirectory[i].Tools[j].Annotations)
-		}
-	}
-	view.SuccessfulPluginIDs = slices.Clone(successful)
-	slices.Sort(view.SuccessfulPluginIDs)
-	return PluginContext{snapshot: c.snapshot, view: view, mcp: c.mcp, authority: c.authority, fileBased: c.fileBased, fileResources: c.fileResources, oauthResult: c.oauthResult.Clone()}
 }
 
 // OAuthPreparationResult returns the latest admission-time OAuth predicate.
@@ -179,7 +143,7 @@ func (c PluginContext) OAuthPreparationResult() pkgplugins.PluginPreparationResu
 func (c PluginContext) WithOAuthPreparationResult(result pkgplugins.PluginPreparationResult) PluginContext {
 	view := cloneSessionPluginView(c.view)
 	view.PackageResults = c.view.PackageResults.Merge(result)
-	return PluginContext{snapshot: c.snapshot, view: view, mcp: c.mcp, authority: c.authority, fileBased: c.fileBased, fileResources: c.fileResources, oauthResult: result.Clone()}
+	return PluginContext{view: view, authority: c.authority, fileBased: c.fileBased, fileResources: c.fileResources, oauthResult: result.Clone()}
 }
 
 // WithPreparationResult publishes one all-or-nothing result to every runner
@@ -188,7 +152,7 @@ func (c PluginContext) WithOAuthPreparationResult(result pkgplugins.PluginPrepar
 func (c PluginContext) WithPreparationResult(result pkgplugins.PluginPreparationResult) PluginContext {
 	view := cloneSessionPluginView(c.view)
 	view.PackageResults = c.view.PackageResults.Merge(result)
-	return PluginContext{snapshot: c.snapshot, view: view, mcp: c.mcp, authority: c.authority, fileBased: c.fileBased, fileResources: c.fileResources, oauthResult: c.oauthResult.Clone()}
+	return PluginContext{view: view, authority: c.authority, fileBased: c.fileBased, fileResources: c.fileResources, oauthResult: c.oauthResult.Clone()}
 }
 
 // SelectedPluginSkillSpecs returns the immutable selected Skill declarations,
@@ -205,100 +169,13 @@ func (c PluginContext) SelectedPluginBinarySpecs() []pkgplugins.PluginBinarySpec
 	return slices.Clone(c.view.BinarySpecs)
 }
 
-// ExecutionSummaryForTurn projects one immutable admission snapshot into the
-// small, secret-free record persisted on the user anchor. The optional Skill
-// view is the exact winner/mask decision captured for this turn.
+// ExecutionSummaryForTurn projects the immutable file resource view into the
+// small, secret-free record persisted on the user anchor.
 func (c PluginContext) ExecutionSummaryForTurn(view *skill.SkillTurnView) *ai.ExecutionSummary {
-	if c.fileBased {
-		return c.fileExecutionSummary(view)
-	}
-	byID := make(map[string]struct{}, len(c.view.ExposedPluginIDs))
-	for _, id := range c.view.ExposedPluginIDs {
-		byID[id] = struct{}{}
-	}
-	packageVersions := make(map[string]string, len(c.snapshot.Definitions()))
-	result := &ai.ExecutionSummary{Plugins: make([]ai.ExecutionPlugin, 0, len(byID))}
-	for _, definition := range c.snapshot.Definitions() {
-		payload, err := plugin.DecodeResourcePayload(definition.Spec, "execution summary")
-		if err != nil {
-			continue
-		}
-		packageVersions[definition.ID] = payload.Version
-		if _, selected := byID[definition.ID]; !selected {
-			continue
-		}
-		resolved, ok := c.snapshot.Get(definition.ID)
-		if !ok {
-			continue
-		}
-		item := ai.ExecutionPlugin{
-			PluginID:       definition.ID,
-			PackageVersion: payload.Version,
-			PackageDigest:  payload.ContentDigest,
-			Source:         string(definition.Source),
-			Authorization:  "unknown",
-			Readiness:      "unknown",
-		}
-		if payload.Content != nil {
-			item.PackageDigest = payload.Content.Digest
-		}
-		if resolved.Config != nil {
-			item.ConfigID = resolved.Config.ID
-			item.ConfigScope = string(resolved.Config.Scope)
-			item.ConfigRevision = resolved.Config.Revision
-		}
-		if len(payload.OAuth) == 0 {
-			item.Authorization = "not_required"
-		} else if status, prepared := packagePreparationStatus(c.oauthResult, definition.ID); prepared {
-			item.Authorization = "ready"
-			if !status.Ready {
-				item.Authorization = "unavailable"
-				if status.Reason != "" {
-					item.Failures = append(item.Failures, status.Reason)
-				}
-			}
-		}
-		if status, prepared := packagePreparationStatus(c.view.PackageResults, definition.ID); prepared {
-			switch {
-			case !status.Ready:
-				item.Readiness = "unavailable"
-				if status.Reason != "" && !slices.Contains(item.Failures, status.Reason) {
-					item.Failures = append(item.Failures, status.Reason)
-				}
-			case c.packagePreparationComplete(definition.ID, len(payload.OAuth) > 0):
-				item.Readiness = "ready"
-			default:
-				item.Readiness = "unknown"
-			}
-		}
-		for _, spec := range c.view.BinarySpecs {
-			if spec.PluginID != definition.ID {
-				continue
-			}
-			binary := ai.ExecutionBinary{Name: spec.Name, Tool: spec.Tool, RequestedVersion: spec.Version, Source: "package"}
-			// PackageResults carries immutable installer evidence when the CLI
-			// preparation step has completed. An authored range remains a range;
-			// keep it in RequestedVersion and leave Version empty if no resolved
-			// artifact version was observed.
-			for _, evidence := range c.view.PackageResults.Binaries {
-				if !binaryEvidenceMatchesSpec(evidence, spec) {
-					continue
-				}
-				binary.RequestedVersion = evidence.RequestedVersion
-				binary.ResolvedVersion = evidence.ResolvedVersion
-				binary.Backend = evidence.Backend
-				binary.SelectionIdentity = evidence.SelectionIdentity
-				break
-			}
-			item.Binaries = append(item.Binaries, binary)
-		}
-		result.Plugins = append(result.Plugins, item)
-	}
-	appendExecutionSkills(result, view, packageVersions)
-	if len(result.Plugins) == 0 && len(result.Skills) == 0 {
+	if !c.fileBased {
 		return nil
 	}
-	return result
+	return c.fileExecutionSummary(view)
 }
 
 func (c PluginContext) fileExecutionSummary(view *skill.SkillTurnView) *ai.ExecutionSummary {
@@ -521,24 +398,12 @@ func applyPreparationResult(view pkgplugins.SessionPluginView) pkgplugins.Sessio
 	return view
 }
 
-// WithMCPToolSnapshot attaches the exact provider result that produced the
-// directory identity. Runner construction can reuse these tools instead of
-// querying observations a second time.
+// WithMCPToolSnapshot attaches the exact provider directory to this turn view.
 func (c PluginContext) WithMCPToolSnapshot(snapshot pkgplugins.MCPToolSnapshot) PluginContext {
-	copy := pkgplugins.MCPToolSnapshot{Tools: slices.Clone(snapshot.Tools)}
-	return (PluginContext{snapshot: c.snapshot, view: c.view, mcp: &copy, authority: c.authority, fileBased: c.fileBased, fileResources: c.fileResources, oauthResult: c.oauthResult.Clone()}).WithMCPResources(snapshot.Directory, snapshot.SuccessfulPluginIDs)
-}
-
-func (c PluginContext) MCPToolSnapshot() (pkgplugins.MCPToolSnapshot, bool) {
-	if c.mcp == nil {
-		return pkgplugins.MCPToolSnapshot{}, false
-	}
-	copy := *c.mcp
-	copy.Tools = slices.Clone(copy.Tools)
 	view := cloneSessionPluginView(c.view)
-	copy.Directory = view.MCPDirectory
-	copy.SuccessfulPluginIDs = view.SuccessfulPluginIDs
-	return copy, true
+	view.MCPDirectory = slices.Clone(snapshot.Directory)
+	view.SuccessfulPluginIDs = slices.Clone(snapshot.SuccessfulPluginIDs)
+	return PluginContext{view: view, authority: c.authority, fileBased: c.fileBased, fileResources: c.fileResources, oauthResult: c.oauthResult.Clone()}
 }
 
 func cloneSessionPluginView(view pkgplugins.SessionPluginView) pkgplugins.SessionPluginView {

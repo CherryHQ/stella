@@ -64,21 +64,42 @@ You can bind each channel to a specific agent in the Web UI.
 
 ## MCP Tools
 
-Stella connects agents to remote MCP (Model Context Protocol) servers over streamable HTTP — with OAuth 2.1, bearer, or no auth — and installs new servers from the official MCP Registry marketplace in the Web UI. Every tool a server exposes is per-agent and per-user switchable, with the same four-scope permissions as everything else.
+Stella connects agents to remote MCP (Model Context Protocol) servers over
+streamable HTTP or server-sent events. MCP declarations live in ordinary files:
+standalone servers use `mcp/<name>.json`; servers shipped inside a package live
+with that package. Authentication references point to encrypted secrets, and
+OAuth grants live separately from the declaration.
 
-MCP registrations keep their UUID when they become plugin configurations. Shared
-and per-user OAuth observations stay isolated; older per-user catalogs are cold
-probed after migration. OAuth client initialization for system and system-agent
-configurations requires an administrator.
+Resources use four scopes: `system`, `system_agent`, `user`, and `user_agent`.
+For a package, the most specific complete package wins in the order
+`user_agent` > `user` > `system_agent` > `system`; an override replaces the
+whole package. A copy is independent and does not follow later edits in its
+source scope. Editing a file takes effect on the next turn, while the current
+turn keeps its captured content. Deleting a declaration removes the resource
+but does not disconnect its OAuth grant; use **Disconnect** when local access
+must be revoked. Disconnect closes the local connection and blocks late refresh;
+remote provider revocation is not guaranteed. Resource bytes and installation
+caches remain until verified maintenance can safely clean them up. The local
+backend enforces its sandbox policy but cannot prove detached descendants
+stopped; the `none` backend provides no reliable process isolation.
 
 ## Skills
 
-Skills are reusable playbooks that teach Stella how to perform specific tasks. In conversation, Stella can search the Skills already available to the active Agent and load an exact revision. Install, upload, edit, and remove Skills from the Web UI, where every write has an explicit ownership scope.
+Skills are reusable playbooks that teach Stella how to perform specific tasks.
+They are ordinary files in the project, agent, user, or system resource roots,
+or inside a complete package. Stella selects the winning complete package and
+then its Skills, CLI entries, environment bindings, and MCP declarations
+together. A narrower package replaces the broader package; a copied package
+is independent and is not upgraded automatically. File edits apply on the next
+turn, and an admitted turn keeps its captured view.
 
-Release-provided core Skills are read-only resources. Plugin Skills inherit the
-plugin's four-scope decision, while core Skills keep their explicit core
-dependencies. Administrators can disable any builtin plugin; a disabled winning
-scope does not fall back to a broader configuration. See the [Skills guide](web/content/docs/guides/skills.md) for scopes, per-Agent activation, and precedence.
+The Web UI and API let you edit complete packages and standalone Skills or MCP
+files in the scope you choose. `settings.json` can disable a resource or apply
+administrator limits without changing its declaration. OAuth Disconnect is a
+separate action from deleting a file. Resource bytes are retained until active
+processes and descendants can be proven stopped. The `none` backend provides
+no reliable process isolation. See the [Skills guide](web/content/docs/guides/skills.md)
+for precedence and editing details.
 
 ## Documentation
 

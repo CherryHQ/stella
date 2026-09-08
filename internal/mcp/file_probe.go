@@ -3,10 +3,31 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
 )
+
+const probeFailedHint = "MCP probe failed"
+
+// validateCatalogTools rejects names that collide after the public export
+// normalization. A partial catalog would make the model-facing tool set
+// nondeterministic, so one bad entry invalidates the whole probe.
+func validateCatalogTools(reg Registration, catalog []CatalogTool) error {
+	seen := make(map[string]struct{}, len(catalog))
+	for _, item := range catalog {
+		name := exportedToolName(reg, item.Name)
+		if name == "" {
+			return fmt.Errorf("mcp: invalid discovered tool name")
+		}
+		if _, exists := seen[name]; exists {
+			return fmt.Errorf("mcp: discovered catalog has duplicate exported tool name")
+		}
+		seen[name] = struct{}{}
+	}
+	return nil
+}
 
 // ProbeFile performs one disposable tools/list against a file-backed MCP
 // declaration. File registrations have no common plugin_config child or

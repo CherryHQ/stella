@@ -11,9 +11,9 @@ import {
   updatePluginFile,
 } from "@/lib/api-client/sdk.gen";
 import type {
-  PluginFileInput,
+  ComponentsCopyPluginRequest,
+  ComponentsCreatePluginRequest,
   PluginResource,
-  ResourceFileContent,
   ResourceFileInfo,
 } from "@/lib/api-client/types.gen";
 import { scopedPluginsQueryOptions } from "@/lib/queries/plugins";
@@ -23,6 +23,7 @@ import {
   scopesForBand,
   type ManagedScope,
   type ScopeBand,
+  isManagedScope,
 } from "@/lib/scope-band";
 import { ErrorState } from "@/components/RouteFallback";
 import { Badge } from "@/components/ui/badge";
@@ -50,7 +51,9 @@ export type Translate = ReturnType<typeof useI18n>["t"];
 const oauthClientInitializationMessage =
   "administrator must initialize this connection before users can authorize their own accounts";
 
-export function pluginErrorMessage(error: unknown, t: Translate): string {
+type PluginError = Error | { error?: { code?: number; message?: string } };
+
+export function pluginErrorMessage(error: PluginError, t: Translate): string {
   const message = apiErrorMessage(error, t("common.error"));
   if (apiErrorCode(error) === 409 && message === oauthClientInitializationMessage) {
     return t("plugins.oauthAdminInitializationRequired");
@@ -63,7 +66,13 @@ export function configHasMcpOAuth(resource: Pick<PluginResource, "resource_summa
 }
 
 function scopeLabel(scope: ManagedScope, t: Translate): string {
-  return t(`plugins.scope.${scope}` as never);
+  const labels = {
+    user: t("plugins.scope.user"),
+    user_agent: t("plugins.scope.user_agent"),
+    system: t("plugins.scope.system"),
+    system_agent: t("plugins.scope.system_agent"),
+  };
+  return labels[scope];
 }
 
 function statusVariant(
@@ -107,9 +116,14 @@ function ScopePicker({
     <div className="flex flex-wrap items-end gap-2">
       <Field className="min-w-40">
         <FieldLabel>{t("plugins.scopeLabel")}</FieldLabel>
-        <Select value={scope} onValueChange={(value) => value && onScope(value as ManagedScope)}>
+        <Select
+          value={scope}
+          onValueChange={(value) => value && isManagedScope(value) && onScope(value)}
+        >
           <SelectTrigger>
-            <SelectValue>{(value) => scopeLabel((value as ManagedScope) || scope, t)}</SelectValue>
+            <SelectValue>
+              {(value) => scopeLabel(value && isManagedScope(value) ? value : scope, t)}
+            </SelectValue>
           </SelectTrigger>
           <SelectPopup>
             {scopes.map((value) => (
@@ -246,12 +260,12 @@ function FileEditor({
         query: { path: path.trim() },
         throwOnError: true,
       });
-      const result = data as ResourceFileContent;
-      setContent(fromBase64(result.content_base64));
-      setExecutable(result.is_executable);
-      setLoadedDigest(result.resource_digest);
+      if (!data) throw new Error(t("plugins.fileSelectRequired"));
+      setContent(fromBase64(data.content_base64));
+      setExecutable(data.is_executable);
+      setLoadedDigest(data.resource_digest);
     } catch (error) {
-      showToast(pluginErrorMessage(error, t), "error");
+      showToast(apiErrorMessage(error, t("common.error")), "error");
     } finally {
       setLoading(false);
     }
@@ -415,15 +429,15 @@ function PluginDetail({
     onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
   });
   const copy = useMutation({
-    mutationFn: () =>
-      copyPlugin({
+    mutationFn: () => {
+      const body: ComponentsCopyPluginRequest = { scope: copyScope };
+      if (copyAgent) body.agent_id = copyAgent;
+      return copyPlugin({
         path: { plugin_id: resource.id },
-        body: {
-          scope: copyScope,
-          ...(copyAgent ? { agent_id: copyAgent } : {}),
-        },
+        body,
         throwOnError: true,
-      }),
+      });
+    },
     onSuccess: () => {
       showToast(t("plugins.copied"), "success");
       invalidate();
@@ -601,19 +615,20 @@ function CreatePlugin({
       if (isAgentManagedScope(scope) && !agentId) {
         throw new Error(t("plugins.selectAgent"));
       }
-      const files: Record<string, PluginFileInput> = {
+      const files = {
         [path.trim()]: {
           content_base64: toBase64(content),
           is_executable: false,
         },
+      } satisfies ComponentsCreatePluginRequest["files"];
+      const body: ComponentsCreatePluginRequest = {
+        name: name.trim(),
+        scope,
+        files,
       };
+      if (agentId) body.agent_id = agentId;
       return createPlugin({
-        body: {
-          name: name.trim(),
-          scope,
-          ...(agentId ? { agent_id: agentId } : {}),
-          files,
-        },
+        body,
         throwOnError: true,
       });
     },
@@ -672,6 +687,7 @@ function CreatePlugin({
 export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: ScopeBand }) {
   const { t } = useI18n();
   const navigate = useNavigate();
+  // SAFETY: both plugin routes expose the same optional `pluginId` path parameter.
   const params = useParams({ strict: false }) as { pluginId?: string };
   const queryClient = useQueryClient();
   const agentsQuery = useQuery(

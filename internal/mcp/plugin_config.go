@@ -258,23 +258,6 @@ func decodeMCPPluginPayloads(raw json.RawMessage) (map[string]mcpPluginPayload, 
 	return nil, nil
 }
 
-// decodeMCPPluginObservationPayload gives the observation reader a credential
-// mode only when it is unambiguous. A parent with several children has no
-// parent-level observation row that can safely be applied to every child.
-func decodeMCPPluginObservationPayload(raw json.RawMessage) (mcpPluginPayload, bool, error) {
-	payloads, err := decodeMCPPluginPayloads(raw)
-	if err != nil {
-		return mcpPluginPayload{}, false, err
-	}
-	if len(payloads) != 1 {
-		return mcpPluginPayload{}, false, nil
-	}
-	for _, payload := range payloads {
-		return payload, true, nil
-	}
-	return mcpPluginPayload{}, false, nil
-}
-
 func decodeMCPPluginChildPayload(raw json.RawMessage) (mcpPluginPayload, error) {
 	object, err := decodeJSONObject(raw, "MCP server payload")
 	if err != nil {
@@ -326,15 +309,6 @@ func decodeMCPPluginChildPayload(raw json.RawMessage) (mcpPluginPayload, error) 
 		}
 	}
 	return payload, nil
-}
-
-// NewMCPPayloadValidator returns the plugin service validator for MCP configs.
-// Endpoint policy is applied even to disabled payload-bearing configs because
-// disabled is an availability decision, not permission to persist unsafe URLs.
-func NewMCPPayloadValidator(policy EndpointPolicy) plugin.PayloadValidator {
-	return func(ctx context.Context, definition plugin.Definition, config plugin.Config, resetFields []string) error {
-		return ValidateMCPPayload(ctx, policy, definition, config, resetFields)
-	}
 }
 
 // ValidateMCPPayload validates resolved MCP data without dialing its endpoint.
@@ -428,10 +402,6 @@ func validateMCPDefinitionSpec(raw json.RawMessage) error {
 		}
 	}
 	return nil
-}
-
-func mergeMCPJSONObjects(definition, config json.RawMessage) (json.RawMessage, error) {
-	return plugin.MergeDefinitionConfig(definition, config)
 }
 
 func cloneHeaders(in map[string]string) map[string]string {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// This adapter is for migration and old HTTP input only, never execution.
+// These adapters are used only while importing legacy database rows.
 func decodeParameterObject(raw json.RawMessage, label string) (map[string]json.RawMessage, error) {
 	var value map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &value); err != nil || value == nil {
@@ -105,16 +105,6 @@ func promoteLegacyMCPDefinition(raw json.RawMessage) (json.RawMessage, error) {
 	}
 	object["mcp_servers"] = mustMarshalRaw(map[string]json.RawMessage{"main": mustMarshalRaw(flat)})
 	return json.Marshal(object)
-}
-
-// NormalizeHTTPDefinitionSpec adapts the legacy HTTP create shape before it
-// reaches Access. Persisted definitions and runtime callers must use the
-// formal resource declaration directly.
-func NormalizeHTTPDefinitionSpec(spec, config json.RawMessage) (json.RawMessage, error) {
-	if len(bytes.TrimSpace(config)) == 0 || bytes.Equal(bytes.TrimSpace(config), []byte("null")) {
-		return spec, nil
-	}
-	return prepareCustomDefinitionSpec(spec, config)
 }
 
 func mustMarshalRaw(value any) json.RawMessage {
@@ -235,28 +225,4 @@ func declaredBinaryTools(raw json.RawMessage) (map[string]string, error) {
 		result[declaration.Name] = declaration.Tool
 	}
 	return result, nil
-}
-
-// NormalizeHTTPConfigParameters adapts old HTTP payloads (binary arrays and
-// compact MCP fields) into named ConfigParameters. This is deliberately an
-// edge adapter; service and runtime paths accept only the formal shape.
-func NormalizeHTTPConfigParameters(spec, raw json.RawMessage) (json.RawMessage, error) {
-	if len(raw) == 0 || emptyJSONObject(raw) {
-		if len(raw) == 0 {
-			return nil, nil
-		}
-		return json.RawMessage(`{}`), nil
-	}
-	base, err := decodeParameterObject(spec, "definition spec")
-	if err != nil {
-		return nil, err
-	}
-	normalized, err := legacyConfigParameters(raw, base)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := DecodeConfigParameters(normalized); err != nil {
-		return nil, err
-	}
-	return normalized, nil
 }

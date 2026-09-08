@@ -13,11 +13,3 @@ func publishedSpec(t *testing.T, raw string) json.RawMessage {
 	}
 	return spec
 }
-
-func publishedSpecOrPanic(raw string) json.RawMessage {
-	spec, err := PublishDefinitionSpec(json.RawMessage(raw))
-	if err != nil {
-		panic(err)
-	}
-	return spec
-}

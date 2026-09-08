@@ -213,13 +213,3 @@ func cloneDefinition(def Definition) Definition {
 	def.Spec = cloneRaw(def.Spec)
 	return def
 }
-
-func cloneConfig(config Config) Config {
-	config.Enabled = cloneBool(config.Enabled)
-	config.Payload = cloneRaw(config.Payload)
-	config.CredentialRefs = cloneRaw(config.CredentialRefs)
-	if config.MCPServers != nil {
-		config.MCPServers = append([]MCPServerChild(nil), config.MCPServers...)
-	}
-	return config
-}

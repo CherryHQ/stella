@@ -108,7 +108,7 @@ func TestBuildAuthorizedPromptSectionPropagatesManagedCorruption(t *testing.T) {
 type unavailableManagedReader struct{ *projectionReader }
 
 func (unavailableManagedReader) ListIdentityVisible(context.Context, ViewContext) ([]Skill, error) {
-	return nil, errors.Join(ErrManagedSkillsUnavailable, ErrManagedSkillsPending)
+	return nil, ErrManagedSkillsUnavailable
 }
 
 func TestBuildAuthorizedPromptSectionKeepsProjectSkillsWhenManagedUnavailable(t *testing.T) {

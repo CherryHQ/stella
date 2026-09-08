@@ -1,13 +1,18 @@
 package skill
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/platform/home"
 )
 
 type packageCopyReader struct {
@@ -32,16 +37,39 @@ type packageCopyStore struct {
 	files map[string]ManagedSkillFile
 }
 
-type posixPackageCopyAccess struct {
+type filePackageCopyAccess struct {
 	userID  string
 	current Skill
 }
 
-func (a posixPackageCopyAccess) ManageScope(context.Context, authz.Authority, string, string) (string, string, error) {
+type filePackageCopyFixture struct {
+	store  *FileStore
+	userID string
+}
+
+func newFilePackageCopyFixture(t *testing.T) filePackageCopyFixture {
+	t.Helper()
+	db := dbtest.New(t)
+	userID := "00000000-0000-4000-8000-000000000125"
+	if _, err := db.Exec(t.Context(), `INSERT INTO auth_user(id,email) VALUES($1,$2)`, userID, userID+"@test.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(t.Context(), `INSERT INTO agent(id,name,workspace) VALUES('package-copy-agent','Package copy','')`); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := home.NewWorkspaceManager(db, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+	return filePackageCopyFixture{store: NewFileStore(db, manager), userID: userID}
+}
+
+func (a filePackageCopyAccess) ManageScope(context.Context, authz.Authority, string, string) (string, string, error) {
 	return a.userID, "", nil
 }
 
-func (a posixPackageCopyAccess) ManageByID(context.Context, authz.Authority, string, authz.Action) (Skill, error) {
+func (a filePackageCopyAccess) ManageByID(context.Context, authz.Authority, string, authz.Action) (Skill, error) {
 	return a.current, nil
 }
 
@@ -96,31 +124,60 @@ func TestManagementCopyPackageSkillRejectsWrongDigestAndForeignReader(t *testing
 	}
 }
 
-func TestManagementCopyPackageSkillUsesIndependentPOSIXRevision(t *testing.T) {
-	f := newPOSIXStoreFixture(t)
+func TestManagementCopyPackageSkillUsesIndependentFileRevision(t *testing.T) {
+	f := newFilePackageCopyFixture(t)
 	digest := "sha256:" + strings.Repeat("c", 64)
+	sourceMainV1 := "---\nname: docs\ndescription: source v1\nstatus: active\nmetadata: {}\n---\nsource v1\n"
 	reader := &packageCopyReader{revision: PackageSkillRevision{
 		Ref:   PackageSkillRef{PackageID: "demo", PackageDigest: digest, Name: "docs", Description: "source v1"},
-		Files: map[string][]byte{MainFile: []byte("source v1\n"), "bin/run": {0, 1, 2, 255}},
+		Files: map[string][]byte{MainFile: []byte(sourceMainV1), "bin/run": {0, 1, 2, 255}},
 		Modes: map[string]fs.FileMode{MainFile: 0o644, "bin/run": 0o755},
 	}}
 	authority := authz.Authority{}
-	access := &posixPackageCopyAccess{userID: f.userID}
+	access := &filePackageCopyAccess{userID: f.userID}
 	m := NewManagement(f.store, access, WithPackageSkillReader(reader))
 	snapshot, err := m.CopyPackageSkill(t.Context(), authority, ManagedPackageCopy{
 		SourcePluginID: "demo", ExpectedPackageDigest: digest, SkillName: "docs", Scope: "user",
 	})
 	if err != nil {
-		t.Fatalf("copy into POSIX store: %v", err)
+		t.Fatalf("copy into file store: %v", err)
+	}
+	var wantMetadata map[string]any
+	if err := json.Unmarshal(snapshot.Skill.Metadata, &wantMetadata); err != nil {
+		t.Fatalf("copy metadata = %s: %v", snapshot.Skill.Metadata, err)
+	}
+	assertRevision := func(label string, revision ManagedRevision, wantBody, wantDescription string) {
+		t.Helper()
+		if len(revision.Files) != 2 || len(revision.Modes) != 2 {
+			t.Fatalf("%s files = %#v/%#v, want complete two-file revision", label, revision.Files, revision.Modes)
+		}
+		fields, body, err := parseSkillDocument(revision.Files[MainFile])
+		if err != nil {
+			t.Fatalf("%s SKILL.md frontmatter: %v", label, err)
+		}
+		frontmatter, err := parseFrontmatter(string(revision.Files[MainFile]))
+		if err != nil {
+			t.Fatalf("%s SKILL.md fields: %v", label, err)
+		}
+		if frontmatter.Name != "docs" || frontmatter.Description != wantDescription || frontmatter.Status != SkillStatusActive || frontmatter.DisableModelInvocation {
+			t.Fatalf("%s frontmatter = %#v, want docs/%q/active/enabled", label, frontmatter, wantDescription)
+		}
+		if !bytes.Equal(body, []byte(wantBody)) || !reflect.DeepEqual(frontmatter.Metadata, wantMetadata) {
+			t.Fatalf("%s body/metadata = %q/%#v, want %q/%#v (fields=%#v)", label, body, frontmatter.Metadata, wantBody, wantMetadata, fields)
+		}
+		if revision.Modes[MainFile] != 0o444 || revision.Modes["bin/run"] != 0o555 {
+			t.Fatalf("%s modes = %#v, want SKILL.md 0444 and executable 0555", label, revision.Modes)
+		}
+		if !bytes.Equal(revision.Files["bin/run"], []byte{0, 1, 2, 255}) {
+			t.Fatalf("%s binary = %v, want source bytes", label, revision.Files["bin/run"])
+		}
 	}
 	access.current = snapshot.Skill
 	current, err := f.store.LoadCurrentRevision(t.Context(), snapshot.Skill)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(current.Files[MainFile]) != "source v1\n" || current.Modes["bin/run"] != 0o755 || string(current.Files["bin/run"]) != string([]byte{0, 1, 2, 255}) {
-		t.Fatalf("copied revision = %#v/%#v, want source bytes and executable mode", current.Files, current.Modes)
-	}
+	assertRevision("copied revision", current, "source v1\n", "source v1")
 
 	edited := "managed edit\n"
 	updated, err := m.Update(t.Context(), authority, ManagedUpdate{
@@ -132,13 +189,14 @@ func TestManagementCopyPackageSkillUsesIndependentPOSIXRevision(t *testing.T) {
 	}
 	access.current = updated.Skill
 	reader.revision.Ref.Description = "source v2"
-	reader.revision.Files[MainFile] = []byte("source v2\n")
+	reader.revision.Files[MainFile] = []byte("---\nname: docs\ndescription: source v2\nstatus: active\nmetadata: {}\n---\nsource v2\n")
 	reader.revision.Files["bin/run"] = []byte("source v2 binary")
 	loaded, err := f.store.LoadCurrentRevision(t.Context(), updated.Skill)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(loaded.Files[MainFile]) != edited || string(loaded.Files["bin/run"]) != string([]byte{0, 1, 2, 255}) || loaded.Skill.Description != "source v1" {
-		t.Fatalf("managed copy changed after source update = %#v/%#v/%q", loaded.Files, loaded.Modes, loaded.Skill.Description)
+	if loaded.Skill.Description != "source v1" {
+		t.Fatalf("managed copy description changed after source update = %q", loaded.Skill.Description)
 	}
+	assertRevision("managed copy after source update", loaded, edited, "source v1")
 }

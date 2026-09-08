@@ -110,10 +110,6 @@ func (s *Server) policyRefExists(ctx context.Context, agentID, ref string) (bool
 				return false, authErr
 			}
 			revision, loadErr := s.skills.LoadCurrentRevision(ctx, rows[i])
-			if skill.IsCurrentSelectorMissing(loadErr) {
-				s.warnMissingSkillSelector(rows[i], loadErr)
-				continue
-			}
 			if loadErr != nil {
 				return false, loadErr
 			}

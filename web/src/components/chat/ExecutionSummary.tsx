@@ -6,7 +6,7 @@ import { useI18n } from "@/lib/i18n";
 export function ExecutionSummaryPanel({ summary }: { summary: SessionExecutionSummary }) {
   const { t } = useI18n();
   const unknown = t("chat.executionUnknown");
-  const states: Record<string, string> = {
+  const states = {
     unknown,
     ready: t("chat.executionReady"),
     unavailable: t("chat.executionUnavailable"),

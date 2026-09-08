@@ -24,6 +24,19 @@ func (s *FileStore) reflectEvidence(ctx context.Context, id string) (SkillChange
 	return mapChangelogRow(row), nil
 }
 
+func mapChangelogRow(row sqlc.SkillChangelog) SkillChangelog {
+	skillID := row.SkillID
+	if row.ResourceID.Valid {
+		skillID = row.ResourceID.String
+	}
+	return SkillChangelog{
+		ID: row.ID, SkillID: skillID, UserID: row.UserID.String, AgentID: row.AgentID.String,
+		Scope: row.Scope, Action: row.Action, VersionBefore: row.VersionBefore.Int64,
+		VersionAfter: row.VersionAfter, ContentDigest: row.ContentDigest.String,
+		Writer: row.Writer, Metadata: row.Metadata, CreatedAt: row.CreatedAt.UTC(),
+	}
+}
+
 func eligibleFileReflectEvidence(latest SkillChangelog, sk Skill) bool {
 	return latest.SkillID == sk.ID && latest.Scope == sk.Scope && latest.UserID == sk.UserID && latest.AgentID == sk.AgentID &&
 		latest.Writer == ReflectSkillCreatedBy && latest.Action != "delete" && latest.ContentDigest == sk.ContentDigest &&

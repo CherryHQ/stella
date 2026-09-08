@@ -21,6 +21,21 @@ function statusBadgeVariant(status: string) {
   return "outline";
 }
 
+function statusLabel(status: string, t: ReturnType<typeof useI18n>["t"]): string {
+  switch (status) {
+    case "ready":
+      return t("mcp.status.ready");
+    case "ok":
+      return t("mcp.status.ok");
+    case "error":
+      return t("mcp.status.error");
+    case "needs_auth":
+      return t("mcp.status.needs_auth");
+    default:
+      return t("mcp.status.unknown");
+  }
+}
+
 export function McpServerDrawer({
   server,
   open,
@@ -68,7 +83,7 @@ export function McpServerDrawer({
               {t(SCOPE_LABEL_KEY[server.scope])}
             </Badge>
             <Badge variant={statusBadgeVariant(server.status)} size="sm">
-              {t(`mcp.status.${server.status}` as never)}
+              {statusLabel(server.status, t)}
             </Badge>
           </div>
           <div className="flex flex-wrap items-center gap-2">

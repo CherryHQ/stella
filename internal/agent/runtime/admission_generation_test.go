@@ -10,7 +10,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
-	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -271,53 +270,6 @@ func TestChatInstallsDerivedAuthorityOnTurnContext(t *testing.T) {
 	got, ok := authz.AuthorityFromContext(captured)
 	if !ok || got != want {
 		t.Fatalf("turn authority = %#v (present=%v), want confined worker %v", got, ok, want)
-	}
-}
-
-func TestPrepareChatAdmissionRetriesSkillRevisionRegistration(t *testing.T) {
-	owner := &skill.ActiveTurnOwner{}
-	var captures int
-	rt, err := New(Config{
-		Memory:         fakeMemory{},
-		NewRunner:      func(context.Context, RunnerParams) (Runner, error) { return &chatFakeRunner{}, nil },
-		SkillTurnOwner: owner,
-		SkillTurnCapture: func(ctx context.Context, _ session.Info, _ PluginContext) (context.Context, error) {
-			captures++
-			view, err := skill.NewSkillTurnView(nil, nil, nil, nil)
-			if err != nil {
-				return nil, err
-			}
-			return skill.WithSkillTurnView(ctx, view), nil
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	registers := 0
-	rt.skillTurnRegistrar = func(ctx context.Context, turnID string, view skill.SkillTurnView, register func(string, skill.SkillTurnView) error) error {
-		registers++
-		if registers == 1 {
-			if err := register(turnID, view); err != nil {
-				return err
-			}
-			return errors.Join(skill.ErrSkillTurnRevisionChanged, errors.New("published concurrently"))
-		}
-		return register(turnID, view)
-	}
-	info := session.Info{ID: "skill-retry", UserID: "user", AgentID: "agent", Kind: string(session.KindChat), Channel: string(session.ChannelWeb)}
-	admission, err := rt.BeginChatAdmission(t.Context(), info, "hello", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := rt.PrepareChatAdmission(admission); err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	defer rt.AbortChatAdmission(admission)
-	if captures != 2 || registers != 2 {
-		t.Fatalf("capture/register calls = %d/%d, want 2/2", captures, registers)
-	}
-	if got := len(owner.Snapshot()); got != 1 {
-		t.Fatalf("active skill owners = %d, want 1", got)
 	}
 }
 

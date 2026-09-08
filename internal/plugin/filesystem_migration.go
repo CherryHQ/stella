@@ -104,7 +104,7 @@ func (e LegacyFileExport) Digest() string { return legacyExportDigest(e) }
 
 // PrepareLegacyFileExport reads unified legacy rows and produces a complete
 // filesystem write set. It never writes a file or a database row.
-func (s *Service) PrepareLegacyFileExport(ctx context.Context, store *ResourceStore) (LegacyFileExport, error) {
+func (s *LegacyService) PrepareLegacyFileExport(ctx context.Context, store *ResourceStore) (LegacyFileExport, error) {
 	if s == nil || s.q == nil || store == nil {
 		return LegacyFileExport{}, ErrLegacyMigrationConflict
 	}
@@ -297,7 +297,7 @@ func (s *Service) PrepareLegacyFileExport(ctx context.Context, store *ResourceSt
 
 // PublishLegacyFileExport applies an export after a complete preflight. A
 // retry is accepted only when each existing target already equals the export.
-func (s *Service) PublishLegacyFileExport(ctx context.Context, store *ResourceStore, export LegacyFileExport) error {
+func (s *LegacyService) PublishLegacyFileExport(ctx context.Context, store *ResourceStore, export LegacyFileExport) error {
 	if store == nil {
 		return ErrLegacyMigrationConflict
 	}
@@ -353,7 +353,7 @@ func (s *Service) PublishLegacyFileExport(ctx context.Context, store *ResourceSt
 }
 
 // VerifyLegacyFileExport checks that all targets equal the prepared export.
-func (s *Service) VerifyLegacyFileExport(ctx context.Context, store *ResourceStore, export LegacyFileExport) error {
+func (s *LegacyService) VerifyLegacyFileExport(ctx context.Context, store *ResourceStore, export LegacyFileExport) error {
 	for _, entry := range export.Entries {
 		if err := verifyEntry(ctx, store, entry); err != nil {
 			return err
@@ -511,7 +511,7 @@ func validateLegacyMCPChildren(config Config, payload *ResourcePayload) error {
 	return nil
 }
 
-func (s *Service) readLegacyPackageSource(ctx context.Context, payload *ResourcePayload) (map[string]ResourceFile, string, error) {
+func (s *LegacyService) readLegacyPackageSource(ctx context.Context, payload *ResourcePayload) (map[string]ResourceFile, string, error) {
 	if s.contentStore == nil || payload == nil || payload.Content == nil {
 		return nil, "", fmt.Errorf("%w: custom package has no content reference", ErrLegacyMigrationConflict)
 	}
@@ -519,6 +519,8 @@ func (s *Service) readLegacyPackageSource(ctx context.Context, payload *Resource
 	if !validStoreDigest(digest) {
 		return nil, "", fmt.Errorf("%w: invalid custom package digest", ErrLegacyMigrationConflict)
 	}
+	s.contentStore.mu.Lock()
+	defer s.contentStore.mu.Unlock()
 	root := path.Join(s.contentStore.root, digest)
 	actual, err := agentpackage.DirectoryDigest(root)
 	if err != nil || actual != "sha256:"+digest {
@@ -559,7 +561,7 @@ func (s *Service) readLegacyPackageSource(ctx context.Context, payload *Resource
 
 // legacyToolPolicies reads the durable plugin tool policy rows. A payload field
 // is not an authority for tool enablement and is intentionally ignored.
-func (s *Service) legacyToolPolicies(ctx context.Context) (map[string]map[string][]string, error) {
+func (s *LegacyService) legacyToolPolicies(ctx context.Context) (map[string]map[string][]string, error) {
 	result := map[string]map[string][]string{}
 	if s.db == nil {
 		return result, nil

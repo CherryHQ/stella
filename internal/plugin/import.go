@@ -452,7 +452,7 @@ func ImportLegacyState(ctx context.Context, db *pgxpool.Pool, catalog *Catalog, 
 			return fmt.Errorf("ensure builtin plugin config %s: %w", def.ID, err)
 		}
 		config := Config{ID: row.ID, PluginID: row.PluginID, Payload: row.Config}
-		if err := (&Service{q: q}).ensureMCPServerChildren(ctx, &config); err != nil {
+		if err := ensureMCPServerChildren(ctx, q, &config); err != nil {
 			return fmt.Errorf("ensure builtin MCP children %s: %w", def.ID, err)
 		}
 	}

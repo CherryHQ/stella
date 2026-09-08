@@ -2,10 +2,10 @@
 title: Agent Plugin package reference
 ---
 
-The Agent Plugin reader loads portable package declarations. Release generation
-and the Agent Plugin service consume these declarations as one package with
-independent resource kinds. Reading a package alone does not install binaries,
-enable a Native capability, create an OAuth connection, or launch a process.
+The Agent Plugin reader loads portable package declarations. Runtime discovery
+consumes the declaration as one package with independent resource kinds.
+Reading a package alone does not install binaries, enable a Native capability,
+create an OAuth connection, or launch a process.
 
 ## Portable layout
 
@@ -30,13 +30,13 @@ Stella-specific declarations live under
 `plugin.json.extensions["com.cherryhq.stella"]` and require an explicit
 extension `version`. The supported declaration groups are:
 
-| Field          | Meaning                                                                                                                                                                  |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `display_name` | Optional public label shown in the Web UI.                                                                                                                               |
-| `prompt`       | Optional public guidance included for a selected package.                                                                                                                |
-| `binaries`     | Public command, installer/tool, optional version, and installer options.                                                                                                 |
-| `session_env`  | Runtime variable, public source identifier, and whether the binding is required.                                                                                         |
-| `oauth`        | Public provider identifier, requested scopes, and credential-to-environment bindings. Connection bindings are not supported; configure MCP authentication on each child. |
+| Field          | Meaning                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `display_name` | Optional public label shown in the Web UI.                                                                                                                                            |
+| `prompt`       | Optional public guidance included for a selected package.                                                                                                                             |
+| `binaries`     | Public command, installer/tool, optional version, and installer options.                                                                                                              |
+| `session_env`  | Runtime variable, public source identifier, and whether the binding is required.                                                                                                      |
+| `oauth`        | Public provider identifier, requested scopes, and credential-to-environment bindings. Connection bindings are not supported; configure MCP authentication on each server declaration. |
 
 The extension `version` is currently exactly `"1"`. A Skill's standard
 `compatibility` field can describe an environment or native-capability need in
@@ -85,16 +85,28 @@ unsupported stdio, invalid components, and malformed Stella declarations are
 authoring errors. Tolerant loading keeps independent valid components and
 returns diagnostics for issues it can safely explain.
 
-## Release and session constraints
+## Files, copies, and session constraints
 
 Release authoring accepts only `plugin.json`; root `plugin.yaml` and `assets.yaml`
-are rejected. Generated YAML is an internal embedded representation. Historical
-database upgrades retain their import path and do not reopen the old authoring
-format or management API.
+are rejected. Generated YAML is an internal embedded representation. A package
+is installed by publishing its complete file tree into one of the four typed
+resource scopes. Editing a package replaces that complete tree; a copied package
+has no parent link and does not follow later source edits. Standalone Skill and
+MCP files remain independent resources.
+
+A package declaration never contains tokens, client secrets, database IDs, Vault
+locators, or installation state. Credential references are public locators only;
+OAuth grants and connection state live in the credential store. Deleting an MCP
+file does not disconnect its OAuth grant. Disconnect is an explicit local action
+that revokes the matching stored grant, closes its connection, and blocks late
+callbacks or refreshes; remote provider revocation is not guaranteed.
 
 Selected packages must use distinct environment variable names. If two packages
 declare the same variable, session preparation fails before credentials are
-injected, even if both declarations name the same provider.
-
-Plugin definition/configuration write requests have a 1 MiB JSON body limit;
-larger requests return HTTP 400.
+injected, even if both declarations name the same provider. Runtime captures the
+complete package for a turn; edits apply on the next turn. Existing CLI artifacts
+and remote connections may be reused when their captured identity still matches.
+The local backend enforces its configured sandbox policy but cannot prove that
+detached descendants stopped; the `none` backend provides no reliable process
+isolation. Retained package bytes and installation caches therefore require
+verified process termination before cleanup.

@@ -29,7 +29,7 @@ Backend identity stays inside the runner and runner-facing sandbox packages. Plu
 | `Alive() bool`                                             | Reports whether the session is still active                      |
 | `Done() <-chan struct{}`                                   | Channel closed when the session terminates                       |
 
-`FileAccess` supports the bounded operations needed by prompt construction and the core `view_image` tool, plus exact-at-publication, no-replace, disposable file projection for managed Skills. A path is relative to `WorkingDir` or absolute in the process view. The public `Policy`, `Session`, and `FileAccess` contracts contain no host-side mount source, path resolver, or path translation result.
+`FileAccess` supports the bounded operations needed by prompt construction and the core `view_image` tool, plus exact-at-publication, no-replace, disposable projection of the selected resource files. A path is relative to `WorkingDir` or absolute in the process view. The public `Policy`, `Session`, and `FileAccess` contracts contain no host-side mount source, path resolver, or path translation result.
 
 Each backend binds the public process roots to a provider-private physical mount plan. File operations use directory capabilities pinned when the Session is created, enforce read-only roots, and fail closed on escapes or cross-mount symlinks. Provider process setup may inspect its private mapping, but no upper layer can obtain a physical path and then bypass the capability with `os.*`.
 
@@ -59,13 +59,13 @@ All local execution paths that must obey sandbox policy are mediated through the
 
 - the core `bash` tool uses `Session.Exec` through the runner-owned session
 - the core `view_image` tool and active prompt context reads use `Session.Files`
-- managed Skill revisions are copied into an exact, no-replace Session projection through `FileAccess.ProjectFiles`; a conflicting existing tree fails closed
+- selected Skill and package files are copied into an exact, no-replace Session projection through `FileAccess.ProjectFiles`; a conflicting existing tree fails closed
 - plugin tools receive `ToolContext.Runtime`, a `pkg/plugins.ToolRuntime` adapter over the active session
 - skills and agent preset loading use `ToolRuntime` when running inside an agent session
 
 A core tool that reads files selects one `FileView` per invocation. Its policy environment, working directory, and `FileAccess` come from the same resilient generation, so path expansion cannot silently switch backing trees midway. Provider errors that cross this boundary identify logical process mounts without exposing physical source paths.
 
-A managed Skill projection is atomically published and verified on every load, but it is not a separate isolation boundary from commands running as the same user. Such a command can race verification or modify the disposable tree afterward. A load that observes a mismatch fails closed instead of replacing the path. Session close removes its temporary backing; Docker startup cleanup also removes stale temporary directories left by interrupted sessions.
+The resource projection is atomically published and verified on every load, but it is not a separate isolation boundary from commands running as the same user. Such a command can race verification or modify the disposable tree afterward. A load that observes a mismatch fails closed instead of replacing the path. Session close removes its temporary backing; Docker startup cleanup also removes stale temporary directories left by interrupted sessions.
 
 ### Long-lived processes
 
@@ -114,49 +114,44 @@ The in-container Go server serves its baked-in embedded SPA at `localhost:25688`
 Stop everything with `docker compose down`.
 
 The versioned sandbox image contains the release-owned mise toolchain and
-builtin CLI artifacts. Runtime resolves one plugin snapshot from the four
-`system`, `system_agent`, `user`, and `user_agent` scopes, then a selection helper
-materializes only the chosen entries. Docker preparation is keyed by one
-resolved image ID plus the complete selection identity. Native managed installs
-use the managed tree; user and user-agent installs stay in their own sandbox
-trees and win in `PATH`. No host `_builtin.toml`, manifest permission surface,
-or host-platform install is used as a Docker fallback.
+builtin CLI artifacts. Runtime resolves complete package files from the four
+`system`, `system_agent`, `user`, and `user_agent` scopes, then materializes only
+the chosen entries. Docker preparation is keyed by one resolved image ID plus
+the complete selection identity. User and user-agent installs stay in their own
+sandbox trees and win in `PATH`. No host `_builtin.toml`, manifest permission
+surface, or host-platform install is used as a Docker fallback.
 
-## Builtin Skill bundle and projection
+## Filesystem resources in a sandbox
 
-`resources.Registry` is the sole authority for release-owned core Skills. It
-produces the immutable content-addressed bundle installed at
-`$STELLA_HOME/bundles/<revision>` for native `local` and `none` execution.
-Isolating execution projects that exact bundle read-only at
-`/opt/stella/skills/builtin`; `/opt` is an execution coordinate, not another
-authority, and bundle executable helper modes must survive the projection.
-Plugin Skills remain owned by their PluginDefinition and selected PluginConfig;
-the same four-scope decision gates their exposure. Every builtin plugin can be
-disabled through its configuration.
+The runtime captures file resources before it creates the process environment.
+The four scopes are `system`, `system_agent`, `user`, and `user_agent`; project
+Skills are read from the project tree. The selected complete package determines
+its Skills, CLI entries, environment bindings, and MCP declarations. A copied
+package is independent and does not receive later source edits.
 
-Project Skills remain ordinary files in durable Agent/project working trees and are read through bounded read-only Home snapshots outside active execution. Mutable `system`, `system_agent`, `user`, and `user_agent` identities remain cataloged in PostgreSQL, while their selected revision manifests and bytes are authoritative in durable Home storage. An active Session receives only a disposable, digest-pinned exact projection; revision history never becomes part of the Agent workspace search tree.
+The process sees only the selected entries and the session coordinates needed to
+run them. A Skill or package file is not a second sandbox boundary. Deleting a
+file removes future selection, while OAuth Disconnect separately revokes the
+matching locally stored grant, closes its connection, and blocks late refreshes;
+remote provider revocation is not guaranteed. Runtime catalogs are observations
+that later turns may reuse or refresh, while MCP connections close with their
+session.
 
-The Docker sandbox image bakes and labels the exact core Skill revision. It has
-no host-builtin fallback. Docker provider preflight rejects a binary/image
-revision mismatch, preventing the runner session from starting. Use
-`stellad system-bundle --help` for the operator command syntax. Rebuild the
-development image with `mise run sandbox:docker:build`; rebuild every custom
-sandbox image from the matching Stella revision.
+The release-owned builtin Skill bundle remains immutable and is projected at
+its execution coordinate for local and isolating backends. The bundle is a
+release artifact, not a mutable resource root. Use `stellad system-bundle
+--help` for operator command syntax. Rebuild a custom Docker image from the
+matching Stella release when its bundled tools change.
 
-The cutover is a maintenance upgrade. Stop every old writer before starting the
-new runtime, and complete the import and validation in one transaction. Rolling
-old and new writers against the same database is not supported.
+## Resource cleanup and process boundary
 
-## Agent Skill policy
-
-Standalone Skills retain their `system`, `system_agent`, `user`, `user_agent`,
-and `project` identities plus contextual `builtin` resources. Plugin Skills use
-the PluginConfig four-scope model instead of a separate global builtin or
-manifest permission surface. Release `builtin:<name>` core resources are
-immutable; administrator-installed `system:<name>` and Agent-bound
-`system_agent:<name>` standalone Skills are distinct mutable identities.
-
-Resolution selects one winner before policy: `project > user_agent > user > system_agent > system > builtin`. Disabling that winner never exposes a lower same-name Skill. Managed `system:*` and `system_agent:*` policy defaults to enabled, is shared per Agent, and is independent of content-edit authorization and `disable_model_invocation`. Shipped plugin assets use only owner-plugin enablement, not `builtin:*` policy. Project `.agents` skills remain independent. An admitted turn keeps its snapshot; the next turn sees a successful commit. Dangling disabled references have no execution effect and need explicit cleanup.
+The local backend enforces its configured filesystem and network policy, but a
+leader close does not prove that detached descendants have stopped. The `none`
+backend provides no reliable process isolation. A normal turn close therefore
+does not prove that resource bytes or derived caches can be removed. Stella does
+not clear resource data by TTL or by guessing a process ID. Docker cleans the
+session resources it creates; package and MCP retention is independent of that
+session lifecycle.
 
 ## Adding a New Backend
 

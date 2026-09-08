@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +14,6 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/plugin"
 )
 
 type oauthAuthorityContextKey struct{}
@@ -48,12 +46,6 @@ func oauthTokenEndpointAuthStyle(method string) (oauth2.AuthStyle, string, error
 	default:
 		return 0, "", fmt.Errorf("mcp: unsupported OAuth token endpoint auth method %q", method)
 	}
-}
-
-func oauthMetadataTokenEndpointAuthMethod(metadata map[string]any) string {
-	oauthMetadata, _ := metadata["oauth"].(map[string]any)
-	method, _ := oauthMetadata["token_endpoint_auth_method"].(string)
-	return method
 }
 
 func withOAuthAuthority(ctx context.Context, authority authz.Authority) context.Context {
@@ -174,53 +166,12 @@ func authServerMetadata(ctx context.Context, issuer string, policy EndpointPolic
 	return asm, nil
 }
 
-// resolveOAuthClient returns the client credentials for one registration:
-// the pre-registered client from metadata + vault when configured, otherwise
-// a DCR registration whose result is persisted so it runs once per
-// registration.
+// resolveOAuthClient resolves credentials only for filesystem registrations.
 func (s *Service) resolveOAuthClient(ctx context.Context, reg Registration, asm *oauthex.AuthServerMeta, callback string) (Registration, string, string, oauth2.AuthStyle, error) {
-	if reg.IsFile() {
-		return s.resolveFileOAuthClient(ctx, reg, asm, callback)
-	}
-	if reg.OAuthClientID != "" {
-		secret, secretErr := s.oauthClientSecret(ctx, reg)
-		if secretErr != nil {
-			return Registration{}, "", "", 0, secretErr
-		}
-		authStyle, _, err := oauthTokenEndpointAuthStyle(oauthMetadataTokenEndpointAuthMethod(reg.Metadata))
-		if err != nil {
-			return Registration{}, "", "", 0, err
-		}
-		return reg, reg.OAuthClientID, secret, authStyle, nil
-	}
-	if asm.RegistrationEndpoint == "" {
-		return Registration{}, "", "", 0, fmt.Errorf("mcp: server has no registration endpoint and no pre-registered client is configured")
-	}
-	if authority, ok := oauthAuthority(ctx); ok && !authority.IsAdmin() && IsSystemScope(reg.Scope) {
+	if !reg.IsFile() {
 		return Registration{}, "", "", 0, ErrOAuthClientInitializationRequired
 	}
-	resp, err := oauthex.RegisterClient(ctx, asm.RegistrationEndpoint, &oauthex.ClientRegistrationMetadata{
-		RedirectURIs:  []string{callback},
-		GrantTypes:    []string{"authorization_code", "refresh_token"},
-		ResponseTypes: []string{"code"},
-		ClientName:    "Stella",
-	}, oauthHTTPClient(s.endpoints))
-	if err != nil {
-		return Registration{}, "", "", 0, fmt.Errorf("mcp: file OAuth client registration failed")
-	}
-	authStyle, authMethod, err := oauthTokenEndpointAuthStyle(resp.TokenEndpointAuthMethod)
-	if err != nil {
-		return Registration{}, "", "", 0, err
-	}
-	// Persist the normalized method alongside client_id so a later flow for a
-	// pre-registered client uses the same protocol choice. The value is
-	// metadata, never a secret, and remains outside safe API projections.
-	resp.TokenEndpointAuthMethod = authMethod
-	updated, err := s.persistDCRClient(ctx, reg, resp)
-	if err != nil {
-		return Registration{}, "", "", 0, err
-	}
-	return updated, resp.ClientID, resp.ClientSecret, authStyle, nil
+	return s.resolveFileOAuthClient(ctx, reg, asm, callback)
 }
 
 func (s *Service) resolveFileOAuthClient(ctx context.Context, reg Registration, asm *oauthex.AuthServerMeta, callback string) (Registration, string, string, oauth2.AuthStyle, error) {
@@ -268,196 +219,4 @@ func (s *Service) resolveFileOAuthClient(ctx context.Context, reg Registration, 
 		return Registration{}, "", "", 0, err
 	}
 	return reg, winning.ClientID, winning.ClientSecret, oauth2.AuthStyle(winning.AuthStyle), nil
-}
-
-// persistDCRClient writes the issued client id and normalized token endpoint
-// auth method into metadata.oauth, and the secret, when the server issued one,
-// into the vault.
-func (s *Service) persistDCRClient(ctx context.Context, reg Registration, resp *oauthex.ClientRegistrationResponse) (Registration, error) {
-	authority, ok := oauthAuthority(ctx)
-	if !ok {
-		return Registration{}, authz.ErrForbidden
-	}
-	return s.persistCommonDCRClient(ctx, authority, reg, resp)
-}
-
-func (s *Service) persistCommonDCRClient(ctx context.Context, authority authz.Authority, reg Registration, resp *oauthex.ClientRegistrationResponse) (Registration, error) {
-	if resp == nil || resp.ClientID == "" {
-		return Registration{}, errors.New("mcp: dynamic client registration returned no client id")
-	}
-	owner := s.CredentialOwner(reg, string(authority.UserID()))
-	// DCR creates the config-owned client credential. For an administrator
-	// initializing a system-scoped per-user config, use the config tuple rather
-	// than the administrator's eventual per-user bundle tuple.
-	if authority.IsAdmin() && (IsSystemScope(reg.Scope) || reg.CredentialMode == CredentialModePerUser) {
-		owner = CredentialOwner{Scope: reg.Scope, UserID: reg.UserID, AgentID: reg.AgentID}
-	}
-	var updatedReg Registration
-	err := s.withCredentialMutationTxForRegistration(ctx, authority, reg, owner, func(mutationCtx context.Context, access *plugin.Access, _ plugin.Config, mutation CredentialMutation) error {
-		cfg, err := access.GetConfig(mutationCtx, reg.PluginID, reg.ParentConfigID)
-		if err != nil {
-			return fmt.Errorf("mcp: read plugin config for DCR: %w", err)
-		}
-		if cfg.Revision != reg.ConfigRevision || string(cfg.Scope) != reg.Scope || cfg.UserID != reg.UserID || cfg.AgentID != reg.AgentID {
-			return errPluginConfigIdentity
-		}
-		payload, err := decodeJSONObject(cfg.Payload, "MCP config payload")
-		if err != nil {
-			return err
-		}
-		childPayload := payload
-		var childServers map[string]json.RawMessage
-		if reg.ServerKey != "" {
-			childServers, err = decodeJSONObject(payload["mcp_servers"], "MCP mcp_servers payload")
-			if err != nil {
-				return err
-			}
-			childRaw, ok := childServers[reg.ServerKey]
-			if !ok {
-				return authz.ErrNotFound
-			}
-			childPayload, err = decodeJSONObject(childRaw, "MCP server payload")
-			if err != nil {
-				return err
-			}
-		}
-		childRawPayload, _ := json.Marshal(childPayload)
-		mcpPayload, err := decodeMCPPluginChildPayload(childRawPayload)
-		if err != nil {
-			return err
-		}
-		metadata := map[string]json.RawMessage{}
-		if raw, exists := childPayload["metadata"]; exists {
-			metadata, err = decodeJSONObject(raw, "MCP metadata")
-			if err != nil {
-				return err
-			}
-		}
-		oauthMetadata := map[string]json.RawMessage{}
-		if raw, exists := metadata["oauth"]; exists {
-			oauthMetadata, err = decodeJSONObject(raw, "MCP oauth metadata")
-			if err != nil {
-				return err
-			}
-		}
-		var existingClientID string
-		if raw, ok := oauthMetadata["client_id"]; ok {
-			if err := json.Unmarshal(raw, &existingClientID); err != nil {
-				return errors.New("mcp: OAuth client id metadata is invalid")
-			}
-		}
-		if mcpPayload.AuthType != AuthTypeOAuth {
-			return errors.New("mcp: DCR requires OAuth auth")
-		}
-		if existingClientID != "" {
-			return ErrVersionConflict
-		}
-		if _, _, err := oauthTokenEndpointAuthStyle(resp.TokenEndpointAuthMethod); err != nil {
-			return err
-		}
-		oauthMetadata["client_id"], _ = json.Marshal(resp.ClientID)
-		oauthMetadata["token_endpoint_auth_method"], _ = json.Marshal(resp.TokenEndpointAuthMethod)
-		metadata["oauth"], _ = json.Marshal(oauthMetadata)
-		childPayload["metadata"], _ = json.Marshal(metadata)
-		if reg.ServerKey != "" {
-			childRawPayload, err = json.Marshal(childPayload)
-			if err != nil {
-				return err
-			}
-			childServers[reg.ServerKey] = childRawPayload
-			payload["mcp_servers"], _ = json.Marshal(childServers)
-		}
-		payloadRaw, err := json.Marshal(payload)
-		if err != nil {
-			return err
-		}
-
-		refs, err := decodeJSONObject(cfg.CredentialRefs, "MCP credential refs")
-		if err != nil {
-			return err
-		}
-		childRefs := refs
-		var refsChildren map[string]json.RawMessage
-		if reg.ServerKey != "" {
-			refsChildren, err = decodeJSONObject(refs["mcp_servers"], "MCP credential refs mcp_servers")
-			if err != nil {
-				return err
-			}
-			childRefRaw, ok := refsChildren[reg.ServerKey]
-			if !ok {
-				return authz.ErrNotFound
-			}
-			childRefs, err = decodeJSONObject(childRefRaw, "MCP child credential refs")
-			if err != nil {
-				return err
-			}
-		}
-		childRefsRaw, _ := json.Marshal(childRefs)
-		childCfg := cfg
-		childCfg.ID = reg.ID
-		_, _, existingSecretRef, err := decodeMCPPluginCredentialRefsForKey(childRefsRaw, childCfg, "", mcpPayload.AuthType, mcpPayload.CredentialMode)
-		if err != nil {
-			return err
-		}
-		if resp.ClientSecret != "" {
-			childRefs["oauth_client_secret"], _ = json.Marshal(map[string]string{
-				"name": oauthClientSecretName(reg.ID), "scope": string(cfg.Scope),
-				"user_id": cfg.UserID, "agent_id": cfg.AgentID,
-			})
-		} else if existingSecretRef != "" {
-			if existingClientID == "" {
-				return errors.New("mcp: dynamic registration returned no secret for an existing OAuth client secret")
-			}
-		}
-		if reg.ServerKey != "" {
-			childRefsRaw, _ = json.Marshal(childRefs)
-			refsChildren[reg.ServerKey] = childRefsRaw
-			refs["mcp_servers"], _ = json.Marshal(refsChildren)
-		}
-		refsRaw, err := json.Marshal(refs)
-		if err != nil {
-			return err
-		}
-		if _, err := updateCredentialConfig(mutationCtx, access, mutation.tx, cfg, resp.ClientSecret != "", plugin.ConfigPatch{
-			PayloadSet: true, Payload: payloadRaw, CredentialRefsSet: true, CredentialRefs: refsRaw,
-		}); err != nil {
-			return fmt.Errorf("mcp: persist DCR client id: %w", err)
-		}
-		updated, err := access.GetConfig(mutationCtx, reg.PluginID, reg.ParentConfigID)
-		if err != nil {
-			return fmt.Errorf("mcp: reread DCR config: %w", err)
-		}
-		if resp.ClientSecret != "" {
-			// UpdateConfig increments the revision and adds the client-secret
-			// locator. Rebind the typed capability to the authoritative config
-			// while keeping the same transaction-bound Vault.
-			updatedMutation := CredentialMutation{tx: mutation.tx, config: updated, registrationID: mutation.registrationID, serverKey: mutation.serverKey, owner: owner, vault: mutation.vault, configManaged: mutation.configManaged}
-			if err := updatedMutation.storeOAuthClientSecret(mutationCtx, resp.ClientSecret); err != nil {
-				return fmt.Errorf("mcp: persist DCR client secret: %w", err)
-			}
-		}
-		def, err := access.GetDefinition(mutationCtx, updated.PluginID)
-		if err != nil {
-			return fmt.Errorf("mcp: read DCR definition: %w", err)
-		}
-		effective, err := plugin.Resolve(def, []plugin.Config{updated}, updated.UserID, updated.AgentID)
-		if err != nil {
-			return fmt.Errorf("mcp: resolve DCR config: %w", err)
-		}
-		if reg.ServerKey != "" {
-			for _, child := range updated.MCPServers {
-				if child.ID == reg.ID {
-					updatedReg, err = RegistrationFromPluginChild(def, updated, effective, child, PluginMCPObservation{ConfigRevision: updated.Revision}, authority)
-					return err
-				}
-			}
-			return authz.ErrNotFound
-		}
-		updatedReg, err = RegistrationFromPluginConfig(def, updated, effective, PluginMCPObservation{ConfigRevision: updated.Revision}, authority)
-		return err
-	})
-	if err != nil {
-		return Registration{}, err
-	}
-	return updatedReg, nil
 }

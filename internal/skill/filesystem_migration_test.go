@@ -73,11 +73,11 @@ func TestFinalizeLegacyFileEvidenceBridgesTrustedReflectWithoutResettingUsage(t 
 		t.Fatal(err)
 	}
 	applySkillMigration(t, f)
-	identity, err := f.migrator.store.GetIdentity(ctx, "legacy-reflect")
+	identity, err := f.migrator.store.getIdentityForMigration(ctx, "legacy-reflect")
 	if err != nil || identity == nil {
 		t.Fatalf("legacy identity = %#v, %v", identity, err)
 	}
-	oldRevision, err := f.migrator.store.LoadCurrentRevision(ctx, *identity)
+	oldRevision, err := f.migrator.store.loadIdentityForMigration(ctx, *identity)
 	if err != nil {
 		t.Fatal(err)
 	}

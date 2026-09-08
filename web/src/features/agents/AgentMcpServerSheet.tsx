@@ -82,10 +82,10 @@ export function AgentMcpServerSheet({
         url: url.trim(),
         transport,
         credential_mode: credentialMode,
-        ...(authType === "oauth" && oauthClientId.trim()
-          ? { client_id: oauthClientId.trim() }
-          : {}),
       };
+      if (authType === "oauth" && oauthClientId.trim()) {
+        declaration.client_id = oauthClientId.trim();
+      }
       const { data } = await updateMcpServer({
         path: { id: server.id },
         body: {

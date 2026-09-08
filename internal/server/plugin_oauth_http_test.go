@@ -60,8 +60,6 @@ func setupFileMCPTestEnv(t *testing.T, endpointPolicy mcp.EndpointPolicy) *fileM
 
 func wireFileMCPServices(t *testing.T, env *testEnv, endpointPolicy mcp.EndpointPolicy) *fileMCPTestEnv {
 	t.Helper()
-	plugins := pluginpkg.NewService(env.db, env.deps.AgentAccess, pluginpkg.NewCatalog(), mcp.NewMCPBackendPolicy(endpointPolicy),
-		func(_ context.Context, fn func() error) error { return fn() })
 	if err := os.MkdirAll(config.StellaHome(), 0o755); err != nil {
 		t.Fatalf("create STELLA_HOME: %v", err)
 	}
@@ -76,14 +74,11 @@ func wireFileMCPServices(t *testing.T, env *testEnv, endpointPolicy mcp.Endpoint
 		return oauthTestVault{}
 	})
 	mcpSvc.SetEndpointPolicy(endpointPolicy)
-	mcpSvc.SetPluginService(plugins)
 	mcpFiles := mcp.NewFileService(files, resources, mcpSvc)
 	env.rebuild(t, func(d *server.Deps) {
-		d.PluginService = plugins
 		d.PluginFiles = files
 		d.MCP = mcpSvc
 		d.MCPFiles = mcpFiles
-		d.MCPAccess = mcp.NewAccess(mcpSvc, d.AgentAccess, nil)
 	})
 	return &fileMCPTestEnv{testEnv: env, resources: resources, mcpSvc: mcpSvc}
 }

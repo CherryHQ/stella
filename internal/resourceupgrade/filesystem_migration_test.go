@@ -32,7 +32,7 @@ func TestFilesystemMigrationRestartsAtEachBoundary(t *testing.T) {
 			if _, err := db.Exec(ctx, `INSERT INTO skill_file(skill_id,path,content) VALUES('old-id','SKILL.md',$1)`, []byte("# Migrated\n")); err != nil {
 				t.Fatal(err)
 			}
-			legacySkills, err := skill.NewPOSIXStore(db, roots)
+			legacySkills, err := skill.NewLegacySkillStore(db, roots)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -47,7 +47,7 @@ func TestFilesystemMigrationRestartsAtEachBoundary(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(base, ".agents", "settings.json"), []byte(`{"disabled_tools":{"plugin:existing":["z/a","a/z"]}}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			legacyPlugins := plugin.NewService(db, nil, nil, plugin.BackendPolicy{}, nil)
+			legacyPlugins := plugin.NewLegacyService(db, nil, nil, nil)
 			mcpService := mcp.NewServiceForPool(db, nil, nil)
 			interrupted := errors.New("simulated process interruption")
 			err = Run(ctx, Dependencies{DB: db, Roots: roots, LegacyPlugins: legacyPlugins, LegacySkills: legacySkills, MCPService: mcpService, Checkpoint: func(stage string) error {

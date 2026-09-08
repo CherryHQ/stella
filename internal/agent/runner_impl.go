@@ -13,6 +13,7 @@ import (
 
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/core/agentctx"
@@ -266,21 +267,6 @@ func newRunner(ctx context.Context, cfg runnerConfig) (built *runner, err error)
 		systemPrompt = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{Sections: cfg.Sections, Session: session})
 	}
 
-	mcpSnapshot, preparedMCP := cfg.PluginContext.MCPToolSnapshot()
-	if !cfg.PluginContext.IsFileBased() && cfg.PluginContext.Snapshot().Authority().Valid() && (cfg.MCPToolProvider != nil || preparedMCP) {
-		prepared := preparedMCP
-		var snapshotErr error
-		if !prepared && cfg.MCPToolProvider != nil {
-			mcpSnapshot, snapshotErr = cfg.MCPToolProvider.ToolsForSnapshotWithDirectoryForPlugins(ctx, cfg.PluginContext.Snapshot(), cfg.PluginContext.SessionPluginView().ExposedPluginIDs)
-		}
-		if snapshotErr != nil {
-			return nil, fmt.Errorf("runner: build MCP tools: %w", snapshotErr)
-		}
-		cfg.PluginContext = cfg.PluginContext.WithMCPResources(mcpSnapshot.Directory, mcpSnapshot.SuccessfulPluginIDs)
-		cfg.MCPTools = mcpSnapshot.Tools
-		cfg.MCPPrepared = true
-	}
-
 	toolReg, hookSet, delegateTool, err := buildToolRegistry(ctx, cfg, turnEnvSession{Session: session}, stream, model, systemPrompt)
 	if err != nil {
 		return nil, err
@@ -390,8 +376,7 @@ const (
 )
 
 // MCPToolIdentityProvider carries the durable package/server/local identity of
-// one MCP proxy. The runner validates it against its immutable snapshot; an
-// exported name is never parsed back into ownership.
+// one MCP proxy. An exported name is never parsed back into ownership.
 type MCPToolIdentityProvider interface {
 	PluginToolIdentity() (pluginID, serverKey, localToolName string, ok bool)
 }
@@ -669,7 +654,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 			mcpOwned[i] = own(t)
 		}
 		for i, t := range mcpTools {
-			identity, err := runnerMCPToolIdentity(cfg.PluginContext.Snapshot(), t)
+			identity, err := runnerMCPToolIdentity(t)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -813,10 +798,12 @@ func (r *runner) PrepareTurn(ctx context.Context, pluginContext PluginContext) (
 		ctx = sandbox.WithTurnEnv(ctx, turnPrep.Env)
 		preparedTurnValue := preparedTurn{pluginContext: pluginContext}
 		if !pluginContext.IsFileBased() {
+			ctx = agentruntime.WithPreparedPluginContext(ctx, pluginContext)
 			return withPreparedTurn(ctx, preparedTurnValue), pluginContext, nil
 		}
 	}
 	if !pluginContext.IsFileBased() {
+		ctx = agentruntime.WithPreparedPluginContext(ctx, pluginContext)
 		return withPreparedTurn(ctx, preparedTurn{pluginContext: pluginContext}), pluginContext, nil
 	}
 	resources := pluginContext.FileResources()
@@ -829,14 +816,15 @@ func (r *runner) PrepareTurn(ctx context.Context, pluginContext PluginContext) (
 			resources[i].Disabled = true
 		}
 	}
-	provider, ok := r.mcpToolProvider.(FileMCPToolProvider)
-	if !ok {
+	provider := r.mcpToolProvider
+	if provider == nil {
 		for _, resource := range resources {
 			enabled := resource.Key.Kind == plugin.ResourceMCP || resource.Key.Kind == plugin.ResourcePlugin && len(resource.MCP) > 0
 			if enabled && !resource.Disabled && !resource.Forbidden {
 				return nil, PluginContext{}, errors.New("runner: file MCP provider is unavailable")
 			}
 		}
+		ctx = agentruntime.WithPreparedPluginContext(ctx, pluginContext)
 		return withPreparedTurn(ctx, preparedTurn{pluginContext: pluginContext}), pluginContext, nil
 	}
 	if r.fileMCPSession == nil {
@@ -847,14 +835,14 @@ func (r *runner) PrepareTurn(ctx context.Context, pluginContext PluginContext) (
 		return nil, PluginContext{}, fmt.Errorf("runner: prepare file MCP tools: %w", err)
 	}
 	prepared := pluginContext.WithMCPToolSnapshot(snapshot)
+	ctx = agentruntime.WithPreparedPluginContext(ctx, prepared)
 	return withPreparedTurn(ctx, preparedTurn{pluginContext: prepared, mcpTools: snapshot.Tools}), prepared, nil
 }
 
 // runnerMCPToolIdentity verifies that a proxy's durable package/server/local
-// identity is still attached to the exact package child in this runner's
-// immutable snapshot. A model-facing exported name is only a projection of
-// that verified identity.
-func runnerMCPToolIdentity(snapshot plugin.Snapshot, tool tools.Tool) (ToolIdentity, error) {
+// identity agrees with its model-facing exported name. Resource selection is
+// already enforced by the file turn projection before this check.
+func runnerMCPToolIdentity(tool tools.Tool) (ToolIdentity, error) {
 	if tool == nil {
 		return ToolIdentity{}, fmt.Errorf("runner: MCP tool is nil")
 	}
@@ -866,25 +854,8 @@ func runnerMCPToolIdentity(snapshot plugin.Snapshot, tool tools.Tool) (ToolIdent
 	if !ok {
 		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q has no durable plugin identity", tool.Definition().Name)
 	}
-	resolved, ok := snapshot.Get(pluginID)
-	if !ok {
-		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q references unknown plugin %q", tool.Definition().Name, pluginID)
-	}
-	if resolved.Effective.PluginID != pluginID || !resolved.Effective.IsEffectivelyEnabled {
-		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q is not enabled for package %q", tool.Definition().Name, pluginID)
-	}
-	if resolved.Config == nil || serverKey == "" {
+	if serverKey == "" {
 		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q has no selected server child", tool.Definition().Name)
-	}
-	childFound := false
-	for _, child := range resolved.Config.MCPServers {
-		if child.ID != "" && child.ParentConfigID == resolved.Config.ID && child.ServerKey == serverKey {
-			childFound = true
-			break
-		}
-	}
-	if !childFound {
-		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q references unknown server child %q", tool.Definition().Name, serverKey)
 	}
 	exported, err := agentpackage.ExportedToolName(pluginID, serverKey, localToolName)
 	if err != nil {

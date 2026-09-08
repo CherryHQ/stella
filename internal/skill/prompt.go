@@ -88,9 +88,6 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 		} else {
 			revision, err = reader.LoadCurrentRevision(ctx, resolvedIdentity(rs))
 		}
-		if errors.Is(err, errCurrentSkillSelectorMissing) {
-			continue
-		}
 		if err != nil {
 			return pkgplugins.SystemPromptSection{}, err
 		}

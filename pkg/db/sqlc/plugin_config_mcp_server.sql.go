@@ -22,7 +22,7 @@ type CreatePluginConfigMCPServerParams struct {
 	ServerKey string `json:"server_key"`
 }
 
-// Stable child identities for authored MCP server entries.
+// Migration-only child identities for legacy authored MCP entries.
 func (q *Queries) CreatePluginConfigMCPServer(ctx context.Context, arg CreatePluginConfigMCPServerParams) (PluginConfigMcpServer, error) {
 	row := q.db.QueryRow(ctx, createPluginConfigMCPServer, arg.ID, arg.ConfigID, arg.ServerKey)
 	var i PluginConfigMcpServer
@@ -34,76 +34,6 @@ func (q *Queries) CreatePluginConfigMCPServer(ctx context.Context, arg CreatePlu
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const deletePluginConfigMCPServer = `-- name: DeletePluginConfigMCPServer :exec
-DELETE FROM plugin_config_mcp_server WHERE config_id = $1 AND id = $2
-`
-
-type DeletePluginConfigMCPServerParams struct {
-	ConfigID string `json:"config_id"`
-	ID       string `json:"id"`
-}
-
-func (q *Queries) DeletePluginConfigMCPServer(ctx context.Context, arg DeletePluginConfigMCPServerParams) error {
-	_, err := q.db.Exec(ctx, deletePluginConfigMCPServer, arg.ConfigID, arg.ID)
-	return err
-}
-
-const deletePluginConfigMCPServers = `-- name: DeletePluginConfigMCPServers :exec
-DELETE FROM plugin_config_mcp_server WHERE config_id = $1
-`
-
-func (q *Queries) DeletePluginConfigMCPServers(ctx context.Context, configID string) error {
-	_, err := q.db.Exec(ctx, deletePluginConfigMCPServers, configID)
-	return err
-}
-
-const deletePluginConfigMCPServersExceptKeys = `-- name: DeletePluginConfigMCPServersExceptKeys :exec
-DELETE FROM plugin_config_mcp_server
-WHERE config_id = $1 AND NOT (server_key = ANY($2::text[]))
-`
-
-type DeletePluginConfigMCPServersExceptKeysParams struct {
-	ConfigID   string   `json:"config_id"`
-	ServerKeys []string `json:"server_keys"`
-}
-
-func (q *Queries) DeletePluginConfigMCPServersExceptKeys(ctx context.Context, arg DeletePluginConfigMCPServersExceptKeysParams) error {
-	_, err := q.db.Exec(ctx, deletePluginConfigMCPServersExceptKeys, arg.ConfigID, arg.ServerKeys)
-	return err
-}
-
-const listPluginConfigMCPServers = `-- name: ListPluginConfigMCPServers :many
-SELECT id, config_id, server_key, created_at, updated_at FROM plugin_config_mcp_server
-WHERE config_id = ANY($1::uuid[])
-ORDER BY array_position($1::uuid[], config_id), server_key
-`
-
-func (q *Queries) ListPluginConfigMCPServers(ctx context.Context, configIds []string) ([]PluginConfigMcpServer, error) {
-	rows, err := q.db.Query(ctx, listPluginConfigMCPServers, configIds)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []PluginConfigMcpServer{}
-	for rows.Next() {
-		var i PluginConfigMcpServer
-		if err := rows.Scan(
-			&i.ID,
-			&i.ConfigID,
-			&i.ServerKey,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const listPluginConfigMCPServersForConfig = `-- name: ListPluginConfigMCPServersForConfig :many

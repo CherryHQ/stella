@@ -339,7 +339,7 @@ func (s *Server) agentToolOverrideAllowed(ctx context.Context, userID, agentID, 
 		identity, err := s.toolIdentity(name)
 		return identity, err == nil, err
 	}
-	if s.pluginHost != nil && s.pluginSvc != nil {
+	if s.pluginHost != nil {
 		info := UserFromContext(ctx)
 		if info == nil {
 			return agent.ToolIdentity{}, false, nil

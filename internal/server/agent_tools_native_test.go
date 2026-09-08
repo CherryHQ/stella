@@ -1,7 +1,6 @@
 package server_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -30,11 +29,8 @@ func TestAgentToolsHostNativeOverrideUsesStaticDBIdentity(t *testing.T) {
 	}
 	nativePolicy := pluginpkg.NewNativePolicy(nativeStore, pluginpkg.NativeRegistryMap{nativeID: true})
 	env.pluginHost.SetNativePolicy(nativePolicy)
-	plugins := pluginpkg.NewService(env.db, env.deps.AgentAccess, pluginpkg.NewCatalog(),
-		pluginpkg.BackendPolicy{}, func(_ context.Context, fn func() error) error { return fn() })
 	env.rebuild(t, func(d *server.Deps) {
 		d.NativePolicy = nativePolicy
-		d.PluginService = plugins
 		d.ToolMeta = toolmeta.NewRegistry(toolmeta.ActionTool{
 			Name: toolName, PluginID: nativeID, LocalName: toolName,
 		})

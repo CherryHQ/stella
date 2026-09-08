@@ -236,13 +236,20 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	agentAccess := agentaccess.NewService(store, authStore, agentaccess.WithGuestPolicyDecoder(phost.GuestPolicyResolver))
 	ps.nativePolicy.SetAgentAccess(agentAccess)
 	var poolMgr *agent.PoolManager
-	contentStore, err := plugin.NewContentStore(filepath.Join(config.StellaHome(), "plugins", "content"))
+	migrationState, err := resourceupgrade.ReadState(parent, db)
 	if err != nil {
-		return nil, fmt.Errorf("build plugin content store: %w", err)
+		return nil, fmt.Errorf("read filesystem resource migration marker: %w", err)
 	}
-	// Legacy sync runs before admission; it needs no live-runner mutation fence.
-	pluginSvc := plugin.NewService(db, agentAccess, ps.catalog, pluginBackendPolicy(cfg.MCP.AllowPrivateEndpoints), func(_ context.Context, mutate func() error) error { return mutate() },
-		plugin.WithContentStore(contentStore), plugin.WithBuiltinSkillReader(func(ctx context.Context, pluginID, skillName string) (map[string][]byte, map[string]fs.FileMode, error) {
+	legacyMigrationRequired := !migrationState.Completed()
+	var legacyPlugins *plugin.LegacyService
+	if legacyMigrationRequired {
+		contentStore, err := plugin.NewContentStore(filepath.Join(config.StellaHome(), "plugins", "content"))
+		if err != nil {
+			return nil, fmt.Errorf("build plugin content store: %w", err)
+		}
+		// The migration-only bridge is never constructed after the filesystem
+		// marker is complete. Runtime resource management uses FileService.
+		legacyPlugins = plugin.NewLegacyService(db, ps.catalog, contentStore, func(ctx context.Context, pluginID, skillName string) (map[string][]byte, map[string]fs.FileMode, error) {
 			if ps.bundled == nil {
 				return nil, nil, errors.New("builtin Skill registry unavailable")
 			}
@@ -267,7 +274,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 				modes[entry.Path] = entry.Mode
 			}
 			return files, modes, nil
-		}))
+		})
+	}
 	ps.nativePolicy.SetMutationFence(func(ctx context.Context, mutate func() error) error {
 		if poolMgr == nil {
 			return mutate()
@@ -282,11 +290,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		}
 		return err
 	})
-	migrationState, err := resourceupgrade.ReadState(parent, db)
-	if err != nil {
-		return nil, fmt.Errorf("read filesystem resource migration marker: %w", err)
-	}
-	legacyMigrationRequired := !migrationState.Completed()
 	if legacyMigrationRequired {
 		if err := plugin.ImportLegacyState(parent, db, ps.catalog, ps.nativeRegistry, newToolMetaRegistry(generatedFamilies()...)); err != nil && !errors.Is(err, plugin.ErrImportComplete) {
 			return nil, fmt.Errorf("import plugin configuration: %w", err)
@@ -294,7 +297,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		if err := plugin.MigratePublishedState(parent, db, ps.catalog); err != nil && !errors.Is(err, plugin.ErrImportComplete) {
 			return nil, fmt.Errorf("publish plugin configuration: %w", err)
 		}
-		if err := pluginSvc.SyncBuiltinDefaults(parent); err != nil {
+		if err := legacyPlugins.SyncBuiltinDefaults(parent); err != nil {
 			return nil, fmt.Errorf("sync builtin plugins: %w", err)
 		}
 	}
@@ -312,15 +315,16 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			_ = homeRegistry.Close()
 		}
 	}()
-	legacySkillStore, err := setupSkillStore(db, homeRegistry)
-	if err != nil {
-		return nil, fmt.Errorf("build legacy Skill store: %w", err)
-	}
-	skillMigrator, err := skill.NewSkillHomeMigratorFromStore(db, legacySkillStore)
-	if err != nil {
-		return nil, fmt.Errorf("build Skill migration reconciler: %w", err)
-	}
+	var legacySkillStore *skill.LegacySkillStore
 	if legacyMigrationRequired {
+		legacySkillStore, err = skill.NewLegacySkillStore(db, homeRegistry)
+		if err != nil {
+			return nil, fmt.Errorf("build legacy Skill store: %w", err)
+		}
+		skillMigrator, err := skill.NewSkillHomeMigratorFromStore(db, legacySkillStore)
+		if err != nil {
+			return nil, fmt.Errorf("build Skill migration reconciler: %w", err)
+		}
 		startup, err := skillMigrator.ReconcileStartup(parent)
 		if err != nil {
 			return nil, fmt.Errorf("reconcile Skill Home: %w", err)
@@ -676,7 +680,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	mcpFiles := mcp.NewFileService(pluginFiles, resourceStore, mcpSvc)
 	if !migrationState.Completed() {
 		if err := resourceupgrade.Run(parent, resourceupgrade.Dependencies{
-			DB: db, Roots: homeRegistry, LegacyPlugins: pluginSvc, LegacySkills: legacySkillStore, MCPService: mcpSvc,
+			DB: db, Roots: homeRegistry, LegacyPlugins: legacyPlugins, LegacySkills: legacySkillStore, MCPService: mcpSvc,
 		}); err != nil {
 			return nil, fmt.Errorf("migrate filesystem resources: %w", err)
 		}

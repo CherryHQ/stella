@@ -13,7 +13,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/skill"
 )
 
 // ChatAdmission is the synchronous lease for one turn. Begin registers the
@@ -32,7 +31,6 @@ type ChatAdmission struct {
 	selection             runnerSelection
 	prepared              bool
 	published             bool
-	skillTurnRegistered   bool
 	preserveRunnerOnAbort bool
 	abortOnce             sync.Once
 }
@@ -155,7 +153,7 @@ func (rt *Runtime) PrepareChatAdmission(admission *ChatAdmission) (err error) {
 		}
 		turnPluginContext = fresh
 		hasTurnPluginContext = true
-		admission.ctx = withPreparedPluginContext(admission.ctx, fresh)
+		admission.ctx = WithPreparedPluginContext(admission.ctx, fresh)
 		admission.turn.ctx = admission.ctx
 	}
 	for retries := 0; ; retries++ {
@@ -203,58 +201,17 @@ func (rt *Runtime) PrepareChatAdmission(admission *ChatAdmission) (err error) {
 			captureCtx = authz.WithAuthority(captureCtx, admission.co.turnAuthority)
 		}
 		captureCtx = authz.WithAgentID(captureCtx, admission.info.AgentID)
-		// Registration rechecks every captured revision under the Skill mutation
-		// lock. A publish racing that lock may invalidate the first capture; retry
-		// the complete capture/register pair a small, finite number of times so a
-		// transient publication does not reject an otherwise valid turn forever.
-		const maxSkillTurnRevisionRetries = 2
-		captureBase := captureCtx
-		for retries := 0; ; retries++ {
-			captured, captureErr := rt.skillTurnCapture(captureBase, admission.info, admission.selection.pluginContext)
-			if captureErr != nil {
-				if errors.Is(captureErr, skill.ErrSkillTurnRevisionChanged) && retries < maxSkillTurnRevisionRetries {
-					continue
-				}
-				rt.AbortChatAdmission(admission)
-				return fmt.Errorf("capture skill turn view: %w", captureErr)
-			}
-			if captured == nil {
-				rt.AbortChatAdmission(admission)
-				return errors.New("capture skill turn view returned nil context")
-			}
-			admission.ctx = captured
-			admission.turn.ctx = captured
-			if rt.skillTurnOwner == nil {
-				break
-			}
-			view, ok := skill.SkillTurnViewFromContext(admission.ctx)
-			if !ok {
-				rt.AbortChatAdmission(admission)
-				return errors.New("capture skill turn view omitted view")
-			}
-			turnID := agentctx.TurnIDFromContext(admission.ctx)
-			register := rt.skillTurnRegistrar
-			if register == nil {
-				register = func(_ context.Context, id string, view skill.SkillTurnView, add func(string, skill.SkillTurnView) error) error {
-					return add(id, view)
-				}
-			}
-			if registerErr := register(admission.ctx, turnID, view, rt.skillTurnOwner.Register); registerErr != nil {
-				// A registrar may publish successfully and then fail while
-				// releasing its mutation lock. Roll back this turn ID before a
-				// recapture retry, otherwise the failed admission pins its Skill
-				// revisions forever.
-				rt.skillTurnOwner.Release(turnID)
-				if errors.Is(registerErr, skill.ErrSkillTurnRevisionChanged) && retries < maxSkillTurnRevisionRetries {
-					continue
-				}
-				rt.AbortChatAdmission(admission)
-				return fmt.Errorf("register skill turn view: %w", registerErr)
-			}
-			admission.skillTurnRegistered = true
-			admission.turn.ctx = admission.ctx
-			break
+		captured, captureErr := rt.skillTurnCapture(captureCtx, admission.info, admission.selection.pluginContext)
+		if captureErr != nil {
+			rt.AbortChatAdmission(admission)
+			return fmt.Errorf("capture skill turn view: %w", captureErr)
 		}
+		if captured == nil {
+			rt.AbortChatAdmission(admission)
+			return errors.New("capture skill turn view returned nil context")
+		}
+		admission.ctx = captured
+		admission.turn.ctx = captured
 	}
 	admission.prepared = true
 	return nil
@@ -301,7 +258,6 @@ func (rt *Runtime) AbortChatAdmission(admission *ChatAdmission) {
 				rt.cache.abortReservedAdmission(admission.selection.session)
 			}
 		}
-		rt.releaseSkillTurn(agentctx.TurnIDFromContext(admission.ctx), admission.skillTurnRegistered)
 		if admission.turn != nil {
 			admission.turn.cancel()
 			if rt.active.CompareAndDelete(admission.info.ID, admission.turn) {
@@ -381,7 +337,6 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner chan Event, 
 	defer admission.turn.cancel()
 	defer rt.active.CompareAndDelete(admission.info.ID, admission.turn)
 	defer rt.hub.end(admission.info.ID)
-	defer rt.releaseSkillTurn(agentctx.TurnIDFromContext(admission.ctx), admission.skillTurnRegistered)
 	result := memory.SessionTurnSuccess
 	deliver := true
 	for event := range inner {

@@ -73,7 +73,6 @@ func setupFileMCPCatalogEnvWithResource(t *testing.T, seed bool) *testEnv {
 			return out, nil
 		}
 		d.MCP = svc
-		d.MCPAccess = mcp.NewAccess(svc, d.AgentAccess, nil)
 	})
 	if !seed {
 		return env

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
-	"github.com/CherryHQ/stella/internal/plugin"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -27,19 +26,22 @@ type stubTool struct{ name string }
 type identifiedMCPTool struct{}
 
 func (identifiedMCPTool) Definition() tools.Definition {
-	return tools.Definition{Name: "settings_server__list"}
+	return tools.Definition{Name: "custom_settings_main_list_30942630260c"}
 }
 
 func (identifiedMCPTool) Execute(context.Context, map[string]any) (string, error) { return "", nil }
 
 func (identifiedMCPTool) PluginToolIdentity() (string, string, string, bool) {
-	return "custom/settings", "main", "list", true
+	return "custom.settings", "main", "list", true
 }
 
-func TestRunnerMCPToolIdentityRequiresSnapshotOwner(t *testing.T) {
-	_, err := runnerMCPToolIdentity(plugin.Snapshot{}, identifiedMCPTool{})
-	if err == nil || !strings.Contains(err.Error(), "unknown plugin") {
-		t.Fatalf("runnerMCPToolIdentity error = %v, want unknown snapshot owner", err)
+func TestRunnerMCPToolIdentityValidatesDurableIdentity(t *testing.T) {
+	identity, err := runnerMCPToolIdentity(identifiedMCPTool{})
+	if err != nil {
+		t.Fatalf("runnerMCPToolIdentity error = %v", err)
+	}
+	if identity.PluginID != "custom.settings" || identity.ServerKey != "main" || identity.LocalToolName != "list" {
+		t.Fatalf("identity = %+v", identity)
 	}
 }
 
