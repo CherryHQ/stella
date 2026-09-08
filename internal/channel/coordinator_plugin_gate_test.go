@@ -5,19 +5,12 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
-func TestChannelPluginGateDoesNotResolveGuestThroughOwnerSnapshot(t *testing.T) {
-	called := false
-	resolverErr := errors.New("owner snapshot must not be used")
+func TestChannelPluginGateAppliesListenerCapToGuest(t *testing.T) {
 	coord := &Coordinator{
 		listenerCap: func(context.Context, string, string) (bool, error) { return false, nil },
-		snapshotResolver: func(context.Context, authz.Authority, string) (plugin.Snapshot, error) {
-			called = true
-			return plugin.Snapshot{}, resolverErr
-		},
 	}
 
 	allowed, err := coord.channelPluginAllowed(t.Context(), &ResolvedChat{
@@ -27,16 +20,14 @@ func TestChannelPluginGateDoesNotResolveGuestThroughOwnerSnapshot(t *testing.T) 
 	if err != nil || allowed {
 		t.Fatalf("guest gate = %v, %v; want listener cap denial without owner snapshot", allowed, err)
 	}
-	if called {
-		t.Fatal("guest gate resolved a snapshot using an owner path")
-	}
 }
 
-func TestChannelPluginGatePropagatesSnapshotFailureBeforeDispatch(t *testing.T) {
-	resolverErr := errors.New("snapshot unavailable")
+func TestChannelPluginGateAppliesListenerCapToLinkedActor(t *testing.T) {
+	var gotPluginID, gotAgentID string
 	coord := &Coordinator{
-		snapshotResolver: func(context.Context, authz.Authority, string) (plugin.Snapshot, error) {
-			return plugin.Snapshot{}, resolverErr
+		listenerCap: func(_ context.Context, pluginID, agentID string) (bool, error) {
+			gotPluginID, gotAgentID = pluginID, agentID
+			return false, nil
 		},
 	}
 
@@ -44,7 +35,27 @@ func TestChannelPluginGatePropagatesSnapshotFailureBeforeDispatch(t *testing.T) 
 		AgentID: "agent-1",
 		ChatCtx: ChatContext{Platform: "feishu"},
 	})
-	if allowed || !errors.Is(err, resolverErr) {
-		t.Fatalf("trusted gate = %v, %v; want resolver failure", allowed, err)
+	if err != nil || allowed {
+		t.Fatalf("linked actor gate = %v, %v; want listener cap denial", allowed, err)
+	}
+	if gotPluginID != config.PluginID(config.PluginKindChannel, "feishu") || gotAgentID != "agent-1" {
+		t.Fatalf("listener cap args = %q, %q", gotPluginID, gotAgentID)
+	}
+}
+
+func TestChannelPluginGatePropagatesListenerCapFailureBeforeDispatch(t *testing.T) {
+	capErr := errors.New("listener capability unavailable")
+	coord := &Coordinator{
+		listenerCap: func(context.Context, string, string) (bool, error) {
+			return false, capErr
+		},
+	}
+
+	allowed, err := coord.channelPluginAllowed(t.Context(), &ResolvedChat{
+		AgentID: "agent-1",
+		ChatCtx: ChatContext{Platform: "feishu"},
+	})
+	if allowed || !errors.Is(err, capErr) {
+		t.Fatalf("linked actor gate = %v, %v; want listener cap failure", allowed, err)
 	}
 }

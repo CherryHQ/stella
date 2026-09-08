@@ -20,3 +20,26 @@ func TestAuthenticationAndTimeout(t *testing.T) {
 		}
 	}
 }
+
+func TestOptionsStrictAndDescription(t *testing.T) {
+	options, err := ParseOptions([]byte(`{"description":"public MCP","call_timeout_seconds":30}`))
+	if err != nil || options.Description != "public MCP" || options.CallTimeoutSeconds != 30 {
+		t.Fatalf("options=%+v err=%v", options, err)
+	}
+	declaration, err := Parse([]byte(`{"url":"https://example.com/mcp","transport":"streamable_http","description":"public MCP","call_timeout_seconds":30}`))
+	if err != nil || declaration.Description != "public MCP" || declaration.CallTimeoutSeconds != 30 {
+		t.Fatalf("declaration=%+v err=%v", declaration, err)
+	}
+	if options, err := ParseOptions([]byte(`{"description":"line\nfeed"}`)); err != nil || options.Description != "line\nfeed" {
+		t.Fatalf("multiline description=%+v err=%v", options, err)
+	}
+	for _, raw := range []string{
+		`{"unknown":true}`,
+		`{"description":null}`,
+		`{"call_timeout_seconds":301}`,
+	} {
+		if _, err := ParseOptions([]byte(raw)); err == nil {
+			t.Fatalf("ParseOptions(%s) accepted invalid input", raw)
+		}
+	}
+}

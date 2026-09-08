@@ -56,13 +56,14 @@ type Server struct {
 	toolOverrides   *agent.ToolOverrideStore
 	sessionAccess   *sessionaccess.Service
 	skillAccess     *access.Service
-	skills          *skill.POSIXStore
+	skills          *skill.FileStore
 	skillManagement *skill.Management
 	rateLimiter     *auth.RateLimiter
 	linkCodes       *auth.LinkCodeStore
 	poolManager     *agent.PoolManager
 	pluginHost      *host.Host
 	pluginSvc       *pluginpkg.Service
+	pluginFiles     *pluginpkg.FileService // optional; file-backed plugin endpoints
 	nativePolicy    *pluginpkg.NativePolicy
 	weixinRegistrar WeixinRegistrar
 	// pinger is the narrow database-liveness port backing the /healthz, /readyz,
@@ -74,6 +75,8 @@ type Server struct {
 	vaultRecipient       *age.X25519Recipient  // optional; if set, age keys are generated for new users
 	vaultSvc             *vault.Service        // optional; if nil, vault endpoints return 503
 	mcpSvc               *mcp.Service          // optional; if nil, MCP endpoints return 503
+	mcpFiles             *mcp.FileService      // optional; file-backed MCP endpoints
+	agentMCPCatalog      agent.MCPCatalogFunc  // optional; authority-bound file MCP tools
 	mcpCatalog           mcp.Catalog           // optional; if nil, registry endpoints return 503
 	mcpAccess            *mcp.Access           // optional; shared scoped MCP authority boundary
 	credResolver         *credential.Service   // unified bearer credential front door
@@ -179,7 +182,7 @@ type Deps struct {
 	// Skills is the single managed-Skill authority used by HTTP transports. The
 	// exact revision and digest-CAS surfaces are mandatory; no plugin service
 	// locator or capability assertion participates in management requests.
-	Skills    *skill.POSIXStore
+	Skills    *skill.FileStore
 	LinkCodes *auth.LinkCodeStore
 	OIDC      OIDCDeps
 
@@ -189,8 +192,11 @@ type Deps struct {
 	// PluginService is the unified definition/configuration authority. It is
 	// optional during the staged cutover; its API returns 503 when absent.
 	PluginService *pluginpkg.Service
-	NativePolicy  *pluginpkg.NativePolicy
-	BuiltinTools  []agent.BuiltinTool
+	// PluginFiles is the authority-bound file-backed plugin capability. It is
+	// optional during the migration; file endpoints return 503 when absent.
+	PluginFiles  *pluginpkg.FileService
+	NativePolicy *pluginpkg.NativePolicy
+	BuiltinTools []agent.BuiltinTool
 	// ToolMeta is the generated declaration registry already assembled by the
 	// composition root. Profile catalog rows use it for family metadata; plugins
 	// never enter it and therefore cannot borrow a generated family by name.
@@ -233,16 +239,18 @@ type Deps struct {
 	// matching endpoints report 503 through the centralized unavailable mapping
 	// (see capabilityUnavailable). Presence is never inferred from the
 	// environment inside the server.
-	Vault          *vault.Service
-	VaultRecipient *age.X25519Recipient
-	MCP            *mcp.Service
-	MCPCatalog     mcp.Catalog
-	MCPAccess      *mcp.Access
-	Scheduler      *scheduler.Service
-	Goal           *goal.Service
-	Workflow       *workflowpkg.Service
-	Provisioning   *provisioning.Service
-	Library        *library.Service
+	Vault           *vault.Service
+	VaultRecipient  *age.X25519Recipient
+	MCP             *mcp.Service
+	MCPFiles        *mcp.FileService
+	AgentMCPCatalog agent.MCPCatalogFunc
+	MCPCatalog      mcp.Catalog
+	MCPAccess       *mcp.Access
+	Scheduler       *scheduler.Service
+	Goal            *goal.Service
+	Workflow        *workflowpkg.Service
+	Provisioning    *provisioning.Service
+	Library         *library.Service
 }
 
 // OIDCDeps groups the login-authentication components produced by oidc.Setup.
@@ -348,6 +356,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		pinger:               deps.Pinger,
 		pluginHost:           deps.PluginHost,
 		pluginSvc:            deps.PluginService,
+		pluginFiles:          deps.PluginFiles,
 		nativePolicy:         deps.NativePolicy,
 		weixinRegistrar:      deps.WeixinRegistrar,
 		mux:                  http.NewServeMux(),
@@ -358,6 +367,8 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		vaultRecipient:       deps.VaultRecipient,
 		vaultSvc:             deps.Vault,
 		mcpSvc:               deps.MCP,
+		mcpFiles:             deps.MCPFiles,
+		agentMCPCatalog:      deps.AgentMCPCatalog,
 		mcpCatalog:           deps.MCPCatalog,
 		mcpAccess:            deps.MCPAccess,
 		credResolver:         deps.CredentialFrontDoor,

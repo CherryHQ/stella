@@ -49,9 +49,11 @@ type ManagementTool struct {
 // MCPCatalogEntry is the management projection of one trusted MCP tool. Name
 // is a display projection; Identity is the only policy key.
 type MCPCatalogEntry struct {
-	Name     string
-	Identity ToolIdentity
-	Family   string
+	Name        string
+	Description string
+	InputSchema map[string]any
+	Identity    ToolIdentity
+	Family      string
 }
 
 // MCPCatalogFunc resolves the authority-bound common snapshot for one agent.
@@ -230,6 +232,7 @@ type agentOverrideHandler struct {
 }
 
 func (h agentOverrideHandler) List(ctx context.Context, in SettingsAgentToolListInput) (any, error) {
+	ctx = authz.WithAuthority(ctx, h.authority)
 	if err := h.management.ManageForTool(ctx, h.authority, in.TargetAgentId); err != nil {
 		return nil, err
 	}
@@ -271,10 +274,19 @@ func (h agentOverrideHandler) List(ctx context.Context, in SettingsAgentToolList
 		key := toolOverrideVersionKey(entry.Identity)
 		item, ok := versions[key]
 		if !ok {
-			item = absentOverrideVersion(entry.Identity, entry.Name)
-		} else {
-			item.ToolName = entry.Name
+			// File-backed policy versions live in settings.json rather than the
+			// legacy override table. Read that CAS digest even when this exact
+			// tool is currently enabled, so the first update cannot race an
+			// unrelated settings change behind the "absent" sentinel.
+			item, err = h.overrides.Get(ctx, ToolOverrideKey{Identity: entry.Identity, Scope: ToolOverrideScopeUserAgent, UserID: string(h.authority.UserID()), AgentID: in.TargetAgentId})
+			if err != nil {
+				return nil, err
+			}
+			if item.Version == "" || item.Version == ToolOverrideAbsentVersion {
+				item = absentOverrideVersion(entry.Identity, entry.Name)
+			}
 		}
+		item.ToolName = entry.Name
 		item.Family = entry.Family
 		items = append(items, item)
 	}

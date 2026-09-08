@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -142,6 +143,22 @@ func TestFilesystemResourceCapture(t *testing.T) {
 	}
 }
 
+func TestFilesystemResourceDisabledToolsComposeAcrossScopes(t *testing.T) {
+	roots, paths := filesystemTestRoots(t)
+	manifest := `{"$schema":"` + agentpackage.PluginSchemaV1 + `","name":"example"}`
+	writeFilesystemTestFile(t, paths[0], "plugins/example/plugin.json", manifest)
+	writeFilesystemTestFile(t, paths[0], "settings.json", `{"disabled_tools":{"plugin:example":["main/system"]}}`)
+	writeFilesystemTestFile(t, paths[2], "settings.json", `{"disabled_tools":{"plugin:example":["main/user"]}}`)
+	writeFilesystemTestFile(t, paths[3], "settings.json", `{"disabled_tools":{"plugin:example":["main/user-agent"]}}`)
+	resources, err := DiscoverResources(t.Context(), roots)
+	if err != nil || len(resources) != 1 {
+		t.Fatalf("resources = %#v, err=%v", resources, err)
+	}
+	if !slices.Equal(resources[0].DisabledTools, []string{"main/system", "main/user", "main/user-agent"}) {
+		t.Fatalf("disabled tools = %#v", resources[0].DisabledTools)
+	}
+}
+
 func TestFilesystemResourceConflicts(t *testing.T) {
 	roots, paths := filesystemTestRoots(t)
 	skill := "---\nname: shared\ndescription: Shared tool\n---\nInstructions"
@@ -189,7 +206,7 @@ func TestFilesystemResourceConflicts(t *testing.T) {
 func TestFilesystemResourceMCPDeclarations(t *testing.T) {
 	roots, paths := filesystemTestRoots(t)
 	writeFilesystemTestFile(t, paths[2], "mcp/remote.json", `{"url":"https://example.invalid/mcp","transport":"streamable_http","auth_type":"oauth"}`)
-	writeFilesystemTestFile(t, paths[0], "plugins/example/plugin.json", `{"$schema":"`+agentpackage.PluginSchemaV1+`","name":"example","extensions":{"com.cherryhq.stella":{"version":"1","mcp_auth":{"remote":{"auth_type":"oauth"}}}}}`)
+	writeFilesystemTestFile(t, paths[0], "plugins/example/plugin.json", `{"$schema":"`+agentpackage.PluginSchemaV1+`","name":"example","extensions":{"com.cherryhq.stella":{"version":"1","mcp_auth":{"remote":{"auth_type":"oauth"}},"mcp_options":{"remote":{"description":"Remote server","call_timeout_seconds":30}}}}}`)
 	writeFilesystemTestFile(t, paths[0], "plugins/example/mcp.json", `{"$schema":"`+agentpackage.MCPV1Schema+`","mcpServers":{"remote":{"type":"streamable-http","url":"https://example.invalid/mcp"}}}`)
 	resources, err := DiscoverResources(t.Context(), roots)
 	if err != nil || len(resources) != 2 {
@@ -199,6 +216,9 @@ func TestFilesystemResourceMCPDeclarations(t *testing.T) {
 		d, ok := resource.MCP["remote"]
 		if !ok || d.Type != "oauth" || d.Mode != "per_user" || d.Transport != "streamable_http" {
 			t.Fatalf("different declaration contract: %+v", resource)
+		}
+		if resource.Key.Kind == ResourcePlugin && (d.Description != "Remote server" || d.CallTimeoutSeconds != 30) {
+			t.Fatalf("package MCP options missing: %+v", d)
 		}
 	}
 	writeFilesystemTestFile(t, paths[2], "mcp/remote.json", `{"url":"https://example.invalid/mcp","transport":"streamable_http","token":"secret"}`)

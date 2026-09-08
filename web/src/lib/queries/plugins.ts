@@ -1,30 +1,22 @@
 import { queryOptions } from "@tanstack/react-query";
-import {
-  listNativePluginAgentDenials,
-  listNativePlugins,
-  listPluginConfigs,
-  listPlugins,
-} from "@/lib/api-client";
-import type {
-  NativeAgentDeny,
-  NativePlugin,
-  PluginConfig,
-  PluginDefinition,
-} from "@/lib/api-client";
+import { listNativePluginAgentDenials, listNativePlugins, listPlugins } from "@/lib/api-client";
+import type { NativeAgentDeny, NativePlugin, PluginResource } from "@/lib/api-client";
+import type { ScopeBand } from "@/lib/scope-band";
 
-export type PluginScope = PluginConfig["scope"];
+export type PluginScope = "system" | "system_agent" | "user" | "user_agent";
 
 function nativePageQuery(pageToken?: string) {
   return pageToken ? { page_size: 500, page_token: pageToken } : { page_size: 500 };
 }
 
-async function fetchAllPlugins(): Promise<PluginDefinition[]> {
-  const plugins: PluginDefinition[] = [];
+async function fetchAllPlugins(agentId?: string): Promise<PluginResource[]> {
+  const plugins: PluginResource[] = [];
   let pageToken: string | undefined;
   do {
     const { data } = await listPlugins({
       query: {
         page_size: 500,
+        ...(agentId ? { agent_id: agentId } : {}),
         ...(pageToken ? { page_token: pageToken } : {}),
       },
       throwOnError: true,
@@ -37,8 +29,14 @@ async function fetchAllPlugins(): Promise<PluginDefinition[]> {
 
 export const pluginsQueryOptions = queryOptions({
   queryKey: ["plugins"],
-  queryFn: fetchAllPlugins,
+  queryFn: () => fetchAllPlugins(),
 });
+
+export const scopedPluginsQueryOptions = (scopeBand: ScopeBand, agentId?: string) =>
+  queryOptions({
+    queryKey: ["plugins", scopeBand, agentId ?? null],
+    queryFn: () => fetchAllPlugins(agentId),
+  });
 
 async function fetchAllNativePlugins(): Promise<NativePlugin[]> {
   const nativePlugins: NativePlugin[] = [];
@@ -82,30 +80,3 @@ export const nativePluginDenialsQueryOptions = (nativeID: string, enabled: boole
     },
   });
 };
-
-export const pluginConfigsQueryOptions = (pluginID: string, scope: PluginScope, agentID?: string) =>
-  queryOptions({
-    queryKey: ["plugin-configs", pluginID, scope, agentID ?? null],
-    // Agent-owned scopes require an explicit PEP target. A disabled query is
-    // preferable to a broad request that could accidentally enumerate agents.
-    enabled: scope === "user" || scope === "system" || !!agentID,
-    queryFn: async () => {
-      const configs: PluginConfig[] = [];
-      let pageToken: string | undefined;
-      do {
-        const { data } = await listPluginConfigs({
-          path: { plugin_id: pluginID },
-          query: {
-            scope,
-            ...(agentID ? { agent_id: agentID } : {}),
-            page_size: 500,
-            ...(pageToken ? { page_token: pageToken } : {}),
-          },
-          throwOnError: true,
-        });
-        configs.push(...(data?.configs ?? []));
-        pageToken = data?.next_page_token ?? undefined;
-      } while (pageToken);
-      return configs;
-    },
-  });

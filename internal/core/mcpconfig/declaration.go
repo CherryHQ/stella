@@ -20,10 +20,19 @@ type Authentication struct {
 	Scopes                  []string `json:"scopes,omitempty"`
 }
 
+// Options contains non-authentication MCP presentation and execution hints.
+// It is kept separate from Authentication so package declarations cannot use
+// endpoint or credential options as an implicit override.
+type Options struct {
+	Description        string `json:"description,omitempty"`
+	CallTimeoutSeconds int    `json:"call_timeout_seconds,omitzero"`
+}
+
 type Declaration struct {
 	URL                string            `json:"url"`
 	Transport          string            `json:"transport"`
 	Headers            map[string]string `json:"headers,omitempty"`
+	Description        string            `json:"description,omitempty"`
 	CallTimeoutSeconds int               `json:"call_timeout_seconds,omitzero"`
 	Authentication
 }
@@ -42,6 +51,16 @@ func ParseAuthentication(data []byte) (Authentication, error) {
 		return Authentication{}, err
 	}
 	return normalizeAuthentication(auth)
+}
+
+// ParseOptions decodes the Stella package MCP options declaration. Unknown or
+// null fields are rejected by the same strict decoder used for all MCP files.
+func ParseOptions(data []byte) (Options, error) {
+	var options Options
+	if err := decodeDeclaration(data, &options); err != nil {
+		return Options{}, err
+	}
+	return NormalizeOptions(options)
 }
 
 func decodeDeclaration(data []byte, target any) error {
@@ -63,16 +82,17 @@ func decodeDeclaration(data []byte, target any) error {
 }
 
 func Normalize(d Declaration) (Declaration, error) {
-	if d.CallTimeoutSeconds < 0 || d.CallTimeoutSeconds > 300 {
-		return Declaration{}, errors.New("mcp: call timeout must be between 1 and 300 seconds")
+	options, err := NormalizeOptions(Options{Description: d.Description, CallTimeoutSeconds: d.CallTimeoutSeconds})
+	if err != nil {
+		return Declaration{}, err
 	}
+	d.Description, d.CallTimeoutSeconds = options.Description, options.CallTimeoutSeconds
 	if !ValidEndpoint(d.URL) || !ValidHeaders(d.Headers) {
 		return Declaration{}, errors.New("mcp: invalid endpoint or public headers")
 	}
 	if d.Transport != "streamable_http" && d.Transport != "sse" {
 		return Declaration{}, errors.New("mcp: unsupported transport")
 	}
-	var err error
 	d.Authentication, err = normalizeAuthentication(d.Authentication)
 	if err != nil {
 		return Declaration{}, err
@@ -81,6 +101,13 @@ func Normalize(d Declaration) (Declaration, error) {
 		return Declaration{}, errors.New("mcp: OAuth requires streamable HTTP")
 	}
 	return d, nil
+}
+
+func NormalizeOptions(options Options) (Options, error) {
+	if options.CallTimeoutSeconds < 0 || options.CallTimeoutSeconds > 300 {
+		return Options{}, errors.New("mcp: call timeout must be between 0 and 300 seconds")
+	}
+	return options, nil
 }
 
 func normalizeAuthentication(d Authentication) (Authentication, error) {

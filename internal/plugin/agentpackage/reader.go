@@ -78,6 +78,10 @@ type Package struct {
 	Skills     []Skill
 	MCPServers []MCPServer
 	Extension  *StellaExtension
+
+	// stellaExtensionRejected distinguishes an absent extension from one that
+	// failed validation. The latter must fail closed for package MCP servers.
+	stellaExtensionRejected bool
 }
 
 type Manifest struct {
@@ -149,7 +153,16 @@ type StellaExtension struct {
 	Binaries    []BinaryRequirement
 	SessionEnv  []SessionEnvRequirement
 	MCPAuth     map[string]mcpconfig.Authentication
+	MCPOptions  map[string]mcpconfig.Options
 	OAuth       []OAuthRequirement
+
+	// Invalid MCP extension entries are kept private so package discovery can
+	// suppress the corresponding server instead of silently falling back to
+	// unauthenticated/default execution.
+	mcpAuthInvalid       map[string]struct{}
+	mcpOptionsInvalid    map[string]struct{}
+	mcpAuthInvalidAll    bool
+	mcpOptionsInvalidAll bool
 }
 
 // Load reads a package using client-tolerant semantics. Fatal package issues
@@ -242,12 +255,15 @@ func loadFiles(packageRoot packageFiles, rootPath string, strict bool) (*Package
 			extension := parseStellaExtension(raw, strict, &diagnostics)
 			if extension != nil {
 				pkg.Extension = extension
+			} else {
+				pkg.stellaExtensionRejected = true
 			}
 		}
 	}
 
 	loadSkills(packageRoot, pkg, strict, &diagnostics)
 	loadMCP(packageRoot, rootPath, manifest.Schema, pkg, strict, &diagnostics)
+	validateMCPExtensionKeys(pkg, strict, &diagnostics)
 	return pkg, diagnostics
 }
 
@@ -828,7 +844,7 @@ func parseStellaExtension(data json.RawMessage, strict bool, diagnostics *Diagno
 		diagnostics.add(componentSeverity(strict), "extension.invalid", "plugin.json", "Stella extension must be an object and is ignored")
 		return nil
 	}
-	known := map[string]bool{"version": true, "display_name": true, "prompt": true, "binaries": true, "session_env": true, "oauth": true, "mcp_auth": true}
+	known := map[string]bool{"version": true, "display_name": true, "prompt": true, "binaries": true, "session_env": true, "oauth": true, "mcp_auth": true, "mcp_options": true}
 	for key := range values {
 		if !known[key] {
 			severity := SeverityWarning
@@ -853,16 +869,42 @@ func parseStellaExtension(data json.RawMessage, strict bool, diagnostics *Diagno
 		var entries map[string]json.RawMessage
 		if decodeObject(raw, &entries) != nil {
 			diagnostics.add(componentSeverity(strict), "extension.mcp_auth", "plugin.json", "invalid MCP authentication declarations")
-			return nil
-		}
-		extension.MCPAuth = make(map[string]mcpconfig.Authentication, len(entries))
-		for key, entry := range entries {
-			auth, err := mcpconfig.ParseAuthentication(entry)
-			if err != nil {
-				diagnostics.add(componentSeverity(strict), "extension.mcp_auth", "plugin.json", "invalid MCP authentication fields")
-				return nil
+			extension.mcpAuthInvalidAll = true
+		} else {
+			extension.MCPAuth = make(map[string]mcpconfig.Authentication, len(entries))
+			for key, entry := range entries {
+				auth, err := mcpconfig.ParseAuthentication(entry)
+				if err != nil {
+					diagnostics.add(componentSeverity(strict), "extension.mcp_auth", "plugin.json", "invalid MCP authentication for %q: %v", key, err)
+					if extension.mcpAuthInvalid == nil {
+						extension.mcpAuthInvalid = make(map[string]struct{})
+					}
+					extension.mcpAuthInvalid[key] = struct{}{}
+					continue
+				}
+				extension.MCPAuth[key] = auth
 			}
-			extension.MCPAuth[key] = auth
+		}
+	}
+	if raw, exists := values["mcp_options"]; exists {
+		var entries map[string]json.RawMessage
+		if decodeObject(raw, &entries) != nil {
+			diagnostics.add(componentSeverity(strict), "extension.mcp_options", "plugin.json", "invalid MCP option declarations")
+			extension.mcpOptionsInvalidAll = true
+		} else {
+			extension.MCPOptions = make(map[string]mcpconfig.Options, len(entries))
+			for key, entry := range entries {
+				options, err := mcpconfig.ParseOptions(entry)
+				if err != nil {
+					diagnostics.add(componentSeverity(strict), "extension.mcp_options", "plugin.json", "invalid MCP options for %q: %v", key, err)
+					if extension.mcpOptionsInvalid == nil {
+						extension.mcpOptionsInvalid = make(map[string]struct{})
+					}
+					extension.mcpOptionsInvalid[key] = struct{}{}
+					continue
+				}
+				extension.MCPOptions[key] = options
+			}
 		}
 	}
 
@@ -898,6 +940,53 @@ func parseStellaExtension(data json.RawMessage, strict bool, diagnostics *Diagno
 		return nil
 	}
 	return &extension
+}
+
+func validateMCPExtensionKeys(pkg *Package, strict bool, diagnostics *Diagnostics) {
+	if pkg == nil {
+		return
+	}
+	if pkg.Extension == nil {
+		if pkg.stellaExtensionRejected {
+			pkg.MCPServers = nil
+		}
+		return
+	}
+	severity := componentSeverity(strict)
+	invalid := make(map[string]struct{}, len(pkg.Extension.mcpAuthInvalid)+len(pkg.Extension.mcpOptionsInvalid))
+	for key := range pkg.Extension.mcpAuthInvalid {
+		invalid[key] = struct{}{}
+	}
+	for key := range pkg.Extension.mcpOptionsInvalid {
+		invalid[key] = struct{}{}
+	}
+	if pkg.Extension.mcpAuthInvalidAll || pkg.Extension.mcpOptionsInvalidAll {
+		for _, server := range pkg.MCPServers {
+			invalid[server.Name] = struct{}{}
+		}
+	}
+	if len(invalid) != 0 {
+		kept := pkg.MCPServers[:0]
+		for _, server := range pkg.MCPServers {
+			if _, broken := invalid[server.Name]; broken {
+				continue
+			}
+			kept = append(kept, server)
+		}
+		pkg.MCPServers = kept
+	}
+	for key := range pkg.Extension.MCPAuth {
+		if !slices.ContainsFunc(pkg.MCPServers, func(server MCPServer) bool { return server.Name == key }) {
+			diagnostics.add(severity, "extension.mcp_auth", "plugin.json", "MCP authentication %q has no corresponding server", key)
+			delete(pkg.Extension.MCPAuth, key)
+		}
+	}
+	for key := range pkg.Extension.MCPOptions {
+		if !slices.ContainsFunc(pkg.MCPServers, func(server MCPServer) bool { return server.Name == key }) {
+			diagnostics.add(severity, "extension.mcp_options", "plugin.json", "MCP options %q has no corresponding server", key)
+			delete(pkg.Extension.MCPOptions, key)
+		}
+	}
 }
 
 func parseOAuthRequirements(data json.RawMessage) ([]OAuthRequirement, error) {

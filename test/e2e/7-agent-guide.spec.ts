@@ -1,95 +1,68 @@
 import { expectStatus } from "./lib/api.ts";
 import { expect, test } from "./lib/fixtures.ts";
+import type { PluginResource } from "./lib/types.ts";
 
-interface PluginDefinition {
-  id: string;
-  display_name: string;
+function pluginPath(id: string): string {
+  return `/api/plugins/${encodeURIComponent(id)}`;
 }
 
-interface PluginConfig {
-  id: string;
-  plugin_id: string;
-  scope: string;
-  is_enabled: boolean | null;
-  revision: number;
-}
-
-function isEmailConfigMutation(response: import("@playwright/test").Response): boolean {
-  const request = response.request();
-  const pathname = new URL(response.url()).pathname;
-  return request.method() === "PATCH" && /^\/api\/plugins\/email\/configs(?:\/|$)/.test(pathname);
-}
-
-async function systemEmailConfig(admin: import("./lib/api.ts").ApiClient): Promise<PluginConfig> {
+async function systemEmail(
+  admin: import("./lib/api.ts").ApiClient,
+): Promise<PluginResource> {
   const list = expectStatus(
-    await admin.get<{ configs: PluginConfig[]; }>("/api/plugins/email/configs?scope=system"),
+    await admin.get<{ plugins: PluginResource[]; }>("/api/plugins?scope=system"),
     200,
-    "list email system configs",
+    "list system plugin resources",
   );
-  const config = list.configs.find((item) => item.plugin_id === "email" && item.scope === "system");
-  if (!config) throw new Error(`email system config missing: ${JSON.stringify(list.configs)}`);
-  return config;
+  const resource = list.plugins.find((item) => item.name === "email");
+  if (!resource) {
+    throw new Error(`email resource missing: ${JSON.stringify(list.plugins)}`);
+  }
+  return resource;
 }
 
-test("admin can open the bare email guide and persist its config", async ({ page, admin, loginAsAdmin }) => {
-  const plugins = expectStatus(
-    await admin.get<{ plugins: PluginDefinition[]; }>("/api/plugins"),
-    200,
-    "list plugins",
-  );
-  expect(plugins.plugins.find((plugin) => plugin.id === "email")?.display_name).toBeTruthy();
-
-  const original = await systemEmailConfig(admin);
-  const configRequests: string[] = [];
-  const config404s: string[] = [];
+test("admin can open the bare email guide and persist its raw resource switch", async ({ page, admin, loginAsAdmin }) => {
+  const original = await systemEmail(admin);
+  const requests: string[] = [];
   page.on("response", (response) => {
     const pathname = new URL(response.url()).pathname;
-    if (!pathname.startsWith("/api/plugins/email/configs")) return;
-    configRequests.push(pathname);
-    if (response.status() === 404) config404s.push(`${response.request().method()} ${pathname}`);
+    const decodedPath = decodeURIComponent(pathname);
+    if (decodedPath === `/api/plugins/${original.id}`) {
+      requests.push(`${response.request().method()} ${decodedPath}`);
+    }
   });
-
   try {
     await loginAsAdmin();
-    await page.goto("/admin/integrations/plugins/email");
-    await expect(page).toHaveURL(/\/admin\/integrations\/plugins\/email$/);
-    await expect(page.getByRole("heading", { name: "email", exact: true })).toBeVisible();
-    await expect(page.getByText("Configuration", { exact: true })).toBeVisible();
-
-    const configSwitch = page.getByRole("switch").first();
-    await expect(configSwitch).toBeChecked({ checked: original.is_enabled === true });
-
-    // The email package declares skills only, so there is no editable binary
-    // or MCP parameter form. Keep the guide on the enable/inherit persistence
-    // path instead of inventing an empty editor for a fixed package.
-    await expect(page.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Add MCP server", exact: true })).toHaveCount(0);
-
-    const toggledResponse = page.waitForResponse(isEmailConfigMutation);
-    await configSwitch.click();
-    expect((await toggledResponse).status()).toBe(200);
-    await expect.poll(async () => (await systemEmailConfig(admin)).is_enabled).toBe(!Boolean(original.is_enabled));
-
-    if (original.is_enabled === null) {
-      const inheritResponse = page.waitForResponse(isEmailConfigMutation);
-      await page.getByRole("button", { name: "Inherit", exact: true }).first().click();
-      expect((await inheritResponse).status()).toBe(200);
-    } else {
-      const restoredResponse = page.waitForResponse(isEmailConfigMutation);
-      await configSwitch.click();
-      expect((await restoredResponse).status()).toBe(200);
-    }
-    await expect.poll(async () => (await systemEmailConfig(admin)).is_enabled).toBe(original.is_enabled);
-
-    expect(configRequests.length).toBeGreaterThanOrEqual(2);
-    expect(configRequests.every((path) => /^\/api\/plugins\/email\/configs(?:\/|$)/.test(path))).toBe(true);
-    expect(config404s).toEqual([]);
+    await page.goto(
+      `/admin/integrations/plugins/${encodeURIComponent(original.id)}`,
+    );
+    await expect(page).toHaveURL(/\/admin\/integrations\/plugins\/.+$/);
+    await expect(page.getByRole("heading", { name: /email/i })).toBeVisible();
+    const toggle = page.getByRole("switch").first();
+    await expect(toggle).toBeChecked({ checked: original.is_enabled });
+    await toggle.click();
+    await expect
+      .poll(async () => (await systemEmail(admin)).is_enabled)
+      .toBe(!original.is_enabled);
+    const current = await systemEmail(admin);
+    await admin.patch(pluginPath(original.id), {
+      is_enabled: original.is_enabled,
+      expected_settings_digest: current.settings_digest,
+    });
+    await expect
+      .poll(async () => (await systemEmail(admin)).is_enabled)
+      .toBe(original.is_enabled);
+    expect(
+      requests.every(
+        (request) => request === `PATCH /api/plugins/${original.id}`,
+      ),
+    ).toBe(true);
   } finally {
-    const current = await systemEmailConfig(admin);
+    const current = await systemEmail(admin);
     if (current.is_enabled !== original.is_enabled) {
-      await admin.patch(`/api/plugins/email/configs/${current.id}`, {
-        expected_revision: current.revision,
+      await admin.patch(pluginPath(original.id), {
         is_enabled: original.is_enabled,
+        expected_settings_digest: current.settings_digest,
       });
     }
   }

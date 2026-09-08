@@ -4,7 +4,21 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/authz"
 )
+
+func TestManagementAuthorityAcceptsDelegatedAgent(t *testing.T) {
+	authority, err := authz.NewAgentAuthority("user-1", "agent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := authz.WithUserID(authz.WithAuthority(context.Background(), authority), "user-1")
+	got, err := managementAuthority(ctx)
+	if err != nil || got.Kind() != authz.ActorAgent || got.AgentID() != "agent-1" {
+		t.Fatalf("agent management authority = %#v, %v", got, err)
+	}
+}
 
 func TestManagementProjectionRedactsLegacyEndpoint(t *testing.T) {
 	view := managementProjection(Registration{
@@ -51,7 +65,7 @@ func TestMCPManagementInputsRejectCredentialFields(t *testing.T) {
 			"source": "legacy",
 		}},
 		{action: "update", args: map[string]any{
-			"id": "server", "expected_version": "v1", "oauth_client_secret": "secret",
+			"id": "server", "expected_digest": "sha256:current", "oauth_client_secret": "secret",
 		}},
 	} {
 		t.Run(tc.action, func(t *testing.T) {

@@ -192,8 +192,8 @@ func TestToolOverrideStorePluginIdentityCRUDAndCAS(t *testing.T) {
 		t.Fatalf("plugin create = %+v, %v", created, err)
 	}
 	fetched, err := store.Fetch(ctx, "", "")
-	if err != nil || len(fetched) != 1 || fetched[0].Identity != identity || fetched[0].Enabled {
-		t.Fatalf("plugin Fetch = %+v, %v", fetched, err)
+	if err != nil || len(fetched) != 0 {
+		t.Fatalf("retired plugin Fetch = %+v, %v, want no runtime fallback", fetched, err)
 	}
 	updated, err := store.SetIfVersion(ctx, ToolOverrideWrite{Identity: identity, Scope: key.Scope, Enabled: true}, created.Version)
 	if err != nil || !updated.Enabled || updated.Identity == nil || *updated.Identity != identity {

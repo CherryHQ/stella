@@ -19,13 +19,11 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/platform/observability"
-	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -52,14 +50,8 @@ type userInvalidator interface {
 	InvalidateUser(userID string) error
 }
 
-// SnapshotResolver supplies one already-authorized plugin snapshot for the
-// resolved actor. The coordinator only reads the channel plugin's effective
-// enabled bit; credentials and payload never enter this boundary.
-type SnapshotResolver func(context.Context, authz.Authority, string) (plugin.Snapshot, error)
-
 // ListenerCap is the published system/system-agent ceiling for a channel
-// instance. It is also used at event admission for guests, whose snapshot is
-// intentionally empty and cannot borrow an owner's user configuration.
+// instance. It is applied to every resolved actor at event admission.
 type ListenerCap = func(context.Context, string, string) (bool, error)
 
 type Coordinator struct {
@@ -84,7 +76,6 @@ type Coordinator struct {
 	rootOpener        home.RootOpener
 	guests            GuestStore
 	guestPolicy       pkgchannel.GuestPolicyResolver
-	snapshotResolver  SnapshotResolver
 	listenerCap       ListenerCap
 	guestLimiter      *guestRateLimiter
 	sessionImages     GroupImagePipeline
@@ -117,16 +108,8 @@ func WithGuestPolicyDecoder(decoder pkgchannel.GuestPolicyResolver) CoordinatorO
 	return func(c *Coordinator) { c.guestPolicy = decoder }
 }
 
-// WithSnapshotResolver injects the common plugin snapshot resolver used for
-// trusted channel dispatch. Guest dispatch keeps its existing guest policy and
-// never resolves a snapshot with the linked owner's identity.
-func WithSnapshotResolver(resolver SnapshotResolver) CoordinatorOption {
-	return func(c *Coordinator) { c.snapshotResolver = resolver }
-}
-
 // WithListenerCap injects the common system/system-agent ceiling used during
-// event admission. A denied guest is dropped without consulting an owner
-// snapshot; the managed listener remains available to other instances.
+// event admission; the managed listener remains available to other instances.
 func WithListenerCap(cap ListenerCap) CoordinatorOption {
 	return func(c *Coordinator) { c.listenerCap = cap }
 }
@@ -395,37 +378,23 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 
 var errChannelPluginDisabled = errors.New("channel plugin disabled for actor")
 
-// channelPluginAllowed applies the user/agent snapshot gate after durable
-// channel identity and AgentAccess resolution. A denied actor is rejected at
-// dispatch while the managed platform listener remains available to other
-// channel instances and actors.
+// channelPluginAllowed applies the published system/system-agent ceiling after
+// durable channel identity and AgentAccess resolution. A denied actor is
+// rejected at dispatch while the managed platform listener remains available
+// to other channel instances and actors.
 func (c *Coordinator) channelPluginAllowed(ctx context.Context, rc *ResolvedChat) (bool, error) {
 	if rc == nil || rc.ChatCtx.Platform == "" || rc.ChatCtx.Platform == webGroupPlatform {
 		return true, nil
 	}
 	pluginID := config.PluginID(config.PluginKindChannel, rc.ChatCtx.Platform)
-	if rc.GuestID != "" {
-		if c.listenerCap == nil {
-			return true, nil
-		}
-		allowed, err := c.listenerCap(ctx, pluginID, rc.AgentID)
-		if err != nil {
-			return false, fmt.Errorf("resolve guest channel capability: %w", err)
-		}
-		return allowed, nil
-	}
-	if c.snapshotResolver == nil {
+	if c.listenerCap == nil {
 		return true, nil
 	}
-	snapshot, err := c.snapshotResolver(ctx, rc.Authority, rc.AgentID)
+	allowed, err := c.listenerCap(ctx, pluginID, rc.AgentID)
 	if err != nil {
-		return false, fmt.Errorf("resolve channel plugin policy: %w", err)
+		return false, fmt.Errorf("resolve channel listener capability: %w", err)
 	}
-	effective, err := snapshot.Resolve(pluginID)
-	if err != nil {
-		return false, fmt.Errorf("resolve channel plugin %q: %w", pluginID, err)
-	}
-	return effective.IsEffectivelyEnabled, nil
+	return allowed, nil
 }
 
 // channelListenerAllowed checks the published platform ceiling against the

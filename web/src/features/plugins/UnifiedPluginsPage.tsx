@@ -1,40 +1,29 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  copyPlugin,
   createPlugin,
-  createPluginConfig,
-  createMcpServer,
-  deletePluginConfig,
   deletePlugin,
-  deleteMcpServer,
-  probeMcpServer,
-  resetPluginConfig,
-  disconnectMcpServerOAuth,
-  startMcpServerOAuth,
-  importPluginPackage,
-  copyPackageSkill,
-  previewPluginPackageUpdate,
-  updateMcpServer,
-  updatePluginPackage,
-  updatePluginConfig,
+  deletePluginFile,
+  getPluginFile,
+  updatePlugin,
+  updatePluginFile,
 } from "@/lib/api-client/sdk.gen";
 import type {
-  ComponentsCreatePluginRequestWritable,
-  ImportPluginRequestWritable,
-  ComponentsPluginConfigInputWritable,
-  ComponentsUpdatePluginConfigRequestWritable,
-  PluginConfig,
-  PluginDefinition,
-  PreviewPluginPackageResponse,
-} from "@/lib/api-client";
-import {
-  pluginConfigsQueryOptions,
-  pluginsQueryOptions,
-  type PluginScope,
-} from "@/lib/queries/plugins";
+  PluginFileInput,
+  PluginResource,
+  ResourceFileContent,
+  ResourceFileInfo,
+} from "@/lib/api-client/types.gen";
+import { scopedPluginsQueryOptions } from "@/lib/queries/plugins";
 import { agentsQueryOptions, allAgentsAdminQueryOptions } from "@/lib/queries/agents";
-import { isAgentManagedScope, scopesForBand, type ScopeBand } from "@/lib/scope-band";
+import {
+  isAgentManagedScope,
+  scopesForBand,
+  type ManagedScope,
+  type ScopeBand,
+} from "@/lib/scope-band";
 import { ErrorState } from "@/components/RouteFallback";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,28 +39,11 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import {
-  SettingsCardSection,
-  SettingsDetailSheet,
-  SettingsGridPage,
-} from "@/features/settings/SettingsCardGrid";
-import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import { apiErrorCode, apiErrorMessage } from "@/lib/api-error";
-import {
-  PluginConfigEditor,
-  type PluginConfigCredentials,
-  type PluginConfigPayload,
-} from "@/features/plugins/PluginConfigEditor";
-import { McpInstallSheet } from "@/features/mcp/McpInstallSheet";
-import {
-  McpServerFields,
-  type McpAuthType,
-  type McpTransport,
-} from "@/features/mcp/McpServerFields";
-import { Package, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { FileCode2, FilePlus2, FileText, RefreshCw, Trash2, Upload, X } from "lucide-react";
 
 export type Translate = ReturnType<typeof useI18n>["t"];
 
@@ -86,795 +58,645 @@ export function pluginErrorMessage(error: unknown, t: Translate): string {
   return message;
 }
 
-function scopeLabel(scope: PluginScope, t: Translate): string {
-  return t(`plugins.scope.${scope}`);
+export function configHasMcpOAuth(resource: Pick<PluginResource, "resource_summary">): boolean {
+  return resource.resource_summary.mcp_servers.some((server) => server.auth_type === "oauth");
 }
 
-function lifecycleLabel(status: PluginDefinition["lifecycle_status"], t: Translate): string {
-  switch (status) {
-    case "in_use":
-      return t("plugins.lifecycle.inUse");
-    case "cleanup_pending":
-      return t("plugins.lifecycle.cleanupPending");
-    default:
-      return t("plugins.lifecycle.installed");
+function scopeLabel(scope: ManagedScope, t: Translate): string {
+  return t(`plugins.scope.${scope}` as never);
+}
+
+function statusVariant(
+  value: boolean,
+  forbidden = false,
+): "success" | "warning" | "destructive" | "secondary" {
+  if (forbidden) return "destructive";
+  return value ? "success" : "warning";
+}
+
+function toBase64(value: string): string {
+  return btoa(unescape(encodeURIComponent(value)));
+}
+
+function fromBase64(value: string): string {
+  try {
+    return decodeURIComponent(escape(atob(value)));
+  } catch {
+    return atob(value);
   }
 }
 
-function lifecycleReason(
-  status: PluginDefinition["lifecycle_status"],
-  reason: PluginDefinition["lifecycle_reason"],
-  t: Translate,
-): string {
-  if (status === "in_use") return t("plugins.lifecycle.runtimeOwner");
-  if (status === "cleanup_pending") {
-    return reason === "ownership_unconfirmed"
-      ? t("plugins.lifecycle.ownershipUnconfirmed")
-      : t("plugins.lifecycle.awaitingCleanup");
-  }
-  return t("plugins.lifecycle.active");
-}
-
-function lifecycleBadgeVariant(
-  status: PluginDefinition["lifecycle_status"],
-): "secondary" | "info" | "warning" {
-  if (status === "in_use") return "info";
-  if (status === "cleanup_pending") return "warning";
-  return "secondary";
-}
-
-export function configHasMcpOAuth(config: Pick<PluginConfig, "resource_summary">): boolean {
-  return config.resource_summary.mcp_servers.some((server) => server.auth_type === "oauth");
-}
-
-function oauthChildID(config: PluginConfig, serverKey?: string): string {
-  const children = config.resource_summary.mcp_servers.filter(
-    (server) => server.auth_type === "oauth",
-  );
-  const selected = serverKey
-    ? children.find((server) => server.server_key === serverKey)
-    : children.length === 1
-      ? children[0]
-      : undefined;
-  if (!selected?.child_id) throw new Error("select one MCP OAuth server before connecting");
-  return selected.child_id;
-}
-
-function BackendSummary({ config, t }: { config: PluginConfig; t: Translate }) {
-  const summary = config.resource_summary;
-  const servers = summary.mcp_servers;
-  const binaries = summary.binaries.map((binary) => `${binary.name} ${binary.version}`.trim());
-  const skills = summary.skills.map((skill) => (
-    <Badge key={skill.name} variant="outline" size="sm">
-      {skill.name}
-    </Badge>
-  ));
-  if (
-    servers.length === 0 &&
-    binaries.length === 0 &&
-    skills.length === 0 &&
-    summary.session_env.length === 0 &&
-    !summary.oauth_provider_configured
-  )
-    return null;
+function ScopePicker({
+  band,
+  scope,
+  agentId,
+  agents,
+  onScope,
+  onAgent,
+}: {
+  band: ScopeBand;
+  scope: ManagedScope;
+  agentId: string;
+  agents: Array<{ id?: string; name?: string }>;
+  onScope: (scope: ManagedScope) => void;
+  onAgent: (id: string) => void;
+}) {
+  const { t } = useI18n();
+  const scopes = scopesForBand(band);
   return (
-    <div className="space-y-1">
-      {servers.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {servers.map((server) => (
-            <span key={server.server_key} className="flex gap-1.5">
-              <Badge variant="outline" size="sm">
-                {server.server_key}
-              </Badge>
-              {server.transport && (
-                <Badge variant="outline" size="sm">
-                  {server.transport}
-                </Badge>
+    <div className="flex flex-wrap items-end gap-2">
+      <Field className="min-w-40">
+        <FieldLabel>{t("plugins.scopeLabel")}</FieldLabel>
+        <Select value={scope} onValueChange={(value) => value && onScope(value as ManagedScope)}>
+          <SelectTrigger>
+            <SelectValue>{(value) => scopeLabel((value as ManagedScope) || scope, t)}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup>
+            {scopes.map((value) => (
+              <SelectItem key={value} value={value}>
+                {scopeLabel(value, t)}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      </Field>
+      {isAgentManagedScope(scope) && (
+        <Field className="min-w-52">
+          <FieldLabel>{t("plugins.agent")}</FieldLabel>
+          <Select
+            value={agentId || "__none"}
+            onValueChange={(value) => value && onAgent(value === "__none" ? "" : value)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={t("plugins.selectAgent")} />
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value="__none">{t("plugins.selectAgent")}</SelectItem>
+              {agents.map((agent) =>
+                agent.id ? (
+                  <SelectItem key={agent.id} value={agent.id}>
+                    {agent.name || agent.id}
+                  </SelectItem>
+                ) : null,
               )}
-              {server.auth_type && (
-                <Badge variant="outline" size="sm">
-                  {server.auth_type}
-                </Badge>
-              )}
-              {server.credential_mode && (
-                <Badge variant="outline" size="sm">
-                  {server.credential_mode}
-                </Badge>
-              )}
-              <Badge variant={server.endpoint_configured ? "success" : "warning"} size="sm">
-                {t(
-                  server.endpoint_configured
-                    ? "plugins.summary.endpointReady"
-                    : "plugins.summary.endpointMissing",
-                )}
-              </Badge>
-              {server.auth_type === "bearer" && (
-                <Badge variant={server.bearer_configured ? "success" : "warning"} size="sm">
-                  {t(
-                    server.bearer_configured
-                      ? "plugins.summary.bearerReady"
-                      : "plugins.summary.bearerMissing",
-                  )}
-                </Badge>
-              )}
-              {server.auth_type === "oauth" && (
-                <>
-                  <Badge
-                    variant={server.oauth_client_id_configured ? "success" : "warning"}
-                    size="sm"
-                  >
-                    {t(
-                      server.oauth_client_id_configured
-                        ? "plugins.summary.oauthClientReady"
-                        : "plugins.summary.oauthClientMissing",
-                    )}
-                  </Badge>
-                  <Badge
-                    variant={server.oauth_client_secret_configured ? "success" : "warning"}
-                    size="sm"
-                  >
-                    {t(
-                      server.oauth_client_secret_configured
-                        ? "plugins.summary.oauthClientSecretReady"
-                        : "plugins.summary.oauthClientSecretMissing",
-                    )}
-                  </Badge>
-                </>
-              )}
-            </span>
-          ))}
-        </div>
-      )}
-      {binaries.length > 0 && (
-        <p className="text-xs text-muted-foreground">{binaries.join(", ")}</p>
-      )}
-      {skills.length > 0 && <div className="flex flex-wrap gap-1.5">{skills}</div>}
-      {summary.session_env.length > 0 && (
-        <p className="text-xs text-muted-foreground">
-          {t("plugins.summary.env", { count: summary.session_env.length })}
-        </p>
-      )}
-      {summary.oauth_provider_configured && (
-        <Badge variant="info" size="sm">
-          {t("plugins.summary.oauthConfigured")}
-        </Badge>
+            </SelectPopup>
+          </Select>
+        </Field>
       )}
     </div>
   );
 }
 
-function ConfigRow({
-  config,
-  onEnabled,
-  onInherit,
-  onEdit,
-  onAddChild,
-  onProbe,
-  onDeleteChild,
-  onReset,
-  onDelete,
-  onOAuthConnect,
-  onOAuthDisconnect,
-  retired,
-  busy,
-  t,
-}: {
-  config: PluginConfig;
-  onEnabled: (enabled: boolean) => void;
-  onInherit: () => void;
-  onEdit: (serverKey?: string) => void;
-  onAddChild?: () => void;
-  onProbe?: (serverKey: string) => void;
-  onDeleteChild?: (serverKey: string) => void;
-  onReset?: () => void;
-  onDelete?: () => void;
-  onOAuthConnect?: (serverKey?: string) => void;
-  onOAuthDisconnect?: (serverKey?: string) => void;
-  retired: boolean;
-  busy: boolean;
-  t: Translate;
-}) {
-  const children = config.resource_summary.mcp_servers;
-  const enabledLabel =
-    config.is_enabled === null
-      ? t("plugins.inherited")
-      : config.is_enabled
-        ? t("plugins.enabled")
-        : t("plugins.disabled");
+function DiagnosticList({ resource }: { resource: PluginResource }) {
+  const { t } = useI18n();
+  if (resource.diagnostics.length === 0) return null;
   return (
-    <Card className="gap-3 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">{scopeLabel(config.scope, t)}</span>
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground">{t("plugins.diagnostics")}</p>
+      {resource.diagnostics.map((diagnostic, index) => (
+        <div
+          key={`${diagnostic.code}-${index}`}
+          className="rounded-md border border-border p-2 text-xs"
+        >
+          <div className="flex flex-wrap gap-2">
             <Badge
               variant={
-                config.is_enabled === null ? "secondary" : config.is_enabled ? "success" : "warning"
+                diagnostic.severity === "error"
+                  ? "destructive"
+                  : diagnostic.severity === "warning"
+                    ? "warning"
+                    : "info"
               }
               size="sm"
             >
-              {enabledLabel}
+              {diagnostic.severity}
             </Badge>
+            <span className="font-mono">{diagnostic.code}</span>
+            {diagnostic.path && (
+              <span className="font-mono text-muted-foreground">{diagnostic.path}</span>
+            )}
           </div>
-          <p className="text-xs text-muted-foreground">
-            {config.agent_id ? `${t("plugins.agent")}: ${config.agent_id}` : t("plugins.allAgents")}
-          </p>
-          <BackendSummary config={config} t={t} />
-          {children.length > 0 && (
-            <div className="space-y-1.5 pt-1">
-              {children.map((child) => (
-                <div
-                  key={child.server_key}
-                  className="flex flex-wrap items-center gap-1.5 rounded-md border border-border/60 px-2 py-1"
-                >
-                  <span className="mr-auto text-xs font-medium">{child.server_key}</span>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => onEdit(child.server_key)}
-                    disabled={busy || retired}
-                  >
-                    {t("common.edit")}
-                  </Button>
-                  {onProbe && child.child_id && (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => onProbe(child.server_key)}
-                      disabled={busy || retired}
-                    >
-                      {t("mcp.server.probe")}
-                    </Button>
-                  )}
-                  {child.auth_type === "oauth" && onOAuthConnect && (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => onOAuthConnect(child.server_key)}
-                      disabled={busy || retired}
-                    >
-                      {t("plugins.oauthAuthorize")}
-                    </Button>
-                  )}
-                  {child.auth_type === "oauth" && onOAuthDisconnect && (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => onOAuthDisconnect(child.server_key)}
-                      disabled={busy || retired}
-                    >
-                      {t("plugins.oauthDisconnect")}
-                    </Button>
-                  )}
-                  {onDeleteChild && child.child_id && (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => onDeleteChild(child.server_key)}
-                      disabled={busy || retired}
-                    >
-                      {t("common.delete")}
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+          <p className="mt-1 text-muted-foreground">{diagnostic.message}</p>
         </div>
-        <div className="flex items-center gap-2">
-          {config.resource_summary.binaries.length > 0 && (
-            <Button variant="ghost" size="xs" onClick={() => onEdit()} disabled={busy || retired}>
-              {t("common.edit")}
-            </Button>
-          )}
-          {onAddChild && (
-            <Button variant="outline" size="xs" onClick={onAddChild} disabled={busy || retired}>
-              {t("plugins.addMcpServer")}
-            </Button>
-          )}
-          <Switch
-            checked={config.is_enabled === true}
-            disabled={busy || retired}
-            onCheckedChange={onEnabled}
-            aria-label={enabledLabel}
+      ))}
+    </div>
+  );
+}
+
+function ResourceSummary({ resource }: { resource: PluginResource }) {
+  const { t } = useI18n();
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground">{t("plugins.resources")}</p>
+      <div className="flex flex-wrap gap-2">
+        {resource.resource_summary.binaries.map((item) => (
+          <Badge key={`bin:${item.name}`} variant="outline" size="sm">
+            {item.name} {item.version}
+          </Badge>
+        ))}
+        {resource.resource_summary.skills.map((item) => (
+          <Badge key={`skill:${item.name}`} variant="outline" size="sm">
+            {item.name}
+          </Badge>
+        ))}
+        {resource.resource_summary.mcp_servers.map((item) => (
+          <Badge key={`mcp:${item.server_key}`} variant="outline" size="sm">
+            MCP:{item.server_key}
+          </Badge>
+        ))}
+        {resource.resource_summary.session_env.map((item) => (
+          <Badge key={`env:${item.env_var}`} variant="outline" size="sm">
+            {item.env_var}
+          </Badge>
+        ))}
+        {resource.resource_summary.oauth_provider_configured && (
+          <Badge variant="info" size="sm">
+            OAuth
+          </Badge>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FileEditor({
+  resource,
+  file,
+  onSaved,
+  onDeleted,
+}: {
+  resource: PluginResource;
+  file: ResourceFileInfo | null;
+  onSaved: () => void;
+  onDeleted: () => void;
+}) {
+  const { t } = useI18n();
+  const { showToast } = useToast();
+  const [path, setPath] = useState(file?.path ?? "");
+  const [content, setContent] = useState("");
+  const [executable, setExecutable] = useState(file?.is_executable ?? false);
+  const [loadedDigest, setLoadedDigest] = useState("");
+  const [loading, setLoading] = useState(false);
+  const read = async () => {
+    if (!path.trim()) return;
+    setLoading(true);
+    try {
+      const { data } = await getPluginFile({
+        path: { plugin_id: resource.id },
+        query: { path: path.trim() },
+        throwOnError: true,
+      });
+      const result = data as ResourceFileContent;
+      setContent(fromBase64(result.content_base64));
+      setExecutable(result.is_executable);
+      setLoadedDigest(result.resource_digest);
+    } catch (error) {
+      showToast(pluginErrorMessage(error, t), "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+  const save = useMutation({
+    mutationFn: async () => {
+      const target = path.trim();
+      if (!target || !loadedDigest) throw new Error(t("plugins.fileSelectRequired"));
+      return (
+        await updatePluginFile({
+          path: { plugin_id: resource.id },
+          body: {
+            path: target,
+            content_base64: toBase64(content),
+            is_executable: executable,
+            expected_digest: loadedDigest,
+          },
+          throwOnError: true,
+        })
+      ).data;
+    },
+    onSuccess: () => {
+      showToast(t("plugins.fileSaved"), "success");
+      onSaved();
+    },
+    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
+  });
+  const remove = useMutation({
+    mutationFn: async () => {
+      if (!path.trim() || !loadedDigest) throw new Error(t("plugins.fileSelectRequired"));
+      await deletePluginFile({
+        path: { plugin_id: resource.id },
+        query: { path: path.trim(), expected_digest: loadedDigest },
+        throwOnError: true,
+      });
+    },
+    onSuccess: () => {
+      showToast(t("plugins.fileDeleted"), "success");
+      setPath("");
+      setContent("");
+      setLoadedDigest("");
+      onDeleted();
+    },
+    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
+  });
+  return (
+    <div className="space-y-3 rounded-lg border border-border p-3">
+      <div className="flex flex-wrap items-end gap-2">
+        <Field className="min-w-64 flex-1">
+          <FieldLabel>{t("plugins.filePath")}</FieldLabel>
+          <Input
+            value={path}
+            onChange={(event) => {
+              setPath(event.target.value);
+              setLoadedDigest("");
+            }}
+            placeholder="manifest.yaml"
+            nativeInput
           />
+        </Field>
+        <Button
+          variant="outline"
+          onClick={() => void read()}
+          disabled={loading || resource.is_read_only || !path.trim()}
+          loading={loading}
+        >
+          {t("plugins.readFile")}
+        </Button>
+      </div>
+      <textarea
+        value={content}
+        onChange={(event) => setContent(event.target.value)}
+        className="min-h-56 w-full rounded-md border border-border bg-background p-3 font-mono text-xs"
+        aria-label={t("plugins.fileContent")}
+        disabled={!loadedDigest || resource.is_read_only}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={executable}
+            onChange={(event) => setExecutable(event.target.checked)}
+            disabled={!loadedDigest || resource.is_read_only}
+          />
+          {t("plugins.executable")}
+        </label>
+        <div className="flex gap-2">
           <Button
             variant="ghost"
-            size="xs"
-            onClick={onInherit}
-            disabled={busy || retired || config.is_enabled === null}
+            onClick={() => remove.mutate()}
+            disabled={!loadedDigest || resource.is_read_only || remove.isPending}
+            loading={remove.isPending}
           >
-            {t("plugins.inherit")}
+            <Trash2 size={16} />
+            {t("common.delete")}
           </Button>
-          {onReset && (
-            <Button variant="ghost" size="xs" onClick={onReset} disabled={busy || retired}>
-              <RotateCcw className="size-3.5" />
-              {t("plugins.resetConfig")}
-            </Button>
-          )}
-          {onDelete && (
-            <Button variant="ghost" size="xs" onClick={onDelete} disabled={busy || retired}>
-              <Trash2 className="size-3.5" />
-              {t("common.delete")}
-            </Button>
-          )}
+          <Button
+            onClick={() => save.mutate()}
+            disabled={!loadedDigest || resource.is_read_only || save.isPending}
+            loading={save.isPending}
+          >
+            {t("common.save")}
+          </Button>
         </div>
       </div>
-    </Card>
+    </div>
+  );
+}
+
+function PluginDetail({
+  resource,
+  band,
+  agents,
+  onRefresh,
+  onClose,
+}: {
+  resource: PluginResource;
+  band: ScopeBand;
+  agents: Array<{ id?: string; name?: string }>;
+  onRefresh: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const { showToast } = useToast();
+  const queryClient = useQueryClient();
+  const [file, setFile] = useState<ResourceFileInfo | null>(null);
+  const [newPath, setNewPath] = useState("");
+  const [newContent, setNewContent] = useState("");
+  const [newExecutable, setNewExecutable] = useState(false);
+  const [copyScope, setCopyScope] = useState<ManagedScope>(scopesForBand(band)[0]);
+  const [copyAgent, setCopyAgent] = useState("");
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ["plugins"] });
+    onRefresh();
+  };
+  const toggle = useMutation({
+    mutationFn: (enabled: boolean) =>
+      updatePlugin({
+        path: { plugin_id: resource.id },
+        body: {
+          is_enabled: enabled,
+          expected_settings_digest: resource.settings_digest,
+        },
+        throwOnError: true,
+      }),
+    onSuccess: invalidate,
+    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
+  });
+  const remove = useMutation({
+    mutationFn: async () =>
+      deletePlugin({
+        path: { plugin_id: resource.id },
+        query: { expected_digest: resource.content_digest },
+        throwOnError: true,
+      }),
+    onSuccess: () => {
+      showToast(t("plugins.deleted"), "success");
+      onClose();
+      invalidate();
+    },
+    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
+  });
+  const copy = useMutation({
+    mutationFn: () =>
+      copyPlugin({
+        path: { plugin_id: resource.id },
+        body: {
+          scope: copyScope,
+          ...(copyAgent ? { agent_id: copyAgent } : {}),
+        },
+        throwOnError: true,
+      }),
+    onSuccess: () => {
+      showToast(t("plugins.copied"), "success");
+      invalidate();
+    },
+    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
+  });
+  const createFile = useMutation({
+    mutationFn: () =>
+      updatePluginFile({
+        path: { plugin_id: resource.id },
+        body: {
+          path: newPath.trim(),
+          content_base64: toBase64(newContent),
+          is_executable: newExecutable,
+          expected_digest: resource.content_digest,
+        },
+        throwOnError: true,
+      }),
+    onSuccess: () => {
+      showToast(t("plugins.fileSaved"), "success");
+      setNewPath("");
+      setNewContent("");
+      invalidate();
+    },
+    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
+  });
+  return (
+    <DetailPanel>
+      <DetailPanelHeader
+        title={resource.display_name}
+        action={
+          <Button variant="ghost" size="icon-sm" aria-label={t("common.close")} onClick={onClose}>
+            <X size={16} />
+          </Button>
+        }
+      />
+      <div className="space-y-4 overflow-y-auto p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline">{scopeLabel(resource.scope, t)}</Badge>
+          <Badge variant={statusVariant(resource.is_enabled, resource.is_forbidden)}>
+            {resource.is_forbidden
+              ? t("plugins.forbidden")
+              : resource.is_enabled
+                ? t("plugins.enabled")
+                : t("plugins.disabled")}
+          </Badge>
+          {resource.is_overridden && <Badge variant="warning">{t("plugins.overridden")}</Badge>}
+          {resource.is_read_only && <Badge variant="secondary">{t("plugins.readOnly")}</Badge>}
+        </div>
+        <div className="space-y-1 text-xs text-muted-foreground">
+          <p>
+            {resource.name} · v{resource.version}
+          </p>
+          <p className="break-all font-mono">{resource.content_digest}</p>
+        </div>
+        <p className="text-sm text-muted-foreground">{resource.description}</p>
+        <DiagnosticList resource={resource} />
+        <ResourceSummary resource={resource} />
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground">{t("plugins.files")}</p>
+          {resource.files.map((item) => (
+            <button
+              type="button"
+              key={item.path}
+              onClick={() => setFile(item)}
+              className="flex w-full items-center gap-2 rounded-md border border-border p-2 text-left text-xs hover:bg-muted"
+            >
+              <FileText size={16} />
+              <span className="min-w-0 flex-1 truncate font-mono">{item.path}</span>
+              <span className="text-muted-foreground">{item.size} B</span>
+              {item.is_executable && (
+                <Badge variant="outline" size="sm">
+                  exec
+                </Badge>
+              )}
+            </button>
+          ))}
+        </div>
+        <FileEditor resource={resource} file={file} onSaved={invalidate} onDeleted={invalidate} />
+        {!resource.is_read_only && (
+          <div className="space-y-2 rounded-lg border border-border p-3">
+            <p className="text-xs font-semibold text-muted-foreground">{t("plugins.createFile")}</p>
+            <Input
+              value={newPath}
+              onChange={(event) => setNewPath(event.target.value)}
+              placeholder="skills/example/SKILL.md"
+              nativeInput
+            />
+            <textarea
+              value={newContent}
+              onChange={(event) => setNewContent(event.target.value)}
+              className="min-h-32 w-full rounded-md border border-border bg-background p-3 font-mono text-xs"
+              aria-label={t("plugins.fileContent")}
+            />
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={newExecutable}
+                onChange={(event) => setNewExecutable(event.target.checked)}
+              />
+              {t("plugins.executable")}
+            </label>
+            <Button
+              onClick={() => createFile.mutate()}
+              disabled={!newPath.trim() || createFile.isPending}
+              loading={createFile.isPending}
+            >
+              <FilePlus2 size={16} />
+              {t("plugins.createFile")}
+            </Button>
+          </div>
+        )}
+        <div className="space-y-2 rounded-lg border border-border p-3">
+          <p className="text-xs font-semibold text-muted-foreground">{t("plugins.copy")}</p>
+          <ScopePicker
+            band={band}
+            scope={copyScope}
+            agentId={copyAgent}
+            agents={agents}
+            onScope={setCopyScope}
+            onAgent={setCopyAgent}
+          />
+          <Button
+            onClick={() => copy.mutate()}
+            disabled={
+              resource.is_read_only ||
+              (isAgentManagedScope(copyScope) && !copyAgent) ||
+              copy.isPending
+            }
+            loading={copy.isPending}
+          >
+            {t("plugins.copy")}
+          </Button>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Switch
+            checked={resource.is_enabled}
+            disabled={resource.is_read_only || resource.is_forbidden || toggle.isPending}
+            onCheckedChange={(value) => toggle.mutate(value)}
+            aria-label={t("plugins.enabled")}
+          />
+          <Button
+            variant="destructive"
+            onClick={() => remove.mutate()}
+            disabled={resource.is_read_only || remove.isPending}
+            loading={remove.isPending}
+          >
+            <Trash2 size={16} />
+            {t("common.delete")}
+          </Button>
+        </div>
+      </div>
+    </DetailPanel>
+  );
+}
+
+function CreatePlugin({
+  band,
+  agents,
+  onDone,
+}: {
+  band: ScopeBand;
+  agents: Array<{ id?: string; name?: string }>;
+  onDone: () => void;
+}) {
+  const { t } = useI18n();
+  const { showToast } = useToast();
+  const [name, setName] = useState("");
+  const [path, setPath] = useState("manifest.yaml");
+  const [content, setContent] = useState("");
+  const [scope, setScope] = useState<ManagedScope>(scopesForBand(band)[0]);
+  const [agentId, setAgentId] = useState("");
+  const create = useMutation({
+    mutationFn: () => {
+      if (isAgentManagedScope(scope) && !agentId) {
+        throw new Error(t("plugins.selectAgent"));
+      }
+      const files: Record<string, PluginFileInput> = {
+        [path.trim()]: {
+          content_base64: toBase64(content),
+          is_executable: false,
+        },
+      };
+      return createPlugin({
+        body: {
+          name: name.trim(),
+          scope,
+          ...(agentId ? { agent_id: agentId } : {}),
+          files,
+        },
+        throwOnError: true,
+      });
+    },
+    onSuccess: () => {
+      showToast(t("plugins.created"), "success");
+      onDone();
+    },
+    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
+  });
+  return (
+    <div className="space-y-3 rounded-lg border border-border p-4">
+      <div className="flex items-center gap-2">
+        <FileCode2 size={18} />
+        <p className="text-sm font-semibold">{t("plugins.create")}</p>
+      </div>
+      <Input
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        placeholder="my-plugin"
+        nativeInput
+      />
+      <ScopePicker
+        band={band}
+        scope={scope}
+        agentId={agentId}
+        agents={agents}
+        onScope={setScope}
+        onAgent={setAgentId}
+      />
+      <Input
+        value={path}
+        onChange={(event) => setPath(event.target.value)}
+        placeholder="manifest.yaml"
+        nativeInput
+      />
+      <textarea
+        value={content}
+        onChange={(event) => setContent(event.target.value)}
+        className="min-h-40 w-full rounded-md border border-border bg-background p-3 font-mono text-xs"
+        aria-label={t("plugins.fileContent")}
+      />
+      <div className="flex justify-end">
+        <Button
+          onClick={() => create.mutate()}
+          disabled={!name.trim() || !path.trim() || create.isPending}
+          loading={create.isPending}
+        >
+          <Upload size={16} />
+          {t("common.create")}
+        </Button>
+      </div>
+    </div>
   );
 }
 
 export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: ScopeBand }) {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const { showToast } = useToast(4000);
   const params = useParams({ strict: false }) as { pluginId?: string };
-  const pluginsQuery = useQuery(pluginsQueryOptions);
+  const queryClient = useQueryClient();
   const agentsQuery = useQuery(
     scopeBand === "system" ? allAgentsAdminQueryOptions(true) : agentsQueryOptions,
   );
   const agents = agentsQuery.data ?? [];
-  const [selectedAgentID, setSelectedAgentID] = useState("");
-  const visibleScopes = scopesForBand(scopeBand) as readonly PluginScope[];
+  const [agentId, setAgentId] = useState("");
+  const [scope, setScope] = useState<ManagedScope>(scopesForBand(scopeBand)[0]);
+  const pluginsQuery = useQuery(scopedPluginsQueryOptions(scopeBand, agentId || undefined));
   const plugins = pluginsQuery.data ?? [];
-  const selectedPlugin = useMemo(
-    () => plugins.find((plugin) => plugin.id === params.pluginId),
+  const selected = useMemo(
+    () => plugins.find((item) => item.id === params.pluginId),
     [plugins, params.pluginId],
   );
-  const selectedPluginID = selectedPlugin?.id;
-  const selectedPluginRetired =
-    selectedPlugin?.retired_at != null ||
-    selectedPlugin?.lifecycle_status === "in_use" ||
-    selectedPlugin?.lifecycle_status === "cleanup_pending";
-  const closeDetail = () =>
+  const close = () =>
     void navigate({
       to: scopeBand === "system" ? "/admin/integrations/plugins" : "/settings/plugins",
     });
-  const configQueries = useQueries({
-    queries: selectedPluginID
-      ? visibleScopes.map((scope) =>
-          pluginConfigsQueryOptions(
-            selectedPluginID,
-            scope,
-            isAgentManagedScope(scope) ? selectedAgentID || undefined : undefined,
-          ),
-        )
-      : [],
-  });
-  const [pendingDelete, setPendingDelete] = useState<PluginConfig | null>(null);
-  const [pendingChildDelete, setPendingChildDelete] = useState<{
-    config: PluginConfig;
-    serverKey: string;
-  } | null>(null);
-  const [pendingPluginDelete, setPendingPluginDelete] = useState<PluginDefinition | null>(null);
-  const [editingConfig, setEditingConfig] = useState<{
-    config: PluginConfig;
-    serverKey?: string;
-  } | null>(null);
-  const [addingChildConfig, setAddingChildConfig] = useState<PluginConfig | null>(null);
-  const [newChildKey, setNewChildKey] = useState("");
-  const [newChildURL, setNewChildURL] = useState("");
-  const [newChildTransport, setNewChildTransport] = useState<McpTransport>("streamable_http");
-  const [newChildAuthType, setNewChildAuthType] = useState<McpAuthType>("none");
-  const [newChildCredentialMode, setNewChildCredentialMode] = useState<"shared" | "per_user">(
-    "shared",
-  );
-  const [newChildToken, setNewChildToken] = useState("");
-  const [newChildOAuthClientID, setNewChildOAuthClientID] = useState("");
-  const [newChildOAuthSecret, setNewChildOAuthSecret] = useState("");
-  const [newMcpOpen, setNewMcpOpen] = useState(false);
-  const [registryOpen, setRegistryOpen] = useState(false);
-  const [newMcpName, setNewMcpName] = useState("");
-  const [newMcpURL, setNewMcpURL] = useState("");
-  const [newMcpID, setNewMcpID] = useState("");
-  const [newMcpDescription, setNewMcpDescription] = useState("");
-  const [newMcpScope, setNewMcpScope] = useState<PluginScope>(visibleScopes[0]);
-  const [newScope, setNewScope] = useState<PluginScope>(visibleScopes[0]);
-  const [packageImportOpen, setPackageImportOpen] = useState(false);
-  const [packageImportPath, setPackageImportPath] = useState("");
-  const [packageUpdateOpen, setPackageUpdateOpen] = useState(false);
-  const [packageUpdatePath, setPackageUpdatePath] = useState("");
-  const [packagePreview, setPackagePreview] = useState<PreviewPluginPackageResponse | null>(null);
-  const [packagePreviewKey, setPackagePreviewKey] = useState("");
-  const [copyingSkillName, setCopyingSkillName] = useState<string | null>(null);
-  const currentPackagePreviewKey = selectedPlugin
-    ? `${selectedPlugin.id}:${selectedPlugin.revision}:${packageUpdatePath.trim()}`
-    : "";
-  const closeNewMcp = () => {
-    setNewMcpOpen(false);
-    setNewMcpURL("");
-  };
-  const closeAddChild = () => {
-    setAddingChildConfig(null);
-    setNewChildKey("");
-    setNewChildURL("");
-    setNewChildToken("");
-    setNewChildOAuthClientID("");
-    setNewChildOAuthSecret("");
-  };
-  const invalidate = () => {
-    if (selectedPluginID)
-      void queryClient.invalidateQueries({
-        queryKey: ["plugin-configs", selectedPluginID],
-      });
+  const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["plugins"] });
   };
-  const configMutation = useMutation({
-    mutationFn: async (input: { config: PluginConfig; enabled: boolean | null }) => {
-      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
-      const { data } = await updatePluginConfig({
-        path: { plugin_id: selectedPluginID, config_id: input.config.id },
-        body: {
-          expected_revision: input.config.revision,
-          is_enabled: input.enabled,
-        },
-        throwOnError: true,
-      });
-      return data;
-    },
-    onSuccess: () => {
-      invalidate();
-      showToast(t("plugins.configUpdated"));
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const resetMutation = useMutation({
-    mutationFn: async (config: PluginConfig) => {
-      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
-      const { data } = await resetPluginConfig({
-        path: { plugin_id: selectedPluginID, config_id: config.id },
-        body: { expected_revision: config.revision },
-        throwOnError: true,
-      });
-      return data;
-    },
-    onSuccess: () => {
-      invalidate();
-      showToast(t("plugins.configReset"));
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const deleteMutation = useMutation({
-    mutationFn: async (config: PluginConfig) => {
-      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
-      await deletePluginConfig({
-        path: { plugin_id: selectedPluginID, config_id: config.id },
-        query: { expected_revision: config.revision },
-        throwOnError: true,
-      });
-    },
-    onSuccess: () => {
-      invalidate();
-      showToast(t("plugins.configDeleted"));
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const createMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
-      const { data } = await createPluginConfig({
-        path: { plugin_id: selectedPluginID },
-        body: {
-          scope: newScope,
-          ...(isAgentManagedScope(newScope) && selectedAgentID
-            ? { agent_id: selectedAgentID }
-            : {}),
-          is_enabled: false,
-        },
-        throwOnError: true,
-      });
-      return data;
-    },
-    onSuccess: () => {
-      invalidate();
-      showToast(t("plugins.configCreated"));
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const editMutation = useMutation({
-    mutationFn: async (input: {
-      config: PluginConfig;
-      serverKey?: string;
-      payload: PluginConfigPayload;
-      credentials: PluginConfigCredentials;
-    }) => {
-      if (!selectedPluginID) throw new Error(t("plugins.noSelection"));
-      if (input.serverKey !== undefined) {
-        const child = input.config.resource_summary.mcp_servers.find(
-          (server) => server.server_key === input.serverKey,
-        );
-        if (!child?.child_id) throw new Error("select one MCP server before editing");
-        const childID = child.child_id;
-        if (!childID) throw new Error("MCP child server was not returned");
-        const payload = input.payload.config ?? {};
-        const { data } = await updateMcpServer({
-          path: { id: childID },
-          body: {
-            expected_parent_revision: input.config.revision,
-            url: typeof payload.url === "string" ? payload.url : undefined,
-            transport: payload.transport as "streamable_http" | "sse" | undefined,
-            auth_type: payload.auth_type as "none" | "bearer" | "oauth" | undefined,
-            credential_mode: payload.credential_mode as "shared" | "per_user" | undefined,
-            credentials: Object.keys(input.credentials).length > 0 ? input.credentials : undefined,
-          },
-          throwOnError: true,
-        });
-        return data;
-      }
-      const body: ComponentsUpdatePluginConfigRequestWritable = {
-        expected_revision: input.config.revision,
-      };
-      if (input.payload.config) body.config = input.payload.config;
-      if (input.payload.binary_versions) body.binary_versions = input.payload.binary_versions;
-      if (Object.keys(input.credentials).length > 0) body.credentials = input.credentials;
-      const { data } = await updatePluginConfig({
-        path: { plugin_id: selectedPluginID, config_id: input.config.id },
-        body,
-        throwOnError: true,
-      });
-      return data;
-    },
-    onSuccess: () => {
-      invalidate();
-      setEditingConfig(null);
-      showToast(t("plugins.configUpdated"));
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const createChildMutation = useMutation({
-    mutationFn: async () => {
-      if (!addingChildConfig) throw new Error(t("plugins.noSelection"));
-      const key = newChildKey.trim();
-      const url = newChildURL.trim();
-      if (!key || !url) throw new Error(t("plugins.mcpChildRequired"));
-      const credentials: Record<string, string> = {};
-      if (newChildAuthType === "bearer" && newChildToken.trim())
-        credentials.token = newChildToken.trim();
-      if (newChildAuthType === "oauth") {
-        if (newChildOAuthClientID.trim())
-          credentials.oauth_client_id = newChildOAuthClientID.trim();
-        if (newChildOAuthSecret) credentials.oauth_client_secret = newChildOAuthSecret;
-      }
-      return createMcpServer({
-        body: {
-          parent_config_id: addingChildConfig.id,
-          server_key: key,
-          expected_parent_revision: addingChildConfig.revision ?? 1,
-          url,
-          transport: newChildTransport,
-          auth_type: newChildAuthType,
-          credential_mode: newChildCredentialMode,
-          credentials: Object.keys(credentials).length > 0 ? credentials : undefined,
-        },
-        throwOnError: true,
-      });
-    },
-    onSuccess: () => {
-      invalidate();
-      closeAddChild();
-      showToast(t("plugins.mcpChildCreated"));
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const probeChildMutation = useMutation({
-    mutationFn: async (input: { config: PluginConfig; serverKey: string }) => {
-      const child = input.config.resource_summary.mcp_servers.find(
-        (server) => server.server_key === input.serverKey,
-      );
-      if (!child?.child_id) throw new Error(t("plugins.noSelection"));
-      return probeMcpServer({ path: { id: child.child_id }, throwOnError: true });
-    },
-    onSuccess: () => {
-      invalidate();
-      showToast(t("mcp.server.probed", { time: new Date().toISOString() }));
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const deleteChildMutation = useMutation({
-    mutationFn: async (input: { config: PluginConfig; serverKey: string }) => {
-      const child = input.config.resource_summary.mcp_servers.find(
-        (server) => server.server_key === input.serverKey,
-      );
-      if (!child?.child_id) throw new Error(t("plugins.noSelection"));
-      await deleteMcpServer({
-        path: { id: child.child_id },
-        query: { expected_parent_revision: input.config.revision ?? 1 },
-        throwOnError: true,
-      });
-    },
-    onSuccess: () => {
-      invalidate();
-      showToast(t("plugins.configUpdated"));
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const oauthStartMutation = useMutation({
-    mutationFn: async (input: { config: PluginConfig; serverKey?: string }) => {
-      const { data } = await startMcpServerOAuth({
-        path: { id: oauthChildID(input.config, input.serverKey) },
-        throwOnError: true,
-      });
-      return data;
-    },
-    onSuccess: (data) => {
-      if (data?.authorization_url) window.location.href = data.authorization_url;
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const oauthDisconnectMutation = useMutation({
-    mutationFn: async (input: { config: PluginConfig; serverKey?: string }) => {
-      await disconnectMcpServerOAuth({
-        path: { id: oauthChildID(input.config, input.serverKey) },
-        throwOnError: true,
-      });
-    },
-    onSuccess: () => {
-      invalidate();
-      showToast(t("plugins.oauthDisconnected"));
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const createMcpMutation = useMutation({
-    mutationFn: async (input: {
-      payload: PluginConfigPayload;
-      credentials: PluginConfigCredentials;
-    }) => {
-      const displayName = newMcpName.trim();
-      const pluginID = newMcpID.trim();
-      if (!displayName || !pluginID) throw new Error(t("plugins.mcpIdentityRequired"));
-      const initialConfig: ComponentsPluginConfigInputWritable = {
-        scope: newMcpScope,
-        is_enabled: false,
-        config: input.payload.config,
-      };
-      if (isAgentManagedScope(newMcpScope) && selectedAgentID) {
-        initialConfig.agent_id = selectedAgentID;
-      }
-      if (Object.keys(input.credentials).length > 0) {
-        initialConfig.credentials = input.credentials;
-      }
-      const body: ComponentsCreatePluginRequestWritable = {
-        display_name: displayName,
-        name: pluginID,
-        definition_spec: newMcpDescription.trim() ? { description: newMcpDescription.trim() } : {},
-        initial_config: initialConfig,
-      };
-      const { data } = await createPlugin({
-        body,
-        throwOnError: true,
-      });
-      return data;
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["plugins"] });
-      closeNewMcp();
-      setNewMcpName("");
-      setNewMcpID("");
-      setNewMcpDescription("");
-      showToast(t("plugins.created"));
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const importPackageMutation = useMutation({
-    mutationFn: async () => {
-      const sourcePath = packageImportPath.trim();
-      if (!sourcePath) throw new Error(t("plugins.packagePathRequired"));
-      const body: ImportPluginRequestWritable = {
-        source_path: sourcePath,
-        initial_config: { scope: "system", is_enabled: false },
-      };
-      const { data } = await importPluginPackage({ body, throwOnError: true });
-      return data;
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["plugins"] });
-      setPackageImportOpen(false);
-      setPackageImportPath("");
-      showToast(t("plugins.packageImported"));
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const updatePackageMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedPlugin) throw new Error(t("plugins.noSelection"));
-      const sourcePath = packageUpdatePath.trim();
-      if (!sourcePath) throw new Error(t("plugins.packagePathRequired"));
-      const candidateDigest = packagePreview?.candidate_digest;
-      if (!candidateDigest) throw new Error(t("plugins.previewPackage"));
-      const { data } = await updatePluginPackage({
-        path: { plugin_id: selectedPlugin.id },
-        body: {
-          source_path: sourcePath,
-          expected_revision: selectedPlugin.revision,
-          expected_package_digest: candidateDigest,
-        },
-        throwOnError: true,
-      });
-      return data;
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["plugins"] });
-      setPackageUpdateOpen(false);
-      setPackageUpdatePath("");
-      setPackagePreview(null);
-      setPackagePreviewKey("");
-      showToast(t("plugins.packageUpdated"));
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const previewPackageMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedPlugin) throw new Error(t("plugins.noSelection"));
-      const sourcePath = packageUpdatePath.trim();
-      if (!sourcePath) throw new Error(t("plugins.packagePathRequired"));
-      const { data } = await previewPluginPackageUpdate({
-        path: { plugin_id: selectedPlugin.id },
-        body: { source_path: sourcePath, expected_revision: selectedPlugin.revision },
-        throwOnError: true,
-      });
-      return data;
-    },
-    onSuccess: (data) => {
-      setPackagePreview(data);
-      setPackagePreviewKey(currentPackagePreviewKey);
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const copyPackageSkillMutation = useMutation({
-    mutationFn: async (skillName: string) => {
-      if (!selectedPlugin) throw new Error(t("plugins.noSelection"));
-      const content = selectedPlugin.spec.content;
-      const digest =
-        content &&
-        typeof content === "object" &&
-        "digest" in content &&
-        typeof content.digest === "string"
-          ? content.digest
-          : "";
-      if (!digest) throw new Error(t("plugins.copySkillUnavailable"));
-      setCopyingSkillName(skillName);
-      const { data } = await copyPackageSkill({
-        body: {
-          source_id: selectedPlugin.id,
-          expected_digest: digest,
-          skill_name: skillName,
-          scope: "user",
-        },
-        throwOnError: true,
-      });
-      if (!data?.id) throw new Error(t("plugins.copySkillUnavailable"));
-      return data;
-    },
-    onSuccess: (data) => {
-      setCopyingSkillName(null);
-      showToast(t("plugins.skillCopied"));
-      void navigate({ to: "/settings/skills", search: { skill_id: data.id } });
-    },
-    onError: (error) => {
-      setCopyingSkillName(null);
-      showToast(pluginErrorMessage(error, t), "error");
-    },
-  });
-  const definitionDeleteMutation = useMutation({
-    mutationFn: async (plugin: PluginDefinition) => {
-      await deletePlugin({
-        path: { plugin_id: plugin.id },
-        query: { expected_revision: plugin.revision },
-        throwOnError: true,
-      });
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["plugins"] });
-      showToast(t("plugins.retired"));
-    },
-    onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
-  });
-  const groups = useMemo(() => [{ title: t("plugins.title"), items: plugins }], [plugins, t]);
   if (pluginsQuery.isPending)
     return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner className="size-5 text-muted-foreground" />
+      <div className="flex flex-1 items-center justify-center">
+        <Spinner />
       </div>
     );
   if (pluginsQuery.isError)
@@ -885,679 +707,98 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
         onRetry={() => void pluginsQuery.refetch()}
       />
     );
-  const detail = selectedPlugin ? (
-    <DetailPanel>
-      <DetailPanelHeader
-        title={selectedPlugin.display_name}
-        subtitle={
-          <div className="flex flex-wrap items-center gap-1.5">
-            {selectedPlugin.is_builtin && (
-              <Badge variant="secondary" size="sm">
-                {t("plugins.builtin")}
-              </Badge>
-            )}
-            {selectedPlugin.spec.origin === "package" && (
-              <Badge variant="info" size="sm">
-                {t("plugins.packageInstalled")}
-              </Badge>
-            )}
-            <Badge variant={lifecycleBadgeVariant(selectedPlugin.lifecycle_status)} size="sm">
-              {lifecycleLabel(selectedPlugin.lifecycle_status, t)}
-            </Badge>
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-semibold">{t("plugins.title")}</h1>
+            <p className="text-sm text-muted-foreground">{t("plugins.rawResourceHelp")}</p>
           </div>
-        }
-      />
-      {selectedPluginRetired && (
-        <div className="flex items-center justify-between gap-3 border-y border-border py-3">
-          <p className="text-xs text-muted-foreground">
-            {lifecycleReason(selectedPlugin.lifecycle_status, selectedPlugin.lifecycle_reason, t)}
-          </p>
-          <Button
-            variant="outline"
-            size="xs"
-            loading={pluginsQuery.isFetching}
-            onClick={() => void pluginsQuery.refetch()}
-          >
+          <Button variant="outline" onClick={refresh}>
+            <RefreshCw size={16} />
             {t("plugins.refresh")}
           </Button>
         </div>
-      )}
-      {typeof selectedPlugin.spec.description === "string" && selectedPlugin.spec.description && (
-        <p className="text-sm text-muted-foreground">{selectedPlugin.spec.description}</p>
-      )}
-      {selectedPlugin.resource_summary.skills.length > 0 && (
-        <section className="space-y-2 border-y border-border py-4">
-          <p className="text-xs font-semibold text-muted-foreground">
-            {t("plugins.packageSkills")}
-          </p>
-          {selectedPlugin.resource_summary.skills.map((skill) => (
-            <div
-              key={skill.name}
-              className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2"
-            >
-              <span className="min-w-0 flex-1 truncate font-mono text-sm">{skill.name}</span>
-              <Button
-                size="xs"
-                variant="outline"
-                loading={copyingSkillName === skill.name}
-                disabled={copyPackageSkillMutation.isPending || selectedPluginRetired}
-                onClick={() => copyPackageSkillMutation.mutate(skill.name)}
-              >
-                {t("plugins.copySkill")}
-              </Button>
-            </div>
-          ))}
-        </section>
-      )}
-      <Field>
-        <FieldLabel>{t("plugins.agent")}</FieldLabel>
-        <Select
-          value={selectedAgentID || "__none"}
-          disabled={selectedPluginRetired}
-          onValueChange={(value) => setSelectedAgentID(value === "__none" || !value ? "" : value)}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder={t("plugins.selectAgent")} />
-          </SelectTrigger>
-          <SelectPopup>
-            <SelectItem value="__none">{t("plugins.selectAgent")}</SelectItem>
-            {agents.map((agent) => (
-              <SelectItem key={agent.id} value={agent.id}>
-                {agent.name}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-      </Field>
-      <div className="space-y-2">
-        <p className="text-xs font-semibold text-muted-foreground">{t("plugins.configuration")}</p>
-        {visibleScopes.map((scope, index) => {
-          const query = configQueries[index];
-          const configs = query.data ?? [];
-          return (
-            <section key={scope} className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-medium">{scopeLabel(scope, t)}</h3>
+        <ScopePicker
+          band={scopeBand}
+          scope={scope}
+          agentId={agentId}
+          agents={agents}
+          onScope={setScope}
+          onAgent={setAgentId}
+        />
+        <CreatePlugin band={scopeBand} agents={agents} onDone={refresh} />
+        <div className="grid gap-3 md:grid-cols-2">
+          {plugins.length === 0 ? (
+            <ErrorState title={t("plugins.noPlugins")} description={t("plugins.noPluginsDesc")} />
+          ) : (
+            plugins.map((plugin) => (
+              <Card key={plugin.id} className="flex flex-col gap-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <Link
+                      to={
+                        scopeBand === "system"
+                          ? "/admin/integrations/plugins/$pluginId"
+                          : "/settings/plugins/$pluginId"
+                      }
+                      params={{ pluginId: plugin.id }}
+                      className="font-medium hover:underline"
+                    >
+                      {plugin.display_name}
+                    </Link>
+                    <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                      {plugin.name} · {plugin.version}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    <Badge variant="outline" size="sm">
+                      {scopeLabel(plugin.scope, t)}
+                    </Badge>
+                    <Badge
+                      variant={statusVariant(plugin.is_enabled, plugin.is_forbidden)}
+                      size="sm"
+                    >
+                      {plugin.is_forbidden
+                        ? t("plugins.forbidden")
+                        : plugin.is_enabled
+                          ? t("plugins.enabled")
+                          : t("plugins.disabled")}
+                    </Badge>
+                    {plugin.is_overridden && (
+                      <Badge variant="warning" size="sm">
+                        {t("plugins.overridden")}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <p className="line-clamp-2 text-sm text-muted-foreground">{plugin.description}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {plugin.diagnostics.some((item) => item.severity === "error") && (
+                    <Badge variant="destructive" size="sm">
+                      {t("plugins.invalid")}
+                    </Badge>
+                  )}
                   <Badge variant="secondary" size="sm">
-                    {configs.length}
+                    {plugin.files.length} {t("plugins.files")}
                   </Badge>
                 </div>
-                {query.isFetching && <Spinner className="size-4 text-muted-foreground" />}
-              </div>
-              {isAgentManagedScope(scope) && !selectedAgentID ? (
-                <p className="text-xs text-muted-foreground">{t("plugins.selectAgent")}</p>
-              ) : query.isError ? (
-                <p className="text-xs text-destructive-foreground">
-                  {t("plugins.scopeUnavailable")}
-                </p>
-              ) : configs.length === 0 ? (
-                <p className="text-xs text-muted-foreground">{t("plugins.noScopeConfig")}</p>
-              ) : (
-                configs.map((config) => (
-                  <ConfigRow
-                    key={config.id}
-                    config={config}
-                    retired={selectedPluginRetired}
-                    busy={
-                      configMutation.isPending ||
-                      resetMutation.isPending ||
-                      deleteMutation.isPending ||
-                      probeChildMutation.isPending ||
-                      deleteChildMutation.isPending ||
-                      oauthStartMutation.isPending ||
-                      oauthDisconnectMutation.isPending
-                    }
-                    onEnabled={(enabled) => configMutation.mutate({ config, enabled })}
-                    onInherit={() => configMutation.mutate({ config, enabled: null })}
-                    onEdit={(serverKey) => setEditingConfig({ config, serverKey })}
-                    onAddChild={
-                      selectedPlugin.spec.origin === "remote_mcp"
-                        ? () => setAddingChildConfig(config)
-                        : undefined
-                    }
-                    onProbe={
-                      config.resource_summary.mcp_servers.length > 0
-                        ? (serverKey) => probeChildMutation.mutate({ config, serverKey })
-                        : undefined
-                    }
-                    onDeleteChild={
-                      selectedPlugin.spec.origin === "remote_mcp" &&
-                      config.resource_summary.mcp_servers.length > 0
-                        ? (serverKey) => setPendingChildDelete({ config, serverKey })
-                        : undefined
-                    }
-                    onReset={
-                      selectedPlugin.is_builtin && scope === "system"
-                        ? () => resetMutation.mutate(config)
-                        : undefined
-                    }
-                    onDelete={
-                      selectedPlugin.is_builtin && scope === "system"
-                        ? undefined
-                        : () => setPendingDelete(config)
-                    }
-                    onOAuthConnect={
-                      configHasMcpOAuth(config)
-                        ? (serverKey) => oauthStartMutation.mutate({ config, serverKey })
-                        : undefined
-                    }
-                    onOAuthDisconnect={
-                      configHasMcpOAuth(config)
-                        ? (serverKey) => oauthDisconnectMutation.mutate({ config, serverKey })
-                        : undefined
-                    }
-                    t={t}
-                  />
-                ))
-              )}
-            </section>
-          );
-        })}
-      </div>
-      <div className="space-y-3 border-t border-border pt-4">
-        <p className="text-xs font-semibold text-muted-foreground">{t("plugins.addScopeConfig")}</p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field>
-            <FieldLabel>{t("plugins.scopeLabel")}</FieldLabel>
-            <Select value={newScope} onValueChange={(value) => setNewScope(value as PluginScope)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectPopup>
-                {visibleScopes.map((scope) => (
-                  <SelectItem key={scope} value={scope}>
-                    {scopeLabel(scope, t)}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          </Field>
-          {(newScope === "system_agent" || newScope === "user_agent") && (
-            <Field>
-              <FieldLabel>{t("plugins.agent")}</FieldLabel>
-              <Select
-                value={selectedAgentID || "__none"}
-                onValueChange={(value) =>
-                  setSelectedAgentID(value === "__none" || !value ? "" : value)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t("plugins.selectAgent")} />
-                </SelectTrigger>
-                <SelectPopup>
-                  <SelectItem value="__none">{t("plugins.selectAgent")}</SelectItem>
-                  {agents.map((agent) => (
-                    <SelectItem key={agent.id} value={agent.id}>
-                      {agent.name}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </Field>
+              </Card>
+            ))
           )}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          loading={createMutation.isPending}
-          disabled={
-            selectedPluginRetired ||
-            ((newScope === "system_agent" || newScope === "user_agent") && !selectedAgentID)
-          }
-          onClick={() => createMutation.mutate()}
-        >
-          {t("plugins.addScopeConfig")}
-        </Button>
+        {selected && (
+          <PluginDetail
+            resource={selected}
+            band={scopeBand}
+            agents={agents}
+            onRefresh={refresh}
+            onClose={close}
+          />
+        )}
       </div>
-      {!selectedPlugin.is_builtin && (
-        <div className="border-t border-border pt-4">
-          <div className="flex gap-2">
-            {scopeBand === "system" && selectedPlugin.spec.origin === "package" && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={selectedPluginRetired}
-                onClick={() => setPackageUpdateOpen(true)}
-              >
-                <Package className="size-3.5" />
-                {t("plugins.updatePackage")}
-              </Button>
-            )}
-            <Button
-              variant="destructive"
-              size="sm"
-              loading={definitionDeleteMutation.isPending}
-              disabled={selectedPluginRetired}
-              onClick={() => setPendingPluginDelete(selectedPlugin)}
-            >
-              <Trash2 className="size-3.5" />
-              {t("common.delete")}
-            </Button>
-          </div>
-        </div>
-      )}
-    </DetailPanel>
-  ) : null;
-  const newMcpPlugin = {
-    display_name: newMcpName || t("plugins.newMcp"),
-    resource_summary: {
-      binaries: [],
-      skills: [],
-      session_env: [],
-      oauth_provider_configured: false,
-      mcp_servers: [
-        {
-          server_key: "main",
-          endpoint_configured: false,
-          bearer_configured: false,
-          oauth_client_id_configured: false,
-          oauth_client_secret_configured: false,
-        },
-      ],
-    },
-  };
-  return (
-    <>
-      <SettingsGridPage
-        title={t("plugins.title")}
-        action={
-          <div className="flex gap-2">
-            {scopeBand === "system" && (
-              <Button size="sm" variant="outline" onClick={() => setPackageImportOpen(true)}>
-                <Package className="size-3.5" />
-                {t("plugins.importPackage")}
-              </Button>
-            )}
-            <Button size="sm" variant="outline" onClick={() => setRegistryOpen(true)}>
-              {t("mcp.market.title")}
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setNewMcpOpen(true)}>
-              <Plus className="size-3.5" />
-              {t("plugins.addMcp")}
-            </Button>
-          </div>
-        }
-      >
-        {plugins.length === 0 ? (
-          <ErrorState title={t("plugins.noPlugins")} description={t("plugins.noPluginsDesc")} />
-        ) : (
-          groups.map(
-            (group) =>
-              group.items.length > 0 && (
-                <SettingsCardSection
-                  key={group.title}
-                  title={group.title}
-                  count={group.items.length}
-                >
-                  {group.items.map((plugin) => (
-                    <Card
-                      key={plugin.id}
-                      render={
-                        <Link
-                          to={
-                            scopeBand === "system"
-                              ? "/admin/integrations/plugins/$pluginId"
-                              : "/settings/plugins/$pluginId"
-                          }
-                          params={{ pluginId: plugin.id }}
-                        />
-                      }
-                      className="gap-3 p-4 transition-colors hover:border-ring/40"
-                    >
-                      <div className="flex items-start gap-3">
-                        <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-muted text-muted-foreground">
-                          <Package className="size-4" />
-                        </span>
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="truncate text-sm font-medium">
-                              {plugin.display_name}
-                            </span>
-                            {plugin.is_builtin && (
-                              <Badge variant="secondary" size="sm">
-                                {t("plugins.builtin")}
-                              </Badge>
-                            )}
-                            {plugin.spec.origin === "package" && (
-                              <Badge variant="info" size="sm">
-                                {t("plugins.packageInstalled")}
-                              </Badge>
-                            )}
-                            <Badge
-                              variant={lifecycleBadgeVariant(plugin.lifecycle_status)}
-                              size="sm"
-                            >
-                              {lifecycleLabel(plugin.lifecycle_status, t)}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {typeof plugin.spec.description === "string" && plugin.spec.description
-                              ? plugin.spec.description
-                              : t("plugins.noDescription")}
-                          </p>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-                </SettingsCardSection>
-              ),
-          )
-        )}
-      </SettingsGridPage>
-      <McpInstallSheet
-        open={registryOpen}
-        onOpenChange={setRegistryOpen}
-        notify={showToast}
-        defaultScope={scopeBand === "system" ? "system" : "user"}
-        isAdmin={scopeBand === "system"}
-        agentId={selectedAgentID || undefined}
-        onRequestManual={({ name, pluginID, url }) => {
-          setNewMcpName(name);
-          setNewMcpID(pluginID);
-          setNewMcpURL(url);
-          setNewMcpOpen(true);
-        }}
-      />
-      <SettingsDetailSheet open={detail !== null} onClose={closeDetail}>
-        {detail}
-      </SettingsDetailSheet>
-      <SettingsDetailSheet open={packageImportOpen} onClose={() => setPackageImportOpen(false)}>
-        <DetailPanel>
-          <DetailPanelHeader title={t("plugins.importPackage")} />
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">{t("plugins.packagePathHelp")}</p>
-            <Field>
-              <FieldLabel>{t("plugins.packagePath")}</FieldLabel>
-              <Input
-                value={packageImportPath}
-                onChange={(event) => setPackageImportPath(event.target.value)}
-                placeholder={t("plugins.packagePathPlaceholder")}
-                nativeInput
-              />
-            </Field>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setPackageImportOpen(false)}>
-                {t("common.cancel")}
-              </Button>
-              <Button
-                size="sm"
-                loading={importPackageMutation.isPending}
-                onClick={() => importPackageMutation.mutate()}
-              >
-                {t("plugins.importPackage")}
-              </Button>
-            </div>
-          </div>
-        </DetailPanel>
-      </SettingsDetailSheet>
-      <SettingsDetailSheet open={packageUpdateOpen} onClose={() => setPackageUpdateOpen(false)}>
-        <DetailPanel>
-          <DetailPanelHeader title={t("plugins.updatePackage")} />
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">{t("plugins.packagePathHelp")}</p>
-            <Field>
-              <FieldLabel>{t("plugins.packagePath")}</FieldLabel>
-              <Input
-                value={packageUpdatePath}
-                onChange={(event) => {
-                  setPackageUpdatePath(event.target.value);
-                  setPackagePreview(null);
-                  setPackagePreviewKey("");
-                }}
-                placeholder={t("plugins.packagePathPlaceholder")}
-                nativeInput
-              />
-            </Field>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setPackageUpdateOpen(false)}>
-                {t("common.cancel")}
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                loading={previewPackageMutation.isPending}
-                onClick={() => previewPackageMutation.mutate()}
-              >
-                {t("plugins.previewPackage")}
-              </Button>
-              <Button
-                size="sm"
-                loading={updatePackageMutation.isPending}
-                disabled={!packagePreview || packagePreviewKey !== currentPackagePreviewKey}
-                onClick={() => updatePackageMutation.mutate()}
-              >
-                {t("plugins.updatePackage")}
-              </Button>
-            </div>
-            {packagePreview && (
-              <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-                <p>{t("plugins.previewVersion", { version: packagePreview.candidate_version })}</p>
-                <p>{t("plugins.previewDigest", { digest: packagePreview.candidate_digest })}</p>
-                {packagePreview.oauth_changes.map((change) => (
-                  <p key={change.provider}>
-                    {change.provider}: +{change.added_scopes.join(", ") || "-"} / -
-                    {change.removed_scopes.join(", ") || "-"}
-                    {change.added_bindings.length > 0 &&
-                      `; bindings +${change.added_bindings.join(", ")}`}
-                    {change.removed_bindings.length > 0 &&
-                      `; bindings -${change.removed_bindings.join(", ")}`}
-                  </p>
-                ))}
-                {packagePreview.incompatible_scopes.length > 0 && (
-                  <p className="text-destructive-foreground">
-                    {t("plugins.previewIncompatible", {
-                      scopes: packagePreview.incompatible_scopes.join(", "),
-                    })}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </DetailPanel>
-      </SettingsDetailSheet>
-      <SettingsDetailSheet open={newMcpOpen} onClose={closeNewMcp}>
-        <DetailPanel>
-          <DetailPanelHeader title={t("plugins.addMcp")} />
-          <div className="space-y-4">
-            <Field>
-              <FieldLabel>{t("plugins.mcpName")}</FieldLabel>
-              <Input
-                value={newMcpName}
-                onChange={(event) => setNewMcpName(event.target.value)}
-                placeholder={t("plugins.mcpNamePlaceholder")}
-                nativeInput
-              />
-            </Field>
-            <Field>
-              <FieldLabel>{t("plugins.mcpID")}</FieldLabel>
-              <Input
-                value={newMcpID}
-                onChange={(event) => setNewMcpID(event.target.value)}
-                placeholder={t("plugins.mcpIDPlaceholder")}
-                nativeInput
-              />
-            </Field>
-            <Field>
-              <FieldLabel>{t("plugins.mcpDescription")}</FieldLabel>
-              <Input
-                value={newMcpDescription}
-                onChange={(event) => setNewMcpDescription(event.target.value)}
-                placeholder={t("plugins.mcpDescriptionPlaceholder")}
-                nativeInput
-              />
-            </Field>
-            <Field>
-              <FieldLabel>{t("plugins.scopeLabel")}</FieldLabel>
-              <Select
-                value={newMcpScope}
-                onValueChange={(value) => setNewMcpScope(value as PluginScope)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectPopup>
-                  {visibleScopes.map((scope) => (
-                    <SelectItem key={scope} value={scope}>
-                      {scopeLabel(scope, t)}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </Field>
-            {(newMcpScope === "system_agent" || newMcpScope === "user_agent") && (
-              <Field>
-                <FieldLabel>{t("plugins.agent")}</FieldLabel>
-                <Select
-                  value={selectedAgentID || "__none"}
-                  onValueChange={(value) =>
-                    setSelectedAgentID(value === "__none" || !value ? "" : value)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={t("plugins.selectAgent")} />
-                  </SelectTrigger>
-                  <SelectPopup>
-                    <SelectItem value="__none">{t("plugins.selectAgent")}</SelectItem>
-                    {agents.map((agent) => (
-                      <SelectItem key={agent.id} value={agent.id}>
-                        {agent.name}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              </Field>
-            )}
-            <PluginConfigEditor
-              plugin={newMcpPlugin}
-              initialMcpUrl={newMcpURL}
-              mcpServerKey="main"
-              onSave={(payload, credentials) => {
-                const url = payload.config?.url;
-                if (typeof url !== "string" || !url.trim()) {
-                  showToast(t("plugins.mcpEndpointRequired"), "error");
-                  return;
-                }
-                createMcpMutation.mutate({ payload, credentials });
-              }}
-              onCancel={closeNewMcp}
-              busy={createMcpMutation.isPending}
-            />
-          </div>
-        </DetailPanel>
-      </SettingsDetailSheet>
-      <SettingsDetailSheet open={editingConfig !== null} onClose={() => setEditingConfig(null)}>
-        {editingConfig && selectedPlugin && (
-          <DetailPanel>
-            <DetailPanelHeader
-              title={t("plugins.editConfiguration")}
-              subtitle={scopeLabel(editingConfig.config.scope, t)}
-            />
-            <PluginConfigEditor
-              plugin={selectedPlugin}
-              config={editingConfig.config}
-              mcpServerKey={editingConfig.serverKey}
-              onSave={(payload, credentials) => {
-                editMutation.mutate({
-                  config: editingConfig.config,
-                  serverKey: editingConfig.serverKey,
-                  payload,
-                  credentials,
-                });
-              }}
-              onCancel={() => setEditingConfig(null)}
-              busy={editMutation.isPending}
-            />
-          </DetailPanel>
-        )}
-      </SettingsDetailSheet>
-      <SettingsDetailSheet open={addingChildConfig !== null} onClose={closeAddChild}>
-        <DetailPanel>
-          <DetailPanelHeader title={t("plugins.addMcpServer")} />
-          <div className="space-y-4">
-            <McpServerFields
-              name={newChildKey}
-              onNameChange={setNewChildKey}
-              url={newChildURL}
-              onUrlChange={setNewChildURL}
-              transport={newChildTransport}
-              onTransportChange={setNewChildTransport}
-              authType={newChildAuthType}
-              onAuthTypeChange={setNewChildAuthType}
-              token={newChildToken}
-              onTokenChange={setNewChildToken}
-              editing={false}
-              oauthClientId={newChildOAuthClientID}
-              onOauthClientIdChange={setNewChildOAuthClientID}
-              oauthClientSecret={newChildOAuthSecret}
-              onOauthClientSecretChange={setNewChildOAuthSecret}
-              credentialMode={newChildCredentialMode}
-              onCredentialModeChange={setNewChildCredentialMode}
-              showCredentialMode
-            />
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={closeAddChild}
-                disabled={createChildMutation.isPending}
-              >
-                {t("common.cancel")}
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => createChildMutation.mutate()}
-                loading={createChildMutation.isPending}
-              >
-                {t("common.save")}
-              </Button>
-            </div>
-          </div>
-        </DetailPanel>
-      </SettingsDetailSheet>
-      <ConfirmDialog
-        open={pendingChildDelete !== null}
-        onOpenChange={(open) => !open && setPendingChildDelete(null)}
-        title={t("plugins.deleteMcpServer")}
-        message={pendingChildDelete ? pendingChildDelete.serverKey : ""}
-        onConfirm={() => {
-          if (pendingChildDelete) deleteChildMutation.mutate(pendingChildDelete);
-          setPendingChildDelete(null);
-        }}
-      />
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        onOpenChange={(open) => !open && setPendingDelete(null)}
-        title={t("plugins.deleteConfig")}
-        message={
-          pendingDelete
-            ? t("plugins.deleteConfigMsg", {
-                scope: scopeLabel(pendingDelete.scope, t),
-              })
-            : ""
-        }
-        onConfirm={() => {
-          if (pendingDelete) deleteMutation.mutate(pendingDelete);
-          setPendingDelete(null);
-        }}
-      />
-      <ConfirmDialog
-        open={pendingPluginDelete !== null}
-        onOpenChange={(open) => !open && setPendingPluginDelete(null)}
-        title={t("plugins.deleteConfirm")}
-        message={
-          pendingPluginDelete
-            ? t("plugins.deleteConfirmDesc", {
-                name: pendingPluginDelete.display_name,
-              })
-            : ""
-        }
-        onConfirm={() => {
-          if (pendingPluginDelete) definitionDeleteMutation.mutate(pendingPluginDelete);
-          setPendingPluginDelete(null);
-        }}
-      />
-    </>
+    </div>
   );
 }
 

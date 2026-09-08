@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginConfig } from "@/lib/api-client";
 
 vi.hoisted(() => {
   Object.defineProperty(globalThis, "localStorage", {
@@ -38,7 +37,7 @@ import { Route as PersonalLibraryRoute } from "@/routes/_app/settings/library.la
 import { Route as AdminLibraryRoute } from "@/routes/_app/admin/resources/library.lazy";
 
 describe("plugin surface ownership", () => {
-  it("detects OAuth from the selected config resources", () => {
+  it("detects OAuth from the raw resource summary", () => {
     const config = {
       resource_summary: {
         binaries: [],
@@ -56,7 +55,7 @@ describe("plugin surface ownership", () => {
           },
         ],
       },
-    } as Pick<PluginConfig, "resource_summary">;
+    } as Parameters<typeof configHasMcpOAuth>[0];
     expect(configHasMcpOAuth(config)).toBe(true);
   });
 

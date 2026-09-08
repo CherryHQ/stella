@@ -59,12 +59,28 @@ func CapturePackageSkillRef(resource plugin.FileResource, ref PackageSkillRef) (
 		ref.captured = nil
 		return ref, nil
 	}
+	revision, err := CapturePackageSkillRevision(resource, ref)
+	if err != nil {
+		return PackageSkillRef{}, err
+	}
+	ref.captured = &revision
+	return ref, nil
+}
+
+// CapturePackageSkillRevision copies one package Skill's complete immutable
+// tree from a resource already captured for the admitting context. It is the
+// shared boundary for runtime turn admission and management copies; neither
+// caller can reopen a mutable Home root after this capture.
+func CapturePackageSkillRevision(resource plugin.FileResource, ref PackageSkillRef) (PackageSkillRevision, error) {
+	if err := validatePackageSkillRef(ref); err != nil || ref.Masked || ref.Disabled {
+		return PackageSkillRevision{}, ErrInvalidSkillRevision
+	}
 	key, err := plugin.ParseResourceID(ref.PackageID)
 	if err != nil || key != resource.Key || resource.Key.Kind != plugin.ResourcePlugin || resource.Content == nil || resource.Package == nil || resource.Disabled || resource.Forbidden {
-		return PackageSkillRef{}, ErrInvalidSkillRevision
+		return PackageSkillRevision{}, ErrInvalidSkillRevision
 	}
 	if resource.Digest == "" || resource.Content.Digest == "" || resource.Digest != resource.Content.Digest || resource.Digest != ref.PackageDigest {
-		return PackageSkillRef{}, ErrInvalidSkillRevision
+		return PackageSkillRevision{}, ErrInvalidSkillRevision
 	}
 	declared := false
 	for _, skill := range resource.Skills {
@@ -74,11 +90,11 @@ func CapturePackageSkillRef(resource plugin.FileResource, ref PackageSkillRef) (
 		}
 	}
 	if !declared {
-		return PackageSkillRef{}, ErrInvalidSkillRevision
+		return PackageSkillRevision{}, ErrInvalidSkillRevision
 	}
 	root, err := fs.Sub(resource.Content.FS(), path.Join("skills", ref.Name))
 	if err != nil {
-		return PackageSkillRef{}, ErrInvalidSkillRevision
+		return PackageSkillRevision{}, ErrInvalidSkillRevision
 	}
 	files := make(map[string][]byte)
 	modes := make(map[string]fs.FileMode)
@@ -105,16 +121,14 @@ func CapturePackageSkillRef(resource plugin.FileResource, ref PackageSkillRef) (
 		return nil
 	})
 	if err != nil {
-		return PackageSkillRef{}, err
+		return PackageSkillRevision{}, err
 	}
 	if _, ok := files[MainFile]; !ok {
-		return PackageSkillRef{}, ErrInvalidSkillRevision
+		return PackageSkillRevision{}, ErrInvalidSkillRevision
 	}
 	capturedRef := ref
 	capturedRef.captured = nil
-	revision := PackageSkillRevision{Ref: capturedRef, Files: files, Modes: modes}
-	ref.captured = &revision
-	return ref, nil
+	return PackageSkillRevision{Ref: capturedRef, Files: files, Modes: modes}, nil
 }
 
 // ManagedSkillRef pins one managed Skill identity to the exact revision chosen

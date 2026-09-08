@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"strings"
-	"time"
 
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -23,29 +22,6 @@ const (
 	dockerImageRepo = "ghcr.io/cherryhq/stella-sandbox"
 	dockerDevImage  = "stella-sandbox:dev"
 )
-
-// Capture before any current runner starts. A failed initial inventory stays
-// fail-closed and is retried by the existing resource-cleanup worker.
-func captureSandboxRecovery(ctx context.Context) func(context.Context) (bool, error) {
-	capture := func(ctx context.Context) (func(context.Context) (bool, error), error) {
-		bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		return dockerbackend.CaptureStartupRecovery(bounded, dockerbackend.Config{StellaHome: config.StellaHome()})
-	}
-	check, _ := capture(ctx)
-	return func(ctx context.Context) (bool, error) {
-		if check == nil {
-			var err error
-			check, err = capture(ctx)
-			if err != nil {
-				return false, err
-			}
-		}
-		bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		return check(bounded)
-	}
-}
 
 func setupSandboxBackends() (*agentsandbox.BackendRegistry, error) {
 	return agentsandbox.NewBackendRegistry(

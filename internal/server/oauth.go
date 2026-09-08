@@ -69,20 +69,26 @@ func (s *Server) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	_, authority, ok := s.beginPluginAccess(w, r)
-	if !ok {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
-	snapshot, err := s.pluginSvc.ResolveSnapshot(r.Context(), authority, "")
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if s.pluginFiles == nil {
+		writePluginError(w, errPluginCapabilityUnavailable)
+		return
+	}
+	resources, err := s.pluginFiles.Capture(r.Context(), authority, "")
 	if err != nil {
 		writePluginError(w, err)
 		return
 	}
-	requiredBy, err := oauthProviderRequiredBy(snapshot)
-	if err != nil {
-		writePluginError(w, err)
-		return
-	}
+	requiredBy := oauthProviderRequiredBy(resources)
 	for i := range providers {
 		providers[i].RequiredBy = requiredBy[providers[i].Provider]
 	}
@@ -91,29 +97,35 @@ func (s *Server) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 
 // oauthProviderRequiredBy uses the caller's effective packages, including custom
 // user configurations, without exposing their payload or credential bindings.
-func oauthProviderRequiredBy(snapshot plugin.Snapshot) (map[string][]string, error) {
+func oauthProviderRequiredBy(resources []plugin.FileResource) map[string][]string {
 	out := make(map[string][]string)
-	for _, definition := range snapshot.Definitions() {
-		effective, err := snapshot.Resolve(definition.ID)
-		if err != nil {
-			return nil, err
-		}
-		if !effective.IsEffectivelyEnabled {
+	seen := make(map[string]map[string]struct{})
+	for _, resource := range resources {
+		if resource.Disabled || resource.Forbidden || resource.Package == nil || resource.Package.Extension == nil {
 			continue
 		}
-		payload, err := plugin.DecodeResourcePayload(effective.Payload, "OAuth requirements")
-		if err != nil {
-			return nil, err
+		displayName := resource.Package.Manifest.Name
+		if resource.Package.Extension.DisplayName != "" {
+			displayName = resource.Package.Extension.DisplayName
 		}
-		providers := make(map[string]bool)
-		for _, requirement := range payload.OAuth {
-			providers[requirement.Provider] = true
+		if displayName == "" {
+			continue
 		}
-		for provider := range providers {
-			out[provider] = append(out[provider], definition.DisplayName)
+		for _, requirement := range resource.Package.Extension.OAuth {
+			if requirement.Provider == "" {
+				continue
+			}
+			if seen[requirement.Provider] == nil {
+				seen[requirement.Provider] = make(map[string]struct{})
+			}
+			if _, ok := seen[requirement.Provider][displayName]; ok {
+				continue
+			}
+			seen[requirement.Provider][displayName] = struct{}{}
+			out[requirement.Provider] = append(out[requirement.Provider], displayName)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // StartOAuthFlow handles POST /api/users/me/oauth/{provider}/start.

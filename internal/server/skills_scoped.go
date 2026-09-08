@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"sort"
@@ -566,7 +567,11 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		_, err = s.agentAccess.Manage(r.Context(), authority, agentID)
 		canManage = err == nil
 	}
-	policyRefs := policyAddressableSkillRefs(dbSkills)
+	policyRefs, err := s.policyAddressableSkillRefs(r.Context(), acc, agentID)
+	if err != nil {
+		s.writeManagedSkillError(w, err)
+		return
+	}
 	dangling := make([]string, 0, len(policy.Disabled))
 	for _, ref := range policy.Disabled {
 		// Legacy builtin refs remain readable in storage but no longer have a
@@ -595,20 +600,35 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	writeData(w, http.StatusOK, response)
 }
 
-// policyAddressableSkillRefs builds diagnostics from the full applicable DB
-// catalog, before precedence merging hides shadowed rows. Policy refs describe
-// addressable catalog entries, not the one current UI winner.
-func policyAddressableSkillRefs(dbSkills []skill.Skill) map[string]bool {
-	refs := make(map[string]bool, len(dbSkills))
-	for _, sk := range dbSkills {
-		if sk.Status == skill.SkillStatusDeprecated {
-			continue
+// policyAddressableSkillRefs reads each administrator scope independently.
+// ListIdentityVisible intentionally returns only the precedence winner, which
+// would make a policy ref for a shadowed system Skill look dangling when a
+// user-agent Skill has the same name.
+func (s *Server) policyAddressableSkillRefs(ctx context.Context, acc *access.Access, agentID string) (map[string]bool, error) {
+	refs := make(map[string]bool)
+	for _, scope := range []string{"system", "system_agent"} {
+		ownerAgentID := ""
+		if scope == "system_agent" {
+			ownerAgentID = agentID
 		}
-		if sk.Scope == "system" || sk.Scope == "system_agent" {
-			refs[sk.Scope+":"+sk.Name] = true
+		rows, err := s.skills.ListIdentityByScope(ctx, scope, "", ownerAgentID)
+		if err != nil {
+			return nil, fmt.Errorf("list %s Skill identities: %w", scope, err)
+		}
+		for _, row := range rows {
+			if row.Status == skill.SkillStatusDeprecated {
+				continue
+			}
+			if err := acc.AuthorizeRead(ctx, row); err != nil {
+				if errors.Is(err, access.ErrNotFound) || errors.Is(err, access.ErrForbidden) {
+					continue
+				}
+				return nil, err
+			}
+			refs[scope+":"+row.Name] = true
 		}
 	}
-	return refs
+	return refs, nil
 }
 
 func normalizedSkillPageQuery(userID, agentID string, params apiserver.ListAgentSkillsParams) skillPageQuery {

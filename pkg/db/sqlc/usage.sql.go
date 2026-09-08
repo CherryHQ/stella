@@ -24,7 +24,7 @@ func (q *Queries) DeleteKnowledgeUsage(ctx context.Context, factID string) error
 
 const deleteSkillUsage = `-- name: DeleteSkillUsage :exec
 DELETE FROM skill_usage
-WHERE skill_id = $1
+WHERE COALESCE(resource_id, skill_id) = $1::text
 `
 
 func (q *Queries) DeleteSkillUsage(ctx context.Context, skillID string) error {
@@ -61,9 +61,9 @@ func (q *Queries) GetKnowledgeUsageForUpdate(ctx context.Context, arg GetKnowled
 }
 
 const getSkillUsageForUpdate = `-- name: GetSkillUsageForUpdate :one
-SELECT skill_id, user_id, agent_id, use_count, last_used_at, created_at, content_digest
+SELECT skill_id, user_id, agent_id, use_count, last_used_at, created_at, content_digest, resource_id
 FROM skill_usage
-WHERE skill_id = $1
+WHERE COALESCE(resource_id, skill_id) = $1::text
   AND user_id = $2::uuid
   AND agent_id = $3::text
 FOR UPDATE
@@ -86,6 +86,7 @@ func (q *Queries) GetSkillUsageForUpdate(ctx context.Context, arg GetSkillUsageF
 		&i.LastUsedAt,
 		&i.CreatedAt,
 		&i.ContentDigest,
+		&i.ResourceID,
 	)
 	return i, err
 }
@@ -234,7 +235,7 @@ WITH pair_activity AS (
     AND c.kind NOT IN ('task', 'delegate', 'scheduler')
 )
 SELECT
-  su.skill_id,
+  COALESCE(su.resource_id, su.skill_id)::text AS skill_id,
   su.user_id::text AS user_id,
   su.agent_id::text AS agent_id,
   su.content_digest,
@@ -258,7 +259,7 @@ WHERE su.user_id = $2::uuid
     )
   )
   AND pair_activity.latest > su.last_used_at
-ORDER BY su.last_used_at ASC, su.skill_id ASC
+ORDER BY su.last_used_at ASC, COALESCE(su.resource_id, su.skill_id) ASC
 `
 
 type ListStaleReflectSkillsForCuratorParams struct {
@@ -320,7 +321,7 @@ func (q *Queries) ListStaleReflectSkillsForCurator(ctx context.Context, arg List
 const refreshSkillUsageOnReflectPatch = `-- name: RefreshSkillUsageOnReflectPatch :exec
 INSERT INTO skill_usage (skill_id, user_id, agent_id, content_digest, use_count, last_used_at)
 VALUES ($1, $2::uuid, $3::text, $4, 0, now())
-ON CONFLICT (skill_id) DO UPDATE
+ON CONFLICT ((COALESCE(resource_id, skill_id))) DO UPDATE
 SET content_digest = excluded.content_digest,
     last_used_at = excluded.last_used_at
 `
@@ -374,7 +375,7 @@ UPDATE skill_usage su
 SET use_count = su.use_count + 1,
     last_used_at = now(),
     content_digest = $1
-WHERE su.skill_id = $2
+WHERE COALESCE(su.resource_id, su.skill_id) = $2::text
   AND su.user_id = $3::uuid
   AND su.agent_id = $4::text
   AND su.content_digest IS NOT DISTINCT FROM $1
@@ -429,7 +430,7 @@ func (q *Queries) UpsertKnowledgeUsage(ctx context.Context, arg UpsertKnowledgeU
 const upsertSkillUsageOnReflectCreate = `-- name: UpsertSkillUsageOnReflectCreate :exec
 INSERT INTO skill_usage (skill_id, user_id, agent_id, content_digest, use_count, last_used_at)
 VALUES ($1, $2, $3, $4, 1, now())
-ON CONFLICT (skill_id) DO UPDATE
+ON CONFLICT ((COALESCE(resource_id, skill_id))) DO UPDATE
 SET user_id = excluded.user_id,
     agent_id = excluded.agent_id,
     content_digest = excluded.content_digest,

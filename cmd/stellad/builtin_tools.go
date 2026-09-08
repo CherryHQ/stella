@@ -17,7 +17,6 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skill"
@@ -56,9 +55,9 @@ type builtinToolDeps struct {
 	SettingsAdmin   settingspolicy.AdminLookup
 	SettingsAgents  settingspolicy.AgentLookup
 	ControlPlane    func() *controlplane.Service
-	PluginService   func() *pluginpkg.Service
+	PluginFiles     func() *pluginpkg.FileService
 	NativePolicy    *pluginpkg.NativePolicy
-	MCPAccess       func() *mcp.Access
+	MCPFiles        func() *mcp.FileService
 	MCPCatalog      agent.MCPCatalogFunc
 }
 
@@ -320,7 +319,7 @@ func builtinToolGroups() []builtinToolGroup {
 			metadata: controlplane.SettingsPluginActionTools(),
 			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
 				return splitBuiltins(controlplane.SettingsPluginActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-					return settingspolicy.Wrap(controlplane.NewPluginManagementTool(spec, d.PluginService), d.SettingsAgents, d.SettingsAdmin)
+					return settingspolicy.Wrap(controlplane.NewPluginManagementTool(spec, d.PluginFiles), d.SettingsAgents, d.SettingsAdmin)
 				}, settingsToolAvailable(d, true))
 			},
 		},
@@ -328,7 +327,7 @@ func builtinToolGroups() []builtinToolGroup {
 			metadata: mcp.SettingsMcpActionTools(),
 			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
 				return splitBuiltins(mcp.SettingsMcpActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-					return settingspolicy.Wrap(mcp.NewManagementTool(spec, d.MCPAccess), d.SettingsAgents, d.SettingsAdmin)
+					return settingspolicy.Wrap(mcp.NewFileManagementTool(spec, d.MCPFiles), d.SettingsAgents, d.SettingsAdmin)
 				}, settingsToolAvailable(d, false))
 			},
 		},
@@ -389,37 +388,25 @@ func splitFamilyNames(families ...[]toolmeta.ActionTool) []string {
 	return out
 }
 
-// mcpCatalogFunc adapts the MCP service to the agent package's catalog func:
-// the persisted catalogs of registrations effective for one trusted authority
-// and agent. Each entry carries its durable policy identity alongside the
-// exported display name.
-func mcpCatalogFunc(svc *mcp.Service) agent.MCPCatalogFunc {
-	if svc == nil {
+// mcpCatalogFunc adapts the file-backed MCP snapshot to the agent management
+// catalog. It deliberately probes only the authority-bound file resources, so
+// a legacy database registration cannot leak into policy management.
+func mcpCatalogFunc(files *mcp.FileService) agent.MCPCatalogFunc {
+	if files == nil {
 		return nil
 	}
 	return func(ctx context.Context, authority authz.Authority, agentID string) ([]agent.MCPCatalogEntry, error) {
-		snapshot, err := svc.SnapshotForAuthority(ctx, authority, agentID)
+		entries, err := files.Catalog(ctx, authority, agentID)
 		if err != nil {
 			return nil, err
 		}
-		regs, err := svc.RegistrationsForSnapshot(ctx, snapshot)
-		if err != nil {
-			return nil, err
-		}
-		catalog := make([]agent.MCPCatalogEntry, 0)
-		for _, reg := range regs {
-			for _, tool := range reg.Tools {
-				local := tool.Name
-				name, err := agentpackage.ExportedToolName(reg.PluginID, "main", local)
-				if err != nil {
-					return nil, err
-				}
-				identity := agent.ToolIdentity{PluginID: reg.PluginID, LocalToolName: local}
-				if err := identity.Validate(); err != nil {
-					return nil, err
-				}
-				catalog = append(catalog, agent.MCPCatalogEntry{Name: name, Identity: identity, Family: "mcp:" + reg.Name})
+		catalog := make([]agent.MCPCatalogEntry, 0, len(entries))
+		for _, entry := range entries {
+			identity := agent.ToolIdentity{PluginID: entry.PluginID, ServerKey: entry.ServerKey, LocalToolName: entry.LocalToolName}
+			if err := identity.Validate(); err != nil {
+				return nil, err
 			}
+			catalog = append(catalog, agent.MCPCatalogEntry{Name: entry.Name, Description: entry.Description, InputSchema: entry.InputSchema, Identity: identity, Family: entry.Family})
 		}
 		return catalog, nil
 	}

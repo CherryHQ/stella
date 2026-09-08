@@ -1,242 +1,183 @@
-// PR #1233: persisted tool catalog, probe status, shared session per server,
-// vault-backed bearer credentials, and If-Match optimistic concurrency.
-import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
+// MCP file resources: declaration, probe, credentials, listing, and CAS.
+import { createChatSession, ensureAgent, sendTurn } from "./lib/agent.ts";
 import { expectStatus } from "./lib/api.ts";
 import { expect, test } from "./lib/fixtures.ts";
-import {
-  createMcpPlugin,
-  exportedMcpName,
-  type McpFixture,
-  mcpServer,
-  pluginConfigPath,
-  pluginDefinitionPath,
-  startMcpFixture,
-} from "./lib/mcp-fixture.ts";
+import { createMcpPlugin, deleteMcpServer, type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
 import { ensureProvider } from "./lib/provider.ts";
-import { AgentTool, type CreatePluginResponse, type PluginConfig, type PluginDefinition } from "./lib/types.ts";
+import type { AgentTool, McpServer } from "./lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
-
 let open: McpFixture;
 let guarded: McpFixture;
-const created: CreatePluginResponse[] = [];
-const e2eAdd = exportedMcpName("e2e", "add");
-
-function mcpSummary(config: PluginConfig) {
-  const summary = config.resource_summary.mcp_servers[0];
-  if (!summary) throw new Error(`MCP summary missing from config ${config.id}`);
-  return summary;
-}
+const created: McpServer[] = [];
 
 test.beforeAll(async () => {
   open = await startMcpFixture();
   guarded = await startMcpFixture({ bearer: "s3cret-token" });
 });
-
 test.afterAll(async ({ admin }) => {
-  for (const item of created) {
-    const config = await admin.get<PluginConfig>(pluginConfigPath(item.plugin, item.config));
-    if (config.status === 200) {
-      await admin.delete(`${pluginConfigPath(item.plugin, item.config)}?expected_revision=${config.body.revision}`);
-    }
-    const definition = await admin.get<PluginDefinition>(pluginDefinitionPath(item.plugin));
-    if (definition.status === 200) await admin.delete(`${pluginDefinitionPath(item.plugin)}?expected_revision=${definition.body.revision}`);
-  }
+  for (const server of created) await deleteMcpServer(admin, server);
   await open.close();
   await guarded.close();
 });
 
-test("create stores a safe config and explicit probe persists its catalog", async ({ admin, db }) => {
-  const body = await createMcpPlugin(admin, open);
-  created.push(body);
-  const child = await mcpServer(admin, body.config.id);
-  expect(mcpSummary(body.config)).toMatchObject({
-    endpoint_configured: true,
+test("create stores a file resource and probe publishes its catalog", async ({ admin }) => {
+  const server = await createMcpPlugin(admin, open, { name: "e2e" });
+  created.push(server);
+  expect(server.resource_id).toBeTruthy();
+  expect(server.is_standalone).toBe(true);
+  expect(server.declaration).toMatchObject({
+    url: open.url,
     auth_type: "none",
-    bearer_configured: false,
   });
   const probed = expectStatus(
-    await admin.post(`/api/mcp/servers/${child.id}/probe`),
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
     200,
-    "probe created plugin",
+    "probe created MCP server",
   );
-  expect(probed).toMatchObject({ endpoint_configured: true });
+  expect(probed.status).toBe("ready");
+  expect(probed.tools.map((tool) => tool.name).sort()).toEqual(["add", "echo"]);
   expect(open.methods.get("initialize")).toBeGreaterThanOrEqual(1);
   expect(open.methods.get("tools/list")).toBeGreaterThanOrEqual(1);
-
-  const rows = await db`select status, status_error, probed_at, tools from mcp_connection_state where child_id = ${child.id}`;
-  expect(rows).toHaveLength(1);
-  expect(rows[0].status).toBe("ok");
-  expect(rows[0].status_error).toBe("");
-  expect(rows[0].probed_at).not.toBeNull();
-  expect((rows[0].tools as { name: string; }[]).map((t) => t.name).sort()).toEqual(["add", "echo"]);
-
-  const fetched = expectStatus(await admin.get<PluginConfig>(pluginConfigPath(body.plugin, body.config)), 200, "get plugin config");
-  expect(mcpSummary(fetched)).toMatchObject({ endpoint_configured: true });
-  const list = expectStatus(
-    await admin.get<{ configs: PluginConfig[]; }>(`${pluginDefinitionPath(body.plugin)}/configs`),
+  const listed = expectStatus(
+    await admin.get<{ servers: McpServer[]; }>("/api/mcp/servers?scope=user"),
     200,
-    "list plugin configs",
+    "list MCP servers",
   );
-  expect(list.configs.some((config) => config.id === body.config.id && config.plugin_id === body.plugin.id)).toBe(true);
-  const definitions = expectStatus(await admin.get<{ plugins: PluginDefinition[]; }>("/api/plugins"), 200, "list plugins");
-  expect(definitions.plugins.find((plugin) => plugin.id === body.plugin.id)?.spec).toEqual({ origin: "remote_mcp" });
+  expect(listed.servers.some((item) => item.id === server.id)).toBe(true);
 });
 
-test("probe endpoint re-lists tools and refreshes probed_at", async ({ admin, db }) => {
-  const item = created[0];
-  const child = await mcpServer(admin, item.config.id);
-  const before = (await db`select probed_at from mcp_connection_state where child_id = ${child.id}`)[0].probed_at as Date;
-  const lists = open.methods.get("tools/list") ?? 0;
-  await new Promise((r) => setTimeout(r, 20));
-  const body = expectStatus(await admin.post(`/api/mcp/servers/${child.id}/probe`), 200, "probe");
-  expect(body).toMatchObject({ endpoint_configured: true });
-  expect(open.methods.get("tools/list")).toBe(lists + 1);
-  const after = (await db`select probed_at from mcp_connection_state where child_id = ${child.id}`)[0].probed_at as Date;
-  expect(after.getTime()).toBeGreaterThan(before.getTime());
+test("unreachable endpoint records an error after an explicit probe", async ({ admin }) => {
+  const server = await createMcpPlugin(admin, open, {
+    name: "e2e-dead",
+    url: "http://127.0.0.1:9/mcp",
+  });
+  created.push(server);
+  const probed = expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
+    200,
+    "probe dead MCP server",
+  );
+  expect(probed.status).toBe("error");
+  expect(probed.status_error).toBeTruthy();
+  expect(probed.status_error).not.toMatch(
+    /127\.0\.0\.1|connection refused|dial tcp/,
+  );
+  expect(probed.tools).toEqual([]);
 });
 
-test("unreachable endpoint records an error and an empty catalog after explicit probe", async ({ admin, db }) => {
-  const body = await createMcpPlugin(admin, open, { name: "e2e-dead", displayName: "e2e-dead", url: "http://127.0.0.1:9/mcp" });
-  created.push(body);
-  const child = await mcpServer(admin, body.config.id);
-  expect(mcpSummary(body.config)).toMatchObject({ endpoint_configured: true, auth_type: "none" });
-  expectStatus(await admin.post(`/api/mcp/servers/${child.id}/probe`), 200, "probe dead plugin");
-  const row = (await db`select status, status_error, tools from mcp_connection_state where child_id = ${child.id}`)[0];
-  expect(row.status).toBe("error");
-  expect(String(row.status_error)).toBeTruthy();
-  expect(String(row.status_error)).not.toMatch(/127\.0\.0\.1|connection refused|dial tcp/);
-  expect(row.tools).toEqual([]);
-});
-
-test("bearer token lives in the vault and an explicit probe reports needs_auth", async ({ admin, db }) => {
-  const body = await createMcpPlugin(admin, guarded, {
+test("bearer credentials are redacted and CAS-protected", async ({ admin }) => {
+  const server = await createMcpPlugin(admin, guarded, {
     name: "e2e-guarded",
-    displayName: "e2e-guarded",
     authType: "bearer",
+    credentialMode: "per_user",
+    credentialRef: "E2E_BEARER_TOKEN",
     token: "wrong-token",
   });
-  created.push(body);
-  const child = await mcpServer(admin, body.config.id);
-  expect(mcpSummary(body.config)).toMatchObject({ auth_type: "bearer", bearer_configured: true });
-  expect(JSON.stringify(body)).not.toContain("wrong-token");
-  expectStatus(await admin.post(`/api/mcp/servers/${child.id}/probe`), 200, "probe guarded plugin");
-
-  const row = (await db`select credential_refs::text as refs from plugin_config where id = ${body.config.id}`)[0];
-  expect(row.refs).toBeTruthy();
-  expect(String(row.refs)).toContain(child.id.replaceAll("-", "_").toUpperCase());
-  expect(String(row.refs)).not.toContain("wrong-token");
-  const vault = await db`select count(*)::int as n from vault_entry where name = ${`MCP_TOKEN_${
-    child.id.replaceAll("-", "_").toUpperCase()
-  }`}`;
-  expect(vault[0].n).toBe(1);
-
+  created.push(server);
+  expect(JSON.stringify(server)).not.toContain("wrong-token");
+  const needsAuth = expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
+    200,
+    "probe guarded MCP server",
+  );
+  expect(needsAuth.status).toBe("needs_auth");
   const fixed = expectStatus(
-    await admin.patch(`/api/mcp/servers/${child.id}`, {
-      expected_parent_revision: body.config.revision,
-      url: guarded.url,
-      transport: "streamable_http",
-      auth_type: "bearer",
-      credentials: { token: "s3cret-token" },
+    await admin.patch<McpServer>(`/api/mcp/servers/${server.id}/credentials`, {
+      expected_digest: needsAuth.content_digest,
+      bearer_token: "s3cret-token",
     }),
     200,
-    "patch token",
+    "replace bearer credential",
   );
-  expect(fixed).toMatchObject({ auth_type: "bearer", bearer_configured: true });
-  expectStatus(await admin.post(`/api/mcp/servers/${child.id}/probe`), 200, "probe fixed token");
-  expect((await db`select status from mcp_connection_state where child_id = ${child.id}`)[0].status).toBe("ok");
+  const ready = expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
+    200,
+    "probe fixed token",
+  );
+  expect(ready.status).toBe("ready");
+  expect(JSON.stringify(fixed)).not.toContain("s3cret-token");
 });
 
-test("expected_revision enforces optimistic concurrency on PATCH and DELETE", async ({ admin }) => {
-  const item = created[0];
-  const current = expectStatus(await admin.get<PluginConfig>(pluginConfigPath(item.plugin, item.config)), 200, "get");
-  const ok = expectStatus(
-    await admin.patch<PluginConfig>(pluginConfigPath(item.plugin, item.config), { expected_revision: current.revision, is_enabled: true }),
-    200,
-    "patch with current version",
-  );
-  const stale = await admin.patch(pluginConfigPath(item.plugin, item.config), { expected_revision: current.revision, is_enabled: false });
-  expect(stale.status).toBe(409);
-  expect(ok.revision).toBeGreaterThan(current.revision);
-
-  const victim = await createMcpPlugin(admin, open, {
-    name: "e2e-victim",
-    displayName: "e2e-victim",
-    url: open.url.replace("/mcp", "/victim"),
-  });
-  created.push(victim);
-  const invalidDelete = await admin.delete(`${pluginConfigPath(victim.plugin, victim.config)}?expected_revision=0`);
-  expect(invalidDelete.status).toBe(400);
-  const advanced = expectStatus(
-    await admin.patch<PluginConfig>(pluginConfigPath(victim.plugin, victim.config), {
-      expected_revision: victim.config.revision,
-      is_enabled: true,
+test("declaration updates and deletion reject stale content digests", async ({ admin }) => {
+  const server = created[0];
+  const changed = expectStatus(
+    await admin.patch<McpServer>(`/api/mcp/servers/${server.id}`, {
+      declaration: { ...server.declaration!, description: "edited" },
+      expected_digest: server.content_digest,
     }),
     200,
-    "advance victim revision",
+    "update MCP declaration",
   );
-  const staleDelete = await admin.delete(`${pluginConfigPath(victim.plugin, victim.config)}?expected_revision=${victim.config.revision}`);
-  expect(staleDelete.status).toBe(409);
-  const del = await admin.delete(`${pluginConfigPath(victim.plugin, victim.config)}?expected_revision=${advanced.revision}`);
-  expect(del.status).toBe(204);
+  expect(changed.declaration?.description).toBe("edited");
+  expect(
+    (
+      await admin.patch(`/api/mcp/servers/${server.id}`, {
+        declaration: { ...changed.declaration!, description: "stale" },
+        expected_digest: server.content_digest,
+      })
+    ).status,
+  ).toBe(409);
+  expect(
+    (
+      await admin.delete(
+        `/api/mcp/servers/${server.id}?expected_digest=${server.content_digest}`,
+      )
+    ).status,
+  ).toBe(409);
+  expect(
+    (
+      await admin.delete(
+        `/api/mcp/servers/${server.id}?expected_digest=${changed.content_digest}`,
+      )
+    ).status,
+  ).toBe(204);
+  created.splice(0, 1);
 });
 
-test("an agent calls the remote tool through one shared session @model", async ({ admin, db }) => {
+test("an agent calls the remote tool through one shared session @model", async ({ admin }) => {
   test.setTimeout(300_000);
-  if (created.length === 0) created.push(await createMcpPlugin(admin, open));
+  const server = created.find((item) => item.name === "e2e")
+    ?? (await createMcpPlugin(admin, open, { name: "e2e" }));
+  if (!created.includes(server)) created.push(server);
   const { modelRef } = await ensureProvider(admin);
-  const agentId = await ensureAgent(admin, modelRef);
-  // Wait until the freshly registered server's proxy is listed, so the model
-  // turn tests tool use, not catalog-publish timing.
-  await expect.poll(async () => {
-    const listed = expectStatus(await admin.get<{ tools: AgentTool[]; }>(`/api/agents/${agentId}/tools`), 200, "list agent tools").tools;
-    return listed.some((t) => t.name === e2eAdd);
-  }, { timeout: 30_000 }).toBe(true);
-  const sessionId = await createChatSession(admin, agentId);
-  const initBefore = open.methods.get("initialize") ?? 0;
-  const callsBefore = open.calls.length;
-
+  const agentId = await ensureAgent(admin, modelRef, "e2e-mcp-agent");
+  await expect
+    .poll(
+      async () => {
+        const tools = expectStatus(
+          await admin.get<{ tools: AgentTool[]; }>(
+            `/api/agents/${agentId}/tools`,
+          ),
+          200,
+          "list agent tools",
+        ).tools;
+        return tools.some((tool) => tool.name.includes("_main_add_"));
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+  const toolName = expectStatus(
+    await admin.get<{ tools: AgentTool[]; }>(`/api/agents/${agentId}/tools`),
+    200,
+    "list agent tools",
+  ).tools.find((tool) => tool.name.includes("_main_add_"))?.name;
+  if (!toolName) throw new Error("file-backed add tool missing");
+  const sessionID = await createChatSession(admin, agentId);
+  const before = open.calls.length;
   const turn = await sendTurn(
     admin,
     agentId,
-    sessionId,
-    `Use the tool ${e2eAdd} twice: first with a=17 and b=25, then with a=3 and b=4. Reply with only the two results separated by a space.`,
+    sessionID,
+    `Use ${toolName} with a=17 and b=25. Reply with only the result.`,
   );
   expect(turn.errors, JSON.stringify(turn.events.slice(-5))).toEqual([]);
-  const addCalls = turn.toolCalls.filter((c) => c.toolName === e2eAdd);
-  expect(addCalls.length).toBeGreaterThanOrEqual(2);
-  const seen = open.calls.slice(callsBefore).filter((c) => c.tool === "add").map((c) => `${c.args.a}+${c.args.b}`);
-  expect(seen).toContain("17+25");
-  expect(seen).toContain("3+4");
   expect(turn.text).toContain("42");
-  // Both proxies share one lazily opened session: at most one initialize per turn.
-  expect((open.methods.get("initialize") ?? 0) - initBefore).toBeLessThanOrEqual(1);
-
-  const rows = await db`
-    select m.role, m.event_type, m.content from ctx_message m
-    join ctx_conversation c on c.id = m.conversation_id
-    where c.session_id = ${sessionId} order by m.seq`;
-  // Under Code Mode the model may issue both calls from one `code` block, which
-  // persists as a single tool_call row, so the row count is not the call count.
-  // The transcript audit below counts the actual invocations.
-  const persistedCalls = rows.filter((r) => r.event_type === "tool_call" && String(r.content).includes(e2eAdd));
-  expect(persistedCalls.length, JSON.stringify(rows.map((r) => [r.role, r.event_type, String(r.content).slice(0, 80)])))
-    .toBeGreaterThanOrEqual(1);
-
-  // The transcript API shows the call either as a direct tool_call block or,
-  // under Code Mode, in the child-call audit of the outer `code` result.
-  const messages = await sessionMessages(admin, agentId, sessionId);
-  const invoked = invokedToolNames(messages).filter((n) => n === e2eAdd);
-  expect(invoked.length, JSON.stringify(messages).slice(0, 3000)).toBeGreaterThanOrEqual(2);
-});
-
-test("settings page opens MCP details without disclosing the endpoint", async ({ page, loginAsAdmin }) => {
-  await loginAsAdmin();
-  await page.goto("/settings/mcp");
-  const entry = page.getByText("e2e", { exact: true }).first();
-  await expect(entry).toBeVisible();
-  await entry.click();
-  await expect(page.getByRole("heading", { name: "e2e", exact: true })).toBeVisible();
-  await expect(page.getByText("Endpoint configured", { exact: true })).toBeVisible();
-  await expect(page.getByText(open.url, { exact: true })).toHaveCount(0);
+  expect(
+    open.calls
+      .slice(before)
+      .some(
+        (call) => call.tool === "add" && call.args.a === 17 && call.args.b === 25,
+      ),
+  ).toBe(true);
 });

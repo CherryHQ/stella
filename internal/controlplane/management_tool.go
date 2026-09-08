@@ -52,7 +52,7 @@ type ManagementTool struct {
 	embeddingSettingSpec *SettingsEmbeddingSettingActionTool
 	pluginSpec           *SettingsPluginActionTool
 	service              func() *Service
-	pluginService        func() *pluginapi.Service
+	pluginFiles          func() *pluginapi.FileService
 }
 
 func NewProviderManagementTool(spec SettingsProviderActionTool, service func() *Service) *ManagementTool {
@@ -67,8 +67,8 @@ func NewEmbeddingSettingManagementTool(spec SettingsEmbeddingSettingActionTool, 
 	return &ManagementTool{embeddingSettingSpec: &spec, service: service}
 }
 
-func NewPluginManagementTool(spec SettingsPluginActionTool, service func() *pluginapi.Service) *ManagementTool {
-	return &ManagementTool{pluginSpec: &spec, pluginService: service}
+func NewPluginManagementTool(spec SettingsPluginActionTool, service func() *pluginapi.FileService) *ManagementTool {
+	return &ManagementTool{pluginSpec: &spec, pluginFiles: service}
 }
 
 func (t *ManagementTool) Definition() tools.Definition {
@@ -87,10 +87,10 @@ func (t *ManagementTool) Execute(ctx context.Context, args map[string]any) (stri
 	var out any
 	switch {
 	case t.pluginSpec != nil:
-		if t.pluginService == nil {
+		if t.pluginFiles == nil {
 			return "", fmt.Errorf("deployment management is unavailable — try again later")
 		}
-		service := t.pluginService()
+		service := t.pluginFiles()
 		if service == nil {
 			return "", fmt.Errorf("deployment management is unavailable — try again later")
 		}
@@ -380,10 +380,6 @@ type pluginToolView struct {
 	PluginID string `json:"plugin_id"`
 	Enabled  bool   `json:"enabled"`
 	Version  string `json:"version"`
-}
-
-func projectPlugin(pluginID string, enabled bool) pluginToolView {
-	return pluginToolView{PluginID: pluginID, Enabled: enabled, Version: deploymentVersion(pluginID, enabled)}
 }
 
 // validateEmbeddingDim is shared by HTTP and tool callers. Keeping it here

@@ -1290,26 +1290,26 @@ func deploymentAndMCPSmokeCases() []smokeCase {
 		{tool: "settings_embedding_setting_update", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"expected_version": s.need(t, "embedding_setting_version"), "enabled": false, "dim": 1536, "normalize": false}
 		}, check: captureVersion("settings_embedding_setting_update", "embedding_setting_version")},
-		{tool: "settings_plugin_list", args: noArgs},
-		{tool: "settings_plugin_disable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"plugin_id": "stella"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("stella", false)}},
-		{tool: "settings_plugin_enable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"plugin_id": "stella"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("stella", true)}},
+		{tool: "settings_plugin_list", args: noArgs, check: captureFilePluginID},
+		{tool: "settings_plugin_disable", args: func(t *testing.T, s *smokeState) map[string]any {
+			return map[string]any{"plugin_id": s.need(t, "deployment_plugin_id")}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("deployment_plugin_id", false)}},
+		{tool: "settings_plugin_enable", args: func(t *testing.T, s *smokeState) map[string]any {
+			return map[string]any{"plugin_id": s.need(t, "deployment_plugin_id")}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("deployment_plugin_id", true)}},
 		{tool: "settings_mcp_server_list", args: noArgs},
 		{tool: "settings_mcp_server_create", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"scope": "user", "name": "tool-smoke-mcp-" + s.values["runID"], "url": "https://mcp.example.test"}
-		}, check: captureIDAndVersion("settings_mcp_server_create", "mcp_server_id", "mcp_server_version")},
-		{tool: "settings_mcp_server_get", args: byID("mcp_server_id"), check: captureVersion("settings_mcp_server_get", "mcp_server_version")},
+		}, check: captureIDAndDigest("settings_mcp_server_create", "mcp_server_id", "mcp_server_digest")},
+		{tool: "settings_mcp_server_get", args: byID("mcp_server_id"), check: captureDigest("settings_mcp_server_get", "mcp_server_digest")},
 		{tool: "settings_mcp_server_update", args: func(t *testing.T, s *smokeState) map[string]any {
-			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_version": s.need(t, "mcp_server_version"), "name": "tool-smoke-mcp-updated-" + s.values["runID"]}
-		}, check: captureVersion("settings_mcp_server_update", "mcp_server_version")},
+			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_digest": s.need(t, "mcp_server_digest"), "url": "https://mcp-updated.example.test"}
+		}, check: captureDigest("settings_mcp_server_update", "mcp_server_digest")},
 		{tool: "settings_mcp_server_probe", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"id": s.need(t, "mcp_server_id")}
 		}, check: mcpProbeStatusIsError},
 		{tool: "settings_mcp_server_delete", args: func(t *testing.T, s *smokeState) map[string]any {
-			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_version": s.need(t, "mcp_server_version")}
+			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_digest": s.need(t, "mcp_server_digest")}
 		}, confirm: &smokeConfirm{tool: "settings_mcp_server_get", args: byID("mcp_server_id"), wantsError: `(?i)(not found|no rows)`}},
 	}
 }
@@ -1358,8 +1358,52 @@ func captureVersion(tool, key string) func(*testing.T, *smokeState, map[string]s
 	}
 }
 
-func pluginListedEnabled(pluginID string, enabled bool) func(*testing.T, *smokeState, string) {
-	return func(t *testing.T, _ *smokeState, result string) {
+func captureIDAndDigest(tool, idKey, digestKey string) func(*testing.T, *smokeState, map[string]string) {
+	return func(t *testing.T, s *smokeState, results map[string]string) {
+		var value struct {
+			ID     string `json:"id"`
+			Digest string `json:"content_digest"`
+		}
+		if err := json.Unmarshal([]byte(results[tool]), &value); err != nil || value.ID == "" || value.Digest == "" {
+			t.Fatalf("%s result = %q, want id and content digest: %v", tool, results[tool], err)
+		}
+		s.set(idKey, value.ID)
+		s.set(digestKey, value.Digest)
+	}
+}
+
+func captureDigest(tool, key string) func(*testing.T, *smokeState, map[string]string) {
+	return func(t *testing.T, s *smokeState, results map[string]string) {
+		var value struct {
+			Digest string `json:"content_digest"`
+		}
+		if err := json.Unmarshal([]byte(results[tool]), &value); err != nil || value.Digest == "" {
+			t.Fatalf("%s result = %q, want content digest: %v", tool, results[tool], err)
+		}
+		s.set(key, value.Digest)
+	}
+}
+
+func captureFilePluginID(t *testing.T, s *smokeState, results map[string]string) {
+	var value struct {
+		Plugins []struct {
+			PluginID string `json:"plugin_id"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal([]byte(results["settings_plugin_list"]), &value); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range value.Plugins {
+		if strings.HasPrefix(item.PluginID, "file:") {
+			s.set("deployment_plugin_id", item.PluginID)
+			return
+		}
+	}
+	t.Fatalf("settings_plugin_list returned no file-scoped plugin ID: %s", results["settings_plugin_list"])
+}
+
+func pluginListedEnabled(idKey string, enabled bool) func(*testing.T, *smokeState, string) {
+	return func(t *testing.T, s *smokeState, result string) {
 		var value struct {
 			Plugins []struct {
 				PluginID string `json:"plugin_id"`
@@ -1369,6 +1413,7 @@ func pluginListedEnabled(pluginID string, enabled bool) func(*testing.T, *smokeS
 		if err := json.Unmarshal([]byte(result), &value); err != nil {
 			t.Fatal(err)
 		}
+		pluginID := s.need(t, idKey)
 		for _, plugin := range value.Plugins {
 			if plugin.PluginID == pluginID {
 				if plugin.Enabled != enabled {
@@ -1583,7 +1628,7 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 	if err != nil {
 		t.Fatalf("tool smoke: build authority: %v", err)
 	}
-	if err := disableSmokeCLIPlugins(ctx, result.pluginService, authority); err != nil {
+	if err := disableSmokeCLIPlugins(ctx, result.pluginFiles, authority); err != nil {
 		t.Fatalf("tool smoke: disable optional CLI plugins: %v", err)
 	}
 
@@ -1597,29 +1642,28 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 // plugin mutation boundary before the first runner is built. The smoke suite
 // exercises Go and core tools, while CLI installation is a separate production
 // path that would require network access and a host-managed toolchain.
-func disableSmokeCLIPlugins(ctx context.Context, service *plugin.Service, authority authz.Authority) error {
+func disableSmokeCLIPlugins(ctx context.Context, service *plugin.FileService, authority authz.Authority) error {
 	access, err := service.Begin(authority)
 	if err != nil {
 		return err
 	}
-	definitions, err := access.ListDefinitions(ctx)
+	resources, err := access.List(ctx, plugin.ResourcePlugin, nil, "")
 	if err != nil {
 		return err
 	}
-	disabled := false
-	for _, definition := range definitions {
-		payload, err := plugin.DecodeResourcePayload(definition.Spec, "smoke CLI definition")
-		if err != nil || len(payload.Binaries) == 0 {
+	for _, resource := range resources {
+		if resource.Package == nil || resource.Package.Extension == nil || len(resource.Package.Extension.Binaries) == 0 {
 			continue
 		}
-		configs, err := access.ListConfigs(ctx, definition.ID, plugin.ScopeSystem, "")
+		// The list projection is a snapshot. Re-read the resource immediately
+		// before the CAS so a concurrent settings write cannot make this fixture
+		// fail with a stale digest.
+		fresh, err := access.Get(ctx, resource.Key.ID())
 		if err != nil {
-			return fmt.Errorf("list %s configs: %w", definition.ID, err)
+			return fmt.Errorf("get %s: %w", resource.Key.ID(), err)
 		}
-		for _, config := range configs {
-			if _, err := access.UpdateConfig(ctx, definition.ID, config.ID, config.Revision, plugin.ConfigPatch{EnabledSet: true, Enabled: &disabled}); err != nil {
-				return fmt.Errorf("disable %s config %s: %w", definition.ID, config.ID, err)
-			}
+		if _, err := access.SetEnabled(ctx, fresh.Key.ID(), fresh.SettingsDigest, false); err != nil {
+			return fmt.Errorf("disable %s: %w", fresh.Key.ID(), err)
 		}
 	}
 	return nil

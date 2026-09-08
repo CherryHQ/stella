@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"filippo.io/age"
@@ -59,6 +58,7 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin"
 	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/reflect"
+	"github.com/CherryHQ/stella/internal/resourceupgrade"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
@@ -72,7 +72,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
-	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/plugins/email"
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
 	"github.com/CherryHQ/stella/resources"
@@ -125,7 +124,7 @@ type setupResult struct {
 	skillAccess            *access.Service
 	skillManagement        *skill.Management
 	pluginHost             *pluginhost.Host
-	pluginService          *plugin.Service
+	pluginFiles            *plugin.FileService
 	nativePolicy           *plugin.NativePolicy
 	providerRegistry       *providers.Registry
 	channelRuntimeServices *pluginhost.ChannelPlatform
@@ -134,6 +133,7 @@ type setupResult struct {
 	goalSvc                *goal.Service
 	vaultSvc               *vault.Service
 	mcpSvc                 *mcp.Service
+	mcpFiles               *mcp.FileService
 	controlPlane           *controlplane.Service
 	webhooks               *webhook.Service
 	credSvc                *connections.Service
@@ -151,7 +151,7 @@ type setupResult struct {
 	builtinTools           []agent.BuiltinTool
 	toolMeta               *toolmeta.Registry
 	notifier               *notify.Dispatcher
-	skillStore             *skill.POSIXStore
+	skillStore             *skill.FileStore
 	sessionImages          *sessionmedia.Pipeline
 	cliUserID              int64
 	oauthRegistry          *oauth.ProviderRegistry
@@ -159,21 +159,27 @@ type setupResult struct {
 	metricHook             *metrichook.Hook
 }
 
-type pluginSkillCopyReader struct{ service *plugin.Service }
+type pluginSkillCopyReader struct{ files *plugin.FileService }
 
 func (r pluginSkillCopyReader) ReadPackageSkill(ctx context.Context, authority authz.Authority, pluginID, digest, name string) (skill.PackageSkillRevision, error) {
-	access, err := r.service.Begin(authority)
+	access, err := r.files.Begin(authority)
 	if err != nil {
 		return skill.PackageSkillRevision{}, err
 	}
-	files, err := access.ReadPackageSkill(ctx, pluginID, digest, name)
+	resource, err := access.Get(ctx, pluginID)
 	if err != nil {
 		return skill.PackageSkillRevision{}, err
 	}
-	return skill.PackageSkillRevision{
-		Ref:   skill.PackageSkillRef{PackageID: files.PluginID, PackageDigest: files.Digest, Name: files.Name, Description: files.Description},
-		Files: files.Files, Modes: files.Modes,
-	}, nil
+	var description string
+	for _, declared := range resource.Skills {
+		if declared.Name == name {
+			description = declared.Description
+			break
+		}
+	}
+	return skill.CapturePackageSkillRevision(resource, skill.PackageSkillRef{
+		PackageID: pluginID, PackageDigest: digest, Name: name, Description: description,
+	})
 }
 
 // setup builds every subsystem. baseURL is the final public URL resolved once at
@@ -230,88 +236,38 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	agentAccess := agentaccess.NewService(store, authStore, agentaccess.WithGuestPolicyDecoder(phost.GuestPolicyResolver))
 	ps.nativePolicy.SetAgentAccess(agentAccess)
 	var poolMgr *agent.PoolManager
-	checkSandboxRecovery := captureSandboxRecovery(parent)
-	var sandboxRecoveryReady atomic.Bool
-	cleanupRequests := make(chan struct{}, 1)
-	requestResourceCleanup := func() {
-		select {
-		case cleanupRequests <- struct{}{}:
-		default:
-		}
-	}
-	cleanupGuard := func(ctx context.Context) error {
-		if !sandboxRecoveryReady.Load() {
-			return errors.New("resource cleanup pending: startup Docker containers have not been confirmed stopped")
-		}
-		allowed, err := pkgsandbox.CleanupAllowed(ctx, config.StellaHome())
-		if err != nil {
-			return err
-		}
-		if !allowed {
-			return errors.New("resource cleanup pending: sandbox descendants have not been confirmed stopped")
-		}
-		return nil
-	}
 	contentStore, err := plugin.NewContentStore(filepath.Join(config.StellaHome(), "plugins", "content"))
 	if err != nil {
 		return nil, fmt.Errorf("build plugin content store: %w", err)
 	}
-	packageSkillReader, err := skill.NewStorePackageSkillReader(contentStore.ReadPackageSkill)
-	if err != nil {
-		return nil, fmt.Errorf("build package Skill reader: %w", err)
-	}
-	pluginSvc := plugin.NewService(db, agentAccess, ps.catalog, pluginBackendPolicy(cfg.MCP.AllowPrivateEndpoints), func(ctx context.Context, mutate func() error) error {
-		// Startup has no admitted runners or listeners yet.
-		if poolMgr == nil {
-			return mutate()
-		}
-		err := poolMgr.ApplyPluginMutationAsync(ctx, mutate)
-		if err == nil || errors.Is(err, plugin.ErrCommitOutcomeUnknown) {
-			requestResourceCleanup()
-			// Event admission already reads the committed cap. Reconcile listeners
-			// after releasing the admission fence, without holding a database tx.
-			reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-			defer cancel()
-			if reconcileErr := phost.ReconcileChannels(reconcileCtx); reconcileErr != nil {
-				slog.Error("reconcile channels after committed plugin change", "error", reconcileErr)
+	// Legacy sync runs before admission; it needs no live-runner mutation fence.
+	pluginSvc := plugin.NewService(db, agentAccess, ps.catalog, pluginBackendPolicy(cfg.MCP.AllowPrivateEndpoints), func(_ context.Context, mutate func() error) error { return mutate() },
+		plugin.WithContentStore(contentStore), plugin.WithBuiltinSkillReader(func(ctx context.Context, pluginID, skillName string) (map[string][]byte, map[string]fs.FileMode, error) {
+			if ps.bundled == nil {
+				return nil, nil, errors.New("builtin Skill registry unavailable")
 			}
-		}
-		return err
-	}, plugin.WithContentStore(contentStore), plugin.WithContentOwnerSnapshot(func(ctx context.Context) (plugin.ContentOwnerSnapshot, error) {
-		if poolMgr == nil {
-			return plugin.ContentOwnerSnapshot{}, errors.New("runtime ownership is not ready")
-		}
-		owners, err := poolMgr.ContentOwnerSnapshot(ctx)
-		if err != nil {
-			return plugin.ContentOwnerSnapshot{}, err
-		}
-		return owners, cleanupGuard(ctx)
-	}), plugin.WithBuiltinSkillReader(func(ctx context.Context, pluginID, skillName string) (map[string][]byte, map[string]fs.FileMode, error) {
-		if ps.bundled == nil {
-			return nil, nil, errors.New("builtin Skill registry unavailable")
-		}
-		descriptor, ok := ps.bundled.BuiltinSkill(skillName)
-		if !ok || descriptor.OwnerPluginID != pluginID {
-			return nil, nil, fmt.Errorf("builtin Skill %q is not owned by plugin %q", skillName, pluginID)
-		}
-		files := make(map[string][]byte, len(descriptor.Files))
-		modes := make(map[string]fs.FileMode, len(descriptor.Files))
-		for _, entry := range descriptor.Files {
-			if err := ctx.Err(); err != nil {
-				return nil, nil, err
+			descriptor, ok := ps.bundled.BuiltinSkill(skillName)
+			if !ok || descriptor.OwnerPluginID != pluginID {
+				return nil, nil, fmt.Errorf("builtin Skill %q is not owned by plugin %q", skillName, pluginID)
 			}
-			data, actual, err := ps.bundled.ReadBuiltinSkillFile(skillName, entry.Path)
-			if err != nil {
-				return nil, nil, err
+			files := make(map[string][]byte, len(descriptor.Files))
+			modes := make(map[string]fs.FileMode, len(descriptor.Files))
+			for _, entry := range descriptor.Files {
+				if err := ctx.Err(); err != nil {
+					return nil, nil, err
+				}
+				data, actual, err := ps.bundled.ReadBuiltinSkillFile(skillName, entry.Path)
+				if err != nil {
+					return nil, nil, err
+				}
+				if actual != entry {
+					return nil, nil, fmt.Errorf("builtin Skill %q descriptor changed", skillName)
+				}
+				files[entry.Path] = append([]byte(nil), data...)
+				modes[entry.Path] = entry.Mode
 			}
-			if actual != entry {
-				return nil, nil, fmt.Errorf("builtin Skill %q descriptor changed", skillName)
-			}
-			files[entry.Path] = append([]byte(nil), data...)
-			modes[entry.Path] = entry.Mode
-		}
-		return files, modes, nil
-	}))
+			return files, modes, nil
+		}))
 	ps.nativePolicy.SetMutationFence(func(ctx context.Context, mutate func() error) error {
 		if poolMgr == nil {
 			return mutate()
@@ -326,26 +282,25 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		}
 		return err
 	})
-	if err := plugin.ImportLegacyState(parent, db, ps.catalog, ps.nativeRegistry, newToolMetaRegistry(generatedFamilies()...)); err != nil && !errors.Is(err, plugin.ErrImportComplete) {
-		return nil, fmt.Errorf("import plugin configuration: %w", err)
+	migrationState, err := resourceupgrade.ReadState(parent, db)
+	if err != nil {
+		return nil, fmt.Errorf("read filesystem resource migration marker: %w", err)
 	}
-	if err := plugin.MigratePublishedState(parent, db, ps.catalog); err != nil && !errors.Is(err, plugin.ErrImportComplete) {
-		return nil, fmt.Errorf("publish plugin configuration: %w", err)
-	}
-	if err := pluginSvc.SyncBuiltinDefaults(parent); err != nil {
-		return nil, fmt.Errorf("sync builtin plugins: %w", err)
+	legacyMigrationRequired := !migrationState.Completed()
+	if legacyMigrationRequired {
+		if err := plugin.ImportLegacyState(parent, db, ps.catalog, ps.nativeRegistry, newToolMetaRegistry(generatedFamilies()...)); err != nil && !errors.Is(err, plugin.ErrImportComplete) {
+			return nil, fmt.Errorf("import plugin configuration: %w", err)
+		}
+		if err := plugin.MigratePublishedState(parent, db, ps.catalog); err != nil && !errors.Is(err, plugin.ErrImportComplete) {
+			return nil, fmt.Errorf("publish plugin configuration: %w", err)
+		}
+		if err := pluginSvc.SyncBuiltinDefaults(parent); err != nil {
+			return nil, fmt.Errorf("sync builtin plugins: %w", err)
+		}
 	}
 	nativeCap := nativeAdministrativeCap(ps.nativePolicy)
 	phost.SetListenerCap(nativeCap)
 	backgroundCapabilityGate := pluginBackgroundGate(ps.nativePolicy, agentAccess)
-	pluginContextBuilder := func(ctx context.Context, authority authz.Authority, agentID string) (agent.PluginContext, error) {
-		snapshot, err := pluginSvc.ResolveSnapshot(ctx, authority, agentID)
-		if err != nil {
-			return agent.PluginContext{}, err
-		}
-		return agentruntime.NewPluginContext(snapshot)
-	}
-
 	// One process-wide manager is the sole materializer beneath STELLA_HOME.
 	homeRegistry, err := home.NewWorkspaceManager(db, config.StellaHome())
 	if err != nil {
@@ -357,15 +312,34 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			_ = homeRegistry.Close()
 		}
 	}()
-	skillStore, err := setupSkillStore(db, homeRegistry)
+	legacySkillStore, err := setupSkillStore(db, homeRegistry)
 	if err != nil {
-		return nil, fmt.Errorf("build Skill store: %w", err)
+		return nil, fmt.Errorf("build legacy Skill store: %w", err)
 	}
-	skillMigrator, err := skill.NewSkillHomeMigratorFromStore(db, skillStore)
+	skillMigrator, err := skill.NewSkillHomeMigratorFromStore(db, legacySkillStore)
 	if err != nil {
 		return nil, fmt.Errorf("build Skill migration reconciler: %w", err)
 	}
-	if err := ensureEmbeddedAssets(); err != nil {
+	if legacyMigrationRequired {
+		startup, err := skillMigrator.ReconcileStartup(parent)
+		if err != nil {
+			return nil, fmt.Errorf("reconcile Skill Home: %w", err)
+		}
+		if startup.Degraded != nil {
+			return nil, fmt.Errorf("reconcile Skill Home degraded: %w", startup.Degraded)
+		}
+	}
+	resourceStore := plugin.NewResourceStore(homeRegistry)
+	pluginFiles := plugin.NewFileService(resourceStore, agentAccess)
+	skillStore := skill.NewFileStore(db, homeRegistry)
+	pluginContextBuilder := func(ctx context.Context, authority authz.Authority, agentID string) (agent.PluginContext, error) {
+		resources, err := pluginFiles.Capture(ctx, authority, agentID)
+		if err != nil {
+			return agent.PluginContext{}, err
+		}
+		return agentruntime.NewFilePluginContext(authority, resources)
+	}
+	if err := ensureEmbeddedAssetsWithLegacyCheck(legacyMigrationRequired); err != nil {
 		return nil, err
 	}
 	var systemRuntimePlan *systemplugins.RuntimePlan
@@ -390,7 +364,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	skillAccess := access.NewService(skillStore, agentAccess)
 	// Managed Skill CRUD is shared by HTTP and the Stella-only tool adapter;
 	// both resolve scope and owner through the same PEP.
-	skillManagement := skill.NewManagement(skillStore, skillAccess, skill.WithPackageSkillReader(pluginSkillCopyReader{service: pluginSvc}))
+	skillManagement := skill.NewManagement(skillStore, skillAccess, skill.WithPackageSkillReader(pluginSkillCopyReader{files: pluginFiles}))
 
 	// Bind account enrollment after Vault initialization and before host Seal.
 	// Catalog construction needs no runtime backing services.
@@ -699,13 +673,19 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	mcpSvc := mcp.NewServiceForPool(db, mcpVault, bindMCPVault)
 	mcpSvc.SetEndpointPolicy(mcp.EndpointPolicy{AllowPrivate: cfg.MCP.AllowPrivateEndpoints})
-	mcpSvc.SetPluginService(pluginSvc)
+	mcpFiles := mcp.NewFileService(pluginFiles, resourceStore, mcpSvc)
+	if !migrationState.Completed() {
+		if err := resourceupgrade.Run(parent, resourceupgrade.Dependencies{
+			DB: db, Roots: homeRegistry, LegacyPlugins: pluginSvc, LegacySkills: legacySkillStore, MCPService: mcpSvc,
+		}); err != nil {
+			return nil, fmt.Errorf("migrate filesystem resources: %w", err)
+		}
+	}
 
 	// The tools are built before the PoolManager exists; the closure is resolved
 	// only during a turn, after the shared Management service is fully wired.
 	var agentManagement *agentaccess.Management
 	var controlPlaneSvc *controlplane.Service
-	var mcpAccess *mcp.Access
 	var registeredToolMeta *toolmeta.Registry
 	builtinTools := newBuiltinTools(builtinToolDeps{
 		Notifier:    dispatcher,
@@ -729,16 +709,16 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		Recally:         recallySvc,
 		Vault:           vaultSvc,
 		AgentManagement: func() *agentaccess.Management { return agentManagement },
-		ToolOverrides:   agent.NewToolOverrideStore(db),
+		ToolOverrides:   agent.NewToolOverrideStore(db, pluginFiles),
 		ToolMeta:        func() *toolmeta.Registry { return registeredToolMeta },
 		SkillManagement: skillManagement,
 		SettingsAdmin:   settingsAdminLookup{users: appdb.NewOIDCStore(db)},
 		SettingsAgents:  store,
 		ControlPlane:    func() *controlplane.Service { return controlPlaneSvc },
-		PluginService:   func() *plugin.Service { return pluginSvc },
+		PluginFiles:     func() *plugin.FileService { return pluginFiles },
 		NativePolicy:    ps.nativePolicy,
-		MCPAccess:       func() *mcp.Access { return mcpAccess },
-		MCPCatalog:      mcpCatalogFunc(mcpSvc),
+		MCPFiles:        func() *mcp.FileService { return mcpFiles },
+		MCPCatalog:      mcpCatalogFunc(mcpFiles),
 	})
 	registeredSpecs := make([]toolmeta.ActionTool, 0, len(builtinTools))
 	for _, builtin := range builtinTools {
@@ -751,7 +731,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	registeredToolMeta = toolmeta.NewRegistry(registeredSpecs...)
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
-		agent.WithOwnerReleaseCallback(requestResourceCleanup),
 		agent.WithSnapshotLoader(snapshotLoader),
 		agent.WithCodeToolSurface(cfg.Agent.CodeToolSurface),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
@@ -770,22 +749,13 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithPluginContextBuilder(pluginContextBuilder),
 		agent.WithBeforeRunBuilderPM(phost.BeforeRun),
 		agent.WithToolLifecycleBuilder(toolLifecycleBuilder),
-		agent.WithToolOverrideFetcher(agent.NewToolOverrideStore(db).Fetch),
+		agent.WithToolOverrideFetcher(agent.NewToolOverrideStore(db, pluginFiles).Fetch),
 		agent.WithSkillRevisionReader(skillStore),
-		agent.WithSkillTurnRegistrar(skillStore.RegisterSkillTurnView),
-		agent.WithSkillPackageReader(packageSkillReader),
 		agent.WithSkillReadAuthorizer(skillAccess),
 		agent.WithProjectResolver(projectStore.Resolve),
 		agent.WithHomeWorkspace(homeRegistry),
 		agent.WithSystemRuntimePlan(systemRuntimePlan),
 	)
-	skillStore.BindActiveSkillTurnSnapshot(func(ctx context.Context) ([]skill.SkillTurnView, error) {
-		_, views, err := poolMgr.PluginOwnerSnapshots(ctx)
-		return views, err
-	})
-	skillStore.BindRevisionCleanupTrigger(requestResourceCleanup)
-	skillStore.BindRevisionCleanupGuard(cleanupGuard)
-
 	// Bind the static Vault/MCP/OAuth capabilities into the pool BEFORE StartAll,
 	// as one-shot pre-start binds. Binding them up front means agents are built
 	// once, with the full capability set, rather than rebuilt after a late setter.
@@ -842,7 +812,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Begin, so the HTTP transport keeps only decode/shape. Built here, after the
 	// pool and shared connections service are fully wired.
 	controlPlaneSvc = controlplane.NewService(store, phost, providerRegistry, poolMgr, credSvc, slog.With("component", "controlplane"))
-	mcpAccess = mcp.NewAccess(mcpSvc, agentAccess, poolMgr)
 
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
@@ -871,33 +840,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("seal plugin host: %w", err)
 	}
 
-	skillStore.BeginStartupReconciliation()
 	backgroundTasks := &sync.WaitGroup{}
-	// Coalesce mutation and owner-release events; resource domains own their
-	// scans, and shutdown joins this worker through the existing task group.
-	backgroundTasks.Go(func() {
-		for {
-			select {
-			case <-parent.Done():
-				return
-			case <-cleanupRequests:
-				if !sandboxRecoveryReady.Load() {
-					ready, err := checkSandboxRecovery(parent)
-					if err != nil && parent.Err() == nil {
-						slog.Warn("sandbox recovery pending", "error", err)
-					}
-					sandboxRecoveryReady.Store(ready && err == nil)
-				}
-				if err := pluginSvc.Cleanup(parent); err != nil && parent.Err() == nil {
-					slog.Warn("package cleanup pending", "error", err)
-				}
-				if err := skillStore.CleanupUnreachableRevisions(parent); err != nil && parent.Err() == nil {
-					slog.Warn("Skill revision cleanup pending", "error", err)
-				}
-			}
-		}
-	})
-	requestResourceCleanup()
 
 	// Warm the release cache without delaying admission. A session still
 	// publishes only its authorized snapshot, and shutdown cancels and joins us.
@@ -913,9 +856,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	})
 
 	reconcileProjectCoordinatesInBackground(parent, backgroundTasks, homeRegistry)
-	// Close runtime entry points before setup returns and traffic can beat the
-	// background reconciler to the legacy inventory.
-	reconcileSkillHomeInBackground(parent, backgroundTasks, skillMigrator)
 	backfillRecallyContentInBackground(parent, backgroundTasks, recallySvc)
 
 	result := &setupResult{
@@ -936,7 +876,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		skillAccess:            skillAccess,
 		skillManagement:        skillManagement,
 		pluginHost:             phost,
-		pluginService:          pluginSvc,
+		pluginFiles:            pluginFiles,
 		nativePolicy:           ps.nativePolicy,
 		providerRegistry:       providerRegistry,
 		channelRuntimeServices: ps.channelRuntimeServices,
@@ -945,6 +885,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		goalSvc:                goalSvc,
 		vaultSvc:               vaultSvc,
 		mcpSvc:                 mcpSvc,
+		mcpFiles:               mcpFiles,
 		controlPlane:           controlPlaneSvc,
 		webhooks:               webhookSvc,
 		credSvc:                credSvc,
@@ -977,20 +918,26 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 }
 
 func ensureEmbeddedAssets() error {
+	return ensureEmbeddedAssetsWithLegacyCheck(true)
+}
+
+func ensureEmbeddedAssetsWithLegacyCheck(checkLegacy bool) error {
 	registry, err := resources.Default()
 	if err != nil {
 		return fmt.Errorf("load builtin skill bundle: %w", err)
 	}
-	blockers, err := inventoryLegacySkills(filepath.Join(config.StellaHome(), ".agents", "skills"), registry.BuiltinSkills())
-	if err != nil {
-		return fmt.Errorf("inventory legacy system skills: %w", err)
-	}
-	if len(blockers) != 0 {
-		paths := make([]string, 0, len(blockers))
-		for _, blocker := range blockers {
-			paths = append(paths, blocker.Path)
+	if checkLegacy {
+		blockers, err := inventoryLegacySkills(filepath.Join(config.StellaHome(), ".agents", "skills"), registry.BuiltinSkills())
+		if err != nil {
+			return fmt.Errorf("inventory legacy system skills: %w", err)
 		}
-		return fmt.Errorf("cannot activate builtin skill bundle: legacy system skills remain at %s; back up the listed paths, run or roll back to the previous working Stella binary, import each custom root as a global/system Skill through Settings → Skills (older releases) or Admin Console → Deployment resources → Global Skills, verify each import, remove only migrated or residual legacy paths, then retry", strings.Join(paths, ", "))
+		if len(blockers) != 0 {
+			paths := make([]string, 0, len(blockers))
+			for _, blocker := range blockers {
+				paths = append(paths, blocker.Path)
+			}
+			return fmt.Errorf("cannot activate builtin skill bundle: legacy system skills remain at %s; back up the listed paths, run or roll back to the previous working Stella binary, import each custom root as a global/system Skill through Settings → Skills (older releases) or Admin Console → Deployment resources → Global Skills, verify each import, remove only migrated or residual legacy paths, then retry", strings.Join(paths, ", "))
+		}
 	}
 	// Remove assets retired or renamed by newer releases so stale copies do not
 	// remain discoverable beside their replacements.

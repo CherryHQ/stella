@@ -35,6 +35,7 @@ import { updateAgentTool } from "@/lib/api-client";
 import {
   deleteMcpServer,
   disconnectMcpServerOAuth,
+  getMcpServer,
   startMcpServerOAuth,
 } from "@/lib/api-client/sdk.gen";
 import type { AgentMcpServer } from "@/lib/api-client/types.gen";
@@ -164,7 +165,11 @@ export async function runBoundedFamilyUpdates<T>(
 }
 
 type FamilyState =
-  | { kind: "email_config_required"; enabledCount: number; overrideCount: number }
+  | {
+      kind: "email_config_required";
+      enabledCount: number;
+      overrideCount: number;
+    }
   | { kind: "all_enabled"; enabledCount: number; overrideCount: number }
   | { kind: "partially_enabled"; enabledCount: number; overrideCount: number }
   | { kind: "all_disabled"; enabledCount: number; overrideCount: number }
@@ -233,18 +238,34 @@ function familyState(tools: Tool[]): FamilyState {
         tool.availability_reason === EMAIL_CONFIG_REQUIRED,
     )
   ) {
-    return { kind: "email_config_required", enabledCount, overrideCount: overrides.length };
+    return {
+      kind: "email_config_required",
+      enabledCount,
+      overrideCount: overrides.length,
+    };
   }
   if (overrides.length === 0) {
     return { kind: "system_managed", enabledCount, overrideCount: 0 };
   }
   if (enabledCount === overrides.length) {
-    return { kind: "all_enabled", enabledCount, overrideCount: overrides.length };
+    return {
+      kind: "all_enabled",
+      enabledCount,
+      overrideCount: overrides.length,
+    };
   }
   if (enabledCount === 0) {
-    return { kind: "all_disabled", enabledCount, overrideCount: overrides.length };
+    return {
+      kind: "all_disabled",
+      enabledCount,
+      overrideCount: overrides.length,
+    };
   }
-  return { kind: "partially_enabled", enabledCount, overrideCount: overrides.length };
+  return {
+    kind: "partially_enabled",
+    enabledCount,
+    overrideCount: overrides.length,
+  };
 }
 
 function originLabel(origin: string): MessageKey {
@@ -275,15 +296,22 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
   const invalidateMcp = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["agent-tools", agentId] }),
-      queryClient.invalidateQueries({ queryKey: ["agent-mcp-servers", agentId] }),
+      queryClient.invalidateQueries({
+        queryKey: ["agent-mcp-servers", agentId],
+      }),
     ]);
   };
 
   const removeServer = useMutation({
     mutationFn: async (server: AgentMcpServer) => {
+      const { data } = await getMcpServer({
+        path: { id: server.id },
+        throwOnError: true,
+      });
+      if (!data) throw new Error("MCP server is unavailable");
       return deleteMcpServer({
-        path: { id: server.config_id },
-        query: { expected_parent_revision: server.parent_revision },
+        path: { id: server.id },
+        query: { expected_digest: data.content_digest },
         throwOnError: true,
       });
     },
@@ -295,11 +323,18 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
   });
 
   const connectServer = useMutation({
-    mutationFn: (server: AgentMcpServer) =>
-      startMcpServerOAuth({
-        path: { id: server.config_id },
+    mutationFn: async (server: AgentMcpServer) => {
+      const { data } = await getMcpServer({
+        path: { id: server.id },
         throwOnError: true,
-      }),
+      });
+      if (!data) throw new Error("MCP server is unavailable");
+      return startMcpServerOAuth({
+        path: { id: server.id },
+        body: { expected_digest: data.content_digest },
+        throwOnError: true,
+      });
+    },
     onSuccess: async ({ data }) => {
       if (data?.authorization_url) {
         // Navigate the whole tab: the external authorization server redirects
@@ -313,7 +348,7 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
   const disconnectServer = useMutation({
     mutationFn: (server: AgentMcpServer) =>
       disconnectMcpServerOAuth({
-        path: { id: server.config_id },
+        path: { id: server.id },
         throwOnError: true,
       }),
     onSuccess: invalidateMcp,
@@ -446,7 +481,7 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("mcp.deleteTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("mcp.deleteConfirm", { name: pendingDelete?.plugin_id ?? "" })}
+              {t("mcp.deleteConfirm", { name: pendingDelete?.name ?? "" })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -528,11 +563,11 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
           ) : (
             (mcpQuery.data ?? []).map((server) => {
               const members = (query.data ?? []).filter(
-                (tool) => tool.source === MCP_SOURCE && tool.family === `mcp:${server.plugin_id}`,
+                (tool) => tool.source === MCP_SOURCE && tool.family === `mcp:${server.server_key}`,
               );
               return (
                 <McpServerGroup
-                  key={`mcp:${server.config_id}`}
+                  key={`mcp:${server.id}`}
                   server={server}
                   tools={members}
                   canEdit={canEdit}
@@ -540,12 +575,12 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
                   busyToolName={mutation.isPending ? (mutation.variables?.tool.name ?? null) : null}
                   familyBusy={
                     mcpFamilyMutation.isPending &&
-                    mcpFamilyMutation.variables?.family === `mcp:${server.plugin_id}`
+                    mcpFamilyMutation.variables?.family === `mcp:${server.server_key}`
                   }
                   onToggle={(tool, enabled, scope) => mutation.mutate({ tool, enabled, scope })}
                   onSetFamilyEnabled={(members_, enabled) =>
                     mcpFamilyMutation.mutate({
-                      family: `mcp:${server.plugin_id}`,
+                      family: `mcp:${server.server_key}`,
                       tools: members_,
                       enabled,
                     })
@@ -616,7 +651,9 @@ export function SystemSettingsSection({
                     badges={
                       <>
                         <Badge variant="outline">
-                          {t("agents.tools.family.actionCount", { count: members.length })}
+                          {t("agents.tools.family.actionCount", {
+                            count: members.length,
+                          })}
                         </Badge>
                         <Badge variant="outline">{t("agents.tools.system.readOnly")}</Badge>
                       </>
@@ -855,7 +892,7 @@ export function McpServerGroup({
   // signal: map it onto the same reason labels the tool rows carry.
   const reason = !server.enabled
     ? "mcp_server_disabled"
-    : server.status !== "ok"
+    : server.status !== "ready"
       ? mcpAvailabilityReason(
           server.status === "needs_auth" ? "mcp_needs_auth" : "mcp_server_error",
         )
@@ -863,14 +900,18 @@ export function McpServerGroup({
 
   return (
     <ToolFamilyCard
-      title={server.plugin_id}
+      title={server.name}
       defaultOpen={defaultOpen}
       badges={
         <>
           <Badge variant="outline">{t(SCOPE_LABEL_KEY[server.scope])}</Badge>
           <Badge
             variant={
-              server.status === "ok" ? "success" : server.status === "error" ? "warning" : "outline"
+              server.status === "ready"
+                ? "success"
+                : server.status === "error"
+                  ? "warning"
+                  : "outline"
             }
           >
             {t(mcpStatusKey(server.status))}
@@ -893,7 +934,7 @@ export function McpServerGroup({
       }
       description={
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="truncate text-xs text-muted-foreground">{server.plugin_id}</span>
+          <span className="truncate text-xs text-muted-foreground">{server.name}</span>
           {reason && <Badge variant="warning">{t(`agents.tools.mcp.reason.${reason}`)}</Badge>}
         </div>
       }
@@ -916,7 +957,7 @@ export function McpServerGroup({
               <MoreHorizontal />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={6}>
-              <DropdownMenuLabel>{server.plugin_id}</DropdownMenuLabel>
+              <DropdownMenuLabel>{server.name}</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => onEdit(server)}>{t("common.edit")}</DropdownMenuItem>
               <DropdownMenuItem onClick={() => onDelete(server)}>
                 {t("common.delete")}

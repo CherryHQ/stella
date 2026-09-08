@@ -1,72 +1,98 @@
 export type PluginScope = "system" | "system_agent" | "user" | "user_agent";
 
-export interface PluginDefinition {
-  id: string;
-  display_name: string;
-  is_builtin: boolean;
-  is_default_enabled: boolean;
-  spec: Record<string, unknown>;
-  revision: number;
-  retired_at?: string | null;
-  created_at: string;
-  updated_at: string;
+export interface ResourceFileInfo {
+  path: string;
+  size: number;
+  is_executable: boolean;
+  digest: string;
 }
 
 export interface PluginMCPServerSummary {
-  transport: "streamable_http" | "sse";
-  auth_type: "none" | "bearer" | "oauth";
-  credential_mode: "shared" | "per_user";
+  server_key: string;
+  transport?: "streamable_http" | "sse";
+  auth_type?: "none" | "bearer" | "oauth";
+  credential_mode?: "shared" | "per_user";
   endpoint_configured: boolean;
   bearer_configured: boolean;
   oauth_client_id_configured: boolean;
   oauth_client_secret_configured: boolean;
 }
 
-export interface PluginConfig {
+export interface PluginResource {
   id: string;
-  plugin_id: string;
+  name: string;
+  display_name: string;
+  version: string;
+  description: string;
   scope: PluginScope;
   user_id?: string;
   agent_id?: string;
-  is_enabled: boolean | null;
+  content_digest: string;
+  settings_digest: string;
+  is_enabled: boolean;
+  is_forbidden: boolean;
+  is_read_only: boolean;
+  is_overridden: boolean;
+  diagnostics: Array<{
+    severity: "info" | "warning" | "error";
+    code: string;
+    path?: string;
+    message: string;
+  }>;
+  files: ResourceFileInfo[];
   resource_summary: {
+    binaries: Array<{ name: string; version: string; }>;
+    skills: Array<{ name: string; }>;
+    session_env: Array<{ env_var: string; source: string; required: boolean; }>;
+    oauth_provider_configured: boolean;
     mcp_servers: PluginMCPServerSummary[];
-    binaries?: unknown[];
-    skills?: unknown[];
-    session_env?: unknown[];
-    oauth_provider_configured?: boolean;
   };
-  revision: number;
-  created_at: string;
-  updated_at: string;
+}
+
+export interface McpDeclaration {
+  url: string;
+  transport: "streamable_http" | "sse";
+  description?: string;
+  headers?: Record<string, string>;
+  call_timeout_seconds?: number;
+  auth_type: "none" | "bearer" | "oauth";
+  credential_mode: "shared" | "per_user";
+  credential_ref?: string;
+  client_id?: string;
+  client_secret_ref?: string;
+  token_endpoint_auth_method?:
+    | "client_secret_basic"
+    | "client_secret_post"
+    | "none";
+  scopes?: string[];
 }
 
 export interface McpServer {
   id: string;
-  plugin_id: string;
-  parent_config_id: string;
-  parent_revision: number;
+  resource_id: string;
   server_key: string;
+  name: string;
   scope: PluginScope;
-  enabled: boolean;
-  credential_mode: "shared" | "per_user";
-  auth_type?: "none" | "bearer" | "oauth";
-  transport?: "streamable_http" | "sse";
-  endpoint_configured?: boolean;
-  bearer_configured?: boolean;
-  oauth_client_id_configured?: boolean;
-  oauth_client_secret_configured?: boolean;
+  user_id?: string;
+  agent_id?: string;
+  content_digest: string;
+  settings_digest: string;
+  is_enabled: boolean;
+  is_read_only: boolean;
+  is_standalone: boolean;
+  is_overridden: boolean;
+  diagnostics: Array<{
+    severity: "info" | "warning" | "error";
+    code: string;
+    message: string;
+  }>;
+  declaration: McpDeclaration | null;
   needs_auth: boolean;
-  status: string;
+  status: "unknown" | "ready" | "needs_auth" | "error";
   status_error?: string;
   tools: Array<{ name: string; }>;
-  revision: number;
 }
 
-export interface CreatePluginResponse {
-  plugin: PluginDefinition;
-  config: PluginConfig;
-}
 export interface AgentTool {
   name: string;
   enabled: boolean;
@@ -74,6 +100,7 @@ export interface AgentTool {
   description?: string;
   [key: string]: unknown;
 }
+
 export interface RegistryServer {
   source: string;
   id: string;

@@ -483,12 +483,14 @@ components:
     AgentMCPServer:
       type: object
       required: [
-        plugin_id,
-        config_id,
-        parent_config_id,
-        parent_revision,
+        id,
+        resource_id,
+        name,
+        server_key,
+        content_digest,
         scope,
         enabled,
+        auth_type,
         credential_mode,
         needs_auth,
         status,
@@ -497,23 +499,33 @@ components:
       ]
       additionalProperties: false
       description: >-
-        Safe effective MCP projection for an agent. It intentionally omits the endpoint, payload, metadata, credential references, and OAuth details.
+        Safe effective MCP projection for an agent. This is a file-backed resource identity; it omits endpoints, payloads, credential references, OAuth state, and legacy plugin configuration identifiers.
       properties:
-        plugin_id:
+        id:
           type: string
-        config_id:
+          readOnly: true
+          description: Stable opaque mcp-file identity for this server.
+        resource_id:
           type: string
-        parent_config_id:
+          readOnly: true
+          description: Stable file resource identifier for the source package or declaration.
+        name:
           type: string
-          format: uuid
-        parent_revision:
-          type: integer
-          format: int64
+          readOnly: true
+        server_key:
+          type: string
+          readOnly: true
+        content_digest:
+          type: string
+          readOnly: true
         scope:
           type: string
           enum: [user, user_agent, system, system_agent]
         enabled:
           type: boolean
+        auth_type:
+          type: string
+          enum: [none, bearer, oauth]
         credential_mode:
           type: string
           enum: [shared, per_user]
@@ -521,13 +533,14 @@ components:
           type: boolean
         status:
           type: string
-          enum: [unknown, ok, error, needs_auth]
+          enum: [unknown, ready, error, needs_auth]
         tools:
           type: array
           items:
             $ref: "#/components/schemas/MCPTool"
         readable:
           type: boolean
+          description: Whether the caller may read and manage this file-backed resource.
     AgentMCPServerList:
       type: object
       required: [servers]
@@ -2535,18 +2548,64 @@ components:
         annotations:
           type: object
           additionalProperties: true
+    MCPDeclaration:
+      type: object
+      additionalProperties: false
+      required: [url, transport, auth_type, credential_mode]
+      properties:
+        url:
+          type: string
+          format: uri
+        transport:
+          type: string
+          enum: [streamable_http, sse]
+        description:
+          type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        call_timeout_seconds:
+          type: integer
+          minimum: 0
+          maximum: 300
+          default: 0
+        auth_type:
+          type: string
+          enum: [none, bearer, oauth]
+        credential_mode:
+          type: string
+          enum: [shared, per_user]
+        credential_ref:
+          type: string
+        client_id:
+          type: string
+        client_secret_ref:
+          type: string
+        token_endpoint_auth_method:
+          type: string
+          enum: [client_secret_basic, client_secret_post, none]
+        scopes:
+          type: array
+          items:
+            type: string
     MCPServer:
       type: object
       additionalProperties: false
       required: [
         id,
-        plugin_id,
-        parent_config_id,
-        parent_revision,
+        resource_id,
         server_key,
+        name,
         scope,
-        enabled,
-        credential_mode,
+        content_digest,
+        settings_digest,
+        is_enabled,
+        is_read_only,
+        is_standalone,
+        is_overridden,
+        diagnostics,
+        declaration,
         needs_auth,
         status,
         tools,
@@ -2554,49 +2613,53 @@ components:
       properties:
         id:
           type: string
-          format: uuid
           readOnly: true
-        plugin_id:
+          description: Stable opaque address for this file-backed MCP server.
+        resource_id:
           type: string
           readOnly: true
-        parent_config_id:
-          type: string
-          format: uuid
-          readOnly: true
-        parent_revision:
-          type: integer
-          format: int64
-          readOnly: true
+          description: Stable identifier of the source file or package resource.
         server_key:
           type: string
-        url:
+          readOnly: true
+        name:
           type: string
-          format: uri
           readOnly: true
         scope:
           type: string
           enum: [system, system_agent, user, user_agent]
+        user_id:
+          type: string
+          format: uuid
           readOnly: true
-        enabled:
+        agent_id:
+          type: string
+          readOnly: true
+        content_digest:
+          type: string
+          readOnly: true
+        settings_digest:
+          type: string
+          readOnly: true
+        is_enabled:
+          type: boolean
+        is_read_only:
           type: boolean
           readOnly: true
-        credential_mode:
-          type: string
-          enum: [shared, per_user]
-        auth_type:
-          type: string
-          enum: [none, bearer, oauth]
-        transport:
-          type: string
-          enum: [streamable_http, sse]
-        endpoint_configured:
+        is_standalone:
           type: boolean
-        bearer_configured:
+          readOnly: true
+        is_overridden:
           type: boolean
-        oauth_client_id_configured:
-          type: boolean
-        oauth_client_secret_configured:
-          type: boolean
+          readOnly: true
+        diagnostics:
+          type: array
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/PluginDiagnostic"
+        declaration:
+          allOf: [{ $ref: "#/components/schemas/MCPDeclaration" }]
+          nullable: true
         needs_auth:
           type: boolean
         status:
@@ -2608,13 +2671,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MCPTool"
-        revision:
-          type: integer
-          format: int64
-          readOnly: true
     MCPServerList:
       type: object
-      required: [servers, next_page_token]
+      required: [servers, next_page_token, truncated]
       properties:
         servers:
           type: array
@@ -2623,70 +2682,114 @@ components:
         next_page_token:
           type: string
           nullable: true
+        truncated:
+          type: boolean
+          readOnly: true
+          description: Whether the result was capped before all visible servers were returned.
     CreateMCPServerRequest:
       type: object
       additionalProperties: false
-      required: [parent_config_id, server_key, expected_parent_revision, url]
+      required: [name, scope, declaration]
       properties:
-        parent_config_id:
-          type: string
-          format: uuid
-        server_key:
+        name:
           type: string
           minLength: 1
-        expected_parent_revision:
-          type: integer
-          format: int64
-          minimum: 1
-        url:
+        scope:
           type: string
-          format: uri
-        transport:
+          enum: [system, system_agent, user, user_agent]
+        agent_id:
           type: string
-          enum: [streamable_http, sse]
-        auth_type:
-          type: string
-          enum: [none, bearer, oauth]
-        credential_mode:
-          type: string
-          enum: [shared, per_user]
-        metadata:
-          type: object
-          additionalProperties: true
-        credentials:
-          type: object
-          nullable: true
-          writeOnly: true
-          additionalProperties: true
+        declaration:
+          $ref: "#/components/schemas/MCPDeclaration"
     UpdateMCPServerRequest:
+      description: Supply either declaration with expected_digest, or is_enabled with expected_settings_digest. Combining both mutations is rejected.
       type: object
       additionalProperties: false
-      required: [expected_parent_revision]
       properties:
-        expected_parent_revision:
-          type: integer
-          format: int64
-          minimum: 1
+        expected_digest:
+          type: string
+          minLength: 1
+        declaration:
+          $ref: "#/components/schemas/MCPDeclaration"
+        is_enabled:
+          type: boolean
+        expected_settings_digest:
+          type: string
+    UpdateMCPServerFileRequest:
+      type: object
+      additionalProperties: false
+      required: [content_base64, expected_digest]
+      properties:
+        content_base64:
+          type: string
+          format: byte
+        expected_digest:
+          type: string
+          minLength: 1
+    UpdateMCPServerCredentialsRequest:
+      description: Supply exactly one of bearer_token or client_secret. Both or neither are rejected.
+      type: object
+      additionalProperties: false
+      required: [expected_digest]
+      properties:
+        expected_digest:
+          type: string
+          minLength: 1
+        bearer_token:
+          type: string
+          writeOnly: true
+          minLength: 1
+        client_secret:
+          type: string
+          writeOnly: true
+          minLength: 1
+    MCPServerToolCreateInput:
+      type: object
+      additionalProperties: false
+      required: [name, scope, url]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
         url:
           type: string
           format: uri
         transport:
           type: string
           enum: [streamable_http, sse]
-        auth_type:
+          default: streamable_http
+    MCPServerToolUpdateInput:
+      type: object
+      additionalProperties: false
+      required: [expected_digest]
+      properties:
+        expected_digest:
           type: string
-          enum: [none, bearer, oauth]
-        credential_mode:
+          minLength: 1
+        expected_settings_digest:
           type: string
-          enum: [shared, per_user]
-        metadata:
-          type: object
-          additionalProperties: true
-        credentials:
-          type: object
-          nullable: true
-          writeOnly: true
-          additionalProperties: true
+        url:
+          type: string
+          format: uri
+        transport:
+          type: string
+          enum: [streamable_http, sse]
+        is_enabled:
+          type: boolean
+    MCPServerToolListInput:
+      type: object
+      additionalProperties: false
+      properties:
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 50
+        page_token:
+          type: string
     MCPRegistryServer:
       type: object
       required: [source, id, name, url, transport, auth]
@@ -2983,70 +3086,160 @@ components:
       properties:
         is_enabled:
           type: boolean
-    PluginDefinition:
+    PluginResource:
       type: object
       additionalProperties: false
-      required: [
-        id,
-        display_name,
-        is_builtin,
-        is_default_enabled,
-        spec,
-        resource_summary,
-        lifecycle_status,
-        lifecycle_reason,
-        revision,
-        created_at,
-        updated_at,
-      ]
+      required:
+        - id
+        - name
+        - display_name
+        - version
+        - description
+        - scope
+        - content_digest
+        - settings_digest
+        - is_enabled
+        - is_forbidden
+        - is_read_only
+        - is_overridden
+        - diagnostics
+        - files
+        - resource_summary
       properties:
         id:
           type: string
+          readOnly: true
+          description: Stable identifier of this visible plugin resource.
+        name:
+          type: string
+          description: Plugin package name within its owning scope.
         display_name:
           type: string
-        is_builtin:
+          description: Human-readable plugin name.
+        version:
+          type: string
+          description: Plugin package version.
+        description:
+          type: string
+          description: Safe plugin description.
+        scope:
+          type: string
+          enum: [system, system_agent, user, user_agent]
+          description: Scope that owns this raw plugin declaration.
+        user_id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: User that owns a user-scoped resource.
+        agent_id:
+          type: string
+          readOnly: true
+          description: Agent that owns an agent-scoped resource.
+        content_digest:
+          type: string
+          readOnly: true
+          description: Digest of the complete plugin declaration files.
+        settings_digest:
+          type: string
+          readOnly: true
+          description: Digest used to protect enablement changes.
+        is_enabled:
+          type: boolean
+          description: Whether this raw declaration is enabled at its scope.
+        is_forbidden:
           type: boolean
           readOnly: true
-        is_default_enabled:
+          description: Whether policy forbids this resource from activation.
+        is_read_only:
           type: boolean
           readOnly: true
-        spec:
-          type: object
-          additionalProperties: true
-          description: Safe package metadata. Private endpoints and credentials are omitted.
+          description: Whether this resource cannot be edited at its scope.
+        is_overridden:
+          type: boolean
+          readOnly: true
+          description: Whether a more specific visible resource declaration overrides this resource.
+        diagnostics:
+          type: array
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/PluginDiagnostic"
+          description: Safe validation diagnostics for this raw declaration.
+        files:
+          type: array
+          readOnly: true
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/ResourceFileInfo"
+          description: Bounded metadata for files in this plugin declaration.
         resource_summary:
           $ref: "#/components/schemas/PluginResourceSummary"
-        lifecycle_status:
+    PluginDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [severity, code, message]
+      properties:
+        severity:
           type: string
-          enum: [installed, in_use, cleanup_pending]
-          readOnly: true
-          description: >
-            Safe projection of package lifecycle. Retired definitions remain visible while an active runtime owner may still use their ID or content digest.
-
-        lifecycle_reason:
+          enum: [info, warning, error]
+          description: Diagnostic severity.
+        code:
           type: string
-          enum: [active, runtime_owner, awaiting_cleanup, ownership_unconfirmed]
-          readOnly: true
-          description: >
-            Bounded explanation for lifecycle_status. Ownership uncertainty is reported without exposing runtime errors or owner identities.
-
-        revision:
+          description: Stable diagnostic code.
+        path:
+          type: string
+          description: Optional declaration path associated with the diagnostic.
+        message:
+          type: string
+          description: Safe diagnostic message.
+    ResourceFileInfo:
+      type: object
+      additionalProperties: false
+      required: [path, size, is_executable]
+      properties:
+        path:
+          type: string
+          description: Relative path inside the plugin declaration.
+        size:
           type: integer
           format: int64
+          minimum: 0
           readOnly: true
-        retired_at:
+          description: File size in bytes.
+        is_executable:
+          type: boolean
+          description: Whether the file has executable permission.
+    PluginFileInput:
+      type: object
+      additionalProperties: false
+      required: [content_base64]
+      properties:
+        content_base64:
           type: string
-          format: date-time
-          nullable: true
-          readOnly: true
-        created_at:
+          format: byte
+          description: Base64-encoded file content.
+        is_executable:
+          type: boolean
+          default: false
+          description: Whether the stored file should be executable.
+    ResourceFileContent:
+      type: object
+      additionalProperties: false
+      required: [path, content_base64, is_executable, resource_digest]
+      properties:
+        path:
           type: string
-          format: date-time
-          readOnly: true
-        updated_at:
+          description: Relative path inside the plugin declaration.
+        content_base64:
           type: string
-          format: date-time
+          format: byte
+          description: Base64-encoded file content.
+        is_executable:
+          type: boolean
+          description: Whether the file has executable permission.
+        resource_digest:
+          type: string
           readOnly: true
+          description: Digest of the complete resource after this read.
     PluginList:
       type: object
       required: [plugins, next_page_token]
@@ -3054,55 +3247,106 @@ components:
         plugins:
           type: array
           items:
-            $ref: "#/components/schemas/PluginDefinition"
+            $ref: "#/components/schemas/PluginResource"
         next_page_token:
           type: string
           nullable: true
-    PluginConfig:
+    CreatePluginRequest:
+      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
       type: object
       additionalProperties: false
-      required: [
-        id,
-        plugin_id,
-        scope,
-        is_enabled,
-        resource_summary,
-        revision,
-        created_at,
-        updated_at,
-      ]
+      required: [name, scope, files]
       properties:
-        id:
+        name:
           type: string
-          format: uuid
-        plugin_id:
-          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]{0,62}[a-z0-9])?$'
+          description: Plugin package name to create.
         scope:
           type: string
           enum: [system, system_agent, user, user_agent]
-        user_id:
-          type: string
-          format: uuid
-          readOnly: true
+          description: Scope that owns the new raw declaration.
         agent_id:
           type: string
+          description: Target Agent for an agent-scoped declaration.
+        files:
+          type: object
+          minProperties: 1
+          additionalProperties:
+            $ref: "#/components/schemas/PluginFileInput"
+          description: Relative declaration paths and their base64-encoded contents.
+    ImportPluginRequest:
+      description: Import is admin-only; source_path is server-local and remains subject to the existing import restrictions.
+      type: object
+      additionalProperties: false
+      required: [source_path, scope]
+      properties:
+        source_path:
+          type: string
+          minLength: 1
+          description: Server-local path to an Agent Plugin package directory.
+        scope:
+          type: string
+          enum: [system, system_agent, user, user_agent]
+          description: Scope that owns the imported raw declaration.
+        agent_id:
+          type: string
+          description: Target Agent for an agent-scoped import.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Optional target package name; defaults to the source package name.
+    CopyPluginRequest:
+      type: object
+      additionalProperties: false
+      required: [scope]
+      properties:
+        scope:
+          type: string
+          enum: [system, system_agent, user, user_agent]
+          description: Scope that owns the copied raw declaration.
+        agent_id:
+          type: string
+          description: Target Agent for an agent-scoped copy.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Optional target package name; defaults to the source name.
+    UpdatePluginRequest:
+      type: object
+      additionalProperties: false
+      required: [is_enabled, expected_settings_digest]
+      properties:
         is_enabled:
           type: boolean
-          nullable: true
-        resource_summary:
-          $ref: "#/components/schemas/PluginResourceSummary"
-        revision:
-          type: integer
-          format: int64
-          readOnly: true
-        created_at:
+          description: Whether to enable or disable this raw declaration.
+        expected_settings_digest:
           type: string
-          format: date-time
-          readOnly: true
-        updated_at:
+          description: Exact settings digest read before this update; empty when settings.json is absent.
+    UpdatePluginFileRequest:
+      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
+      type: object
+      additionalProperties: false
+      required: [path, content_base64, expected_digest]
+      properties:
+        path:
           type: string
-          format: date-time
-          readOnly: true
+          minLength: 1
+          description: Relative path inside the plugin declaration.
+        content_base64:
+          type: string
+          format: byte
+          description: Base64-encoded replacement file content.
+        is_executable:
+          type: boolean
+          description: Whether the replacement file should be executable.
+        expected_digest:
+          type: string
+          minLength: 1
+          description: Exact current content digest required for the update.
     PluginResourceSummary:
       type: object
       additionalProperties: false
@@ -3201,290 +3445,6 @@ components:
           type: boolean
         oauth_client_secret_configured:
           type: boolean
-    PluginConfigList:
-      type: object
-      required: [configs, next_page_token]
-      properties:
-        configs:
-          type: array
-          items:
-            $ref: "#/components/schemas/PluginConfig"
-        next_page_token:
-          type: string
-          nullable: true
-    PluginEffective:
-      type: object
-      additionalProperties: false
-      required: [
-        plugin_id,
-        config_id,
-        source_scope,
-        is_effectively_enabled,
-        availability_reason,
-        readiness,
-      ]
-      properties:
-        plugin_id:
-          type: string
-        config_id:
-          type: string
-          nullable: true
-        source_scope:
-          type: string
-          nullable: true
-        is_effectively_enabled:
-          type: boolean
-        availability_reason:
-          type: string
-        readiness:
-          type: string
-          enum: [unknown, ready, unavailable]
-    PluginConfigInput:
-      type: object
-      additionalProperties: false
-      required: [scope]
-      properties:
-        scope:
-          type: string
-          enum: [system, system_agent, user, user_agent]
-        agent_id:
-          type: string
-        is_enabled:
-          type: boolean
-          nullable: true
-        config:
-          type: object
-          nullable: true
-          additionalProperties: true
-        credentials:
-          type: object
-          nullable: true
-          writeOnly: true
-          additionalProperties: true
-          description: Write-only credential material.
-    CreatePluginConfigRequest:
-      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
-      type: object
-      additionalProperties: false
-      required: [scope]
-      properties:
-        scope:
-          type: string
-          enum: [system, system_agent, user, user_agent]
-        agent_id:
-          type: string
-        is_enabled:
-          type: boolean
-          nullable: true
-        config:
-          type: object
-          nullable: true
-          additionalProperties: true
-        credentials:
-          type: object
-          nullable: true
-          writeOnly: true
-          additionalProperties: true
-          description: Write-only credential material.
-    CreatePluginRequest:
-      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
-      type: object
-      additionalProperties: false
-      required: [display_name, name, definition_spec, initial_config]
-      properties:
-        display_name:
-          type: string
-        name:
-          type: string
-          minLength: 1
-          maxLength: 64
-          pattern: "^(?!.*(?:--|\\.\\.))[a-z0-9](?:[a-z0-9.-]{0,62}[a-z0-9])?$"
-          description: >-
-            Canonical immutable plugin ID. It uses lowercase letters, digits, dots, and hyphens, starts and ends with a letter or digit, and cannot contain consecutive dots or hyphens.
-        definition_spec:
-          type: object
-          additionalProperties: true
-        initial_config:
-          $ref: "#/components/schemas/PluginConfigInput"
-    CreatePluginResponse:
-      type: object
-      additionalProperties: false
-      required: [plugin, config]
-      properties:
-        plugin:
-          $ref: "#/components/schemas/PluginDefinition"
-        config:
-          $ref: "#/components/schemas/PluginConfig"
-    ImportPluginRequest:
-      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
-      type: object
-      additionalProperties: false
-      required: [source_path, initial_config]
-      properties:
-        source_path:
-          type: string
-          minLength: 1
-          description: Server-local path to an Agent Plugin package directory.
-        initial_config:
-          $ref: "#/components/schemas/PluginConfigInput"
-    UpdatePluginPackageRequest:
-      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
-      type: object
-      additionalProperties: false
-      required: [source_path, expected_revision, expected_package_digest]
-      properties:
-        source_path:
-          type: string
-          minLength: 1
-          description: Server-local path to the complete replacement package directory.
-        expected_revision:
-          type: integer
-          format: int64
-          minimum: 1
-        expected_package_digest:
-          type: string
-          pattern: "^sha256:[0-9a-f]{64}$"
-          description: Digest returned by the update preview. The server rejects a changed directory.
-    PreviewPluginPackageRequest:
-      description: Request for a bounded, read-only package update preview.
-      type: object
-      additionalProperties: false
-      required: [source_path, expected_revision]
-      properties:
-        source_path:
-          type: string
-          minLength: 1
-          description: Server-local path to the candidate package directory.
-        expected_revision:
-          type: integer
-          format: int64
-          minimum: 1
-    PluginOAuthPreviewChange:
-      type: object
-      additionalProperties: false
-      required: [
-        provider,
-        added_scopes,
-        removed_scopes,
-        added_bindings,
-        removed_bindings,
-      ]
-      properties:
-        provider:
-          type: string
-        added_scopes:
-          type: array
-          items:
-            type: string
-        removed_scopes:
-          type: array
-          items:
-            type: string
-        added_bindings:
-          type: array
-          items:
-            type: string
-        removed_bindings:
-          type: array
-          items:
-            type: string
-    PreviewPluginPackageResponse:
-      type: object
-      additionalProperties: false
-      required: [
-        plugin_id,
-        current_revision,
-        candidate_digest,
-        candidate_version,
-        oauth_changes,
-        binary_names,
-        skill_names,
-        incompatible_scopes,
-      ]
-      properties:
-        plugin_id:
-          type: string
-        current_revision:
-          type: integer
-          format: int64
-        candidate_digest:
-          type: string
-        candidate_version:
-          type: string
-        oauth_changes:
-          type: array
-          items:
-            $ref: "#/components/schemas/PluginOAuthPreviewChange"
-        binary_names:
-          type: array
-          items:
-            type: string
-        skill_names:
-          type: array
-          items:
-            type: string
-        incompatible_scopes:
-          type: array
-          items:
-            type: string
-    UpdatePluginRequest:
-      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
-      type: object
-      additionalProperties: false
-      required: [expected_revision]
-      properties:
-        expected_revision:
-          type: integer
-          format: int64
-          minimum: 1
-        display_name:
-          type: string
-        description:
-          type: string
-          nullable: true
-    UpdatePluginConfigRequest:
-      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
-      type: object
-      additionalProperties: false
-      required: [expected_revision]
-      properties:
-        expected_revision:
-          type: integer
-          format: int64
-          minimum: 1
-        is_enabled:
-          type: boolean
-          nullable: true
-        config:
-          type: object
-          nullable: true
-          additionalProperties: true
-        reset_fields:
-          type: array
-          items:
-            type: string
-        binary_versions:
-          type: object
-          writeOnly: true
-          additionalProperties:
-            type: string
-            minLength: 1
-          description: Write-only CLI binary version edits keyed by definition resource name.
-        credentials:
-          type: object
-          nullable: true
-          writeOnly: true
-          additionalProperties: true
-          description: Write-only credential material.
-    RevisionRequest:
-      type: object
-      additionalProperties: false
-      required: [expected_revision]
-      properties:
-        expected_revision:
-          type: integer
-          format: int64
-          minimum: 1
     CliToolRegistryItem:
       type: object
       properties:

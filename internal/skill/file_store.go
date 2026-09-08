@@ -196,9 +196,15 @@ func captureResources(ctx context.Context, resources []plugin.FileResource, vc V
 			masked = append(masked, resource.Key.Name)
 			continue
 		}
-		if revision.Skill.Status == SkillStatusDeprecated || revision.Skill.DisableModelInvocation || isDisabledIdentity(revision.Skill, vc.DisabledSkillRefs) {
+		if revision.Skill.Status == SkillStatusDeprecated || isDisabledIdentity(revision.Skill, vc.DisabledSkillRefs) {
 			masked = append(masked, revision.Skill.Name)
 			continue
+		}
+		// Keep disabled-by-metadata Skills in the identity catalog so management
+		// can show the row and its files. Runtime selection consumes MaskedNames,
+		// which still prevents model invocation and lower-scope resurrection.
+		if revision.Skill.DisableModelInvocation {
+			masked = append(masked, revision.Skill.Name)
 		}
 		revisions = append(revisions, revision)
 	}
@@ -423,6 +429,11 @@ func (s *FileStore) CreateManagedSkillWithFiles(ctx context.Context, skill Skill
 	if err := validateFileSkill(skill); err != nil {
 		return SkillSnapshot{}, err
 	}
+	if strings.TrimSpace(skill.Description) == "" {
+		// The HTTP API historically accepted a body-only SKILL.md. Keep that
+		// bounded convenience while making the persisted file self-describing.
+		skill.Description = skill.Name
+	}
 	if skill.Status == "" {
 		skill.Status = SkillStatusActive
 	}
@@ -458,6 +469,15 @@ func (s *FileStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdat
 	}
 	if !validSkillDigest(in.ExpectedDigest) {
 		return SkillSnapshot{}, ErrSkillDigestRequired
+	}
+	if in.ConvertToManual {
+		latest, evidenceErr := s.reflectEvidence(ctx, in.ID)
+		if errors.Is(evidenceErr, pgx.ErrNoRows) || (evidenceErr == nil && (latest.Writer != ReflectSkillCreatedBy || latest.Action == "delete" || latest.ContentDigest != in.ExpectedDigest)) {
+			return SkillSnapshot{}, ErrSkillNotMutable
+		}
+		if evidenceErr != nil {
+			return SkillSnapshot{}, evidenceErr
+		}
 	}
 	before, after, err := s.updateFileSkill(ctx, in)
 	if err != nil {
@@ -697,6 +717,9 @@ func prepareSkillFiles(skill Skill, files map[string]ManagedSkillFile, existingM
 	}
 	result := make(map[string]ManagedSkillFile, len(files))
 	for filename, file := range files {
+		if err := validateSkillFilePaths(map[string]string{filename: ""}); err != nil {
+			return nil, err
+		}
 		if err := validateSkillPath(filename); err != nil {
 			return nil, err
 		}

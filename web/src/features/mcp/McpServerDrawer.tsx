@@ -16,7 +16,7 @@ import { useI18n } from "@/lib/i18n";
 import { SCOPE_LABEL_KEY } from "@/lib/skill-scope";
 
 function statusBadgeVariant(status: string) {
-  if (status === "ok") return "success";
+  if (status === "ready") return "success";
   if (status === "error" || status === "needs_auth") return "warning";
   return "outline";
 }
@@ -45,7 +45,7 @@ export function McpServerDrawer({
   const probe = useMutation({
     mutationFn: (target: AgentMcpServer) =>
       probeMcpServer({
-        path: { id: target.config_id },
+        path: { id: target.id },
         throwOnError: true,
       }),
     onSuccess: async () => {
@@ -59,7 +59,7 @@ export function McpServerDrawer({
     <Drawer open={open} onOpenChange={onOpenChange} position="right">
       <DrawerPopup position="right" className="w-full sm:w-[480px] sm:max-w-[480px]">
         <DrawerHeader>
-          <DrawerTitle className="min-w-0 truncate font-mono">{server.plugin_id}</DrawerTitle>
+          <DrawerTitle className="min-w-0 truncate font-mono">{server.name}</DrawerTitle>
           <DrawerClose aria-label={t("common.close")} />
         </DrawerHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">

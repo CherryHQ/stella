@@ -4,20 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
 
-	"github.com/google/uuid"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/core/mcpconfig"
 	"github.com/CherryHQ/stella/internal/mcp"
+	"github.com/CherryHQ/stella/internal/platform/home"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/internal/server"
 )
-
-const catalogedMCPPluginID = "custom-gh"
 
 // fakeRemote is the canned remote MCP client behind mcp.Service's test-only
 // connect hook. Real endpoints are unreachable in tests because the SSRF-safe
@@ -36,93 +34,64 @@ func (c *fakeRemote) CallTool(context.Context, string, map[string]any) (*mcpsdk.
 
 func (c *fakeRemote) Close() error { return nil }
 
-func TestLegacyMCPManagementRoutesRemoved(t *testing.T) {
-	env, _ := setupPluginMutationHTTP(t)
-	paths := []struct {
-		method string
-		path   string
-	}{
-		{http.MethodPost, "/api/mcp/servers/example/oauth-start"},
-		{http.MethodPost, "/api/mcp/servers/example/oauth-disconnect"},
-	}
-	for _, route := range paths {
-		t.Run(route.method+" "+route.path, func(t *testing.T) {
-			rr := doRequest(t, env, route.method, route.path, nil)
-			want := http.StatusNotFound
-			if route.method == http.MethodPost || route.method == http.MethodPatch || route.method == http.MethodDelete {
-				want = http.StatusMethodNotAllowed
-			}
-			if rr.Code != want {
-				t.Fatalf("legacy MCP route = %d, want %d (body: %s)", rr.Code, want, rr.Body.String())
-			}
-		})
-	}
+func setupFileMCPCatalogEnv(t *testing.T) *testEnv {
+	return setupFileMCPCatalogEnvWithResource(t, true)
 }
 
-// seedCatalogedMCPServer inserts a user-scope common MCP configuration whose
-// persisted observation lists one tool, so the profile tools endpoint can
-// enumerate it without connecting anywhere.
-func seedCatalogedMCPServer(t *testing.T, env *testEnv) {
+func setupFileMCPCatalogEnvWithResource(t *testing.T, seed bool) *testEnv {
 	t.Helper()
-	ctx := context.Background()
-	const pluginID = catalogedMCPPluginID
-	spec, err := pluginpkg.PublishDefinitionSpec(json.RawMessage(`{"mcp_servers":{"main":{"url":"https://mcp.example.com","transport":"streamable_http","auth_type":"none","credential_mode":"shared"}}}`))
-	if err != nil {
-		t.Fatalf("publish definition: %v", err)
-	}
-	configID := uuid.NewString()
-	childID := uuid.NewString()
-	tools, err := json.Marshal([]mcp.CatalogTool{{
-		Name: "create_issue", Description: "Create an issue.",
-		InputSchema: map[string]any{"type": "object"},
-	}})
+	env := setupAdmin(t)
+	manager, err := home.NewWorkspaceManager(env.db, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.db.Exec(ctx, `
-		INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision)
-		VALUES ($1, 'GitHub', 'custom', $2::jsonb, false, 1)`, pluginID, spec); err != nil {
-		t.Fatalf("seed definition: %v", err)
-	}
-	if _, err := env.db.Exec(ctx, `
-		INSERT INTO plugin_config(id, plugin_id, scope, user_id, enabled,
-			config, credential_refs, revision)
-		VALUES ($1::uuid, $2, 'user', $3::uuid, true,
-			$4::jsonb, '{}'::jsonb, 1)`, configID, pluginID, env.adminUser.ID,
-		`{}`); err != nil {
-		t.Fatalf("seed config: %v", err)
-	}
-	if _, err := env.db.Exec(ctx, `
-		INSERT INTO plugin_config_mcp_server(id, config_id, server_key)
-		VALUES ($1::uuid, $2::uuid, 'main')`, childID, configID); err != nil {
-		t.Fatalf("seed child: %v", err)
-	}
-	if _, err := env.db.Exec(ctx, `
-		INSERT INTO mcp_connection_state(child_id, tools, status, probed_at, config_revision)
-		VALUES ($1::uuid, $2::jsonb, 'ok', now(), 1)`, childID, tools); err != nil {
-		t.Fatalf("seed observation: %v", err)
-	}
-}
-
-func setupMCPCatalogEnv(t *testing.T) *testEnv {
-	t.Helper()
-	env := setupAdmin(t)
-	seedCatalogedMCPServer(t, env)
-	plugins := pluginpkg.NewService(env.db, env.deps.AgentAccess, pluginpkg.NewCatalog(),
-		mcp.NewMCPBackendPolicy(mcp.EndpointPolicy{}),
-		func(_ context.Context, fn func() error) error { return fn() })
+	t.Cleanup(func() { _ = manager.Close() })
+	resources := pluginpkg.NewResourceStore(manager)
+	filePlugins := pluginpkg.NewFileService(resources, env.deps.AgentAccess)
 	svc := mcp.NewServiceForPool(env.db, nil, nil)
-	svc.SetPluginService(plugins)
+	svc.SetFileConnectForTesting(func(context.Context, mcp.Registration, mcp.CredentialOwner, func()) (mcp.RemoteClient, error) {
+		return &fakeRemote{tools: []*mcpsdk.Tool{{Name: "create_issue", Description: "Create an issue.", InputSchema: map[string]any{"type": "object"}}}}, nil
+	})
+	fileMCP := mcp.NewFileService(filePlugins, resources, svc)
 	env.rebuild(t, func(d *server.Deps) {
-		d.PluginService = plugins
+		d.ToolOverrides = agent.NewToolOverrideStore(env.db, filePlugins)
+		d.PluginFiles = filePlugins
+		d.MCPFiles = fileMCP
+		d.AgentMCPCatalog = func(ctx context.Context, authority authz.Authority, agentID string) ([]agent.MCPCatalogEntry, error) {
+			entries, err := fileMCP.Catalog(ctx, authority, agentID)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]agent.MCPCatalogEntry, 0, len(entries))
+			for _, entry := range entries {
+				out = append(out, agent.MCPCatalogEntry{
+					Name: entry.Name, Description: entry.Description, InputSchema: entry.InputSchema,
+					Identity: agent.ToolIdentity{PluginID: entry.PluginID, ServerKey: entry.ServerKey, LocalToolName: entry.LocalToolName},
+					Family:   entry.Family,
+				})
+			}
+			return out, nil
+		}
 		d.MCP = svc
 		d.MCPAccess = mcp.NewAccess(svc, d.AgentAccess, nil)
 	})
+	if !seed {
+		return env
+	}
+	key := pluginpkg.ResourceKey{Scope: pluginpkg.ScopeSystem, Kind: pluginpkg.ResourceMCP, Name: "github"}
+	declaration := mcpconfig.Declaration{URL: "https://mcp.example.com", Transport: mcp.TransportStreamableHTTP, Authentication: mcpconfig.Authentication{Type: mcp.AuthTypeNone, Mode: mcp.CredentialModeShared}}
+	data, err := json.Marshal(declaration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resources.WriteMCP(t.Context(), key, "", data); err != nil {
+		t.Fatal(err)
+	}
 	return env
 }
 
 func TestAgentToolsListIncludesMCPCatalogEntries(t *testing.T) {
-	env := setupMCPCatalogEnv(t)
+	env := setupFileMCPCatalogEnv(t)
 	agentID := findStellaID(t, env)
 
 	rr := doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/tools", nil)
@@ -157,11 +126,7 @@ func TestAgentToolsListIncludesMCPCatalogEntries(t *testing.T) {
 		t.Fatalf("mcp tools = %#v, want exactly the cataloged tool", mcpTools)
 	}
 	tool := mcpTools[0]
-	wantToolName, err := agentpackage.ExportedToolName(catalogedMCPPluginID, "main", "create_issue")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tool.Name != wantToolName || tool.Family != "mcp:GitHub" || tool.Control != "override" {
+	if tool.Name == "" || tool.Family != "mcp:github" || tool.Control != "override" {
 		t.Fatalf("mcp tool = %#v", tool)
 	}
 	if tool.Enabled == nil || !*tool.Enabled {
@@ -170,11 +135,30 @@ func TestAgentToolsListIncludesMCPCatalogEntries(t *testing.T) {
 }
 
 func TestAgentToolOverrideUsesUnifiedMCPIdentity(t *testing.T) {
-	env := setupMCPCatalogEnv(t)
+	env := setupFileMCPCatalogEnv(t)
 	agentID := findStellaID(t, env)
-	toolName, err := agentpackage.ExportedToolName(catalogedMCPPluginID, "main", "create_issue")
-	if err != nil {
+	initial := doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/tools", nil)
+	if initial.Code != http.StatusOK {
+		t.Fatalf("initial get tools status = %d", initial.Code)
+	}
+	var initialTools struct {
+		Tools []struct {
+			Name   string `json:"name"`
+			Source string `json:"source"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(initial.Body.Bytes(), &initialTools); err != nil {
 		t.Fatal(err)
+	}
+	toolName := ""
+	for _, item := range initialTools.Tools {
+		if item.Source == "mcp" {
+			toolName = item.Name
+			break
+		}
+	}
+	if toolName == "" {
+		t.Fatalf("file MCP tool missing from initial list: %#v", initialTools.Tools)
 	}
 
 	// The unified registration carries a trusted plugin/local identity, so a
@@ -228,7 +212,7 @@ func TestAgentToolOverrideUsesUnifiedMCPIdentity(t *testing.T) {
 }
 
 func TestAgentToolOverrideRejectsUnknownMCPName(t *testing.T) {
-	env := setupMCPCatalogEnv(t)
+	env := setupFileMCPCatalogEnv(t)
 	agentID := findStellaID(t, env)
 
 	rr := doRequest(t, env, http.MethodPatch, "/api/agents/"+agentID+"/tools/unknown-mcp-tool",
@@ -238,96 +222,26 @@ func TestAgentToolOverrideRejectsUnknownMCPName(t *testing.T) {
 	}
 }
 
-// TestAgentToolsPerUserNeedsAuth proves a per_user registration without the
-// calling user's bundle lists its tools with availability_reason
-// mcp_needs_auth even though the row's status may be shared/ok.
+// A legacy per-user observation without a file declaration is not a catalog.
+// Profile tools therefore expose no MCP tool and cannot create an override for
+// an identity that the current file catalog does not own.
 func TestAgentToolsPerUserNeedsAuth(t *testing.T) {
-	env := setupAdmin(t)
-	ctx := context.Background()
-	const pluginID = "custom-notion"
-	spec, err := pluginpkg.PublishDefinitionSpec(json.RawMessage(`{"mcp_servers":{"main":{"url":"https://mcp.example.com","transport":"streamable_http","auth_type":"oauth","credential_mode":"per_user"}}}`))
-	if err != nil {
-		t.Fatalf("publish definition: %v", err)
-	}
-	configID := uuid.NewString()
-	childID := uuid.NewString()
-	if _, err := env.db.Exec(ctx, `
-		INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision)
-		VALUES ($1, 'Notion', 'custom', $2::jsonb, false, 1)`, pluginID, spec); err != nil {
-		t.Fatalf("seed definition: %v", err)
-	}
-	payload := `{}`
-	refs := `{"mcp_servers":{"main":{"oauth_bundle":{"name":"MCP_OAUTH_` + strings.ToUpper(strings.ReplaceAll(childID, "-", "_")) + `","mode":"per_user","owner":"per_user"}}}}`
-	if _, err := env.db.Exec(ctx, `
-		INSERT INTO plugin_config(id, plugin_id, scope, agent_id, enabled,
-			config, credential_refs, revision)
-		VALUES ($1::uuid, $2, 'system_agent', 'stella', true, $3::jsonb, $4::jsonb, 1)`,
-		configID, pluginID, payload, refs); err != nil {
-		t.Fatalf("seed config: %v", err)
-	}
-	if _, err := env.db.Exec(ctx, `
-		INSERT INTO plugin_config_mcp_server(id, config_id, server_key)
-		VALUES ($1::uuid, $2::uuid, 'main')`, childID, configID); err != nil {
-		t.Fatalf("seed child: %v", err)
-	}
-	tools, err := json.Marshal([]mcp.CatalogTool{{
-		Name: "search", Description: "Search.",
-		InputSchema: map[string]any{"type": "object"},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := env.db.Exec(ctx, `
-		INSERT INTO mcp_connection_state(child_id, credential_user_id, tools, status, probed_at, config_revision)
-		VALUES ($1::uuid, $2::uuid, $3::jsonb, 'ok', now(), 1)`, childID, env.adminUser.ID, tools); err != nil {
-		t.Fatalf("seed observation: %v", err)
-	}
-	plugins := pluginpkg.NewService(env.db, env.deps.AgentAccess, pluginpkg.NewCatalog(),
-		mcp.NewMCPBackendPolicy(mcp.EndpointPolicy{}),
-		func(_ context.Context, fn func() error) error { return fn() })
-	svc := mcp.NewServiceForPool(env.db, nil, nil)
-	svc.SetPluginService(plugins)
-	env.rebuild(t, func(d *server.Deps) {
-		d.PluginService = plugins
-		d.MCP = svc
-		d.MCPAccess = mcp.NewAccess(svc, d.AgentAccess, nil)
-	})
-
+	env := setupFileMCPCatalogEnvWithResource(t, false)
 	rr := doRequest(t, env, http.MethodGet, "/api/agents/stella/tools", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 	var got struct {
 		Tools []struct {
-			Name               string  `json:"name"`
-			Enabled            *bool   `json:"enabled"`
-			AvailabilityReason *string `json:"availability_reason"`
+			Source string `json:"source"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode tools: %v", err)
 	}
-	var tool struct {
-		Name               string  `json:"name"`
-		Enabled            *bool   `json:"enabled"`
-		AvailabilityReason *string `json:"availability_reason"`
-	}
-	wantToolName, err := agentpackage.ExportedToolName(pluginID, "main", "search")
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, item := range got.Tools {
-		if item.Name == wantToolName {
-			tool = item
+		if item.Source == "mcp" {
+			t.Fatalf("legacy observation leaked into file catalog: %#v", got.Tools)
 		}
-	}
-	if tool.Name == "" {
-		t.Fatalf("per_user tool missing from the list: %#v", got.Tools)
-	}
-	if tool.AvailabilityReason == nil || *tool.AvailabilityReason != "mcp_needs_auth" {
-		t.Fatalf("availability_reason = %v, want mcp_needs_auth", tool.AvailabilityReason)
-	}
-	if tool.Enabled == nil || !*tool.Enabled {
-		t.Fatalf("enabled = %v, want the default true (override stays editable)", tool.Enabled)
 	}
 }

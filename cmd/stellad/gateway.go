@@ -349,7 +349,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	var coordOpts []channel.CoordinatorOption
 	var vaultRecipient *age.X25519Recipient
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, agentAccess, linkCodes))
-	coordOpts = append(coordOpts, channel.WithGuestPolicyDecoder(s.pluginHost.GuestPolicyResolver), channel.WithSnapshotResolver(s.pluginService.ResolveSnapshot), channel.WithListenerCap(nativeAdministrativeCap(s.nativePolicy)))
+	coordOpts = append(coordOpts, channel.WithGuestPolicyDecoder(s.pluginHost.GuestPolicyResolver), channel.WithListenerCap(nativeAdministrativeCap(s.nativePolicy)))
 	coordOpts = append(coordOpts, channel.WithRootOpener(s.workspaceManager))
 	if s.vaultSvc != nil {
 		vaultRecipient = s.vaultSvc.MasterRecipient()
@@ -433,7 +433,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// longer reaches config.Store / auth.AuthStore / the query layer for them. The
 	// user directory backs assignment views with the account user store (per-id
 	// lookups; the assignment set per agent is small and admin-only).
-	toolOverrides := agent.NewToolOverrideStore(s.db)
+	toolOverrides := agent.NewToolOverrideStore(s.db, s.pluginFiles)
 	agentSkillPolicy, ok := s.store.(server.AgentSkillPolicyStore)
 	if !ok {
 		return fmt.Errorf("agent Skill policy store is unavailable")
@@ -503,7 +503,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		LinkCodes:            linkCodes,
 		PoolManager:          s.poolManager,
 		PluginHost:           s.pluginHost,
-		PluginService:        s.pluginService,
+		PluginFiles:          s.pluginFiles,
 		NativePolicy:         s.nativePolicy,
 		WeixinRegistrar:      newWeixinRegistrar(),
 		BuiltinTools:         s.builtinTools,
@@ -523,6 +523,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Vault:                s.vaultSvc,
 		VaultRecipient:       vaultRecipient,
 		MCP:                  s.mcpSvc,
+		MCPFiles:             s.mcpFiles,
+		AgentMCPCatalog:      mcpCatalogFunc(s.mcpFiles),
 		MCPCatalog:           mcp.NewOfficialCatalog(),
 		MCPAccess:            mcp.NewAccess(s.mcpSvc, agentAccess, s.poolManager),
 		Scheduler:            s.schedulerSvc,

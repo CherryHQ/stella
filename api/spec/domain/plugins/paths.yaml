@@ -227,26 +227,34 @@ paths:
   /api/plugins:
     get:
       tags: [plugins]
-      summary: List plugins visible to the caller
+      summary: List raw plugin resources visible to the caller
       operationId: listPlugins
-      x-agent-tool: {
-        tool: "settings_plugin",
-        action: "list",
-        omit: [page_size, page_token],
-      }
+      x-agent-tool:
+        tool: settings_plugin
+        action: list
+        omit: [page_size, page_token, scope, agent_id]
       parameters:
-        - {
-            name: page_size,
-            in: query,
-            required: false,
-            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+        - name: page_size
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 20 }
+        - name: page_token
+          in: query
+          required: false
+          schema: { type: string }
+        - name: scope
+          in: query
+          required: false
+          description: Restrict results to one raw resource scope; omit to list all visible system, user, and requested-Agent layers.
+          schema: {
+            type: string,
+            enum: [system, system_agent, user, user_agent],
           }
-        - {
-            name: page_token,
-            in: query,
-            required: false,
-            schema: { type: string },
-          }
+        - name: agent_id
+          in: query
+          required: false
+          description: Restrict results to resources for this authorized Agent and its system/user layers.
+          schema: { type: string }
       responses:
         "200":
           description: ok
@@ -267,7 +275,7 @@ paths:
         }
     post:
       tags: [plugins]
-      summary: Create a custom plugin and its initial configuration
+      summary: Create a raw plugin resource from declaration files
       operationId: createPlugin
       requestBody:
         required: true
@@ -282,7 +290,7 @@ paths:
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/CreatePluginResponse",
+                $ref: "../../components.yaml#/components/schemas/PluginResource",
               }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
@@ -299,7 +307,7 @@ paths:
   /api/plugins/import:
     post:
       tags: [plugins]
-      summary: Import a plugin package directory (admin only)
+      summary: Import a plugin package directory into a target raw resource scope (admin only)
       operationId: importPluginPackage
       requestBody:
         required: true
@@ -314,7 +322,7 @@ paths:
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/CreatePluginResponse",
+                $ref: "../../components.yaml#/components/schemas/PluginResource",
               }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
@@ -330,10 +338,13 @@ paths:
 
   /api/plugins/{plugin_id}:
     parameters:
-      - { name: plugin_id, in: path, required: true, schema: { type: string } }
+      - name: plugin_id
+        in: path
+        required: true
+        schema: { type: string }
     get:
       tags: [plugins]
-      summary: Get a visible plugin definition
+      summary: Get a visible raw plugin resource
       operationId: getPlugin
       responses:
         "200":
@@ -341,7 +352,7 @@ paths:
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/PluginDefinition",
+                $ref: "../../components.yaml#/components/schemas/PluginResource",
               }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
@@ -353,24 +364,17 @@ paths:
         }
     patch:
       tags: [plugins]
-      summary: Update custom plugin presentation metadata
+      summary: Enable or disable a raw plugin resource
       operationId: updatePlugin
-      # The core settings tool receives the canonical plugin_id. Its handler
-      # owns the enable/disable action while this resource route owns
-      # definition metadata; omit the HTTP body from the model-facing tool.
       x-agent-tool:
-        - {
-            tool: "settings_plugin",
-            action: "enable",
-            fixed: { enabled: true },
-            body: false,
-          }
-        - {
-            tool: "settings_plugin",
-            action: "disable",
-            fixed: { enabled: false },
-            body: false,
-          }
+        - tool: settings_plugin
+          action: enable
+          fixed: { is_enabled: true }
+          body: false
+        - tool: settings_plugin
+          action: disable
+          fixed: { is_enabled: false }
+          body: false
       requestBody:
         required: true
         content:
@@ -384,7 +388,7 @@ paths:
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/PluginDefinition",
+                $ref: "../../components.yaml#/components/schemas/PluginResource",
               }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
@@ -400,15 +404,14 @@ paths:
         }
     delete:
       tags: [plugins]
-      summary: Delete a custom plugin definition
+      summary: Delete a raw plugin resource declaration without changing policy or grant files
       operationId: deletePlugin
       parameters:
-        - {
-            name: expected_revision,
-            in: query,
-            required: true,
-            schema: { type: integer, format: int64, minimum: 1 },
-          }
+        - name: expected_digest
+          in: query
+          required: true
+          description: Exact current content digest required for deletion.
+          schema: { type: string, minLength: 1 }
       responses:
         "204": { description: deleted }
         "400": {
@@ -424,139 +427,22 @@ paths:
           $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
         }
 
-  /api/plugins/{plugin_id}/update:
+  /api/plugins/{plugin_id}/copy:
     parameters:
-      - { name: plugin_id, in: path, required: true, schema: { type: string } }
+      - name: plugin_id
+        in: path
+        required: true
+        schema: { type: string }
     post:
       tags: [plugins]
-      summary: Replace a plugin definition from a package directory (admin only)
-      operationId: updatePluginPackage
+      summary: Copy a complete plugin resource to a target scope
+      operationId: copyPlugin
       requestBody:
         required: true
         content:
           application/json:
             schema: {
-              $ref: "../../components.yaml#/components/schemas/UpdatePluginPackageRequest",
-            }
-      responses:
-        "200":
-          description: updated
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/PluginDefinition",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
-        "503": {
-          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
-        }
-
-  /api/plugins/{plugin_id}/update/preview:
-    parameters:
-      - { name: plugin_id, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [plugins]
-      summary: Preview a plugin package update without installing it (admin only)
-      operationId: previewPluginPackageUpdate
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {
-              $ref: "../../components.yaml#/components/schemas/PreviewPluginPackageRequest",
-            }
-      responses:
-        "200":
-          description: package impact preview
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/PreviewPluginPackageResponse",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
-        "503": {
-          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
-        }
-
-  /api/plugins/{plugin_id}/configs:
-    parameters:
-      - { name: plugin_id, in: path, required: true, schema: { type: string } }
-    get:
-      tags: [plugins]
-      summary: List configurations owned by the caller
-      operationId: listPluginConfigs
-      parameters:
-        - name: scope
-          in: query
-          required: false
-          schema: {
-            type: string,
-            enum: [system, system_agent, user, user_agent],
-            default: user,
-          }
-        - {
-            name: agent_id,
-            in: query,
-            required: false,
-            schema: { type: string },
-          }
-        - {
-            name: page_size,
-            in: query,
-            required: false,
-            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
-          }
-        - {
-            name: page_token,
-            in: query,
-            required: false,
-            schema: { type: string },
-          }
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/PluginConfigList",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "503": {
-          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
-        }
-    post:
-      tags: [plugins]
-      summary: Create a plugin configuration in one scope
-      operationId: createPluginConfig
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {
-              $ref: "../../components.yaml#/components/schemas/CreatePluginConfigRequest",
+              $ref: "../../components.yaml#/components/schemas/CopyPluginRequest",
             }
       responses:
         "201":
@@ -564,7 +450,7 @@ paths:
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/PluginConfig",
+                $ref: "../../components.yaml#/components/schemas/PluginResource",
               }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
@@ -579,22 +465,33 @@ paths:
           $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
         }
 
-  /api/plugins/{plugin_id}/configs/{config_id}:
+  /api/plugins/{plugin_id}/file:
     parameters:
-      - { name: plugin_id, in: path, required: true, schema: { type: string } }
-      - { name: config_id, in: path, required: true, schema: { type: string } }
+      - name: plugin_id
+        in: path
+        required: true
+        schema: { type: string }
     get:
       tags: [plugins]
-      summary: Get an owned plugin configuration
-      operationId: getPluginConfig
+      summary: Read one plugin declaration file
+      operationId: getPluginFile
+      parameters:
+        - name: path
+          in: query
+          required: true
+          description: Relative declaration path to read.
+          schema: { type: string, minLength: 1 }
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/PluginConfig",
+                $ref: "../../components.yaml#/components/schemas/ResourceFileContent",
               }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -605,22 +502,22 @@ paths:
         }
     patch:
       tags: [plugins]
-      summary: Partially update an owned plugin configuration
-      operationId: updatePluginConfig
+      summary: Replace one plugin declaration file
+      operationId: updatePluginFile
       requestBody:
         required: true
         content:
           application/json:
             schema: {
-              $ref: "../../components.yaml#/components/schemas/UpdatePluginConfigRequest",
+              $ref: "../../components.yaml#/components/schemas/UpdatePluginFileRequest",
             }
       responses:
         "200":
-          description: ok
+          description: updated
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/PluginConfig",
+                $ref: "../../components.yaml#/components/schemas/PluginResource",
               }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
@@ -636,15 +533,19 @@ paths:
         }
     delete:
       tags: [plugins]
-      summary: Delete an owned plugin configuration
-      operationId: deletePluginConfig
+      summary: Delete one plugin declaration file
+      operationId: deletePluginFile
       parameters:
-        - {
-            name: expected_revision,
-            in: query,
-            required: true,
-            schema: { type: integer, format: int64, minimum: 1 },
-          }
+        - name: path
+          in: query
+          required: true
+          description: Relative declaration path to delete.
+          schema: { type: string, minLength: 1 }
+        - name: expected_digest
+          in: query
+          required: true
+          description: Exact current content digest required for deletion.
+          schema: { type: string, minLength: 1 }
       responses:
         "204": { description: deleted }
         "400": {
@@ -656,76 +557,6 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
-        "503": {
-          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
-        }
-
-  /api/plugins/{plugin_id}/configs/{config_id}/reset:
-    parameters:
-      - { name: plugin_id, in: path, required: true, schema: { type: string } }
-      - { name: config_id, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [plugins]
-      summary: Reset a builtin system configuration to its shipped default
-      operationId: resetPluginConfig
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {
-              $ref: "../../components.yaml#/components/schemas/RevisionRequest",
-            }
-      responses:
-        "200":
-          description: reset
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/PluginConfig",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
-        "503": {
-          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
-        }
-
-  /api/plugins/{plugin_id}/effective:
-    parameters:
-      - { name: plugin_id, in: path, required: true, schema: { type: string } }
-    get:
-      tags: [plugins]
-      summary: Resolve a plugin for the caller and an authorized Agent
-      operationId: getPluginEffective
-      parameters:
-        - {
-            name: agent_id,
-            in: query,
-            required: true,
-            schema: { type: string },
-          }
-      responses:
-        "200":
-          description: effective state
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/PluginEffective",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "503": {
           $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
         }

@@ -99,16 +99,18 @@ type ResourceSettings struct {
 }
 
 type FileResource struct {
-	Key           ResourceKey
-	Content       *ResourceContent
-	Digest        string
-	Package       *agentpackage.Package
-	Skills        []agentpackage.Skill
-	MCP           map[string]mcpconfig.Declaration
-	Disabled      bool
-	Forbidden     bool
-	DisabledTools []string
-	Diagnostics   agentpackage.Diagnostics
+	Key            ResourceKey
+	Content        *ResourceContent
+	Digest         string
+	SettingsDigest string
+	Package        *agentpackage.Package
+	Skills         []agentpackage.Skill
+	MCP            map[string]mcpconfig.Declaration
+	Disabled       bool
+	Forbidden      bool
+	Overridden     bool
+	DisabledTools  []string
+	Diagnostics    agentpackage.Diagnostics
 }
 
 func resourceName(kind ResourceKind, name string) string { return string(kind) + ":" + name }
@@ -152,10 +154,11 @@ func DiscoverResources(ctx context.Context, roots []ResourceRoot) ([]FileResourc
 			for _, name := range settings.Forbidden {
 				forbidden[name] = true
 			}
-			if admin {
-				for name, tools := range settings.DisabledTools {
-					toolLimits[name] = append(toolLimits[name], tools...)
-				}
+			// Tool deny lists are compositional at every scope. A personal
+			// settings file must be able to disable one inherited tool without
+			// copying the entire package into the user-agent root.
+			for name, tools := range settings.DisabledTools {
+				toolLimits[name] = append(toolLimits[name], tools...)
 			}
 			candidates := map[string]FileResource{}
 			for _, kind := range []ResourceKind{ResourcePlugin, ResourceSkill, ResourceMCP} {
@@ -231,6 +234,9 @@ func DiscoverResources(ctx context.Context, roots []ResourceRoot) ([]FileResourc
 							declaration := mcpconfig.Declaration{URL: server.URL, Transport: transport, Headers: server.Headers}
 							if extension := resource.Package.Extension; extension != nil {
 								declaration.Authentication = extension.MCPAuth[server.Name]
+								options := extension.MCPOptions[server.Name]
+								declaration.Description = options.Description
+								declaration.CallTimeoutSeconds = options.CallTimeoutSeconds
 							}
 							normalized, err := mcpconfig.Normalize(declaration)
 							if err != nil {

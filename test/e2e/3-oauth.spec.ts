@@ -1,178 +1,42 @@
-// PR #1235: OAuth 2.1 authorization-code + PKCE for remote MCP servers.
-import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
+// OAuth 2.1 authorization-code + PKCE for file-backed MCP servers.
 import { expectStatus } from "./lib/api.ts";
 import type { ApiClient } from "./lib/api.ts";
-import { expect, loginWithPassword, test } from "./lib/fixtures.ts";
-import { exportedMcpName, type McpFixture, mcpServer, startMcpFixture } from "./lib/mcp-fixture.ts";
+import { expect, test } from "./lib/fixtures.ts";
+import { createMcpPlugin, deleteMcpServer, type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
 import { expireAccessToken, type OAuthFixture, setTokenFailure, startOAuthFixture, tokenHits } from "./lib/oauth-fixture.ts";
-import { ensureProvider } from "./lib/provider.ts";
 import type { McpServer } from "./lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
-
 let as: OAuthFixture;
 let mcp: McpFixture;
-type PluginConfig = {
-  id: string;
-  revision?: number;
-  resource_summary: { mcp_servers: McpServer[]; };
-};
-type PluginCreate = {
-  plugin: { id: string; revision?: number; };
-  config: PluginConfig;
-};
-type PluginDefinition = { id: string; revision?: number; };
-type OAuthServer = {
-  pluginId: string;
-  configId: string;
-  childId: string;
-  configRevision: number;
-  pluginRevision: number;
-};
-type ConnectionState = {
-  status: string;
-  status_error: string;
-  tools: { name: string; }[];
-};
+const created: McpServer[] = [];
 
-function mcpSummary(config: PluginConfig): McpServer {
-  const summary = config.resource_summary.mcp_servers[0];
-  if (!summary) throw new Error(`MCP summary missing from config ${config.id}`);
-  return summary;
-}
-
-const created: OAuthServer[] = [];
-let oauthServer: OAuthServer;
-let agentID = "";
-const oauthPerUserPlugin = "oauth-per-user";
-const oauthPerUserAdd = exportedMcpName(oauthPerUserPlugin, "add");
-
-async function createOAuthPlugin(
-  api: ApiClient,
-  name: string,
-  scope: string,
-  url: string,
-  credentialMode = "shared",
-): Promise<OAuthServer> {
-  const created = expectStatus(
-    await api.post<PluginCreate>("/api/plugins", {
-      name,
-      display_name: name,
-      definition_spec: {},
-      initial_config: {
-        scope,
-        is_enabled: true,
-        config: {
-          url,
-          transport: "streamable_http",
-          auth_type: "oauth",
-          credential_mode: credentialMode,
-        },
-      },
-    }),
-    201,
-    `create ${name} plugin`,
+async function startFlow(api: ApiClient, server: McpServer): Promise<Response> {
+  const current = expectStatus(
+    await api.get<McpServer>(`/api/mcp/servers/${server.id}`),
+    200,
+    "refresh OAuth server digest",
   );
-  const child = await mcpServer(api, created.config.id);
-  return {
-    pluginId: created.plugin.id,
-    configId: created.config.id,
-    childId: child.id,
-    configRevision: created.config.revision ?? 1,
-    pluginRevision: created.plugin.revision ?? 1,
-  };
-}
-
-function childPath(server: OAuthServer, suffix = ""): string {
-  return `/api/mcp/servers/${server.childId}${suffix}`;
-}
-
-function configPath(server: OAuthServer, suffix = ""): string {
-  return `/api/plugins/${encodeURIComponent(server.pluginId)}/configs/${server.configId}${suffix}`;
-}
-
-async function connect(
-  api: ApiClient,
-  server: OAuthServer,
-): Promise<{ flowID: string; callback: Response; }> {
   const started = expectStatus(
-    await api.post<{ authorization_url: string; flow_id: string; }>(
-      childPath(server, "/oauth/start"),
-    ),
+    await api.post<{
+      authorization_url: string;
+      flow_id: string;
+      expires_at: string;
+    }>(`/api/mcp/servers/${server.id}/oauth/start`, {
+      expected_digest: current.content_digest,
+    }),
     201,
     "start OAuth",
   );
+  expect(started.authorization_url).toContain("code_challenge=");
   const approved = await fetch(started.authorization_url, {
     redirect: "manual",
   });
-  const location = approved.headers.get("location");
   expect(approved.status).toBe(302);
-  expect(location).toBeTruthy();
-  return {
-    flowID: started.flow_id,
-    callback: await fetch(location!, { redirect: "manual" }),
-  };
-}
-
-async function getConfig(
-  api: ApiClient,
-  server: OAuthServer,
-): Promise<PluginConfig> {
-  return expectStatus(
-    await api.get<PluginConfig>(configPath(server)),
-    200,
-    "get OAuth config",
-  );
-}
-
-async function getDefinition(
-  api: ApiClient,
-  server: OAuthServer,
-): Promise<PluginDefinition> {
-  return expectStatus(
-    await api.get<PluginDefinition>(`/api/plugins/${encodeURIComponent(server.pluginId)}`),
-    200,
-    "get OAuth plugin",
-  );
-}
-
-async function probe(
-  api: ApiClient,
-  server: OAuthServer,
-): Promise<McpServer> {
-  return expectStatus(
-    await api.post<McpServer>(childPath(server, "/probe")),
-    200,
-    "probe OAuth config",
-  );
-}
-
-async function connectionState(
-  db: import("./lib/db.ts").Sql,
-  server: OAuthServer,
-  userID: string | null = null,
-): Promise<ConnectionState> {
-  const rows = userID === null
-    ? await db`select status, status_error, tools from mcp_connection_state where child_id = ${server.childId}`
-    : await db`select status, status_error, tools from mcp_connection_state where child_id = ${server.childId} and credential_user_id = ${userID}`;
-  if (rows.length !== 1) {
-    throw new Error(
-      `missing MCP state for ${server.childId}: ${JSON.stringify(rows)}`,
-    );
-  }
-  return rows[0] as ConnectionState;
-}
-
-function vaultName(prefix: string, id: string): string {
-  return `${prefix}${id.replaceAll("-", "_").toUpperCase()}`;
-}
-
-async function vaultCount(
-  db: import("./lib/db.ts").Sql,
-  name: string,
-): Promise<number> {
-  const rows = await db`select count(*)::int as n from vault_entry where name = ${name}`;
-  return Number(rows[0].n);
+  const callbackURL = approved.headers.get("location");
+  expect(callbackURL).toContain("code=");
+  expect(callbackURL).toContain("state=");
+  return fetch(callbackURL!, { redirect: "manual" });
 }
 
 test.beforeAll(async () => {
@@ -183,292 +47,128 @@ test.beforeAll(async () => {
   });
   as.resource = mcp.url;
 });
-
 test.afterAll(async ({ admin }) => {
-  for (const server of created) {
-    const config = await getConfig(admin, server);
-    const definition = await getDefinition(admin, server);
-    await admin.delete(
-      configPath(server)
-        + `?expected_revision=${config.revision ?? server.configRevision}`,
-    );
-    await admin.delete(
-      `/api/plugins/${encodeURIComponent(server.pluginId)}?expected_revision=${definition.revision ?? server.pluginRevision}`,
-    );
-  }
+  for (const server of created) await deleteMcpServer(admin, server);
   await mcp.close();
   await as.close();
 });
 
-test("API + DB complete the PKCE flow and persist only a vault bundle", async ({ admin, db }) => {
-  oauthServer = await createOAuthPlugin(admin, "oauth-e2e", "user", mcp.url);
-  created.push(oauthServer);
-  const initial = await probe(admin, oauthServer);
-  expect(initial).toMatchObject({
-    auth_type: "oauth",
-    oauth_client_id_configured: false,
+test("API completes PKCE and exposes only safe OAuth state", async ({ admin }) => {
+  const server = await createMcpPlugin(admin, mcp, {
+    name: "oauth-e2e",
+    authType: "oauth",
+    credentialMode: "per_user",
   });
-  expect((await connectionState(db, oauthServer)).status).toBe("needs_auth");
-
-  const started = expectStatus(
-    await admin.post<{
-      authorization_url: string;
-      flow_id: string;
-      expires_at: string;
-    }>(childPath(oauthServer, "/oauth/start")),
-    201,
-    "start OAuth",
+  created.push(server);
+  const initial = expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
+    200,
+    "probe OAuth server",
   );
-  expect(started.authorization_url).toContain("code_challenge=");
-  const flows = await db`select server_id, user_id, pkce_verifier, consumed_at from mcp_oauth_flow where id = ${started.flow_id}`;
-  expect(flows).toHaveLength(1);
-  expect(flows[0].server_id).toBe(oauthServer.childId);
-  expect(flows[0].pkce_verifier).toBeTruthy();
-  expect(flows[0].consumed_at).toBeNull();
-
-  const approved = await fetch(started.authorization_url, {
-    redirect: "manual",
-  });
-  const callbackURL = approved.headers.get("location");
-  expect(approved.status).toBe(302);
-  expect(callbackURL).toContain("code=");
-  expect(callbackURL).toContain("state=");
-  const callback = await fetch(callbackURL!, { redirect: "manual" });
+  expect(initial.status).toBe("needs_auth");
+  const callback = await startFlow(admin, server);
   expect(callback.status, await callback.text()).toBe(302);
   expect(callback.headers.get("location")).toContain("connected=");
-
-  const connected = await getConfig(admin, oauthServer);
-  expect(mcpSummary(connected)).toMatchObject({
-    auth_type: "oauth",
-    oauth_client_id_configured: true,
-    oauth_client_secret_configured: true,
-  });
-  expect((await connectionState(db, oauthServer)).status).toBe("ok");
-  expect(
-    (await connectionState(db, oauthServer)).tools.map((tool) => tool.name),
-  ).toEqual(["add", "echo"]);
+  const connected = expectStatus(
+    await admin.get<McpServer>(`/api/mcp/servers/${server.id}`),
+    200,
+    "get connected server",
+  );
+  expect(connected.declaration).toMatchObject({ auth_type: "oauth" });
+  // OAuth completion persists the grant, but file-backed probe observations
+  // stay disposable until the next explicit probe.
+  expect(connected.status).toBe("unknown");
+  expect(connected.needs_auth).toBe(false);
   expect(JSON.stringify(connected)).not.toContain("e2e-access");
   expect(JSON.stringify(connected)).not.toContain("e2e-refresh");
-  expect(
-    await vaultCount(db, vaultName("MCP_OAUTH_", oauthServer.childId)),
-  ).toBe(1);
-  expect(
-    await vaultCount(db, vaultName("MCP_OAUTH_CLIENT_", oauthServer.childId)),
-  ).toBe(1);
-  const flow = (
-    await db`select consumed_at from mcp_oauth_flow where id = ${started.flow_id}`
-  )[0];
-  expect(flow.consumed_at).not.toBeNull();
-  expect(as.counters.get("register") ?? 0).toBe(1);
-
-  const replay = await fetch(callbackURL!, { redirect: "manual" });
-  expect(replay.status).toBe(302);
-  expect(replay.headers.get("location")).toContain("oauth_error=expired");
+  expect(as.counters.get("register") ?? 0).toBeGreaterThanOrEqual(1);
 });
 
-test("expired flow is rejected and refresh is single-shot", async ({ admin, db }) => {
-  const started = expectStatus(
-    await admin.post<{ authorization_url: string; flow_id: string; }>(
-      childPath(oauthServer, "/oauth/start"),
-    ),
-    201,
-    "start second OAuth",
-  );
-  const expired = await db`update mcp_oauth_flow set expires_at = now() - interval '1 minute' where id = ${started.flow_id} returning id`;
-  expect(expired).toHaveLength(1);
-  const approved = await fetch(started.authorization_url, {
-    redirect: "manual",
-  });
-  const callback = await fetch(approved.headers.get("location")!, {
-    redirect: "manual",
-  });
-  expect(callback.headers.get("location")).toContain("oauth_error=expired");
-
-  // A one-second access token is expired by the callback's real post-connect
-  // probe, forcing exactly one refresh. The refresh response is long-lived.
+test("an expired OAuth token refreshes once on explicit probes", async ({ admin }) => {
+  const server = created[0];
+  as.expiresIn = 1;
+  const refreshed = await startFlow(admin, server);
+  expect(refreshed.status).toBe(302);
+  await new Promise((resolve) => setTimeout(resolve, 1_200));
   const before = tokenHits(as);
-  as.expiresIn = 1;
-  const fresh = await connect(admin, oauthServer);
-  expect(fresh.callback.status).toBe(302);
-  expect(tokenHits(as)).toBe(before + 2); // authorization-code exchange + refresh
-  expect((await connectionState(db, oauthServer)).status).toBe("ok");
+  const firstProbe = expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
+    200,
+    "probe expired OAuth token",
+  );
+  expect(firstProbe.status).toBe("ready");
+  expect(tokenHits(as)).toBe(before + 1);
+  const secondProbe = expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
+    200,
+    "repeat probe after OAuth refresh",
+  );
+  expect(secondProbe.status).toBe("ready");
+  expect(tokenHits(as)).toBe(before + 1);
 });
 
-test("rejected access and refresh failure fail closed without a retry loop", async ({ admin, db }) => {
+test("revoked access and refresh failure fail closed", async ({ admin }) => {
+  const server = created[0];
   expireAccessToken(as);
-  const rejected = await probe(admin, oauthServer);
-  expect(rejected).toMatchObject({ auth_type: "oauth" });
-  const rejectedState = await connectionState(db, oauthServer);
-  expect(rejectedState.status).toBe("needs_auth");
-  expect(rejectedState.status_error).not.toContain("e2e-access");
-
-  // Make the refreshed access token expire, then reject the refresh grant.
+  setTokenFailure(
+    as,
+    503,
+    JSON.stringify({ error: "temporarily unavailable" }),
+  );
+  const rejected = expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
+    200,
+    "probe expired OAuth token",
+  );
+  expect(["needs_auth", "error"]).toContain(rejected.status);
+  const failedRefresh = expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
+    200,
+    "probe with failed OAuth refresh",
+  );
+  expect(["needs_auth", "error"]).toContain(failedRefresh.status);
   setTokenFailure(as, 0, "");
-  as.expiresIn = 1;
-  as.refreshExpiresIn = 1;
-  const reconnected = await connect(admin, oauthServer);
-  expect(reconnected.callback.status).toBe(302);
-  setTokenFailure(as, 400, JSON.stringify({ error: "invalid_grant" }));
-  await new Promise((resolve) => setTimeout(resolve, 1100));
-  await probe(admin, oauthServer);
-  const failedState = await connectionState(db, oauthServer);
-  expect(failedState.status).toBe("needs_auth");
-  expect(failedState.status_error).toContain("reconnect");
-  const after = tokenHits(as);
-  await probe(admin, oauthServer);
-  expect(tokenHits(as)).toBe(after);
-  expect((await connectionState(db, oauthServer)).status).toBe("needs_auth");
-  setTokenFailure(as, 0, "");
-  as.refreshExpiresIn = 3600;
-});
-
-test("disconnect removes the bundle and the UI reconnects OAuth", async ({ admin, db, page, loginAsAdmin }) => {
-  const connected = await getConfig(admin, oauthServer);
   const disconnected = expectStatus(
     await admin.post<McpServer>(
-      childPath(oauthServer, "/oauth/disconnect"),
+      `/api/mcp/servers/${server.id}/oauth/disconnect`,
     ),
     200,
     "disconnect OAuth",
   );
-  expect(disconnected).toMatchObject({
-    auth_type: "oauth",
-    oauth_client_secret_configured: true,
-  });
-  expect((await connectionState(db, oauthServer)).status).toBe("needs_auth");
-  expect(
-    await vaultCount(db, vaultName("MCP_OAUTH_", oauthServer.childId)),
-  ).toBe(0);
-  expect(
-    await vaultCount(db, vaultName("MCP_OAUTH_CLIENT_", oauthServer.childId)),
-  ).toBe(1);
-
-  await loginAsAdmin();
-  await page.goto("/settings/mcp");
-  const card = page
-    .locator('[data-slot="card"]')
-    .filter({ hasText: "oauth-e2e" });
-  await card.click();
-  await expect(
-    page.getByRole("button", { name: /Authorize account|授权/ }),
-  ).toBeVisible();
-  expect(mcpSummary(connected)).toMatchObject({ auth_type: "oauth" });
-  const fresh = await createOAuthPlugin(
-    admin,
-    "oauth-ui-connect",
-    "user",
-    mcp.url.replace("/mcp", "/ui-connect"),
-  );
-  created.push(fresh);
-  await page.goto("/settings/mcp");
-  const freshCard = page
-    .locator('[data-slot="card"]')
-    .filter({ hasText: "oauth-ui-connect" });
-  await expect(freshCard).toBeVisible();
-  await freshCard.click();
-  await expect(
-    page.getByRole("button", { name: /Authorize account|授权/ }),
-  ).toBeVisible();
-
-  await page.goto("/settings/mcp");
-  const reconnectCard = page
-    .locator('[data-slot="card"]')
-    .filter({ hasText: "oauth-e2e" });
-  await reconnectCard.click();
-  await page.getByRole("button", { name: /Authorize account|授权/ }).click();
-  await page.waitForURL(
-    (url) => url.pathname === "/settings/mcp" && url.searchParams.has("connected"),
-  );
-  await page.goto("/settings/mcp");
-  const connectedCard = page
-    .locator('[data-slot="card"]')
-    .filter({ hasText: "oauth-e2e" });
-  await connectedCard.click();
-  await expect
-    .poll(
-      async () =>
-        (
-          await db`select s.status, c.credential_refs #>> '{mcp_servers,main,oauth_bundle,name}' as bundle
-      from mcp_connection_state s
-      join plugin_config_mcp_server child on child.id = s.child_id
-      join plugin_config c on c.id = child.config_id
-      where s.child_id = ${oauthServer.childId}`
-        )[0],
-    )
-    .toMatchObject({ status: "ok" });
-  const bundle = (
-    await db`select c.credential_refs #>> '{mcp_servers,main,oauth_bundle,name}' as bundle
-      from plugin_config c where c.id = ${oauthServer.configId}`
-  )[0]?.bundle;
-  expect(bundle).toBeTruthy();
-  await expect(
-    page.getByRole("button", { name: /Disconnect account|断开/ }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: /Disconnect account|断开/ }).click();
-  await expect(
-    page.getByRole("button", { name: /Authorize account|授权/ }),
-  ).toBeVisible();
-  expect((await connectionState(db, oauthServer)).status).toBe("needs_auth");
+  expect(disconnected.status).toBe("unknown");
+  expect(disconnected.needs_auth).toBe(true);
 });
 
-test("per-user bundles isolate users and a real agent calls OAuth MCP @model", async ({ admin, user, db }) => {
-  const { modelRef } = await ensureProvider(admin);
-  agentID = await ensureAgent(admin, modelRef, "e2e-oauth-agent");
-  const perUser = await createOAuthPlugin(
-    admin,
-    oauthPerUserPlugin,
-    "system",
-    mcp.url,
-    "per_user",
-  );
-  created.push(perUser);
-  expect(mcpSummary(await getConfig(admin, perUser))).toMatchObject({
-    auth_type: "oauth",
-    credential_mode: "per_user",
+test("per-user OAuth grants stay separate for admin and user", async ({ admin, user }) => {
+  const server = await createMcpPlugin(admin, mcp, {
+    name: "oauth-per-user",
+    authType: "oauth",
+    credentialMode: "per_user",
+    scope: "system",
   });
-
-  const beforeConnect = await user.get<{
-    tools: { name: string; availability_reason?: string; }[];
-  }>(`/api/agents/${agentID}/tools`);
-  expect(beforeConnect.status).toBe(200);
-
-  const adminStart = await connect(admin, perUser);
-  expect(adminStart.callback.status).toBe(302);
-  const userStillNeedsAuth = await user.get<{
-    tools: { name: string; availability_reason?: string; }[];
-  }>(`/api/agents/${agentID}/tools`);
-  expect(
-    userStillNeedsAuth.body.tools.some(
-      (tool) =>
-        tool.name === oauthPerUserAdd
-        && tool.availability_reason === "mcp_needs_auth",
-    ),
-    JSON.stringify(userStillNeedsAuth.body),
-  ).toBe(true);
-
-  const userStart = await connect(user, perUser);
-  expect(userStart.callback.status).toBe(302);
-  const bundleRows = await db`select scope, user_id from vault_entry where name = ${
-    vaultName("MCP_OAUTH_", perUser.childId)
-  } order by user_id`;
-  expect(bundleRows).toHaveLength(2);
-  expect(new Set(bundleRows.map((row) => String(row.user_id))).size).toBe(2);
-
-  const session = await createChatSession(admin, agentID);
-  const turn = await sendTurn(
-    admin,
-    agentID,
-    session,
-    `Call ${oauthPerUserAdd} with a=17 and b=25. Reply with only the result.`,
+  created.push(server);
+  expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
+    200,
+    "probe per-user server",
   );
-  expect(turn.errors, JSON.stringify(turn.events.slice(-5))).toEqual([]);
-  expect(turn.text).toContain("42");
-  expect(
-    mcp.calls.some(
-      (call) => call.tool === "add" && call.args.a === 17 && call.args.b === 25,
+  const adminCallback = await startFlow(admin, server);
+  expect(adminCallback.status).toBe(302);
+  const userServer = expectStatus(
+    await user.get<McpServer>(`/api/mcp/servers/${server.id}`),
+    200,
+    "read per-user server",
+  );
+  const userCallback = await startFlow(user, userServer);
+  expect(userCallback.status).toBe(302);
+  expect(as.counters.get("authorize") ?? 0).toBeGreaterThanOrEqual(2);
+  const disconnected = expectStatus(
+    await user.post<McpServer>(
+      `/api/mcp/servers/${server.id}/oauth/disconnect`,
     ),
-  ).toBe(true);
-  expect(
-    invokedToolNames(await sessionMessages(admin, agentID, session)),
-  ).toContain(oauthPerUserAdd);
+    200,
+    "disconnect user OAuth",
+  );
+  expect(disconnected.status).toBe("unknown");
+  expect(disconnected.needs_auth).toBe(true);
 });

@@ -397,12 +397,14 @@ components:
     AgentMCPServer:
       type: object
       required: [
-        plugin_id,
-        config_id,
-        parent_config_id,
-        parent_revision,
+        id,
+        resource_id,
+        name,
+        server_key,
+        content_digest,
         scope,
         enabled,
+        auth_type,
         credential_mode,
         needs_auth,
         status,
@@ -411,28 +413,41 @@ components:
       ]
       additionalProperties: false
       description: >-
-        Safe effective MCP projection for an agent. It intentionally omits the
-        endpoint, payload, metadata, credential references, and OAuth details.
+        Safe effective MCP projection for an agent. This is a file-backed
+        resource identity; it omits endpoints, payloads, credential references,
+        OAuth state, and legacy plugin configuration identifiers.
       properties:
-        plugin_id: { type: string }
-        config_id: { type: string }
-        parent_config_id: { type: string, format: uuid }
-        parent_revision: { type: integer, format: int64 }
+        id:
+          type: string
+          readOnly: true
+          description: Stable opaque mcp-file identity for this server.
+        resource_id:
+          type: string
+          readOnly: true
+          description: Stable file resource identifier for the source package or declaration.
+        name: { type: string, readOnly: true }
+        server_key: { type: string, readOnly: true }
+        content_digest: { type: string, readOnly: true }
         scope:
           type: string
           enum: [user, user_agent, system, system_agent]
         enabled: { type: boolean }
+        auth_type:
+          type: string
+          enum: [none, bearer, oauth]
         credential_mode:
           type: string
           enum: [shared, per_user]
         needs_auth: { type: boolean }
         status:
           type: string
-          enum: [unknown, ok, error, needs_auth]
+          enum: [unknown, ready, error, needs_auth]
         tools:
           type: array
           items: { $ref: "#/components/schemas/MCPTool" }
-        readable: { type: boolean }
+        readable:
+          type: boolean
+          description: Whether the caller may read and manage this file-backed resource.
 
     AgentMCPServerList:
       type: object

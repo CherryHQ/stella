@@ -148,6 +148,10 @@ paths:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers"
   /api/mcp/servers/{id}:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}"
+  /api/mcp/servers/{id}/file:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1file"
+  /api/mcp/servers/{id}/credentials:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1credentials"
   /api/mcp/servers/{id}/probe:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1probe"
   /api/mcp/servers/{id}/oauth/start:
@@ -504,18 +508,10 @@ paths:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1import"
   /api/plugins/{plugin_id}:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}"
-  /api/plugins/{plugin_id}/update:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1update"
-  /api/plugins/{plugin_id}/update/preview:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1update~1preview"
-  /api/plugins/{plugin_id}/configs:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs"
-  /api/plugins/{plugin_id}/configs/{config_id}:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs~1{config_id}"
-  /api/plugins/{plugin_id}/configs/{config_id}/reset:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1configs~1{config_id}~1reset"
-  /api/plugins/{plugin_id}/effective:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1effective"
+  /api/plugins/{plugin_id}/copy:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1copy"
+  /api/plugins/{plugin_id}/file:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1file"
   /api/cli-tools/registry:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1cli-tools~1registry"
   /api/cli-tools/latest:
@@ -763,37 +759,33 @@ components:
     StatusResponse: {
       $ref: "./components.yaml#/components/schemas/StatusResponse",
     }
-    PluginDefinition: {
-      $ref: "./components.yaml#/components/schemas/PluginDefinition",
+    PluginResource: {
+      $ref: "./components.yaml#/components/schemas/PluginResource",
+    }
+    PluginDiagnostic: {
+      $ref: "./components.yaml#/components/schemas/PluginDiagnostic",
+    }
+    ResourceFileInfo: {
+      $ref: "./components.yaml#/components/schemas/ResourceFileInfo",
+    }
+    ResourceFileContent: {
+      $ref: "./components.yaml#/components/schemas/ResourceFileContent",
     }
     PluginList: { $ref: "./components.yaml#/components/schemas/PluginList" }
-    PluginConfig: { $ref: "./components.yaml#/components/schemas/PluginConfig" }
-    PluginConfigList: {
-      $ref: "./components.yaml#/components/schemas/PluginConfigList",
-    }
-    PluginEffective: {
-      $ref: "./components.yaml#/components/schemas/PluginEffective",
-    }
-    PluginConfigInput: {
-      $ref: "./components.yaml#/components/schemas/PluginConfigInput",
-    }
-    CreatePluginConfigRequest: {
-      $ref: "./components.yaml#/components/schemas/CreatePluginConfigRequest",
-    }
     CreatePluginRequest: {
       $ref: "./components.yaml#/components/schemas/CreatePluginRequest",
     }
-    CreatePluginResponse: {
-      $ref: "./components.yaml#/components/schemas/CreatePluginResponse",
+    ImportPluginRequest: {
+      $ref: "./components.yaml#/components/schemas/ImportPluginRequest",
+    }
+    CopyPluginRequest: {
+      $ref: "./components.yaml#/components/schemas/CopyPluginRequest",
     }
     UpdatePluginRequest: {
       $ref: "./components.yaml#/components/schemas/UpdatePluginRequest",
     }
-    UpdatePluginConfigRequest: {
-      $ref: "./components.yaml#/components/schemas/UpdatePluginConfigRequest",
-    }
-    RevisionRequest: {
-      $ref: "./components.yaml#/components/schemas/RevisionRequest",
+    UpdatePluginFileRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdatePluginFileRequest",
     }
     Goal: { $ref: "./components.yaml#/components/schemas/Goal" }
     GoalList: {

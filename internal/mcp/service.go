@@ -66,7 +66,11 @@ type Service struct {
 	// credential for owner (bearer from the vault, OAuth via a TokenSource
 	// handler) and opens the session. probeTimeout bounds one connect + tools/list.
 	connect      func(ctx context.Context, reg Registration, owner CredentialOwner) (RemoteClient, error)
+	fileConnect  func(context.Context, Registration, CredentialOwner, func()) (RemoteClient, error)
 	probeTimeout time.Duration
+	// fileSessionFactory is a package-test seam; production always creates a
+	// disposable FileSession for each explicit file probe.
+	fileSessionFactory func(*Service) *FileSession
 	// endpoints gates registration URLs at write time and every dial; the zero
 	// value is public-only.
 	endpoints EndpointPolicy
@@ -1811,6 +1815,14 @@ func timePtr(v time.Time) *time.Time { return &v }
 // the SSRF-safe dialer refuses loopback/private targets.
 func (s *Service) SetConnectForTesting(fn func(ctx context.Context, reg Registration, owner CredentialOwner) (RemoteClient, error)) {
 	s.connect = fn
+}
+
+// SetFileConnectForTesting replaces the session connector used by file-backed
+// MCP catalog tests. Production file sessions keep using the endpoint-safe
+// connector; the seam lets integration tests exercise the real catalog path
+// against a deterministic tools/list client.
+func (s *Service) SetFileConnectForTesting(fn func(context.Context, Registration, CredentialOwner, func()) (RemoteClient, error)) {
+	s.fileConnect = fn
 }
 
 // SetStatus persists a status transition without a probe (e.g. a tool call

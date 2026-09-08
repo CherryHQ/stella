@@ -42,7 +42,7 @@ WHERE fact_id = sqlc.arg(fact_id);
 -- name: UpsertSkillUsageOnReflectCreate :exec
 INSERT INTO skill_usage (skill_id, user_id, agent_id, content_digest, use_count, last_used_at)
 VALUES (sqlc.arg(skill_id), sqlc.arg(user_id), sqlc.arg(agent_id), sqlc.arg(content_digest), 1, now())
-ON CONFLICT (skill_id) DO UPDATE
+ON CONFLICT ((COALESCE(resource_id, skill_id))) DO UPDATE
 SET user_id = excluded.user_id,
     agent_id = excluded.agent_id,
     content_digest = excluded.content_digest,
@@ -52,7 +52,7 @@ SET user_id = excluded.user_id,
 -- name: RefreshSkillUsageOnReflectPatch :exec
 INSERT INTO skill_usage (skill_id, user_id, agent_id, content_digest, use_count, last_used_at)
 VALUES (sqlc.arg(skill_id), sqlc.arg(user_id)::uuid, sqlc.arg(agent_id)::text, sqlc.arg(content_digest), 0, now())
-ON CONFLICT (skill_id) DO UPDATE
+ON CONFLICT ((COALESCE(resource_id, skill_id))) DO UPDATE
 SET content_digest = excluded.content_digest,
     last_used_at = excluded.last_used_at;
 
@@ -61,7 +61,7 @@ UPDATE skill_usage su
 SET use_count = su.use_count + 1,
     last_used_at = now(),
     content_digest = sqlc.arg(content_digest)
-WHERE su.skill_id = sqlc.arg(skill_id)
+WHERE COALESCE(su.resource_id, su.skill_id) = sqlc.arg(skill_id)::text
   AND su.user_id = sqlc.arg(user_id)::uuid
   AND su.agent_id = sqlc.arg(agent_id)::text
   AND su.content_digest IS NOT DISTINCT FROM sqlc.arg(content_digest);
@@ -69,14 +69,14 @@ WHERE su.skill_id = sqlc.arg(skill_id)
 -- name: GetSkillUsageForUpdate :one
 SELECT *
 FROM skill_usage
-WHERE skill_id = sqlc.arg(skill_id)
+WHERE COALESCE(resource_id, skill_id) = sqlc.arg(skill_id)::text
   AND user_id = sqlc.arg(user_id)::uuid
   AND agent_id = sqlc.arg(agent_id)::text
 FOR UPDATE;
 
 -- name: DeleteSkillUsage :exec
 DELETE FROM skill_usage
-WHERE skill_id = sqlc.arg(skill_id);
+WHERE COALESCE(resource_id, skill_id) = sqlc.arg(skill_id)::text;
 
 -- name: ListReflectUsagePairs :many
 SELECT DISTINCT owned.user_id, owned.agent_id
@@ -132,7 +132,7 @@ WITH pair_activity AS (
     AND c.kind NOT IN ('task', 'delegate', 'scheduler')
 )
 SELECT
-  su.skill_id,
+  COALESCE(su.resource_id, su.skill_id)::text AS skill_id,
   su.user_id::text AS user_id,
   su.agent_id::text AS agent_id,
   su.content_digest,
@@ -156,7 +156,7 @@ WHERE su.user_id = sqlc.arg(user_id)::uuid
     )
   )
   AND pair_activity.latest > su.last_used_at
-ORDER BY su.last_used_at ASC, su.skill_id ASC;
+ORDER BY su.last_used_at ASC, COALESCE(su.resource_id, su.skill_id) ASC;
 
 -- name: HasEligiblePairActivityAfter :one
 SELECT EXISTS (

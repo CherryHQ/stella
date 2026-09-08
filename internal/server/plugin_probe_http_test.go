@@ -9,79 +9,47 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
+	"github.com/CherryHQ/stella/internal/core/mcpconfig"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
-	"github.com/CherryHQ/stella/internal/server"
 )
 
 type pluginProbeFixture struct {
-	pluginID string
-	configID string
-	childID  string
+	id string
 }
 
-func setupPluginProbeHTTPEnv(t *testing.T) (*testEnv, *[]mcp.CredentialOwner) {
+func setupPluginProbeHTTPEnv(t *testing.T) (*fileMCPTestEnv, *[]mcp.CredentialOwner) {
 	t.Helper()
-	env := setupAdmin(t)
-	plugins := pluginpkg.NewService(env.db, env.deps.AgentAccess, pluginpkg.NewCatalog(), mcp.NewMCPBackendPolicy(mcp.EndpointPolicy{}),
-		func(_ context.Context, fn func() error) error { return fn() })
-	owners := []mcp.CredentialOwner{}
-	mcpSvc := mcp.NewServiceForPool(env.db, oauthTestVault{}, func(pgx.Tx) mcp.Vault {
-		return oauthTestVault{}
-	})
-	mcpSvc.SetPluginService(plugins)
-	mcpSvc.SetConnectForTesting(func(_ context.Context, _ mcp.Registration, owner mcp.CredentialOwner) (mcp.RemoteClient, error) {
-		owners = append(owners, owner)
+	env := setupFileMCPTestEnv(t, mcp.EndpointPolicy{})
+	seen := []mcp.CredentialOwner{}
+	// ProbeFile is deliberately disposable. The hook lets this test assert
+	// which per-user grant would be selected if a credential were available.
+	env.mcpSvc.SetConnectForTesting(func(_ context.Context, _ mcp.Registration, owner mcp.CredentialOwner) (mcp.RemoteClient, error) {
+		seen = append(seen, owner)
 		return &fakeRemote{}, nil
 	})
-	env.rebuild(t, func(d *server.Deps) {
-		d.PluginService = plugins
-		d.MCP = mcpSvc
-		d.MCPAccess = mcp.NewAccess(mcpSvc, d.AgentAccess, nil)
-	})
-	return env, &owners
+	return env, &seen
 }
 
-func installPluginProbeFixture(t *testing.T, env *testEnv, scope, userID, agentID, authType, credentialMode string) pluginProbeFixture {
+func installPluginProbeFixture(t *testing.T, env *fileMCPTestEnv, scope, userID, agentID, authType, credentialMode string) pluginProbeFixture {
 	t.Helper()
 	name := "probe-" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	pluginID := name
-	configID := uuid.NewString()
-	childID := uuid.NewString()
-	child := fmt.Sprintf(`{"url":"https://mcp.example.test","transport":"streamable_http","auth_type":%q,"credential_mode":%q}`, authType, credentialMode)
-	spec, err := pluginpkg.PublishDefinitionSpec(json.RawMessage(fmt.Sprintf(`{"mcp_servers":{"main":%s}}`, child)))
+	key := pluginpkg.ResourceKey{Scope: pluginpkg.Scope(scope), UserID: userID, AgentID: agentID, Kind: pluginpkg.ResourceMCP, Name: name}
+	declaration := mcpconfig.Declaration{URL: "https://mcp.example.test", Transport: mcp.TransportStreamableHTTP, Authentication: mcpconfig.Authentication{Type: authType, Mode: credentialMode}}
+	data, err := json.Marshal(declaration)
 	if err != nil {
-		t.Fatalf("publish definition: %v", err)
+		t.Fatalf("marshal MCP declaration: %v", err)
 	}
-	refs := `{}`
-	if authType == mcp.AuthTypeOAuth && credentialMode == mcp.CredentialModePerUser {
-		refs = fmt.Sprintf(`{"mcp_servers":{"main":{"oauth_bundle":{"name":"MCP_OAUTH_%s","mode":"per_user","owner":"per_user"}}}}`, strings.ToUpper(strings.ReplaceAll(childID, "-", "_")))
+	if _, err := env.resources.WriteMCP(context.Background(), key, "", data); err != nil {
+		t.Fatalf("seed file MCP declaration: %v", err)
 	}
-	if _, err := env.db.Exec(context.Background(), `
-		INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision)
-		VALUES ($1, 'Probe test', 'custom', $2::jsonb, false, 1)`, pluginID, spec); err != nil {
-		t.Fatalf("seed plugin definition: %v", err)
-	}
-	if _, err := env.db.Exec(context.Background(), `
-		INSERT INTO plugin_config(id, plugin_id, scope, user_id, agent_id,
-			enabled, config, credential_refs, revision)
-		VALUES ($1::uuid, $2, $3, NULLIF($4, '')::uuid, NULLIF($5, ''),
-			$6, $7::jsonb, $8::jsonb, 1)`, configID, pluginID, scope, userID, agentID, true, `{}`, refs); err != nil {
-		t.Fatalf("seed plugin config: %v", err)
-	}
-	if _, err := env.db.Exec(context.Background(), `
-		INSERT INTO plugin_config_mcp_server(id, config_id, server_key)
-		VALUES ($1::uuid, $2::uuid, 'main')`, childID, configID); err != nil {
-		t.Fatalf("seed MCP child: %v", err)
-	}
-	return pluginProbeFixture{pluginID: pluginID, configID: configID, childID: childID}
+	return pluginProbeFixture{id: fileMCPServerID(key, name)}
 }
 
 func pluginProbePath(f pluginProbeFixture) string {
-	return fmt.Sprintf("/api/mcp/servers/%s/probe", f.childID)
+	return fmt.Sprintf("/api/mcp/servers/%s/probe", f.id)
 }
 
 func TestPluginProbeHTTPAuthorizesParentAndBackend(t *testing.T) {
@@ -91,7 +59,7 @@ func TestPluginProbeHTTPAuthorizesParentAndBackend(t *testing.T) {
 		t.Fatalf("unauthenticated probe status = %d, want 401 (body: %s)", rr.Code, rr.Body.String())
 	}
 	wrongChild := fmt.Sprintf("/api/mcp/servers/%s/probe", uuid.NewString())
-	if rr := doRequest(t, env, http.MethodPost, wrongChild, nil); rr.Code != http.StatusNotFound {
+	if rr := doRequest(t, env.testEnv, http.MethodPost, wrongChild, nil); rr.Code != http.StatusNotFound {
 		t.Fatalf("unknown child probe status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
 	}
 }
@@ -109,32 +77,18 @@ func TestPluginProbeHTTPReturnsAgentPEPForbidden(t *testing.T) {
 	}
 }
 
-func TestPluginProbeHTTPUsesOwnPerUserObservation(t *testing.T) {
-	env, _ := setupPluginProbeHTTPEnv(t)
+func TestPluginProbeHTTPUsesPerUserCredentialBoundary(t *testing.T) {
+	env, owners := setupPluginProbeHTTPEnv(t)
 	userA, tokenA := createTestUserWithToken(t, env.authStore, env.oidcStore, "probe-owner", "user")
-	userB, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "probe-other", "user")
 	fixture := installPluginProbeFixture(t, env, mcp.ScopeUser, userA.ID, "", mcp.AuthTypeOAuth, mcp.CredentialModePerUser)
-	if _, err := env.db.Exec(context.Background(), `
-		INSERT INTO mcp_connection_state(child_id, credential_user_id, tools, status, status_error, config_revision)
-		VALUES ($1::uuid, $2::uuid, '[]'::jsonb, 'error', 'other-user', 1)`, fixture.childID, userB.ID); err != nil {
-		t.Fatalf("seed other-user observation: %v", err)
-	}
-	if rr := doRequestWithSession(t, env.srv, tokenA, http.MethodPost, pluginProbePath(fixture), nil); rr.Code != http.StatusOK {
+	rr := doRequestWithSession(t, env.srv, tokenA, http.MethodPost, pluginProbePath(fixture), nil)
+	if rr.Code != http.StatusOK {
 		t.Fatalf("owner probe status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	} else if strings.Contains(rr.Body.String(), "mcp.example.test") {
-		t.Fatalf("probe response exposed MCP endpoint: %s", rr.Body.String())
 	}
-	var ownerStatus, otherStatus, otherError string
-	if err := env.db.QueryRow(context.Background(), `SELECT status FROM mcp_connection_state WHERE child_id = $1::uuid AND credential_user_id = $2::uuid`, fixture.childID, userA.ID).Scan(&ownerStatus); err != nil {
-		t.Fatalf("read owner observation: %v", err)
+	if !strings.Contains(rr.Body.String(), `"status":"needs_auth"`) {
+		t.Fatalf("per-user probe did not report needs_auth: %s", rr.Body.String())
 	}
-	if err := env.db.QueryRow(context.Background(), `SELECT status, status_error FROM mcp_connection_state WHERE child_id = $1::uuid AND credential_user_id = $2::uuid`, fixture.childID, userB.ID).Scan(&otherStatus, &otherError); err != nil {
-		t.Fatalf("read other observation: %v", err)
-	}
-	if ownerStatus != mcp.StatusNeedsAuth {
-		t.Fatalf("owner observation status = %q, want %q", ownerStatus, mcp.StatusNeedsAuth)
-	}
-	if otherStatus != mcp.StatusError || otherError != "other-user" {
-		t.Fatalf("other observation changed to %q/%q", otherStatus, otherError)
+	if len(*owners) != 0 {
+		t.Fatalf("probe attempted a remote connection without the owner's grant: %#v", *owners)
 	}
 }

@@ -9,10 +9,15 @@ import {
   type McpAuthType,
   type McpTransport,
 } from "@/features/mcp/McpServerFields";
-import { getMcpServer, getPlugin, updateMcpServer } from "@/lib/api-client/sdk.gen";
-import type { AgentMcpServer, PluginDefinition } from "@/lib/api-client/types.gen";
+import {
+  getMcpServer,
+  updateMcpServer,
+  updateMcpServerCredentials,
+} from "@/lib/api-client/sdk.gen";
+import type { AgentMcpServer } from "@/lib/api-client/types.gen";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useI18n } from "@/lib/i18n";
+import { transitionMcpAuthType } from "@/features/mcp/mcp-credential";
 
 type Notify = (message: string, kind?: "success" | "error") => void;
 
@@ -36,17 +41,15 @@ export function AgentMcpServerSheet({
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const childQuery = useQuery({
-    queryKey: ["mcp-server", server?.config_id],
+    queryKey: ["mcp-server", server?.id],
     enabled: open && !!server,
     queryFn: async () =>
-      (await getMcpServer({ path: { id: server!.config_id }, throwOnError: true })).data,
-  });
-  const pluginQuery = useQuery({
-    queryKey: ["plugin", server?.plugin_id],
-    enabled: open && !!server,
-    queryFn: async () =>
-      (await getPlugin({ path: { plugin_id: server!.plugin_id }, throwOnError: true }))
-        .data as PluginDefinition,
+      (
+        await getMcpServer({
+          path: { id: server!.id },
+          throwOnError: true,
+        })
+      ).data,
   });
   const [url, setURL] = useState("");
   const [transport, setTransport] = useState<McpTransport>("streamable_http");
@@ -59,10 +62,11 @@ export function AgentMcpServerSheet({
   useEffect(() => {
     const child = childQuery.data;
     if (!child) return;
-    setURL(child.url ?? "");
-    setTransport(child.transport ?? "streamable_http");
-    setAuthType(child.auth_type ?? "none");
-    setCredentialMode(child.credential_mode ?? "shared");
+    const declaration = child.declaration;
+    setURL(declaration?.url ?? "");
+    setTransport(declaration?.transport ?? "streamable_http");
+    setAuthType(declaration?.auth_type ?? "none");
+    setCredentialMode(declaration?.credential_mode ?? "shared");
     setToken("");
     setOauthClientId("");
     setOauthClientSecret("");
@@ -71,34 +75,55 @@ export function AgentMcpServerSheet({
   const updateMutation = useMutation({
     mutationFn: async () => {
       const child = childQuery.data;
-      if (!server || !child) throw new Error("MCP child server is unavailable");
-      const credentials: Record<string, string> = {};
-      if (authType === "bearer" && token.trim()) credentials.token = token.trim();
-      if (authType === "oauth") {
-        if (oauthClientId.trim()) credentials.oauth_client_id = oauthClientId.trim();
-        if (oauthClientSecret) credentials.oauth_client_secret = oauthClientSecret;
-      }
+      if (!server || !child || !child.declaration)
+        throw new Error("MCP child server is unavailable");
+      const declaration = {
+        ...transitionMcpAuthType(child.declaration, authType),
+        url: url.trim(),
+        transport,
+        credential_mode: credentialMode,
+        ...(authType === "oauth" && oauthClientId.trim()
+          ? { client_id: oauthClientId.trim() }
+          : {}),
+      };
       const { data } = await updateMcpServer({
-        path: { id: server.config_id },
+        path: { id: server.id },
         body: {
-          expected_parent_revision: child.parent_revision ?? server.parent_revision,
-          url: url.trim() || undefined,
-          transport,
-          credential_mode: credentialMode,
-          metadata: oauthClientId.trim()
-            ? { oauth: { client_id: oauthClientId.trim() } }
-            : undefined,
-          credentials: Object.keys(credentials).length > 0 ? credentials : undefined,
+          declaration,
+          expected_digest: child.content_digest,
         },
         throwOnError: true,
       });
+      if (authType === "bearer" && token.trim()) {
+        await updateMcpServerCredentials({
+          path: { id: server.id },
+          body: {
+            expected_digest: data.content_digest,
+            bearer_token: token.trim(),
+          },
+          throwOnError: true,
+        });
+      } else if (authType === "oauth" && oauthClientSecret) {
+        await updateMcpServerCredentials({
+          path: { id: server.id },
+          body: {
+            expected_digest: data.content_digest,
+            client_secret: oauthClientSecret,
+          },
+          throwOnError: true,
+        });
+      }
       return data;
     },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["agent-tools", agentId] }),
-        queryClient.invalidateQueries({ queryKey: ["agent-mcp-servers", agentId] }),
-        queryClient.invalidateQueries({ queryKey: ["mcp-server", server?.config_id] }),
+        queryClient.invalidateQueries({
+          queryKey: ["agent-mcp-servers", agentId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["mcp-server", server?.id],
+        }),
       ]);
       notify(t("mcp.updated"), "success");
       onOpenChange(false);
@@ -119,16 +144,15 @@ export function AgentMcpServerSheet({
       />
     );
   const child = childQuery.data;
-  const plugin = pluginQuery.data;
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetPopup side="right" className="w-full sm:w-[560px] sm:max-w-[560px]">
         <DetailPanel>
-          <DetailPanelHeader title={plugin?.display_name ?? server.plugin_id} />
-          {child && plugin ? (
+          <DetailPanelHeader title={server.name} />
+          {child ? (
             <div className="space-y-4">
               <McpServerFields
-                name={plugin.display_name}
+                name={server.name}
                 onNameChange={() => undefined}
                 url={url}
                 onUrlChange={setURL}
@@ -168,9 +192,7 @@ export function AgentMcpServerSheet({
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              {childQuery.isError || pluginQuery.isError
-                ? t("plugins.scopeUnavailable")
-                : t("agents.tools.loading")}
+              {childQuery.isError ? t("plugins.scopeUnavailable") : t("agents.tools.loading")}
             </p>
           )}
         </DetailPanel>

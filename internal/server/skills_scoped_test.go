@@ -519,13 +519,9 @@ func TestAgentSkills_UploadZip(t *testing.T) {
 	if uploaded["scope"] != "user_agent" || uploaded["user_id"] != creator.ID || uploaded["agent_id"] != agentID {
 		t.Fatalf("uploaded skill ownership = %#v, want user_agent scoped to creator and agent", uploaded)
 	}
-	var storedStatus string
-	if err := env.db.QueryRow(context.Background(), `SELECT status FROM skill WHERE name = 'uploaded-skill' AND user_id = $1 AND agent_id = $2`, creator.ID, agentID).Scan(&storedStatus); err != nil {
-		t.Fatalf("read uploaded skill status: %v", err)
-	}
-	if storedStatus != "active" {
-		t.Fatalf("uploaded stored status = %v, want active", storedStatus)
-	}
+	// Listing a draft-marked archive proves the legacy status frontmatter was
+	// ignored and the file resource was normalized to the active state. File
+	// Skills no longer mirror lifecycle metadata into PostgreSQL.
 	if uploaded["disable_model_invocation"] != true {
 		t.Fatalf("uploaded disable_model_invocation = %v, want true", uploaded["disable_model_invocation"])
 	}

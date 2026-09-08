@@ -65,15 +65,74 @@ RETURNING *;
 
 -- name: ListSkillChangelogBySkill :many
 SELECT * FROM skill_changelog
-WHERE skill_id = sqlc.arg(skill_id)
+WHERE COALESCE(resource_id, skill_id) = sqlc.arg(skill_id)::text
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(limit_count);
 
 -- name: GetLatestSkillChangelogBySkill :one
 SELECT * FROM skill_changelog
-WHERE skill_id = sqlc.arg(skill_id)
+WHERE COALESCE(resource_id, skill_id) = sqlc.arg(skill_id)::text
 ORDER BY created_at DESC, id DESC
 LIMIT 1;
+
+-- name: LinkLegacySkillResource :one
+WITH expected AS MATERIALIZED (
+  SELECT 1
+  FROM skill
+  WHERE skill.id = sqlc.arg(legacy_skill_id)
+    AND skill.scope = sqlc.arg(scope)
+    AND coalesce(skill.user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
+    AND coalesce(skill.agent_id, '') = coalesce(sqlc.narg(agent_id), '')
+    AND skill.name = sqlc.arg(name)
+), conflicts AS MATERIALIZED (
+  SELECT 1 AS conflict
+  WHERE EXISTS (
+      SELECT 1
+      FROM skill_usage AS su
+      WHERE su.skill_id <> sqlc.arg(legacy_skill_id)
+        AND coalesce(su.resource_id, su.skill_id) = sqlc.arg(resource_id)::text
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM skill_usage AS su
+      WHERE su.skill_id = sqlc.arg(legacy_skill_id)
+        AND su.resource_id IS NOT NULL
+        AND su.resource_id <> sqlc.arg(resource_id)::text
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM skill_changelog AS sc
+      WHERE sc.skill_id <> sqlc.arg(legacy_skill_id)
+        AND coalesce(sc.resource_id, sc.skill_id) = sqlc.arg(resource_id)::text
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM skill_changelog AS sc
+      WHERE sc.skill_id = sqlc.arg(legacy_skill_id)
+        AND sc.resource_id IS NOT NULL
+        AND sc.resource_id <> sqlc.arg(resource_id)::text
+    )
+), usage_linked AS (
+  UPDATE skill_usage
+  SET resource_id = sqlc.arg(resource_id)::text
+  WHERE skill_id = sqlc.arg(legacy_skill_id)
+    AND resource_id IS NULL
+    AND EXISTS (SELECT 1 FROM expected)
+    AND NOT EXISTS (SELECT 1 FROM conflicts)
+  RETURNING 1
+), changelog_linked AS (
+  UPDATE skill_changelog
+  SET resource_id = sqlc.arg(resource_id)::text
+  WHERE skill_id = sqlc.arg(legacy_skill_id)
+    AND resource_id IS NULL
+    AND EXISTS (SELECT 1 FROM expected)
+    AND NOT EXISTS (SELECT 1 FROM conflicts)
+  RETURNING 1
+)
+SELECT EXISTS (SELECT 1 FROM expected) AS legacy_match,
+       EXISTS (SELECT 1 FROM conflicts) AS has_conflict,
+       (SELECT count(*)::bigint FROM usage_linked) AS usage_linked,
+       (SELECT count(*)::bigint FROM changelog_linked) AS changelog_linked;
 
 -- name: GetUserAgentSkillByName :one
 SELECT * FROM skill

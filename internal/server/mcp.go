@@ -1,12 +1,11 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
 	"strings"
-
-	"github.com/google/uuid"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -14,38 +13,6 @@ import (
 	"github.com/CherryHQ/stella/internal/mcp"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 )
-
-// beginMCPAccess authenticates the request and starts the common MCP access
-// session used by agent views and plugin-scoped OAuth actions.
-func (s *Server) beginMCPAccess(w http.ResponseWriter, r *http.Request) (*mcp.Access, *AuthInfo, bool) {
-	if s.mcpSvc == nil || s.mcpAccess == nil {
-		writeCapabilityUnavailable(w, capMCP)
-		return nil, nil, false
-	}
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return nil, nil, false
-	}
-	authority, err := info.authority()
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return nil, nil, false
-	}
-	access, err := s.mcpAccess.Begin(authority)
-	if err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
-		return nil, nil, false
-	}
-	return access, info, true
-}
-
-func mcpAgentID(id *string) string {
-	if id == nil {
-		return ""
-	}
-	return *id
-}
 
 func writeMCPError(w http.ResponseWriter, err error) {
 	if errors.Is(err, authz.ErrNotFound) {
@@ -68,12 +35,13 @@ func writeMCPError(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusBadRequest, err.Error())
 }
 
-// ListAgentMcpServers returns the MCP registrations effective for one agent
-// after name-precedence dedup, with provenance for the UI: which scopes lost
-// to each winner, and whether the caller can manage the row at all.
+// ListAgentMcpServers returns the effective file-backed MCP declarations for
+// one agent. The projection carries only stable resource identity and public
+// capability state; endpoints, payloads, credential references, and OAuth
+// state remain behind the scoped MCP file APIs.
 func (s *Server) ListAgentMcpServers(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
-	if s.mcpSvc == nil || s.mcpAccess == nil {
+	if s.mcpFiles == nil {
 		writeCapabilityUnavailable(w, capMCP)
 		return
 	}
@@ -91,64 +59,77 @@ func (s *Server) ListAgentMcpServers(w http.ResponseWriter, r *http.Request, id 
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	access, err := s.mcpAccess.Begin(authority)
-	if err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
-		return
-	}
-	snapshot, err := s.toolSnapshot(ctx, info, id)
+	servers, err := s.mcpFiles.Capture(ctx, authority, id)
 	if err != nil {
 		writeMCPError(w, err)
 		return
 	}
-	registrations, err := s.mcpSvc.RegistrationsForSnapshot(ctx, snapshot)
-	if err != nil {
-		writeMCPError(w, err)
-		return
-	}
-	out := make([]apitypes.AgentMCPServer, len(registrations))
-	for i, registration := range registrations {
-		out[i] = agentMCPServerResponse(registration, access.CanRead(ctx, registration))
+	out := make([]apitypes.AgentMCPServer, len(servers))
+	for i, server := range servers {
+		out[i] = s.agentMCPServerResponse(ctx, authority, server)
 	}
 	writeData(w, http.StatusOK, apitypes.AgentMCPServerList{Servers: out})
 }
 
-// agentMCPServerResponse is the only effective-agent projection boundary. It
-// intentionally does not expose endpoint, credential locators, or OAuth state
-// from the owner-scoped registration.
-func agentMCPServerResponse(registration mcp.Registration, readable bool) apitypes.AgentMCPServer {
-	parentConfigID, err := uuid.Parse(registration.ParentConfigID)
-	if err != nil {
-		parentConfigID = uuid.Nil
-	}
-	tools := make([]apitypes.MCPTool, len(registration.Tools))
-	for i, tool := range registration.Tools {
+func (s *Server) agentMCPServerResponse(ctx context.Context, authority authz.Authority, server mcp.FileServer) apitypes.AgentMCPServer {
+	reg := server.Registration
+	tools := make([]apitypes.MCPTool, len(reg.Tools))
+	for i, tool := range reg.Tools {
 		tools[i] = apitypes.MCPTool{Name: tool.Name}
 		if tool.Description != "" {
 			description := tool.Description
 			tools[i].Description = &description
 		}
 		if tool.InputSchema != nil {
-			inputSchema := tool.InputSchema
-			tools[i].InputSchema = &inputSchema
+			schema := tool.InputSchema
+			tools[i].InputSchema = &schema
 		}
 		if tool.Annotations != nil {
 			annotations := tool.Annotations
 			tools[i].Annotations = &annotations
 		}
 	}
+	id := server.ID
+	resourceID := server.Resource.Key.ID()
+	name := reg.Name
+	serverKey := server.ServerKey
+	contentDigest := server.Resource.Digest
+	needsAuth := reg.AuthType != mcp.AuthTypeNone
+	if needsAuth && s.mcpSvc != nil {
+		ready, err := s.mcpSvc.FileCredentialReady(ctx, reg, authority)
+		needsAuth = err != nil || !ready
+	}
 	return apitypes.AgentMCPServer{
-		PluginId:       registration.PluginID,
-		ConfigId:       registration.ID,
-		ParentConfigId: parentConfigID,
-		ParentRevision: registration.ConfigRevision,
-		Scope:          apitypes.AgentMCPServerScope(registration.Scope),
-		Enabled:        registration.Enabled,
-		CredentialMode: apitypes.AgentMCPServerCredentialMode(registration.CredentialMode),
-		NeedsAuth:      registration.Status == mcp.StatusNeedsAuth,
-		Status:         apitypes.AgentMCPServerStatus(registration.Status),
+		Id:             &id,
+		ResourceId:     &resourceID,
+		Name:           &name,
+		ServerKey:      &serverKey,
+		ContentDigest:  &contentDigest,
+		Scope:          apitypes.AgentMCPServerScope(reg.Scope),
+		Enabled:        !server.Resource.Disabled && !server.Resource.Forbidden,
+		AuthType:       apitypes.AgentMCPServerAuthType(reg.AuthType),
+		CredentialMode: apitypes.AgentMCPServerCredentialMode(reg.CredentialMode),
+		NeedsAuth:      needsAuth,
+		Status:         apitypes.AgentMCPServerStatus(agentMCPStatus(reg.Status)),
 		Tools:          tools,
-		Readable:       readable,
+		Readable:       true,
+	}
+}
+
+func agentMCPServerResponse(server mcp.FileServer) apitypes.AgentMCPServer {
+	return (&Server{}).agentMCPServerResponse(context.Background(), authz.Authority{}, server)
+}
+
+func agentMCPStatus(status string) string {
+	switch status {
+	case mcp.StatusOK:
+		return "ready"
+	case mcp.StatusNeedsAuth:
+		return "needs_auth"
+	case mcp.StatusError:
+		return "error"
+	default:
+		return "unknown"
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,20 +40,19 @@ func (h *harness) testExecutionSummarySurvivesPackageUpdateAndRestart(t *testing
 	firstSource := executionSummaryPackage(t, pluginID, packageV1, skillName, skillMarker)
 	createdResponse := h.postJSON(t, ctx, "/api/plugins/import", map[string]any{
 		"source_path": firstSource,
-		"initial_config": map[string]any{
-			"scope": "system", "is_enabled": true, "config": map[string]any{},
-		},
+		"scope":       "system",
 	})
 	defer func() { _ = createdResponse.Body.Close() }()
 	if createdResponse.StatusCode != http.StatusCreated {
 		t.Fatalf("POST /api/plugins/import = %d, want %d\n%s", createdResponse.StatusCode, http.StatusCreated, h.proc.LogTail(60))
 	}
-	var created apitypes.CreatePluginResponse
+	var created apitypes.PluginResource
 	if err := json.NewDecoder(createdResponse.Body).Decode(&created); err != nil {
 		t.Fatalf("decode imported package: %v", err)
 	}
-	if created.Plugin.Id != pluginID || created.Plugin.Revision == nil {
-		t.Fatalf("imported package = %#v, want id %q with revision", created.Plugin, pluginID)
+	resourceID, originalDigest := valueOrEmpty(created.Id), valueOrEmpty(created.ContentDigest)
+	if created.Name != pluginID || originalDigest == "" || resourceID == "" {
+		t.Fatalf("imported package = %#v, want name %q with file identity and digest", created, pluginID)
 	}
 
 	fake := newFakeAnthropic(t)
@@ -87,7 +87,7 @@ func (h *harness) testExecutionSummarySurvivesPackageUpdateAndRestart(t *testing
 	// Wait for the asynchronous canonical flush, then inspect both the raw row
 	// and the public transcript. The raw assertion catches a serializer that
 	// happens to produce the right view while dropping the durable metadata.
-	before := h.waitExecutionSummaryMessages(t, ctx, agentID, sessionID, pluginID, packageV1, skillName)
+	before := h.waitExecutionSummaryMessages(t, ctx, agentID, sessionID, resourceID, packageV1, skillName)
 	var beforeExecutionJSON []byte
 	var anchorMessageID string
 	for _, message := range before.Messages {
@@ -109,49 +109,74 @@ func (h *harness) testExecutionSummarySurvivesPackageUpdateAndRestart(t *testing
 		 LIMIT 1`, sessionID, anchorMessageID).Scan(&userMetadata); err != nil {
 		t.Fatalf("query user execution_metadata: %v", err)
 	}
-	if len(userMetadata) == 0 || !bytes.Contains(userMetadata, []byte(pluginID)) || !bytes.Contains(userMetadata, []byte(packageV1)) {
+	if len(userMetadata) == 0 || !bytes.Contains(userMetadata, []byte(resourceID)) || !bytes.Contains(userMetadata, []byte(packageV1)) {
 		t.Fatalf("user execution_metadata = %s, want immutable package identity", userMetadata)
 	}
 	if bytes.Contains(userMetadata, []byte(skillMarker)) {
 		t.Fatal("user execution metadata persisted private Skill body")
 	}
 
-	// Replace the package definition through its preview/CAS API, then kill and
+	// Edit the package manifest through its file CAS API, then kill and
 	// restart the real server. The old transcript must retain packageV1 even
 	// though all future admissions would see packageV2.
 	secondSource := executionSummaryPackage(t, pluginID, packageV2, skillName, "replacement package body")
-	previewResponse := h.postJSON(t, ctx, "/api/plugins/"+pluginID+"/update/preview", map[string]any{
-		"source_path": secondSource, "expected_revision": *created.Plugin.Revision,
-	})
-	defer func() { _ = previewResponse.Body.Close() }()
-	if previewResponse.StatusCode != http.StatusOK {
-		t.Fatalf("preview package update = %d, want %d\n%s", previewResponse.StatusCode, http.StatusOK, h.proc.LogTail(60))
+	manifest, err := os.ReadFile(filepath.Join(secondSource, "plugin.json"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	var preview apitypes.PreviewPluginPackageResponse
-	if err := json.NewDecoder(previewResponse.Body).Decode(&preview); err != nil {
-		t.Fatalf("decode package preview: %v", err)
+	body, err := json.Marshal(map[string]any{"path": "plugin.json", "content_base64": manifest, "expected_digest": originalDigest})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if preview.CandidateVersion != packageV2 || preview.CandidateDigest == "" {
-		t.Fatalf("package preview = %#v, want version %q and digest", preview, packageV2)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPatch, h.baseURL+"/api/plugins/"+url.PathEscape(resourceID)+"/file", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
 	}
-	updateResponse := h.postJSON(t, ctx, "/api/plugins/"+pluginID+"/update", map[string]any{
-		"source_path": secondSource, "expected_revision": *created.Plugin.Revision,
-		"expected_package_digest": preview.CandidateDigest,
-	})
+	request.Header.Set("Content-Type", "application/json")
+	updateResponse, err := h.client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer func() { _ = updateResponse.Body.Close() }()
 	if updateResponse.StatusCode != http.StatusOK {
 		t.Fatalf("package update = %d, want %d\n%s", updateResponse.StatusCode, http.StatusOK, h.proc.LogTail(60))
+	}
+	var updated apitypes.PluginResource
+	if err := json.NewDecoder(updateResponse.Body).Decode(&updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Version != packageV2 || valueOrEmpty(updated.ContentDigest) == originalDigest {
+		t.Fatalf("updated resource = %#v", updated)
 	}
 
 	h.restartAfterForcedCrash(t)
 	ctxAfterRestart, cancelAfterRestart := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelAfterRestart()
+	currentRequest, err := http.NewRequestWithContext(ctxAfterRestart, http.MethodGet, h.baseURL+"/api/plugins/"+url.PathEscape(resourceID), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentResponse, err := h.client.Do(currentRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = currentResponse.Body.Close() }()
+	var current apitypes.PluginResource
+	if currentResponse.StatusCode != http.StatusOK {
+		t.Fatalf("resource after restart = %d", currentResponse.StatusCode)
+	}
+	if err := json.NewDecoder(currentResponse.Body).Decode(&current); err != nil {
+		t.Fatal(err)
+	}
+	if current.Version != packageV2 || valueOrEmpty(current.ContentDigest) != valueOrEmpty(updated.ContentDigest) {
+		t.Fatalf("restart changed file resource: %#v", current)
+	}
 	afterRestart := h.getSessionMessages(t, ctxAfterRestart, agentID, sessionID)
 	for _, message := range afterRestart.Messages {
 		if message.Id != anchorMessageID || message.Execution == nil {
 			continue
 		}
-		assertExecutionSummary(t, message.Execution, pluginID, packageV1, skillName)
+		assertExecutionSummary(t, message.Execution, resourceID, packageV1, skillName)
 		afterExecutionJSON, _ := json.Marshal(message.Execution)
 		if !bytes.Equal(afterExecutionJSON, beforeExecutionJSON) {
 			t.Fatalf("execution summary changed across package update/restart: before=%s after=%s", beforeExecutionJSON, afterExecutionJSON)

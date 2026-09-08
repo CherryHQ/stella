@@ -262,6 +262,111 @@ func TestStellaExtensionIsDeclarationsOnly(t *testing.T) {
 	}
 }
 
+func TestStellaExtensionMCPOptionsAndKeyBoundaries(t *testing.T) {
+	root := newPackage(t, `{
+  "$schema": "`+PluginSchemaV1+`",
+  "name": "mcp-options",
+  "extensions": {"`+StellaNamespace+`": {
+    "version": "1",
+    "mcp_auth": {
+      "remote": {"auth_type":"oauth","credential_mode":"per_user","client_id":"public-client"},
+      "missing": {"auth_type":"none"}
+    },
+    "mcp_options": {
+      "remote": {"description":"safe description","call_timeout_seconds":30},
+      "bad": {"unknown":true}
+    }
+  }}
+}`)
+	writeJSON(t, filepath.Join(root, "mcp.json"), map[string]any{
+		"$schema": MCPV1Schema,
+		"mcpServers": map[string]any{
+			"remote": map[string]any{"type": "streamable-http", "url": "https://mcp.example.test/mcp"},
+		},
+	})
+	pkg, diagnostics := Load(root)
+	if pkg == nil || pkg.Extension == nil {
+		t.Fatalf("package=%#v diagnostics=%+v", pkg, diagnostics)
+	}
+	if got := pkg.Extension.MCPOptions["remote"]; got.Description != "safe description" || got.CallTimeoutSeconds != 30 {
+		t.Fatalf("MCP options = %#v", pkg.Extension.MCPOptions)
+	}
+	if _, ok := pkg.Extension.MCPAuth["missing"]; ok {
+		t.Fatal("orphan MCP authentication was retained")
+	}
+	if _, ok := pkg.Extension.MCPOptions["bad"]; ok {
+		t.Fatal("invalid MCP options were retained")
+	}
+	if !hasCode(diagnostics, "extension.mcp_auth") || !hasCode(diagnostics, "extension.mcp_options") {
+		t.Fatalf("diagnostics=%+v, want component diagnostics", diagnostics)
+	}
+	if len(pkg.MCPServers) != 1 {
+		t.Fatalf("MCP servers=%+v, want valid server retained", pkg.MCPServers)
+	}
+}
+
+func TestInvalidMCPExtensionEntryDisablesOnlyMatchingServer(t *testing.T) {
+	root := newPackage(t, `{
+  "$schema": "`+PluginSchemaV1+`",
+  "name": "mcp-invalid-entry",
+  "extensions": {"`+StellaNamespace+`": {
+    "version": "1",
+    "mcp_auth": {
+      "broken": {"auth_type":"oauth","unknown":true}
+    },
+    "mcp_options": {
+      "also-broken": {"call_timeout_seconds":301}
+    }
+  }}
+}`)
+	writeJSON(t, filepath.Join(root, "mcp.json"), map[string]any{
+		"$schema": MCPV1Schema,
+		"mcpServers": map[string]any{
+			"also-broken": map[string]any{"type": "sse", "url": "https://mcp.example.test/broken"},
+			"broken":      map[string]any{"type": "sse", "url": "https://mcp.example.test/broken"},
+			"healthy":     map[string]any{"type": "sse", "url": "https://mcp.example.test/healthy"},
+		},
+	})
+	pkg, diagnostics := Load(root)
+	if pkg == nil || len(pkg.MCPServers) != 1 || pkg.MCPServers[0].Name != "healthy" {
+		t.Fatalf("MCP servers=%+v diagnostics=%+v, want only healthy", pkg.MCPServers, diagnostics)
+	}
+	if !hasCode(diagnostics, "extension.mcp_auth") || !hasCode(diagnostics, "extension.mcp_options") {
+		t.Fatalf("diagnostics=%+v, want invalid extension diagnostics", diagnostics)
+	}
+}
+
+func TestRejectedStellaExtensionDisablesPackageMCP(t *testing.T) {
+	root := newPackage(t, `{
+  "$schema": "`+PluginSchemaV1+`",
+  "name": "mcp-rejected-extension",
+  "extensions": {"`+StellaNamespace+`": {
+    "version": "1",
+    "display_name": 42
+  }}
+}`)
+	writeSkill(t, root, "kept", "kept skill")
+	writeJSON(t, filepath.Join(root, "mcp.json"), map[string]any{
+		"$schema": MCPV1Schema,
+		"mcpServers": map[string]any{
+			"remote": map[string]any{"type": "sse", "url": "https://mcp.example.test/remote"},
+		},
+	})
+	pkg, diagnostics := Load(root)
+	if pkg == nil {
+		t.Fatalf("package=nil diagnostics=%+v", diagnostics)
+	}
+	if len(pkg.MCPServers) != 0 {
+		t.Fatalf("MCP servers=%+v diagnostics=%+v, want rejected extension to disable MCP", pkg.MCPServers, diagnostics)
+	}
+	if len(pkg.Skills) != 1 || pkg.Skills[0].Name != "kept" {
+		t.Fatalf("skills=%+v, want independent skill retained", pkg.Skills)
+	}
+	if !hasCode(diagnostics, "extension.field") {
+		t.Fatalf("diagnostics=%+v, want extension field diagnostic", diagnostics)
+	}
+}
+
 func newPackage(t *testing.T, manifest string) string {
 	t.Helper()
 	root := t.TempDir()

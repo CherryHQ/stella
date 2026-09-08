@@ -224,7 +224,7 @@ func (d *fakeDB) DeleteMCPServerByScopeIfVersion(_ context.Context, arg sqlc.Del
 	return 1, nil
 }
 
-func TestToolMutationSchemasRequireNonEmptyExpectedVersion(t *testing.T) {
+func TestToolMutationSchemasRequireNonEmptyExpectedDigest(t *testing.T) {
 	for _, action := range []string{"update", "delete"} {
 		var schema map[string]any
 		for _, spec := range SettingsMcpActionTools() {
@@ -239,14 +239,14 @@ func TestToolMutationSchemasRequireNonEmptyExpectedVersion(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s schema has no properties: %#v", action, schema)
 		}
-		expected, ok := properties["expected_version"].(map[string]any)
+		expected, ok := properties["expected_digest"].(map[string]any)
 		if !ok || expected["minLength"] != float64(1) {
-			t.Fatalf("%s expected_version schema = %#v, want minLength 1", action, expected)
+			t.Fatalf("%s expected_digest schema = %#v, want minLength 1", action, expected)
 		}
 	}
 }
 
-func TestToolMutationDispatchRejectsBlankExpectedVersionBeforeService(t *testing.T) {
+func TestToolMutationDispatchRejectsBlankExpectedDigestBeforeService(t *testing.T) {
 	svc, userID, _, ctx := commonMCPTestService(t)
 	configID, _ := seedCommonConfig(t, svc.pool, userID, 1, AuthTypeNone)
 	authority, err := authz.NewUserAuthority(authz.UserID(userID), true)
@@ -262,15 +262,15 @@ func TestToolMutationDispatchRejectsBlankExpectedVersionBeforeService(t *testing
 		action string
 		args   map[string]any
 	}{
-		{action: "update", args: map[string]any{"expected_version": "", "enabled": false}},
-		{action: "delete", args: map[string]any{"expected_version": ""}},
+		{action: "update", args: map[string]any{"expected_digest": "", "is_enabled": false}},
+		{action: "delete", args: map[string]any{"expected_digest": ""}},
 	} {
 		t.Run(tc.action, func(t *testing.T) {
 			args := make(map[string]any, len(tc.args)+1)
 			maps.Copy(args, tc.args)
 			args["id"] = configID
 			if _, err := SettingsMcpDispatch(ctx, handler, tc.action, args); !errors.Is(err, ErrVersionConflict) {
-				t.Fatalf("dispatch = %v, want version conflict", err)
+				t.Fatalf("dispatch = %v, want digest conflict", err)
 			}
 		})
 	}
@@ -279,7 +279,7 @@ func TestToolMutationDispatchRejectsBlankExpectedVersionBeforeService(t *testing
 		t.Fatal(err)
 	}
 	if revision != 1 {
-		t.Fatalf("blank version changed config revision to %d", revision)
+		t.Fatalf("blank digest changed config revision to %d", revision)
 	}
 }
 

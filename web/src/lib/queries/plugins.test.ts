@@ -3,12 +3,12 @@ import * as sdk from "@/lib/api-client/sdk.gen";
 import {
   nativePluginDenialsQueryOptions,
   nativePluginsQueryOptions,
-  pluginConfigsQueryOptions,
+  scopedPluginsQueryOptions,
 } from "./plugins";
 
 const listNativePlugins = vi.spyOn(sdk, "listNativePlugins");
 const listNativePluginAgentDenials = vi.spyOn(sdk, "listNativePluginAgentDenials");
-const listPluginConfigs = vi.spyOn(sdk, "listPluginConfigs");
+const listPlugins = vi.spyOn(sdk, "listPlugins");
 
 function sdkResponse<T>(data: T) {
   // SAFETY: tests provide the exact response shape consumed by the generated SDK wrapper.
@@ -18,7 +18,7 @@ function sdkResponse<T>(data: T) {
 beforeEach(() => {
   listNativePlugins.mockReset();
   listNativePluginAgentDenials.mockReset();
-  listPluginConfigs.mockReset();
+  listPlugins.mockReset();
 });
 
 describe("native capability queries", () => {
@@ -31,7 +31,9 @@ describe("native capability queries", () => {
         }),
       )
       .mockResolvedValueOnce(
-        sdkResponse({ native_plugins: [{ id: "system/recally", is_enabled: false }] }),
+        sdkResponse({
+          native_plugins: [{ id: "system/recally", is_enabled: false }],
+        }),
       );
 
     // SAFETY: this query's generated SDK function is replaced with the paged fixture above.
@@ -77,15 +79,27 @@ describe("native capability queries", () => {
     });
   });
 
-  it("uses the canonical plugin ID for config requests", async () => {
-    listPluginConfigs.mockResolvedValueOnce(
-      sdkResponse({ configs: [{ plugin_id: "custom/acme", scope: "user" }] }),
-    );
-    const options = pluginConfigsQueryOptions("custom/acme", "user");
-    await (options.queryFn as () => Promise<unknown[]>)();
-    expect(listPluginConfigs).toHaveBeenCalledWith({
-      path: { plugin_id: "custom/acme" },
-      query: { scope: "user", page_size: 500 },
+  it("walks raw plugin resource pagination for an agent", async () => {
+    listPlugins
+      .mockResolvedValueOnce(
+        sdkResponse({
+          plugins: [{ id: "plugin-a", scope: "user_agent" }],
+          next_page_token: "next",
+        }),
+      )
+      .mockResolvedValueOnce(sdkResponse({ plugins: [{ id: "plugin-b", scope: "user" }] }));
+    const options = scopedPluginsQueryOptions("personal", "agent-a");
+    const plugins = await (options.queryFn as () => Promise<unknown[]>)();
+    expect(plugins).toEqual([
+      { id: "plugin-a", scope: "user_agent" },
+      { id: "plugin-b", scope: "user" },
+    ]);
+    expect(listPlugins).toHaveBeenNthCalledWith(1, {
+      query: { page_size: 500, agent_id: "agent-a" },
+      throwOnError: true,
+    });
+    expect(listPlugins).toHaveBeenNthCalledWith(2, {
+      query: { page_size: 500, agent_id: "agent-a", page_token: "next" },
       throwOnError: true,
     });
   });

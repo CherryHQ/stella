@@ -912,9 +912,13 @@ func viewSQLParams(vc ViewContext) (pgtype.Text, pgtype.Text) {
 }
 
 func mapChangelogRow(row sqlc.SkillChangelog) SkillChangelog {
+	skillID := row.SkillID
+	if row.ResourceID.Valid {
+		skillID = row.ResourceID.String
+	}
 	return SkillChangelog{
 		ID:            row.ID,
-		SkillID:       row.SkillID,
+		SkillID:       skillID,
 		UserID:        row.UserID.String,
 		AgentID:       row.AgentID.String,
 		Scope:         row.Scope,

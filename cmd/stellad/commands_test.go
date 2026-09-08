@@ -115,6 +115,25 @@ func TestEnsureEmbeddedAssetsBlocksLegacySkillWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestEnsureEmbeddedAssetsAllowsLegacySkillAfterFilesystemMigration(t *testing.T) {
+	stellaHome := setupCommandTestStellaHome(t)
+	ordinary := filepath.Join(stellaHome, ".agents", "skills", "system", "ordinary")
+	if err := os.MkdirAll(ordinary, 0o755); err != nil {
+		t.Fatalf("create ordinary skill: %v", err)
+	}
+	skillFile := filepath.Join(ordinary, "SKILL.md")
+	if err := os.WriteFile(skillFile, []byte("# Ordinary file skill\n"), 0o644); err != nil {
+		t.Fatalf("write ordinary skill: %v", err)
+	}
+
+	if err := ensureEmbeddedAssetsWithLegacyCheck(false); err != nil {
+		t.Fatalf("ensureEmbeddedAssetsWithLegacyCheck(false): %v", err)
+	}
+	if content, err := os.ReadFile(skillFile); err != nil || string(content) != "# Ordinary file skill\n" {
+		t.Fatalf("ordinary skill mutated: %q, %v", content, err)
+	}
+}
+
 func TestSetupRunsLegacySkillGateBeforeEmbeddedPostgresMutation(t *testing.T) {
 	stellaHome := setupCommandTestStellaHome(t)
 	retired := filepath.Join(stellaHome, ".agents", "skills", "system", "kreuzberg")

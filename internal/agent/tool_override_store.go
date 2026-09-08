@@ -4,13 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/platform/config"
+	internalplugin "github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -23,12 +28,17 @@ const ToolOverrideAbsentVersion = "absent"
 // ToolOverrideStore reads persisted tool-visibility overrides for an
 // agent+user context. Its Fetch method satisfies ToolOverrideFetcher.
 type ToolOverrideStore struct {
-	q *sqlc.Queries
+	q     *sqlc.Queries
+	files *internalplugin.FileService
 }
 
 // NewToolOverrideStore builds a ToolOverrideStore over the given pool.
-func NewToolOverrideStore(db *pgxpool.Pool) *ToolOverrideStore {
-	return &ToolOverrideStore{q: sqlc.New(db)}
+func NewToolOverrideStore(db *pgxpool.Pool, files ...*internalplugin.FileService) *ToolOverrideStore {
+	store := &ToolOverrideStore{q: sqlc.New(db)}
+	if len(files) > 0 {
+		store.files = files[0]
+	}
+	return store
 }
 
 // Fetch returns the tool overrides that apply to the given user+agent pair.
@@ -41,9 +51,21 @@ func (s *ToolOverrideStore) Fetch(ctx context.Context, userID, agentID string) (
 	}
 	out := make([]ToolOverride, 0, len(rows))
 	for _, row := range rows {
+		// Legacy plugin rows are migration input only. Skip them before decoding
+		// their old identity shape so one malformed retired row cannot block the
+		// file-backed runtime policy snapshot.
+		if row.PluginID.Valid {
+			continue
+		}
 		identity, err := persistedToolIdentity(row)
 		if err != nil {
 			return nil, fmt.Errorf("tool override: invalid persisted identity: %w", err)
+		}
+		// Database plugin identities are migration input only. File-backed
+		// resources are the runtime authority after cutover, so stale rows must
+		// not shadow or invalidate the effective file snapshot.
+		if identity.isPlugin() {
+			continue
 		}
 		if identity.CoreToolName != "" && isSettingsManagedTool(identity.CoreToolName) {
 			continue
@@ -51,6 +73,11 @@ func (s *ToolOverrideStore) Fetch(ctx context.Context, userID, agentID string) (
 		override := ToolOverride{Identity: identity, Scope: row.Scope, Enabled: row.Enabled}
 		out = append(out, override)
 	}
+	fileRows, err := s.fileOverrides(ctx, userID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, fileRows...)
 	return out, nil
 }
 
@@ -99,14 +126,34 @@ func (s *ToolOverrideStore) ListVersions(ctx context.Context, userID, agentID st
 	}
 	out := make(map[string]ToolOverrideVersion, len(rows))
 	for _, row := range rows {
+		if row.PluginID.Valid {
+			continue
+		}
 		identity, err := persistedToolIdentity(row)
 		if err != nil {
 			return nil, fmt.Errorf("tool override: invalid persisted identity: %w", err)
 		}
-		if row.Scope != ToolOverrideScopeUserAgent || (identity.CoreToolName != "" && isSettingsManagedTool(identity.CoreToolName)) {
+		if identity.isPlugin() || row.Scope != ToolOverrideScopeUserAgent || (identity.CoreToolName != "" && isSettingsManagedTool(identity.CoreToolName)) {
 			continue
 		}
 		out[toolOverrideVersionKey(identity)] = overrideVersion(row)
+	}
+	fileRows, err := s.fileOverrides(ctx, userID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range fileRows {
+		if row.Scope != ToolOverrideScopeUserAgent {
+			continue
+		}
+		version, err := s.getFile(ctx, row.Identity, row.Scope, userID, agentID)
+		if err != nil {
+			return nil, err
+		}
+		out[toolOverrideVersionKey(row.Identity)] = ToolOverrideVersion{
+			Identity: &row.Identity, ToolName: "", Scope: row.Scope, Enabled: version.Enabled,
+			Present: true, Version: version.Version,
+		}
 	}
 	return out, nil
 }
@@ -118,6 +165,9 @@ func (s *ToolOverrideStore) Get(ctx context.Context, k ToolOverrideKey) (ToolOve
 	identity, err := k.toolIdentity()
 	if err != nil {
 		return ToolOverrideVersion{}, err
+	}
+	if isFileToolIdentity(identity) {
+		return s.getFile(ctx, identity, k.Scope, k.UserID, k.AgentID)
 	}
 	row, err := s.q.GetToolOverrideByIdentity(ctx, identityParams(identity, k.Scope, k.UserID, k.AgentID))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -143,6 +193,10 @@ func (s *ToolOverrideStore) Set(ctx context.Context, w ToolOverrideWrite) error 
 	if err != nil {
 		return err
 	}
+	if isFileToolIdentity(identity) {
+		_, err := s.setFile(ctx, identity, w.Scope, w.UserID, w.AgentID, w.Enabled, "")
+		return err
+	}
 	if identity.isPlugin() {
 		_, err = s.q.UpsertPluginToolOverride(ctx, sqlc.UpsertPluginToolOverrideParams{
 			PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: w.Scope,
@@ -166,6 +220,9 @@ func (s *ToolOverrideStore) SetIfVersion(ctx context.Context, w ToolOverrideWrit
 	identity, err := w.toolIdentity()
 	if err != nil {
 		return ToolOverrideVersion{}, err
+	}
+	if isFileToolIdentity(identity) {
+		return s.setFile(ctx, identity, w.Scope, w.UserID, w.AgentID, w.Enabled, expected)
 	}
 	if expected == ToolOverrideAbsentVersion {
 		var row sqlc.ToolOverride
@@ -220,6 +277,10 @@ func (s *ToolOverrideStore) Clear(ctx context.Context, k ToolOverrideKey) error 
 	if err != nil {
 		return err
 	}
+	if isFileToolIdentity(identity) {
+		_, err := s.clearFile(ctx, identity, k.Scope, k.UserID, k.AgentID, "")
+		return err
+	}
 	if identity.isPlugin() {
 		return s.q.DeletePluginToolOverride(ctx, sqlc.DeletePluginToolOverrideParams{
 			PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: k.Scope,
@@ -238,6 +299,10 @@ func (s *ToolOverrideStore) ClearIfVersion(ctx context.Context, k ToolOverrideKe
 	}
 	identity, err := k.toolIdentity()
 	if err != nil {
+		return err
+	}
+	if isFileToolIdentity(identity) {
+		_, err := s.clearFile(ctx, identity, k.Scope, k.UserID, k.AgentID, expected)
 		return err
 	}
 	expectedAt, err := parseOverrideVersion(expected)
@@ -334,4 +399,248 @@ func isOverrideScope(scope string) bool {
 	default:
 		return false
 	}
+}
+
+func isFileToolIdentity(identity ToolIdentity) bool {
+	return identity.isPlugin() && strings.HasPrefix(identity.PluginID, "file:")
+}
+
+// fileOverrides projects every effective settings layer into runner rows. The
+// file provider already filters these tools from the executable snapshot; this
+// projection keeps the runner's policy view consistent for a tool that was
+// catalogued before the next file capture, including administrator denies.
+func (s *ToolOverrideStore) fileOverrides(ctx context.Context, userID, agentID string) ([]ToolOverride, error) {
+	if s == nil || s.files == nil || userID == "" || agentID == "" {
+		return nil, nil
+	}
+	authority, ok := authz.AuthorityFromContext(ctx)
+	if !ok || !authority.Valid() {
+		return nil, authz.ErrUnauthenticated
+	}
+	if authority.Kind() == authz.ActorGroupAgent {
+		// Group turns deliberately carry the synthetic group owner in RunnerParams,
+		// while their Authority has no user identity. Re-project the already
+		// captured system/system-agent deny ceiling instead of opening personal
+		// settings through FileAccess. Capture also applies the Agent PEP and keeps
+		// the group resource boundary intact.
+		resources, err := s.files.Capture(ctx, authority, agentID)
+		if err != nil {
+			return nil, err
+		}
+		return fileResourceOverrides(resources), nil
+	}
+	if authority.Kind() != authz.ActorUser && authority.Kind() != authz.ActorAgent {
+		return nil, authz.ErrForbidden
+	}
+	if string(authority.UserID()) != userID {
+		return nil, authz.ErrForbidden
+	}
+	access, err := s.files.Begin(authority)
+	if err != nil {
+		return nil, err
+	}
+	resources, err := s.files.ReadSnapshot(ctx, authority, agentID)
+	if err != nil {
+		return nil, err
+	}
+	effective := make(map[string]internalplugin.ResourceKey, len(resources))
+	for _, resource := range resources {
+		effective[string(resource.Key.Kind)+":"+resource.Key.Name] = resource.Key
+	}
+	var out []ToolOverride
+	for _, scope := range []internalplugin.Scope{internalplugin.ScopeSystem, internalplugin.ScopeSystemAgent, internalplugin.ScopeUser, internalplugin.ScopeUserAgent} {
+		ownerAgent := ""
+		if scope == internalplugin.ScopeSystemAgent || scope == internalplugin.ScopeUserAgent {
+			ownerAgent = agentID
+		}
+		layer, _, err := access.ReadSettings(ctx, scope, ownerAgent)
+		if err != nil {
+			return nil, err
+		}
+		for resourceName, rawTools := range layer.DisabledTools {
+			resourceKey, ok := effective[resourceName]
+			if !ok {
+				continue
+			}
+			for _, raw := range rawTools {
+				server, local, ok := splitFileToolRef(raw)
+				if !ok {
+					continue
+				}
+				identity := ToolIdentity{PluginID: resourceKey.ID(), ServerKey: server, LocalToolName: local}
+				if identity.Validate() != nil {
+					continue
+				}
+				out = append(out, ToolOverride{Identity: identity, Scope: string(scope), Enabled: false})
+			}
+		}
+	}
+	return out, nil
+}
+
+// fileResourceOverrides projects the effective deny list captured for a
+// runtime authority. FileResource.DisabledTools is already composed across the
+// visible layers, so this path must not read those layers a second time under a
+// different authority.
+func fileResourceOverrides(resources []internalplugin.FileResource) []ToolOverride {
+	var out []ToolOverride
+	for _, resource := range resources {
+		for _, raw := range resource.DisabledTools {
+			server, local, ok := splitFileToolRef(raw)
+			if !ok {
+				continue
+			}
+			identity := ToolIdentity{PluginID: resource.Key.ID(), ServerKey: server, LocalToolName: local}
+			if identity.Validate() != nil {
+				continue
+			}
+			// The capture has already restricted the resource to the authority's
+			// visible scopes. Preserve the winning admin scope for diagnostics;
+			// all entries are denies and therefore remain a ceiling in Resolve.
+			out = append(out, ToolOverride{Identity: identity, Scope: string(resource.Key.Scope), Enabled: false})
+		}
+	}
+	return out
+}
+
+func filePolicyTarget(identity ToolIdentity, scope, userID, agentID string) (internalplugin.ResourceKey, error) {
+	key, err := internalplugin.ParseResourceID(identity.PluginID)
+	if err != nil {
+		return internalplugin.ResourceKey{}, err
+	}
+	key.Scope = internalplugin.Scope(scope)
+	key.UserID, key.AgentID = "", ""
+	switch key.Scope {
+	case internalplugin.ScopeSystem:
+	case internalplugin.ScopeSystemAgent:
+		key.AgentID = agentID
+	case internalplugin.ScopeUser:
+		key.UserID = userID
+	case internalplugin.ScopeUserAgent:
+		key.UserID, key.AgentID = userID, agentID
+	default:
+		return internalplugin.ResourceKey{}, fmt.Errorf("tool override: invalid file scope %q", scope)
+	}
+	if key.ID() == "" {
+		return internalplugin.ResourceKey{}, fmt.Errorf("tool override: invalid file resource identity")
+	}
+	return key, nil
+}
+
+func fileToolRef(identity ToolIdentity) string {
+	return url.PathEscape(identity.ServerKey) + "/" + url.PathEscape(identity.LocalToolName)
+}
+
+func splitFileToolRef(raw string) (string, string, bool) {
+	separator := strings.IndexByte(raw, '/')
+	if separator <= 0 || separator == len(raw)-1 || strings.IndexByte(raw[separator+1:], '/') >= 0 {
+		return "", "", false
+	}
+	server, err := url.PathUnescape(raw[:separator])
+	if err != nil || url.PathEscape(server) != raw[:separator] {
+		return "", "", false
+	}
+	local, err := url.PathUnescape(raw[separator+1:])
+	if err != nil || url.PathEscape(local) != raw[separator+1:] || server == "" || local == "" {
+		return "", "", false
+	}
+	return server, local, true
+}
+
+func (s *ToolOverrideStore) getFile(ctx context.Context, identity ToolIdentity, scope, userID, agentID string) (ToolOverrideVersion, error) {
+	if s == nil || s.files == nil {
+		return ToolOverrideVersion{}, fmt.Errorf("tool override: file policy unavailable")
+	}
+	key, err := filePolicyTarget(identity, scope, userID, agentID)
+	if err != nil {
+		return ToolOverrideVersion{}, err
+	}
+	authority, err := fileAuthority(ctx, userID, agentID)
+	if err != nil {
+		return ToolOverrideVersion{}, err
+	}
+	access, err := s.files.Begin(authority)
+	if err != nil {
+		return ToolOverrideVersion{}, err
+	}
+	if err := access.AuthorizeKey(ctx, key, false); err != nil {
+		return ToolOverrideVersion{}, err
+	}
+	settings, digest, err := access.ReadSettings(ctx, key.Scope, key.AgentID)
+	if err != nil {
+		return ToolOverrideVersion{}, err
+	}
+	blocked := slices.Contains(settings.DisabledTools[string(key.Kind)+":"+key.Name], fileToolRef(identity))
+	return ToolOverrideVersion{Identity: &identity, Scope: scope, Enabled: !blocked, Present: blocked, Version: digest}, nil
+}
+
+func (s *ToolOverrideStore) setFile(ctx context.Context, identity ToolIdentity, scope, userID, agentID string, enabled bool, expected string) (ToolOverrideVersion, error) {
+	if s == nil || s.files == nil {
+		return ToolOverrideVersion{}, fmt.Errorf("tool override: file policy unavailable")
+	}
+	key, err := filePolicyTarget(identity, scope, userID, agentID)
+	if err != nil {
+		return ToolOverrideVersion{}, err
+	}
+	authority, err := fileAuthority(ctx, userID, agentID)
+	if err != nil {
+		return ToolOverrideVersion{}, err
+	}
+	access, err := s.files.Begin(authority)
+	if err != nil {
+		return ToolOverrideVersion{}, err
+	}
+	if err := access.AuthorizeKey(ctx, key, true); err != nil {
+		return ToolOverrideVersion{}, err
+	}
+	settings, digest, err := access.ReadSettings(ctx, key.Scope, key.AgentID)
+	if err != nil {
+		return ToolOverrideVersion{}, err
+	}
+	if expected != "" && expected != ToolOverrideAbsentVersion && expected != digest {
+		return ToolOverrideVersion{}, config.ErrAgentVersionConflict
+	}
+	if expected == ToolOverrideAbsentVersion && digest != "" {
+		// An absent tool row is only creatable against an empty settings root.
+		// Management lists a non-empty root digest for file resources, so a stale
+		// legacy "absent" write cannot erase another settings update.
+		return ToolOverrideVersion{}, config.ErrAgentVersionConflict
+	}
+	name := string(key.Kind) + ":" + key.Name
+	values := slices.Clone(settings.DisabledTools[name])
+	ref := fileToolRef(identity)
+	if enabled {
+		values = slices.DeleteFunc(values, func(value string) bool { return value == ref })
+	} else if !slices.Contains(values, ref) {
+		values = append(values, ref)
+	}
+	resource, err := access.SetDisabledTools(ctx, key.ID(), digest, values)
+	if err != nil {
+		if errors.Is(err, internalplugin.ErrConflict) {
+			return ToolOverrideVersion{}, config.ErrAgentVersionConflict
+		}
+		return ToolOverrideVersion{}, err
+	}
+	return ToolOverrideVersion{Identity: &identity, Scope: scope, Enabled: enabled, Present: !enabled, Version: resource.SettingsDigest}, nil
+}
+
+func (s *ToolOverrideStore) clearFile(ctx context.Context, identity ToolIdentity, scope, userID, agentID, expected string) (ToolOverrideVersion, error) {
+	current, err := s.getFile(ctx, identity, scope, userID, agentID)
+	if err != nil {
+		return ToolOverrideVersion{}, err
+	}
+	if !current.Present {
+		if expected == "" {
+			return current, nil
+		}
+		return ToolOverrideVersion{}, config.ErrAgentVersionConflict
+	}
+	return s.setFile(ctx, identity, scope, userID, agentID, true, expected)
+}
+
+func fileAuthority(ctx context.Context, userID, agentID string) (authz.Authority, error) {
+	if authority, ok := authz.AuthorityFromContext(ctx); ok && authority.Valid() {
+		return authority, nil
+	}
+	return authz.Authority{}, authz.ErrUnauthenticated
 }

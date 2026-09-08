@@ -19,10 +19,11 @@ type SettingsMcpActionTool = toolmeta.ActionTool
 // SettingsMcpActionTools lists every generated tool in a stable order.
 func SettingsMcpActionTools() []SettingsMcpActionTool {
 	return []SettingsMcpActionTool{
-		{Name: "settings_mcp_server_create", Family: "settings_mcp", Resource: "server", Action: "create", Description: "Register a no-auth MCP server in an authorized scope. Credentials must be configured in the Web UI.", InputSchemaJSON: `{
+		{Name: "settings_mcp_server_create", Family: "settings_mcp", Resource: "server", Action: "create", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "name": {
+      "minLength": 1,
       "type": "string"
     },
     "scope": {
@@ -32,10 +33,6 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
         "system",
         "system_agent"
       ],
-      "type": "string"
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped registration is created.",
       "type": "string"
     },
     "transport": {
@@ -47,6 +44,7 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
       "type": "string"
     },
     "url": {
+      "format": "uri",
       "type": "string"
     }
   },
@@ -57,57 +55,28 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "settings_mcp_server_delete", Family: "settings_mcp", Resource: "server", Action: "delete", Description: "Delete an MCP registration using the version from settings_mcp_server_get. This refuses a stale version.", InputSchemaJSON: `{
+		{Name: "settings_mcp_server_delete", Family: "settings_mcp", Resource: "server", Action: "delete", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
-    "expected_version": {
-      "description": "Opaque version returned by settings_mcp_server_get.",
+    "expected_digest": {
       "minLength": 1,
       "type": "string"
     },
     "id": {
       "type": "string"
-    },
-    "scope": {
-      "default": "user",
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
-      "type": "string"
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped registration is deleted.",
-      "type": "string"
     }
   },
   "required": [
-    "expected_version",
+    "expected_digest",
     "id"
   ],
   "type": "object"
 }`},
-		{Name: "settings_mcp_server_get", Family: "settings_mcp", Resource: "server", Action: "get", Description: "Read one authorized MCP registration and its version. Bearer credentials are never returned.", InputSchemaJSON: `{
+		{Name: "settings_mcp_server_get", Family: "settings_mcp", Resource: "server", Action: "get", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "id": {
       "type": "string"
-    },
-    "scope": {
-      "default": "user",
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
-      "type": "string"
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped registration is read.",
-      "type": "string"
     }
   },
   "required": [
@@ -115,50 +84,25 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "settings_mcp_server_list", Family: "settings_mcp", Resource: "server", Action: "list", Description: "List up to 50 MCP registrations in one authorized scope. Bearer credentials are never returned.", InputSchemaJSON: `{
+		{Name: "settings_mcp_server_list", Family: "settings_mcp", Resource: "server", Action: "list", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
-    "limit": {
+    "page_size": {
       "default": 50,
-      "description": "Maximum registrations to return before truncation.",
       "maximum": 50,
+      "minimum": 1,
       "type": "integer"
     },
-    "scope": {
-      "default": "user",
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
-      "type": "string"
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped registrations are listed.",
+    "page_token": {
       "type": "string"
     }
   },
   "type": "object"
 }`},
-		{Name: "settings_mcp_server_probe", Family: "settings_mcp", Resource: "server", Action: "probe", Description: "Probe one authorized MCP registration: connect, list its tools, and persist the result. A failed probe still returns the server with a redacted error status.", InputSchemaJSON: `{
+		{Name: "settings_mcp_server_probe", Family: "settings_mcp", Resource: "server", Action: "probe", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
     "id": {
-      "type": "string"
-    },
-    "scope": {
-      "default": "user",
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
-      "type": "string"
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped registration is probed.",
       "type": "string"
     }
   },
@@ -167,35 +111,21 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
   ],
   "type": "object"
 }`},
-		{Name: "settings_mcp_server_update", Family: "settings_mcp", Resource: "server", Action: "update", Description: "Update safe MCP metadata using the version from settings_mcp_server_get. Bearer credentials and their scope cannot change here.", InputSchemaJSON: `{
+		{Name: "settings_mcp_server_update", Family: "settings_mcp", Resource: "server", Action: "update", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
-    "enabled": {
-      "type": "boolean"
-    },
-    "expected_version": {
-      "description": "Opaque version returned by settings_mcp_server_get.",
+    "expected_digest": {
       "minLength": 1,
+      "type": "string"
+    },
+    "expected_settings_digest": {
       "type": "string"
     },
     "id": {
       "type": "string"
     },
-    "name": {
-      "type": "string"
-    },
-    "scope": {
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
-      "type": "string"
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped registration is updated.",
-      "type": "string"
+    "is_enabled": {
+      "type": "boolean"
     },
     "transport": {
       "enum": [
@@ -205,11 +135,12 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
       "type": "string"
     },
     "url": {
+      "format": "uri",
       "type": "string"
     }
   },
   "required": [
-    "expected_version",
+    "expected_digest",
     "id"
   ],
   "type": "object"
@@ -236,47 +167,37 @@ type SettingsMcpHandler interface {
 }
 
 type SettingsMcpCreateInput struct {
-	Name          string `json:"name,omitempty"`
-	Scope         string `json:"scope,omitempty"`
-	TargetAgentId string `json:"target_agent_id,omitempty"`
-	Transport     string `json:"transport,omitempty"`
-	Url           string `json:"url,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Scope     string `json:"scope,omitempty"`
+	Transport string `json:"transport,omitempty"`
+	Url       string `json:"url,omitempty"`
 }
 
 type SettingsMcpDeleteInput struct {
-	ExpectedVersion string `json:"expected_version,omitempty"`
-	Id              string `json:"id,omitempty"`
-	Scope           string `json:"scope,omitempty"`
-	TargetAgentId   string `json:"target_agent_id,omitempty"`
+	ExpectedDigest string `json:"expected_digest,omitempty"`
+	Id             string `json:"id,omitempty"`
 }
 
 type SettingsMcpGetInput struct {
-	Id            string `json:"id,omitempty"`
-	Scope         string `json:"scope,omitempty"`
-	TargetAgentId string `json:"target_agent_id,omitempty"`
+	Id string `json:"id,omitempty"`
 }
 
 type SettingsMcpListInput struct {
-	Limit         int    `json:"limit,omitempty"`
-	Scope         string `json:"scope,omitempty"`
-	TargetAgentId string `json:"target_agent_id,omitempty"`
+	PageSize  int    `json:"page_size,omitempty"`
+	PageToken string `json:"page_token,omitempty"`
 }
 
 type SettingsMcpProbeInput struct {
-	Id            string `json:"id,omitempty"`
-	Scope         string `json:"scope,omitempty"`
-	TargetAgentId string `json:"target_agent_id,omitempty"`
+	Id string `json:"id,omitempty"`
 }
 
 type SettingsMcpUpdateInput struct {
-	Enabled         *bool  `json:"enabled,omitempty"`
-	ExpectedVersion string `json:"expected_version,omitempty"`
-	Id              string `json:"id,omitempty"`
-	Name            string `json:"name,omitempty"`
-	Scope           string `json:"scope,omitempty"`
-	TargetAgentId   string `json:"target_agent_id,omitempty"`
-	Transport       string `json:"transport,omitempty"`
-	Url             string `json:"url,omitempty"`
+	ExpectedDigest         string `json:"expected_digest,omitempty"`
+	ExpectedSettingsDigest string `json:"expected_settings_digest,omitempty"`
+	Id                     string `json:"id,omitempty"`
+	IsEnabled              *bool  `json:"is_enabled,omitempty"`
+	Transport              string `json:"transport,omitempty"`
+	Url                    string `json:"url,omitempty"`
 }
 
 func SettingsMcpDispatch(ctx context.Context, h SettingsMcpHandler, action string, args map[string]any) (any, error) {
@@ -289,7 +210,7 @@ func SettingsMcpDispatch(ctx context.Context, h SettingsMcpHandler, action strin
 		return h.Create(ctx, in)
 	case "delete":
 		var in SettingsMcpDeleteInput
-		if err := tools.DecodeInputStrict(args, &in, []string{"expected_version", "id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"expected_digest", "id"}); err != nil {
 			return nil, err
 		}
 		return h.Delete(ctx, in)
@@ -313,7 +234,7 @@ func SettingsMcpDispatch(ctx context.Context, h SettingsMcpHandler, action strin
 		return h.Probe(ctx, in)
 	case "update":
 		var in SettingsMcpUpdateInput
-		if err := tools.DecodeInputStrict(args, &in, []string{"expected_version", "id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"expected_digest", "id"}); err != nil {
 			return nil, err
 		}
 		return h.Update(ctx, in)

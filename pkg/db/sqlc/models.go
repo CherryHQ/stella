@@ -1121,6 +1121,7 @@ type SkillChangelog struct {
 	CreatedAt     time.Time       `json:"created_at"`
 	ContentDigest pgtype.Text     `json:"content_digest"`
 	Writer        string          `json:"writer"`
+	ResourceID    pgtype.Text     `json:"resource_id"`
 }
 
 type SkillFile struct {
@@ -1152,6 +1153,7 @@ type SkillUsage struct {
 	LastUsedAt    time.Time   `json:"last_used_at"`
 	CreatedAt     time.Time   `json:"created_at"`
 	ContentDigest pgtype.Text `json:"content_digest"`
+	ResourceID    pgtype.Text `json:"resource_id"`
 }
 
 type ToolOverride struct {

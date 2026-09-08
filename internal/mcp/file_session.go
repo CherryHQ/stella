@@ -392,6 +392,9 @@ func fileToolPackageIdentity(reg Registration) string {
 // instead of scheduling a database probe, so tools/list_changed only affects
 // the next turn's disposable catalog.
 func (s *Service) connectFileSession(ctx context.Context, reg Registration, owner CredentialOwner, dirty func()) (RemoteClient, error) {
+	if s != nil && s.fileConnect != nil {
+		return s.fileConnect(ctx, reg, owner, dirty)
+	}
 	transport, err := s.buildTransport(ctx, reg, owner)
 	if err != nil {
 		return nil, connectionError(reg, err)

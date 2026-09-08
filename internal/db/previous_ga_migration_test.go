@@ -43,7 +43,7 @@ const (
 	// deny admission, plugin tool identity cutover, and file-backed Skill
 	// evidence migrations.
 	currentMigrationVersion = sequentialAnchor + 40
-	latestMigrationVersion  = sequentialAnchor + 47
+	latestMigrationVersion  = sequentialAnchor + 48
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -364,6 +364,20 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if legacyWriter != "" {
 		t.Fatalf("migrated legacy Skill changelog writer = %q, want empty default", legacyWriter)
+	}
+	if got := count("filesystem Skill resource evidence columns", `
+		SELECT count(*) FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name IN ('skill_usage', 'skill_changelog')
+		  AND column_name = 'resource_id'
+		  AND is_nullable = 'YES'`); got != 2 {
+		t.Fatalf("filesystem Skill resource evidence columns = %d, want 2", got)
+	}
+	if got := count("filesystem Skill evidence indexes", `
+		SELECT count(*) FROM pg_indexes
+		WHERE schemaname = 'public'
+		  AND indexname IN ('idx_skill_usage_resource_identity', 'idx_skill_changelog_resource_lookup')`); got != 2 {
+		t.Fatalf("filesystem Skill evidence indexes = %d, want 2", got)
 	}
 	if got := count("Skill usage foreign key", `
 		SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.skill_usage'::regclass AND conname = 'skill_usage_skill_id_fkey'`); got != 0 {

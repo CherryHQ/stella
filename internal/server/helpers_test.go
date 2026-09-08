@@ -206,10 +206,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		t.Fatalf("home.NewWorkspaceManager: %v", err)
 	}
 	t.Cleanup(func() { _ = homeManager.Close() })
-	skillStore, err := skill.NewPOSIXStore(db, homeManager)
-	if err != nil {
-		t.Fatalf("skill.NewPOSIXStore: %v", err)
-	}
+	skillStore := skill.NewFileStore(db, homeManager)
 	skillAccess := access.NewService(skillStore, agentAccess)
 	skillManagement := skill.NewManagement(skillStore, skillAccess)
 	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}))
@@ -327,14 +324,11 @@ func TestManagedSkillAgentFileLoadPreservesExactRevisionDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
-	store, err := skill.NewPOSIXStore(db, manager)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := skill.NewFileStore(db, manager)
 	snapshot, err := store.CreateManagedSkill(t.Context(), skill.Skill{
-		ID: "server-exact-revision", Scope: "system", Name: "server-exact-revision",
+		Scope: "system", Name: "server-exact-revision", Description: "exact revision",
 	}, map[string]string{
-		skill.MainFile: "# Server exact revision",
+		skill.MainFile: "---\nname: server-exact-revision\ndescription: exact revision\n---\n# Server exact revision\n",
 		"reference.md": "exact managed content",
 	})
 	if err != nil {

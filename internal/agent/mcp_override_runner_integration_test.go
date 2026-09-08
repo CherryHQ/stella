@@ -25,10 +25,9 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-// TestMigratedMCPOverrideReachesRunnerDeny exercises the cutover at the
-// runtime boundary. The policy starts as a legacy exported name, is converted
-// in the importer, read through the real ToolOverrideStore, and finally hides
-// the MCP proxy in the runner registry.
+// TestMigratedMCPOverrideDoesNotReachRunner exercises the cutover at the
+// runtime boundary. Legacy MCP rows remain migration evidence only; the file
+// policy snapshot is the runtime authority after cutover.
 func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 	db := dbtest.NewAtMigration(t, runnerImportMigration44)
 	ctx := t.Context()
@@ -69,9 +68,8 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch migrated tool override: %v", err)
 	}
-	wantIdentity := ToolIdentity{PluginID: "remote", ServerKey: "main", LocalToolName: "list"}
-	if len(overrides) != 1 || overrides[0].Identity != wantIdentity || overrides[0].Scope != ToolOverrideScopeUserAgent || overrides[0].Enabled {
-		t.Fatalf("migrated overrides = %+v, want disabled %v in user_agent", overrides, wantIdentity)
+	if len(overrides) != 0 {
+		t.Fatalf("retired legacy overrides = %+v, want no runtime policy", overrides)
 	}
 
 	authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
@@ -115,8 +113,8 @@ func TestMigratedMCPOverrideReachesRunnerDeny(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if registry.Has(exportedName) {
-		t.Fatal("migrated user_agent deny did not hide the MCP tool")
+	if !registry.Has(exportedName) {
+		t.Fatal("retired user_agent deny unexpectedly hid the MCP tool")
 	}
 }
 

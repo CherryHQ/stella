@@ -73,33 +73,23 @@ func (s *Server) statusDatabase(ctx context.Context) *types.StatusDatabase {
 }
 
 func (s *Server) statusPlugins(ctx context.Context, authority authz.Authority) *types.StatusPlugins {
-	if s == nil || s.pluginSvc == nil || !authority.Valid() || authority.Kind() != authz.ActorUser || !authority.IsAdmin() {
+	if s == nil || s.pluginFiles == nil || !authority.Valid() || authority.Kind() != authz.ActorUser || !authority.IsAdmin() {
 		return nil
 	}
-	access, err := s.pluginSvc.Begin(authority)
+	access, err := s.pluginFiles.Begin(authority)
 	if err != nil {
 		return nil
 	}
-	definitions, err := access.ListDefinitions(ctx)
+	// A deployment count covers system resources only; private or agent roots
+	// have no single effective state for the whole deployment.
+	scope := pluginpkg.ScopeSystem
+	resources, err := access.List(ctx, pluginpkg.ResourcePlugin, &scope, "")
 	if err != nil {
 		return nil
 	}
-	out := types.StatusPlugins{Total: len(definitions)}
-	for _, definition := range definitions {
-		enabled := definition.DefaultEnabled
-		// Only the instance-wide system override belongs in a deployment-wide
-		// count. User and agent scopes are contextual, so status must not guess
-		// an owner or enumerate private configurations.
-		configs, err := access.ListConfigs(ctx, definition.ID, pluginpkg.ScopeSystem, "")
-		if err != nil {
-			return nil
-		}
-		for _, config := range configs {
-			if config.Enabled != nil {
-				enabled = *config.Enabled
-			}
-		}
-		if enabled {
+	out := types.StatusPlugins{Total: len(resources)}
+	for _, resource := range resources {
+		if !resource.Disabled && !resource.Forbidden && resource.Package != nil {
 			out.Enabled++
 		} else {
 			out.Disabled++

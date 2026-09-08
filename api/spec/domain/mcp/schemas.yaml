@@ -29,93 +29,176 @@ components:
           type: object
           additionalProperties: true
 
+    MCPDeclaration:
+      type: object
+      additionalProperties: false
+      required: [url, transport, auth_type, credential_mode]
+      properties:
+        url: { type: string, format: uri }
+        transport: { type: string, enum: [streamable_http, sse] }
+        description: { type: string }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        call_timeout_seconds:
+          type: integer
+          minimum: 0
+          maximum: 300
+          default: 0
+        auth_type: { type: string, enum: [none, bearer, oauth] }
+        credential_mode: { type: string, enum: [shared, per_user] }
+        credential_ref: { type: string }
+        client_id: { type: string }
+        client_secret_ref: { type: string }
+        token_endpoint_auth_method:
+          type: string
+          enum: [client_secret_basic, client_secret_post, none]
+        scopes:
+          type: array
+          items: { type: string }
+
     MCPServer:
       type: object
       additionalProperties: false
       required: [
         id,
-        plugin_id,
-        parent_config_id,
-        parent_revision,
+        resource_id,
         server_key,
+        name,
         scope,
-        enabled,
-        credential_mode,
+        content_digest,
+        settings_digest,
+        is_enabled,
+        is_read_only,
+        is_standalone,
+        is_overridden,
+        diagnostics,
+        declaration,
         needs_auth,
         status,
         tools,
       ]
       properties:
-        id: { type: string, format: uuid, readOnly: true }
-        plugin_id: { type: string, readOnly: true }
-        parent_config_id: { type: string, format: uuid, readOnly: true }
-        parent_revision: { type: integer, format: int64, readOnly: true }
-        server_key: { type: string }
-        url: { type: string, format: uri, readOnly: true }
+        id:
+          type: string
+          readOnly: true
+          description: Stable opaque address for this file-backed MCP server.
+        resource_id:
+          type: string
+          readOnly: true
+          description: Stable identifier of the source file or package resource.
+        server_key: { type: string, readOnly: true }
+        name: { type: string, readOnly: true }
         scope:
           type: string
           enum: [system, system_agent, user, user_agent]
+        user_id:
+          type: string
+          format: uuid
           readOnly: true
-        enabled: { type: boolean, readOnly: true }
-        credential_mode: { type: string, enum: [shared, per_user] }
-        auth_type: { type: string, enum: [none, bearer, oauth] }
-        transport: { type: string, enum: [streamable_http, sse] }
-        endpoint_configured: { type: boolean }
-        bearer_configured: { type: boolean }
-        oauth_client_id_configured: { type: boolean }
-        oauth_client_secret_configured: { type: boolean }
+        agent_id: { type: string, readOnly: true }
+        content_digest: { type: string, readOnly: true }
+        settings_digest: { type: string, readOnly: true }
+        is_enabled: { type: boolean }
+        is_read_only: { type: boolean, readOnly: true }
+        is_standalone: { type: boolean, readOnly: true }
+        is_overridden: { type: boolean, readOnly: true }
+        diagnostics:
+          type: array
+          readOnly: true
+          items: { $ref: "#/components/schemas/PluginDiagnostic" }
+        declaration:
+          allOf: [{ $ref: "#/components/schemas/MCPDeclaration" }]
+          nullable: true
         needs_auth: { type: boolean }
         status: { type: string, enum: [unknown, ready, needs_auth, error] }
         status_error: { type: string }
         tools:
           type: array
           items: { $ref: "#/components/schemas/MCPTool" }
-        revision: { type: integer, format: int64, readOnly: true }
 
     MCPServerList:
       type: object
-      required: [servers, next_page_token]
+      required: [servers, next_page_token, truncated]
       properties:
         servers:
           type: array
           items: { $ref: "#/components/schemas/MCPServer" }
         next_page_token: { type: string, nullable: true }
+        truncated:
+          type: boolean
+          readOnly: true
+          description: Whether the result was capped before all visible servers were returned.
 
     CreateMCPServerRequest:
       type: object
       additionalProperties: false
-      required: [parent_config_id, server_key, expected_parent_revision, url]
+      required: [name, scope, declaration]
       properties:
-        parent_config_id: { type: string, format: uuid }
-        server_key: { type: string, minLength: 1 }
-        expected_parent_revision: { type: integer, format: int64, minimum: 1 }
-        url: { type: string, format: uri }
-        transport: { type: string, enum: [streamable_http, sse] }
-        auth_type: { type: string, enum: [none, bearer, oauth] }
-        credential_mode: { type: string, enum: [shared, per_user] }
-        metadata: { type: object, additionalProperties: true }
-        credentials:
-          type: object
-          nullable: true
-          writeOnly: true
-          additionalProperties: true
+        name: { type: string, minLength: 1 }
+        scope: { type: string, enum: [system, system_agent, user, user_agent] }
+        agent_id: { type: string }
+        declaration: { $ref: "#/components/schemas/MCPDeclaration" }
 
     UpdateMCPServerRequest:
+      description: Supply either declaration with expected_digest, or is_enabled with expected_settings_digest. Combining both mutations is rejected.
       type: object
       additionalProperties: false
-      required: [expected_parent_revision]
       properties:
-        expected_parent_revision: { type: integer, format: int64, minimum: 1 }
+        expected_digest: { type: string, minLength: 1 }
+        declaration: { $ref: "#/components/schemas/MCPDeclaration" }
+        is_enabled: { type: boolean }
+        expected_settings_digest: { type: string }
+
+    UpdateMCPServerFileRequest:
+      type: object
+      additionalProperties: false
+      required: [content_base64, expected_digest]
+      properties:
+        content_base64: { type: string, format: byte }
+        expected_digest: { type: string, minLength: 1 }
+
+    UpdateMCPServerCredentialsRequest:
+      description: Supply exactly one of bearer_token or client_secret. Both or neither are rejected.
+      type: object
+      additionalProperties: false
+      required: [expected_digest]
+      properties:
+        expected_digest: { type: string, minLength: 1 }
+        bearer_token: { type: string, writeOnly: true, minLength: 1 }
+        client_secret: { type: string, writeOnly: true, minLength: 1 }
+
+    MCPServerToolCreateInput:
+      type: object
+      additionalProperties: false
+      required: [name, scope, url]
+      properties:
+        name: { type: string, minLength: 1 }
+        scope: { type: string, enum: [user, user_agent, system, system_agent] }
+        url: { type: string, format: uri }
+        transport: {
+          type: string,
+          enum: [streamable_http, sse],
+          default: streamable_http,
+        }
+
+    MCPServerToolUpdateInput:
+      type: object
+      additionalProperties: false
+      required: [expected_digest]
+      properties:
+        expected_digest: { type: string, minLength: 1 }
+        expected_settings_digest: { type: string }
         url: { type: string, format: uri }
         transport: { type: string, enum: [streamable_http, sse] }
-        auth_type: { type: string, enum: [none, bearer, oauth] }
-        credential_mode: { type: string, enum: [shared, per_user] }
-        metadata: { type: object, additionalProperties: true }
-        credentials:
-          type: object
-          nullable: true
-          writeOnly: true
-          additionalProperties: true
+        is_enabled: { type: boolean }
+
+    MCPServerToolListInput:
+      type: object
+      additionalProperties: false
+      properties:
+        page_size: { type: integer, minimum: 1, maximum: 50, default: 50 }
+        page_token: { type: string }
 
     MCPRegistryServer:
       type: object

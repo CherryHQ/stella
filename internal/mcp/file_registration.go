@@ -23,6 +23,14 @@ func RegistrationFromFileResource(resource plugin.FileResource, serverKey string
 	if err := validateFileResourceAuthority(resource.Key, authority); err != nil {
 		return Registration{}, err
 	}
+	return registrationFromFileResource(resource, serverKey)
+}
+
+// registrationFromFileResource projects an already trusted resource without
+// applying the online caller PEP. The filesystem migration is the sole caller:
+// it has a locked legacy owner and a validated ResourceKey, but no human
+// authority to manufacture for a shared system-agent resource.
+func registrationFromFileResource(resource plugin.FileResource, serverKey string) (Registration, error) {
 	if fileMCPResourceFatal(resource) {
 		return Registration{}, fmt.Errorf("mcp: file resource is disabled or invalid")
 	}

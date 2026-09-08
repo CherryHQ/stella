@@ -17,7 +17,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
@@ -50,7 +49,6 @@ import (
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
-	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/server"
@@ -223,7 +221,7 @@ type testEnv struct {
 	db          *pgxpool.Pool
 	store       config.Store
 	pluginHost  *host.Host
-	skillStore  *skill.POSIXStore
+	skillStore  *skill.FileStore
 	authStore   *appdb.AuthStore
 	oidcStore   *appdb.OIDCStore
 	mem         memory.Provider
@@ -340,10 +338,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("home.NewWorkspaceManager: %v", err)
 	}
 	t.Cleanup(func() { _ = homeManager.Close() })
-	skillStore, err := skill.NewPOSIXStore(db, homeManager)
-	if err != nil {
-		t.Fatalf("skill.NewPOSIXStore: %v", err)
-	}
+	skillStore := skill.NewFileStore(db, homeManager)
 
 	authSvc := auth.NewAuthService(db, oidcStore, oidcStore, oidcStore)
 	sessionMgr, err := auth.NewSessionManager(oidcStore, "test-vault-key")
@@ -541,10 +536,6 @@ func TestNewErrorsWithoutRequiredDeps(t *testing.T) {
 func doRequest(t *testing.T, env *testEnv, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	return doRequestWithSession(t, env.srv, env.bearerToken, method, path, body)
-}
-
-func pluginAPIPath(pluginID string) string {
-	return "/api/plugins/" + url.PathEscape(pluginID)
 }
 
 func doRequestWithSession(t *testing.T, srv *server.Server, sessionToken, method, path string, body any) *httptest.ResponseRecorder {
@@ -926,134 +917,6 @@ func TestListAgents(t *testing.T) {
 	}
 	if agents[0].Name != "Stella" {
 		t.Errorf("agent Name = %q, want %q", agents[0].Name, "Stella")
-	}
-}
-
-func TestLegacyPluginConfigSchemaRoutesRemoved(t *testing.T) {
-	env := setupAdmin(t)
-	for _, path := range []string{
-		"/api/plugins/channel/telegram/config-schema",
-		"/api/plugins/channel/discord/config-schema",
-		"/api/plugins/channel/qq/config-schema",
-		"/api/plugins/channel/feishu/config-schema",
-		"/api/plugins/channel/weixin/config-schema",
-	} {
-		t.Run(path, func(t *testing.T) {
-			rr := doRequest(t, env, http.MethodGet, path, nil)
-			if rr.Code != http.StatusNotFound {
-				t.Fatalf("legacy config schema route = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
-			}
-		})
-	}
-}
-
-func TestListPluginsUsesUnifiedSafeDefinitionProjection(t *testing.T) {
-	env := setupAdmin(t)
-	plugins := plugin.NewService(env.db, env.deps.AgentAccess, plugin.NewCatalog(), plugin.BackendPolicy{}, func(_ context.Context, fn func() error) error { return fn() })
-	env.rebuild(t, func(d *server.Deps) { d.PluginService = plugins })
-	spec, err := plugin.PublishDefinitionSpec(json.RawMessage(`{"description":"safe","category":"utility","origin":"remote_mcp","capabilities":["read"],"url":"https://private.example/path?token=secret","credential_refs":{"token":"vault://secret"}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := env.db.Exec(context.Background(), `
-		INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision)
-		VALUES ('custom-safe', 'Safe plugin', 'custom',
-			$1::jsonb, false, 1)`, spec); err != nil {
-		t.Fatalf("seed plugin definition: %v", err)
-	}
-
-	rr := doRequest(t, env, http.MethodGet, "/api/plugins", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	var list apitypes.PluginList
-	if err := json.Unmarshal(parseResponse(t, rr).Data, &list); err != nil {
-		t.Fatalf("unmarshal plugins: %v", err)
-	}
-	if len(list.Plugins) != 1 {
-		t.Fatalf("plugins = %#v, want one custom definition", list.Plugins)
-	}
-	item := list.Plugins[0]
-	if item.Id != "custom-safe" || item.DisplayName != "Safe plugin" {
-		t.Fatalf("plugin identity = %#v", item)
-	}
-	if item.Spec["description"] != "safe" || item.Spec["category"] != "utility" {
-		t.Fatalf("safe definition summary = %#v", item.Spec)
-	}
-	if item.Spec["origin"] != "remote_mcp" {
-		t.Fatalf("safe definition origin = %#v, want remote_mcp", item.Spec["origin"])
-	}
-	for _, private := range []string{"url", "credential_refs"} {
-		if _, ok := item.Spec[private]; ok {
-			t.Fatalf("definition exposed private field %q: %#v", private, item.Spec)
-		}
-	}
-}
-
-func TestPluginHTTPRouteUsesBareAndEncodedPluginIDs(t *testing.T) {
-	env := setupAdmin(t)
-	plugins := plugin.NewService(env.db, env.deps.AgentAccess, plugin.NewCatalog(), plugin.BackendPolicy{
-		Transition: func(context.Context, pgx.Tx, authz.Authority, plugin.MutationKind, plugin.Definition, *plugin.Config, *plugin.Config) error {
-			return nil
-		},
-	}, func(_ context.Context, fn func() error) error { return fn() })
-	env.rebuild(t, func(d *server.Deps) { d.PluginService = plugins })
-	emptySpec, err := plugin.PublishDefinitionSpec(json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []string{"email", "custom.acme"} {
-		if _, err := env.db.Exec(context.Background(), `
-			INSERT INTO plugin_definition(id, display_name, source, spec, default_enabled, revision)
-			VALUES ($1, $2, 'custom', $3::jsonb, false, 1)`, id, id, emptySpec); err != nil {
-			t.Fatalf("seed plugin %q: %v", id, err)
-		}
-		rr := doRequest(t, env, http.MethodGet, pluginAPIPath(id), nil)
-		if rr.Code != http.StatusOK {
-			t.Fatalf("GET %s = %d, want 200: %s", id, rr.Code, rr.Body.String())
-		}
-		var definition apitypes.PluginDefinition
-		if err := json.Unmarshal(parseResponse(t, rr).Data, &definition); err != nil {
-			t.Fatalf("decode %s: %v", id, err)
-		}
-		if definition.Id != id {
-			t.Fatalf("GET %s returned %q", id, definition.Id)
-		}
-	}
-	invalid := doRequest(t, env, http.MethodGet, pluginAPIPath("custom/acme"), nil)
-	if invalid.Code != http.StatusNotFound {
-		t.Fatalf("GET encoded slash plugin ID = %d, want 404: %s", invalid.Code, invalid.Body.String())
-	}
-	configID := uuid.NewString()
-	if _, err := env.db.Exec(context.Background(), `
-		INSERT INTO plugin_config(id, plugin_id, scope, user_id, enabled, config, credential_refs, revision)
-		VALUES ($1::uuid, 'email', 'user', $2::uuid, true, '{}'::jsonb, '{}'::jsonb, 1)`, configID, env.adminUser.ID); err != nil {
-		t.Fatalf("seed bare plugin config: %v", err)
-	}
-	configs := doRequest(t, env, http.MethodGet, pluginAPIPath("email")+"/configs?scope=user", nil)
-	if configs.Code != http.StatusOK {
-		t.Fatalf("GET bare plugin configs = %d, want 200: %s", configs.Code, configs.Body.String())
-	}
-	updated := doRequest(t, env, http.MethodPatch, pluginAPIPath("email")+"/configs/"+configID,
-		map[string]any{"expected_revision": 1, "is_enabled": false})
-	if updated.Code != http.StatusOK {
-		t.Fatalf("PATCH bare plugin config = %d, want 200: %s", updated.Code, updated.Body.String())
-	}
-}
-
-func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
-	env := setupAdmin(t)
-
-	rr := doRequest(t, env, "GET", "/api/plugins/channel/telegram/config", nil)
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("legacy GET status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
-	}
-
-	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/telegram/config", map[string]any{
-		"config": map[string]any{"token": "telegram-secret"},
-	})
-	if rr.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("legacy PATCH status = %d, want %d (body: %s)", rr.Code, http.StatusMethodNotAllowed, rr.Body.String())
 	}
 }
 
