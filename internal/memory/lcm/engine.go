@@ -163,6 +163,7 @@ type storageRow struct {
 	eventType            string
 	content              string
 	tokenText            string
+	execution            *ai.ExecutionSummary
 	originGroupMessageID string // set only on a group turn's trigger user anchor
 	parts                []messagePartRow
 }
@@ -225,7 +226,7 @@ func canonicalMessageToRows(msg ai.Message) ([]storageRow, error) {
 			// New readers use parts; old readers safely fall back to this text.
 			eventType = eventTypeMultimodal
 		}
-		return []storageRow{{role: roleUser, eventType: eventType, content: projection, tokenText: projection, parts: parts}}, nil
+		return []storageRow{{role: roleUser, eventType: eventType, content: projection, tokenText: projection, parts: parts, execution: m.Execution}}, nil
 	case ai.ToolResultMessage:
 		content, fallbackRefs := scrubRenderableRefs(m.Content)
 		parts, projection, err := canonicalParts(content)
@@ -555,18 +556,30 @@ func rowToUserMessage(msg sqlc.CtxMessage, partSets ...[]loadedMessagePart) ai.U
 		parts = partSets[0]
 	}
 	ts := msg.CreatedAt.UTC()
+	execution := decodeExecutionMetadata(msg.ExecutionMetadata)
 	if len(parts) > 0 {
-		return ai.UserMessage{Content: renderStoredInput(contentBlocksFromParts(parts), msg), Timestamp: ts}
+		return ai.UserMessage{Content: renderStoredInput(contentBlocksFromParts(parts), msg), Timestamp: ts, Execution: execution}
 	}
 	if msg.EventType == eventTypeMultimodal {
 		var blocks []contentBlockJSON
 		if json.Unmarshal([]byte(msg.Content), &blocks) == nil {
 			if content := contentBlocksFromJSON(blocks); content != nil {
-				return ai.UserMessage{Content: renderStoredInput(content, msg), Timestamp: ts}
+				return ai.UserMessage{Content: renderStoredInput(content, msg), Timestamp: ts, Execution: execution}
 			}
 		}
 	}
-	return ai.UserMessage{Content: renderStoredInput(msg.Content, msg), Timestamp: ts}
+	return ai.UserMessage{Content: renderStoredInput(msg.Content, msg), Timestamp: ts, Execution: execution}
+}
+
+func decodeExecutionMetadata(data []byte) *ai.ExecutionSummary {
+	if len(data) == 0 {
+		return nil
+	}
+	var execution ai.ExecutionSummary
+	if err := json.Unmarshal(data, &execution); err != nil || (len(execution.Plugins) == 0 && len(execution.Skills) == 0) {
+		return nil
+	}
+	return &execution
 }
 
 func renderStoredInput(content any, msg sqlc.CtxMessage) any {

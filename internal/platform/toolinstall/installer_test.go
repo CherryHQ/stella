@@ -458,7 +458,7 @@ func TestInstallNativeMiseSelectionReturnsBeforeMiseWhenPublicationIsComplete(t 
 			t.Fatal(err)
 		}
 	}
-	err := InstallSelection(context.Background(), stellaHome, Selection{
+	_, err := InstallSelection(context.Background(), stellaHome, Selection{
 		DataDir:       filepath.Join(stellaHome, ".mise-tools"),
 		PublicDir:     public,
 		PublicBinDir:  public,

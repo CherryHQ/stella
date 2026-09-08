@@ -111,7 +111,7 @@ func prepareBuiltinArtifacts(ctx context.Context, stellaHome string) error {
 				return fmt.Errorf("identity for builtin binary %q: %w", binary.Name, err)
 			}
 			artifactDir := filepath.Join(artifactRoot, fingerprint)
-			if err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
+			if _, err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
 				DataDir:   filepath.Join(stellaHome, ".mise-tools"),
 				PublicDir: artifactDir, PublicBinDir: artifactDir,
 			}, []toolinstall.Tool{{

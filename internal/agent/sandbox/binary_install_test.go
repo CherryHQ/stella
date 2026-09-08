@@ -102,7 +102,7 @@ func TestLatestSelectionReusesPublishedResult(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(stellaHome, "bin", "mise"), []byte("#!/bin/sh\nprintf called > "+called+"\nexit 99\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := toolinstall.InstallSelection(context.Background(), stellaHome, toolinstall.Selection{
+	if _, err := toolinstall.InstallSelection(context.Background(), stellaHome, toolinstall.Selection{
 		DataDir: implicit.DataDir, PublicDir: implicit.PublicDir, PublicBinDir: implicit.PublicBinDir,
 	}, []toolinstall.Tool{{Key: "uv", Lookup: "uv", PublicName: "uv"}}); err != nil {
 		t.Fatalf("InstallSelection reused result: %v", err)

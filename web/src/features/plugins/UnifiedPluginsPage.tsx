@@ -90,6 +90,39 @@ function scopeLabel(scope: PluginScope, t: Translate): string {
   return t(`plugins.scope.${scope}`);
 }
 
+function lifecycleLabel(status: PluginDefinition["lifecycle_status"], t: Translate): string {
+  switch (status) {
+    case "in_use":
+      return t("plugins.lifecycle.inUse");
+    case "cleanup_pending":
+      return t("plugins.lifecycle.cleanupPending");
+    default:
+      return t("plugins.lifecycle.installed");
+  }
+}
+
+function lifecycleReason(
+  status: PluginDefinition["lifecycle_status"],
+  reason: PluginDefinition["lifecycle_reason"],
+  t: Translate,
+): string {
+  if (status === "in_use") return t("plugins.lifecycle.runtimeOwner");
+  if (status === "cleanup_pending") {
+    return reason === "ownership_unconfirmed"
+      ? t("plugins.lifecycle.ownershipUnconfirmed")
+      : t("plugins.lifecycle.awaitingCleanup");
+  }
+  return t("plugins.lifecycle.active");
+}
+
+function lifecycleBadgeVariant(
+  status: PluginDefinition["lifecycle_status"],
+): "secondary" | "info" | "warning" {
+  if (status === "in_use") return "info";
+  if (status === "cleanup_pending") return "warning";
+  return "secondary";
+}
+
 export function configHasMcpOAuth(config: Pick<PluginConfig, "resource_summary">): boolean {
   return config.resource_summary.mcp_servers.some((server) => server.auth_type === "oauth");
 }
@@ -222,6 +255,7 @@ function ConfigRow({
   onDelete,
   onOAuthConnect,
   onOAuthDisconnect,
+  retired,
   busy,
   t,
 }: {
@@ -236,6 +270,7 @@ function ConfigRow({
   onDelete?: () => void;
   onOAuthConnect?: (serverKey?: string) => void;
   onOAuthDisconnect?: (serverKey?: string) => void;
+  retired: boolean;
   busy: boolean;
   t: Translate;
 }) {
@@ -277,7 +312,7 @@ function ConfigRow({
                     variant="ghost"
                     size="xs"
                     onClick={() => onEdit(child.server_key)}
-                    disabled={busy}
+                    disabled={busy || retired}
                   >
                     {t("common.edit")}
                   </Button>
@@ -286,7 +321,7 @@ function ConfigRow({
                       variant="ghost"
                       size="xs"
                       onClick={() => onProbe(child.server_key)}
-                      disabled={busy}
+                      disabled={busy || retired}
                     >
                       {t("mcp.server.probe")}
                     </Button>
@@ -296,7 +331,7 @@ function ConfigRow({
                       variant="ghost"
                       size="xs"
                       onClick={() => onOAuthConnect(child.server_key)}
-                      disabled={busy}
+                      disabled={busy || retired}
                     >
                       {t("plugins.oauthAuthorize")}
                     </Button>
@@ -306,7 +341,7 @@ function ConfigRow({
                       variant="ghost"
                       size="xs"
                       onClick={() => onOAuthDisconnect(child.server_key)}
-                      disabled={busy}
+                      disabled={busy || retired}
                     >
                       {t("plugins.oauthDisconnect")}
                     </Button>
@@ -316,7 +351,7 @@ function ConfigRow({
                       variant="ghost"
                       size="xs"
                       onClick={() => onDeleteChild(child.server_key)}
-                      disabled={busy}
+                      disabled={busy || retired}
                     >
                       {t("common.delete")}
                     </Button>
@@ -328,18 +363,18 @@ function ConfigRow({
         </div>
         <div className="flex items-center gap-2">
           {config.resource_summary.binaries.length > 0 && (
-            <Button variant="ghost" size="xs" onClick={() => onEdit()} disabled={busy}>
+            <Button variant="ghost" size="xs" onClick={() => onEdit()} disabled={busy || retired}>
               {t("common.edit")}
             </Button>
           )}
           {onAddChild && (
-            <Button variant="outline" size="xs" onClick={onAddChild} disabled={busy}>
+            <Button variant="outline" size="xs" onClick={onAddChild} disabled={busy || retired}>
               {t("plugins.addMcpServer")}
             </Button>
           )}
           <Switch
             checked={config.is_enabled === true}
-            disabled={busy}
+            disabled={busy || retired}
             onCheckedChange={onEnabled}
             aria-label={enabledLabel}
           />
@@ -347,18 +382,18 @@ function ConfigRow({
             variant="ghost"
             size="xs"
             onClick={onInherit}
-            disabled={busy || config.is_enabled === null}
+            disabled={busy || retired || config.is_enabled === null}
           >
             {t("plugins.inherit")}
           </Button>
           {onReset && (
-            <Button variant="ghost" size="xs" onClick={onReset} disabled={busy}>
+            <Button variant="ghost" size="xs" onClick={onReset} disabled={busy || retired}>
               <RotateCcw className="size-3.5" />
               {t("plugins.resetConfig")}
             </Button>
           )}
           {onDelete && (
-            <Button variant="ghost" size="xs" onClick={onDelete} disabled={busy}>
+            <Button variant="ghost" size="xs" onClick={onDelete} disabled={busy || retired}>
               <Trash2 className="size-3.5" />
               {t("common.delete")}
             </Button>
@@ -388,6 +423,10 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     [plugins, params.pluginId],
   );
   const selectedPluginID = selectedPlugin?.id;
+  const selectedPluginRetired =
+    selectedPlugin?.retired_at != null ||
+    selectedPlugin?.lifecycle_status === "in_use" ||
+    selectedPlugin?.lifecycle_status === "cleanup_pending";
   const closeDetail = () =>
     void navigate({
       to: scopeBand === "system" ? "/admin/integrations/plugins" : "/settings/plugins",
@@ -827,8 +866,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["plugins"] });
-      showToast(t("plugins.deleted"));
-      closeDetail();
+      showToast(t("plugins.retired"));
     },
     onError: (error) => showToast(pluginErrorMessage(error, t), "error"),
   });
@@ -863,9 +901,27 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                 {t("plugins.packageInstalled")}
               </Badge>
             )}
+            <Badge variant={lifecycleBadgeVariant(selectedPlugin.lifecycle_status)} size="sm">
+              {lifecycleLabel(selectedPlugin.lifecycle_status, t)}
+            </Badge>
           </div>
         }
       />
+      {selectedPluginRetired && (
+        <div className="flex items-center justify-between gap-3 border-y border-border py-3">
+          <p className="text-xs text-muted-foreground">
+            {lifecycleReason(selectedPlugin.lifecycle_status, selectedPlugin.lifecycle_reason, t)}
+          </p>
+          <Button
+            variant="outline"
+            size="xs"
+            loading={pluginsQuery.isFetching}
+            onClick={() => void pluginsQuery.refetch()}
+          >
+            {t("plugins.refresh")}
+          </Button>
+        </div>
+      )}
       {typeof selectedPlugin.spec.description === "string" && selectedPlugin.spec.description && (
         <p className="text-sm text-muted-foreground">{selectedPlugin.spec.description}</p>
       )}
@@ -884,7 +940,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                 size="xs"
                 variant="outline"
                 loading={copyingSkillName === skill.name}
-                disabled={copyPackageSkillMutation.isPending}
+                disabled={copyPackageSkillMutation.isPending || selectedPluginRetired}
                 onClick={() => copyPackageSkillMutation.mutate(skill.name)}
               >
                 {t("plugins.copySkill")}
@@ -897,6 +953,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
         <FieldLabel>{t("plugins.agent")}</FieldLabel>
         <Select
           value={selectedAgentID || "__none"}
+          disabled={selectedPluginRetired}
           onValueChange={(value) => setSelectedAgentID(value === "__none" || !value ? "" : value)}
         >
           <SelectTrigger>
@@ -941,6 +998,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                   <ConfigRow
                     key={config.id}
                     config={config}
+                    retired={selectedPluginRetired}
                     busy={
                       configMutation.isPending ||
                       resetMutation.isPending ||
@@ -1043,7 +1101,10 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
           variant="outline"
           size="sm"
           loading={createMutation.isPending}
-          disabled={(newScope === "system_agent" || newScope === "user_agent") && !selectedAgentID}
+          disabled={
+            selectedPluginRetired ||
+            ((newScope === "system_agent" || newScope === "user_agent") && !selectedAgentID)
+          }
           onClick={() => createMutation.mutate()}
         >
           {t("plugins.addScopeConfig")}
@@ -1053,7 +1114,12 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
         <div className="border-t border-border pt-4">
           <div className="flex gap-2">
             {scopeBand === "system" && selectedPlugin.spec.origin === "package" && (
-              <Button variant="outline" size="sm" onClick={() => setPackageUpdateOpen(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={selectedPluginRetired}
+                onClick={() => setPackageUpdateOpen(true)}
+              >
                 <Package className="size-3.5" />
                 {t("plugins.updatePackage")}
               </Button>
@@ -1062,6 +1128,7 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
               variant="destructive"
               size="sm"
               loading={definitionDeleteMutation.isPending}
+              disabled={selectedPluginRetired}
               onClick={() => setPendingPluginDelete(selectedPlugin)}
             >
               <Trash2 className="size-3.5" />
@@ -1157,6 +1224,12 @@ export function UnifiedPluginsPage({ scopeBand = "system" }: { scopeBand?: Scope
                                 {t("plugins.packageInstalled")}
                               </Badge>
                             )}
+                            <Badge
+                              variant={lifecycleBadgeVariant(plugin.lifecycle_status)}
+                              size="sm"
+                            >
+                              {lifecycleLabel(plugin.lifecycle_status, t)}
+                            </Badge>
                           </div>
                           <p className="text-xs text-muted-foreground">
                             {typeof plugin.spec.description === "string" && plugin.spec.description

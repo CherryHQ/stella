@@ -81,6 +81,7 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
         actorType: msg.actor_type,
         actorId: msg.actor_id,
         sourceSessionId: msg.source_session_id,
+        execution: msg.execution,
       };
       tmCacheRef.current.set(msg, { agentName, agentId, streaming, out });
       return out;
@@ -174,6 +175,7 @@ function SummaryCard({
       actorType: msg.actor_type,
       actorId: msg.actor_id,
       sourceSessionId: msg.source_session_id,
+      execution: msg.execution,
     }));
   }, [messagesQuery.data, agentName, agentId]);
 

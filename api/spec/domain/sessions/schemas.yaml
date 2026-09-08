@@ -351,6 +351,70 @@ components:
           type: string
           enum: [tool_error, command_nonzero, command_timeout]
 
+    SessionExecutionSummary:
+      type: object
+      additionalProperties: false
+      required: [plugins]
+      description: >-
+        Secret-free admission snapshot for the recorded turn. It contains
+        selected identities and bounded readiness outcomes, never credentials,
+        package payloads, or private file contents.
+      properties:
+        plugins:
+          type: array
+          items: { $ref: "#/components/schemas/SessionExecutionPlugin" }
+        skills:
+          type: array
+          items: { $ref: "#/components/schemas/SessionExecutionSkill" }
+
+    SessionExecutionPlugin:
+      type: object
+      additionalProperties: false
+      required: [plugin_id, authorization, readiness]
+      properties:
+        plugin_id: { type: string }
+        package_version: { type: string }
+        package_digest: { type: string }
+        source: { type: string }
+        config_id: { type: string }
+        config_scope: { type: string }
+        config_revision: { type: integer, format: int64 }
+        authorization: {
+          type: string,
+          enum: [unknown, not_required, ready, unavailable],
+        }
+        readiness: { type: string, enum: [unknown, ready, unavailable] }
+        binaries:
+          type: array
+          items: { $ref: "#/components/schemas/SessionExecutionBinary" }
+        failures: { type: array, items: { type: string } }
+
+    SessionExecutionBinary:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string }
+        tool: { type: string }
+        requested_version: { type: string }
+        resolved_version: { type: string }
+        backend: { type: string }
+        selection_identity: { type: string }
+        source: { type: string }
+
+    SessionExecutionSkill:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        plugin_id: { type: string }
+        name: { type: string }
+        version: { type: string }
+        source: { type: string }
+        scope: { type: string }
+        digest: { type: string }
+        state: { type: string, enum: [selected, masked, overridden] }
+
     SessionMessage:
       type: object
       required: [id, role, actor_type, timestamp, token_count]
@@ -385,6 +449,8 @@ components:
         child_calls:
           type: array
           items: { $ref: "#/components/schemas/SessionChildToolCallAudit" }
+        execution:
+          $ref: "#/components/schemas/SessionExecutionSummary"
         timestamp: { type: string, format: date-time }
         token_count: { type: integer, format: int64 }
 

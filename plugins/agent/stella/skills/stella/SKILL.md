@@ -37,7 +37,11 @@ Use `view_image` to inspect image contents. Use `bash` with `xberg extract` for 
 
 ## Skills
 
-Release builtins (`builtin:<name>`) are immutable and come only from the release bundle. Administrator-installed global (`system:<name>`) and Agent-bound (`system_agent:<name>`) Skills remain mutable and separately managed. For current authorities, per-Agent activation, and upgrade checks, read [references/configuration.md](references/configuration.md) or [references/update.md](references/update.md) before advising an operator.
+Release builtins (`builtin:<name>`) are immutable and come only from the release bundle. Administrator-installed global (`system:<name>`) and Agent-bound (`system_agent:<name>`) Skills remain mutable and separately managed. `skill_installed_search` and `skill_load` are runtime read/use tools; when conversational Settings tools are enabled, `settings_skill_list/get/create/update/delete` can manage owned managed Skills. For current authorities, per-Agent activation, package configuration, and upgrade checks, read [references/configuration.md](references/configuration.md) or [references/update.md](references/update.md) before advising an operator.
+
+Plugin configuration and package update preview describe declared or configured resources. They do not install a CLI, connect an MCP server, or grant OAuth access. Stella prepares the selected package resources at turn admission, so a real turn can still report a missing authorization, failed CLI preparation, or remote connection error. Disabling a plugin blocks new turns but does not revoke an existing OAuth grant; use the owning account, OAuth, assignment, or Vault control for revocation.
+
+For a turn's actual execution details, use the per-user message execution summary, not current package configuration. It records the admitted package version/digest, config ID/scope/revision, authorization/readiness, Skill winner state (`selected`, `masked`, or `overridden`), and CLI requested/resolved versions with backend/source installation evidence. A reused ready cache may leave resolved or installation evidence unknown; turns from before this metadata existed have no historical summary.
 
 ## Architecture
 

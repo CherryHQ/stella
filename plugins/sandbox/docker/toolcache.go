@@ -6,12 +6,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -100,6 +102,7 @@ type ToolPackageFailure struct {
 type ToolPreparationResult struct {
 	SuccessfulPackages []ToolPackage
 	FailedPackages     []ToolPackageFailure
+	BinaryEvidence     []pkgplugins.PluginBinaryPreparation
 }
 
 func (b ToolBinary) miseToolKey() string {
@@ -117,6 +120,7 @@ type selectionToolCache struct {
 	BinPath        string
 	MaskVolumeName string
 	RootPath       string
+	Evidence       pkgplugins.BinaryInstallEvidence
 }
 
 type selectionToolCacheSet struct {
@@ -219,8 +223,45 @@ func ensureSelectionToolCacheSet(ctx context.Context, client *dockerclient.Clien
 		}
 		set.Packages = append(set.Packages, *result.cache)
 		set.Preparation.SuccessfulPackages = append(set.Preparation.SuccessfulPackages, group.packageID)
+		packageHash := selectionToolCacheHash(imageID, group.binaries, nil)
+		set.Preparation.BinaryEvidence = append(set.Preparation.BinaryEvidence, dockerBinaryEvidence(group.packageID, packageHash, group.binaries, result.cache.Evidence)...)
 	}
 	return set, nil
+}
+
+func dockerBinaryEvidence(pkg ToolPackage, selectionIdentity string, binaries []ToolBinary, evidence pkgplugins.BinaryInstallEvidence) []pkgplugins.PluginBinaryPreparation {
+	byKey := make(map[string]pkgplugins.BinaryEvidenceTool, len(evidence.Tools))
+	for _, resolved := range evidence.Tools {
+		byKey[resolved.Key+"\x00"+resolved.Lookup] = resolved
+	}
+	result := make([]pkgplugins.PluginBinaryPreparation, 0, len(binaries))
+	for _, binary := range binaries {
+		lookup := systemLookupName(binary)
+		resolved := byKey[binary.Tool+"\x00"+lookup]
+		requested := binary.Version
+		if requested == "" {
+			requested = "latest"
+		}
+		result = append(result, pkgplugins.PluginBinaryPreparation{
+			PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
+				PluginID: pkg.PluginID, ConfigID: pkg.ConfigID, Scope: pkg.Scope, Revision: pkg.Revision,
+			},
+			PackageDigest: pkg.PackageDigest, Name: binary.Name, Tool: binary.Tool,
+			RequestedVersion: requested, ResolvedVersion: resolved.ResolvedVersion,
+			Backend: "docker", SelectionIdentity: selectionIdentity,
+		})
+	}
+	return result
+}
+
+func systemLookupName(binary ToolBinary) string {
+	if rename, ok := stringOption(binary.Options, "rename_exe"); ok {
+		return rename
+	}
+	if name, ok := stringOption(binary.Options, "bin"); ok {
+		return name
+	}
+	return binary.Name
 }
 
 // toolCachePersistentID removes the human-readable prefix while retaining the
@@ -338,7 +379,65 @@ func installSelectionToolCache(ctx context.Context, client *dockerclient.Client,
 	if result.ExitCode != 0 {
 		return nil, fmt.Errorf("docker selection tool cache: installer failed with exit %d", result.ExitCode)
 	}
+	cache.Evidence = readSelectionToolEvidence(ctx, client, containerID, rootPath, cfg.SelectionToolBinaries)
 	return cache, nil
+}
+
+func readSelectionToolEvidence(ctx context.Context, client *dockerclient.Client, containerID, rootPath string, binaries []ToolBinary) pkgplugins.BinaryInstallEvidence {
+	result, err := client.Exec(ctx, dockerclient.ExecOptions{
+		ContainerID: containerID, Command: []string{"cat", rootPath + "/" + pkgplugins.BinaryEvidenceFileName}, Cwd: rootPath,
+	})
+	if err != nil || result.ExitCode != 0 {
+		return pkgplugins.BinaryInstallEvidence{}
+	}
+	var evidence pkgplugins.BinaryInstallEvidence
+	if err := json.Unmarshal(result.Stdout, &evidence); err != nil {
+		return pkgplugins.BinaryInstallEvidence{}
+	}
+	return mergeBuiltinArtifactEvidence(ctx, client, containerID, rootPath, binaries, evidence)
+}
+
+func mergeBuiltinArtifactEvidence(ctx context.Context, client *dockerclient.Client, containerID, rootPath string, binaries []ToolBinary, evidence pkgplugins.BinaryInstallEvidence) pkgplugins.BinaryInstallEvidence {
+	for i := range evidence.Tools {
+		selected := &evidence.Tools[i]
+		if selected.ResolvedVersion != "" {
+			continue
+		}
+		for _, binary := range binaries {
+			requested := binary.Version
+			if strings.TrimSpace(requested) == "" {
+				requested = "latest"
+			}
+			if selected.Key != binary.Tool || selected.Lookup != systemLookupName(binary) || selected.PublicName != binary.Name || selected.RequestedVersion != requested {
+				continue
+			}
+			identity, err := binaryArtifactIdentity(binary)
+			if err != nil {
+				break
+			}
+			result, err := client.Exec(ctx, dockerclient.ExecOptions{
+				ContainerID: containerID,
+				Command:     []string{"cat", rootPath + "/artifacts/" + identity + "/" + pkgplugins.BinaryEvidenceFileName},
+				Cwd:         rootPath,
+			})
+			if err != nil || result.ExitCode != 0 {
+				break
+			}
+			var artifact pkgplugins.BinaryInstallEvidence
+			if err := json.Unmarshal(result.Stdout, &artifact); err != nil {
+				break
+			}
+			for _, candidate := range artifact.Tools {
+				if candidate.ResolvedVersion == "" || candidate.Key != selected.Key || candidate.Lookup != selected.Lookup || candidate.PublicName != selected.PublicName || candidate.RequestedVersion != selected.RequestedVersion {
+					continue
+				}
+				selected.ResolvedVersion = candidate.ResolvedVersion
+				break
+			}
+			break
+		}
+	}
+	return evidence
 }
 
 func verifySelectionToolCache(ctx context.Context, client *dockerclient.Client, cfg Config, imageID, hash string, cache *selectionToolCache) error {
@@ -374,6 +473,7 @@ func verifySelectionToolCache(ctx context.Context, client *dockerclient.Client, 
 	if result.ExitCode != 0 {
 		return fmt.Errorf("selection verifier failed with exit %d", result.ExitCode)
 	}
+	cache.Evidence = readSelectionToolEvidence(ctx, client, containerID, rootPath, cfg.SelectionToolBinaries)
 	return nil
 }
 
@@ -664,11 +764,13 @@ func selectionToolInstallScriptAt(rootPath, hash string, binaries []ToolBinary, 
 			}
 			name := shellQuoteForDoubleQuotedPath(b.Name)
 			identity := shellQuoteForDoubleQuotedPath(artifactIdentities[i])
+			script.WriteString("builtin_hit_" + strconv.Itoa(i) + "=0\n")
 			script.WriteString("if [ -x \"" + containerBuiltinArtifactRoot + "/" + identity + "/" + name + "\" ]; then\n")
 			script.WriteString("  mkdir -p \"$ROOT/artifacts/" + identity + "\"\n")
 			script.WriteString("  cp -R \"" + containerBuiltinArtifactRoot + "/" + identity + "/.\" \"$ROOT/artifacts/" + identity + "/\"\n")
 			script.WriteString("  test -x \"$ROOT/artifacts/" + identity + "/" + name + "\"\n")
 			script.WriteString("  ln -s \"$FINAL_ROOT/artifacts/" + identity + "/" + name + "\" \"$ROOT/bin/" + name + "\"\n")
+			script.WriteString("  builtin_hit_" + strconv.Itoa(i) + "=1\n")
 			script.WriteString("fi\n")
 		}
 	}
@@ -694,7 +796,9 @@ func selectionToolInstallScriptAt(rootPath, hash string, binaries []ToolBinary, 
 		name := shellQuoteForDoubleQuotedPath(b.Name)
 		lookupPath := shellQuoteForDoubleQuotedPath(lookup)
 		artifact := shellQuoteForDoubleQuotedPath(artifactIdentities[i])
+		resolvedName := "resolved_" + strconv.Itoa(i)
 		miseEnv := "MISE_DATA_DIR=\"$PRIVATE/mise-data\" MISE_CACHE_DIR=\"$PRIVATE/mise-cache\" MISE_STATE_DIR=\"$PRIVATE/mise-state\" MISE_CONFIG_DIR=\"$PRIVATE/mise-config\" MISE_SYSTEM_CONFIG_FILE=\"$PRIVATE/mise.toml\" MISE_GLOBAL_CONFIG_FILE=\"$PRIVATE/mise.toml\" MISE_TRUSTED_CONFIG_PATHS=\"$PRIVATE\" XDG_CACHE_HOME=\"$PRIVATE/xdg-cache\" XDG_CONFIG_HOME=\"$PRIVATE/xdg-config\" XDG_DATA_HOME=\"$PRIVATE/xdg-data\" XDG_STATE_HOME=\"$PRIVATE/xdg-state\" "
+		script.WriteString(resolvedName + "=''\n")
 		script.WriteString("if [ ! -L \"$ROOT/bin/" + name + "\" ]; then\n")
 		script.WriteString("  mkdir -p \"$PRIVATE/mise-data\" \"$PRIVATE/mise-cache\" \"$PRIVATE/mise-state\" \"$PRIVATE/mise-config\" \"$PRIVATE/xdg-cache\" \"$PRIVATE/xdg-config\" \"$PRIVATE/xdg-data\" \"$PRIVATE/xdg-state\"\n")
 		script.WriteString("  cat > \"$PRIVATE/mise.toml\" <<'STELLA_SELECTION_MISE_TOML_" + fmt.Sprint(i) + "'\n")
@@ -712,6 +816,35 @@ func selectionToolInstallScriptAt(rootPath, hash string, binaries []ToolBinary, 
 		script.WriteString("  src=\"\"\nsrc_rel=\"\"\nif [ -f \"$ROOT/artifacts/" + artifact + "/bin/" + lookupPath + "\" ]; then src=\"$ROOT/artifacts/" + artifact + "/bin/" + lookupPath + "\"; src_rel=\"$FINAL_ROOT/artifacts/" + artifact + "/bin/" + lookupPath + "\"; fi\n")
 		script.WriteString("  if [ -z \"$src\" ] && [ -f \"$ROOT/artifacts/" + artifact + "/" + lookupPath + "\" ]; then src=\"$ROOT/artifacts/" + artifact + "/" + lookupPath + "\"; src_rel=\"$FINAL_ROOT/artifacts/" + artifact + "/" + lookupPath + "\"; fi\n")
 		script.WriteString("  test -n \"$src\" && test -x \"$src\"\n  ln -s \"$src_rel\" \"$ROOT/bin/" + name + "\"\nfi\n")
+		script.WriteString("if [ \"$builtin_hit_" + strconv.Itoa(i) + "\" -eq 0 ]; then " + resolvedName + "=$(" + miseEnv + containerCoreRuntimeRoot + "/mise current " + shellQuote(b.Tool) + " 2>/dev/null || true); fi\n")
+		script.WriteString("case \"$" + resolvedName + "\" in *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._+~/-]*|\"\") " + resolvedName + "='';; esac\n")
+		script.WriteString("if [ \"${#" + resolvedName + "}\" -gt 128 ]; then " + resolvedName + "=''; fi\n")
+	}
+	if len(binaries) > 0 {
+		evidencePath := "$ROOT/" + pkgplugins.BinaryEvidenceFileName
+		script.WriteString("printf '%s' '{\"tools\":[' > \"" + evidencePath + "\"\n")
+		for i, b := range binaries {
+			lookup := b.Name
+			if renameExe, ok := stringOption(b.Options, "rename_exe"); ok {
+				lookup = renameExe
+			} else if bin, ok := stringOption(b.Options, "bin"); ok {
+				lookup = bin
+			}
+			requested := b.Version
+			if requested == "" {
+				requested = "latest"
+			}
+			prefix := ""
+			if i > 0 {
+				prefix = ","
+			}
+			format := prefix + `{"key":%s,"lookup":%s,"public_name":%s,"requested_version":%s,"resolved_version":"%s"}`
+			args := strings.Join([]string{
+				shellQuote(strconv.Quote(b.Tool)), shellQuote(strconv.Quote(lookup)), shellQuote(strconv.Quote(b.Name)), shellQuote(strconv.Quote(requested)),
+			}, " ")
+			script.WriteString("printf " + shellQuote(format) + " " + args + " \"$resolved_" + strconv.Itoa(i) + "\" >> \"" + evidencePath + "\"\n")
+		}
+		script.WriteString("printf '%s' ']}' >> \"" + evidencePath + "\"\n")
 	}
 	for _, coreBinary := range canonicalCoreRuntimeBinaries(core) {
 		name := coreBinary.Name
@@ -726,10 +859,13 @@ func selectionToolInstallScriptAt(rootPath, hash string, binaries []ToolBinary, 
 	// Publish only after every selected alias and sidecar passed verification.
 	// The final marker is the cache's commit record; a failed staging run leaves
 	// the old published tree untouched and never becomes mountable.
-	script.WriteString("rm -rf \"$FINAL_ROOT/bin\" \"$FINAL_ROOT/core\" \"$FINAL_ROOT/artifacts\" \"$FINAL_ROOT/.stella-selection-ready\"\n")
+	script.WriteString("rm -rf \"$FINAL_ROOT/bin\" \"$FINAL_ROOT/core\" \"$FINAL_ROOT/artifacts\" \"$FINAL_ROOT/" + pkgplugins.BinaryEvidenceFileName + "\" \"$FINAL_ROOT/.stella-selection-ready\"\n")
 	script.WriteString("mv \"$ROOT/bin\" \"$FINAL_ROOT/bin\"\n")
 	script.WriteString("mv \"$ROOT/core\" \"$FINAL_ROOT/core\"\n")
 	script.WriteString("mv \"$ROOT/artifacts\" \"$FINAL_ROOT/artifacts\"\n")
+	if len(binaries) > 0 {
+		script.WriteString("mv \"$ROOT/" + pkgplugins.BinaryEvidenceFileName + "\" \"$FINAL_ROOT/" + pkgplugins.BinaryEvidenceFileName + "\"\nchmod 0444 \"$FINAL_ROOT/" + pkgplugins.BinaryEvidenceFileName + "\"\n")
+	}
 	script.WriteString("printf '%s' \"$HASH\" > \"$FINAL_ROOT/.stella-selection-ready\"\nchmod 0444 \"$FINAL_ROOT/.stella-selection-ready\"\n")
 	return script.String()
 }

@@ -918,7 +918,7 @@ func validateCustomResourceContent(def Definition, config Config, isAdmin bool) 
 		}
 		for key := range fields {
 			switch key {
-			case "description", "version", contentDigestField, "origin", "mcp_servers", "url", "transport", "auth_type", "credential_mode", "metadata":
+			case "description", "version", contentDigestField, "origin", "mcp_servers":
 				continue
 			default:
 				return fmt.Errorf("%w: non-admin custom resources cannot declare %s", ErrForbidden, key)

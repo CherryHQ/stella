@@ -42,7 +42,7 @@ const drainFlipBudget = 15 * time.Second
 func (h *harness) testGracefulDrain(t *testing.T) {
 	fake := newFakeAnthropic(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 
 	// A two-part reply split by a gate: the fake flushes "part one", blocks, then
@@ -70,9 +70,20 @@ func (h *harness) testGracefulDrain(t *testing.T) {
 	}
 
 	// 2. Attach to the same session's in-flight turn. The turn is live (mid-stream
-	//    above), so the server must stream (200), not answer 204.
-	attachEnded := make(chan time.Time, 1)
-	go h.runAttachStream(t, ctx, agentID, sessionID, attachEnded)
+	//    above), so the server must stream (200), not answer 204. Wait for the
+	//    response headers before starting readiness sampling or sending SIGTERM;
+	//    otherwise shutdown can close the listener before the subscription exists.
+	attachReady := make(chan error, 1)
+	attachEnded := make(chan attachCompletion, 1)
+	go h.runAttachStream(ctx, agentID, sessionID, attachReady, attachEnded)
+	select {
+	case err := <-attachReady:
+		if err != nil {
+			t.Fatalf("attach stream did not open: %v\n%s", err, h.proc.LogTail(40))
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatalf("attach stream did not return response headers within 30s\n%s", h.proc.LogTail(40))
+	}
 
 	// 3. Begin readiness sampling on a hot keep-alive connection, then send
 	//    SIGTERM. Sampling starts first so a request is in flight across the drain
@@ -110,13 +121,16 @@ func (h *harness) testGracefulDrain(t *testing.T) {
 	}
 
 	// 5. The attach subscription is drain-cancelled: its stream must end promptly.
-	var attachAt time.Time
+	var attach attachCompletion
 	select {
-	case attachAt = <-attachEnded:
+	case attach = <-attachEnded:
 	case <-time.After(drainFlipBudget):
 		t.Fatalf("attach stream did not end within %s of SIGTERM; drain did not cancel it\n%s", drainFlipBudget, h.proc.LogTail(40))
 	}
-	t.Logf("graceful_drain: attach stream ended %s after SIGTERM", attachAt.Sub(sigAt))
+	if attach.err != nil {
+		t.Fatalf("attach stream failed after SIGTERM: %v\n%s", attach.err, h.proc.LogTail(40))
+	}
+	t.Logf("graceful_drain: attach stream ended %s after SIGTERM", attach.at.Sub(sigAt))
 
 	// 6. The initiating send observer is drain-cancelled too. It receives a clean
 	//    SSE epilogue for the first half, but not the still-gated second half.
@@ -179,6 +193,14 @@ type turnCompletion struct {
 	sawFinish bool
 	sawDone   bool
 	err       error
+}
+
+// attachCompletion is the outcome of reading the attach subscription to its
+// end. The response status is reported separately before the stream is read so
+// the caller can establish that the subscription exists before draining.
+type attachCompletion struct {
+	at  time.Time
+	err error
 }
 
 // runGatedSendTurn sends a message and reads the SSE stream to completion. It
@@ -257,30 +279,36 @@ func (h *harness) runGatedSendTurn(t *testing.T, ctx context.Context, agentID, s
 }
 
 // runAttachStream opens the read-only attach subscription for the session's
-// in-flight turn and reads it until it ends, reporting the end time. It requires
-// a 200 (the turn is live); a 204 would mean the server saw no in-flight turn,
-// which fails the premise of the drain-cancel assertion.
-func (h *harness) runAttachStream(t *testing.T, ctx context.Context, agentID, sessionID string, ended chan<- time.Time) {
+// in-flight turn and reads it until it ends, reporting the end time. It reports
+// the response status through ready before reading the stream, so the caller
+// can establish that the subscription exists before draining. A 204 would
+// mean the server saw no in-flight turn, which fails the premise of the
+// drain-cancel assertion.
+func (h *harness) runAttachStream(ctx context.Context, agentID, sessionID string, ready chan<- error, ended chan<- attachCompletion) {
 	path := fmt.Sprintf("/api/agents/%s/sessions/%s/events", agentID, sessionID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.baseURL+path, nil)
 	if err != nil {
-		t.Errorf("build attach request: %v", err)
-		ended <- time.Now()
+		err = fmt.Errorf("build attach request: %w", err)
+		ready <- err
+		ended <- attachCompletion{at: time.Now(), err: err}
 		return
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	resp, err := h.client.Do(req)
 	if err != nil {
-		t.Errorf("GET attach stream: %v", err)
-		ended <- time.Now()
+		err = fmt.Errorf("GET attach stream: %w", err)
+		ready <- err
+		ended <- attachCompletion{at: time.Now(), err: err}
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("attach stream = %d, want 200 (an in-flight turn must be attachable, not 204)", resp.StatusCode)
-		ended <- time.Now()
+		err = fmt.Errorf("attach stream = %d, want 200 (an in-flight turn must be attachable, not 204)", resp.StatusCode)
+		ready <- err
+		ended <- attachCompletion{at: time.Now(), err: err}
 		return
 	}
+	ready <- nil
 	// Drain to end: the stream closes when drain cancels its context.
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
@@ -289,7 +317,11 @@ func (h *harness) runAttachStream(t *testing.T, ctx context.Context, agentID, se
 			break
 		}
 	}
-	ended <- time.Now()
+	completion := attachCompletion{at: time.Now()}
+	if err := scanner.Err(); err != nil {
+		completion.err = fmt.Errorf("read attach stream: %w", err)
+	}
+	ended <- completion
 }
 
 // readyzStatus probes /readyz once with a short deadline and returns the status.

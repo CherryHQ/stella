@@ -543,6 +543,7 @@ type CtxMessage struct {
 	SourceSessionID      pgtype.Text `json:"source_session_id"`
 	InboxID              pgtype.Text `json:"inbox_id"`
 	OriginGroupMessageID pgtype.Text `json:"origin_group_message_id"`
+	ExecutionMetadata    []byte      `json:"execution_metadata"`
 }
 
 type CtxMessageEmbedding struct {

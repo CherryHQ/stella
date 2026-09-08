@@ -58,6 +58,8 @@ components:
         is_default_enabled,
         spec,
         resource_summary,
+        lifecycle_status,
+        lifecycle_reason,
         revision,
         created_at,
         updated_at,
@@ -73,6 +75,21 @@ components:
           description: Safe package metadata. Private endpoints and credentials are omitted.
         resource_summary:
           $ref: "#/components/schemas/PluginResourceSummary"
+        lifecycle_status:
+          type: string
+          enum: [installed, in_use, cleanup_pending]
+          readOnly: true
+          description: >
+            Safe projection of package lifecycle. Retired definitions remain
+            visible while an active runtime owner may still use their ID or
+            content digest.
+        lifecycle_reason:
+          type: string
+          enum: [active, runtime_owner, awaiting_cleanup, ownership_unconfirmed]
+          readOnly: true
+          description: >
+            Bounded explanation for lifecycle_status. Ownership uncertainty is
+            reported without exposing runtime errors or owner identities.
         revision: { type: integer, format: int64, readOnly: true }
         retired_at: {
           type: string,

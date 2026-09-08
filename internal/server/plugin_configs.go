@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,6 +77,20 @@ func writePluginError(w http.ResponseWriter, err error) {
 }
 
 func pluginDefinitionView(def pluginpkg.Definition) (apitypes.PluginDefinition, error) {
+	lifecycle := pluginpkg.DefinitionLifecycle{
+		Status: pluginpkg.DefinitionLifecycleInstalled,
+		Reason: pluginpkg.DefinitionLifecycleActive,
+	}
+	if def.Source == pluginpkg.SourceCustom && !def.RetiredAt.IsZero() {
+		lifecycle = pluginpkg.DefinitionLifecycle{
+			Status: pluginpkg.DefinitionLifecycleCleanupPending,
+			Reason: pluginpkg.DefinitionLifecycleOwnershipUnconfirmed,
+		}
+	}
+	return pluginDefinitionViewWithLifecycle(def, lifecycle)
+}
+
+func pluginDefinitionViewWithLifecycle(def pluginpkg.Definition, lifecycle pluginpkg.DefinitionLifecycle) (apitypes.PluginDefinition, error) {
 	spec, err := safeDefinitionSpec(def)
 	if err != nil {
 		return apitypes.PluginDefinition{}, err
@@ -92,14 +107,23 @@ func pluginDefinitionView(def pluginpkg.Definition) (apitypes.PluginDefinition, 
 	if err != nil {
 		return apitypes.PluginDefinition{}, err
 	}
+	lifecycleStatus := apitypes.PluginDefinitionLifecycleStatus(lifecycle.Status)
+	lifecycleReason := apitypes.PluginDefinitionLifecycleReason(lifecycle.Reason)
 	return apitypes.PluginDefinition{
 		Id: def.ID, DisplayName: def.DisplayName,
 		IsBuiltin:        &isBuiltin,
 		IsDefaultEnabled: &isDefault, Spec: spec, Revision: &revision,
+		LifecycleStatus: &lifecycleStatus,
+		LifecycleReason: &lifecycleReason,
 		ResourceSummary: resources,
 		RetiredAt:       retiredAt,
 		CreatedAt:       &createdAt, UpdatedAt: &updatedAt,
 	}, nil
+}
+
+func (s *Server) pluginDefinitionView(ctx context.Context, def pluginpkg.Definition) (apitypes.PluginDefinition, error) {
+	lifecycles := s.pluginSvc.DefinitionLifecycles(ctx, []pluginpkg.Definition{def})
+	return pluginDefinitionViewWithLifecycle(def, lifecycles[def.ID])
 }
 
 func pluginConfigView(definition pluginpkg.Definition, config pluginpkg.Config) (apitypes.PluginConfig, error) {
@@ -168,7 +192,7 @@ func (s *Server) getPluginDefinition(w http.ResponseWriter, r *http.Request, plu
 		writePluginError(w, err)
 		return
 	}
-	view, err := pluginDefinitionView(definition)
+	view, err := s.pluginDefinitionView(r.Context(), definition)
 	if err != nil {
 		writePluginError(w, err)
 		return

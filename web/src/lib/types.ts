@@ -21,6 +21,7 @@ import type {
   JobRun,
   Project as SdkProject,
   SessionWorkspace,
+  SessionExecutionSummary,
 } from "@/lib/api-client/types.gen";
 
 // ── SDK re-exports ────────────────────────────────────────────────────────────
@@ -159,6 +160,8 @@ export interface Message {
   actor_type?: "human" | "agent" | "system";
   actor_id?: string;
   source_session_id?: string;
+  /** Admission snapshot recorded on the user anchor for this turn. */
+  execution?: SessionExecutionSummary;
 }
 
 export interface AgentSandbox {

@@ -59,12 +59,16 @@ type BinaryInstallResult struct {
 	Plan               BinaryInstallPlan
 	SuccessfulPackages []BinaryPackage
 	FailedPackages     []BinaryInstallFailure
+	BinaryEvidence     []pkgplugins.PluginBinaryPreparation
 }
 
 // PreparationResult projects package-scoped CLI outcomes into the shared
 // runtime result. It contains no command output or credential material.
 func (r BinaryInstallResult) PreparationResult() pkgplugins.PluginPreparationResult {
-	result := pkgplugins.PluginPreparationResult{Packages: make([]pkgplugins.PluginPackageStatus, 0, len(r.SuccessfulPackages)+len(r.FailedPackages))}
+	result := pkgplugins.PluginPreparationResult{
+		Packages: make([]pkgplugins.PluginPackageStatus, 0, len(r.SuccessfulPackages)+len(r.FailedPackages)),
+		Binaries: slices.Clone(r.BinaryEvidence),
+	}
 	for _, pkg := range r.SuccessfulPackages {
 		if pkg.PluginID == "" {
 			continue
@@ -109,9 +113,10 @@ func InstallContextBinaries(ctx context.Context, stellaHome string, specs []pkgp
 	groups := groupedBinarySpecs(specs, isSystemBinary)
 	if len(groups) == 0 {
 		selection := selectionPlan(identity, BinaryPackage{}, dataDir, filepath.Join(dataDir, "public"))
-		if err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
+		_, err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
 			DataDir: dataDir, PublicDir: selection.PublicDir, PublicBinDir: selection.PublicBinDir,
-		}, nil); err != nil {
+		}, nil)
+		if err != nil {
 			return BinaryInstallResult{}, err
 		}
 		result.Plan.Selections = []BinarySelectionPlan{selection}
@@ -127,14 +132,16 @@ func InstallContextBinaries(ctx context.Context, stellaHome string, specs []pkgp
 		if err != nil {
 			return BinaryInstallResult{}, err
 		}
-		if err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
+		installEvidence, err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
 			DataDir: dataDir, PublicDir: selection.PublicDir, PublicBinDir: selection.PublicBinDir,
-		}, tools); err != nil {
+		}, tools)
+		if err != nil {
 			result.FailedPackages = append(result.FailedPackages, BinaryInstallFailure{Package: group.pkg, Err: err})
 			continue
 		}
 		result.SuccessfulPackages = append(result.SuccessfulPackages, group.pkg)
 		result.Plan.Selections = append(result.Plan.Selections, selection)
+		result.BinaryEvidence = append(result.BinaryEvidence, binaryEvidence(group.pkg, selection.Identity, "native", tools, installEvidence)...)
 	}
 	return result, nil
 }
@@ -170,17 +177,47 @@ func InstallSandboxBinaries(ctx context.Context, session pkgsandbox.Session, spe
 		if err != nil {
 			return BinaryInstallResult{}, err
 		}
-		if err := toolinstall.InstallSession(ctx, session, toolinstall.Selection{
+		installEvidence, err := toolinstall.InstallSession(ctx, session, toolinstall.Selection{
 			DataDir: plan.DataDir, ConfigPath: filepath.Join(root, "config.toml"), ShimsDir: filepath.Join(root, "shims"),
 			PublicDir: selection.PublicDir, PublicBinDir: selection.PublicBinDir,
-		}, tools); err != nil {
+		}, tools)
+		if err != nil {
 			result.FailedPackages = append(result.FailedPackages, BinaryInstallFailure{Package: group.pkg, Err: err})
 			continue
 		}
 		result.SuccessfulPackages = append(result.SuccessfulPackages, group.pkg)
 		result.Plan.Selections = append(result.Plan.Selections, selection)
+		result.BinaryEvidence = append(result.BinaryEvidence, binaryEvidence(group.pkg, selection.Identity, "sandbox", tools, installEvidence)...)
 	}
 	return result, nil
+}
+
+func binaryEvidence(pkg BinaryPackage, selectionIdentity, backend string, tools []toolinstall.Tool, evidence pkgplugins.BinaryInstallEvidence) []pkgplugins.PluginBinaryPreparation {
+	byKey := make(map[string]pkgplugins.BinaryEvidenceTool, len(evidence.Tools))
+	for _, resolved := range evidence.Tools {
+		byKey[resolved.Key+"\x00"+resolved.Lookup] = resolved
+	}
+	result := make([]pkgplugins.PluginBinaryPreparation, 0, len(tools))
+	for _, tool := range tools {
+		lookup := tool.Lookup
+		if lookup == "" {
+			lookup = tool.Key
+		}
+		resolved := byKey[tool.Key+"\x00"+lookup]
+		requested := tool.Version
+		if requested == "" {
+			requested = "latest"
+		}
+		result = append(result, pkgplugins.PluginBinaryPreparation{
+			PluginResourceIdentity: pkgplugins.PluginResourceIdentity{
+				PluginID: pkg.PluginID, ConfigID: pkg.ConfigID, Scope: pkg.Scope, Revision: pkg.Revision,
+			},
+			PackageDigest: pkg.PackageDigest, Name: tool.PublicName, Tool: tool.Key,
+			RequestedVersion: requested, ResolvedVersion: resolved.ResolvedVersion,
+			Backend: backend, SelectionIdentity: selectionIdentity,
+		})
+	}
+	return result
 }
 
 // OverlayBinaryInstallPlan applies a completed plan to a runner environment.

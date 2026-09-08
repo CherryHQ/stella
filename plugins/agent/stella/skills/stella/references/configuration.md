@@ -69,6 +69,41 @@ using its version. The same name may exist in different scopes. If create says
 the name already exists in the target scope, list that scope and update the
 matching Skill instead of retrying create.
 
+`settings_skill_create` and `settings_skill_update` read a complete Agent Skills
+directory or ZIP from a sandbox path. They are management operations, not
+runtime `skill_load`: the latter reads the selected exact revision for the
+current turn. Remote source installation, browser ZIP upload, package import,
+and plugin credential binding remain Web UI or API operations. A successful
+managed-Skill mutation publishes a new immutable revision; an already admitted
+turn keeps the revision it captured.
+
+Plugin configuration summaries and the package update preview describe declared
+or configured resources. Preview validates a candidate package and reports its
+digest, resource names, OAuth changes, and incompatible scopes. It does not
+install a CLI, connect an MCP server, or grant OAuth access. Runtime admission
+prepares the selected package resources and can still fail because an account
+grant, CLI installation, or remote connection is unavailable. Disabling a
+plugin blocks new turns but does not revoke an OAuth grant. Use the owning
+account, OAuth, assignment, or Vault control to revoke access.
+
+The per-user message execution summary is the receipt for an admitted turn. It
+records the immutable package version/digest, config ID/scope/revision,
+authorization/readiness, Skill winner state (`selected`, `masked`, or
+`overridden`), and binary requested/resolved versions with backend, selection
+identity, and source installation evidence. A reused ready cache can leave the
+resolved version or installation evidence unknown. Turns recorded before this
+metadata existed have no historical summary; do not reconstruct one from the
+current package configuration.
+
+Retiring a package or deleting a managed Skill can remain `cleanup_pending` while
+active turns, Reflect usage, or runner resources still reference its files. The
+local and `none` sandbox backends keep a recovery marker when descendant
+termination is uncertain; that marker is never removed automatically and can
+block package and managed-Skill cleanup across the deployment indefinitely,
+including after a normal turn close. There is currently no product command or
+safe automated recovery path that clears it. There is no TTL or PID guess that
+safely clears this state.
+
 ### Secrets and trust boundaries
 
 No conversational Settings tool accepts an API key, bearer token, credential

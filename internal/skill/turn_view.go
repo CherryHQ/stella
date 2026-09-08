@@ -312,6 +312,15 @@ func packageDigestHex(digest string) string {
 // ProjectSnapshot returns the bounded project snapshot selected for this turn.
 func (v SkillTurnView) ProjectSnapshot() *ProjectSnapshot { return v.project }
 
+// ProjectSkills returns the exact project Skill identities captured for this
+// turn. The metadata is immutable and contains no filesystem capability.
+func (v SkillTurnView) ProjectSkills() []Skill {
+	if v.project == nil {
+		return nil
+	}
+	return v.project.list()
+}
+
 // ManagedSkills returns defensive copies of the exact managed selections.
 func (v SkillTurnView) ManagedSkills() []ManagedSkillRef {
 	out := slices.Clone(v.managed)

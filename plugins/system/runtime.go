@@ -145,7 +145,7 @@ func Prepare(ctx context.Context, stellaHome string) (RuntimePlan, error) {
 			Lookup: toolinstall.LookupName(resource.Name, resource.Options), PublicName: publicName,
 		})
 	}
-	if err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
+	if _, err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
 		DataDir: dataDir, PublicDir: publicDir, PublicBinDir: publicDir, EmbeddedNames: embeddedNames,
 	}, tools); err != nil {
 		return RuntimePlan{}, fmt.Errorf("system: prepare native selection: %w", err)

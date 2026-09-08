@@ -1,6 +1,7 @@
 import { forwardRef, memo, type ReactNode } from "react";
 import { useI18n } from "@/lib/i18n";
 import type { ContentBlock } from "@/lib/types";
+import type { SessionExecutionSummary } from "@/lib/api-client/types.gen";
 import { cn } from "@/lib/utils";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
@@ -20,6 +21,7 @@ export interface TranscriptMessage {
   actorType?: "human" | "agent" | "system";
   actorId?: string;
   sourceSessionId?: string;
+  execution?: SessionExecutionSummary;
 }
 
 interface Props {
@@ -73,7 +75,12 @@ const MessageRow = memo(function MessageRow({
     >
       {msg.role === "user" ? (
         <UserMessage
-          msg={{ content: msg.content, blocks: msg.blocks, timestamp: msg.timestamp }}
+          msg={{
+            content: msg.content,
+            blocks: msg.blocks,
+            timestamp: msg.timestamp,
+            execution: msg.execution,
+          }}
           actorType={msg.actorType}
           actorId={msg.actorId}
           sourceSessionId={msg.sourceSessionId}

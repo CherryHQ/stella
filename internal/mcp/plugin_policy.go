@@ -225,38 +225,6 @@ func mcpExecutionPayloadDigest(payloads map[string]mcpPluginPayload) [32]byte {
 	return sha256.Sum256(raw)
 }
 
-func mcpExecutionIdentity(def plugin.Definition, cfg plugin.Config) (mcpConnectionIdentity, error) {
-	identity := mcpConnectionIdentity{Scope: cfg.Scope, UserID: cfg.UserID, AgentID: cfg.AgentID}
-	if len(cfg.Payload) == 0 {
-		return identity, nil
-	}
-	merged, err := mergeMCPJSONObjects(def.Spec, cfg.Payload)
-	if err != nil {
-		return identity, err
-	}
-	payloads, err := decodeMCPPluginPayloads(merged)
-	if err != nil {
-		return identity, err
-	}
-	payloadDigest := mcpExecutionPayloadDigest(payloads)
-	refsDigest := sha256.Sum256(cfg.CredentialRefs)
-	identity.Refs = [2]string{fmt.Sprintf("%x", payloadDigest[:]), fmt.Sprintf("%x", refsDigest[:])}
-	for key, payload := range payloads {
-		if identity.URL == "" {
-			identity.URL, identity.Transport, identity.AuthType, identity.CredentialMode = payload.URL, payload.Transport, payload.AuthType, payload.CredentialMode
-			identity.ClientID = metadataOAuthClientID(payload.Metadata)
-			identity.TokenEndpointAuthMethod = oauthMetadataTokenEndpointAuthMethod(payload.Metadata)
-		} else if identity.AuthType != payload.AuthType || identity.CredentialMode != payload.CredentialMode {
-			identity.AuthType, identity.CredentialMode = "multi", "multi"
-		}
-		if key != "main" {
-			identity.URL = "multi"
-		}
-	}
-
-	return identity, nil
-}
-
 // mcpExecutionIdentities keeps credential identity per authored child. A
 // sibling endpoint edit therefore revokes only that child's Vault namespace.
 func mcpExecutionIdentities(def plugin.Definition, cfg plugin.Config) (map[string]mcpConnectionIdentity, error) {
@@ -267,9 +235,18 @@ func mcpExecutionIdentities(def plugin.Definition, cfg plugin.Config) (map[strin
 		return map[string]mcpConnectionIdentity{}, nil
 	}
 	// Non-resource plugin parameters do not participate in MCP credential
-	// identity. Ignore them before the formal MCP resolver rejects unrelated
-	// legacy fields such as prompt text.
+	// identity. Keep unrelated authored metadata out of this backend-specific
+	// check, but reject the retired flat MCP shape instead of silently dropping
+	// its credential identity.
 	if !payloadHasMCP(def.Spec) && !payloadHasMCP(cfg.Payload) {
+		var object map[string]json.RawMessage
+		if json.Unmarshal(cfg.Payload, &object) == nil {
+			for _, key := range []string{"url", "transport", "auth_type", "credential_mode"} {
+				if _, legacy := object[key]; legacy {
+					return nil, fmt.Errorf("%w: MCP config payload must use mcp_servers", plugin.ErrInvalidConfig)
+				}
+			}
+		}
 		return map[string]mcpConnectionIdentity{}, nil
 	}
 	merged, err := mergeMCPJSONObjects(def.Spec, cfg.Payload)
@@ -288,16 +265,7 @@ func mcpExecutionIdentities(def plugin.Definition, cfg plugin.Config) (map[strin
 		return nil, err
 	}
 	if len(servers) == 0 {
-		// An empty composable set has no credential identity. Only a real
-		// legacy flat endpoint keeps the parent UUID as its namespace.
-		if _, hasURL := object["url"]; !hasURL {
-			return map[string]mcpConnectionIdentity{}, nil
-		}
-		identity, err := mcpExecutionIdentity(def, cfg)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]mcpConnectionIdentity{"main": identity}, nil
+		return map[string]mcpConnectionIdentity{}, nil
 	}
 	refsObject := map[string]json.RawMessage{}
 	if len(cfg.CredentialRefs) != 0 {
@@ -314,7 +282,6 @@ func mcpExecutionIdentities(def plugin.Definition, cfg plugin.Config) (map[strin
 		}
 	}
 	result := make(map[string]mcpConnectionIdentity, len(servers))
-	legacyDigest := mcpLegacyExecutionFieldsDigest(merged)
 	for key, raw := range servers {
 		payload, err := decodeMCPPluginChildPayload(raw)
 		if err != nil {
@@ -331,29 +298,10 @@ func mcpExecutionIdentities(def plugin.Definition, cfg plugin.Config) (map[strin
 			URL: payload.URL, Transport: payload.Transport, AuthType: payload.AuthType,
 			CredentialMode: payload.CredentialMode, ClientID: metadataOAuthClientID(payload.Metadata),
 			TokenEndpointAuthMethod: oauthMetadataTokenEndpointAuthMethod(payload.Metadata),
-			Refs:                    [2]string{fmt.Sprintf("%x:%s", payloadDigest[:], legacyDigest), fmt.Sprintf("%x", refsDigest[:])},
+			Refs:                    [2]string{fmt.Sprintf("%x", payloadDigest[:]), fmt.Sprintf("%x", refsDigest[:])},
 		}
 	}
 	return result, nil
-}
-
-func mcpLegacyExecutionFieldsDigest(raw json.RawMessage) string {
-	object, err := decodeJSONObject(raw, "MCP config payload")
-	if err != nil {
-		return ""
-	}
-	fields := make(map[string]json.RawMessage)
-	for _, key := range []string{"url", "transport", "auth_type", "credential_mode"} {
-		if value, ok := object[key]; ok {
-			fields[key] = value
-		}
-	}
-	if len(fields) == 0 {
-		return ""
-	}
-	encoded, _ := json.Marshal(fields)
-	digest := sha256.Sum256(encoded)
-	return fmt.Sprintf("%x", digest[:])
 }
 
 func updateCredentialConfig(ctx context.Context, access *plugin.Access, tx pgx.Tx, current plugin.Config, forceRevoke bool, patch plugin.ConfigPatch) (plugin.Config, error) {

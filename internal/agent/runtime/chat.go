@@ -19,6 +19,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/observability"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
+	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -252,7 +253,12 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	// Persist group trigger messages only after the turn succeeds. Otherwise a
 	// failed durable dispatch retry would leave the same trigger in history and
 	// duplicate it on the next attempt.
-	userMsg := ai.UserMessage{Content: msg, Timestamp: time.Now()}
+	var skillView *skill.SkillTurnView
+	if captured, ok := skill.SkillTurnViewFromContext(ctx); ok {
+		skillView = &captured
+	}
+	executionSummary := selection.pluginContext.ExecutionSummaryForTurn(skillView)
+	userMsg := ai.UserMessage{Content: msg, Timestamp: time.Now().UTC(), Execution: executionSummary}
 	modelMsg := userMsg
 	modelMsg.Content = eventlog.RenderInput(modelMsg.Content, inputActor)
 	var storePrefix []ai.Message

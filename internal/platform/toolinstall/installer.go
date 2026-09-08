@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"strings"
 	"sync"
 
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -32,61 +34,99 @@ type Selection struct {
 	EmbeddedNames []string
 }
 
-// InstallSession installs tools through an already-created sandbox session.
-// The caller chooses the private selection paths; this package only performs
-// the mise operations and publishes the resulting immutable selection.
-func InstallSession(ctx context.Context, session pkgsandbox.Session, selection Selection, tools []Tool) error {
+// InstallSession installs tools through an already-created sandbox session and
+// returns the exact versions observed by mise after installation. The observation is from the same
+// isolated config used by the install and is also written into the immutable
+// public selection.
+func InstallSession(ctx context.Context, session pkgsandbox.Session, selection Selection, tools []Tool) (pkgplugins.BinaryInstallEvidence, error) {
 	if session == nil {
-		return errors.New("toolinstall: sandbox session is required")
+		return pkgplugins.BinaryInstallEvidence{}, errors.New("toolinstall: sandbox session is required")
 	}
 	if selection.DataDir == "" || selection.ConfigPath == "" || selection.ShimsDir == "" || selection.PublicDir == "" {
-		return errors.New("toolinstall: session selection paths are required")
+		return pkgplugins.BinaryInstallEvidence{}, errors.New("toolinstall: session selection paths are required")
 	}
 	if len(tools) == 0 {
-		return nil
+		return pkgplugins.BinaryInstallEvidence{}, nil
 	}
+	markerPath := filepath.Join(selection.PublicDir, ".selection-complete")
+	evidencePath := filepath.Join(selection.PublicDir, pkgplugins.BinaryEvidenceFileName)
 	nativePublicationMu.Lock()
 	defer nativePublicationMu.Unlock()
+	if _, markerErr := session.Files().ReadFile(markerPath); markerErr == nil {
+		data, evidenceErr := session.Files().ReadFile(evidencePath)
+		if evidenceErr != nil {
+			return unknownEvidence(evidenceRequests(tools)), nil
+		}
+		var evidence pkgplugins.BinaryInstallEvidence
+		if err := json.Unmarshal(data, &evidence); err != nil {
+			return unknownEvidence(evidenceRequests(tools)), nil
+		}
+		return evidence, nil
+	}
 	baseEnv := session.Policy().Env
 	if baseEnv["MISE_DATA_DIR"] == "" || baseEnv["MISE_NOT_FOUND_AUTO_INSTALL"] != "true" {
-		return errors.New("toolinstall: user CLI install requires a writable sandbox mise home")
+		return pkgplugins.BinaryInstallEvidence{}, errors.New("toolinstall: user CLI install requires a writable sandbox mise home")
 	}
 	env := sessionMiseEnv(baseEnv, selection)
 	if _, err := session.Exec(ctx, sandboxMisePrepareCommand(), pkgsandbox.ExecOptions{Env: env}); err != nil {
-		return fmt.Errorf("toolinstall: prepare sandbox mise dirs: %w", err)
+		return pkgplugins.BinaryInstallEvidence{}, fmt.Errorf("toolinstall: prepare sandbox mise dirs: %w", err)
 	}
 	content, err := RenderTOML(tools)
 	if err != nil {
-		return err
+		return pkgplugins.BinaryInstallEvidence{}, err
 	}
 	if err := session.Files().WriteFile(selection.ConfigPath, []byte(content), 0o600); err != nil {
-		return fmt.Errorf("toolinstall: write sandbox mise config: %w", err)
+		return pkgplugins.BinaryInstallEvidence{}, fmt.Errorf("toolinstall: write sandbox mise config: %w", err)
 	}
 	result, err := session.Exec(ctx, sandboxMiseInstallCommand(), pkgsandbox.ExecOptions{Env: env})
 	if err != nil {
-		return fmt.Errorf("toolinstall: install sandbox CLI binaries: %w", err)
+		return pkgplugins.BinaryInstallEvidence{}, fmt.Errorf("toolinstall: install sandbox CLI binaries: %w", err)
 	}
 	if result.ExitCode != 0 {
-		return fmt.Errorf("toolinstall: install sandbox CLI binaries exited with code %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr))
+		return pkgplugins.BinaryInstallEvidence{}, fmt.Errorf("toolinstall: install sandbox CLI binaries exited with code %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	result, listErr := session.Exec(ctx, sandboxMiseListCommand(), pkgsandbox.ExecOptions{Env: env})
+	if listErr != nil && ctx.Err() != nil {
+		return pkgplugins.BinaryInstallEvidence{}, fmt.Errorf("toolinstall: inspect sandbox CLI versions: %w", listErr)
+	}
+	var evidence pkgplugins.BinaryInstallEvidence
+	requests := evidenceRequests(tools)
+	if listErr != nil || result.ExitCode != 0 {
+		evidence = unknownEvidence(requests)
+	} else {
+		evidence, err = pkgplugins.ParseBinaryMiseList([]byte(result.Stdout), requests)
+		if err != nil {
+			evidence = unknownEvidence(requests)
+		}
+	}
+	data, err := json.Marshal(evidence)
+	if err != nil {
+		return pkgplugins.BinaryInstallEvidence{}, err
 	}
 	publicEnv := maps.Clone(env)
 	publicEnv["STELLA_NATIVE_PUBLIC_DIR"] = selection.PublicDir
+	publicEnv["STELLA_NATIVE_EVIDENCE"] = string(data)
 	if result, err := session.Exec(ctx, sandboxMiseMaterializeCommand(tools), pkgsandbox.ExecOptions{Env: publicEnv}); err != nil {
-		return fmt.Errorf("toolinstall: publish sandbox CLI selection: %w", err)
+		return pkgplugins.BinaryInstallEvidence{}, fmt.Errorf("toolinstall: publish sandbox CLI selection: %w", err)
 	} else if result.ExitCode != 0 {
-		return fmt.Errorf("toolinstall: publish sandbox CLI selection exited with code %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr))
+		return pkgplugins.BinaryInstallEvidence{}, fmt.Errorf("toolinstall: publish sandbox CLI selection exited with code %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr))
 	}
-	return nil
+	data, err = session.Files().ReadFile(evidencePath)
+	if err != nil {
+		return pkgplugins.BinaryInstallEvidence{}, fmt.Errorf("toolinstall: read sandbox CLI evidence: %w", err)
+	}
+	if err := json.Unmarshal(data, &evidence); err != nil {
+		return pkgplugins.BinaryInstallEvidence{}, fmt.Errorf("toolinstall: decode sandbox CLI evidence: %w", err)
+	}
+	return evidence, nil
 }
 
-// InstallSelection installs fixed, release-owned mise tools into an
-// exact public selection. The caller must have extracted embedded runtimes
-// before invoking this primitive, so core and plugin packages share the same
-// lower-level install and atomic publication behavior without importing each
-// other's ownership model.
-func InstallSelection(ctx context.Context, stellaHome string, selection Selection, tools []Tool) error {
+// InstallSelection installs fixed, release-owned mise tools into an exact
+// public selection and returns the exact versions observed by mise. The caller
+// must extract embedded runtimes before invoking this primitive.
+func InstallSelection(ctx context.Context, stellaHome string, selection Selection, tools []Tool) (pkgplugins.BinaryInstallEvidence, error) {
 	if stellaHome == "" || selection.DataDir == "" || selection.PublicDir == "" {
-		return errors.New("toolinstall: selection paths are required")
+		return pkgplugins.BinaryInstallEvidence{}, errors.New("toolinstall: selection paths are required")
 	}
 	publicBinDir := selection.PublicBinDir
 	if publicBinDir == "" {
@@ -94,7 +134,7 @@ func InstallSelection(ctx context.Context, stellaHome string, selection Selectio
 	}
 	selection.PublicBinDir = publicBinDir
 	if len(tools) == 0 {
-		return materializeNativeRuntimeSelection(stellaHome, selection)
+		return pkgplugins.BinaryInstallEvidence{}, materializeNativeRuntimeSelection(stellaHome, selection)
 	}
 	return runSelectionInstall(ctx, stellaHome, selection, tools)
 }
@@ -126,7 +166,9 @@ func sandboxMiseMaterializeCommand(tools []Tool) string {
 		fmt.Fprintf(&b, "cp -R \"$install_dir/.\" \"$stage/installs/%s/\"\n", key)
 		fmt.Fprintf(&b, "ln -s \"installs/%s/$rel\" \"$stage\"/%s\n", key, shellQuotePOSIX(alias))
 	}
-	b.WriteString("touch \"$stage/.selection-complete\"\n")
+	b.WriteString("printf '%s' \"$STELLA_NATIVE_EVIDENCE\" > \"$stage/" + pkgplugins.BinaryEvidenceFileName + "\"\n")
+	b.WriteString("chmod 0444 \"$stage/" + pkgplugins.BinaryEvidenceFileName + "\"\n")
+	b.WriteString(": > \"$stage/.selection-complete\"\nchmod 0444 \"$stage/.selection-complete\"\n")
 	b.WriteString("if [ -e \"$STELLA_NATIVE_PUBLIC_DIR\" ]; then exit 0; fi\n")
 	b.WriteString("mv \"$stage\" \"$STELLA_NATIVE_PUBLIC_DIR\"\n")
 	b.WriteString("trap - EXIT\n")
@@ -151,16 +193,35 @@ func sandboxMiseInstallCommand() string {
 	return `"$STELLA_HOME/bin/mise" trust "$MISE_GLOBAL_CONFIG_FILE" && "$STELLA_HOME/bin/mise" install && "$STELLA_HOME/bin/mise" reshim`
 }
 
-func runSelectionInstall(ctx context.Context, stellaHome string, plan Selection, tools []Tool) error {
+func sandboxMiseListCommand() string {
+	if runtime.GOOS == "windows" {
+		return `"%STELLA_HOME%\bin\mise.exe" ls --json`
+	}
+	return `"$STELLA_HOME/bin/mise" ls --json`
+}
+
+func runSelectionInstall(ctx context.Context, stellaHome string, plan Selection, tools []Tool) (pkgplugins.BinaryInstallEvidence, error) {
 	miseInstallMu.Lock()
 	defer miseInstallMu.Unlock()
 	if nativePublicationComplete(plan.PublicDir, nativeSelectionAliases(stellaHome, plan, tools)) {
-		return nil
+		evidence, err := readSelectionEvidence(plan.PublicDir)
+		if err == nil {
+			return evidence, nil
+		}
+		return unknownEvidence(evidenceRequests(tools)), nil
 	}
 
-	return withNativeMiseInstall(ctx, stellaHome, plan.DataDir, tools, func(miseBin string, env []string, dir string) error {
+	err := withNativeMiseInstall(ctx, stellaHome, plan.DataDir, tools, func(miseBin string, env []string, dir string) error {
 		return materializeNativeSelection(ctx, stellaHome, plan, tools, miseBin, env, dir)
 	})
+	if err != nil {
+		return pkgplugins.BinaryInstallEvidence{}, err
+	}
+	evidence, err := readSelectionEvidence(plan.PublicDir)
+	if err != nil {
+		return pkgplugins.BinaryInstallEvidence{}, fmt.Errorf("toolinstall: read selection evidence: %w", err)
+	}
+	return evidence, nil
 }
 
 // withNativeMiseInstall owns the temporary installation configuration. Callers
@@ -305,6 +366,10 @@ func nativeSelectionAliases(stellaHome string, plan Selection, tools []Tool) []s
 }
 
 func materializeNativeSelectionAt(ctx context.Context, stellaHome string, plan Selection, tools []Tool, miseBin string, env []string, dir string) error {
+	evidence, err := resolvedNativeTools(ctx, miseBin, env, dir, tools)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(plan.PublicBinDir, 0o755); err != nil {
 		return fmt.Errorf("toolinstall: create native public bin: %w", err)
 	}
@@ -348,7 +413,67 @@ func materializeNativeSelectionAt(ctx context.Context, stellaHome string, plan S
 			return fmt.Errorf("toolinstall: publish native binary %q: %w", aliasName, err)
 		}
 	}
+	if err := writeSelectionEvidence(plan.PublicDir, evidence); err != nil {
+		return err
+	}
 	return nil
+}
+
+func resolvedNativeTools(ctx context.Context, miseBin string, env []string, dir string, tools []Tool) (pkgplugins.BinaryInstallEvidence, error) {
+	requests := evidenceRequests(tools)
+	output, runErr := runMiseOutput(ctx, miseBin, env, dir, "ls", "--json")
+	if runErr == nil {
+		if evidence, parseErr := pkgplugins.ParseBinaryMiseList([]byte(output), requests); parseErr == nil {
+			return evidence, nil
+		}
+		// Version observation is optional; malformed output remains explicit unknown.
+	}
+	if ctx.Err() != nil {
+		if runErr != nil {
+			return pkgplugins.BinaryInstallEvidence{}, runErr
+		}
+		return pkgplugins.BinaryInstallEvidence{}, ctx.Err()
+	}
+	return unknownEvidence(requests), nil
+}
+
+func evidenceRequests(tools []Tool) []pkgplugins.BinaryEvidenceRequest {
+	requests := make([]pkgplugins.BinaryEvidenceRequest, 0, len(tools))
+	for _, tool := range tools {
+		requests = append(requests, pkgplugins.BinaryEvidenceRequest{
+			Key: tool.Key, Lookup: tool.Lookup, PublicName: tool.PublicName, RequestedVersion: tool.Version,
+		})
+	}
+	return requests
+}
+
+func unknownEvidence(requests []pkgplugins.BinaryEvidenceRequest) pkgplugins.BinaryInstallEvidence {
+	evidence, _ := pkgplugins.ParseBinaryMiseList([]byte(`{}`), requests)
+	return evidence
+}
+
+func writeSelectionEvidence(root string, evidence pkgplugins.BinaryInstallEvidence) error {
+	data, err := json.Marshal(evidence)
+	if err != nil {
+		return fmt.Errorf("encode selection evidence: %w", err)
+	}
+	path := filepath.Join(root, pkgplugins.BinaryEvidenceFileName)
+	if err := os.WriteFile(path, data, 0o444); err != nil {
+		return fmt.Errorf("write selection evidence: %w", err)
+	}
+	return nil
+}
+
+func readSelectionEvidence(root string) (pkgplugins.BinaryInstallEvidence, error) {
+	data, err := os.ReadFile(filepath.Join(root, pkgplugins.BinaryEvidenceFileName))
+	if err != nil {
+		return pkgplugins.BinaryInstallEvidence{}, err
+	}
+	var evidence pkgplugins.BinaryInstallEvidence
+	if err := json.Unmarshal(data, &evidence); err != nil {
+		return pkgplugins.BinaryInstallEvidence{}, fmt.Errorf("decode selection evidence: %w", err)
+	}
+	return evidence, nil
 }
 
 // canonicalNativePath makes paths reported by separate mise commands

@@ -245,9 +245,9 @@ func TestValidateCustomResourceContentNonAdminRejectsHostResources(t *testing.T)
 	}
 }
 
-func TestValidateCustomResourceContentAllowsRemoteMCP(t *testing.T) {
+func TestValidateCustomResourceContentAllowsFormalRemoteMCP(t *testing.T) {
 	def := Definition{ID: "remote", DisplayName: "Remote", Source: SourceCustom, Revision: 1, Spec: publishedSpec(t, `{"description":"remote"}`)}
-	config := Config{Payload: json.RawMessage(`{"url":"https://example.test","transport":"streamable_http","auth_type":"none","credential_mode":"shared"}`)}
+	config := Config{Payload: json.RawMessage(`{"mcp_servers":{"main":{"url":"https://example.test","transport":"streamable_http","auth_type":"none","credential_mode":"shared"}}}`)}
 	if err := validateCustomResourceContent(def, config, false); err != nil {
 		t.Fatalf("valid remote MCP rejected: %v", err)
 	}

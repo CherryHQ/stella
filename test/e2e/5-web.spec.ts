@@ -575,13 +575,12 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
   await pluginDeleteDialog
     .getByRole("button", { name: "Delete" })
     .click();
+  // No config or runtime owner remains, so retirement can finish immediately.
   await expect
     .poll(
       async () => (await admin.get(pluginDefinitionPath(dead.plugin.id))).status,
     )
-    .toBe(200);
-  const retired = await pluginDefinition(admin, dead.plugin.id);
-  expect(retired.retired_at).toBeTruthy();
+    .toBe(404);
   const newConfig = await admin.post(`${pluginDefinitionPath(dead.plugin.id)}/configs`, {
     scope: "user",
     is_enabled: true,
@@ -596,7 +595,7 @@ test("plugin detail edits and deletes with revisions", async ({ page, admin, db,
       },
     },
   });
-  expect(newConfig.status).toBe(409);
+  expect(newConfig.status).toBe(404);
   const agents = expectStatus(
     await admin.get<{ agents: Array<{ id: string; }>; }>("/api/agents"),
     200,

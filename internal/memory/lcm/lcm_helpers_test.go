@@ -14,6 +14,19 @@ import (
 	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
+func TestDecodeExecutionMetadataKeepsSkillOnlySummary(t *testing.T) {
+	raw, err := json.Marshal(ai.ExecutionSummary{Skills: []ai.ExecutionSkill{{
+		PluginID: "pkg", Name: "docs", Source: "package", Digest: "sha256:abc", State: "masked",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := decodeExecutionMetadata(raw)
+	if got == nil || len(got.Plugins) != 0 || len(got.Skills) != 1 || got.Skills[0].State != "masked" {
+		t.Fatalf("decoded skill-only summary = %#v", got)
+	}
+}
+
 func TestToInt(t *testing.T) {
 	tests := []struct {
 		input any

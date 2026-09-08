@@ -28,9 +28,10 @@ func (s *Server) ListPlugins(w http.ResponseWriter, r *http.Request, params apis
 		return
 	}
 	page, next := nextPageTokenForRows(definitions, limit, offset)
+	lifecycles := s.pluginSvc.DefinitionLifecycles(r.Context(), page)
 	items := make([]apitypes.PluginDefinition, 0, len(page))
 	for _, definition := range page {
-		item, err := pluginDefinitionView(definition)
+		item, err := pluginDefinitionViewWithLifecycle(definition, lifecycles[definition.ID])
 		if err != nil {
 			writePluginError(w, err)
 			return
@@ -106,7 +107,7 @@ func (s *Server) CreatePlugin(w http.ResponseWriter, r *http.Request) {
 		writePluginError(w, err)
 		return
 	}
-	definitionView, err := pluginDefinitionView(createdDefinition)
+	definitionView, err := s.pluginDefinitionView(r.Context(), createdDefinition)
 	if err != nil {
 		writePluginError(w, err)
 		return
@@ -155,7 +156,7 @@ func (s *Server) ImportPluginPackage(w http.ResponseWriter, r *http.Request) {
 		writePluginError(w, err)
 		return
 	}
-	definitionView, err := pluginDefinitionView(definition)
+	definitionView, err := s.pluginDefinitionView(r.Context(), definition)
 	if err != nil {
 		writePluginError(w, err)
 		return
@@ -202,7 +203,7 @@ func (s *Server) UpdatePlugin(w http.ResponseWriter, r *http.Request, pluginID s
 		writePluginError(w, err)
 		return
 	}
-	view, err := pluginDefinitionView(definition)
+	view, err := s.pluginDefinitionView(r.Context(), definition)
 	if err != nil {
 		writePluginError(w, err)
 		return
@@ -239,7 +240,7 @@ func (s *Server) UpdatePluginPackage(w http.ResponseWriter, r *http.Request, plu
 		writePluginError(w, err)
 		return
 	}
-	view, err := pluginDefinitionView(definition)
+	view, err := s.pluginDefinitionView(r.Context(), definition)
 	if err != nil {
 		writePluginError(w, err)
 		return

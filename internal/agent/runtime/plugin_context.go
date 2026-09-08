@@ -5,9 +5,12 @@ import (
 	"maps"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/skill"
+	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -151,6 +154,149 @@ func (c PluginContext) SelectedPluginSkillSpecs() []pkgplugins.PluginSkillSpec {
 // alias conflicts before a failed package can disappear from the set.
 func (c PluginContext) SelectedPluginBinarySpecs() []pkgplugins.PluginBinarySpec {
 	return slices.Clone(c.view.BinarySpecs)
+}
+
+// ExecutionSummaryForTurn projects one immutable admission snapshot into the
+// small, secret-free record persisted on the user anchor. The optional Skill
+// view is the exact winner/mask decision captured for this turn.
+func (c PluginContext) ExecutionSummaryForTurn(view *skill.SkillTurnView) *ai.ExecutionSummary {
+	byID := make(map[string]struct{}, len(c.view.ExposedPluginIDs))
+	for _, id := range c.view.ExposedPluginIDs {
+		byID[id] = struct{}{}
+	}
+	packageVersions := make(map[string]string, len(c.snapshot.Definitions()))
+	result := &ai.ExecutionSummary{Plugins: make([]ai.ExecutionPlugin, 0, len(byID))}
+	for _, definition := range c.snapshot.Definitions() {
+		payload, err := plugin.DecodeResourcePayload(definition.Spec, "execution summary")
+		if err != nil {
+			continue
+		}
+		packageVersions[definition.ID] = payload.Version
+		if _, selected := byID[definition.ID]; !selected {
+			continue
+		}
+		resolved, ok := c.snapshot.Get(definition.ID)
+		if !ok {
+			continue
+		}
+		item := ai.ExecutionPlugin{
+			PluginID:       definition.ID,
+			PackageVersion: payload.Version,
+			PackageDigest:  payload.ContentDigest,
+			Source:         string(definition.Source),
+			Authorization:  "unknown",
+			Readiness:      "unknown",
+		}
+		if payload.Content != nil {
+			item.PackageDigest = payload.Content.Digest
+		}
+		if resolved.Config != nil {
+			item.ConfigID = resolved.Config.ID
+			item.ConfigScope = string(resolved.Config.Scope)
+			item.ConfigRevision = resolved.Config.Revision
+		}
+		if len(payload.OAuth) == 0 {
+			item.Authorization = "not_required"
+		} else if status := c.oauthResult.Status(definition.ID); len(c.oauthResult.Packages) > 0 {
+			item.Authorization = "ready"
+			if !status.Ready {
+				item.Authorization = "unavailable"
+				if status.Reason != "" {
+					item.Failures = append(item.Failures, status.Reason)
+				}
+			}
+		}
+		status := c.view.PackageResults.Status(definition.ID)
+		if len(c.view.PackageResults.Packages) > 0 {
+			if status.Ready {
+				item.Readiness = "ready"
+			} else {
+				item.Readiness = "unavailable"
+				if status.Reason != "" && !slices.Contains(item.Failures, status.Reason) {
+					item.Failures = append(item.Failures, status.Reason)
+				}
+			}
+		}
+		for _, spec := range c.view.BinarySpecs {
+			if spec.PluginID != definition.ID {
+				continue
+			}
+			binary := ai.ExecutionBinary{Name: spec.Name, Tool: spec.Tool, RequestedVersion: spec.Version, Source: "package"}
+			// PackageResults carries immutable installer evidence when the CLI
+			// preparation step has completed. An authored range remains a range;
+			// keep it in RequestedVersion and leave Version empty if no resolved
+			// artifact version was observed.
+			for _, evidence := range c.view.PackageResults.Binaries {
+				if evidence.PluginID != spec.PluginID || evidence.ConfigID != spec.ConfigID ||
+					evidence.Scope != spec.Scope || evidence.Revision != spec.Revision ||
+					evidence.Name != spec.Name || evidence.Tool != spec.Tool {
+					continue
+				}
+				binary.RequestedVersion = evidence.RequestedVersion
+				binary.ResolvedVersion = evidence.ResolvedVersion
+				binary.Backend = evidence.Backend
+				binary.SelectionIdentity = evidence.SelectionIdentity
+				break
+			}
+			item.Binaries = append(item.Binaries, binary)
+		}
+		result.Plugins = append(result.Plugins, item)
+	}
+	if view != nil {
+		selectedProject := make(map[string]struct{})
+		for _, candidate := range view.ProjectSkills() {
+			selectedProject[candidate.Name] = struct{}{}
+			result.Skills = append(result.Skills, ai.ExecutionSkill{
+				Name: candidate.Name, Source: "project", Scope: "project", Digest: candidate.ContentDigest, State: "selected",
+			})
+		}
+		selectedManaged := make(map[string]struct{})
+		for _, candidate := range view.ManagedSkills() {
+			identity := candidate.Identity
+			result.Skills = append(result.Skills, ai.ExecutionSkill{
+				Name: identity.Name, Source: "managed", Scope: identity.Scope, Digest: identity.ContentDigest, State: "selected",
+			})
+			selectedManaged[identity.Name] = struct{}{}
+		}
+		maskedNames := make(map[string]struct{}, len(view.MaskedSkillNames()))
+		for _, name := range view.MaskedSkillNames() {
+			maskedNames[name] = struct{}{}
+		}
+		disabledNames := make(map[string]struct{})
+		for _, ref := range view.DisabledSkillRefs() {
+			if name, ok := strings.CutPrefix(ref, "system:"); ok {
+				disabledNames[name] = struct{}{}
+			}
+		}
+		for _, candidate := range view.PackageSkills() {
+			state := "selected"
+			if _, shadowed := selectedProject[candidate.Name]; shadowed {
+				state = "overridden"
+			} else if _, shadowed := selectedManaged[candidate.Name]; shadowed {
+				state = "overridden"
+			} else if candidate.Masked || candidate.Disabled {
+				state = "masked"
+			} else if _, masked := maskedNames[candidate.Name]; masked {
+				state = "masked"
+			} else if candidate.Builtin {
+				if _, disabled := disabledNames[candidate.Name]; disabled {
+					state = "masked"
+				}
+			}
+			scope := "package"
+			if candidate.Builtin {
+				scope = "system"
+			}
+			result.Skills = append(result.Skills, ai.ExecutionSkill{
+				PluginID: candidate.PackageID, Name: candidate.Name, Source: "package", Scope: scope, Version: packageVersions[candidate.PackageID],
+				Digest: candidate.PackageDigest, State: state,
+			})
+		}
+	}
+	if len(result.Plugins) == 0 && len(result.Skills) == 0 {
+		return nil
+	}
+	return result
 }
 
 func applyPreparationResult(view pkgplugins.SessionPluginView) pkgplugins.SessionPluginView {

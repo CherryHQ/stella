@@ -2,8 +2,11 @@ package docker
 
 import (
 	"context"
+	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +25,133 @@ import (
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
+
+type evidenceExecAPI struct {
+	noopAPI
+	outputs map[string][]byte
+	calls   []string
+	nextID  int
+}
+
+func (f *evidenceExecAPI) ExecCreate(_ context.Context, _ string, opts mobyclient.ExecCreateOptions) (mobyclient.ExecCreateResult, error) {
+	f.nextID++
+	id := fmt.Sprintf("exec-%d", f.nextID)
+	path := ""
+	if len(opts.Cmd) > 1 {
+		path = opts.Cmd[len(opts.Cmd)-1]
+	}
+	f.calls = append(f.calls, path)
+	return mobyclient.ExecCreateResult{ID: id}, nil
+}
+
+func (f *evidenceExecAPI) ExecAttach(_ context.Context, execID string, _ mobyclient.ExecAttachOptions) (mobyclient.ExecAttachResult, error) {
+	clientConn, serverConn := net.Pipe()
+	path := ""
+	if len(f.calls) > 0 {
+		path = f.calls[len(f.calls)-1]
+	}
+	data := f.outputs[path]
+	go func() {
+		defer func() { _ = serverConn.Close() }()
+		frame := make([]byte, 8+len(data))
+		frame[0] = 1 // stdout stream
+		binary.BigEndian.PutUint32(frame[4:8], uint32(len(data)))
+		copy(frame[8:], data)
+		_, _ = serverConn.Write(frame)
+	}()
+	return mobyclient.ExecAttachResult{HijackedResponse: mobyclient.NewHijackedResponse(clientConn, "application/vnd.docker.raw-stream")}, nil
+}
+
+func (f *evidenceExecAPI) ExecInspect(context.Context, string, mobyclient.ExecInspectOptions) (mobyclient.ExecInspectResult, error) {
+	return mobyclient.ExecInspectResult{ExitCode: 0}, nil
+}
+
+func marshalEvidence(t *testing.T, evidence pkgplugins.BinaryInstallEvidence) []byte {
+	t.Helper()
+	data, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatalf("marshal evidence: %v", err)
+	}
+	return data
+}
+
+func TestReadSelectionToolEvidenceMergesBuiltinArtifactManifest(t *testing.T) {
+	binary := ToolBinary{Name: "fd", Tool: "github:sharkdp/fd", Version: "10.4.2"}
+	identity, err := binaryArtifactIdentity(binary)
+	if err != nil {
+		t.Fatalf("binaryArtifactIdentity: %v", err)
+	}
+	root := "/opt/stella/selection-tools"
+	mainPath := root + "/" + pkgplugins.BinaryEvidenceFileName
+	artifactPath := root + "/artifacts/" + identity + "/" + pkgplugins.BinaryEvidenceFileName
+	request := pkgplugins.BinaryEvidenceTool{
+		Key: binary.Tool, Lookup: systemLookupName(binary), PublicName: binary.Name, RequestedVersion: binary.Version,
+	}
+	resolved := request
+	resolved.ResolvedVersion = "10.4.2"
+
+	tests := []struct {
+		name             string
+		main             pkgplugins.BinaryInstallEvidence
+		artifact         pkgplugins.BinaryInstallEvidence
+		artifactMissing  bool
+		wantVersion      string
+		wantArtifactCall bool
+	}{
+		{
+			name:             "matching artifact resolves unknown",
+			main:             pkgplugins.BinaryInstallEvidence{Tools: []pkgplugins.BinaryEvidenceTool{request}},
+			artifact:         pkgplugins.BinaryInstallEvidence{Tools: []pkgplugins.BinaryEvidenceTool{resolved}},
+			wantVersion:      "10.4.2",
+			wantArtifactCall: true,
+		},
+		{
+			name:             "missing artifact stays unknown",
+			main:             pkgplugins.BinaryInstallEvidence{Tools: []pkgplugins.BinaryEvidenceTool{request}},
+			artifactMissing:  true,
+			wantArtifactCall: true,
+		},
+		{
+			name: "wrong artifact match stays unknown",
+			main: pkgplugins.BinaryInstallEvidence{Tools: []pkgplugins.BinaryEvidenceTool{request}},
+			artifact: pkgplugins.BinaryInstallEvidence{Tools: []pkgplugins.BinaryEvidenceTool{{
+				Key: binary.Tool, Lookup: systemLookupName(binary), PublicName: binary.Name, RequestedVersion: "latest", ResolvedVersion: "10.4.2",
+			}}},
+			wantArtifactCall: true,
+		},
+		{
+			name: "pre-resolved value is preserved",
+			main: pkgplugins.BinaryInstallEvidence{Tools: []pkgplugins.BinaryEvidenceTool{resolved}},
+			artifact: pkgplugins.BinaryInstallEvidence{Tools: []pkgplugins.BinaryEvidenceTool{{
+				Key: binary.Tool, Lookup: systemLookupName(binary), PublicName: binary.Name, RequestedVersion: binary.Version, ResolvedVersion: "wrong",
+			}}},
+			wantVersion: "10.4.2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			outputs := map[string][]byte{mainPath: marshalEvidence(t, tt.main)}
+			if !tt.artifactMissing {
+				outputs[artifactPath] = marshalEvidence(t, tt.artifact)
+			}
+			api := &evidenceExecAPI{outputs: outputs}
+			got := readSelectionToolEvidence(context.Background(), dockerclient.NewWithAPI(api), "container", root, []ToolBinary{binary})
+			if len(got.Tools) != 1 || got.Tools[0].ResolvedVersion != tt.wantVersion {
+				t.Fatalf("evidence = %+v, want resolved version %q", got.Tools, tt.wantVersion)
+			}
+			artifactCalls := 0
+			for _, call := range api.calls {
+				if call == artifactPath {
+					artifactCalls++
+				}
+			}
+			if (artifactCalls > 0) != tt.wantArtifactCall {
+				t.Fatalf("artifact calls = %d, want call = %t; calls=%v", artifactCalls, tt.wantArtifactCall, api.calls)
+			}
+		})
+	}
+}
 
 func TestSelectionMiseTOMLRegistryTool(t *testing.T) {
 	got, err := selectionMiseTOML([]ToolBinary{{Name: "uv", Tool: "uv"}})
@@ -730,6 +860,57 @@ esac
 		if runErr != nil || string(output) != want.text {
 			t.Fatalf("selected %s output=%q err=%v", want.name, output, runErr)
 		}
+	}
+}
+
+func TestSelectionToolInstallScriptCapturesEvidencePerToolConfig(t *testing.T) {
+	imageRoot := t.TempDir()
+	selectionRoot := filepath.Join(t.TempDir(), "selection")
+	artifactRoot := filepath.Join(t.TempDir(), "builtin-artifacts")
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	if err := os.MkdirAll(imageRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mise := `#!/bin/sh
+set -eu
+tool_config() {
+  grep -q "^$1 =" "$MISE_GLOBAL_CONFIG_FILE"
+}
+case "$1" in
+trust) exit 0 ;;
+install)
+  if tool_config uv; then mkdir -p "$MISE_DATA_DIR/installs/uv/1/bin"; printf '#!/bin/sh\nprintf uv-ok\\n' > "$MISE_DATA_DIR/installs/uv/1/bin/uv"; chmod 755 "$MISE_DATA_DIR/installs/uv/1/bin/uv"; fi
+  if tool_config bun; then mkdir -p "$MISE_DATA_DIR/installs/bun/2/bin"; printf '#!/bin/sh\nprintf bun-ok\\n' > "$MISE_DATA_DIR/installs/bun/2/bin/bun"; chmod 755 "$MISE_DATA_DIR/installs/bun/2/bin/bun"; fi ;;
+where)
+  tool_config "$2" || exit 41
+  case "$2" in uv) printf '%s/installs/uv/1\n' "$MISE_DATA_DIR";; bun) printf '%s/installs/bun/2\n' "$MISE_DATA_DIR";; *) exit 42;; esac ;;
+current)
+  tool_config "$2" || exit 43
+  case "$2" in uv) printf 'uv-config-version\n';; bun) printf 'bun-config-version\n';; *) exit 44;; esac ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(imageRoot, "mise"), []byte(mise), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binaries := []ToolBinary{{Name: "uv", Tool: "uv", Version: "1"}, {Name: "bun", Tool: "bun", Version: "2"}}
+	script := selectionToolInstallScript("hash", binaries, nil)
+	script = strings.ReplaceAll(script, "/opt/stella/selection-tools", selectionRoot)
+	script = strings.ReplaceAll(script, "/opt/stella/.mise-tools/builtin-artifacts", artifactRoot)
+	script = strings.ReplaceAll(script, "/opt/stella/core-runtime", imageRoot)
+	script = strings.ReplaceAll(script, "/tmp/stella-selection-private", privateRoot)
+	if output, err := exec.Command("/bin/sh", "-c", script).CombinedOutput(); err != nil {
+		t.Fatalf("per-tool evidence selection: %v\n%s", err, output)
+	}
+	data, err := os.ReadFile(filepath.Join(selectionRoot, pkgplugins.BinaryEvidenceFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var evidence pkgplugins.BinaryInstallEvidence
+	if err := json.Unmarshal(data, &evidence); err != nil {
+		t.Fatal(err)
+	}
+	if len(evidence.Tools) != 2 || evidence.Tools[0].ResolvedVersion != "uv-config-version" || evidence.Tools[1].ResolvedVersion != "bun-config-version" {
+		t.Fatalf("per-tool evidence = %s", data)
 	}
 }
 

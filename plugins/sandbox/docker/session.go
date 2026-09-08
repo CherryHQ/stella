@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -566,7 +567,10 @@ func (s *dockerSession) WorkingDir() string           { return s.host.WorkingDir
 func (s *dockerSession) PluginPreparationResult() pkgplugins.PluginPreparationResult {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	result := pkgplugins.PluginPreparationResult{Packages: make([]pkgplugins.PluginPackageStatus, 0, len(s.toolPreparation.SuccessfulPackages)+len(s.toolPreparation.FailedPackages))}
+	result := pkgplugins.PluginPreparationResult{
+		Packages: make([]pkgplugins.PluginPackageStatus, 0, len(s.toolPreparation.SuccessfulPackages)+len(s.toolPreparation.FailedPackages)),
+		Binaries: slices.Clone(s.toolPreparation.BinaryEvidence),
+	}
 	for _, packageID := range s.toolPreparation.SuccessfulPackages {
 		result.Packages = append(result.Packages, pkgplugins.PluginPackageStatus{PluginID: packageID.PluginID, Ready: true})
 	}

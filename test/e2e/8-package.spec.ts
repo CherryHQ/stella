@@ -7,11 +7,14 @@ interface PluginDefinition {
   id: string;
   revision: number;
   spec: Record<string, unknown>;
+  lifecycle_status: "installed" | "in_use" | "cleanup_pending";
+  retired_at?: string;
 }
 
 interface PluginConfig {
   id: string;
   revision: number;
+  is_enabled: boolean | null;
 }
 
 interface CopiedSkill {
@@ -44,6 +47,7 @@ test("admin imports and previews a directory package before updating it", async 
     ).plugins.find((item) => item.id === "e2e.package");
     if (!imported) throw new Error("imported package is missing");
     definition = imported;
+    expect(definition.lifecycle_status).toBe("installed");
     config = expectStatus(
       await admin.get<{ configs: PluginConfig[]; }>("/api/plugins/e2e.package/configs?scope=system"),
       200,
@@ -164,6 +168,45 @@ test("admin imports and previews a directory package before updating it", async 
       "verify copied skill survives package update",
     );
     expect(unchangedCopy.description).toBe("Independent copied skill");
+
+    const currentConfig = expectStatus(
+      await admin.get<{ configs: PluginConfig[]; }>("/api/plugins/e2e.package/configs?scope=system"),
+      200,
+      "get config before disabling",
+    ).configs[0];
+    expectStatus(
+      await admin.patch(`/api/plugins/e2e.package/configs/${currentConfig.id}`, {
+        expected_revision: currentConfig.revision,
+        is_enabled: false,
+      }),
+      200,
+      "disable package config",
+    );
+    const disabled = expectStatus(await admin.get<PluginDefinition>("/api/plugins/e2e.package"), 200, "get disabled package");
+    expect(disabled.lifecycle_status).toBe("installed");
+    expect(disabled.retired_at).toBeFalsy();
+    await page.reload();
+    await expect(page.getByRole("dialog").getByText("Installed", { exact: true })).toBeVisible();
+    await expect(page.getByRole("switch").first()).not.toBeChecked();
+
+    await page.getByRole("button", { name: "Delete", exact: true }).last().click();
+    const removal = page.waitForResponse((response) =>
+      response.request().method() === "DELETE"
+      && new URL(response.url()).pathname === "/api/plugins/e2e.package"
+    );
+    await page.getByRole("dialog", { name: "Remove plugin?", exact: true })
+      .getByRole("button", { name: "Delete", exact: true }).click();
+    expect((await removal).status()).toBe(204);
+    await expect(page.getByText("Plugin removal requested.", { exact: true })).toBeVisible();
+    const removed = await admin.get<PluginDefinition>("/api/plugins/e2e.package");
+    expect([200, 404]).toContain(removed.status);
+    if (removed.status === 200) {
+      expect(removed.body.retired_at).toBeTruthy();
+      expect(["in_use", "cleanup_pending"]).toContain(removed.body.lifecycle_status);
+      await expect(page.getByRole("button", { name: "Update package", exact: true })).toBeDisabled();
+      await expect(page.getByRole("switch").first()).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Refresh", exact: true })).toBeVisible();
+    }
   } finally {
     if (copiedSkill) {
       const currentSkill = await admin.get<CopiedSkill>(`/api/skills/${copiedSkill.id}`);

@@ -21,6 +21,42 @@ import (
 
 const encodedPixels = "QklOQVJZX1BJWEVMU19NVVNUX05PVF9CRV9TVE9SRUQ="
 
+func TestAppendPersistsExecutionMetadataOnUserAnchor(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer db.Close()
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = p.Close() }()
+	sess := newLCMTestSession("execution-anchor")
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+	summary := &ai.ExecutionSummary{Plugins: []ai.ExecutionPlugin{{
+		PluginID: "weather", PackageDigest: "sha256:pkg", Authorization: "ready", Readiness: "ready",
+	}}}
+	if err := p.Append(ctx, sess, ai.UserMessage{Content: "plain turn", Execution: summary}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	var raw []byte
+	if err := db.QueryRow(context.Background(), `SELECT execution_metadata FROM ctx_message WHERE role = 'user'`).Scan(&raw); err != nil {
+		t.Fatalf("read execution metadata: %v", err)
+	}
+	if len(raw) == 0 || !strings.Contains(string(raw), `"plugin_id": "weather"`) {
+		t.Fatalf("execution metadata = %s", raw)
+	}
+	assembled, err := p.Assemble(ctx, sess, 100_000, 1)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(assembled) != 1 {
+		t.Fatalf("assembled = %#v", assembled)
+	}
+	user, ok := assembled[0].(ai.UserMessage)
+	if !ok || user.Execution == nil || len(user.Execution.Plugins) != 1 || user.Execution.Plugins[0].PluginID != "weather" {
+		t.Fatalf("assembled execution = %#v", assembled[0])
+	}
+}
+
 func TestAppendPersistsTrustedPerMessageActor(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer db.Close()

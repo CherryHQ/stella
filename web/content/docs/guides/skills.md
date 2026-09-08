@@ -2,88 +2,140 @@
 title: Skills
 ---
 
-## What Are Skills
+Skills are reusable playbooks that teach Stella how to perform a task. A Skill
+is a directory with a `SKILL.md` file and may include reference files or
+scripts. Stella can load a Skill when a task matches its description.
 
-Skills are reusable playbooks that teach Stella how to perform specific tasks. When you ask Stella to do something like "create a GitHub release" or "write a blog post," she can load a skill that gives her step-by-step instructions for that workflow.
+## Where Skills come from
 
-Skills are written in plain markdown — they are essentially cheat sheets that Stella reads and follows. You can install skills from public registries, or write your own.
+Project Skills live in `.agents/skills/` in the current project. Personal and
+managed Skills are installed from **Personal Settings > Skills** or, for an
+administrator, **Admin Console > Deployment resources > Global Skills**. A
+Skill that comes with an Agent Plugin follows that plugin's enabled state and
+does not have a second Skill switch. Built-in Skills shipped with Stella are
+part of the release.
 
-## Skill scopes and priority
-
-Each kind of Skill has one content authority. Release-provided builtins come from the immutable, content-addressed release bundle. Project Skills are ordinary files in durable Agent/project working trees. Managed global, Agent-bound, user, and user-Agent Skills use immutable revisions in typed Stella Home roots; a current selector chooses the exact revision Stella loads.
-
-The stored scopes are `project`, `user_agent`, `user`, `system_agent`, and `system`. `builtin` is contextual: a release Skill has the immutable identity `builtin:<name>`. An administrator-installed global Skill is the separate mutable identity `system:<name>`, and an Agent-bound administrator Skill is `system_agent:<name>`.
-
-- **Project skills** — live in your repository under `.agents/skills/`. They ship with the code and are available when the current session is attached to that project.
-- **User skills** — your personal skills, available across all of your agents.
-- **User · this agent** — your personal skills scoped to a single agent.
-- **Shared agent skills** — managed by admins and available to everyone who uses that agent.
-- **Global skills** — managed by admins and available everywhere. Skills bundled with Stella remain part of the installation; managed global skills can be installed, enabled, disabled, and removed from the Admin Console.
-
-When names collide, Stella selects one winner in this order:
+When more than one visible Skill has the same name, Stella chooses one in this
+order:
 
 ```
-project > user · this agent > user > shared agent > global > builtin
+project > this agent > your Skills > shared agent > global > built-in
 ```
 
-It applies policy after selecting that winner. Disabling a winner does not reveal a lower-priority Skill with the same name.
+Stella applies the selected Skill's policy after choosing the winner. Disabling
+the winner does not reveal a lower-priority Skill with the same name. Project
+files are read when Stella captures the next turn, so an edit takes effect on
+the next turn. A turn that has already started keeps its captured Skill view.
+An administrator's **System** or **System · this agent** disable is an upper
+limit. A narrower personal enable cannot override it.
 
-## Per-Agent activation
+## Install and configure
 
-Skills supplied by a plugin follow that plugin's permissions and enablement in plugin settings; they have no separate skill switch. A package containing only skills uses the same plugin settings. Project `.agents/skills/`, personal skills, and managed skills remain independent. Required Stella and Xberg guidance ships with the execution environment.
+Choose the destination before every install or upload. Stella does not infer a
+destination from the conversation.
 
-Skills are enabled for an Agent by default. An administrator or durable Agent creator can use that Agent's **Skills** tab to enable or disable a managed global or matching Agent Skill. This is one shared setting: the last committed update wins.
+- In an Agent's **Skills** page, choose **Mine · this agent** or, when you are
+  an administrator, **System · this agent**.
+- In **Personal Settings > Skills**, choose **Mine · all agents** or **Mine ·
+  this agent**.
+- In **Admin Console > Deployment resources > Global Skills**, choose
+  **System · all agents** or **System · this agent**.
 
-Activation is separate from permission to edit Skill content and from `disable_model_invocation`. A turn already admitted keeps its Skill snapshot; the next turn sees a committed activation change.
+The Web UI can install from a remote source such as a skill name or GitHub
+repository, or upload a ZIP file. An uploaded archive must contain one Skill
+directory with `SKILL.md`. A package Skill is imported by an administrator from
+the Plugins page and keeps the package's declared files and resource names.
 
-Disabled references to Skills that no longer exist do not affect execution; clear them explicitly in the Web UI. Skill activation is a product preference, not a filesystem access control.
+After installing a package, configure its scope in the plugin settings. A
+configuration can enable or disable the package, select declared CLI versions,
+set an MCP endpoint, and start the required OAuth authorization flow. The
+configuration page shows declared resources and whether visible endpoint or
+OAuth client fields are present. It does not run the command, connect every
+MCP server, or prove that a future turn can prepare all resources. The summary
+is not a receipt for any particular execution. Open **Execution summary** below the turn's user message to
+see, when recorded, the immutable package version and digest, config ID/scope/
+revision, authorization/readiness, Skill winner states (`selected`, `masked`,
+or `overridden`), and CLI requested/resolved versions with installation
+evidence. An older cache or preinstalled image artifact can leave resolved or installation
+evidence unknown. Turns recorded before this metadata existed have no
+retroactive receipt; Stella does not reconstruct one from current configuration.
 
-Manage personal `user` and `user_agent` skills from **Personal Settings → Skills**. Administrators manage deployment-owned `system` and `system_agent` skills from **Admin Console → Deployment resources → Global Skills**. The two pages never mix ownership scopes.
+## Use a Skill
 
-## Installing Skills
+Ask Stella to find an installed Skill, then load the one that matches the task.
+`skill_installed_search` searches Skills already visible to the active Agent;
+it does not search a marketplace. `skill_load` reads the selected revision and
+copies it into the current session's temporary sandbox directory. The returned
+path is disposable and is the path to use for the Skill's scripts and bundled
+files.
 
-### Choose a destination
+At the start of each turn, Stella selects the winning Skill and prepares the
+resources selected by the same package configuration. This can include a
+version-pinned CLI, environment bindings, an MCP tool directory, and required
+account permissions. If a package's required authorization or CLI preparation
+fails, that package's resources stay out of the turn. Stella records the
+failure and does not silently switch to a lower-priority same-name resource.
 
-Every install and upload requires a destination. Stella never infers it from a conversation or remembers it as authorization for a later write.
+The **Preview** action for a package update reports the candidate version,
+content digest, resource names, OAuth changes, and scopes with incompatible
+existing configurations. Preview only reads and validates the candidate. It
+does not publish the package, install a CLI, connect an MCP server, or grant an
+account permission. A real turn can still fail later if an account grant is
+missing, a command cannot be installed in its sandbox, or a remote service is
+unreachable.
 
-- In an Agent's **Skills** tab, choose **Only me · this Agent** (`user_agent`) or, for administrators, **Everyone · this Agent** (`system_agent`).
-- In **Personal Settings → Skills**, choose a personal destination (`user` or `user_agent`).
-- In **Admin Console → Deployment resources → Global Skills**, choose a deployment-owned destination (`system` or `system_agent`).
+## Update, disable, revoke, and uninstall
 
-The Web UI asks you to confirm the destination immediately before it writes.
+To update a managed Skill, replace its complete directory or ZIP and retry with
+the version returned by the latest read. A version conflict means somebody
+else changed it; read it again before choosing the next update. To update a
+package, run **Preview** first, review the candidate and incompatible scopes,
+then publish the update. New turns use the new package revision after a
+successful publish. An admitted turn keeps its previous package and Skill
+snapshot until it ends.
 
-### Choose a source
+Disabling a plugin blocks that package from new turns. A normal plugin or Skill
+configuration change lets an admitted turn finish. Setting a Skill's
+`disable-model-invocation` to `true` disables automatic invocation of that Skill;
+it does not disable the Skill itself or permission to edit it. A plugin disable
+does not revoke an OAuth grant.
 
-Stella can install skills from several sources:
+Use the owning account, assignment, OAuth, or Vault controls to revoke access.
+Stella rejects new calls in the revoked scope, cancels or detaches matching
+active work, and closes its runner. Files already copied into a sandbox and
+side effects already made in an external service cannot be recalled.
 
-- **[clawhub.ai](https://clawhub.ai)** — browse or search the marketplace in the Web UI.
-- **GitHub / GitLab** — enter a repository source in the install form.
-- **ZIP upload** — upload a Skill directory containing `SKILL.md`.
+Uninstalling a managed Skill removes it from future selection. Retiring a custom
+package stops new selection and waits for active turns and other valid users
+of its files to finish before deleting its package data. Cleanup can therefore
+remain marked `cleanup_pending` after the database change. Stella keeps the
+bytes when it cannot prove that a process and its descendants have stopped.
+The local and `none` sandbox backends keep a recovery marker in this case; that
+marker is never removed automatically and can block package and managed-Skill
+cleanup across the deployment indefinitely, including after a normal turn
+close. There is currently no product command or safe automated recovery path
+that clears it. There is no time-to-live or process-ID guess that makes this
+safe.
 
-If you hit rate limits on clawhub.ai, you can set a free API token:
+## Manage Skills from a conversation
 
-1. Sign up at [clawhub.ai](https://clawhub.ai).
-2. Go to Settings, then API Tokens, and create a token.
-3. In chat, send: `/config CLAWHUB_TOKEN your-token`
+When conversational Settings tools are enabled for the Agent, Stella can use
+these tools for managed Skills:
 
-## Managing Skills
+- `settings_skill_list` and `settings_skill_get` read safe metadata, file names,
+  and the current version. They never return file contents.
+- `settings_skill_create` creates a Skill from a complete directory or ZIP at a
+  sandbox path.
+- `settings_skill_update` replaces the complete package and requires the
+  version from `settings_skill_get`.
+- `settings_skill_delete` removes the Skill and requires that same version.
 
-### From a Conversation
+These tools use the caller's normal ownership and Agent permissions. Remote
+source installation, ZIP upload from the browser, plugin package import, and
+credential binding stay on their Web UI or API surfaces. `skill_load` is a
+runtime read and is separate from managed-Skill administration.
 
-- **"Find an installed skill for deploying this service."** — Stella searches only Skills already visible to the active Agent.
-- **"Load the deployment skill."** — Stella loads the selected exact revision for the current task.
-
-The conversation tool is read-only. It cannot install, create, edit, upgrade, deprecate, or remove a Skill.
-
-### From the Web UI
-
-Use Personal Settings to browse, install, and remove your skills. Administrators use Global Skills for deployment-wide and shared-agent skills.
-
-## Creating Your Own Skills
-
-You can create custom skills to teach Stella your workflows. A skill is a directory containing a `SKILL.md` file.
-
-### Skill Format
+## Create a Skill
 
 ```markdown
 ---
@@ -91,37 +143,23 @@ name: my-deploy-script
 description: Deploy the application to production.
 ---
 
-# Deploy to Production
+# Deploy to production
 
-Follow these steps to deploy:
-
-1. Run the test suite and confirm all tests pass.
+1. Run the test suite.
 2. Build the production bundle.
-3. Push to the production branch.
-4. Verify the deployment is healthy.
-
-Always ask the user for confirmation before pushing to production.
+3. Verify the deployment is healthy.
 ```
 
-### Frontmatter Fields
+`name` must use lowercase letters, numbers, and hyphens, and be at most 64
+characters. `description` is required and appears in search results.
+`disable-model-invocation` is optional. Set it to `true` when Stella should
+invoke the Skill only after an explicit request; it does not turn the Skill off.
 
-| Field                      | Required | Description                                           |
-| -------------------------- | -------- | ----------------------------------------------------- |
-| `name`                     | Yes      | Lowercase with hyphens, max 64 characters             |
-| `description`              | Yes      | One-line summary shown in search results              |
-| `disable-model-invocation` | No       | Prevent automatic selection while allowing direct use |
-
-### Saving a Custom Skill
-
-For a managed Skill, create the directory locally, package it as a ZIP, and upload it in the Web UI to an explicit destination. For a project Skill, add the directory directly under `.agents/skills/` in the project repository.
+For team workflows, commit a Project Skill under `.agents/skills/`. For a
+managed Skill, upload the complete directory or ZIP to the intended scope.
 
 ## Tips
 
-- **Start by searching.** Before creating a skill from scratch, check the marketplace in the Web UI.
-- **Keep skills focused.** One skill per task. A skill for "deploy" and a skill for "rollback" is better than one skill that tries to do both.
-- **Use project skills for team workflows.** Put shared skills in `.agents/skills/` in your repository so everyone on the team benefits.
-- **Test skills by loading them.** After creating a skill, ask Stella to load it and try the workflow to verify the instructions work.
-
-## Upgrading older builtin skill settings
-
-Bundled skills follow their owning plugin’s enabled state. Older per-Agent builtin skill disable settings no longer apply and do not block upgrades. Managed skill activation settings and project `.agents/skills/` discovery are unchanged.
+Search before creating a new Skill. Keep one Skill focused on one workflow.
+Load the Skill after creating or updating it and run a small representative
+task before relying on it.

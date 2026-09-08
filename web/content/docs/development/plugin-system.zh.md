@@ -66,10 +66,22 @@ agent、system。System 或匹配的 system agent 显式设为 `false`，分别�
 
 Agent Plugin 的配置模型是一份 `PluginDefinition`，加上四种范围元组各自至多一份
 `PluginConfig`。`user_id` 和 `agent_id` 由可信 authority 推导，不能接受调用方自填身份。
-Definition 拥有稳定的包身份和资源声明；所选 Config 拥有该范围的资源 payload 与凭据引用。
+Definition 拥有稳定的包身份、资源声明、来源、版本和内容 digest。所选 Config 只拥有
+该范围内已声明资源的正式参数与凭据引用。Config 不能新增二进制、Skill、OAuth 要求、
+来源或包成员。它保存的参数对象按已声明的二进制和 MCP 服务命名，resolver 将这些参数
+应用到 Definition 的副本。
 
-所选范围独立拥有配置，可以覆盖发行定义中的字段，但不同范围之间不合并字段或凭据。
+所选范围独立拥有配置，可以覆盖发行定义中允许的参数，但不同范围之间不合并字段或凭据。
 所选配置禁用或不完整时，不回退到更宽范围。Builtin 使用相同规则，管理员可以禁用。
+
+### HTTP 边界与正式参数
+
+HTTP 请求越过边界后，服务只接受正式参数格式。HTTP adapter 仍会把旧的扁平 MCP 字段和
+二进制数组转换为正式格式，再调用 `Plugin.Access`。持久化的 Definition、Config 和运行时代码
+不再解析旧格式。
+
+这个 adapter 是兼容边界，不是第二套配置模型。它的退出条件是声明的兼容窗口关闭，并且
+受支持客户端已经使用正式格式。本文不把退出条件绑定到某个发行版本。
 
 ## 一份执行快照
 
@@ -77,6 +89,21 @@ Definition 拥有稳定的包身份和资源声明；所选 Config 拥有该范�
 资源可见性、二进制、环境绑定与声明式 Prompt。上下文构造函数只接收快照，调用方
 不能另行传入其他身份或版本的资源。Native Host 只通过独立策略管理 Go 注册的能力
 与原生 Prompt。
+
+插件详情、`PluginConfig.resource_summary` 和 effective 配置接口描述的是已声明或已配置
+的资源。插件更新预览同样是只读操作：它校验候选包并报告 digest、资源名称、OAuth 变化
+和不兼容作用域。这些视图都不会安装 CLI、连接 MCP、获取令牌，也不能证明下一轮一定可以执行。
+
+turn 准入时，runtime 会重新检查授权并准备每个选中的包。它记录按包划分的 OAuth 和 CLI
+就绪结果，然后只把准备成功的包资源发布给 prompt、工具、sandbox 和环境。失败的包仍作为
+被遮蔽的候选保留，因此同名低优先级资源不会因为准备失败而复活。
+
+Host 会把不含秘密的执行摘要挂到该次准入 turn 的持久用户消息锚点上。每个包记录实际接纳
+的不可变包版本和 digest、配置 ID、作用域与修订、授权和就绪状态。Skill 条目记录实际胜者，
+以及 `selected`、`masked` 或 `overridden` 状态，同时带有版本、来源、作用域和 digest。二进制
+条目记录请求版本、解析版本，以及提供安装证据的 backend、selection identity 和 source。
+如果复用已有 ready cache 但没有证据，解析版本或安装证据会保持未知。在这项元数据存在前
+记录的 turn 没有摘要，Stella 不会根据当前配置重建历史准入结果。
 
 每个 Agent Plugin 按精确包 ID 解析，不同包不会替换彼此的资源。Native 工具和 hooks
 不进入这份快照；同名 Agent 包不能获得 Native 准入，Native 仍使用可信注册 ID 和独立策略。
@@ -97,8 +124,8 @@ Native 工具保留已注册的静态名称。
 CLI 集成可以包含二进制、Skills、环境声明和提示。CLI 版本与 Skill 来源是独立字段，
 更新一个不要求更新另一个。`agentpackage` 在构建时读取标准包文件，生成器直接把
 规范化的 Definition 目录内嵌为 JSON。启动时直接读取该目录，不再经过中间 Manifest
-或 YAML 转换。`internal/plugin` 统一拥有资源 payload 与作用域配置校验；
-OAuth provider 文档由 `internal/connections/oauth` 加载和校验。
+或 YAML 转换。`internal/plugin` 负责已声明资源与正式作用域参数的校验；资源消费者负责安装、
+连接和执行。OAuth provider 文档由 `internal/connections/oauth` 加载和校验。
 
 Builtin Skill 必须显式声明来源路径和所属包，生成与运行时加载共用这份发行声明。
 旧目录扫描器和按目录推断 owner 的路线已移除。旧版提取式 Skill 的升级检查放在
@@ -172,8 +199,9 @@ definition 共用的 digest 只要仍被当前 definition 或 runtime owner 使�
 local 和 `none` backend 在启动进程前都会持久化
 `cache/sandbox-recovery/<session>.json` marker。后台 descendant 可能比 leader 活得更久，因此
 正常 `Close` 也不会清除 marker，runner scratch bytes 会保留以便恢复。任意 marker 都会全局阻止
-package 和 managed Skill 资源清理；它是保守证据，不代表会自动完成最终清理，也没有 TTL 或 PID
-猜测逻辑可以清除它。
+package 和 managed Skill 资源清理；它是保守证据，不代表会自动完成最终清理。marker 永远不会
+自动移除，即使正常 `Close` 后也可能无限期阻塞清理。目前没有可以清除它的产品命令或安全自动
+恢复路径，也没有 TTL 或 PID 猜测逻辑可以清除它。
 
 Docker backend 只快照当前 runtime 启动前已存在的、属于该 scope 的 container ID。只有每个初始
 ID 都被证明处于 terminal 状态并成功 remove 后才允许清理；快照之后创建的 container 不会阻塞

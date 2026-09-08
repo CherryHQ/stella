@@ -43,17 +43,18 @@ type TranscriptPageInput struct {
 }
 
 type Message struct {
-	ID              string
-	Seq             int64
-	Role            string
-	EventType       string
-	Content         string
-	Parts           []MessagePart
-	TokenCount      int64
-	CreatedAt       time.Time
-	ActorType       string
-	ActorID         string
-	SourceSessionID string
+	ID                string
+	Seq               int64
+	Role              string
+	EventType         string
+	Content           string
+	Parts             []MessagePart
+	TokenCount        int64
+	CreatedAt         time.Time
+	ActorType         string
+	ActorID           string
+	SourceSessionID   string
+	ExecutionMetadata []byte
 }
 
 // MessagePart is the transcript-safe projection of an ordered durable part.
@@ -573,6 +574,7 @@ func messageFromRow(row sqlc.CtxMessage, parts []MessagePart) Message {
 		ID: row.ID, Seq: row.Seq, Role: row.Role, EventType: row.EventType, Content: row.Content,
 		Parts: parts, TokenCount: row.TokenCount, CreatedAt: row.CreatedAt.UTC(), ActorType: row.ActorType,
 		ActorID: row.ActorID.String, SourceSessionID: row.SourceSessionID.String,
+		ExecutionMetadata: row.ExecutionMetadata,
 	}
 }
 

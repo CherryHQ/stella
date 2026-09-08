@@ -63,3 +63,12 @@ func TestFormalMCPMergeAndReadUsesExactChild(t *testing.T) {
 		t.Fatal("read accepted a child absent from the named map")
 	}
 }
+
+func TestMCPExecutionIdentitiesRejectsFlatPayload(t *testing.T) {
+	_, err := mcpExecutionIdentities(plugin.Definition{Spec: json.RawMessage(`{"description":"remote"}`)}, plugin.Config{
+		Payload: json.RawMessage(`{"url":"https://example.test","transport":"sse","auth_type":"none"}`),
+	})
+	if err == nil {
+		t.Fatal("flat MCP payload reached credential identity resolution")
+	}
+}

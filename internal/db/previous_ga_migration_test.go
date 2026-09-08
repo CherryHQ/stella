@@ -42,7 +42,7 @@ const (
 	// plugin scheduler columns are checked explicitly, followed by native Agent
 	// deny admission and plugin tool identity cutover migrations.
 	currentMigrationVersion = sequentialAnchor + 40
-	latestMigrationVersion  = sequentialAnchor + 44
+	latestMigrationVersion  = sequentialAnchor + 45
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -366,6 +366,13 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	var legacyActorType string
 	if err := db.QueryRow(ctx, `SELECT actor_type FROM ctx_message WHERE id = $1`, previousGAMessageID).Scan(&legacyActorType); err != nil {
 		t.Fatalf("read defaulted legacy message actor: %v", err)
+	}
+	var executionMetadata []byte
+	if err := db.QueryRow(ctx, `SELECT execution_metadata FROM ctx_message WHERE id = $1`, previousGAMessageID).Scan(&executionMetadata); err != nil {
+		t.Fatalf("legacy execution_metadata: %v", err)
+	}
+	if executionMetadata != nil {
+		t.Fatalf("legacy execution_metadata = %s, want NULL", executionMetadata)
 	}
 	if legacyActorType != "human" {
 		t.Fatalf("defaulted legacy message actor=%q, want human", legacyActorType)

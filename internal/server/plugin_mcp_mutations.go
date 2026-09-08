@@ -134,7 +134,7 @@ func (s *Server) createMCPPlugin(w http.ResponseWriter, r *http.Request, authori
 		writePluginError(w, err)
 		return
 	}
-	defView, err := pluginDefinitionView(definition)
+	defView, err := s.pluginDefinitionView(r.Context(), definition)
 	if err != nil {
 		writePluginError(w, err)
 		return

@@ -158,6 +158,7 @@ func TestInstallContextBinariesUsesSelectionLocalConfigAndShims(t *testing.T) {
 	fake += "install) mkdir -p \"$MISE_DATA_DIR/installs/test-one/1.0.0/bin\"; printf '#!/bin/sh\\necho one\\n' > \"$MISE_DATA_DIR/installs/test-one/1.0.0/bin/one\"; chmod 755 \"$MISE_DATA_DIR/installs/test-one/1.0.0/bin/one\"; printf sidecar > \"$MISE_DATA_DIR/installs/test-one/1.0.0/runtime.dat\"; exit 0 ;;\n"
 	fake += "where) printf '%s\\n' \"$MISE_DATA_DIR/installs/test-one/1.0.0\" ;;\n"
 	fake += "which) printf '%s\\n' \"$MISE_DATA_DIR/installs/test-one/1.0.0/bin/one\" ;;\n"
+	fake += "ls) printf '%s\\n' '{\"github:owner/one\":[{\"version\":\"1.0.0\",\"requested_version\":\"1.0.0\",\"install_path\":\"/private/secret\",\"installed\":true,\"active\":true}]}' ;;\n"
 	fake += "*) exit 9 ;;\nesac\n"
 	fakePath := filepath.Join(binDir, "mise")
 	if err := os.WriteFile(fakePath, []byte(fake), 0o755); err != nil {
@@ -181,6 +182,9 @@ func TestInstallContextBinariesUsesSelectionLocalConfigAndShims(t *testing.T) {
 	if plan.PublicBinDir == "" {
 		t.Fatalf("native plan missed public bin: %+v", plan)
 	}
+	if len(result.BinaryEvidence) != 1 || result.BinaryEvidence[0].ResolvedVersion != "1.0.0" {
+		t.Fatalf("binary evidence = %+v", result.BinaryEvidence)
+	}
 	logBytes, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +193,7 @@ func TestInstallContextBinariesUsesSelectionLocalConfigAndShims(t *testing.T) {
 	if !strings.Contains(log, "config=") || strings.Contains(log, "config="+plan.PublicDir) || strings.Contains(log, "config="+plan.DataDir) {
 		t.Fatalf("installer did not use selection-local paths, plan=%+v log=%s", plan, log)
 	}
-	if strings.Count(log, "data="+plan.DataDir) != 4 {
+	if strings.Count(log, "data="+plan.DataDir) != 5 {
 		t.Fatalf("installer did not use shared artifact data dir for all steps, log=%s", log)
 	}
 	if strings.Contains(string(logBytes), "secret") {

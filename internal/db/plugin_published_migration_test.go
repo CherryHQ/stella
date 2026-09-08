@@ -99,15 +99,16 @@ func TestMigratePublishedStateRollsBackBeforeMarkerAndCanRetry(t *testing.T) {
 	if _, err := db.Exec(ctx, `
 		INSERT INTO plugin_definition (id, display_name, source, spec, default_enabled, revision)
 		VALUES ('retry-remote', 'Retry remote', 'custom',
-			'{"origin":"remote_mcp","mcp_servers":{"main":{"url":"https://mcp.example.test","transport":"sse"}}}'::jsonb,
+			'{"origin":"remote_mcp","binaries":[{"name":"cli","tool":"uv","version":"1"}],"mcp_servers":{"main":{"url":"https://mcp.example.test","transport":"sse","auth_type":"bearer"}}}'::jsonb,
 			false, 2)
 	`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `
-		INSERT INTO plugin_config (id, plugin_id, scope, enabled, config, revision)
+		INSERT INTO plugin_config (id, plugin_id, scope, enabled, config, credential_refs, revision)
 		VALUES ($1, 'retry-remote', 'system', true,
-			'{"mcp_servers":{"missing":{"url":"https://mcp.example.test"}}}'::jsonb, 1)
+			'{"binaries":[{"name":"cli","version":"2"}],"mcp_servers":{"missing":{"url":"https://mcp.example.test","transport":"sse","auth_type":"bearer"}}}'::jsonb,
+			'{"bearer":{"name":"MCP_TOKEN_retry","scope":"system","user_id":"","agent_id":""}}'::jsonb, 1)
 	`, configID); err != nil {
 		t.Fatal(err)
 	}
@@ -121,11 +122,25 @@ func TestMigratePublishedStateRollsBackBeforeMarkerAndCanRetry(t *testing.T) {
 	if markers != 0 {
 		t.Fatalf("failed migration wrote marker: %d", markers)
 	}
-	if _, err := db.Exec(ctx, `UPDATE plugin_config SET config='{"mcp_servers":{"main":{"url":"https://mcp.example.test"}}}'::jsonb WHERE id=$1`, configID); err != nil {
+	if _, err := db.Exec(ctx, `UPDATE plugin_config SET config='{"binaries":[{"name":"cli","version":"2"}],"mcp_servers":{"main":{"url":"https://mcp.example.test","transport":"sse","auth_type":"bearer"}}}'::jsonb WHERE id=$1`, configID); err != nil {
 		t.Fatal(err)
 	}
 	if err := plugin.MigratePublishedState(ctx, db, plugin.NewCatalog()); err != nil {
 		t.Fatal(err)
+	}
+	var configRaw, refsRaw json.RawMessage
+	if err := db.QueryRow(ctx, `SELECT config, credential_refs FROM plugin_config WHERE id=$1`, configID).Scan(&configRaw, &refsRaw); err != nil {
+		t.Fatal(err)
+	}
+	var configObject map[string]map[string]map[string]any
+	if err := json.Unmarshal(configRaw, &configObject); err != nil {
+		t.Fatal(err)
+	}
+	if configObject["binaries"]["cli"]["version"] != "2" {
+		t.Fatalf("retried CLI pin = %s", configRaw)
+	}
+	if !jsonEqual(refsRaw, []byte(`{"mcp_servers":{"main":{"bearer":{"name":"MCP_TOKEN_retry","scope":"system","user_id":"","agent_id":""}}}}`)) {
+		t.Fatalf("retried credential refs = %s", refsRaw)
 	}
 }
 

@@ -85,13 +85,30 @@ default of the selected definition.
 This is the Agent Plugin configuration model: one `PluginDefinition` plus at most
 one `PluginConfig` for each of the four scope tuples. `user_id` and `agent_id`
 come from the trusted authority and are never accepted as caller-owned identity.
-The definition owns stable package identity and resource declarations; the
-selected config owns its resource payload and credential references for that scope.
+The definition owns the stable package identity, declared resources, source,
+version and content digest. The selected config owns formal parameters for
+already-declared resources and credential references for that scope. A config
+cannot add a binary, Skill, OAuth requirement, source, or package member. Its
+stored parameter object names declared binaries and MCP servers; the resolver
+applies those parameters to a copy of the definition.
 
-The selected scope owns its configuration. It can override fields in the
-shipped definition, but fields and credentials are never merged across scopes.
-A disabled or incomplete winner does not fall back to a broader configuration.
-Builtin plugins follow the same rules and administrators can disable them.
+The selected scope owns its configuration. It can override allowed parameters
+in the shipped definition, but fields and credentials are never merged across
+scopes. A disabled or incomplete winner does not fall back to a broader
+configuration. Builtin plugins follow the same rules and administrators can
+disable them.
+
+### HTTP boundary and formal parameters
+
+The service accepts the formal parameter shape after the request boundary.
+The HTTP adapter still translates older flat MCP fields and binary arrays into
+that shape before calling `Plugin.Access`. Persisted definitions, configs, and
+runtime code do not decode the old shape.
+
+The adapter is a compatibility boundary, not a second configuration model. Its
+exit condition is the declared compatibility window closing after supported
+clients use the formal shape. This document does not assign that condition to
+a release number.
 
 ## One execution snapshot
 
@@ -101,6 +118,30 @@ bindings and declarative prompt sections together from that snapshot. The
 context constructor accepts only the snapshot, so callers cannot pair it with
 resources from another identity or revision. Native Host handles Go-registered
 capabilities and native prompt contributions through its separate policy.
+
+The plugin detail view, `PluginConfig.resource_summary`, and the effective
+configuration endpoint describe declared or configured resources. Package
+update preview is also read-only: it validates the candidate and reports its
+digest, resource names, OAuth changes and incompatible scopes. None of these
+views installs a CLI, connects an MCP server, obtains a token, or proves that
+the next turn is executable.
+
+At turn admission, the runtime rechecks authorization and prepares each
+selected package. It records package-scoped OAuth and CLI readiness, then
+publishes only successful package resources to the prompt, tools, sandbox and
+environment. A failed package remains a masked selection candidate so a
+same-name lower-priority resource cannot be revived by a preparation error.
+
+The host attaches a secret-free execution summary to the durable user-message
+anchor for that admitted turn. Each package entry records the immutable package
+version and digest, config ID, scope and revision, authorization, and readiness.
+Skill entries record the actual winner and its `selected`, `masked`, or
+`overridden` state, with its version, source, scope and digest. Binary entries
+record the requested and resolved versions plus the backend, selection identity
+and source that provide the installation evidence. A pre-existing ready cache
+without evidence leaves the resolved version or installation evidence unknown.
+The summary is absent from turns recorded before this metadata existed; Stella
+does not reconstruct historical admission from current configuration.
 
 Each Agent Plugin resolves by its exact package ID. Different packages do not
 replace each other's resources. Native tools and hooks are absent from that
@@ -129,8 +170,9 @@ prompt guidance. A CLI version pin and a Skill source are independent fields;
 changing one need not change the other. `agentpackage` reads standard package
 files at build time; the generator embeds a normalized definition catalog as
 JSON. Startup reads that catalog directly, without an intermediate manifest or
-YAML conversion. `internal/plugin` owns the shared resource payload and scoped
-configuration validation. OAuth provider documents are loaded and validated by
+YAML conversion. `internal/plugin` owns the authored resource declaration and
+the formal, scoped parameter validation. Resource consumers own installation,
+connection and execution. OAuth provider documents are loaded and validated by
 `internal/connections/oauth`.
 
 Builtin Skills require an explicit source path and package owner. Generation and
@@ -231,7 +273,10 @@ Before starting a process, the local and `none` backends persist a
 so a normal `Close` does not clear this marker and the runner scratch bytes stay
 available for recovery. Any marker globally blocks package and managed-Skill
 resource cleanup; this is conservative evidence, not an automatic final cleanup
-promise, and there is no TTL or PID guess that clears it.
+promise. The marker is never removed automatically, can block cleanup
+indefinitely even after a normal `Close`, and there is currently no product
+command or safe automated recovery path that clears it. There is no TTL or PID
+guess that clears it.
 
 The Docker backend snapshots only the scoped container IDs that existed before
 the current runtime starts. Cleanup is allowed only after each initial ID is
