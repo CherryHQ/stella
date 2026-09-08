@@ -350,3 +350,45 @@ func assertSecondTurn(t *testing.T, events []ai.AssistantEvent) {
 		t.Fatalf("second turn event 4 = %#v, want StopReasonStop", events[4])
 	}
 }
+
+func TestProviderStreamReasoningEffort(t *testing.T) {
+	for _, level := range []string{"", "none", "minimal", "low", "medium", "high", "xhigh", "max"} {
+		t.Run("effort="+level, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]json.RawMessage
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+					return
+				}
+				if level == "" {
+					if _, ok := body["reasoning"]; ok {
+						t.Error("unset reasoning must be omitted")
+					}
+				} else {
+					var reasoning struct {
+						Effort string `json:"effort"`
+					}
+					if err := json.Unmarshal(body["reasoning"], &reasoning); err != nil {
+						t.Error(err)
+					}
+					if reasoning.Effort != level {
+						t.Errorf("wire effort = %q, want %q", reasoning.Effort, level)
+					}
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				if _, err := fmt.Fprintf(w, "data: %s\n\n", completedResponseEvent("reasoning-test", 1, 1, 2)); err != nil {
+					t.Error(err)
+				}
+			}))
+			defer server.Close()
+			provider := New(Config{APIKey: contractAPIKey, BaseURL: server.URL + "/v1"})
+			stream, err := provider.Stream(t.Context(), ai.Model{Name: contractModel}, ai.Context{Messages: []ai.Message{ai.UserMessage{Content: "hi"}}}, ai.StreamOptions{Reasoning: level})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := collectContractEvents(t.Context(), stream); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

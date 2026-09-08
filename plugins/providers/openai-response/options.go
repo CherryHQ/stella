@@ -3,6 +3,7 @@ package openairesponse
 import (
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
+	"github.com/openai/openai-go/shared"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -19,6 +20,10 @@ func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) response
 
 	if ctx.System != "" {
 		params.Instructions = param.NewOpt(ctx.System)
+	}
+
+	if opts.Reasoning != "" {
+		params.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffort(opts.Reasoning)}
 	}
 
 	if opts.Temperature != nil {

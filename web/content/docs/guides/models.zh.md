@@ -4,6 +4,8 @@ title: 模型
 
 Stella 支持多个 AI 提供商，让你选择哪个模型来驱动对话。你可以随时切换模型，无需重启。
 
+思考等级支持 `none`、`minimal`、`low`、`medium`、`high`、`xhigh` 和 `max`。留空使用继承值或提供商默认值。对于 OpenAI Chat Completions 和 Responses 提供商，Stella 原样发送所选等级，请选择模型和网关支持的值。
+
 ## 支持的提供商
 
 Stella 支持三种类型的提供商：

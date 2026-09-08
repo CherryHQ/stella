@@ -347,6 +347,15 @@ api GET "/api/providers/$PROVIDER_ID/evidence?model_id=$MODEL_ID_ENCODED" bearer
 export STELLA_EVAL_ADMIN_TOKEN STELLA_EVAL_PROVIDER_EVIDENCE_FILE STELLA_EVAL_MODEL=$MODEL STELLA_EVAL_AGENT_BIN=$AGENT_BIN
 export STELLA_EVAL_EXCLUDED_TOOLS=$EXCLUDED_TOOLS
 
+if [ -n "${STELLA_EVAL_THINKING_LEVEL:-}" ]; then
+  python3 - "$WORK/default-models.json" <<'PYTHINKING'
+import json, os, sys
+json.dump({"model": os.environ["MODEL"], "model_thinking": os.environ["STELLA_EVAL_THINKING_LEVEL"]}, open(sys.argv[1], "w"))
+PYTHINKING
+  api PUT /api/default-models bearer "$WORK/default-models.json" >"$JOB.thinking.json"
+fi
+
+
 step "running Harbor: $source_kind"; echo "    job: $JOB"
 # The first run of a task pays the image pull; Harbor has no separate prefetch.
 "${harbor_cmd[@]}" --print-config >"$WORK/config.json"
@@ -375,7 +384,7 @@ git = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True).std
 # option names, never arbitrary values that may be credentials or private paths.
 harbor_flags = [arg.split("=", 1)[0] for arg in open(sys.argv[3]).read().split() if arg.startswith("-")]
 json.dump({"created_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "job": os.path.basename(os.environ["JOB"]), "commit": os.environ["SNAPSHOT_COMMIT"], "dirty": bool(git("status", "--porcelain")), "taskset": os.environ["TASKSET_PATH"] or None, "task_names": tasks, # Canonical over sorted dataset-qualified names.
-"task_hash": "sha256:" + hashlib.sha256("\n".join(tasks).encode()).hexdigest(), "k": config.get("n_attempts", 1), "concurrency": config.get("n_concurrent_trials"), "model": os.environ["MODEL"], # Host only: the path can carry a deployment id.
+"task_hash": "sha256:" + hashlib.sha256("\n".join(tasks).encode()).hexdigest(), "k": config.get("n_attempts", 1), "concurrency": config.get("n_concurrent_trials"), "model": os.environ["MODEL"], "thinking_level": os.environ.get("STELLA_EVAL_THINKING_LEVEL", ""), # Host only: the path can carry a deployment id.
 "requested_gateway_host": urlsplit(os.environ["OPENAI_BASE_URL"]).hostname, "harbor_args": harbor_flags, "otel": os.environ["OTEL"] == "1",
 "excluded_tools": os.environ["EXCLUDED_TOOLS"].split(",") if os.environ["EXCLUDED_TOOLS"] else []}, open(sys.argv[1], "w"), indent=2)
 PY

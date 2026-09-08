@@ -19,6 +19,10 @@ func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) sdk.Chat
 		},
 	}
 
+	if opts.Reasoning != "" {
+		params.ReasoningEffort = shared.ReasoningEffort(opts.Reasoning)
+	}
+
 	if opts.Temperature != nil {
 		params.Temperature = sdk.Float(*opts.Temperature)
 	}

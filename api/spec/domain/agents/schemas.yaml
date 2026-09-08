@@ -22,11 +22,20 @@ components:
         id: { type: string }
         name: { type: string }
         model: { type: string }
-        model_thinking: { type: string }
+        model_thinking: {
+          type: string,
+          description: "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
+        }
         model_strong: { type: string }
-        model_strong_thinking: { type: string }
+        model_strong_thinking: {
+          type: string,
+          description: "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
+        }
         model_fast: { type: string }
-        model_fast_thinking: { type: string }
+        model_fast_thinking: {
+          type: string,
+          description: "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
+        }
         system_prompt: { type: string }
         soul: { type: string }
         workspace: { type: string }
@@ -66,11 +75,20 @@ components:
         id: { type: string }
         name: { type: string }
         model: { type: string }
-        model_thinking: { type: string }
+        model_thinking: {
+          type: string,
+          description: "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
+        }
         model_strong: { type: string }
-        model_strong_thinking: { type: string }
+        model_strong_thinking: {
+          type: string,
+          description: "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
+        }
         model_fast: { type: string }
-        model_fast_thinking: { type: string }
+        model_fast_thinking: {
+          type: string,
+          description: "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
+        }
         system_prompt: { type: string }
         soul: { type: string }
         workspace: { type: string }

@@ -161,3 +161,28 @@ func TestValidModelRef(t *testing.T) {
 		}
 	}
 }
+
+func TestMaxThinkingDefaultsAndOverrides(t *testing.T) {
+	defaults := DefaultModels{ModelThinking: "max", ModelStrongThinking: "max", ModelFastThinking: "max"}
+	if field, _, _, ok := ValidateDefaultModels(defaults); !ok {
+		t.Fatalf("max rejected for %s", field)
+	}
+	got := MergeAgentModels(defaults, Agent{Model: "gateway/model"})
+	if got.ModelThinking != "max" || got.ModelStrongThinking != "max" || got.ModelFastThinking != "max" {
+		t.Fatalf("max inheritance lost: %+v", got)
+	}
+	got = MergeAgentModels(DefaultModels{ModelThinking: "low"}, Agent{ModelThinking: "max"})
+	if got.ModelThinking != "max" {
+		t.Fatalf("max override lost: %+v", got)
+	}
+}
+
+func TestNoneThinkingOverridesDefault(t *testing.T) {
+	got := MergeAgentModels(DefaultModels{ModelThinking: "max"}, Agent{ModelThinking: "none"})
+	if got.ModelThinking != "none" {
+		t.Fatalf("none must not inherit max: %+v", got)
+	}
+	if !ValidThinkingLevel("none") {
+		t.Fatal("none rejected")
+	}
+}

@@ -9,6 +9,8 @@ For the fix-iteration loop (small task sets, same-machine before/after,
 verdict tiers), read [`PROTOCOL.md`](PROTOCOL.md); the default task set is
 [`tasksets/loop.yaml`](tasksets/loop.yaml).
 
+Set `STELLA_EVAL_THINKING_LEVEL=max` to request `max` reasoning through the testbed deployment defaults. The loop saves the API response beside the job as `<job>.thinking.json` and records `thinking_level` in the manifest. The provider and model must support the selected level.
+
 ## The loop in one command
 
 ```bash

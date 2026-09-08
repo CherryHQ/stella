@@ -29,11 +29,13 @@ type Provider = string
 type ThinkingLevel = string
 
 const (
+	ThinkingNone    ThinkingLevel = "none"
 	ThinkingMinimal ThinkingLevel = "minimal"
 	ThinkingLow     ThinkingLevel = "low"
 	ThinkingMedium  ThinkingLevel = "medium"
 	ThinkingHigh    ThinkingLevel = "high"
 	ThinkingXHigh   ThinkingLevel = "xhigh"
+	ThinkingMax     ThinkingLevel = "max"
 )
 
 // ThinkingBudgets maps thinking levels to token budgets (token-based providers only).

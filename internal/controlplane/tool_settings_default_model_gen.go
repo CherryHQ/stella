@@ -44,6 +44,7 @@ func SettingsDefaultModelActionTools() []SettingsDefaultModelActionTool {
       "type": "string"
     },
     "model_fast_thinking": {
+      "description": "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
       "type": "string"
     },
     "model_strong": {
@@ -51,9 +52,11 @@ func SettingsDefaultModelActionTools() []SettingsDefaultModelActionTool {
       "type": "string"
     },
     "model_strong_thinking": {
+      "description": "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
       "type": "string"
     },
     "model_thinking": {
+      "description": "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
       "type": "string"
     },
     "model_vision": {

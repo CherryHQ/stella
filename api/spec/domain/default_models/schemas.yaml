@@ -27,11 +27,20 @@ components:
         ]
       properties:
         model: { type: string, maxLength: 256 }
-        model_thinking: { type: string }
+        model_thinking: {
+          type: string,
+          description: "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
+        }
         model_strong: { type: string, maxLength: 256 }
-        model_strong_thinking: { type: string }
+        model_strong_thinking: {
+          type: string,
+          description: "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
+        }
         model_fast: { type: string, maxLength: 256 }
-        model_fast_thinking: { type: string }
+        model_fast_thinking: {
+          type: string,
+          description: "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
+        }
         model_vision: { type: string, maxLength: 256 }
         model_embedding: { type: string, maxLength: 256 }
 
@@ -53,10 +62,19 @@ components:
         ]
       properties:
         model: { type: string, maxLength: 256 }
-        model_thinking: { type: string }
+        model_thinking: {
+          type: string,
+          description: "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
+        }
         model_strong: { type: string, maxLength: 256 }
-        model_strong_thinking: { type: string }
+        model_strong_thinking: {
+          type: string,
+          description: "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
+        }
         model_fast: { type: string, maxLength: 256 }
-        model_fast_thinking: { type: string }
+        model_fast_thinking: {
+          type: string,
+          description: "Reasoning effort: empty (inherit or provider default), none, minimal, low, medium, high, xhigh, or max. Support depends on the provider and model.",
+        }
         model_vision: { type: string, maxLength: 256 }
         model_embedding: { type: string, maxLength: 256 }

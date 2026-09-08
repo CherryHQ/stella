@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -118,5 +119,29 @@ func TestBuildRequestOptionsAll(t *testing.T) {
 	reqOpts := buildRequestOptions(opts)
 	if len(reqOpts) != 1 {
 		t.Errorf("expected 1 request option, got %d", len(reqOpts))
+	}
+}
+
+func TestBuildParamsReasoningEffort(t *testing.T) {
+	for _, level := range []string{"", "none", "minimal", "low", "medium", "high", "xhigh", "max"} {
+		t.Run("effort="+level, func(t *testing.T) {
+			params := buildParams(ai.Model{Name: "reasoning-model"}, ai.Context{}, ai.StreamOptions{Reasoning: level})
+			raw, err := json.Marshal(params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var body map[string]any
+			if err := json.Unmarshal(raw, &body); err != nil {
+				t.Fatal(err)
+			}
+			value, present := body["reasoning_effort"]
+			if level == "" {
+				if present {
+					t.Error("unset reasoning must be omitted")
+				}
+			} else if value != level {
+				t.Errorf("wire effort = %v, want %q", value, level)
+			}
+		})
 	}
 }

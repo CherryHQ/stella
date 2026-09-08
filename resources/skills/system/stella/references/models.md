@@ -1,5 +1,7 @@
 # Model management
 
+Thinking levels accept `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; empty inherits. OpenAI Chat Completions and Responses forward the value unchanged. Provider and model support determine which levels can be used.
+
 ## Tiered models
 
 Two tiers for different workloads, each falls back to `model` when not set:
