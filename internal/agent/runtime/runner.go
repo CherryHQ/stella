@@ -91,7 +91,8 @@ type Runner interface {
 	Close() error
 }
 
-// NewRunnerFunc creates a new Runner with the given params.
+// NewRunnerFunc creates a new Runner with the given params. On failure it may
+// return a non-nil runner solely for Close retry; no other method may be called.
 type NewRunnerFunc func(ctx context.Context, params RunnerParams) (Runner, error)
 
 // MessageText extracts and joins all text from a MessageContent.

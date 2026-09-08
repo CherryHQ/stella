@@ -18,7 +18,7 @@ Stella runs agent code inside a sandbox. The backend is a deployment-wide choice
 Set the backend with the `STELLA_SANDBOX_BACKEND` environment variable when you deploy, then restart `stellad`:
 
 ```bash
-STELLA_SANDBOX_BACKEND=docker   # docker | local | none
+STELLA_SANDBOX_BACKEND=docker   # docker | kubernetes | local | none
 ```
 
 Verify the active selection before sending an agent work. `GET /api/status` returns `sandbox_backend` even without authentication, so an automation can fail before it provisions or executes anything:
@@ -30,7 +30,7 @@ curl -fsS http://localhost:25678/api/status
 
 This reports the deployment selection, not a successful sandbox-session creation. A backend that cannot start still fails closed when the runner is created.
 
-The default is `local`. An unset or unrecognized value also resolves to `local`, so a typo never leaves agents unisolated. There is no Web UI or per-agent override — the sandbox boundary is an operator decision, not a runtime one.
+The default is `local` when unset. An unknown explicit value fails startup. Native Kubernetes Pod execution is available for single-node local/dev deployments; see [Kubernetes](../admin/kubernetes.md#native-pod-sandbox-localdev). There is no Web UI or per-agent override — the sandbox boundary is an operator decision, not a runtime one.
 
 ## Docker Backend
 

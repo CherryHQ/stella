@@ -11,8 +11,8 @@ description: Stella 的发布打标与打包流程。
 
 Stella 有一个生产渠道和一个候选版本渠道：
 
-- **Stable**：`vX.Y.Z`，发布到 GitHub、Homebrew、Linux 软件包、Docker `latest`，并进入生产 Helm 流程。
-- **Release candidate**：`vX.Y.Z-rc.N`，作为 GitHub prerelease 和带完整版本号的 Docker 镜像发布，用于验证。它不能移动 `latest`、更新稳定 Homebrew tap，也不能成为 Helm 默认镜像。
+- **Stable**：`vX.Y.Z`，发布到 GitHub、Homebrew、Linux 软件包、Docker `latest`。
+- **Release candidate**：`vX.Y.Z-rc.N`，作为 GitHub prerelease 和带完整版本号的 Docker 镜像发布，用于验证。它不能移动 `latest`、更新稳定 Homebrew tap。
 
 RC 从维护中的 `release/vX.Y` 分支切出，依次发布 `rc.1`、`rc.2`，直到可以打最终的 `vX.Y.Z`。Dev snapshot 不属于这个流程。
 
@@ -40,40 +40,34 @@ RC 从维护中的 `release/vX.Y` 分支切出，依次发布 `rc.1`、`rc.2`，
    jq --arg version "$VERSION" '.version = $version' web/package.json > "$tmp" && mv "$tmp" web/package.json
    test "$(jq -r '.version' web/package.json)" = "$VERSION"
    ```
-4. Stable 发布时，更新 `deploy/helm/stella/Chart.yaml` 中的 Helm chart 元数据：
-   - 将 `appVersion` 设为 `"vX.Y.Z"`，记录 chart 同期交付的应用版本。默认 `image.tag` 为 `latest`，CI 会在每个稳定版本发布它，因此全新安装会直接使用该版本；`appVersion` 只负责保持元数据准确。
-   - 如果 chart 自上次发布后发生变化，递增 chart 自身独立的 SemVer `version`。
-
-   RC 不更新或发布稳定 Helm chart。RC 部署必须显式将 `image.tag` 固定为完整的候选版本 tag。
-
-5. 更新 `web/content/docs/changelog.mdx` 和 `web/content/docs/changelog.zh.mdx`。
-6. 提交：`📝 docs: Update CHANGELOG for vX.Y.Z`，包含两份 changelog 和 `web/package.json`；Stable 发布还包含 `deploy/helm/stella/Chart.yaml`。
-7. 运行下文的 `mise run release:validate` 完整发布前门禁，确认发布提交是 `HEAD` 且工作区干净：
+4. 更新 `web/content/docs/changelog.mdx` 和 `web/content/docs/changelog.zh.mdx`。
+5. 提交：`📝 docs: Update CHANGELOG for vX.Y.Z`，包含两份 changelog 和 `web/package.json`。
+6. 运行下文的 `mise run release:validate` 完整发布前门禁，确认发布提交是 `HEAD` 且工作区干净：
    ```bash
    git status --short
    git log --oneline -1
    ```
    如果发布提交不是 `HEAD`，立即停止；提交存在前绝不打 tag。
-8. 确认版本 Milestone 包含准确的发布范围，且没有未关闭的 Issue。存在未关闭 Issue 时停止，不要打 tag：
+7. 确认版本 Milestone 包含准确的发布范围，且没有未关闭的 Issue。存在未关闭 Issue 时停止，不要打 tag：
    ```bash
    gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state open
    gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state all
    ```
-9. 推送准备分支，向 `release/vX.Y` 创建 PR，等待必要检查通过后合并。GitHub 不会因合入非默认分支而自动关闭关联 Issue，需显式关闭发布 Issue，并重新确认 Milestone 没有未完成范围。
-10. 获取已合并的维护分支，为远端最新提交打 tag 后推送：
-    ```bash
-    RELEASE_BRANCH=release/vX.Y
-    git fetch origin --prune
-    git switch "$RELEASE_BRANCH"
-    git reset --hard "origin/$RELEASE_BRANCH"
-    TAG=vX.Y.Z # 或 vX.Y.Z-rc.N
-    git tag "$TAG"
-    test "$(git rev-parse "$TAG")" = "$(git rev-parse origin/$RELEASE_BRANCH)"
-    git push origin "$TAG"
-    ```
-11. CI 触发 `.github/workflows/release.yml`，先验证 tag 的确切提交属于对应维护分支，再运行验证与发布任务。
-12. 所有发布 CI 任务成功且 GitHub Release 可见后，发布负责人必须完成[同步回 main](#同步回-main)。RC 和 Stable 都必须执行；只创建 PR 不算发布完成。
-13. Stable 发布及回流完成后，关闭版本 Milestone。RC 保持 Milestone 开放，直到最终 Stable 发布：
+8. 推送准备分支，向 `release/vX.Y` 创建 PR，等待必要检查通过后合并。GitHub 不会因合入非默认分支而自动关闭关联 Issue，需显式关闭发布 Issue，并重新确认 Milestone 没有未完成范围。
+9. 获取已合并的维护分支，为远端最新提交打 tag 后推送：
+   ```bash
+   RELEASE_BRANCH=release/vX.Y
+   git fetch origin --prune
+   git switch "$RELEASE_BRANCH"
+   git reset --hard "origin/$RELEASE_BRANCH"
+   TAG=vX.Y.Z # 或 vX.Y.Z-rc.N
+   git tag "$TAG"
+   test "$(git rev-parse "$TAG")" = "$(git rev-parse origin/$RELEASE_BRANCH)"
+   git push origin "$TAG"
+   ```
+10. CI 触发 `.github/workflows/release.yml`，先验证 tag 的确切提交属于对应维护分支，再运行验证与发布任务。
+11. 所有发布 CI 任务成功且 GitHub Release 可见后，发布负责人必须完成[同步回 main](#同步回-main)。RC 和 Stable 都必须执行；只创建 PR 不算发布完成。
+12. Stable 发布及回流完成后，关闭版本 Milestone。RC 保持 Milestone 开放，直到最终 Stable 发布：
     ```bash
     MILESTONE_NUMBER=$(gh api 'repos/CherryHQ/stella/milestones?state=open' \
       --jq '.[] | select(.title == "vX.Y.Z") | .number')
@@ -99,8 +93,7 @@ RC 从维护中的 `release/vX.Y` 分支切出，依次发布 `rc.1`、`rc.2`，
    - 补齐中英文 changelog 缺失的已发布版本章节。保留 `main` 后续工作的
      `Unreleased` 条目，只移除确认属于已发布版本的条目。禁止整文件覆盖，也不能
      把版本边界整理推迟到未来发布。
-   - 同步 `web/package.json` 和适用的 Stable Helm 元数据，但不能降低 `main`
-     上更新的版本或覆盖后续 chart 改动。RC 回流不能更改稳定 Helm 元数据。
+   - 同步 `web/package.json`，但不能降低 `main` 上更新的版本。
    - 移植 release-only 的代码、构建和文档修复。每项修复都要注明对应的 main
      提交或关联 PR，不适用的则解释原因。
 4. 在同步分支解决冲突，保留 `main` 后续改动。按变更范围完成必要检查，经审阅后

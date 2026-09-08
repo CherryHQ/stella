@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path"
@@ -99,7 +100,7 @@ type runner struct {
 }
 
 // newRunner creates a runner with built-in providers.
-func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
+func newRunner(ctx context.Context, cfg runnerConfig) (built *runner, err error) {
 	stream, err := buildStreamFunc(cfg)
 	if err != nil {
 		return nil, err
@@ -126,24 +127,31 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		}
 	}
 
+	var toolReg *tools.Registry
+	defer func() {
+		if recover() != nil {
+			err = errors.New("runner initialization panicked")
+		}
+		if err == nil {
+			return
+		}
+		// Transfer failed cleanup to the cache instead of losing execution that
+		// may still hold writable roots. The object supports Close only.
+		built = &runner{session: session, tools: toolReg, cleanup: cfg.Cleanup}
+	}()
+
 	if systemPrompt == "" {
 		systemPrompt = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{Sections: cfg.Sections, Session: session})
 	}
 
 	toolReg, hookSet, delegateTool, err := buildToolRegistry(ctx, cfg, session, stream, model, systemPrompt)
 	if err != nil {
-		if session != nil {
-			_ = session.Close()
-		}
 		return nil, err
 	}
 
 	streamOptions := ai.StreamOptions{Reasoning: cfg.Thinking}
 	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, cfg.CanonicalImages, cfg.CodeToolSurface)
 	if err != nil {
-		if session != nil {
-			_ = session.Close()
-		}
 		return nil, fmt.Errorf("runner: %w", err)
 	}
 
@@ -673,7 +681,7 @@ func (r *runner) RunManagedSession(ctx context.Context, req delegatetool.Managed
 func (r *runner) SandboxSession() pkgsandbox.Session { return r.session }
 
 // Close shuts down any subprocess-backed tools and the sandbox session.
-// Guarantees cleanup of session resources regardless of state.
+// Scratch cleanup waits for confirmed sandbox termination; failed Close is retryable.
 func (r *runner) Close() error {
 	var errs []error
 
@@ -686,6 +694,7 @@ func (r *runner) Close() error {
 	if r.session != nil {
 		if err := r.session.Close(); err != nil {
 			errs = append(errs, err)
+			return errors.Join(errs...)
 		}
 	}
 	if r.cleanup != nil {

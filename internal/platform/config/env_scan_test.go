@@ -123,7 +123,7 @@ var envReadAllowlist = map[string]map[string]bool{
 	// configuration: the mise task execs the binary with no flags, so the
 	// variable is the only way a caller can move it off a port something else
 	// already holds.
-	"test/testbed/supervisor.go": {nonLiteralRead: true},
+	"test/testbed/supervisor.go": {nonLiteralRead: true, "STELLA_SANDBOX_BACKEND": true},
 	"test/testbed/cli.go":        {"STELLA_TESTBED_PORT": true},
 
 	// Plugins do not import internal/platform/config. Per-message render read (feishu) and

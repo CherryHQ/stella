@@ -13,10 +13,10 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
 Stella has one production channel and one candidate channel:
 
 - **Stable**: `vX.Y.Z`, published to GitHub, Homebrew, Linux packages, Docker
-  `latest`, and the production Helm flow.
+  `latest`.
 - **Release candidate**: `vX.Y.Z-rc.N`, published as a GitHub prerelease and
   versioned Docker images for validation. It must not move `latest`, update the
-  stable Homebrew tap, or become the default Helm image.
+  stable Homebrew tap.
 
 RCs are cut from the maintained `release/vX.Y` branch. Publish `rc.1`, `rc.2`,
 and so on until the branch is ready for the final `vX.Y.Z` tag. Dev snapshots
@@ -81,37 +81,26 @@ commit that is not reachable from that branch.
    jq --arg version "$VERSION" '.version = $version' web/package.json > "$tmp" && mv "$tmp" web/package.json
    test "$(jq -r '.version' web/package.json)" = "$VERSION"
    ```
-5. For a stable release, update the Helm chart metadata in `deploy/helm/stella/Chart.yaml`:
-   - Set `appVersion: "vX.Y.Z"` so the chart records the release it ships alongside.
-     The default `image.tag` is `latest` (CI publishes it for every stable release,
-     see Artifacts), so a fresh install already tracks this version; `appVersion`
-     just keeps the metadata honest.
-   - Bump the chart's own `version` (its SemVer, independent of `appVersion`)
-     whenever the chart changed since the last release.
-
-   For an RC, do not update or publish the stable Helm chart. RC operators must
-   pin `image.tag` to the full candidate tag explicitly.
-
-6. Update `web/content/docs/changelog.mdx` and `web/content/docs/changelog.zh.mdx` (see below).
-7. Commit: `📝 docs: Update CHANGELOG for vX.Y.Z` including both changelogs and
-   `web/package.json`; stable releases also include `deploy/helm/stella/Chart.yaml`.
-8. Run the full pre-cut gate below. Verify that the release commit is `HEAD` and
+5. Update `web/content/docs/changelog.mdx` and `web/content/docs/changelog.zh.mdx` (see below).
+6. Commit: `📝 docs: Update CHANGELOG for vX.Y.Z` including both changelogs and
+   `web/package.json`.
+7. Run the full pre-cut gate below. Verify that the release commit is `HEAD` and
    the working tree is clean:
    ```bash
    git status --short
    git log --oneline -1
    ```
-9. Verify that the version milestone contains the exact release scope and has
+8. Verify that the version milestone contains the exact release scope and has
    no open issues. Stop and resolve any open issue before tagging:
    ```bash
    gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state open
    gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state all
    ```
-10. Push the preparation branch and open a PR against `release/vX.Y`. Wait for
-    required checks and merge it. GitHub auto-closes linked issues only when a PR
-    merges into the default branch, so close the release issue explicitly and
-    recheck that the version milestone has no open scope.
-11. Fetch the merged release branch, then tag its remote tip:
+9. Push the preparation branch and open a PR against `release/vX.Y`. Wait for
+   required checks and merge it. GitHub auto-closes linked issues only when a PR
+   merges into the default branch, so close the release issue explicitly and
+   recheck that the version milestone has no open scope.
+10. Fetch the merged release branch, then tag its remote tip:
     ```bash
     git fetch origin --prune
     git switch "$RELEASE_BRANCH"
@@ -121,13 +110,13 @@ commit that is not reachable from that branch.
     test "$(git rev-parse "$TAG")" = "$(git rev-parse origin/$RELEASE_BRANCH)"
     git push origin "$TAG"
     ```
-12. CI triggers `.github/workflows/release.yml`. It verifies the exact tagged
+11. CI triggers `.github/workflows/release.yml`. It verifies the exact tagged
     commit and the matching maintained branch before publication starts.
-13. After all release CI jobs succeed and the GitHub Release is visible, the
+12. After all release CI jobs succeed and the GitHub Release is visible, the
     release owner must complete [Sync back to main](#sync-back-to-main). Both RC
     and stable releases require this step. Opening a PR alone does not complete
     the release.
-14. After the stable release and sync-back are complete, close the version
+13. After the stable release and sync-back are complete, close the version
     milestone. For an RC, keep it open until the final stable release:
     ```bash
     MILESTONE_NUMBER=$(gh api 'repos/CherryHQ/stella/milestones?state=open' \
@@ -160,9 +149,7 @@ version.
      later `main` work in `Unreleased`; remove only entries confirmed to belong
      to the published release. Never replace the whole file with the release
      copy or defer the version boundary to a future release.
-   - Sync `web/package.json` and applicable stable Helm metadata without
-     downgrading newer versions on `main` or overwriting newer chart changes.
-     RC syncs must not change stable Helm metadata.
+   - Sync `web/package.json` without downgrading newer versions on `main`.
    - Port release-only code, build, and documentation fixes. For each fix,
      identify its main commit or linked PR, or explain why it does not apply.
 4. Resolve conflicts on the sync branch while preserving later `main` changes.

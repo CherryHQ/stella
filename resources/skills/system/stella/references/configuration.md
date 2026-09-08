@@ -286,7 +286,7 @@ that global Agent ID. Run restore and root cleanup while Stella is stopped.
 An explicit destructive user, group, or Agent delete fences execution before the
 database transaction removes the owner. Physical bytes and inodes remain, while
 subsequent workspace access fails owner validation.
-Removing an assignment or member, archiving a Session, and uninstalling Helm do not
+Removing an assignment or member and archiving a Session do not
 delete workspace bytes. Do not manually clean workspace roots while Stella is running.
 Multi-replica, Kubernetes, and S3 authority require a future redesign.
 

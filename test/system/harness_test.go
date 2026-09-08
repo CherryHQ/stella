@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/cookiejar"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -39,7 +40,11 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	skipUnsupportedHost(t)
 	runID := newRunID(t)
-	instance, err := testbed.Start(context.Background(), testbed.Options{RepoRoot: repoRoot(t), Port: 0, FakeModel: true, Bootstrap: false})
+	port := 0
+	if os.Getenv("STELLA_SANDBOX_BACKEND") == "kubernetes" {
+		port = 25777
+	}
+	instance, err := testbed.Start(context.Background(), testbed.Options{RepoRoot: repoRoot(t), Port: port, FakeModel: true, Bootstrap: false})
 	if err != nil {
 		t.Fatalf("system: start testbed: %v", err)
 	}
@@ -83,6 +88,9 @@ func skipUnsupportedHost(t *testing.T) {
 }
 
 func repoRoot(t *testing.T) string {
+	if root := os.Getenv("STELLA_TEST_REPO_ROOT"); root != "" {
+		return root
+	}
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
