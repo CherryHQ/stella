@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -19,16 +20,16 @@ import (
 
 // cachedSession holds one active runner and its metadata.
 type cachedSession struct {
-	info     session.Info
-	r        Runner
-	model    string
-	thinking ai.ThinkingLevel
-	stale    bool
-	closing  bool // Retained until destructive owner cleanup confirms termination.
-	// failedAdmission marks a stale runner left behind by a recovered synchronous
-	// lookup panic. It must be retired without invoking it again: Alive/Busy may
-	// be the operation that panicked.
-	failedAdmission bool
+	info      session.Info
+	r         Runner
+	model     string
+	thinking  ai.ThinkingLevel
+	stale     bool
+	closing   bool          // Terminal close forbids admission until the entry is removed.
+	operation chan struct{} // Creation and Close retain the slot until completion.
+	// unusable quarantines a runner after initialization/lookup failure or Close.
+	// Only Close may be retried; Alive/Busy may panic or report obsolete state.
+	unusable bool
 	// reserved is set synchronously during turn admission, before the chat
 	// goroutine invokes Runner.Chat. Policy invalidation treats it like Busy so
 	// an admitted turn keeps its immutable runner snapshot through that gap.
@@ -50,7 +51,6 @@ type runnerSelection struct {
 // runnerCache manages active runners keyed by session ID.
 // It is an implementation detail of Runtime.
 type runnerCache struct {
-	retired         map[*retiredRunner]struct{}
 	sessions        map[string]*cachedSession
 	newRunner       NewRunnerFunc
 	hooksFn         func() []hooks.HookPlugin
@@ -97,257 +97,158 @@ func (c *runnerCache) getOrCreateReserved(ctx context.Context, info session.Info
 	return c.getOrCreateWithReservation(ctx, info, model, thinking, true, extraTools...)
 }
 
-func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info session.Info, model string, thinking ai.ThinkingLevel, reserve bool, extraTools ...tools.Tool) (selection runnerSelection, err error) {
-	var (
-		cs               *cachedSession
-		created          bool
-		reservationOwned bool
-	)
-	defer func() {
-		if recover() == nil {
-			return
+// acquire serializes construction and replacement within one cache slot. Other
+// sessions keep running, and callers waiting for the slot can cancel admission.
+func (c *runnerCache) acquire(ctx context.Context, info session.Info) (*cachedSession, error) {
+	for {
+		c.mu.Lock()
+		cs := c.sessions[info.ID]
+		if cs == nil {
+			cs = &cachedSession{info: info}
+			c.sessions[info.ID] = cs
 		}
-		// Construction runs synchronously after Runtime has installed its busy
-		// guard. Recover here, at the boundary that owns the reservation, so a
-		// malformed provider/memory implementation cannot wedge that session.
-		// Never include recovered values: panics can contain provider secrets.
-		c.log.Error("runner construction panicked", "session_id", info.ID)
-		if reservationOwned {
-			c.abortReservedAdmission(cs)
-		} else if cs != nil {
-			c.mu.Lock()
-			if c.sessions[info.ID] == cs {
-				if cs.r == nil && !cs.reserved && created {
-					// No runner escaped the failed admission; do not retain an
-					// empty reserved cache record.
-					delete(c.sessions, info.ID)
-				}
-			}
+		if cs.closing {
 			c.mu.Unlock()
+			return nil, errors.New("runner termination is pending")
 		}
-		selection = runnerSelection{}
-		err = errors.New("runner construction failed")
-	}()
-	// Validate the session and derive its memory scope before any cache lookup or
-	// runner creation. An invalid session (missing owner, malformed group id) must
-	// fail closed here so a runner is never installed over an unusable scope.
+		pending := cs.operation
+		if pending == nil {
+			cs.operation = make(chan struct{})
+			c.mu.Unlock()
+			return cs, nil
+		}
+		c.mu.Unlock()
+		select {
+		case <-pending:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+func (c *runnerCache) finishOperation(cs *cachedSession) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	close(cs.operation)
+	cs.operation = nil
+}
+
+func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info session.Info, model string, thinking ai.ThinkingLevel, reserve bool, extraTools ...tools.Tool) (selection runnerSelection, err error) {
 	memSess, err := info.MemoryScope()
 	if err != nil {
 		return runnerSelection{}, fmt.Errorf("session scope: %w", err)
 	}
+	cs, err := c.acquire(ctx, info)
+	if err != nil {
+		return runnerSelection{}, err
+	}
+	defer c.finishOperation(cs)
+	reservationOwned := false
+	defer func() {
+		panicked := recover() != nil
+		if panicked {
+			// Recovered values may contain provider credentials.
+			c.log.Error("runner construction panicked", "session_id", info.ID)
+			selection = runnerSelection{}
+			err = errors.New("runner construction failed")
+		}
+		c.mu.Lock()
+		if cs.closing && err == nil {
+			selection = runnerSelection{}
+			err = errors.New("runner termination is pending")
+		}
+		if panicked && !cs.reserved {
+			cs.unusable, cs.stale = cs.r != nil, true
+		}
+		c.mu.Unlock()
+		if err != nil && reservationOwned {
+			c.abortReservedAdmission(cs)
+		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if err != nil && cs.r == nil && c.sessions[info.ID] == cs {
+			delete(c.sessions, info.ID)
+		}
+	}()
 
 	var (
-		stale           Runner
-		newRunner       NewRunnerFunc
-		hooksFn         func() []hooks.HookPlugin
-		defaultModel    string
-		defaultThinking ai.ThinkingLevel
-		delegateRunner  delegatetool.SessionRunner
-		cachedModel     string
-		cachedThinking  ai.ThinkingLevel
-		selected        bool
+		newRunner         NewRunnerFunc
+		hooksFn           func() []hooks.HookPlugin
+		delegateRunner    delegatetool.SessionRunner
+		effectiveModel    string
+		effectiveThinking ai.ThinkingLevel
+		selected          bool
 	)
 	func() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
-
-		var ok bool
-		cs, ok = c.sessions[info.ID]
-		if !ok {
-			cs = &cachedSession{info: info}
-			c.sessions[info.ID] = cs
-			created = true
-		}
-		if cs.closing {
-			err = errors.New("runner termination is pending")
-			return
-		}
 		wasReserved := cs.reserved
 		reservationOwned = reserve && !wasReserved
-		if cs.failedAdmission && cs.r == nil && !wasReserved {
-			// The bad runner was already detached by another lifecycle path.
-			// Nothing cache-reachable remains to quarantine.
-			cs.failedAdmission = false
-			cs.stale = false
-		}
-
-		// A failed admission is a stronger state than ordinary stale: its
-		// Alive/Busy method may be the panic source, so branch before invoking
-		// either method. A defensive reservation remains owned by its turn.
-		if cs.r != nil && cs.failedAdmission {
-			if wasReserved {
-				cs.stale = true
-				if reserve {
-					cs.reserved = true
-				}
-				selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
-				selected = true
-				return
-			}
-			stale = c.trackRetiredLocked(cs.info, cs.r)
-			cs.r = nil
-			cs.stale = false
-			cs.failedAdmission = false
-		}
-		// Reservation is authoritative. Do not inspect a runner owned by an
-		// admitted turn; only cache/request metadata may make its successor stale.
-		if cs.r != nil && wasReserved {
-			if len(extraTools) > 0 || (model != "" && cs.model != model) ||
-				(thinking != "" && cs.thinking != thinking) {
-				cs.stale = true
-			}
-			selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
-			selected = true
-			return
-		}
-		// A prior ordinary stale runner may still have a valid Busy method.
-		if cs.r != nil && cs.stale {
-			if cs.r.Busy() {
-				if reserve {
-					cs.reserved = true
-				}
-				selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
-				selected = true
-				return
-			}
-			stale = c.trackRetiredLocked(cs.info, cs.r)
-			cs.r = nil
-			cs.stale = false
-			cs.failedAdmission = false
-		}
-		if cs.r != nil {
-			replace := cs.stale || len(extraTools) > 0 || !cs.r.Alive() ||
-				(model != "" && cs.model != model) || (thinking != "" && cs.thinking != thinking)
-			if replace && cs.r.Busy() {
-				// A runner selected by an admitted turn is owned by that turn even
-				// before Runner.Chat reports Busy. Every non-terminal replacement
-				// path defers to it and makes the following turn rebuild instead.
-				cs.stale = true
-				if reserve {
-					cs.reserved = true
-				}
-				selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
-				selected = true
-				return
-			}
-			switch {
-			case cs.stale:
-				stale = c.trackRetiredLocked(cs.info, cs.r)
-				cs.r = nil
-				cs.stale = false
-				cs.failedAdmission = false
-			case len(extraTools) > 0:
-				stale = c.trackRetiredLocked(cs.info, cs.r)
-				cs.r = nil
-			case !cs.r.Alive():
-				c.log.Warn("replacing dead runner", "session_id", info.ID)
-				stale = c.trackRetiredLocked(cs.info, cs.r)
-				cs.r = nil
-			case model != "" && cs.model != model:
-				c.log.Info("switching model", "session_id", info.ID, "from", cs.model, "to", model)
-				stale = c.trackRetiredLocked(cs.info, cs.r)
-				cs.r = nil
-			case thinking != "" && cs.thinking != thinking:
-				c.log.Info("switching thinking level", "session_id", info.ID, "from", cs.thinking, "to", thinking)
-				stale = c.trackRetiredLocked(cs.info, cs.r)
-				cs.r = nil
-			default:
-				if reserve {
-					cs.reserved = true
-				}
-				selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
-				selected = true
-				return
-			}
-		}
-		// Mark the lease before runner construction releases c.mu. This covers a
-		// reset/reaper/invalidation interleaving while the factory is running.
 		if reserve {
 			cs.reserved = true
 		}
-		newRunner = c.newRunner
-		hooksFn = c.hooksFn
-		defaultModel = c.defaultModel
-		defaultThinking = c.defaultThinking
-		delegateRunner = c.delegateRunner
-		cachedModel = cs.model
-		cachedThinking = cs.thinking
+		if cs.r != nil {
+			replace := cs.stale || cs.unusable || len(extraTools) > 0 ||
+				(model != "" && cs.model != model) || (thinking != "" && cs.thinking != thinking)
+			// A reserved runner belongs to its admitted turn. Never probe it.
+			if !wasReserved && !replace {
+				replace = !cs.r.Alive()
+			}
+			if wasReserved || !replace || (!cs.unusable && cs.r.Busy()) {
+				cs.stale = replace
+				selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
+				selected = true
+				return
+			}
+		}
+		effectiveModel = cmp.Or(model, cs.model, c.defaultModel)
+		effectiveThinking = cmp.Or(thinking, cs.thinking, c.defaultThinking)
+		newRunner, hooksFn, delegateRunner = c.newRunner, c.hooksFn, c.delegateRunner
+		cs.stale = false
 	}()
-	if err != nil {
-		return runnerSelection{}, err
-	}
 	if selected {
 		return selection, nil
 	}
-
-	if stale != nil {
-		_ = c.closeRetired(stale)
+	// The old runner stays discoverable by owner deletion until Close succeeds.
+	if err := c.closeRunner(cs, nil); err != nil {
+		return runnerSelection{}, err
 	}
-
-	effectiveModel := model
-	if effectiveModel == "" {
-		effectiveModel = cachedModel
-	}
-	if effectiveModel == "" {
-		effectiveModel = defaultModel
-	}
-	effectiveThinking := thinking
-	if effectiveThinking == "" {
-		effectiveThinking = cachedThinking
-	}
-	if effectiveThinking == "" {
-		effectiveThinking = defaultThinking
+	c.mu.Lock()
+	closing := cs.closing
+	c.mu.Unlock()
+	if closing {
+		return runnerSelection{}, errors.New("runner termination is pending")
 	}
 
 	r, err := newRunner(ctx, RunnerParams{
-		Model:           effectiveModel,
-		Thinking:        effectiveThinking,
-		Memory:          c.mem,
-		UserID:          info.UserID,
-		GroupID:         info.GroupID,
-		GuestID:         info.GuestID,
-		ForegroundHuman: foregroundHumanSession(info),
-		SessionID:       info.ID,
-		AgentID:         info.AgentID,
-		ProjectID:       info.ProjectID,
-		HooksFn:         hooksFn,
-		ExtraTools:      extraTools,
-		DelegateRunner:  delegateRunner,
+		Model: effectiveModel, Thinking: effectiveThinking, Memory: c.mem,
+		UserID: info.UserID, GroupID: info.GroupID, GuestID: info.GuestID,
+		ForegroundHuman: foregroundHumanSession(info), SessionID: info.ID,
+		AgentID: info.AgentID, ProjectID: info.ProjectID,
+		HooksFn: hooksFn, ExtraTools: extraTools, DelegateRunner: delegateRunner,
 	})
 	if err != nil {
 		c.mu.Lock()
-		if current := c.sessions[info.ID]; current == cs && cs.r == nil {
-			delete(c.sessions, info.ID)
-		}
+		cs.r, cs.unusable = r, r != nil
 		c.mu.Unlock()
-		return runnerSelection{}, err
+		return runnerSelection{}, errors.Join(err, c.closeRunner(cs, nil))
 	}
-
 	c.mu.Lock()
-	if cs.r != nil {
-		// Another goroutine installed a runner; discard ours.
-		selection := runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
-		retired := c.trackRetiredLocked(info, r)
-		c.mu.Unlock()
-		_ = c.closeRetired(retired)
-		return selection, nil
-	}
 	cs.r = r
-	// reset/invalidation may have marked this reserved lease stale while its
-	// factory ran. Keep the turn's immutable selection below, but never restore
-	// reset-cleared cache metadata for the next turn.
+	// Reset can mark an in-flight construction stale without waiting for it.
+	// Its admitted turn keeps this snapshot; the following turn rebuilds.
 	if !cs.stale {
-		cs.model = effectiveModel
-		cs.thinking = effectiveThinking
-		cs.failedAdmission = false
+		cs.model, cs.thinking = effectiveModel, effectiveThinking
 	}
+	cs.unusable = false
+	closing = cs.closing
 	c.mu.Unlock()
-
-	// Bootstrap memory for this session using the scope derived up front.
+	if closing {
+		return runnerSelection{}, errors.New("runner termination is pending")
+	}
 	if err := c.mem.Bootstrap(ctx, memSess); err != nil {
 		c.log.Warn("memory bootstrap failed", "session_id", info.ID, "error", err)
 	}
-
 	c.log.Info("created runner", "session_id", info.ID, "model", effectiveModel)
 	return runnerSelection{session: cs, runner: r, model: effectiveModel, thinking: effectiveThinking}, nil
 }
@@ -397,224 +298,110 @@ func (c *runnerCache) abortReservedAdmission(cs *cachedSession) {
 		return
 	}
 	cs.stale = true
-	cs.failedAdmission = true
+	cs.unusable = true
 	cs.model = ""
 	cs.thinking = ""
 }
 
-// retiredRunner keeps detached execution visible to destructive owner cleanup.
-// Registration happens under the same lock as detachment, before Close can block.
-type retiredRunner struct {
-	Runner
-	info   session.Info
-	mu     sync.Mutex
-	closed bool
-}
-
-func (r *retiredRunner) Close() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.closed {
-		return nil
-	}
-	if err := r.Runner.Close(); err != nil {
-		return err
-	}
-	r.closed = true
-	return nil
-}
-
-func (c *runnerCache) trackRetiredLocked(info session.Info, r Runner) Runner {
-	retired := &retiredRunner{Runner: r, info: info}
-	if c.retired == nil {
-		c.retired = make(map[*retiredRunner]struct{})
-	}
-	c.retired[retired] = struct{}{}
-	return retired
-}
-
-// A failed or panicking Close remains registered for the next owner fence.
-func (c *runnerCache) closeRetired(r Runner) (err error) {
+// closeRunner requires ownership of cs.operation. A failed or panicking Close
+// retains the same runner for retry, including during destructive owner cleanup.
+func (c *runnerCache) closeRunner(cs *cachedSession, cb SandboxSessionCallback) (err error) {
 	defer func() {
 		if recover() != nil {
 			c.log.Error("runner close panicked")
 			err = errors.New("runner close failed")
 		}
 	}()
-	err = r.Close()
-	if err == nil {
-		if retired, ok := r.(*retiredRunner); ok {
-			c.mu.Lock()
-			delete(c.retired, retired)
-			c.mu.Unlock()
+	c.mu.Lock()
+	r := cs.r
+	cs.unusable = r != nil
+	c.mu.Unlock()
+	var cbErr error
+	if r != nil {
+		if cb != nil {
+			if sr, ok := r.(interface{ SandboxSession() pkgsandbox.Session }); ok {
+				if sess := sr.SandboxSession(); sess != nil {
+					cbErr = cb(sess)
+				}
+			}
+		}
+		if err := r.Close(); err != nil {
+			return errors.Join(cbErr, err)
 		}
 	}
-	return err
+	c.mu.Lock()
+	cs.r = nil
+	cs.unusable = false
+	c.mu.Unlock()
+	return cbErr
 }
 
-// close shuts down the runner for a single session.
 func (c *runnerCache) close(sessionID string) error {
 	return c.closeWithSandbox(sessionID, nil)
 }
 
-// closeWithSandbox invokes cb with the live runner-owned sandbox, when present,
-// immediately before closing the runner. Close still runs if cb fails.
+// closeWithSandbox invokes cb just before Close. Failed termination retains the
+// slot, so a retry cannot overlap an older execution generation.
 func (c *runnerCache) closeWithSandbox(sessionID string, cb SandboxSessionCallback) error {
-	c.mu.Lock()
-	cs, ok := c.sessions[sessionID]
-	if ok && cs.closing {
-		c.mu.Unlock()
-		return c.closeWhere(func(other *cachedSession) bool { return other == cs })
-	}
-	var retired Runner
-	if ok {
-		if cs.r != nil {
-			retired = c.trackRetiredLocked(cs.info, cs.r)
-		}
-		delete(c.sessions, sessionID)
-	}
-	c.mu.Unlock()
-	if !ok || cs.r == nil {
-		return nil
-	}
-
-	var cbErr error
-	if cb != nil {
-		if sr, ok := cs.r.(interface{ SandboxSession() pkgsandbox.Session }); ok {
-			if sess := sr.SandboxSession(); sess != nil {
-				cbErr = cb(sess)
-			}
-		}
-	}
-	return errors.Join(cbErr, c.closeRetired(retired))
+	return c.terminalClose(func(cs *cachedSession) bool { return cs.info.ID == sessionID }, cb)
 }
 
-func (c *runnerCache) reset() error {
-	return c.resetWhere(nil)
-}
+func (c *runnerCache) reset() error { return c.resetWhere(nil) }
 
-// resetWhere retires only idle, unreserved runners selected by include. Every
-// non-terminal reset entry point uses it, so an admitted lease is handled the
-// same for agent-wide and user-scoped invalidation.
 func (c *runnerCache) resetWhere(include func(*cachedSession) bool) error {
-	var runners []Runner
-	func() {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		for _, cs := range c.sessions {
-			if cs.closing {
-				continue
-			}
-			if include != nil && !include(cs) {
-				continue
-			}
-			switch {
-			case cs.failedAdmission && cs.reserved:
-				cs.stale = true
-			case cs.failedAdmission && cs.r != nil:
-				runners = append(runners, c.trackRetiredLocked(cs.info, cs.r))
-				cs.r = nil
-				cs.stale = false
-				cs.failedAdmission = false
-			case cs.failedAdmission:
-				cs.stale = false
-				cs.failedAdmission = false
-			case cs.reserved:
-				cs.stale = true
-			case cs.r != nil && cs.r.Busy():
-				cs.stale = true
-			case cs.r != nil:
-				runners = append(runners, c.trackRetiredLocked(cs.info, cs.r))
-				cs.r = nil
-				cs.stale = false
-				cs.failedAdmission = false
-			}
-			cs.model = ""
-			cs.thinking = ""
+	return c.retireIdle(func(cs *cachedSession) bool {
+		if include != nil && !include(cs) {
+			return false
 		}
-	}()
-
-	var lastErr error
-	for _, r := range runners {
-		if err := c.closeRetired(r); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+		cs.model, cs.thinking = "", ""
+		return true
+	})
 }
 
-// invalidateSkillPolicy retires idle runners immediately and marks busy runners
-// for replacement after their current turn. This is the local boundary for a
-// committed AgentSkillPolicy; cross-replica digest invalidation is Phase 4.
 func (c *runnerCache) invalidateSkillPolicy() error {
-	var runners []Runner
+	return c.retireIdle(func(*cachedSession) bool { return true })
+}
+
+// retireIdle preserves admitted work and never waits for a factory. It claims
+// idle slots under c.mu so admission cannot slip between selection and Close.
+func (c *runnerCache) retireIdle(include func(*cachedSession) bool) error {
+	var closing []*cachedSession
 	func() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		for _, cs := range c.sessions {
-			if cs.closing {
+			if cs.closing || !include(cs) {
 				continue
 			}
-			// Defensive ordering: a reservation is authoritative even if another
-			// cache path has temporarily cleared r. The next lookup must rebuild.
-			if cs.failedAdmission && cs.reserved {
-				cs.stale = true
+			cs.stale = true
+			if cs.reserved || cs.operation != nil || (cs.r != nil && !cs.unusable && cs.r.Busy()) {
 				continue
 			}
-			if cs.failedAdmission && cs.r != nil {
-				runners = append(runners, c.trackRetiredLocked(cs.info, cs.r))
-				cs.r = nil
-				cs.stale = false
-				cs.failedAdmission = false
-				continue
-			}
-			if cs.failedAdmission {
-				cs.stale = false
-				cs.failedAdmission = false
-				continue
-			}
-			if cs.reserved {
-				cs.stale = true
-				continue
-			}
-			if cs.r == nil {
-				continue
-			}
-			if cs.r.Busy() {
-				cs.stale = true
-				continue
-			}
-			runners = append(runners, c.trackRetiredLocked(cs.info, cs.r))
-			cs.r = nil
-			cs.stale = false
-			cs.failedAdmission = false
+			cs.operation = make(chan struct{})
+			closing = append(closing, cs)
 		}
 	}()
-	var lastErr error
-	for _, r := range runners {
-		if err := c.closeRetired(r); err != nil {
-			lastErr = err
-		}
+	var errs []error
+	for _, cs := range closing {
+		errs = append(errs, c.closeRunner(cs, nil))
+		c.finishOperation(cs)
 	}
-	return lastErr
+	return errors.Join(errs...)
 }
 
-// closeAll shuts down all runners.
 func (c *runnerCache) closeAll() error {
 	return c.closeWhere(func(*cachedSession) bool { return true })
 }
 
-// closeWhere is terminal: unlike resetWhere it removes every matching cache
-// entry and closes busy or reserved runners too. Owner deletion is allowed to
-// interrupt work; ordinary policy invalidation must never use this path.
 func (c *runnerCache) closeWhere(include func(*cachedSession) bool) error {
+	return c.terminalClose(include, nil)
+}
+
+// Terminal close first blocks admission for every matching slot, then waits for
+// any in-flight construction/Close. Owner deletion cannot overlook a factory
+// that has not returned its runner yet. Unlike reset, it may interrupt Busy work.
+func (c *runnerCache) terminalClose(include func(*cachedSession) bool, cb SandboxSessionCallback) error {
 	c.mu.Lock()
-	var pending []*retiredRunner
-	for r := range c.retired {
-		if include(&cachedSession{info: r.info}) {
-			pending = append(pending, r)
-		}
-	}
 	var closing []*cachedSession
 	for _, cs := range c.sessions {
 		if include(cs) {
@@ -624,80 +411,39 @@ func (c *runnerCache) closeWhere(include func(*cachedSession) bool) error {
 	}
 	c.mu.Unlock()
 	var errs []error
-	for _, r := range pending {
-		if err := c.closeRetired(r); err != nil {
-			errs = append(errs, err)
-		}
-	}
 	for _, cs := range closing {
-		if cs.r != nil {
-			if err := c.closeRetired(cs.r); err != nil {
-				errs = append(errs, err)
-				continue
-			}
-		}
 		c.mu.Lock()
-		if c.sessions[cs.info.ID] == cs {
+		for cs.operation != nil {
+			pending := cs.operation
+			c.mu.Unlock()
+			<-pending
+			c.mu.Lock()
+		}
+		if c.sessions[cs.info.ID] != cs {
+			c.mu.Unlock()
+			continue
+		}
+		cs.operation = make(chan struct{})
+		c.mu.Unlock()
+		err := c.closeRunner(cs, cb)
+		c.mu.Lock()
+		if cs.r == nil {
 			delete(c.sessions, cs.info.ID)
 		}
 		c.mu.Unlock()
+		c.finishOperation(cs)
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
 
-// reap closes runners that are idle or dead.
 func (c *runnerCache) reap() {
-	now := time.Now()
-	var closing []Runner
-	func() {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		for id, cs := range c.sessions {
-			if cs.closing {
-				continue
-			}
-			if cs.failedAdmission && cs.reserved {
-				cs.stale = true
-				continue
-			}
-			if cs.failedAdmission && cs.r != nil {
-				closing = append(closing, c.trackRetiredLocked(cs.info, cs.r))
-				cs.r = nil
-				cs.stale = false
-				cs.failedAdmission = false
-				continue
-			}
-			if cs.failedAdmission {
-				cs.stale = false
-				cs.failedAdmission = false
-				continue
-			}
-			if cs.reserved {
-				continue
-			}
-			if cs.r == nil || cs.r.Busy() {
-				continue
-			}
-			lastActivity := cs.r.LastActivity()
-			if !cs.r.Alive() {
-				c.log.Warn("removing dead runner", "session_id", id)
-				closing = append(closing, c.trackRetiredLocked(cs.info, cs.r))
-				cs.r = nil
-				continue
-			}
-			if now.Sub(lastActivity) > c.idleTimeout {
-				c.log.Info("reaping idle runner",
-					"session_id", id,
-					"idle_duration", now.Sub(lastActivity).Round(time.Second))
-				closing = append(closing, c.trackRetiredLocked(cs.info, cs.r))
-				cs.r = nil
-			}
+	_ = c.retireIdle(func(cs *cachedSession) bool {
+		if cs.reserved || cs.operation != nil || cs.r == nil {
+			return false
 		}
-	}()
-
-	for _, r := range closing {
-		_ = c.closeRetired(r)
-	}
+		return cs.unusable || (!cs.r.Busy() && (!cs.r.Alive() || time.Since(cs.r.LastActivity()) > c.idleTimeout))
+	})
 }
 
 // StartReaper runs a background goroutine that periodically reaps runners.

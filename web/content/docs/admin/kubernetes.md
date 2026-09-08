@@ -23,7 +23,8 @@ Provide these deployment-owned environment values:
 - `STELLA_KUBERNETES_NAMESPACE`, `STELLA_KUBERNETES_POD_NAME`,
   `STELLA_KUBERNETES_POD_UID`, `STELLA_KUBERNETES_NODE_NAME`: Downward API fields.
 - `STELLA_KUBERNETES_DEPLOYMENT`: stable identity shared by server replacements.
-- `STELLA_KUBERNETES_PVC`: the claim mounted at or above `STELLA_HOME`.
+- `STELLA_KUBERNETES_PVC`: the claim mounted read-write directly at `/data`, without
+  `subPath` or `subPathExpr`. Set `STELLA_HOME` to `/data` or a directory beneath it.
 - `STELLA_KUBERNETES_IMAGE`: sandbox image built from the same source bundle as
   stellad. Pin a digest for deployment; the local test uses a local image tag.
 - `STELLA_SANDBOX_SERVER_URL`: an HTTP(S) Service URL reachable from sandbox Pods.
@@ -56,7 +57,9 @@ all IPv6 traffic and restricts IPv4; adapt and re-test for your cluster.
 A timeout, broken exec stream or unfinished process Close terminates the whole
 Session Pod, including other background processes. Execution is never replayed.
 Stella retains an execution-fence finalizer until Kubernetes reports termination.
-API errors leave Close retryable and prevent generation replacement. Never force
+API errors leave Close retryable and prevent generation replacement. A failed
+runner Close keeps its cache slot and blocks that session from rebuilding;
+owner deletion also waits for any runner still being constructed. Never force
 delete Pods or remove this finalizer to bypass an unavailable node: first prove
 execution has stopped. An uncertain Pod creation blocks further creation until a
 server restart reconciles owned Pods. Unknown explicit backend names fail startup.

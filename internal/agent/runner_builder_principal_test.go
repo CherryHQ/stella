@@ -292,29 +292,48 @@ func TestNewRunnerFuncRejectsUserlessProject(t *testing.T) {
 }
 
 func TestNewRunnerFuncCleansUserlessScratchOnConstructionFailure(t *testing.T) {
-	stellaHome := t.TempDir()
-	t.Setenv("STELLA_HOME", stellaHome)
-	config.ResetStellaHome()
-	t.Cleanup(config.ResetStellaHome)
+	for _, stage := range []string{"provider", "skills", "panic"} {
+		t.Run(stage, func(t *testing.T) {
+			stellaHome := t.TempDir()
+			t.Setenv("STELLA_HOME", stellaHome)
+			config.ResetStellaHome()
+			t.Cleanup(config.ResetStellaHome)
 
-	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
-		Snap: &config.Snapshot{AgentID: "a", Provider: "anthropic", Model: "test"},
-		Home: testWorkspaceViewer{root: stellaHome},
-		ProviderStreamBuilder: func(_, _, _ string) (providers.StreamFunc, error) {
-			return nil, errors.New("provider unavailable")
-		},
-		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
-		SandboxBackends:  testSandboxBackends(t),
-	}))
-	if _, err := build(context.Background(), RunnerParams{AgentID: "a"}); err == nil {
-		t.Fatal("runner construction succeeded")
-	}
-	entries, err := os.ReadDir(filepath.Join(stellaHome, runnerScratchDir))
-	if err != nil {
-		t.Fatalf("read scratch parent: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("scratch remains after construction failure: %v", entries)
+			cfg := withTestSkillDependencies(runnerBuilderConfig{
+				Snap: &config.Snapshot{AgentID: "a", Provider: "anthropic", Model: "test"},
+				Home: testWorkspaceViewer{root: stellaHome},
+				ProviderStreamBuilder: func(_, _, _ string) (providers.StreamFunc, error) {
+					return nil, errors.New("provider unavailable")
+				},
+				SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+				SandboxBackends:  testSandboxBackends(t),
+			})
+			if stage == "skills" {
+				cfg.SkillRevisionReader = nil
+			}
+			if stage == "panic" {
+				cfg.PromptSectionsBuilder = func(context.Context, plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
+					panic("prompt initialization failed")
+				}
+			}
+			panicked := false
+			func() {
+				defer func() { panicked = recover() != nil }()
+				if _, err := newRunnerFunc(cfg)(t.Context(), RunnerParams{AgentID: "a"}); err == nil {
+					t.Fatal("runner construction succeeded")
+				}
+			}()
+			if panicked != (stage == "panic") {
+				t.Fatalf("unexpected panic state: %v", panicked)
+			}
+			entries, err := os.ReadDir(filepath.Join(stellaHome, runnerScratchDir))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("scratch remains after construction failure: %v", entries)
+			}
+		})
 	}
 }
 

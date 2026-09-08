@@ -263,7 +263,7 @@ func TestLive(t *testing.T) {
 	startupErrors := func(t *testing.T) {
 		for _, failure := range []string{"bundle", "image", "scheduling"} {
 			t.Run(failure, func(t *testing.T) {
-				bad := &Client{api: client.api, rest: client.rest, cfg: client.cfg, boot: sandbox.NewSessionID(), volumePrefix: client.volumePrefix, pending: map[string]*session{}, pullSecrets: client.pullSecrets}
+				bad := &Client{api: client.api, rest: client.rest, cfg: client.cfg, boot: sandbox.NewSessionID(), volumePrefix: client.volumePrefix, pullSecrets: client.pullSecrets}
 				bad.cfg.StartupTimeout = 15 * time.Second
 				switch failure {
 				case "bundle":

@@ -21,7 +21,8 @@ Stella 在 `deploy/helm/stella` 提供了一个 Helm chart，用于在 Kubernete
 - `STELLA_KUBERNETES_NAMESPACE`、`STELLA_KUBERNETES_POD_NAME`、
   `STELLA_KUBERNETES_POD_UID`、`STELLA_KUBERNETES_NODE_NAME`：来自 Downward API。
 - `STELLA_KUBERNETES_DEPLOYMENT`：服务换代时保持一致的部署标识。
-- `STELLA_KUBERNETES_PVC`：挂载于 `STELLA_HOME` 或其上级路径的 PVC。
+- `STELLA_KUBERNETES_PVC`：以读写方式直接挂载到 `/data` 的 PVC，不使用
+  `subPath` 或 `subPathExpr`。`STELLA_HOME` 设为 `/data` 或其子目录。
 - `STELLA_KUBERNETES_IMAGE`：与 stellad 使用相同 builtin bundle 的 sandbox 镜像。
   部署固定 digest，本地测试使用本地 tag。
 - `STELLA_SANDBOX_SERVER_URL`：sandbox 可达的 HTTP(S) Service 地址。
@@ -49,7 +50,9 @@ IPv6 并限制 IPv4，部署到其他集群时需要调整并重新测试。
 
 超时、exec 断连或未结束进程的 Close 会终止整个 Session Pod，也会中断其中其他
 后台进程。执行不会自动重放。服务保留 execution-fence finalizer，直到 Kubernetes
-确认终止；API 故障时 Close 可以重试，确认前不创建替代 generation。不要通过
+确认终止；API 故障时 Close 可以重试，确认前不创建替代 generation。
+runner 关闭失败会保留缓存槽位，阻止该会话重建；删除 owner 也会等待创建中的
+runner 返回并关闭。不要通过
 force delete 或手动移除 finalizer 绕过节点故障，应先确认进程已停止。Pod 创建
 结果不明时暂停后续创建，重启服务后按所属资源恢复清理。显式未知 backend 在
 启动时报错。单副本升级有停机，升级前备份数据库和 PVC，镜像回退不会撤销迁移。

@@ -68,17 +68,11 @@ func (f *factory) CreateSession(ctx context.Context, p sandbox.Policy) (sandbox.
 	if c.creationErr != nil {
 		return nil, c.creationErr
 	}
-	for name, old := range c.pending {
-		old.mu.Lock()
-		needsClose := old.invalid || old.closed
-		old.mu.Unlock()
-		if !needsClose {
-			continue
+	if c.pending != nil {
+		if err := c.pending.Close(); err != nil {
+			return nil, fmt.Errorf("kubernetes: prior startup cleanup remains unfenced: %w", err)
 		}
-		if err := old.Close(); err != nil {
-			return nil, fmt.Errorf("kubernetes: prior cleanup remains unfenced: %w", err)
-		}
-		delete(c.pending, name)
+		c.pending = nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, c.cfg.StartupTimeout)
 	defer cancel()
@@ -214,11 +208,10 @@ func (f *factory) CreateSession(ctx context.Context, p sandbox.Policy) (sandbox.
 	if err != nil {
 		closeErr := s.Close()
 		if closeErr != nil {
-			c.pending[s.pod.Name] = s
+			c.pending = s
 		}
 		return nil, errors.Join(err, closeErr)
 	}
-	c.pending[s.pod.Name] = s
 	go s.watch()
 	return s, nil
 }

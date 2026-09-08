@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -42,7 +41,7 @@ type Client struct {
 	boot         string
 	volumePrefix string
 	mu           sync.Mutex
-	pending      map[string]*session
+	pending      *session // Only a failed startup can remain unowned by a caller.
 	creationErr  error
 	pullSecrets  []core.LocalObjectReference
 }
@@ -75,7 +74,7 @@ func NewClient(ctx context.Context, cfg Config, rc *rest.Config) (*Client, error
 	if err != nil {
 		return nil, err
 	}
-	c := &Client{api: api, rest: rest.CopyConfig(rc), cfg: cfg, boot: sandbox.NewSessionID(), pending: map[string]*session{}}
+	c := &Client{api: api, rest: rest.CopyConfig(rc), cfg: cfg, boot: sandbox.NewSessionID()}
 	owner, err := api.CoreV1().Pods(cfg.Namespace).Get(ctx, cfg.OwnerName, meta.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: owner: %w", err)
@@ -84,23 +83,9 @@ func NewClient(ctx context.Context, cfg Config, rc *rest.Config) (*Client, error
 		return nil, errors.New("kubernetes: owner identity or node mismatch")
 	}
 	c.pullSecrets = append([]core.LocalObjectReference(nil), owner.Spec.ImagePullSecrets...)
-	found := false
-	for _, container := range owner.Spec.Containers {
-		for _, mount := range container.VolumeMounts {
-			rel, relErr := filepath.Rel(mount.MountPath, cfg.StellaHome)
-			if relErr != nil || !filepath.IsLocal(rel) || mount.ReadOnly || mount.SubPathExpr != "" {
-				continue
-			}
-			for _, volume := range owner.Spec.Volumes {
-				if volume.Name == mount.Name && volume.PersistentVolumeClaim != nil && volume.PersistentVolumeClaim.ClaimName == cfg.PVC {
-					c.volumePrefix = path.Join(mount.SubPath, filepath.ToSlash(rel))
-					found = true
-				}
-			}
-		}
-	}
-	if !found {
-		return nil, errors.New("kubernetes: server home is not backed by configured PVC")
+	c.volumePrefix, err = ownerHomePrefix(owner, cfg)
+	if err != nil {
+		return nil, err
 	}
 	pvc, err := api.CoreV1().PersistentVolumeClaims(cfg.Namespace).Get(ctx, cfg.PVC, meta.GetOptions{})
 	if err != nil {
@@ -116,4 +101,26 @@ func NewClient(ctx context.Context, cfg Config, rc *rest.Config) (*Client, error
 		return nil, err
 	}
 	return c, nil
+}
+
+// The first version supports one deployment layout: the home PVC is mounted
+// directly at /data. Runtime/testbed homes may occupy subdirectories beneath it.
+func ownerHomePrefix(owner *core.Pod, cfg Config) (string, error) {
+	rel, err := filepath.Rel("/data", cfg.StellaHome)
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", errors.New("kubernetes: home must be under /data")
+	}
+	for _, volume := range owner.Spec.Volumes {
+		if volume.PersistentVolumeClaim == nil || volume.PersistentVolumeClaim.ClaimName != cfg.PVC {
+			continue
+		}
+		for _, container := range owner.Spec.Containers {
+			for _, mount := range container.VolumeMounts {
+				if mount.Name == volume.Name && mount.MountPath == "/data" && !mount.ReadOnly && mount.SubPath == "" && mount.SubPathExpr == "" {
+					return filepath.ToSlash(rel), nil
+				}
+			}
+		}
+	}
+	return "", errors.New("kubernetes: mount the home PVC directly at /data without subPath")
 }

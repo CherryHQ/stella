@@ -250,7 +250,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		}
 
 		if params.GuestID != "" {
-			return newRunner(ctx, runnerConfig{
+			built, err := newRunner(ctx, runnerConfig{
 				NoCapabilities: true,
 				Provider: providerConfig{
 					ProviderID: providerID,
@@ -265,6 +265,10 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				Thinking: params.Thinking,
 				System:   prompt.BuildGuestSystemPrompt(cfg.Snap.SystemPrompt),
 			})
+			if built == nil {
+				return nil, err
+			}
+			return built, err
 		}
 		if cfg.Home == nil {
 			return nil, fmt.Errorf("runner: Home workspace resolver is required")
@@ -284,6 +288,11 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			projectValidateRoot string
 			scratchCleanup      func() error
 		)
+		defer func() {
+			if scratchCleanup != nil {
+				_ = scratchCleanup()
+			}
+		}()
 		if params.UserID != "" || params.GroupID != "" {
 			userRoot = view.PrincipalRoot
 			workspaceRoot, userDataDir = view.AgentRoot, view.DataRoot
@@ -306,24 +315,15 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		var descriptor ProjectDescriptor
 		if params.ProjectID != "" {
 			if cfg.ProjectResolver == nil {
-				if scratchCleanup != nil {
-					_ = scratchCleanup()
-				}
 				return nil, fmt.Errorf("runner: project resolver is required")
 			}
 			projectSnapshot, snapshotErr := SnapshotAuthorizedProject(ctx, cfg.ProjectResolver, cfg.Home, params.ProjectID, params.UserID, params.AgentID)
 			err = snapshotErr
 			if err != nil {
-				if scratchCleanup != nil {
-					_ = scratchCleanup()
-				}
 				return nil, fmt.Errorf("runner: resolve project %q: %w", params.ProjectID, err)
 			}
 			descriptor, projectContext, projectSkillSnapshot = projectSnapshot.Descriptor, projectSnapshot.Context, projectSnapshot.Skills
 			if descriptor.ID != params.ProjectID || descriptor.UserID != params.UserID || descriptor.AgentID != params.AgentID {
-				if scratchCleanup != nil {
-					_ = scratchCleanup()
-				}
 				return nil, fmt.Errorf("runner: project %q is outside the agent workspace", params.ProjectID)
 			}
 			projectRoot = projectValidateRoot
@@ -484,9 +484,10 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			Vision:  vision.NewFromSnapshot(cfg.Snap, vision.StreamBuilder(cfg.ProviderStreamBuilder)),
 			Cleanup: scratchCleanup,
 		})
-		if err != nil && scratchCleanup != nil {
-			_ = scratchCleanup()
+		if runner == nil {
+			return nil, err
 		}
+		scratchCleanup = nil // Ownership moved to the runner, including failed builds.
 		return runner, err
 	}
 }
