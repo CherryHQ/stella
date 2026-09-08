@@ -67,6 +67,7 @@ jobs:
       - name: Setup mise
         uses: jdx/mise-action@v4
         with:
+          version: "2026.9.2"
           experimental: true
           install: true
           cache: true
@@ -107,6 +108,7 @@ jobs:
       - name: Setup mise
         uses: jdx/mise-action@v4
         with:
+          version: "2026.9.2"
           experimental: true
           install: true
           cache: true
@@ -147,6 +149,7 @@ jobs:
       - name: Setup mise
         uses: jdx/mise-action@v4
         with:
+          version: "2026.9.2"
           experimental: true
           install: true
           cache: true
@@ -209,6 +212,7 @@ jobs:
       - name: Setup mise
         uses: jdx/mise-action@v4
         with:
+          version: "2026.9.2"
           experimental: true
           install: true
           cache: true
