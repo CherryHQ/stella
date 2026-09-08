@@ -276,6 +276,75 @@ func TestDockerExecEnvironmentFiltersAndTranslatesPerCallOverrides(t *testing.T)
 	}
 }
 
+func TestDockerExecEnvironmentReplaceUsesCurrentSelectionMarkers(t *testing.T) {
+	mountTable := []dockerclient.Mount{{HostPath: "/host/workspace", ContainerPath: "/workspace"}}
+	envMaps := []envPathMap{{HostPrefix: "/host/stella", ContainerPrefix: "/opt/stella"}}
+	core := []string{"/opt/stella/session-selection/core/bin"}
+	old := []string{"/opt/stella/session-selection/packages/old/bin"}
+	current := dockerExecEnvironmentMode(
+		map[string]string{"PATH": "/policy/path", sandboxpkg.EnvNativeSelectionDir: "/opt/stella/session-selection/packages/old/bin"},
+		map[string]string{
+			"PATH":                               "/host/bin:/usr/bin",
+			sandboxpkg.EnvUserNativeSelectionDir: "/host/stella/current/user",
+			sandboxpkg.EnvNativeSelectionDir:     "/host/stella/current/system",
+		},
+		sandboxpkg.EnvReplace, mountTable, envMaps, old, core,
+	)
+	wantPath := "/opt/stella/current/user:/opt/stella/current/system:/opt/stella/session-selection/core/bin:" + containerDefaultPATH
+	if current["PATH"] != wantPath {
+		t.Fatalf("current PATH = %q, want %q", current["PATH"], wantPath)
+	}
+	if strings.Contains(current["PATH"], "/old/") || strings.Contains(current["PATH"], "/host/") {
+		t.Fatalf("stale or host path leaked into current PATH: %q", current["PATH"])
+	}
+	removed := dockerExecEnvironmentMode(
+		map[string]string{"PATH": "/policy/path", sandboxpkg.EnvNativeSelectionDir: "/opt/stella/session-selection/packages/old/bin"},
+		map[string]string{"PATH": "/host/bin:/usr/bin"},
+		sandboxpkg.EnvReplace, mountTable, envMaps, old, core,
+	)
+	if removed["PATH"] != "/opt/stella/session-selection/core/bin:"+containerDefaultPATH {
+		t.Fatalf("revoked PATH = %q, want core-only path", removed["PATH"])
+	}
+}
+
+func TestDockerRenderEnvRebuildsFilesystemAndServerBaseline(t *testing.T) {
+	session := &dockerSession{
+		policy:         sandboxpkg.Policy{Env: map[string]string{"OLD_TOKEN": "retained-secret"}},
+		filesystemView: sandboxpkg.FilesystemView{Home: "/workspace", SharedDataDir: "/user", TempDir: "/tmp"},
+		serverURL:      "http://stella:25678",
+	}
+	rendered, err := session.RenderEnv(t.Context(), map[string]string{
+		"CURRENT": "yes",
+	})
+	if err != nil {
+		t.Fatalf("RenderEnv: %v", err)
+	}
+	if rendered["CURRENT"] != "yes" {
+		t.Fatalf("logical env changed: %v", rendered)
+	}
+	if _, ok := rendered["OLD_TOKEN"]; ok {
+		t.Fatal("retained policy env leaked into logical turn render")
+	}
+	want := map[string]string{
+		sandboxpkg.EnvHome:            "/workspace",
+		sandboxpkg.EnvTempDir:         "/tmp",
+		sandboxpkg.EnvStellaAssetsDir: "/user/assets",
+		sandboxpkg.EnvXDGConfigHome:   "/user/.config",
+		sandboxpkg.EnvXDGDataHome:     "/user/.local/share",
+		sandboxpkg.EnvXDGStateHome:    "/user/.local/state",
+		sandboxpkg.EnvXDGCacheHome:    "/user/.cache",
+		"STELLA_SERVER_URL":           "http://stella:25678",
+	}
+	for key, wantValue := range want {
+		if rendered[key] != wantValue {
+			t.Errorf("%s = %q, want %q", key, rendered[key], wantValue)
+		}
+	}
+	if _, ok := rendered[sandboxpkg.EnvXDGRuntimeDir]; ok {
+		t.Fatalf("%s should be removed", sandboxpkg.EnvXDGRuntimeDir)
+	}
+}
+
 func TestPrepareSessionTempDir(t *testing.T) {
 	stellaHome := t.TempDir()
 	for _, tt := range []struct {

@@ -18,7 +18,6 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -523,39 +522,13 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 		return nil, fmt.Errorf("build session registry for %q: %w", agentID, err)
 	}
 
-	var freshPluginContext agentruntime.PluginContextBuilder
 	pm.mu.RLock()
 	pluginContextBuilder := pm.pluginContextBuilder
-	mcpToolProvider := pm.mcpToolProvider
-	tokenManager := pm.tokenManager
 	pm.mu.RUnlock()
-	if pluginContextBuilder != nil {
-		freshPluginContext = func(buildCtx context.Context, authority authz.Authority, targetAgentID string) (agentruntime.PluginContext, error) {
-			pluginContext, err := pluginContextBuilder(buildCtx, authority, targetAgentID)
-			if err != nil {
-				return agentruntime.PluginContext{}, err
-			}
-			view := pluginContext.SessionPluginView()
-			preparation := sandbox.PrepareOAuthPackages(buildCtx, sandbox.Config{
-				UserID:       string(authority.UserID()),
-				GroupID:      string(authority.GroupID()),
-				AgentID:      targetAgentID,
-				TokenManager: tokenManager,
-				ChatTimeout:  defaultChatTimeout,
-			}, view.PackageRequirements)
-			pluginContext = pluginContext.WithOAuthPreparationResult(preparation)
-			mcpSnapshot, snapshotErr := mcpToolProvider.ToolsForSnapshotWithDirectoryForPlugins(buildCtx, pluginContext.Snapshot(), pluginContext.SessionPluginView().ExposedPluginIDs)
-			if snapshotErr != nil {
-				return agentruntime.PluginContext{}, snapshotErr
-			}
-			pluginContext = pluginContext.WithMCPToolSnapshot(mcpSnapshot)
-			return pluginContext, nil
-		}
-	}
 
 	cfg := agentruntime.Config{
 		NewRunner:            factory,
-		PluginContextBuilder: freshPluginContext,
+		PluginContextBuilder: pluginContextBuilder,
 		Memory:               pm.mem,
 		IdleTimeout:          pm.idleTimeout,
 		DefaultModel:         snap.ResolveModelID(config.ModelTierNormal),
@@ -629,14 +602,30 @@ func (pm *PoolManager) skillTurnHooks(snap *config.Snapshot) agentruntime.SkillT
 		if info.GroupID != "" {
 			viewUserID = ""
 		}
-		packages := pluginSkillRefs(pluginContext)
-		view, err := skillstool.CaptureSkillTurnView(ctx, pm.skillRevisionReader, pm.skillReadAuthz, project, packages, skillstool.ViewContext{
-			UserID: viewUserID, AgentID: info.AgentID, DisabledSkillRefs: disabled,
-		})
+		var packages []skillstool.PackageSkillRef
+		var err error
+		if pluginContext.IsFileBased() {
+			packages, err = pluginFileSkillRefs(pluginContext)
+		} else {
+			packages = pluginSkillRefs(pluginContext)
+		}
 		if err != nil {
 			return nil, err
 		}
-		ctx = skillstool.WithSkillTurnView(ctx, view)
+		viewContext := skillstool.ViewContext{UserID: viewUserID, AgentID: info.AgentID, DisabledSkillRefs: disabled}
+		if pluginContext.IsFileBased() {
+			view, captureErr := skillstool.CaptureSkillTurnViewFromResources(ctx, pluginContext.FileResources(), pm.skillReadAuthz, project, packages, viewContext)
+			if captureErr != nil {
+				return nil, captureErr
+			}
+			ctx = skillstool.WithSkillTurnView(ctx, view)
+		} else {
+			view, captureErr := skillstool.CaptureSkillTurnView(ctx, pm.skillRevisionReader, pm.skillReadAuthz, project, packages, viewContext)
+			if captureErr != nil {
+				return nil, captureErr
+			}
+			ctx = skillstool.WithSkillTurnView(ctx, view)
+		}
 		if info.ProjectID != "" {
 			ctx = prompt.WithProjectContext(ctx, projectContext)
 		}
@@ -668,6 +657,29 @@ func pluginSkillRefs(pluginContext PluginContext) []skillstool.PackageSkillRef {
 		})
 	}
 	return refs
+}
+
+func pluginFileSkillRefs(pluginContext PluginContext) ([]skillstool.PackageSkillRef, error) {
+	resources := pluginContext.FileResources()
+	byID := make(map[string]plugin.FileResource, len(resources))
+	for _, resource := range resources {
+		if resource.Key.Kind == plugin.ResourcePlugin {
+			byID[resource.Key.ID()] = resource
+		}
+	}
+	refs := pluginSkillRefs(pluginContext)
+	for i, ref := range refs {
+		resource, ok := byID[ref.PackageID]
+		if !ok {
+			return nil, fmt.Errorf("capture file package skill %q: package resource is unavailable", ref.Name)
+		}
+		captured, err := skillstool.CapturePackageSkillRef(resource, ref)
+		if err != nil {
+			return nil, fmt.Errorf("capture file package skill %q: %w", ref.Name, err)
+		}
+		refs[i] = captured
+	}
+	return refs, nil
 }
 
 // promptScope computes only the logical profile subject. Group sessions blank

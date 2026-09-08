@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -204,6 +205,11 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	if err != nil {
 		return nil, err
 	}
+	if f.cfg.StableProjectionHostRoot != "" {
+		providerMounts = slices.DeleteFunc(providerMounts, func(m sessionfs.Mount) bool {
+			return filepath.Clean(m.HostPath) == filepath.Clean(f.cfg.StableProjectionHostRoot)
+		})
+	}
 	workspaceHost := hostPathForSandboxMount(providerMounts, workspaceMount)
 	if workspaceHost == "" {
 		return nil, errors.New("docker session: provider-private workspace source is required")
@@ -272,7 +278,9 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	}
 
 	var selectionCaches *selectionToolCacheSet
+	var stableProjection *stableSelectionProjection
 	var toolPreparation ToolPreparationResult
+	selectionImageID := ""
 	if f.cfg.ExpectedBundleRevision != "" || len(f.cfg.SelectionToolBinaries) > 0 {
 		if err := client.EnsureImageReady(ctx, f.cfg.Image, opts.Name); err != nil {
 			recordError(span, err)
@@ -291,6 +299,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 			span.End()
 			return nil, err
 		}
+		selectionImageID = imageInfo.ID
 		if expected := f.cfg.ExpectedBundleRevision; expected != "" && imageInfo.Labels[builtinBundleRevisionLabel] != expected {
 			err := fmt.Errorf("docker session: image bundle revision does not match expected revision")
 			recordError(span, err)
@@ -306,6 +315,12 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		}
 		toolPreparation = selectionCaches.Preparation
 		filterFailedPackageEnv(policy.Env, toolPreparation, f.cfg.SessionEnvRollbacks)
+		stableProjection, err = publishStableSelectionProjection(ctx, client, f.cfg, imageInfo.ID, selectionCaches)
+		if err != nil {
+			recordError(span, err)
+			span.End()
+			return nil, err
+		}
 	}
 
 	mountedPolicyMounts, mountedTempDirHost, mountedUserDataHost, err := f.configureSessionMounts(&opts, providerMounts, workspaceHost, userDataHost, tempDir)
@@ -321,11 +336,12 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 
 	// Render only roots that actually have a container view. Policy.Env stays in
 	// the same canonical coordinate system used by commands and Session.Files.
+	filesystemView := dockerFilesystemView(mountedUserDataHost != "", mountedTempDirHost != "")
 	env := maps.Clone(policy.Env)
 	if env == nil {
 		env = make(map[string]string)
 	}
-	if err := applyDockerFilesystemEnv(env, mountedUserDataHost != "", mountedTempDirHost != ""); err != nil {
+	if err := sandboxpkg.ApplyFilesystemEnv(env, filesystemView); err != nil {
 		recordError(span, err)
 		span.End()
 		return nil, fmt.Errorf("docker session: apply filesystem environment: %w", err)
@@ -337,6 +353,9 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	// exec, which both derive from it. Set only when configured (DooD); the
 	// local/host backend reaches stellad on loopback.
 	env = withServerURL(env, f.cfg.ServerURL)
+	if stableProjection != nil && f.cfg.StableProjectionHostRoot != "" {
+		env[sandboxpkg.EnvCoreRuntimeDir] = filepath.Join(f.cfg.StableProjectionHostRoot, "core", "bin")
+	}
 
 	// Build the mount table and env prefix maps before creating the container so
 	// the create-time env can be translated to the container view too — otherwise
@@ -350,6 +369,11 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	})
 
 	var envMaps []envPathMap
+	if stableProjection != nil && f.cfg.StableProjectionHostRoot != "" {
+		envMaps = append(envMaps, envPathMap{
+			HostPrefix: f.cfg.StableProjectionHostRoot, ContainerPrefix: stableProjection.RootPath,
+		})
+	}
 	if hostHome := env["STELLA_HOME"]; hostHome != "" {
 		envMaps = append(envMaps, envPathMap{
 			HostPrefix:      hostHome,
@@ -387,6 +411,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	policy.Filesystem.Mounts = sessionfs.PolicyMounts(filesystemMounts)
 
 	var toolBinPaths []string
+	var coreToolBinPaths []string
 	// Per-user mise shims go first so the agent's own tool versions win. Bundled
 	// and immutable selection aliases follow, with the image system PATH as fallback.
 	for _, tree := range perUserTrees {
@@ -397,7 +422,19 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	// A verified release Docker runtime always gets a core-only selection volume,
 	// even when the snapshot selects no plugin binaries. Lightweight callers
 	// using arbitrary images without a bundle revision retain the client seam.
-	if f.cfg.ExpectedBundleRevision != "" || len(f.cfg.SelectionToolBinaries) > 0 {
+	if stableProjection != nil {
+		opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+			HostPath: stableProjection.VolumeName, ContainerPath: stableProjection.RootPath,
+			ReadOnly: true, Type: dockerclient.MountTypeVolume, NoCopy: true,
+		})
+		toolBinPaths = append(toolBinPaths, stableProjection.CoreBinPath)
+		coreToolBinPaths = append(coreToolBinPaths, stableProjection.CoreBinPath)
+		for _, cache := range selectionCaches.Packages {
+			if binPath := stableProjection.PackageBinPath[cache.VolumeName]; binPath != "" {
+				toolBinPaths = append(toolBinPaths, binPath)
+			}
+		}
+	} else if f.cfg.ExpectedBundleRevision != "" || len(f.cfg.SelectionToolBinaries) > 0 {
 		// Mount the public root for sidecars and its bin subpath separately.
 		// The latter overlays the image bin with NoCopy, so image-only tools do
 		// not become visible through Docker's volume copy-up behavior.
@@ -416,6 +453,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 			},
 		)
 		toolBinPaths = append(toolBinPaths, selectionCaches.Core.BinPath)
+		coreToolBinPaths = append(coreToolBinPaths, selectionCaches.Core.BinPath)
 		for _, selectionCache := range selectionCaches.Packages {
 			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
 				HostPath: selectionCache.VolumeName, ContainerPath: selectionCache.RootPath,
@@ -461,20 +499,31 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		attribute.String("stella.sandbox.container_id", containerID),
 	))
 
+	selectionConfig := f.cfg
+	selectionConfig.SelectionToolBinaries = nil
+	selectionConfig.SessionEnvRollbacks = nil
 	session := &dockerSession{
-		id:              sessionID,
-		policy:          policy,
-		client:          client,
-		containerID:     containerID,
-		mountTable:      mountTable,
-		envPathMaps:     envMaps,
-		toolBinPaths:    toolBinPaths,
-		ownedTempDir:    tempDir,
-		resolver:        resolver,
-		files:           sessionfs.NewAccessWithTempDir(resolver, policy.Env[sandboxpkg.EnvTempDir]),
-		done:            make(chan struct{}),
-		traceSpan:       span,
-		toolPreparation: toolPreparation,
+		id:               sessionID,
+		policy:           policy,
+		client:           client,
+		containerID:      containerID,
+		mountTable:       mountTable,
+		envPathMaps:      envMaps,
+		toolBinPaths:     toolBinPaths,
+		coreToolBinPaths: coreToolBinPaths,
+		ownedTempDir:     tempDir,
+		resolver:         resolver,
+		files:            sessionfs.NewAccessWithTempDir(resolver, policy.Env[sandboxpkg.EnvTempDir]),
+		done:             make(chan struct{}),
+		traceSpan:        span,
+		toolPreparation:  toolPreparation,
+		selectionImageID: selectionImageID,
+		selectionConfig:  selectionConfig,
+		selectionCaches:  selectionCaches,
+		stableProjection: stableProjection,
+		filesystemView:   filesystemView,
+		serverURL:        f.cfg.ServerURL,
+		creationEnvKeys:  envKeys(policy.Env),
 	}
 	session.host = &dockerHost{session: session}
 	transferredTempOwnership = true
@@ -523,33 +572,62 @@ func filterFailedPackageEnv(env map[string]string, preparation ToolPreparationRe
 
 // dockerSession is a docker-backed sandbox session backed by a single container.
 type dockerSession struct {
-	id              string
-	policy          sandboxpkg.Policy
-	client          *dockerclient.Client
-	containerID     string
-	mountTable      []dockerclient.Mount
-	envPathMaps     []envPathMap
-	toolBinPaths    []string
-	ownedTempDir    string
-	host            *dockerHost
-	resolver        *sessionfs.Resolver
-	files           sandboxpkg.FileAccess
-	done            chan struct{}
-	doneOnce        sync.Once
-	closeMu         sync.Mutex
-	closed          bool
-	closing         bool
-	closeErr        error
-	traceSpan       trace.Span
-	traceOnce       sync.Once
-	toolPreparation ToolPreparationResult
-	mu              sync.RWMutex
+	id               string
+	policy           sandboxpkg.Policy
+	client           *dockerclient.Client
+	containerID      string
+	mountTable       []dockerclient.Mount
+	envPathMaps      []envPathMap
+	toolBinPaths     []string
+	coreToolBinPaths []string
+	ownedTempDir     string
+	host             *dockerHost
+	resolver         *sessionfs.Resolver
+	files            sandboxpkg.FileAccess
+	done             chan struct{}
+	doneOnce         sync.Once
+	closeMu          sync.Mutex
+	closed           bool
+	closing          bool
+	closeErr         error
+	traceSpan        trace.Span
+	traceOnce        sync.Once
+	toolPreparation  ToolPreparationResult
+	selectionImageID string
+	selectionConfig  Config
+	selectionCaches  *selectionToolCacheSet
+	stableProjection *stableSelectionProjection
+	filesystemView   sandboxpkg.FilesystemView
+	serverURL        string
+	creationEnvKeys  []string
+	mu               sync.RWMutex
 }
 
 func (s *dockerSession) Policy() sandboxpkg.Policy {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.policy
+}
+
+// RenderEnv applies the fixed Docker filesystem view and server endpoint to a
+// fresh logical turn environment. It intentionally does not copy retained
+// policy variables, so removed package values cannot cross EnvReplace.
+func (s *dockerSession) RenderEnv(_ context.Context, logicalEnv map[string]string) (map[string]string, error) {
+	s.mu.RLock()
+	closed := s.closed || s.closing
+	view, serverURL := s.filesystemView, s.serverURL
+	s.mu.RUnlock()
+	if closed {
+		return nil, errors.New("docker: session is closed")
+	}
+	env := maps.Clone(logicalEnv)
+	if env == nil {
+		env = make(map[string]string)
+	}
+	if err := sandboxpkg.ApplyFilesystemEnv(env, view); err != nil {
+		return nil, fmt.Errorf("docker: render filesystem environment: %w", err)
+	}
+	return withServerURL(env, serverURL), nil
 }
 
 func (s *dockerSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
@@ -575,6 +653,70 @@ func (s *dockerSession) PluginPreparationResult() pkgplugins.PluginPreparationRe
 		result.Packages = append(result.Packages, pkgplugins.PluginPackageStatus{PluginID: packageID.PluginID, Ready: true})
 	}
 	for _, failure := range s.toolPreparation.FailedPackages {
+		result.Packages = append(result.Packages, pkgplugins.PluginPackageStatus{PluginID: failure.Package.PluginID, Reason: "Docker tool preparation failed"})
+	}
+	return result
+}
+
+// PreparePluginBinaries refreshes the optional selection on the already
+// running container. The container image and Docker client are retained from
+// CreateSession; only the read-only session projection is extended. The
+// returned paths are optional package bin directories, in selection order;
+// callers apply them through EnvReplace for the current turn. Core runtime
+// paths remain owned by the session.
+func (s *dockerSession) PreparePluginBinaries(ctx context.Context, specs []pkgplugins.PluginBinarySpec) (pkgplugins.PluginPreparationResult, []string, error) {
+	if s == nil {
+		return pkgplugins.PluginPreparationResult{}, nil, errors.New("docker: nil session")
+	}
+	if len(specs) == 0 {
+		return pkgplugins.PluginPreparationResult{}, nil, nil
+	}
+	s.mu.RLock()
+	closed := s.closed || s.closing
+	imageID, cfg, client := s.selectionImageID, s.selectionConfig, s.client
+	s.mu.RUnlock()
+	if closed {
+		return pkgplugins.PluginPreparationResult{}, nil, errors.New("docker: session is closed")
+	}
+	if imageID == "" || client == nil {
+		return pkgplugins.PluginPreparationResult{}, nil, errors.New("docker: selection image was not retained")
+	}
+	if strings.TrimSpace(cfg.StableProjectionID) == "" {
+		return pkgplugins.PluginPreparationResult{}, nil, errors.New("docker: stable selection projection is required for retained preparation")
+	}
+	binaries := make([]ToolBinary, 0, len(specs))
+	for _, spec := range specs {
+		binaries = append(binaries, ToolBinary{PluginID: spec.PluginID, ConfigID: spec.ConfigID, Scope: spec.Scope, Revision: spec.Revision, PackageDigest: spec.PackageDigest, Name: spec.Name, Tool: spec.Tool, Version: spec.Version, Options: maps.Clone(spec.Options)})
+	}
+	cfg.SelectionToolBinaries = binaries
+	cfg.SessionEnvRollbacks = nil
+	caches, err := ensureSelectionToolCacheSet(ctx, client, cfg, imageID)
+	if err != nil {
+		return pkgplugins.PluginPreparationResult{}, nil, err
+	}
+	projection, err := publishStableSelectionProjection(ctx, client, cfg, imageID, caches)
+	if err != nil {
+		return pkgplugins.PluginPreparationResult{}, nil, err
+	}
+	if projection == nil {
+		return pkgplugins.PluginPreparationResult{}, nil, errors.New("docker: stable selection projection was not published")
+	}
+	result := pluginPreparationFromToolPreparation(caches.Preparation)
+	var publicPaths []string
+	for _, cache := range caches.Packages {
+		if binPath := projection.PackageBinPath[cache.VolumeName]; binPath != "" {
+			publicPaths = append(publicPaths, binPath)
+		}
+	}
+	return result, publicPaths, nil
+}
+
+func pluginPreparationFromToolPreparation(preparation ToolPreparationResult) pkgplugins.PluginPreparationResult {
+	result := pkgplugins.PluginPreparationResult{Binaries: slices.Clone(preparation.BinaryEvidence)}
+	for _, pkg := range preparation.SuccessfulPackages {
+		result.Packages = append(result.Packages, pkgplugins.PluginPackageStatus{PluginID: pkg.PluginID, Ready: true})
+	}
+	for _, failure := range preparation.FailedPackages {
 		result.Packages = append(result.Packages, pkgplugins.PluginPackageStatus{PluginID: failure.Package.PluginID, Reason: "Docker tool preparation failed"})
 	}
 	return result
@@ -717,9 +859,10 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 
 	// Per-exec env reads take a snapshot under the lock.
 	h.session.mu.RLock()
-	policyEnv := h.session.policy.Env
+	policyEnv := maps.Clone(h.session.policy.Env)
+	creationEnvKeys := slices.Clone(h.session.creationEnvKeys)
 	h.session.mu.RUnlock()
-	env := dockerExecEnvironment(policyEnv, opts.Env, h.session.mountTable, h.session.envPathMaps, h.session.toolBinPaths)
+	env := dockerExecEnvironmentMode(policyEnv, opts.Env, opts.EnvMode, h.session.mountTable, h.session.envPathMaps, h.session.toolBinPaths, h.session.coreToolBinPaths)
 
 	timeout := opts.Timeout
 	if timeout == 0 {
@@ -736,6 +879,7 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 		Command:     []string{"/bin/sh", "-c", command},
 		Cwd:         containerCwd,
 		Env:         env,
+		UnsetEnv:    unsetEnvKeys(creationEnvKeys, env, opts.EnvMode),
 	})
 	if err != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("docker host exec: %w", err)
@@ -768,9 +912,10 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 
 	// Per-exec env reads take a snapshot under the lock.
 	h.session.mu.RLock()
-	policyEnv := h.session.policy.Env
+	policyEnv := maps.Clone(h.session.policy.Env)
+	creationEnvKeys := slices.Clone(h.session.creationEnvKeys)
 	h.session.mu.RUnlock()
-	env := dockerExecEnvironment(policyEnv, req.Env, h.session.mountTable, h.session.envPathMaps, h.session.toolBinPaths)
+	env := dockerExecEnvironmentMode(policyEnv, req.Env, req.EnvMode, h.session.mountTable, h.session.envPathMaps, h.session.toolBinPaths, h.session.coreToolBinPaths)
 
 	timeout := req.Timeout
 	if timeout == 0 {
@@ -796,6 +941,7 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 		Command:     command,
 		Cwd:         containerCwd,
 		Env:         env,
+		UnsetEnv:    unsetEnvKeys(creationEnvKeys, env, req.EnvMode),
 	})
 	if err != nil {
 		cancel()

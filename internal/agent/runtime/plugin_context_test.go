@@ -43,47 +43,6 @@ func TestPluginContextReturnsIndependentView(t *testing.T) {
 	}
 }
 
-func TestPluginContextIdentityIncludesMCPDirectoryAndSuccessfulSet(t *testing.T) {
-	base := PluginContext{view: pkgplugins.SessionPluginView{MCPDirectory: []pkgplugins.MCPDirectoryEntry{{
-		PluginResourceIdentity: pkgplugins.PluginResourceIdentity{PluginID: "remote", ConfigID: "cfg", Revision: 1},
-		ServerKey:              "main", Ready: true,
-		Tools: []pkgplugins.MCPToolDescriptor{{Name: "remote__main__search", Description: "old", InputSchema: map[string]any{"type": "object"}}},
-	}}, SuccessfulPluginIDs: []string{"remote"}}}
-	changed := base.SessionPluginView()
-	changed.MCPDirectory[0].Tools[0].Description = "new"
-	changedCtx := PluginContext{view: changed}
-	if base.SameIdentity(changedCtx) {
-		t.Fatal("MCP tool declaration changes must invalidate plugin identity")
-	}
-	changed = base.SessionPluginView()
-	changed.SuccessfulPluginIDs = nil
-	changedCtx = PluginContext{view: changed}
-	if base.SameIdentity(changedCtx) {
-		t.Fatal("successful package set changes must invalidate plugin identity")
-	}
-}
-
-func TestPluginContextOnlyRetiresOAuthReadyCLIFailures(t *testing.T) {
-	oauthUnavailable := pkgplugins.PluginPreparationResult{Packages: []pkgplugins.PluginPackageStatus{{
-		PluginID: "package", Reason: "OAuth unavailable",
-	}}}
-	ctx := PluginContext{}.WithOAuthPreparationResult(oauthUnavailable).WithPreparationResult(oauthUnavailable)
-	if ctx.HasFailedPackagePreparation() {
-		t.Fatal("stable OAuth failure should not retire a cached runner")
-	}
-
-	oauthReady := pkgplugins.PluginPreparationResult{Packages: []pkgplugins.PluginPackageStatus{{
-		PluginID: "package", Ready: true,
-	}}}
-	cliUnavailable := pkgplugins.PluginPreparationResult{Packages: []pkgplugins.PluginPackageStatus{{
-		PluginID: "package", Reason: "CLI preparation failed",
-	}}}
-	ctx = PluginContext{}.WithOAuthPreparationResult(oauthReady).WithPreparationResult(cliUnavailable)
-	if !ctx.HasFailedPackagePreparation() {
-		t.Fatal("CLI failure after OAuth admission should retire the cached runner")
-	}
-}
-
 func TestPluginContextPreparationDoesNotResurrectStaticFailure(t *testing.T) {
 	base := pkgplugins.PluginPreparationResult{Packages: []pkgplugins.PluginPackageStatus{
 		{PluginID: "healthy", Ready: true},

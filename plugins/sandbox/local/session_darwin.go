@@ -140,9 +140,13 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy, mounts []sessionfs.Mount, wo
 		// Reopen only the immutable, content-addressed selections mounted for
 		// this session. In particular, never reopen the shared bin or mise root.
 		publicRoot := filepath.Join(stellaHomeHost, ".mise-tools", "public")
+		// Session-scoped projections live below public-sessions. Permit only the
+		// exact session root that the filesystem plan mounted, never a principal
+		// directory containing sibling sessions.
+		publicSessionsRoot := filepath.Join(stellaHomeHost, ".mise-tools", "public-sessions")
 		managedPublicRoot := filepath.Join(stellaHomeHost, ".mise-managed")
 		for _, mount := range mounts {
-			if !mount.ReadOnly || (!pathWithin(publicRoot, mount.HostPath) && !pathWithin(managedPublicRoot, mount.HostPath)) {
+			if !mount.ReadOnly || (!pathWithin(publicRoot, mount.HostPath) && !pathWithin(managedPublicRoot, mount.HostPath) && !isExactSessionProjection(publicSessionsRoot, mount.HostPath)) {
 				continue
 			}
 			if canonical, err := filepath.EvalSymlinks(mount.HostPath); err == nil {
@@ -189,6 +193,15 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy, mounts []sessionfs.Mount, wo
 	}
 
 	return sb.String()
+}
+
+func isExactSessionProjection(publicSessionsRoot, candidate string) bool {
+	rel, err := filepath.Rel(filepath.Clean(publicSessionsRoot), filepath.Clean(candidate))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return false
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	return len(parts) == 3 && parts[0] != "" && parts[1] != "" && parts[2] != ""
 }
 
 func pathWithin(root, candidate string) bool {

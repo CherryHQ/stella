@@ -56,10 +56,12 @@ func setupSandboxBackends() (*agentsandbox.BackendRegistry, error) {
 				return nil, fmt.Errorf("load builtin skill bundle: %w", err)
 			}
 			backendConfig := dockerbackend.Config{
-				Image:                  sandboxDockerImage(),
-				StellaHome:             request.Paths.StellaHome,
-				ExpectedBundleRevision: resourceRegistry.BundleRevision(),
-				SessionEnvRollbacks:    maps.Clone(request.SessionEnvRollbacks),
+				Image:                    sandboxDockerImage(),
+				StellaHome:               request.Paths.StellaHome,
+				ExpectedBundleRevision:   resourceRegistry.BundleRevision(),
+				SessionEnvRollbacks:      maps.Clone(request.SessionEnvRollbacks),
+				StableProjectionID:       request.StableProjectionID,
+				StableProjectionHostRoot: request.StableProjectionRoot,
 			}
 			// Every resolved selection is prepared in the isolated Linux helper.
 			// User-scoped installers never execute on the host.

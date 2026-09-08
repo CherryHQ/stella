@@ -11,6 +11,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -110,7 +111,11 @@ func (t *toolProxy) PluginToolIdentity() (pluginID, serverKey, localToolName str
 		return "", "", "", false
 	}
 	localToolName = t.remoteName
-	if _, err := agentpackage.ExportedToolName(t.reg.PluginID, t.reg.ServerKey, localToolName); err != nil {
+	packageIdentity := t.reg.PluginID
+	if t.reg.IsFile() {
+		packageIdentity = fileToolPackageIdentity(t.reg)
+	}
+	if _, err := agentpackage.ExportedToolName(packageIdentity, t.reg.ServerKey, localToolName); err != nil {
 		return "", "", "", false
 	}
 	return t.reg.PluginID, t.reg.ServerKey, localToolName, true
@@ -134,6 +139,19 @@ func (t *toolProxy) Execute(ctx context.Context, args map[string]any) (string, e
 }
 
 func (t *toolProxy) call(ctx context.Context, args map[string]any) (*mcpsdk.CallToolResult, error) {
+	if t.fileConn != nil {
+		authority, ok := authz.AuthorityFromContext(ctx)
+		if !ok {
+			return nil, authz.ErrUnauthenticated
+		}
+		owner, err := FileCredentialOwner(t.reg, authority)
+		if err != nil {
+			return nil, err
+		}
+		if fileCredentialKey(t.reg, owner) != t.fileConn.grant {
+			return nil, authz.ErrForbidden
+		}
+	}
 	client, err := t.ensureClient(ctx)
 	if err != nil {
 		return nil, err

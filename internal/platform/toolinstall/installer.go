@@ -139,6 +139,82 @@ func InstallSelection(ctx context.Context, stellaHome string, selection Selectio
 	return runSelectionInstall(ctx, stellaHome, selection, tools)
 }
 
+// PublishNativeSelectionTree copies one completed public selection into a
+// session projection root. The source must contain only the published
+// executable tree, never mise config/cache/state. Existing destinations are
+// retained so an old turn cannot be rewritten by a later selection.
+func PublishNativeSelectionTree(source, destination string) error {
+	if source == "" || destination == "" {
+		return errors.New("toolinstall: selection source and destination are required")
+	}
+	nativePublicationMu.Lock()
+	defer nativePublicationMu.Unlock()
+	if _, err := ReadNativeSelectionEvidence(source); err != nil {
+		return fmt.Errorf("toolinstall: source selection is not complete: %w", err)
+	}
+	if info, err := os.Lstat(destination); err == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("toolinstall: selection destination %q is not a directory", destination)
+		}
+		if _, markerErr := os.Stat(filepath.Join(destination, ".selection-complete")); markerErr != nil {
+			return fmt.Errorf("toolinstall: selection destination %q is incomplete", destination)
+		}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("toolinstall: inspect selection destination: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return fmt.Errorf("toolinstall: create selection destination parent: %w", err)
+	}
+	temp, err := os.MkdirTemp(filepath.Dir(destination), ".selection-publish-")
+	if err != nil {
+		return fmt.Errorf("toolinstall: create selection staging tree: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(temp) }()
+	if err := copyNativeTree(source, temp); err != nil {
+		return fmt.Errorf("toolinstall: copy selection tree: %w", err)
+	}
+	if err := os.Chmod(temp, 0o755); err != nil {
+		return fmt.Errorf("toolinstall: finalize selection staging tree: %w", err)
+	}
+	if _, err := os.Lstat(destination); err == nil {
+		if _, markerErr := os.Stat(filepath.Join(destination, ".selection-complete")); markerErr != nil {
+			return fmt.Errorf("toolinstall: selection destination %q appeared incomplete during publication", destination)
+		}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("toolinstall: inspect selection destination before publish: %w", err)
+	}
+	if err := os.Rename(temp, destination); err != nil {
+		return fmt.Errorf("toolinstall: publish selection tree: %w", err)
+	}
+	return nil
+}
+
+// ReadNativeSelectionEvidence verifies that root is an immutable published
+// selection and returns its frozen resolver evidence. A missing root is
+// reported with os.ErrNotExist so callers can distinguish a cold cache from a
+// corrupt or partially published selection.
+func ReadNativeSelectionEvidence(root string) (pkgplugins.BinaryInstallEvidence, error) {
+	if root == "" {
+		return pkgplugins.BinaryInstallEvidence{}, errors.New("toolinstall: selection root is required")
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		return pkgplugins.BinaryInstallEvidence{}, err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return pkgplugins.BinaryInstallEvidence{}, fmt.Errorf("toolinstall: selection root %q is not a directory", root)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".selection-complete")); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return pkgplugins.BinaryInstallEvidence{}, fmt.Errorf("toolinstall: selection root %q is incomplete: %w", root, os.ErrNotExist)
+		}
+		return pkgplugins.BinaryInstallEvidence{}, err
+	}
+	return readSelectionEvidence(root)
+}
+
 var nativePublicationMu sync.Mutex
 
 func sandboxMiseMaterializeCommand(tools []Tool) string {

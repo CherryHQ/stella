@@ -20,7 +20,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -1308,8 +1307,8 @@ func TestPluginToolOverridesSurviveConfigRenameAndDelete(t *testing.T) {
 	user := create(ScopeUser, userID)
 	const localTool = "list"
 	for _, arg := range []sqlc.UpsertPluginToolOverrideParams{
-		{PluginID: pgnull.Text(pluginID), LocalToolName: pgnull.Text(localTool), Scope: agent.ToolOverrideScopeSystem, Enabled: false},
-		{PluginID: pgnull.Text(pluginID), LocalToolName: pgnull.Text(localTool), Scope: agent.ToolOverrideScopeUser, UserID: pgnull.Text(userID), Enabled: true},
+		{PluginID: pgnull.Text(pluginID), LocalToolName: pgnull.Text(localTool), Scope: "system", Enabled: false},
+		{PluginID: pgnull.Text(pluginID), LocalToolName: pgnull.Text(localTool), Scope: "user", UserID: pgnull.Text(userID), Enabled: true},
 	} {
 		if _, err := q.UpsertPluginToolOverride(ctx, arg); err != nil {
 			t.Fatalf("seed plugin override %+v: %v", arg, err)

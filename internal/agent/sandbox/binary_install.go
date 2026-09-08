@@ -97,8 +97,20 @@ const (
 // installation so a failed package cannot change the interpretation of the
 // remaining packages.
 func InstallContextBinaries(ctx context.Context, stellaHome string, specs []pkgplugins.PluginBinarySpec) (BinaryInstallResult, error) {
+	return InstallContextBinariesAt(ctx, stellaHome, filepath.Join(pkgsandbox.MiseToolsDir(stellaHome), "public"), specs)
+}
+
+// InstallContextBinariesAt is the session-aware variant of
+// InstallContextBinaries. publicRoot must be a dedicated immutable projection
+// root that the final sandbox mounts read-only. The installer still uses the
+// shared artifact cache under MISE_DATA_DIR, while each selection is published
+// beneath publicRoot and never exposes mise's config, cache, or state.
+func InstallContextBinariesAt(ctx context.Context, stellaHome, publicRoot string, specs []pkgplugins.PluginBinarySpec) (BinaryInstallResult, error) {
 	if stellaHome == "" {
 		return BinaryInstallResult{}, errors.New("sandbox: stella home is required")
+	}
+	if publicRoot == "" {
+		return BinaryInstallResult{}, errors.New("sandbox: public selection root is required")
 	}
 	dataDir := pkgsandbox.MiseToolsDir(stellaHome)
 	identity, err := binarySelectionIdentity(specs, dataDir)
@@ -112,7 +124,7 @@ func InstallContextBinaries(ctx context.Context, stellaHome string, specs []pkgp
 	result := BinaryInstallResult{Plan: plan}
 	groups := groupedBinarySpecs(specs, isSystemBinary)
 	if len(groups) == 0 {
-		selection := selectionPlan(identity, BinaryPackage{}, dataDir, filepath.Join(dataDir, "public"))
+		selection := selectionPlan(identity, BinaryPackage{}, dataDir, publicRoot)
 		_, err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
 			DataDir: dataDir, PublicDir: selection.PublicDir, PublicBinDir: selection.PublicBinDir,
 		}, nil)
@@ -127,7 +139,7 @@ func InstallContextBinaries(ctx context.Context, stellaHome string, specs []pkgp
 		if err != nil {
 			return BinaryInstallResult{}, err
 		}
-		selection := selectionPlan(packageIdentity, group.pkg, dataDir, filepath.Join(dataDir, "public"))
+		selection := selectionPlan(packageIdentity, group.pkg, dataDir, publicRoot)
 		tools, err := miseToolsFromSpecs(group.specs, isSystemBinary)
 		if err != nil {
 			return BinaryInstallResult{}, err
@@ -265,6 +277,44 @@ func selectionPlan(identity string, pkg BinaryPackage, dataDir, publicRoot strin
 	}
 }
 
+// stablePublicSelectionRoot returns the only mutable-to-immutable handoff
+// directory a live session needs for optional CLI selections. It is scoped by
+// principal and session, so a later turn can publish another digest directory
+// without replacing a tree visible to an earlier turn. An empty session ID is
+// retained for startup/unit callers that predate session-scoped projections.
+func stablePublicSelectionRoot(stellaHome string, cfg Config) string {
+	root := filepath.Join(pkgsandbox.MiseToolsDir(stellaHome), "public")
+	principalDir, principalID := misePrincipal(cfg)
+	if cfg.SessionID == "" {
+		return root
+	}
+	if principalDir == "" {
+		principalDir, principalID = "sessions", "anonymous"
+	}
+	if !safeProjectionComponent(cfg.SessionID) || !safeProjectionComponent(principalDir) || !safeProjectionComponent(principalID) {
+		return ""
+	}
+	return filepath.Join(pkgsandbox.MiseToolsDir(stellaHome), "public-sessions", principalDir, principalID, cfg.SessionID)
+}
+
+func stableProjectionID(cfg Config) string {
+	principalDir, principalID := misePrincipal(cfg)
+	if cfg.SessionID == "" {
+		return ""
+	}
+	if principalDir == "" {
+		principalDir, principalID = "sessions", "anonymous"
+	}
+	if !safeProjectionComponent(cfg.SessionID) || !safeProjectionComponent(principalDir) || !safeProjectionComponent(principalID) {
+		return ""
+	}
+	return principalDir + ":" + principalID + ":" + cfg.SessionID
+}
+
+func safeProjectionComponent(value string) bool {
+	return value != "" && value != "." && value != ".." && filepath.Base(value) == value && !strings.ContainsAny(value, `/\\`)
+}
+
 func isSystemBinary(spec pkgplugins.PluginBinarySpec) bool {
 	return spec.Scope == string(plugin.ScopeSystem) || spec.Scope == string(plugin.ScopeSystemAgent)
 }
@@ -385,7 +435,7 @@ func binaryLookupName(name string, options map[string]any) string {
 func binarySelectionIdentity(specs []pkgplugins.PluginBinarySpec, coordinate string) (string, error) {
 	canonical := slices.Clone(specs)
 	slices.SortFunc(canonical, func(left, right pkgplugins.PluginBinarySpec) int {
-		for _, pair := range [][2]string{{left.PluginID, right.PluginID}, {left.ConfigID, right.ConfigID}, {left.Scope, right.Scope}, {left.PackageDigest, right.PackageDigest}, {left.Name, right.Name}, {left.Tool, right.Tool}, {left.Version, right.Version}} {
+		for _, pair := range [][2]string{{left.PluginID, right.PluginID}, {left.ConfigID, right.ConfigID}, {left.Scope, right.Scope}, {left.Name, right.Name}, {left.Tool, right.Tool}, {left.Version, right.Version}} {
 			if pair[0] != pair[1] {
 				return strings.Compare(pair[0], pair[1])
 			}
@@ -393,8 +443,22 @@ func binarySelectionIdentity(specs []pkgplugins.PluginBinarySpec, coordinate str
 		return cmp.Compare(left.Revision, right.Revision)
 	})
 	for _, spec := range canonical {
-		if spec.PluginID == "" || spec.ConfigID == "" || spec.Scope == "" || spec.Name == "" || spec.Tool == "" {
+		if spec.PluginID == "" || spec.Scope == "" || spec.Name == "" || spec.Tool == "" {
 			return "", fmt.Errorf("sandbox: binary %q is missing resource identity", spec.Name)
+		}
+		switch {
+		case strings.HasPrefix(spec.PluginID, "file:"):
+			key, err := plugin.ParseResourceID(spec.PluginID)
+			if err != nil {
+				return "", fmt.Errorf("sandbox: binary %q has invalid file resource identity: %w", spec.Name, err)
+			}
+			if key.Kind != plugin.ResourcePlugin || string(key.Scope) != spec.Scope || spec.ConfigID != "" || spec.Revision != 0 {
+				return "", fmt.Errorf("sandbox: file binary %q has inconsistent resource identity", spec.Name)
+			}
+		case spec.ConfigID == "":
+			return "", fmt.Errorf("sandbox: binary %q is missing database config identity", spec.Name)
+		case spec.Revision <= 0:
+			return "", fmt.Errorf("sandbox: binary %q has non-positive config revision", spec.Name)
 		}
 		if err := validateBinaryName(spec.Name); err != nil {
 			return "", fmt.Errorf("sandbox: binary %q: %w", spec.Name, err)
@@ -407,17 +471,13 @@ func binarySelectionIdentity(specs []pkgplugins.PluginBinarySpec, coordinate str
 		default:
 			return "", fmt.Errorf("sandbox: binary %q has unknown resource scope %q", spec.Name, spec.Scope)
 		}
-		if spec.Revision <= 0 {
-			return "", fmt.Errorf("sandbox: binary %q has non-positive config revision", spec.Name)
-		}
 	}
 	type selectionBinary struct {
-		PluginID      string `json:"plugin_id"`
-		ConfigID      string `json:"config_id"`
-		Scope         string `json:"scope"`
-		Revision      int64  `json:"revision"`
-		PackageDigest string `json:"package_digest"`
-		Artifact      string `json:"artifact"`
+		PluginID string `json:"plugin_id"`
+		ConfigID string `json:"config_id,omitempty"`
+		Scope    string `json:"scope"`
+		Revision int64  `json:"revision,omitempty"`
+		Artifact string `json:"artifact"`
 	}
 	entries := make([]selectionBinary, 0, len(canonical))
 	for _, spec := range canonical {
@@ -427,7 +487,7 @@ func binarySelectionIdentity(specs []pkgplugins.PluginBinarySpec, coordinate str
 		}
 		entries = append(entries, selectionBinary{
 			PluginID: spec.PluginID, ConfigID: spec.ConfigID, Scope: spec.Scope,
-			Revision: spec.Revision, PackageDigest: spec.PackageDigest, Artifact: artifact,
+			Revision: spec.Revision, Artifact: artifact,
 		})
 	}
 	payload, err := json.Marshal(struct {

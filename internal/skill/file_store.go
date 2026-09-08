@@ -120,7 +120,16 @@ func (s *FileStore) resourceRoots(vc ViewContext) []plugin.ResourceRoot {
 	if s == nil || s.roots == nil {
 		return nil
 	}
-	owners := []Skill{{Scope: "system"}, {Scope: "system_agent", AgentID: vc.AgentID}, {Scope: "user", UserID: vc.UserID}, {Scope: "user_agent", UserID: vc.UserID, AgentID: vc.AgentID}}
+	owners := []Skill{{Scope: "system"}}
+	if vc.AgentID != "" {
+		owners = append(owners, Skill{Scope: "system_agent", AgentID: vc.AgentID})
+	}
+	if vc.UserID != "" {
+		owners = append(owners, Skill{Scope: "user", UserID: vc.UserID})
+		if vc.AgentID != "" {
+			owners = append(owners, Skill{Scope: "user_agent", UserID: vc.UserID, AgentID: vc.AgentID})
+		}
+	}
 	result := make([]plugin.ResourceRoot, 0, len(owners))
 	for _, owner := range owners {
 		pluginScope, rootScope, ok := resourceRootFor(owner.Scope)
@@ -149,10 +158,29 @@ func (s *FileStore) CaptureVisible(ctx context.Context, vc ViewContext) (SkillCa
 	if err != nil {
 		return SkillCapture{}, err
 	}
+	return s.CaptureResources(ctx, resources, vc)
+}
+
+// CaptureResources projects already captured filesystem resources into the
+// managed Skill snapshot. It never opens a root or re-discovers a resource;
+// callers that own a wider PluginContext must pass the exact resource slice
+// captured for that context.
+func (s *FileStore) CaptureResources(ctx context.Context, resources []plugin.FileResource, vc ViewContext) (SkillCapture, error) {
+	return captureResources(ctx, resources, vc)
+}
+
+// captureResources projects already captured file resources into the managed
+// Skill snapshot. It is kept pure so PluginContext admission can reuse the
+// exact resource capture without constructing a second FileStore or opening a
+// root again.
+func captureResources(ctx context.Context, resources []plugin.FileResource, vc ViewContext) (SkillCapture, error) {
 	revisions := make([]ManagedRevision, 0, len(resources))
 	masked := make([]string, 0)
 	forbidden := make([]string, 0)
 	for _, resource := range resources {
+		if err := ctx.Err(); err != nil {
+			return SkillCapture{}, err
+		}
 		if resource.Key.Kind != plugin.ResourceSkill {
 			continue
 		}

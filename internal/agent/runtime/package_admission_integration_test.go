@@ -53,6 +53,17 @@ type packageAdmissionFixture struct {
 	builds    int
 }
 
+// packageAdmissionRunner models a cached runner whose per-turn preparation
+// refreshes package readiness without rebuilding the runner or its sandbox.
+type packageAdmissionRunner struct {
+	*fakeRunner
+	prepare func(context.Context, PluginContext) (context.Context, PluginContext, error)
+}
+
+func (r *packageAdmissionRunner) PrepareTurn(ctx context.Context, pluginContext PluginContext) (context.Context, PluginContext, error) {
+	return r.prepare(ctx, pluginContext)
+}
+
 func (f *packageAdmissionFixture) context() PluginContext {
 	f.mu.RLock()
 	authored, tokens := f.authored, f.tokens
@@ -85,15 +96,17 @@ func (f *packageAdmissionFixture) runtime(t *testing.T) *Runtime {
 		NewRunner: func(_ context.Context, params RunnerParams) (Runner, error) {
 			f.mu.Lock()
 			f.builds++
-			cliReadyB := f.cliReadyB
-			oauthResult := params.PluginContext.OAuthPreparationResult()
-			cli := pkgplugins.PluginPreparationResult{Packages: []pkgplugins.PluginPackageStatus{
-				{PluginID: "package-a", Ready: true},
-				{PluginID: "package-b", Ready: cliReadyB, Reason: "CLI preparation failed"},
-			}}
-			f.last = params.PluginContext.WithPreparationResult(oauthResult.Merge(cli))
+			last := f.packagePreparationLocked(params.PluginContext)
 			f.mu.Unlock()
-			return &fakeRunner{alive: true, lastAct: time.Now(), pluginContext: f.last}, nil
+			return &packageAdmissionRunner{
+				fakeRunner: &fakeRunner{alive: true, lastAct: time.Now(), pluginContext: last},
+				prepare: func(ctx context.Context, pluginContext PluginContext) (context.Context, PluginContext, error) {
+					f.mu.Lock()
+					defer f.mu.Unlock()
+					prepared := f.packagePreparationLocked(f.contextLocked())
+					return ctx, prepared, nil
+				},
+			}, nil
 		},
 		PluginContextBuilder: func(context.Context, authz.Authority, string) (PluginContext, error) {
 			return f.context(), nil
@@ -104,6 +117,22 @@ func (f *packageAdmissionFixture) runtime(t *testing.T) *Runtime {
 	}
 	t.Cleanup(func() { _ = rt.Close() })
 	return rt
+}
+
+func (f *packageAdmissionFixture) contextLocked() PluginContext {
+	result := sandbox.PrepareOAuthPackages(context.Background(), sandbox.Config{
+		UserID: "package-user", TokenManager: f.tokens,
+	}, f.authored.view.PackageRequirements)
+	return f.authored.WithOAuthPreparationResult(result)
+}
+
+func (f *packageAdmissionFixture) packagePreparationLocked(base PluginContext) PluginContext {
+	cli := pkgplugins.PluginPreparationResult{Packages: []pkgplugins.PluginPackageStatus{
+		{PluginID: "package-a", Ready: true},
+		{PluginID: "package-b", Ready: f.cliReadyB, Reason: "CLI preparation failed"},
+	}}
+	f.last = base.WithPreparationResult(base.OAuthPreparationResult().Merge(cli))
+	return f.last
 }
 
 func packageProjectionContext() PluginContext {
@@ -185,12 +214,12 @@ func TestPackageReadinessRunsThroughFreshAdmissionAndCache(t *testing.T) {
 
 	fixture.setToken(oauth.OAuthBundle{AccessToken: "token-b", GrantedScope: "scope-1 scope-2", AccessExpiresAt: time.Now().UTC().Add(time.Hour)})
 	recovered := preparePackageAdmission(t, fixture, rt, info, authority)
-	if got := recovered.SessionPluginView(); len(got.ExposedPluginIDs) != 2 || fixture.builds != 2 {
-		t.Fatalf("OAuth recovery view/builds = %+v/%d, want both packages and 2 builds", got, fixture.builds)
+	if got := recovered.SessionPluginView(); len(got.ExposedPluginIDs) != 2 || fixture.builds != 1 {
+		t.Fatalf("OAuth recovery view/builds = %+v/%d, want both packages and one cached runner", got, fixture.builds)
 	}
 }
 
-func TestCLIReadinessFailureRetriesAtNextAdmission(t *testing.T) {
+func TestCLIReadinessFailureRefreshesAtNextAdmission(t *testing.T) {
 	authority, err := authz.NewUserAuthority(authz.UserID("cli-user"), false)
 	if err != nil {
 		t.Fatal(err)
@@ -209,17 +238,17 @@ func TestCLIReadinessFailureRetriesAtNextAdmission(t *testing.T) {
 	if fixture.builds != 1 {
 		t.Fatalf("initial CLI failure builds = %d, want 1", fixture.builds)
 	}
-	// The failed package remains hidden for this turn, but the cache retires it
-	// before the next ordinary admission so installation can be retried.
+	// The failed package remains hidden for this turn. The cached runner refreshes
+	// package readiness on the next admission, so no rebuild is needed.
 	_ = preparePackageAdmission(t, fixture, rt, info, authority)
-	if fixture.builds != 2 {
-		t.Fatalf("CLI retry builds = %d, want 2", fixture.builds)
+	if fixture.builds != 1 {
+		t.Fatalf("CLI retry builds = %d, want 1", fixture.builds)
 	}
 
 	fixture.setCLIReady(true)
-	_ = preparePackageAdmission(t, fixture, rt, info, authority)
-	if fixture.builds != 3 {
-		t.Fatalf("CLI recovery builds = %d, want 3", fixture.builds)
+	recovered := preparePackageAdmission(t, fixture, rt, info, authority)
+	if fixture.builds != 1 || len(recovered.SessionPluginView().ExposedPluginIDs) != 2 {
+		t.Fatalf("CLI recovery builds/view = %d/%+v, want one build and both packages", fixture.builds, recovered.SessionPluginView())
 	}
 }
 

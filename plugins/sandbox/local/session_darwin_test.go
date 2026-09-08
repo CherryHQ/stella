@@ -218,6 +218,41 @@ func TestNativeSelectionPathRunsSelectedCommand(t *testing.T) {
 	}
 }
 
+func TestNativeSelectionStartProcessUsesCurrentPath(t *testing.T) {
+	if !seatbeltFunctional() {
+		t.Skip("sandbox-exec not available")
+	}
+	s, root := newTestSession(t)
+	toolName := "stella-start-tool"
+	tool := filepath.Join(root, toolName)
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\nprintf 'current\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	proc, err := s.StartProcess(context.Background(), sandboxpkg.ProcessRequest{
+		Path:    toolName,
+		Env:     map[string]string{"PATH": root},
+		EnvMode: sandboxpkg.EnvReplace,
+	})
+	if err != nil {
+		t.Fatalf("StartProcess current selection: %v", err)
+	}
+	out, err := io.ReadAll(proc.Stdout())
+	if err != nil {
+		t.Fatalf("read current selection: %v", err)
+	}
+	result, err := proc.Wait(context.Background())
+	if err != nil || result.ExitCode != 0 || string(out) != "current\n" {
+		t.Fatalf("current selection result = %+v, output=%q, err=%v", result, out, err)
+	}
+	if _, err := s.StartProcess(context.Background(), sandboxpkg.ProcessRequest{
+		Path:    toolName,
+		Env:     map[string]string{"PATH": t.TempDir()},
+		EnvMode: sandboxpkg.EnvReplace,
+	}); err == nil {
+		t.Fatal("StartProcess resolved a removed selection from the host PATH")
+	}
+}
+
 func TestBuildSeatbeltProfile_structure(t *testing.T) {
 	policy := makePolicy("/tmp/ws", sandboxpkg.NetworkDisabled)
 	profile := buildSeatbeltProfile(policy, darwinTestMounts("/tmp/ws"), "/tmp/ws", "")
@@ -275,6 +310,29 @@ func TestBuildSeatbeltProfileDeniesNativePrivateRoot(t *testing.T) {
 	}
 	if strings.Contains(profile[deny+1:], `(allow file-read* (subpath "`+canonicalRoot+`"))`) {
 		t.Fatal("private root read deny was reopened")
+	}
+}
+
+func TestBuildSeatbeltProfileAllowsOnlyExactSessionProjection(t *testing.T) {
+	stellaHome := t.TempDir()
+	publicSessions := filepath.Join(stellaHome, ".mise-tools", "public-sessions")
+	sessionRoot := filepath.Join(publicSessions, "users", "user-1", "session-1")
+	principalRoot := filepath.Dir(sessionRoot)
+	if err := os.MkdirAll(sessionRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	profile := buildSeatbeltProfile(makePolicy("/tmp/ws", sandboxpkg.NetworkAllowAll), []sessionfs.Mount{{
+		HostPath: sessionRoot, ReadOnly: true,
+	}}, "/tmp/ws", stellaHome)
+	canonical, err := filepath.EvalSymlinks(sessionRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(profile, `(allow file-read* (subpath "`+canonical+`"))`) {
+		t.Fatalf("profile did not reopen exact session projection: %s", profile)
+	}
+	if strings.Contains(profile, `(allow file-read* (subpath "`+principalRoot+`"))`) {
+		t.Fatalf("profile reopened the whole principal projection: %s", profile)
 	}
 }
 

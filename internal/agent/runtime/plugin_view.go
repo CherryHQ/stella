@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -109,6 +110,130 @@ func projectSessionPluginView(snapshot plugin.Snapshot) (pkgplugins.SessionPlugi
 		return cmp.Compare(left.ConfigID, right.ConfigID)
 	})
 	return view, nil
+}
+
+// projectFileSessionPluginView projects already-captured resources without
+// manufacturing Definition or Config rows. Every identity is the scoped file
+// key, so same names in different owners remain distinct.
+func projectFileSessionPluginView(resources []plugin.FileResource) (pkgplugins.SessionPluginView, error) {
+	view := pkgplugins.SessionPluginView{
+		RegisteredPluginIDs: make([]string, 0, len(resources)),
+	}
+	for _, resource := range resources {
+		id := resource.Key.ID()
+		if id == "" {
+			return pkgplugins.SessionPluginView{}, fmt.Errorf("file resource %q has invalid identity", resource.Key.Name)
+		}
+		view.RegisteredPluginIDs = append(view.RegisteredPluginIDs, id)
+		identity := pkgplugins.PluginResourceIdentity{PluginID: id, Scope: string(resource.Key.Scope)}
+		if resource.Key.Kind == plugin.ResourceSkill {
+			continue
+		}
+		if resource.Key.Kind == plugin.ResourceMCP {
+			if !resource.Disabled && !resource.Forbidden && !fileResourceFatalDiagnostic(resource) {
+				view.ExposedPluginIDs = append(view.ExposedPluginIDs, id)
+			}
+			appendFileMCPDirectory(&view, identity, resource)
+			continue
+		}
+		if resource.Key.Kind != plugin.ResourcePlugin {
+			continue
+		}
+		unavailable := fileResourcePackageUnavailable(resource)
+		if unavailable {
+			view.PackageResults.Packages = append(view.PackageResults.Packages, pkgplugins.PluginPackageStatus{PluginID: id, Reason: fileResourceUnavailableReason(resource)})
+		} else {
+			view.ExposedPluginIDs = append(view.ExposedPluginIDs, id)
+		}
+		if resource.Package == nil {
+			if !unavailable {
+				view.PackageResults.Packages = append(view.PackageResults.Packages, pkgplugins.PluginPackageStatus{PluginID: id, Reason: fileResourceUnavailableReason(resource)})
+			}
+			continue
+		}
+		payload, err := plugin.ResourcePayloadFromAgentPackage(resource.Package)
+		if err != nil {
+			return pkgplugins.SessionPluginView{}, fmt.Errorf("file plugin %q: %w", id, err)
+		}
+		if resource.Digest != "" {
+			payload.ContentDigest = resource.Digest
+			payload.Content = &plugin.ContentReference{Digest: resource.Digest}
+		}
+		if !unavailable {
+			view.PackageResults.Packages = append(view.PackageResults.Packages, pkgplugins.PluginPackageStatus{PluginID: id, Ready: true})
+		}
+		reason := ""
+		if unavailable {
+			reason = fileResourceUnavailableReason(resource)
+		}
+		view.PackageRequirements = append(view.PackageRequirements, packageRequirement(id, payload.OAuth, reason))
+		appendCLIResources(&view, identity, payload)
+		appendSkillResources(&view, identity, payload, false)
+		appendFileMCPDirectory(&view, identity, resource)
+		if payload.Prompt != "" {
+			view.PromptSections = append(view.PromptSections, pkgplugins.SystemPromptSection{PluginID: id, Title: resource.Package.Manifest.Name, Content: payload.Prompt, Inline: true})
+		}
+	}
+	slices.Sort(view.RegisteredPluginIDs)
+	slices.Sort(view.ExposedPluginIDs)
+	slices.SortFunc(view.PackageResults.Packages, func(left, right pkgplugins.PluginPackageStatus) int {
+		return cmp.Compare(left.PluginID, right.PluginID)
+	})
+	return view, nil
+}
+
+func appendFileMCPDirectory(view *pkgplugins.SessionPluginView, identity pkgplugins.PluginResourceIdentity, resource plugin.FileResource) {
+	for serverKey := range resource.MCP {
+		status := "declared"
+		statusError := ""
+		if resource.Disabled || resource.Forbidden || fileResourceFatalDiagnostic(resource) {
+			status = "unavailable"
+			statusError = fileResourceUnavailableReason(resource)
+		}
+		view.MCPDirectory = append(view.MCPDirectory, pkgplugins.MCPDirectoryEntry{
+			PluginResourceIdentity: identity,
+			ServerKey:              serverKey,
+			Status:                 status,
+			StatusError:            statusError,
+		})
+	}
+}
+
+func fileResourceUnavailableReason(resource plugin.FileResource) string {
+	if resource.Forbidden {
+		return "file resource is forbidden"
+	}
+	if resource.Disabled {
+		return "file resource is disabled"
+	}
+	for _, diagnostic := range resource.Diagnostics {
+		if diagnostic.Severity == agentpackage.SeverityError {
+			if diagnostic.Message != "" {
+				return diagnostic.Message
+			}
+			if diagnostic.Code != "" {
+				return diagnostic.Code
+			}
+		}
+	}
+	return "file resource is unavailable"
+}
+
+func fileResourcePackageUnavailable(resource plugin.FileResource) bool {
+	return resource.Disabled || resource.Forbidden || resource.Package == nil || fileResourceFatalDiagnostic(resource)
+}
+
+func fileResourceFatalDiagnostic(resource plugin.FileResource) bool {
+	for _, diagnostic := range resource.Diagnostics {
+		if diagnostic.Severity != agentpackage.SeverityError {
+			continue
+		}
+		switch diagnostic.Code {
+		case "resource.capture", "resource.requirement_conflict":
+			return true
+		}
+	}
+	return false
 }
 
 func packageRequirement(pluginID string, requirements []plugin.OAuthRequirement, unavailableReason string) pkgplugins.PluginPackageRequirement {

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	pathpkg "path"
 	"reflect"
 	"slices"
 	"strconv"
@@ -50,6 +51,7 @@ const (
 	containerCoreRuntimeRoot      = "/opt/stella/core-runtime"
 	containerBuiltinArtifactRoot  = "/opt/stella/.mise-tools/builtin-artifacts"
 	containerSelectionReadyMarker = containerSelectionRoot + "/.stella-selection-ready"
+	containerStableSelectionRoot  = "/opt/stella/session-selection"
 )
 
 const (
@@ -68,9 +70,8 @@ type ToolBinary struct {
 	ConfigID string
 	Scope    string
 	Revision int64
-	// PackageDigest identifies the immutable published package that declared
-	// this selection. It belongs in the selection cache key, while artifact
-	// reuse remains based on effective install inputs.
+	// PackageDigest is the immutable published package receipt. Cache identity
+	// uses the scoped logical owner and concrete install inputs instead.
 	PackageDigest string
 	Name          string
 	Tool          string // mise tool key: uv, bun, github:owner/repo, pipx:pkg, npm:pkg, http:name
@@ -127,6 +128,13 @@ type selectionToolCacheSet struct {
 	Core        *selectionToolCache
 	Packages    []selectionToolCache
 	Preparation ToolPreparationResult
+}
+
+type stableSelectionProjection struct {
+	VolumeName     string
+	RootPath       string
+	CoreBinPath    string
+	PackageBinPath map[string]string
 }
 
 var (
@@ -229,6 +237,165 @@ func ensureSelectionToolCacheSet(ctx context.Context, client *dockerclient.Clien
 	return set, nil
 }
 
+var (
+	stableSelectionProjectionGroup singleflight.Group
+	stableSelectionProjectionMu    sync.Mutex
+)
+
+func publishStableSelectionProjection(ctx context.Context, client *dockerclient.Client, cfg Config, imageID string, caches *selectionToolCacheSet) (*stableSelectionProjection, error) {
+	if strings.TrimSpace(cfg.StableProjectionID) == "" {
+		return nil, nil
+	}
+	var key strings.Builder
+	key.WriteString(cfg.StableProjectionID + "\x00" + imageID)
+	for _, cache := range caches.Packages {
+		key.WriteString("\x00" + cache.VolumeName)
+	}
+	value, err, _ := stableSelectionProjectionGroup.Do(key.String(), func() (any, error) {
+		stableSelectionProjectionMu.Lock()
+		defer stableSelectionProjectionMu.Unlock()
+		return publishStableSelectionProjectionOnce(ctx, client, cfg, imageID, caches)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return value.(*stableSelectionProjection), nil
+}
+
+// publishStableSelectionProjectionOnce copies already-verified cache trees into a
+// session-scoped named volume. The helper receives cache volumes read-only and
+// the projection volume read-write; the final sandbox mounts only the latter
+// read-only. This keeps artifact downloads and mise's private preparation state
+// out of the process container while allowing later selections to add a new
+// digest directory without replacing an old one.
+func publishStableSelectionProjectionOnce(ctx context.Context, client *dockerclient.Client, cfg Config, imageID string, caches *selectionToolCacheSet) (*stableSelectionProjection, error) {
+	if strings.TrimSpace(cfg.StableProjectionID) == "" {
+		return nil, nil
+	}
+	if caches == nil || caches.Core == nil {
+		return nil, errors.New("docker stable selection: cache set is required")
+	}
+	identityDigest := sha256.Sum256([]byte(cfg.StableProjectionID + "\x00" + imageID))
+	volumeID := hex.EncodeToString(identityDigest[:12])
+	var payload strings.Builder
+	payload.WriteString(cfg.StableProjectionID + "\x00" + imageID + "\x00" + caches.Core.VolumeName)
+	for _, cache := range caches.Packages {
+		payload.WriteString("\x00" + cache.VolumeName)
+	}
+	digest := sha256.Sum256([]byte(payload.String()))
+	cacheID := hex.EncodeToString(digest[:12])
+	projection := &stableSelectionProjection{
+		VolumeName:     "stella-session-selection-" + volumeID,
+		RootPath:       containerStableSelectionRoot,
+		CoreBinPath:    pathpkg.Join(containerStableSelectionRoot, "core", "bin"),
+		PackageBinPath: make(map[string]string, len(caches.Packages)),
+	}
+	for _, cache := range caches.Packages {
+		projection.PackageBinPath[cache.VolumeName] = pathpkg.Join(containerStableSelectionRoot, "packages", toolCachePersistentID(strings.TrimPrefix(cache.VolumeName, "stella-selection-")), "bin")
+	}
+	if _, err := client.VolumeCreate(ctx, mobyclient.VolumeCreateOptions{
+		Name: projection.VolumeName,
+		Labels: map[string]string{
+			toolCacheLabel:          "true",
+			toolCacheKindLabel:      "selection-projection",
+			toolCacheImageLabel:     imageID,
+			toolCacheHashLabel:      cacheID,
+			toolCacheCreatedAtLabel: time.Now().UTC().Format(time.RFC3339),
+		},
+	}); err != nil && !errdefs.IsConflict(err) {
+		return nil, fmt.Errorf("docker stable selection: create volume: %w", err)
+	}
+
+	name := "stella-selection-projection-" + cacheID
+	mounts := []dockerclient.Mount{
+		{HostPath: projection.VolumeName, ContainerPath: projection.RootPath, ReadOnly: false, Type: dockerclient.MountTypeVolume, NoCopy: true},
+		{HostPath: caches.Core.VolumeName, ContainerPath: "/src/core", ReadOnly: true, Type: dockerclient.MountTypeVolume, NoCopy: true},
+	}
+	var script strings.Builder
+	script.WriteString("set -eu\n")
+	script.WriteString("publish_tree() { src=$1; dst=$2; marker=\"$dst/.stella-selection-ready\"; mkdir -p \"$(dirname \"$dst\")\"; if [ -f \"$marker\" ]; then return 0; fi; if mkdir \"$dst\" 2>/dev/null; then cp -a \"$src/.\" \"$dst/\"; rm -f \"$marker\"; : > \"$marker\"; chmod 0444 \"$marker\"; return 0; fi; i=0; while [ \"$i\" -lt 600 ]; do [ -f \"$marker\" ] && return 0; sleep 0.1; i=$((i+1)); done; echo \"incomplete selection tree\" >&2; return 1; }\n")
+	script.WriteString("publish_tree /src/core ")
+	script.WriteString(pathpkg.Join(projection.RootPath, "core"))
+	script.WriteString("\n")
+	for i, cache := range caches.Packages {
+		src := pathpkg.Join("/src/packages", strconv.Itoa(i))
+		dst := pathpkg.Join(projection.RootPath, "packages", toolCachePersistentID(strings.TrimPrefix(cache.VolumeName, "stella-selection-")))
+		mounts = append(mounts, dockerclient.Mount{HostPath: cache.VolumeName, ContainerPath: src, ReadOnly: true, Type: dockerclient.MountTypeVolume, NoCopy: true})
+		script.WriteString("publish_tree ")
+		script.WriteString(src)
+		script.WriteString(" ")
+		script.WriteString(dst)
+		script.WriteString("\n")
+	}
+	containerID, err := client.CreateAndStart(ctx, dockerclient.CreateOptions{
+		Image: imageID, Runtime: cfg.Runtime, NetworkMode: dockerclient.NetworkDisabled,
+		User: "root", ExtraMounts: mounts,
+		Labels: map[string]string{
+			"stella.tool_cache_helper": "true",
+			toolCacheLabel:             projection.VolumeName,
+			toolCacheKindLabel:         "selection-projection",
+		},
+		Name: name,
+	})
+	if err != nil {
+		if errdefs.IsConflict(err) {
+			_, waitErr := waitForToolCache(ctx, client, name, &selectionToolCache{VolumeName: projection.VolumeName, RootPath: projection.RootPath}, func(ctx context.Context) error {
+				return verifyStableSelectionProjection(ctx, client, imageID, projection, caches)
+			})
+			if waitErr != nil {
+				return nil, waitErr
+			}
+			return projection, nil
+		}
+		return nil, fmt.Errorf("docker stable selection: start helper: %w", err)
+	}
+	defer func() {
+		if stopErr := client.Stop(context.Background(), containerID); stopErr != nil {
+			slog.Warn("docker stable selection helper cleanup failed", "container_id", containerID, "error", stopErr)
+		}
+	}()
+	result, err := client.Exec(ctx, dockerclient.ExecOptions{
+		ContainerID: containerID, Command: []string{"/bin/sh", "-s"}, Cwd: projection.RootPath, Stdin: strings.NewReader(script.String()),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("docker stable selection: copy cache trees: %w", err)
+	}
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("docker stable selection: copy helper exited with code %d", result.ExitCode)
+	}
+	return projection, nil
+}
+
+func verifyStableSelectionProjection(ctx context.Context, client *dockerclient.Client, imageID string, projection *stableSelectionProjection, caches *selectionToolCacheSet) error {
+	name := "stella-selection-projection-verify-" + strings.TrimPrefix(projection.VolumeName, "stella-session-selection-")
+	containerID, err := client.CreateAndStart(ctx, dockerclient.CreateOptions{
+		Image: imageID, NetworkMode: dockerclient.NetworkDisabled, User: "root",
+		ExtraMounts: []dockerclient.Mount{{HostPath: projection.VolumeName, ContainerPath: projection.RootPath, ReadOnly: true, Type: dockerclient.MountTypeVolume, NoCopy: true}},
+		Name:        name,
+	})
+	if err != nil {
+		return fmt.Errorf("docker stable selection: start verifier: %w", err)
+	}
+	defer func() { _ = client.Stop(context.Background(), containerID) }()
+	var script strings.Builder
+	script.WriteString("set -eu\ntest -f " + pathpkg.Join(projection.RootPath, "core", ".stella-selection-ready") + "\n")
+	for _, cache := range caches.Packages {
+		binPath := projection.PackageBinPath[cache.VolumeName]
+		if binPath == "" {
+			continue
+		}
+		script.WriteString("test -f " + pathpkg.Join(pathpkg.Dir(binPath), ".stella-selection-ready") + "\n")
+	}
+	result, err := client.Exec(ctx, dockerclient.ExecOptions{ContainerID: containerID, Command: []string{"/bin/sh", "-s"}, Cwd: projection.RootPath, Stdin: strings.NewReader(script.String())})
+	if err != nil {
+		return err
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("docker stable selection: verifier exited with code %d", result.ExitCode)
+	}
+	return nil
+}
+
 func dockerBinaryEvidence(pkg ToolPackage, selectionIdentity string, binaries []ToolBinary, evidence pkgplugins.BinaryInstallEvidence) []pkgplugins.PluginBinaryPreparation {
 	byKey := make(map[string]pkgplugins.BinaryEvidenceTool, len(evidence.Tools))
 	for _, resolved := range evidence.Tools {
@@ -313,7 +480,7 @@ func installSelectionToolCache(ctx context.Context, client *dockerclient.Client,
 			toolCacheHashLabel:      hash,
 			toolCacheCreatedAtLabel: time.Now().UTC().Format(time.RFC3339),
 		},
-	}); err != nil {
+	}); err != nil && !errdefs.IsConflict(err) {
 		return nil, fmt.Errorf("docker selection tool cache: create volume %s: %w", cache.VolumeName, err)
 	}
 	if rootPath == containerSelectionRoot {
@@ -326,7 +493,7 @@ func installSelectionToolCache(ctx context.Context, client *dockerclient.Client,
 				toolCacheHashLabel:      hash,
 				toolCacheCreatedAtLabel: time.Now().UTC().Format(time.RFC3339),
 			},
-		}); err != nil {
+		}); err != nil && !errdefs.IsConflict(err) {
 			return nil, fmt.Errorf("docker selection tool cache: create mask volume %s: %w", cache.MaskVolumeName, err)
 		}
 	} else {
@@ -549,9 +716,8 @@ func toolCacheHash(image string, binaries []ToolBinary, core []systemplugins.Run
 	buf.WriteString(image)
 	buf.WriteByte('\n')
 	for _, b := range canonicalToolBinaries(binaries) {
-		fmt.Fprintf(&buf, "%v\t%v\t%v\t%v\t%v\t%v\t%v\t", b.PluginID, b.ConfigID, b.Scope, b.Revision, b.PackageDigest, b.Name, b.Tool)
-		buf.WriteString(b.Version)
-		buf.WriteByte('\t')
+		fmt.Fprintf(&buf, "owner=%s\t", toolBinaryLogicalOwner(b))
+		fmt.Fprintf(&buf, "%v\t%v\t%v\t", b.Name, b.Tool, b.Version)
 		options, _ := toml.Marshal(b.Options)
 		buf.Write(options)
 		buf.WriteByte('\n')
@@ -567,11 +733,7 @@ func canonicalToolBinaries(binaries []ToolBinary) []ToolBinary {
 	canonical := slices.Clone(binaries)
 	slices.SortFunc(canonical, func(left, right ToolBinary) int {
 		for _, pair := range [][2]string{
-			{left.PluginID, right.PluginID},
-			{left.ConfigID, right.ConfigID},
-			{left.Scope, right.Scope},
-			{fmt.Sprint(left.Revision), fmt.Sprint(right.Revision)},
-			{left.PackageDigest, right.PackageDigest},
+			{toolBinaryLogicalOwner(left), toolBinaryLogicalOwner(right)},
 			{left.Name, right.Name},
 			{left.Tool, right.Tool},
 			{left.Version, right.Version},
@@ -586,6 +748,17 @@ func canonicalToolBinaries(binaries []ToolBinary) []ToolBinary {
 		return 0
 	})
 	return canonical
+}
+
+// toolBinaryLogicalOwner is the cache ownership portion of a selection key.
+// File-backed resources encode their complete scoped ResourceKey in PluginID;
+// ConfigID/revision are intentionally empty and PackageDigest is provenance,
+// so neither may force a reinstall when unrelated package bytes change.
+func toolBinaryLogicalOwner(binary ToolBinary) string {
+	if strings.HasPrefix(binary.PluginID, "file:") {
+		return binary.PluginID + "\x00" + binary.Scope
+	}
+	return binary.PluginID + "\x00" + binary.ConfigID + "\x00" + binary.Scope + "\x00" + fmt.Sprint(binary.Revision)
 }
 
 func canonicalCoreRuntimeBinaries(binaries []systemplugins.RuntimeResource) []systemplugins.RuntimeResource {

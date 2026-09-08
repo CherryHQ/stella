@@ -9,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/toolinstall"
 	"github.com/CherryHQ/stella/internal/plugin"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
@@ -36,6 +38,11 @@ type BackendRequest struct {
 	BinarySpecs         []pkgplugins.PluginBinarySpec
 	SessionEnvSpecs     []pkgplugins.SessionEnvSpec
 	SessionEnvRollbacks map[string]pkgplugins.SessionEnvRollback
+	// StableProjectionRoot is the host-side read-only public selection root for
+	// this principal/session. Docker uses it only for path translation; the
+	// actual process mount is a named volume populated from verified caches.
+	StableProjectionRoot string
+	StableProjectionID   string
 }
 
 // Backend creates one raw sandbox session from host-prepared input.
@@ -82,6 +89,145 @@ func SyncSession(session pkgsandbox.Session) error {
 		return s.Sync()
 	}
 	return nil
+}
+
+// TurnPreparation is the immutable per-turn carrier. Env is a complete
+// process environment for this turn; callers pass it through their process
+// request's EnvReplace mode rather than mutating the retained session.
+type TurnPreparation struct {
+	// OAuth is the admission-time authorization predicate, kept separate from
+	// Preparation so later CLI failures cannot make an OAuth denial look like a
+	// tool-install failure or resurrect a package that OAuth rejected.
+	OAuth       pkgplugins.PluginPreparationResult
+	Preparation pkgplugins.PluginPreparationResult
+	Binaries    BinaryInstallResult
+	Env         map[string]string
+}
+
+// PrepareTurnSession resolves the complete package readiness and process
+// environment for one admitted turn. User CLIs are installed through the
+// existing sandbox session, while host-side context selections are published
+// into the session-scoped stable projection.
+func PrepareTurnSession(ctx context.Context, session pkgsandbox.Session, cfg Config) (TurnPreparation, error) {
+	if session == nil {
+		return TurnPreparation{}, errors.New("sandbox: sandbox session is required")
+	}
+	oauthPreparation := PrepareOAuthPackages(ctx, cfg, cfg.PluginRequirements)
+	preparation := oauthPreparation.Clone()
+	cfg.PluginPreparationResult = &preparation
+	// Plans describe only this turn. Never let a retained startup plan keep a
+	// removed selection mounted or influence the next selection identity.
+	cfg.ContextBinaryPlan = nil
+	cfg.UserBinaryPlan = nil
+	readySpecs := readyBinarySpecs(cfg.BinarySpecs, preparation)
+	var binaryResult BinaryInstallResult
+	var contextPlan *BinaryInstallPlan
+	var userPlan *BinaryInstallPlan
+	backendName := resolveBackendName(ctx, cfg)
+	var dockerSelectionPaths []string
+	if backendName == config.SandboxBackendDocker && len(readySpecs) > 0 {
+		raw, err := pkgsandbox.SelectSession(ctx, session)
+		if err != nil {
+			return TurnPreparation{Preparation: preparation, Binaries: binaryResult}, fmt.Errorf("select sandbox generation for Docker CLI preparation: %w", err)
+		}
+		preparer, ok := raw.(interface {
+			PreparePluginBinaries(context.Context, []pkgplugins.PluginBinarySpec) (pkgplugins.PluginPreparationResult, []string, error)
+		})
+		if !ok {
+			return TurnPreparation{Preparation: preparation, Binaries: binaryResult}, errors.New("sandbox: Docker session does not support per-turn CLI preparation")
+		}
+		update, paths, err := preparer.PreparePluginBinaries(ctx, readySpecs)
+		if err != nil {
+			return TurnPreparation{Preparation: preparation, Binaries: binaryResult}, fmt.Errorf("prepare Docker CLI binaries: %w", err)
+		}
+		preparation = preparation.Merge(update)
+		dockerSelectionPaths = paths
+		binaryResult.BinaryEvidence = slices.Clone(update.Binaries)
+		for _, status := range update.Packages {
+			if !status.Ready {
+				continue
+			}
+			for _, spec := range readySpecs {
+				if spec.PluginID == status.PluginID {
+					binaryResult.SuccessfulPackages = append(binaryResult.SuccessfulPackages, BinaryPackage{PluginResourceIdentity: spec.PluginResourceIdentity, PackageDigest: spec.PackageDigest})
+					break
+				}
+			}
+		}
+	}
+	contextSpecs := slices.DeleteFunc(slices.Clone(readySpecs), func(spec pkgplugins.PluginBinarySpec) bool { return !isSystemBinary(spec) })
+	if len(contextSpecs) > 0 && backendName != config.SandboxBackendDocker {
+		publicRoot := stablePublicSelectionRoot(cfg.Paths.StellaHome, cfg)
+		if publicRoot == "" {
+			return TurnPreparation{Preparation: preparation, Binaries: binaryResult}, errors.New("sandbox: session-scoped public selection identity is unsafe")
+		}
+		result, err := InstallContextBinariesAt(ctx, cfg.Paths.StellaHome, publicRoot, contextSpecs)
+		if err != nil {
+			return TurnPreparation{Preparation: preparation, Binaries: binaryResult}, fmt.Errorf("prepare context CLI binaries: %w", err)
+		}
+		binaryResult = result
+		contextPlan = &result.Plan
+		preparation = preparation.Merge(result.PreparationResult())
+		readySpecs = readyBinarySpecs(cfg.BinarySpecs, preparation)
+	}
+	userSpecs := slices.DeleteFunc(slices.Clone(readySpecs), func(spec pkgplugins.PluginBinarySpec) bool { return !isUserBinary(spec) })
+	if len(userSpecs) > 0 && backendName != config.SandboxBackendDocker {
+		turnCfg := cfg
+		turnCfg.BinarySpecs = userSpecs
+		turnCfg.PluginPreparationResult = &preparation
+		result, err := prepareUserBinarySelection(ctx, turnCfg, backendName)
+		if err != nil {
+			return TurnPreparation{Preparation: preparation, Binaries: binaryResult}, fmt.Errorf("prepare user CLI binaries: %w", err)
+		}
+		mergeBinaryInstallResult(&binaryResult, result)
+		userPlan = &result.Plan
+		preparation = preparation.Merge(result.PreparationResult())
+	}
+	if contextPlan != nil {
+		cfg.ContextBinaryPlan = contextPlan
+	}
+	if userPlan != nil {
+		cfg.UserBinaryPlan = userPlan
+	}
+	cfg.PluginPreparationResult = &preparation
+	cfg.BinarySpecs = readyBinarySpecs(cfg.BinarySpecs, preparation)
+	cfg.SessionEnvSpecs = readySessionEnvSpecs(cfg.SessionEnvSpecs, preparation)
+	// Rebuild from the current static policy instead of session.Policy().Env.
+	// The retained session may still carry a removed package's env or PATH;
+	// carrying that map forward would defeat EnvReplace's revocation guarantee.
+	_, policy, _, err := buildBasePolicy(ctx, cfg)
+	if err != nil {
+		return TurnPreparation{Preparation: preparation, Binaries: binaryResult}, fmt.Errorf("prepare session environment: %w", err)
+	}
+	base := maps.Clone(policy.Env)
+	if cfg.ContextBinaryPlan != nil {
+		base = OverlayBinaryInstallPlan(base, *cfg.ContextBinaryPlan, BinarySystemLayer)
+	}
+	if userPlan != nil && userPlan.Identity != "" {
+		base = OverlayBinaryInstallPlan(base, *userPlan, BinaryUserLayer)
+	}
+	if cfg.SystemRuntimePlan != nil {
+		base[pkgsandbox.EnvCoreRuntimeDir] = cfg.SystemRuntimePlan.PublicBinDir
+		if base["PATH"] == "" {
+			base["PATH"] = cfg.SystemRuntimePlan.PublicBinDir
+		} else {
+			base["PATH"] += string(os.PathListSeparator) + cfg.SystemRuntimePlan.PublicBinDir
+		}
+		base[pkgsandbox.EnvRunnerPath] = base["PATH"]
+	}
+	if len(dockerSelectionPaths) > 0 {
+		// Docker receives the current selection through marker variables. PATH is
+		// deliberately dropped by its EnvReplace renderer because a host PATH is
+		// never valid inside the Linux container.
+		base[pkgsandbox.EnvNativeSelectionDir] = strings.Join(dockerSelectionPaths, string(os.PathListSeparator))
+		if base["PATH"] == "" {
+			base["PATH"] = strings.Join(dockerSelectionPaths, string(os.PathListSeparator))
+		} else {
+			base["PATH"] = strings.Join(append(slices.Clone(dockerSelectionPaths), base["PATH"]), string(os.PathListSeparator))
+		}
+		base[pkgsandbox.EnvRunnerPath] = base["PATH"]
+	}
+	return TurnPreparation{OAuth: oauthPreparation, Preparation: preparation, Binaries: binaryResult, Env: base}, nil
 }
 
 // buildBasePolicy resolves paths and builds the backend-agnostic base policy
@@ -166,6 +312,14 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 			cfg.Paths.StellaHome = resolved
 		}
 	}
+	if cfg.SessionID != "" && stablePublicSelectionRoot(cfg.Paths.StellaHome, cfg) == "" {
+		return nil, errors.New("sandbox: session-scoped public selection identity is unsafe")
+	}
+	if cfg.SessionID != "" && cfg.Paths.StellaHome != "" {
+		if err := os.MkdirAll(stablePublicSelectionRoot(cfg.Paths.StellaHome, cfg), 0o700); err != nil {
+			return nil, fmt.Errorf("sandbox: create stable public selection root: %w", err)
+		}
+	}
 
 	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
 		trace.WithAttributes(
@@ -195,7 +349,8 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 			recordSandboxError(span, err)
 			return nil, fmt.Errorf("verify core runtimes: %w", err)
 		}
-		result, err := InstallContextBinaries(ctx, cfg.Paths.StellaHome, cfg.BinarySpecs)
+		publicRoot := stablePublicSelectionRoot(cfg.Paths.StellaHome, cfg)
+		result, err := InstallContextBinariesAt(ctx, cfg.Paths.StellaHome, publicRoot, cfg.BinarySpecs)
 		if err != nil {
 			recordSandboxError(span, err)
 			return nil, fmt.Errorf("install context plugin binaries: %w", err)
@@ -212,44 +367,11 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 		// short preparation session. The final session is recreated from the
 		// exact optional selection alongside the mandatory core runtimes.
 		if name != config.SandboxBackendDocker && hasUserBinarySpecs(cfg.BinarySpecs) {
-			prepCfg := cfg
-			prepCfg.ContextBinaryPlan = nil
-			prepCfg.UserBinaryPlan = nil
-			principalDir, principalID := misePrincipal(cfg)
-			if principalDir == "" || principalID == "" {
-				return nil, fmt.Errorf("sandbox: user binary install requires a principal")
-			}
-			identity := "selection"
-			if cfg.ContextBinaryPlan != nil && cfg.ContextBinaryPlan.Identity != "" {
-				identity = cfg.ContextBinaryPlan.Identity
-			}
-			prepCfg.ManagedBinaryRoot = filepath.Join(cfg.Paths.StellaHome, ".mise-managed", principalDir, principalID, identity)
-			if err := os.MkdirAll(prepCfg.ManagedBinaryRoot, 0o700); err != nil {
-				return nil, fmt.Errorf("sandbox: create managed binary root: %w", err)
-			}
-			prep, err := createSessionForBackend(ctx, prepCfg, name)
+			userResult, err := prepareUserBinarySelection(ctx, cfg, name)
 			if err != nil {
 				return nil, err
 			}
-			userResult, err := InstallSandboxBinaries(ctx, prep, readyBinarySpecs(cfg.BinarySpecs, *cfg.PluginPreparationResult))
-			if err != nil {
-				closeErr := prep.Close()
-				if closeErr != nil {
-					return nil, fmt.Errorf("install sandbox plugin binaries: %w; close preparation session: %w", err, closeErr)
-				}
-				_ = cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
-				return nil, fmt.Errorf("install sandbox plugin binaries: %w", err)
-			}
-			if err := prep.Close(); err != nil {
-				return nil, fmt.Errorf("close sandbox binary preparation: %w", err)
-			}
-			// InstallSandboxBinaries operates in the preparation session's process
-			// coordinates. Restore host coordinates for the final mount plan.
-			userPlan := relocateBinaryPlan(userResult.Plan, prepCfg.ManagedBinaryRoot)
-			if err := cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot); err != nil {
-				return nil, fmt.Errorf("sandbox: clean managed binary preparation: %w", err)
-			}
-			cfg.UserBinaryPlan = &userPlan
+			cfg.UserBinaryPlan = &userResult.Plan
 			mergeBinaryInstallResult(cfg.BinaryInstallResult, userResult)
 			*cfg.PluginPreparationResult = cfg.PluginPreparationResult.Merge(userResult.PreparationResult())
 			cfg.SessionEnvSpecs = readySessionEnvSpecs(cfg.SessionEnvSpecs, *cfg.PluginPreparationResult)
@@ -295,6 +417,174 @@ func mergeBinaryInstallResult(dst *BinaryInstallResult, src BinaryInstallResult)
 	}
 	dst.SuccessfulPackages = append(dst.SuccessfulPackages, src.SuccessfulPackages...)
 	dst.FailedPackages = append(dst.FailedPackages, src.FailedPackages...)
+}
+
+// reusableUserBinarySelection reconstructs the stable user plan from the
+// current logical specs without opening a writable preparation session. The
+// private contexts/installs/config/cache/state tree is deliberately disposable;
+// a complete stable selection is the cache hit and is sufficient to build the
+// final mount and readiness result.
+func reusableUserBinarySelection(cfg Config, specs []pkgplugins.PluginBinarySpec) (BinaryInstallResult, bool, error) {
+	if cfg.SessionID == "" || len(specs) == 0 {
+		return BinaryInstallResult{}, false, nil
+	}
+	principalDir, principalID := misePrincipal(cfg)
+	if principalDir == "" || principalID == "" {
+		return BinaryInstallResult{}, false, nil
+	}
+	contextIdentity := "selection"
+	if cfg.ContextBinaryPlan != nil && cfg.ContextBinaryPlan.Identity != "" {
+		contextIdentity = cfg.ContextBinaryPlan.Identity
+	}
+	managedRoot := filepath.Join(cfg.Paths.StellaHome, ".mise-managed", principalDir, principalID, contextIdentity)
+	stableRoot := stablePublicSelectionRoot(cfg.Paths.StellaHome, cfg)
+	if stableRoot == "" {
+		return BinaryInstallResult{}, false, errors.New("sandbox: session-scoped public selection identity is unsafe")
+	}
+	identity, err := binarySelectionIdentity(specs, managedRoot)
+	if err != nil {
+		return BinaryInstallResult{}, false, err
+	}
+	result := BinaryInstallResult{Plan: BinaryInstallPlan{Identity: identity, DataDir: stableRoot}}
+	for _, group := range groupedBinarySpecs(specs, isUserBinary) {
+		packageIdentity, err := binarySelectionIdentity(group.specs, managedRoot)
+		if err != nil {
+			return BinaryInstallResult{}, false, err
+		}
+		selection := selectionPlan(packageIdentity, group.pkg, stableRoot, stableRoot)
+		evidence, err := toolinstall.ReadNativeSelectionEvidence(selection.PublicDir)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return BinaryInstallResult{}, false, nil
+			}
+			return BinaryInstallResult{}, false, fmt.Errorf("inspect stable sandbox CLI selection %q: %w", selection.Identity, err)
+		}
+		tools, err := miseToolsFromSpecs(group.specs, isUserBinary)
+		if err != nil {
+			return BinaryInstallResult{}, false, err
+		}
+		if !selectionEvidenceMatches(evidence, tools) {
+			return BinaryInstallResult{}, false, fmt.Errorf("stable sandbox CLI selection %q has mismatched evidence", selection.Identity)
+		}
+		result.SuccessfulPackages = append(result.SuccessfulPackages, group.pkg)
+		result.Plan.Selections = append(result.Plan.Selections, selection)
+		result.BinaryEvidence = append(result.BinaryEvidence, binaryEvidence(group.pkg, selection.Identity, "sandbox", tools, evidence)...)
+	}
+	return result, true, nil
+}
+
+func selectionEvidenceMatches(evidence pkgplugins.BinaryInstallEvidence, tools []toolinstall.Tool) bool {
+	if len(evidence.Tools) != len(tools) {
+		return false
+	}
+	for _, tool := range tools {
+		lookup := tool.Lookup
+		if lookup == "" {
+			lookup = tool.Key
+		}
+		publicName := tool.PublicName
+		if publicName == "" {
+			publicName = lookup
+		}
+		requested := tool.Version
+		if requested == "" {
+			requested = "latest"
+		}
+		found := false
+		for _, item := range evidence.Tools {
+			if item.Key == tool.Key && item.Lookup == lookup && item.PublicName == publicName && item.RequestedVersion == requested {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// prepareUserBinarySelection owns the writable preparation lifecycle for a
+// native backend. It is shared by startup and turn refreshes so a turn never
+// attempts to install into the retained final session's read-only projection.
+func prepareUserBinarySelection(ctx context.Context, cfg Config, backendName string) (BinaryInstallResult, error) {
+	specs := readyBinarySpecs(cfg.BinarySpecs, valueOrEmptyPreparation(cfg.PluginPreparationResult))
+	if reusable, reused, err := reusableUserBinarySelection(cfg, specs); err != nil {
+		return BinaryInstallResult{}, err
+	} else if reused {
+		return reusable, nil
+	}
+	principalDir, principalID := misePrincipal(cfg)
+	if principalDir == "" || principalID == "" {
+		return BinaryInstallResult{}, fmt.Errorf("sandbox: user binary install requires a principal")
+	}
+	identity := "selection"
+	if cfg.ContextBinaryPlan != nil && cfg.ContextBinaryPlan.Identity != "" {
+		identity = cfg.ContextBinaryPlan.Identity
+	}
+	prepCfg := cfg
+	prepCfg.ContextBinaryPlan = nil
+	prepCfg.UserBinaryPlan = nil
+	prepCfg.ManagedBinaryRoot = filepath.Join(cfg.Paths.StellaHome, ".mise-managed", principalDir, principalID, identity)
+	if err := os.MkdirAll(prepCfg.ManagedBinaryRoot, 0o700); err != nil {
+		return BinaryInstallResult{}, fmt.Errorf("sandbox: create managed binary root: %w", err)
+	}
+	prep, err := createSessionForBackend(ctx, prepCfg, backendName)
+	if err != nil {
+		return BinaryInstallResult{}, err
+	}
+	userResult, installErr := InstallSandboxBinaries(ctx, prep, specs)
+	closeErr := prep.Close()
+	if installErr != nil {
+		_ = cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
+		if closeErr != nil {
+			return BinaryInstallResult{}, fmt.Errorf("install sandbox plugin binaries: %w; close preparation session: %w", installErr, closeErr)
+		}
+		return BinaryInstallResult{}, fmt.Errorf("install sandbox plugin binaries: %w", installErr)
+	}
+	if closeErr != nil {
+		return BinaryInstallResult{}, fmt.Errorf("close sandbox binary preparation: %w", closeErr)
+	}
+	userPlan := userResult.Plan
+	if cfg.SessionID != "" {
+		stableRoot := stablePublicSelectionRoot(cfg.Paths.StellaHome, cfg)
+		if stableRoot == "" {
+			_ = cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
+			return BinaryInstallResult{}, errors.New("sandbox: session-scoped public selection identity is unsafe")
+		}
+		userPlan.DataDir = stableRoot
+		for i := range userPlan.Selections {
+			selection := &userPlan.Selections[i]
+			source := selection.PublicDir
+			destination := filepath.Join(stableRoot, selection.Identity)
+			if err := toolinstall.PublishNativeSelectionTree(source, destination); err != nil {
+				_ = cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
+				return BinaryInstallResult{}, fmt.Errorf("publish sandbox CLI selection: %w", err)
+			}
+			selection.DataDir = stableRoot
+			selection.PublicDir = destination
+			selection.PublicBinDir = destination
+		}
+	} else {
+		userPlan = relocateBinaryPlan(userResult.Plan, prepCfg.ManagedBinaryRoot)
+	}
+	if err := cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot); err != nil {
+		return BinaryInstallResult{}, fmt.Errorf("sandbox: clean managed binary preparation: %w", err)
+	}
+	if cfg.SessionID != "" {
+		if err := os.RemoveAll(filepath.Join(prepCfg.ManagedBinaryRoot, "public")); err != nil {
+			return BinaryInstallResult{}, fmt.Errorf("sandbox: clean private public staging: %w", err)
+		}
+	}
+	userResult.Plan = userPlan
+	return userResult, nil
+}
+
+func valueOrEmptyPreparation(result *pkgplugins.PluginPreparationResult) pkgplugins.PluginPreparationResult {
+	if result == nil {
+		return pkgplugins.PluginPreparationResult{}
+	}
+	return *result
 }
 
 func readyBinarySpecs(specs []pkgplugins.PluginBinarySpec, result pkgplugins.PluginPreparationResult) []pkgplugins.PluginBinarySpec {
@@ -399,17 +689,19 @@ func createSessionForBackend(ctx context.Context, cfg Config, name string) (pkgs
 		"network_mode", cfg.SandboxConfig.Network.Mode,
 	)
 	return backend(ctx, BackendRequest{
-		Paths:               paths,
-		Policy:              policy,
-		MountSources:        mountSources,
-		UserID:              cfg.UserID,
-		GroupID:             cfg.GroupID,
-		ContextBinaryPlan:   cfg.ContextBinaryPlan,
-		UserBinaryPlan:      cfg.UserBinaryPlan,
-		SystemRuntimePlan:   cfg.SystemRuntimePlan,
-		BinaryInstallResult: cfg.BinaryInstallResult,
-		BinarySpecs:         slices.Clone(cfg.BinarySpecs),
-		SessionEnvSpecs:     slices.Clone(cfg.SessionEnvSpecs),
-		SessionEnvRollbacks: maps.Clone(cfg.SessionEnvRollbacks),
+		Paths:                paths,
+		Policy:               policy,
+		MountSources:         mountSources,
+		UserID:               cfg.UserID,
+		GroupID:              cfg.GroupID,
+		ContextBinaryPlan:    cfg.ContextBinaryPlan,
+		UserBinaryPlan:       cfg.UserBinaryPlan,
+		SystemRuntimePlan:    cfg.SystemRuntimePlan,
+		BinaryInstallResult:  cfg.BinaryInstallResult,
+		BinarySpecs:          slices.Clone(cfg.BinarySpecs),
+		SessionEnvSpecs:      slices.Clone(cfg.SessionEnvSpecs),
+		SessionEnvRollbacks:  maps.Clone(cfg.SessionEnvRollbacks),
+		StableProjectionRoot: stablePublicSelectionRoot(paths.StellaHome, cfg),
+		StableProjectionID:   stableProjectionID(cfg),
 	})
 }

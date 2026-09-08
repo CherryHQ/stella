@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -34,6 +35,53 @@ type ResourceKey struct {
 	AgentID string       `json:"agent_id,omitempty"`
 	Kind    ResourceKind `json:"kind"`
 	Name    string       `json:"name"`
+}
+
+// resourceIDPrefix separates file-backed identities from legacy database
+// plugin IDs. The payload is a canonical JSON tuple encoded without padding,
+// so owner fields and names cannot collide through delimiter escaping.
+const resourceIDPrefix = "file:"
+
+var ErrInvalidResourceID = errors.New("plugin: invalid file resource ID")
+
+// ID returns the stable, scoped identity of this resource. Resource IDs are
+// opaque outside this package; ParseResourceID is the only decoder.
+func (k ResourceKey) ID() string {
+	if !validResourceKey(k) {
+		return ""
+	}
+	data, err := json.Marshal(k)
+	if err != nil {
+		return ""
+	}
+	return resourceIDPrefix + base64.RawURLEncoding.EncodeToString(data)
+}
+
+// ParseResourceID decodes a file-backed resource identity and validates its
+// complete ownership tuple before returning it to a caller.
+func ParseResourceID(id string) (ResourceKey, error) {
+	encoded, ok := strings.CutPrefix(id, resourceIDPrefix)
+	if !ok || encoded == "" {
+		return ResourceKey{}, ErrInvalidResourceID
+	}
+	data, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return ResourceKey{}, fmt.Errorf("%w: encoding: %w", ErrInvalidResourceID, err)
+	}
+	var key ResourceKey
+	if err := json.Unmarshal(data, &key); err != nil {
+		return ResourceKey{}, fmt.Errorf("%w: JSON: %w", ErrInvalidResourceID, err)
+	}
+	if key.ID() != id {
+		return ResourceKey{}, ErrInvalidResourceID
+	}
+	return key, nil
+}
+
+func validResourceKey(key ResourceKey) bool {
+	return validScope(key.Scope) && ownerMatches(key.Scope, key.UserID, key.AgentID) &&
+		(key.Kind == ResourcePlugin || key.Kind == ResourceSkill || key.Kind == ResourceMCP) &&
+		validResourceName(key.Kind, key.Name)
 }
 
 // ResourceRoot is minted after access checks, not decoded from client input.

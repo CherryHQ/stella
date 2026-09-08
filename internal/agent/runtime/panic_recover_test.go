@@ -81,7 +81,7 @@ func TestChat_PanicInStreamEvents_NoDoubleClose(t *testing.T) {
 	rt, _ := New(Config{
 		Memory: mem,
 		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
-			return chatFakeRunner{events: []Event{{Text: "hi"}}}, nil
+			return &chatFakeRunner{events: []Event{{Text: "hi"}}}, nil
 		},
 	})
 

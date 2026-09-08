@@ -101,6 +101,14 @@ type Runner interface {
 	Close() error
 }
 
+// TurnPreparer refreshes resource-backed turn state on a cached runner. It is
+// deliberately optional: runners without per-turn resources keep using their
+// immutable admission context. Preparation happens after reservation, so a
+// resource refresh never rebuilds the runner or changes its cached identity.
+type TurnPreparer interface {
+	PrepareTurn(context.Context, PluginContext) (context.Context, PluginContext, error)
+}
+
 // NewRunnerFunc creates a new Runner with the given params.
 type NewRunnerFunc func(ctx context.Context, params RunnerParams) (Runner, error)
 

@@ -84,3 +84,61 @@ func TestFilesystemSkillTurnViewPinsBytesAndRechecksPEP(t *testing.T) {
 		t.Fatalf("revoked old turn load = %q, %v; want hidden", out, err)
 	}
 }
+
+func TestCaptureVisibleSkipsUnboundPersonalRoots(t *testing.T) {
+	db := dbtest.New(t)
+	const agentID = "group-file-agent"
+	if _, err := db.Exec(t.Context(), `INSERT INTO agent(id,name,workspace) VALUES($1,'Group file agent','')`, agentID); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := home.NewWorkspaceManager(db, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+	writeSkill := func(root home.RootOperations, name string) {
+		t.Helper()
+		content := "---\nname: " + name + "\ndescription: " + name + "\n---\n"
+		if err := root.Mkdir(t.Context(), "skills", 0o755, home.MkdirOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := root.Mkdir(t.Context(), "skills/"+name, 0o755, home.MkdirOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := root.Write(t.Context(), "skills/"+name+"/"+MainFile, strings.NewReader(content), home.WriteOptions{Mode: 0o644}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	system, err := manager.OpenRoot(t.Context(), home.WorkspaceRequest{}, home.RootSystemResources, home.RootReadWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(system, "global")
+	if err := system.Close(); err != nil {
+		t.Fatal(err)
+	}
+	systemAgent, err := manager.OpenRoot(t.Context(), home.WorkspaceRequest{AgentID: agentID}, home.RootSystemAgentResources, home.RootReadWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSkill(systemAgent, "agent-global")
+	if err := systemAgent.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store := NewFileStore(nil, manager)
+	captured, err := store.CaptureVisible(t.Context(), ViewContext{AgentID: agentID})
+	if err != nil {
+		t.Fatalf("group-style capture = %v", err)
+	}
+	if got := len(captured.Revisions); got != 2 {
+		t.Fatalf("group-style revisions = %d, want system and system_agent only", got)
+	}
+
+	globalOnly, err := store.CaptureVisible(t.Context(), ViewContext{})
+	if err != nil {
+		t.Fatalf("global-only capture = %v", err)
+	}
+	if got := len(globalOnly.Revisions); got != 1 || globalOnly.Revisions[0].Skill.Name != "global" {
+		t.Fatalf("global-only revisions = %#v, want only system resource", globalOnly.Revisions)
+	}
+}

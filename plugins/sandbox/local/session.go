@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/processpath"
 	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
@@ -404,6 +405,32 @@ func (s *localSession) Policy() sandboxpkg.Policy {
 	return s.policy
 }
 
+// RenderEnv applies the local backend's fixed filesystem and path view to a
+// fresh logical turn environment. The retained policy is intentionally not
+// consulted so removed package state cannot cross the EnvReplace boundary.
+func (s *localSession) RenderEnv(_ context.Context, env map[string]string) (map[string]string, error) {
+	s.mu.RLock()
+	closed := s.closed || s.closing
+	root, realRoot := s.sandboxRoot, s.realRoot
+	userDataSandbox, userDataReal := s.userDataSandbox, s.userDataReal
+	stellaHome := s.stellaHomeHost
+	tmpMounts := append([]tmpMount(nil), s.tmpMounts...)
+	s.mu.RUnlock()
+	if closed {
+		return nil, errors.New("local: session is closed")
+	}
+	policy := sandboxpkg.Policy{Env: maps.Clone(env)}
+	policy = (&Factory{cfg: Config{StellaHome: stellaHome}}).adjustPolicy(policy, root, realRoot, userDataSandbox, userDataReal)
+	if err := applyFilesystemEnv(&policy, root, userDataSandbox, tmpMounts); err != nil {
+		return nil, fmt.Errorf("local: render filesystem environment: %w", err)
+	}
+	if policy.Env["PATH"] == "" {
+		policy.Env["PATH"] = sandboxpkg.HostEnvBuildPath(stellaHome, "")
+		policy.Env[sandboxpkg.EnvRunnerPath] = policy.Env["PATH"]
+	}
+	return policy.Env, nil
+}
+
 func (s *localSession) Files() sandboxpkg.FileAccess { return s.files }
 
 func (s *localSession) WorkingDir() string {
@@ -570,7 +597,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	// leaving process-group children alive. We manage cancellation manually.
 	cmd := exec.Command(execPath, execArgs...)
 	cmd.Dir = realCwd
-	cmd.Env = buildEnv(policy, opts.Env)
+	cmd.Env = buildEnvMode(policy, opts.Env, opts.EnvMode)
 	setSysProcAttr(cmd)
 
 	stdout := sandboxpkg.NewExecOutputBuffer()
@@ -660,6 +687,25 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 
 	args := make([]string, 0, len(req.Args))
 	args = append(args, req.Args...)
+	cmdEnv := buildEnvMode(policy, req.Env, req.EnvMode)
+	processPath := req.Path
+	var err error
+	// Linux bwrap resolves the command inside its sandbox, where host paths are
+	// intentionally unavailable. Native backends must resolve against the exact
+	// per-call environment instead, because os/exec otherwise consults the host
+	// PATH before cmd.Env is applied.
+	if runtime.GOOS != "linux" {
+		processPath, err = processpath.Resolve(processPath, cmdEnv)
+		if err != nil && req.EnvMode == sandboxpkg.EnvOverlay && !processpath.HasPath(cmdEnv) {
+			// Overlay sessions historically allow host PATH lookup when the
+			// policy intentionally omits PATH (for example InheritEnv=false).
+			processPath, err = exec.LookPath(req.Path)
+		}
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("local start_process: resolve %q from process PATH: %w", req.Path, err)
+		}
+	}
 
 	sandboxCwd, realCwd, err := s.resolveCwd(sandboxCwd)
 	if err != nil {
@@ -667,7 +713,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		return nil, fmt.Errorf("local start_process: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, err := s.wrapCommand(policy, sandboxCwd, req.Path, args)
+	execPath, execArgs, err := s.wrapCommand(policy, sandboxCwd, processPath, args)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("local start_process: wrap: %w", err)
@@ -676,7 +722,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 	// Finding 2: do NOT use exec.CommandContext — kill the process group instead.
 	cmd := exec.Command(execPath, execArgs...)
 	cmd.Dir = realCwd
-	cmd.Env = buildEnv(policy, req.Env)
+	cmd.Env = cmdEnv
 	setSysProcAttr(cmd)
 
 	// Finding 7: close previously opened pipes on error.
@@ -765,9 +811,13 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 // If policy.InheritEnv is true, the host environment is included as a base.
 // Policy env vars are applied on top, then per-call overrides.
 func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
+	return buildEnvMode(policy, overrides, sandboxpkg.EnvOverlay)
+}
+
+func buildEnvMode(policy sandboxpkg.Policy, overrides map[string]string, mode sandboxpkg.EnvMode) []string {
 	merged := make(map[string]string)
 
-	if policy.InheritEnv {
+	if mode == sandboxpkg.EnvOverlay && policy.InheritEnv {
 		for _, kv := range os.Environ() {
 			if before, after, ok := strings.Cut(kv, "="); ok {
 				if slices.Contains(sandboxEnvDenyList, before) {
@@ -778,7 +828,9 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 		}
 	}
 
-	maps.Copy(merged, policy.Env)
+	if mode == sandboxpkg.EnvOverlay {
+		maps.Copy(merged, policy.Env)
+	}
 	maps.Copy(merged, overrides)
 	if renderedPath, ok := merged["PATH"]; ok {
 		merged[sandboxpkg.EnvRunnerPath] = renderedPath

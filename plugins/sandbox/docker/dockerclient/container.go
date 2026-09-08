@@ -361,3 +361,25 @@ func envSlice(env map[string]string) []string {
 	}
 	return out
 }
+
+// envSliceWithUnset appends variable names without an equals sign. Docker's
+// daemon interprets those entries as explicit removals from the container
+// environment inherited by docker exec.
+func envSliceWithUnset(env map[string]string, unset []string) []string {
+	out := envSlice(env)
+	if len(unset) == 0 {
+		return out
+	}
+	keys := append([]string(nil), unset...)
+	sort.Strings(keys)
+	for _, key := range keys {
+		if key == "" || strings.ContainsRune(key, '=') {
+			continue
+		}
+		if _, present := env[key]; present {
+			continue
+		}
+		out = append(out, key)
+	}
+	return out
+}

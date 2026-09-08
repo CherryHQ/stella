@@ -122,7 +122,7 @@ func TestChatMarksFailedTurnActivity(t *testing.T) {
 	mem := &activityRecordingMemory{}
 	rt, err := New(Config{
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
-			return chatFakeRunner{events: []Event{{Err: errors.New("model failed")}}}, nil
+			return &chatFakeRunner{events: []Event{{Err: errors.New("model failed")}}}, nil
 		},
 		Memory: mem,
 	})

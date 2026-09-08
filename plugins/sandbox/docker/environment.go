@@ -4,6 +4,7 @@ import (
 	"maps"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
@@ -27,6 +28,28 @@ func mergeEnv(policyEnv, optsEnv map[string]string) map[string]string {
 	maps.Copy(out, policyEnv)
 	maps.Copy(out, optsEnv)
 	return out
+}
+
+func envKeys(env map[string]string) []string {
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+func unsetEnvKeys(creationKeys []string, env map[string]string, mode sandboxpkg.EnvMode) []string {
+	if mode != sandboxpkg.EnvReplace {
+		return nil
+	}
+	unset := make([]string, 0)
+	for _, key := range creationKeys {
+		if _, present := env[key]; !present {
+			unset = append(unset, key)
+		}
+	}
+	return unset
 }
 
 type dockerEnvKind uint8
@@ -62,9 +85,12 @@ var dockerEnvKinds = map[string]dockerEnvKind{
 	sandboxpkg.EnvCoreRuntimeDir:  dockerEnvHostPath,
 	// Host PATH may contain host-platform binaries and must never override the
 	// image PATH. injectToolPaths adds container-native tool directories later.
-	"PATH":            dockerEnvDrop,
-	"MISE_SHIMS_DIR":  dockerEnvDrop,
-	"STELLA_USER_DIR": dockerEnvDrop,
+	"PATH":                               dockerEnvDrop,
+	"MISE_SHIMS_DIR":                     dockerEnvDrop,
+	"STELLA_USER_DIR":                    dockerEnvDrop,
+	sandboxpkg.EnvNativeSelectionDir:     dockerEnvHostPathList,
+	sandboxpkg.EnvUserNativeSelectionDir: dockerEnvHostPathList,
+	sandboxpkg.EnvRunnerPath:             dockerEnvDrop,
 }
 
 // translateEnvPaths renders the declared path-valued entries into container
@@ -179,8 +205,33 @@ func isEnvMappedContainerPath(maps []envPathMap, value string) bool {
 // container coordinates while applying the declared path schema and drop list
 // to every per-call override. Unknown variables remain literals by contract.
 func dockerExecEnvironment(policyEnv, overrides map[string]string, mountTable []dockerclient.Mount, envMaps []envPathMap, toolBinPaths []string) map[string]string {
+	return dockerExecEnvironmentMode(policyEnv, overrides, sandboxpkg.EnvOverlay, mountTable, envMaps, toolBinPaths, toolBinPaths)
+}
+
+func dockerExecEnvironmentMode(policyEnv, overrides map[string]string, mode sandboxpkg.EnvMode, mountTable []dockerclient.Mount, envMaps []envPathMap, toolBinPaths, coreToolBinPaths []string) map[string]string {
 	overrides = translateEnvPaths(overrides, mountTable, envMaps)
+	if mode == sandboxpkg.EnvReplace {
+		// EnvReplace must forget the previous turn's optional package paths. The
+		// current turn carries its authorized public bins through the translated
+		// marker variables; PATH itself is always dropped as a host-provided value.
+		selectionPaths := append(selectionPathsFromEnv(overrides, sandboxpkg.EnvUserNativeSelectionDir), selectionPathsFromEnv(overrides, sandboxpkg.EnvNativeSelectionDir)...)
+		return injectToolPaths(overrides, append(selectionPaths, coreToolBinPaths...))
+	}
 	return injectToolPaths(mergeEnv(policyEnv, overrides), toolBinPaths)
+}
+
+func selectionPathsFromEnv(env map[string]string, key string) []string {
+	value := env[key]
+	if value == "" {
+		return nil
+	}
+	paths := make([]string, 0, strings.Count(value, ":")+1)
+	for path := range strings.SplitSeq(value, ":") {
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths
 }
 
 // containerDefaultPATH is the image-baked system PATH from the Dockerfile ENV

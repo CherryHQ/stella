@@ -10,12 +10,21 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
+
+// poolInvalidator is the narrow cache-invalidation seam MCP needs. Keeping
+// this interface here avoids a package cycle when agent owns FileSession
+// construction through ToolProvider.
+type poolInvalidator interface {
+	InvalidateUser(string) error
+	InvalidateUserAgent(string, string) error
+	InvalidateAgent(string) error
+	InvalidateAll() error
+}
 
 // Access binds registration ownership to a verified user authority. Reads use
 // the common plugin catalog; mutation methods are being moved to the same
@@ -23,11 +32,11 @@ import (
 type Access struct {
 	svc       *Service
 	agents    *agentaccess.Service
-	pools     *agent.PoolManager
+	pools     poolInvalidator
 	authority authz.Authority
 }
 
-func NewAccess(svc *Service, agents *agentaccess.Service, pools *agent.PoolManager) *Access {
+func NewAccess(svc *Service, agents *agentaccess.Service, pools poolInvalidator) *Access {
 	return &Access{svc: svc, agents: agents, pools: pools}
 }
 

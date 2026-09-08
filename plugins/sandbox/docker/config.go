@@ -82,6 +82,13 @@ type Config struct {
 	// from the resolved image, never from the host filesystem. Writable per-user
 	// trees remain ordered ahead of this immutable selection in PATH.
 	SelectionToolBinaries []ToolBinary
+	// StableProjectionID scopes the read-only session projection volume. Empty
+	// keeps the lightweight/unit-test path that mounts hash-specific caches
+	// directly.
+	StableProjectionID string
+	// StableProjectionHostRoot is the native host coordinate used only to
+	// translate per-call path variables to the named volume's container root.
+	StableProjectionHostRoot string
 	// SessionEnvRollbacks contains only package env values that survived all
 	// runner-owned overlays. Docker restores these values when a package fails.
 	SessionEnvRollbacks map[string]pkgplugins.SessionEnvRollback

@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/plugin"
 )
 
 var (
@@ -37,6 +38,83 @@ type PackageSkillRef struct {
 	// than a per-Skill status machine: the admission layer marks every Skill in
 	// a failed package, preserving same-name masking for this turn.
 	Masked bool
+
+	// captured is the immutable package Skill tree selected during PluginContext
+	// admission. A turn must use these bytes directly; nil is retained only for
+	// legacy non-turn callers that still use PackageSkillReader.
+	captured *PackageSkillRevision
+}
+
+// CapturePackageSkillRef projects one package Skill from a FileResource that
+// was already captured for the admitting PluginContext. It never opens a
+// mutable root or consults the package store.
+func CapturePackageSkillRef(resource plugin.FileResource, ref PackageSkillRef) (PackageSkillRef, error) {
+	if err := validatePackageSkillRef(ref); err != nil {
+		return PackageSkillRef{}, err
+	}
+	// A masked or disabled declaration is admission evidence only. It has no
+	// bytes to capture and must remain visible to precedence/masking logic
+	// without turning a failed package into an admission error.
+	if ref.Masked || ref.Disabled {
+		ref.captured = nil
+		return ref, nil
+	}
+	key, err := plugin.ParseResourceID(ref.PackageID)
+	if err != nil || key != resource.Key || resource.Key.Kind != plugin.ResourcePlugin || resource.Content == nil || resource.Package == nil || resource.Disabled || resource.Forbidden {
+		return PackageSkillRef{}, ErrInvalidSkillRevision
+	}
+	if resource.Digest == "" || resource.Content.Digest == "" || resource.Digest != resource.Content.Digest || resource.Digest != ref.PackageDigest {
+		return PackageSkillRef{}, ErrInvalidSkillRevision
+	}
+	declared := false
+	for _, skill := range resource.Skills {
+		if skill.Name == ref.Name {
+			declared = true
+			break
+		}
+	}
+	if !declared {
+		return PackageSkillRef{}, ErrInvalidSkillRevision
+	}
+	root, err := fs.Sub(resource.Content.FS(), path.Join("skills", ref.Name))
+	if err != nil {
+		return PackageSkillRef{}, ErrInvalidSkillRevision
+	}
+	files := make(map[string][]byte)
+	modes := make(map[string]fs.FileMode)
+	err = fs.WalkDir(root, ".", func(filename string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !fs.ValidPath(filename) || filename == "." || entry.Type()&fs.ModeType != 0 {
+			return ErrInvalidSkillRevision
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o444 == 0 {
+			return ErrInvalidSkillRevision
+		}
+		content, err := fs.ReadFile(root, filename)
+		if err != nil {
+			return err
+		}
+		files[filename] = bytes.Clone(content)
+		modes[filename] = info.Mode().Perm()
+		return nil
+	})
+	if err != nil {
+		return PackageSkillRef{}, err
+	}
+	if _, ok := files[MainFile]; !ok {
+		return PackageSkillRef{}, ErrInvalidSkillRevision
+	}
+	capturedRef := ref
+	capturedRef.captured = nil
+	revision := PackageSkillRevision{Ref: capturedRef, Files: files, Modes: modes}
+	ref.captured = &revision
+	return ref, nil
 }
 
 // ManagedSkillRef pins one managed Skill identity to the exact revision chosen
@@ -147,6 +225,38 @@ func captureFilesystemSkillTurnView(ctx context.Context, capture visibleSkillCap
 	if err != nil {
 		return SkillTurnView{}, err
 	}
+	return buildFilesystemSkillTurnView(ctx, decision, project, packages, vc, captured)
+}
+
+// CaptureSkillTurnViewFromResources builds a turn view from the exact file
+// resources already captured for PluginContext admission. It never opens a
+// Home root or falls back to a mutable Skill reader.
+func CaptureSkillTurnViewFromResources(ctx context.Context, resources []plugin.FileResource, authorizer SkillReadAuthorizer, project *ProjectSnapshot, packages []PackageSkillRef, vc ViewContext) (SkillTurnView, error) {
+	if authorizer == nil {
+		return SkillTurnView{}, ErrManagedSkillsUnavailable
+	}
+	decision, err := authorizer.BeginRead(ctx)
+	if errors.Is(err, authz.ErrUnauthenticated) {
+		view, viewErr := newSkillTurnView(project, nil, packages, vc.DisabledSkillRefs, packageMaskedNamesForSelection(project, nil, packages, nil))
+		if viewErr != nil {
+			return SkillTurnView{}, viewErr
+		}
+		return view, ValidateSkillTurnSelection(view)
+	}
+	if err != nil {
+		return SkillTurnView{}, err
+	}
+	if decision == nil {
+		return SkillTurnView{}, ErrSkillReadUnavailable
+	}
+	captured, err := captureResources(ctx, resources, vc)
+	if err != nil {
+		return SkillTurnView{}, err
+	}
+	return buildFilesystemSkillTurnView(ctx, decision, project, packages, vc, captured)
+}
+
+func buildFilesystemSkillTurnView(ctx context.Context, decision SkillReadDecision, project *ProjectSnapshot, packages []PackageSkillRef, vc ViewContext, captured SkillCapture) (SkillTurnView, error) {
 	project = projectWithoutForbiddenNames(project, captured.ForbiddenNames)
 	masked := append(slices.Clone(captured.MaskedNames), captured.ForbiddenNames...)
 	revisions := captured.Revisions
@@ -440,7 +550,7 @@ func newSkillTurnView(project *ProjectSnapshot, managed []ManagedSkillRef, packa
 	view := SkillTurnView{
 		project:  project,
 		managed:  slices.Clone(managed),
-		packages: slices.Clone(packages),
+		packages: clonePackageSkillRefs(packages),
 		disabled: slices.Clone(disabled),
 		masked:   slices.Clone(masked),
 	}
@@ -457,11 +567,15 @@ func newSkillTurnView(project *ProjectSnapshot, managed []ManagedSkillRef, packa
 			}
 		}
 	}
-	for _, ref := range view.packages {
-		if !validInventoryComponent(ref.PackageID) || !validInventoryComponent(ref.Name) || !validPackageDigest(ref.PackageDigest) {
+	for i := range view.packages {
+		ref := &view.packages[i]
+		if err := validatePackageSkillRef(*ref); err != nil {
 			return SkillTurnView{}, ErrInvalidSkillRevision
 		}
-		if ref.Path != "" && !validPackageSkillPath(ref.Path, ref.Name) {
+		if ref.captured == nil {
+			continue
+		}
+		if !samePackageSkillRef(*ref, ref.captured.Ref) || !validCapturedPackageSkillRevision(*ref.captured) {
 			return SkillTurnView{}, ErrInvalidSkillRevision
 		}
 	}
@@ -470,6 +584,68 @@ func newSkillTurnView(project *ProjectSnapshot, managed []ManagedSkillRef, packa
 
 func validPackageSkillPath(value, name string) bool {
 	return !path.IsAbs(value) && !strings.Contains(value, `\`) && path.Clean(value) == value && strings.HasPrefix(value, "skills/"+name+"/")
+}
+
+func validatePackageSkillRef(ref PackageSkillRef) error {
+	if !validPackageID(ref.PackageID) || !validInventoryComponent(ref.Name) || !validPackageDigest(ref.PackageDigest) {
+		return ErrInvalidSkillRevision
+	}
+	if ref.Path != "" && !validPackageSkillPath(ref.Path, ref.Name) {
+		return ErrInvalidSkillRevision
+	}
+	return nil
+}
+
+func validPackageID(id string) bool {
+	if key, err := plugin.ParseResourceID(id); err == nil {
+		return key.Kind == plugin.ResourcePlugin
+	}
+	return validInventoryComponent(id)
+}
+
+func isFilePackageSkillRef(ref PackageSkillRef) bool {
+	key, err := plugin.ParseResourceID(ref.PackageID)
+	return err == nil && key.Kind == plugin.ResourcePlugin
+}
+
+func validCapturedPackageSkillRevision(revision PackageSkillRevision) bool {
+	if revision.Ref.captured != nil || validatePackageSkillRef(revision.Ref) != nil {
+		return false
+	}
+	if len(revision.Files) == 0 || len(revision.Files) != len(revision.Modes) {
+		return false
+	}
+	for filename, content := range revision.Files {
+		mode, ok := revision.Modes[filename]
+		if !ok || !fs.ValidPath(filename) || filename == "." || mode&fs.ModeType != 0 || mode.Perm()&0o444 == 0 || content == nil {
+			return false
+		}
+	}
+	_, hasMain := revision.Files[MainFile]
+	return hasMain
+}
+
+func clonePackageSkillRevision(revision PackageSkillRevision) PackageSkillRevision {
+	clone := revision
+	clone.Ref.captured = nil
+	clone.Files = make(map[string][]byte, len(revision.Files))
+	for filename, content := range revision.Files {
+		clone.Files[filename] = bytes.Clone(content)
+	}
+	clone.Modes = maps.Clone(revision.Modes)
+	return clone
+}
+
+func clonePackageSkillRefs(refs []PackageSkillRef) []PackageSkillRef {
+	clone := slices.Clone(refs)
+	for i := range clone {
+		if clone[i].captured == nil {
+			continue
+		}
+		captured := clonePackageSkillRevision(*clone[i].captured)
+		clone[i].captured = &captured
+	}
+	return clone
 }
 
 func validPackageDigest(digest string) bool {
@@ -528,7 +704,7 @@ func (v SkillTurnView) ManagedIdentities() []Skill {
 }
 
 // PackageSkills returns defensive copies of package-owned Skill references.
-func (v SkillTurnView) PackageSkills() []PackageSkillRef { return slices.Clone(v.packages) }
+func (v SkillTurnView) PackageSkills() []PackageSkillRef { return clonePackageSkillRefs(v.packages) }
 
 // DisabledSkillRefs returns the policy snapshot used during selection.
 func (v SkillTurnView) DisabledSkillRefs() []string { return slices.Clone(v.disabled) }
@@ -566,7 +742,7 @@ func (v SkillTurnView) Clone() SkillTurnView {
 	clone := SkillTurnView{
 		project:  v.project,
 		managed:  slices.Clone(v.managed),
-		packages: slices.Clone(v.packages),
+		packages: clonePackageSkillRefs(v.packages),
 		disabled: slices.Clone(v.disabled),
 		masked:   slices.Clone(v.masked),
 	}

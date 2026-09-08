@@ -109,12 +109,13 @@ func (r packageRevisionReader) LoadPackageSkill(context.Context, PackageSkillRef
 func TestPackageSkillSearchAndLoadUseTurnDigest(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("a", 64)
 	ref := PackageSkillRef{PackageID: "demo", PackageDigest: digest, Name: "docs", Path: "skills/docs/SKILL.md", Description: "package documentation"}
+	ref.captured = &PackageSkillRevision{
+		Ref:   ref,
+		Files: map[string][]byte{MainFile: []byte("# Docs"), "references/api.md": []byte("api reference")},
+		Modes: map[string]fs.FileMode{MainFile: 0o644, "references/api.md": 0o644},
+	}
+	ref.captured.Ref.captured = nil
 	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).
-		WithPackageReader(packageRevisionReader{revision: PackageSkillRevision{
-			Ref:   ref,
-			Files: map[string][]byte{MainFile: []byte("# Docs"), "references/api.md": []byte("api reference")},
-			Modes: map[string]fs.FileMode{MainFile: 0o644, "references/api.md": 0o644},
-		}}).
 		WithPluginVisibility([]string{"demo"}, []string{"demo"})
 	view, err := NewSkillTurnView(nil, nil, []PackageSkillRef{ref}, nil)
 	if err != nil {

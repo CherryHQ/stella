@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
+	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/skill"
@@ -20,19 +21,20 @@ import (
 // lifecycle locks, and Publish starts the asynchronous turn after a short
 // publication recheck.
 type ChatAdmission struct {
-	rt                  *Runtime
-	ctx                 context.Context
-	info                session.Info
-	msg                 MessageContent
-	co                  chatOptions
-	activity            memory.Session
-	turn                *activeTurn
-	out                 chan Event
-	selection           runnerSelection
-	prepared            bool
-	published           bool
-	skillTurnRegistered bool
-	abortOnce           sync.Once
+	rt                    *Runtime
+	ctx                   context.Context
+	info                  session.Info
+	msg                   MessageContent
+	co                    chatOptions
+	activity              memory.Session
+	turn                  *activeTurn
+	out                   chan Event
+	selection             runnerSelection
+	prepared              bool
+	published             bool
+	skillTurnRegistered   bool
+	preserveRunnerOnAbort bool
+	abortOnce             sync.Once
 }
 
 // BeginChatAdmission registers the turn and runs the optional final ingress
@@ -86,6 +88,11 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 	turnCtx = memory.WithSessionID(turnCtx, info.ID)
 	turnCtx = agentctx.WithTurnID(turnCtx, uuid.Must(uuid.NewV7()).String())
 	turnCtx = withSessionIdentity(turnCtx, info)
+	// An adapter context may carry the human authority that admitted a
+	// session. Keep it out of the runtime turn until Prepare derives the
+	// capability appropriate for this exact session, otherwise a cached runner
+	// or a background turn could inherit the wrong principal.
+	turnCtx = authz.ClearAuthority(turnCtx)
 	return &ChatAdmission{
 		rt:       rt,
 		ctx:      turnCtx,
@@ -113,6 +120,7 @@ func (rt *Runtime) PrepareChatAdmission(admission *ChatAdmission) (err error) {
 			return
 		}
 		rt.log.Error("chat publish panicked", "panic_type", fmt.Sprintf("%T", panicValue))
+		admission.preserveRunnerOnAbort = false
 		rt.AbortChatAdmission(admission)
 		err = errors.New("chat preparation failed")
 	}()
@@ -120,17 +128,38 @@ func (rt *Runtime) PrepareChatAdmission(admission *ChatAdmission) (err error) {
 		rt.AbortChatAdmission(admission)
 		return errors.New("runtime is closed")
 	}
+	turnAuthority, hasAuthority, err := admissionTurnAuthority(admission.info, admission.co)
+	if err != nil {
+		rt.AbortChatAdmission(admission)
+		return fmt.Errorf("derive turn authority: %w", err)
+	}
+	// Install exactly one authority for every downstream admission consumer.
+	// Guests deliberately remain capability-empty; group and non-foreground
+	// turns receive only their confined agent capability.
+	admission.co.turnAuthority = turnAuthority
+	admission.co.hasAuthority = hasAuthority
+	admission.ctx = authz.ClearAuthority(admission.ctx)
+	if hasAuthority {
+		admission.ctx = authz.WithAuthority(admission.ctx, turnAuthority)
+	}
+	admission.turn.ctx = admission.ctx
+	var (
+		turnPluginContext    PluginContext
+		hasTurnPluginContext bool
+	)
+	if rt.pluginContextBuilder != nil && hasAuthority {
+		fresh, buildErr := rt.pluginContextBuilder(admission.ctx, turnAuthority, admission.info.AgentID)
+		if buildErr != nil {
+			rt.AbortChatAdmission(admission)
+			return fmt.Errorf("build fresh plugin context: %w", buildErr)
+		}
+		turnPluginContext = fresh
+		hasTurnPluginContext = true
+		admission.ctx = withPreparedPluginContext(admission.ctx, fresh)
+		admission.turn.ctx = admission.ctx
+	}
 	for retries := 0; ; retries++ {
 		expectedGeneration := rt.cache.factoryGenerationSnapshot()
-		if rt.pluginContextBuilder != nil && admission.co.hasAuthority {
-			fresh, buildErr := rt.pluginContextBuilder(admission.ctx, admission.co.turnAuthority, admission.info.AgentID)
-			if buildErr != nil {
-				rt.AbortChatAdmission(admission)
-				return fmt.Errorf("build fresh plugin context: %w", buildErr)
-			}
-			admission.ctx = withPreparedPluginContext(admission.ctx, fresh)
-			admission.turn.ctx = admission.ctx
-		}
 		selection, selectErr := rt.getOrCreateReservedRunner(admission.ctx, admission.info, admission.co.model, admission.co.extraTools, expectedGeneration)
 		if selectErr != nil {
 			if errors.Is(selectErr, ErrRunnerFactoryChanged) && retries < maxFactoryGenerationRetries {
@@ -139,14 +168,30 @@ func (rt *Runtime) PrepareChatAdmission(admission *ChatAdmission) (err error) {
 			rt.AbortChatAdmission(admission)
 			return fmt.Errorf("get runner: %w", selectErr)
 		}
-		if fresh, ok := preparedPluginContext(admission.ctx); ok && !fresh.SameIdentity(selection.pluginContext) {
-			rt.cache.markSelectionStale(selection)
-			rt.cache.abortReservedAdmission(selection.session)
-			if retries < maxFactoryGenerationRetries {
-				continue
+		if hasTurnPluginContext {
+			selection.pluginContext = turnPluginContext
+		}
+		// Publish the reservation before optional per-turn preparation. Any
+		// preparation error or panic must release this lease through the normal
+		// admission abort path.
+		admission.selection = selection
+		admission.preserveRunnerOnAbort = true
+		if preparer, ok := selection.runner.(TurnPreparer); ok {
+			preparedCtx, preparedPluginContext, prepareErr := preparer.PrepareTurn(admission.ctx, selection.pluginContext)
+			if prepareErr != nil {
+				// A preparation failure belongs to this turn. Release the lease
+				// while retaining the runner for the next admission; construction
+				// failures and panics still take the quarantine path below.
+				rt.AbortChatAdmission(admission)
+				return fmt.Errorf("prepare runner turn: %w", prepareErr)
 			}
-			rt.AbortChatAdmission(admission)
-			return errors.New("runner plugin context changed during admission")
+			if preparedCtx == nil {
+				rt.AbortChatAdmission(admission)
+				return errors.New("prepare runner turn returned nil context")
+			}
+			admission.ctx = preparedCtx
+			admission.turn.ctx = preparedCtx
+			selection.pluginContext = preparedPluginContext
 		}
 		admission.selection = selection
 		break
@@ -215,6 +260,33 @@ func (rt *Runtime) PrepareChatAdmission(admission *ChatAdmission) (err error) {
 	return nil
 }
 
+// admissionTurnAuthority returns the capability that resource discovery and
+// model-facing tools may use for one turn. A trusted foreground user
+// capability is preserved when it matches the resolved session owner. Every
+// other authenticated turn is reconstructed as a confined worker/group actor;
+// no caller context authority is consulted.
+func admissionTurnAuthority(info session.Info, options chatOptions) (authz.Authority, bool, error) {
+	if info.GuestID != "" {
+		return authz.Authority{}, false, nil
+	}
+	if info.GroupID != "" {
+		authority, err := agentaccess.GroupAgentAuthority(info.GroupID, info.AgentID)
+		return authority, err == nil, err
+	}
+	if options.hasAuthority && options.turnAuthority.Valid() &&
+		options.turnAuthority.Kind() == authz.ActorUser &&
+		string(options.turnAuthority.UserID()) == info.UserID && info.UserID != "" &&
+		(info.Kind == string(session.KindMain) || info.Kind == string(session.KindChat)) &&
+		info.Channel != string(session.ChannelWebhook) {
+		return options.turnAuthority, true, nil
+	}
+	if info.UserID != "" && info.AgentID != "" {
+		authority, err := agentaccess.WorkerAgentAuthority(info.UserID, info.AgentID)
+		return authority, err == nil, err
+	}
+	return authz.Authority{}, false, nil
+}
+
 // AbortChatAdmission releases a prepared reservation and busy guard. It is
 // safe to call after any failed phase; published turns own their cleanup.
 func (rt *Runtime) AbortChatAdmission(admission *ChatAdmission) {
@@ -223,7 +295,11 @@ func (rt *Runtime) AbortChatAdmission(admission *ChatAdmission) {
 	}
 	admission.abortOnce.Do(func() {
 		if admission.prepared || admission.selection.session != nil {
-			rt.cache.abortReservedAdmission(admission.selection.session)
+			if admission.preserveRunnerOnAbort {
+				rt.cache.releaseReservation(admission.selection.session)
+			} else {
+				rt.cache.abortReservedAdmission(admission.selection.session)
+			}
 		}
 		rt.releaseSkillTurn(agentctx.TurnIDFromContext(admission.ctx), admission.skillTurnRegistered)
 		if admission.turn != nil {

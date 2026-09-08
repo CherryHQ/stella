@@ -217,6 +217,23 @@ func TestLocalSession_closeAndAlive(t *testing.T) {
 	}
 }
 
+func TestLocalSessionRenderEnvRebuildsFilesystemAndBaselinePath(t *testing.T) {
+	s, root := newTestSession(t)
+	env, err := s.RenderEnv(context.Background(), map[string]string{"STALE": "removed"})
+	if err != nil {
+		t.Fatalf("RenderEnv: %v", err)
+	}
+	if env[sandboxpkg.EnvHome] != root {
+		t.Fatalf("HOME = %q, want %q", env[sandboxpkg.EnvHome], root)
+	}
+	if env[sandboxpkg.EnvTempDir] == "" || env["PATH"] == "" {
+		t.Fatalf("rendered filesystem/path env = %#v, want temp dir and baseline PATH", env)
+	}
+	if env["STALE"] != "removed" {
+		t.Fatal("renderer unexpectedly filters unrelated current-turn variables")
+	}
+}
+
 func TestLocalSession_doneChanClosed(t *testing.T) {
 	s, _ := newTestSession(t)
 	done := s.Done()

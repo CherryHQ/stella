@@ -200,19 +200,18 @@ func hostPathForSandboxMount(mounts []sessionfs.Mount, sandboxPath string) strin
 // applyDockerFilesystemEnv renders the exact container coordinates exposed by
 // both commands and Session.Files().
 func applyDockerFilesystemEnv(env map[string]string, hasUserData, hasTemp bool) error {
-	userData := ""
+	return sandboxpkg.ApplyFilesystemEnv(env, dockerFilesystemView(hasUserData, hasTemp))
+}
+
+func dockerFilesystemView(hasUserData, hasTemp bool) sandboxpkg.FilesystemView {
+	view := sandboxpkg.FilesystemView{Home: workspaceMount}
 	if hasUserData {
-		userData = userDataMount
+		view.SharedDataDir = userDataMount
 	}
-	tempDir := ""
 	if hasTemp {
-		tempDir = "/tmp"
+		view.TempDir = "/tmp"
 	}
-	return sandboxpkg.ApplyFilesystemEnv(env, sandboxpkg.FilesystemView{
-		Home:          workspaceMount,
-		SharedDataDir: userData,
-		TempDir:       tempDir,
-	})
+	return view
 }
 
 func dockerMountProvidedByImage(m sessionfs.Mount) bool {

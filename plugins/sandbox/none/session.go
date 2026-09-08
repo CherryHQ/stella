@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/processpath"
 	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
@@ -76,6 +77,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		id:           id,
 		policy:       policy,
 		stellaHome:   f.cfg.StellaHome,
+		userDataDir:  userData,
 		ownedTempDir: tmpDir,
 		done:         make(chan struct{}),
 	}
@@ -198,6 +200,7 @@ type noneSession struct {
 	id            string
 	policy        sandboxpkg.Policy
 	stellaHome    string
+	userDataDir   string
 	done          chan struct{}
 	doneOnce      sync.Once
 	closeMu       sync.Mutex
@@ -210,6 +213,30 @@ type noneSession struct {
 	ownedTempDir  string
 	resolver      *sessionfs.Resolver
 	files         sandboxpkg.FileAccess
+}
+
+// RenderEnv applies the none backend's fixed filesystem and host path view to
+// a fresh logical turn environment without consulting retained policy state.
+func (s *noneSession) RenderEnv(_ context.Context, env map[string]string) (map[string]string, error) {
+	s.mu.RLock()
+	closed := s.closed || s.closing
+	workingDir, userDataDir, tempDir, stellaHome := s.policy.Filesystem.WorkingDir, s.userDataDir, s.ownedTempDir, s.stellaHome
+	s.mu.RUnlock()
+	if closed {
+		return nil, errors.New("none: session is closed")
+	}
+	if tempDir == "" {
+		tempDir = os.TempDir()
+	}
+	policy, err := (&Factory{cfg: Config{StellaHome: stellaHome}}).adjustPolicy(sandboxpkg.Policy{Env: maps.Clone(env)}, workingDir, userDataDir, tempDir)
+	if err != nil {
+		return nil, fmt.Errorf("none: render filesystem environment: %w", err)
+	}
+	if policy.Env["PATH"] == "" {
+		policy.Env["PATH"] = sandboxpkg.HostEnvBuildPath(stellaHome, "")
+		policy.Env[sandboxpkg.EnvRunnerPath] = policy.Env["PATH"]
+	}
+	return policy.Env, nil
 }
 
 func (s *noneSession) Policy() sandboxpkg.Policy {
@@ -316,7 +343,7 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 	sh, shFlag := shell()
 	cmd := exec.Command(sh, shFlag, command)
 	cmd.Dir = resolvedCwd.HostPath()
-	cmd.Env = buildEnv(policy, opts.Env)
+	cmd.Env = buildEnvMode(policy, opts.Env, opts.EnvMode)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -394,9 +421,20 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 		execCtx, cancel = context.WithCancel(ctx)
 	}
 
-	cmd := exec.Command(req.Path, req.Args...)
+	cmdEnv := buildEnvMode(policy, req.Env, req.EnvMode)
+	processPath, err := processpath.Resolve(req.Path, cmdEnv)
+	if err != nil && req.EnvMode == sandboxpkg.EnvOverlay && !processpath.HasPath(cmdEnv) {
+		// Preserve the legacy host lookup when overlay mode intentionally omits
+		// PATH. EnvReplace never falls back to the host environment.
+		processPath, err = exec.LookPath(req.Path)
+	}
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("none: resolve %q from process PATH: %w", req.Path, err)
+	}
+	cmd := exec.Command(processPath, req.Args...)
 	cmd.Dir = resolvedCwd.HostPath()
-	cmd.Env = buildEnv(policy, req.Env)
+	cmd.Env = cmdEnv
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -481,8 +519,12 @@ func (s *noneSession) deregisterProcess(p *noneProcess) {
 // buildEnv merges host env with policy env and per-call overrides.
 // If InheritEnv is false, host environment is not included.
 func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
+	return buildEnvMode(policy, overrides, sandboxpkg.EnvOverlay)
+}
+
+func buildEnvMode(policy sandboxpkg.Policy, overrides map[string]string, mode sandboxpkg.EnvMode) []string {
 	merged := make(map[string]string)
-	if policy.InheritEnv {
+	if mode == sandboxpkg.EnvOverlay && policy.InheritEnv {
 		for _, kv := range os.Environ() {
 			k, v, ok := cutEnv(kv)
 			if ok {
@@ -490,7 +532,9 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 			}
 		}
 	}
-	maps.Copy(merged, policy.Env)
+	if mode == sandboxpkg.EnvOverlay {
+		maps.Copy(merged, policy.Env)
+	}
 	maps.Copy(merged, overrides)
 	if renderedPath, ok := merged["PATH"]; ok {
 		merged[sandboxpkg.EnvRunnerPath] = renderedPath

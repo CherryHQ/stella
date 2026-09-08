@@ -14,8 +14,29 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/core/mcpconfig"
 	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
+
+// fileSessionTools projects the old synthetic registrations used by lifecycle
+// tests back through the production resource API. It keeps those tests focused
+// on session ownership without retaining a registration-only production seam.
+func fileSessionTools(t *testing.T, provider *ToolProvider, ctx context.Context, session *FileSession, registrations []Registration, authority authz.Authority) ([]tools.Tool, error) {
+	t.Helper()
+	resources := make([]plugin.FileResource, 0, len(registrations))
+	for _, reg := range registrations {
+		resources = append(resources, plugin.FileResource{
+			Key: reg.FileKey,
+			MCP: map[string]mcpconfig.Declaration{reg.ServerKey: {
+				URL: reg.URL, Transport: reg.Transport, Headers: reg.Headers, CallTimeoutSeconds: reg.CallTimeoutSeconds,
+				Authentication: mcpconfig.Authentication{Type: reg.AuthType, Mode: reg.CredentialMode, CredentialRef: reg.CredentialRef, ClientID: reg.OAuthClientID, ClientSecretRef: reg.OAuthClientSecretRef, TokenEndpointAuthMethod: reg.TokenEndpointAuthMethod, Scopes: reg.OAuthScopes},
+			}},
+		})
+	}
+	snapshot, err := provider.ToolsForFileSession(ctx, session, resources, authority)
+	return snapshot.Tools, err
+}
 
 type fileSessionFakeClient struct {
 	closeCount atomic.Int32
@@ -73,11 +94,11 @@ func TestFileSessionOwnsConnectionsAndReplacesDirtyTargets(t *testing.T) {
 	})
 	provider := NewToolProvider(service)
 	registration := fileSessionTestRegistration("file-1", "https://weather.example.test/mcp")
-	toolsOne, err := provider.ToolsForFileSession(t.Context(), session, []Registration{registration}, authority)
+	toolsOne, err := fileSessionTools(t, provider, t.Context(), session, []Registration{registration}, authority)
 	if err != nil || len(toolsOne) != 1 {
 		t.Fatalf("first turn tools = %d, err = %v", len(toolsOne), err)
 	}
-	if got, err := toolsOne[0].Execute(t.Context(), nil); err != nil || got != "ok" {
+	if got, err := toolsOne[0].Execute(authz.WithAuthority(t.Context(), authority), nil); err != nil || got != "ok" {
 		t.Fatalf("tools/call = %q, err = %v", got, err)
 	}
 	if err := toolsOne[0].(interface{ Close() error }).Close(); err != nil {
@@ -90,14 +111,14 @@ func TestFileSessionOwnsConnectionsAndReplacesDirtyTargets(t *testing.T) {
 		t.Fatalf("proxy Close closed session client %d times", got)
 	}
 
-	if _, err := provider.ToolsForFileSession(t.Context(), session, []Registration{registration}, authority); err != nil {
+	if _, err := fileSessionTools(t, provider, t.Context(), session, []Registration{registration}, authority); err != nil {
 		t.Fatalf("second turn: %v", err)
 	}
 	if got := first.listCount.Load(); got != 2 {
 		t.Fatalf("tools/list count = %d, want 2", got)
 	}
 	first.dirty()
-	if _, err := provider.ToolsForFileSession(t.Context(), session, []Registration{registration}, authority); err != nil {
+	if _, err := fileSessionTools(t, provider, t.Context(), session, []Registration{registration}, authority); err != nil {
 		t.Fatalf("dirty turn: %v", err)
 	}
 	if got := first.closeCount.Load(); got != 1 {
@@ -107,7 +128,7 @@ func TestFileSessionOwnsConnectionsAndReplacesDirtyTargets(t *testing.T) {
 	changed := registration
 	changed.ID = "file-2"
 	changed.URL = "https://weather-new.example.test/mcp"
-	if _, err := provider.ToolsForFileSession(t.Context(), session, []Registration{changed}, authority); err != nil {
+	if _, err := fileSessionTools(t, provider, t.Context(), session, []Registration{changed}, authority); err != nil {
 		t.Fatalf("changed target turn: %v", err)
 	}
 	mu.Lock()
@@ -152,7 +173,7 @@ func TestFileMCPToolCalls(t *testing.T) {
 	provider := NewToolProvider(service)
 	registration := fileSessionTestRegistration("http-file", httpServer.URL)
 	authority := fileSessionTestAuthority(t, "http-user")
-	modelTools, err := provider.ToolsForFileSession(t.Context(), session, []Registration{registration}, authority)
+	modelTools, err := fileSessionTools(t, provider, t.Context(), session, []Registration{registration}, authority)
 	if err != nil || len(modelTools) != 2 {
 		var failure *connectionFailure
 		if errors.As(err, &failure) {
@@ -163,7 +184,7 @@ func TestFileMCPToolCalls(t *testing.T) {
 	results := make(map[string]string, len(modelTools))
 	for _, modelTool := range modelTools {
 		proxy := modelTool.(*toolProxy)
-		got, callErr := proxy.Execute(t.Context(), map[string]any{"message": "hello"})
+		got, callErr := proxy.Execute(authz.WithAuthority(t.Context(), authority), map[string]any{"message": "hello"})
 		if callErr != nil {
 			t.Fatalf("tools/call %q: %v", proxy.remoteName, callErr)
 		}
@@ -294,7 +315,7 @@ func TestFileSessionSSEConnectionSurvivesDiscoveryCancellation(t *testing.T) {
 	testCtx, cancelTest := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancelTest()
 	discoveryCtx, cancelDiscovery := context.WithCancel(testCtx)
-	modelTools, err := provider.ToolsForFileSession(discoveryCtx, session, []Registration{registration}, authority)
+	modelTools, err := fileSessionTools(t, provider, discoveryCtx, session, []Registration{registration}, authority)
 	if err != nil || len(modelTools) != 1 {
 		t.Fatalf("SSE tools/list result = %d, err = %v", len(modelTools), err)
 	}
@@ -307,11 +328,11 @@ func TestFileSessionSSEConnectionSurvivesDiscoveryCancellation(t *testing.T) {
 	if got := getStarted.Load(); got != 1 {
 		t.Fatalf("initial SSE GET count = %d, want 1", got)
 	}
-	got, err := modelTools[0].Execute(testCtx, nil)
+	got, err := modelTools[0].Execute(authz.WithAuthority(testCtx, authority), nil)
 	if err != nil || got != "sse-ok" {
 		t.Fatalf("SSE tools/call result = %q, err = %v", got, err)
 	}
-	if _, err := provider.ToolsForFileSession(testCtx, session, []Registration{registration}, authority); err != nil {
+	if _, err := fileSessionTools(t, provider, testCtx, session, []Registration{registration}, authority); err != nil {
 		t.Fatalf("reuse turn: %v", err)
 	}
 	if got := getStarted.Load(); got != 1 {
@@ -344,7 +365,7 @@ func TestFileSessionSSEConnectionSurvivesDiscoveryCancellation(t *testing.T) {
 	if !dirtyDeadline.Stop() {
 		<-dirtyDeadline.C
 	}
-	nextTools, err := provider.ToolsForFileSession(testCtx, session, []Registration{registration}, authority)
+	nextTools, err := fileSessionTools(t, provider, testCtx, session, []Registration{registration}, authority)
 	if err != nil || len(nextTools) != 2 {
 		t.Fatalf("SSE replacement tools/list result = %d, err = %v", len(nextTools), err)
 	}

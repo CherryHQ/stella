@@ -249,6 +249,9 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	if len(co.excludedTools) > 0 {
 		ctx = withExcludedTools(ctx, co.excludedTools...)
 	}
+	if co.hasAllowedTools {
+		ctx = agentctx.WithAllowedTools(ctx, co.allowedTools...)
+	}
 
 	// Persist group trigger messages only after the turn succeeds. Otherwise a
 	// failed durable dispatch retry would leave the same trigger in history and

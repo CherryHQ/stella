@@ -127,15 +127,17 @@ type ChatRequest struct {
 type DelegateRequest struct {
 	// SessionID, when non-empty, resumes an existing delegate session.
 	// When empty, a new delegate session is created.
-	SessionID     string
-	UserID        string
-	AgentID       string
-	ProjectID     string
-	Task          string
-	System        string
-	Model         string
-	ExcludedTools []string
-	Authority     authz.Authority
+	SessionID       string
+	UserID          string
+	AgentID         string
+	ProjectID       string
+	Task            string
+	System          string
+	Model           string
+	ExcludedTools   []string
+	AllowedTools    []string
+	HasAllowedTools bool
+	Authority       authz.Authority
 }
 
 // DelegateResult is the output of a delegate turn.
@@ -872,6 +874,9 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
+	if req.HasAllowedTools {
+		opts = append(opts, agentruntime.WithAllowedTools(req.AllowedTools...))
+	}
 	actor := messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))
 	opts = append(opts, agentruntime.WithInputActor(actor))
 
@@ -917,15 +922,17 @@ func (s *Service) RunDelegateSession(ctx context.Context, req delegatetool.Sessi
 		return delegatetool.SessionRunResult{SessionID: req.SessionID}, agentaccess.ErrForbidden
 	}
 	res, err := s.Delegate(ctx, DelegateRequest{
-		SessionID:     req.SessionID,
-		UserID:        userID,
-		AgentID:       agentID,
-		ProjectID:     projectID,
-		Task:          req.Task,
-		System:        req.System,
-		Model:         req.Model,
-		ExcludedTools: req.ExcludedTools,
-		Authority:     authority,
+		SessionID:       req.SessionID,
+		UserID:          userID,
+		AgentID:         agentID,
+		ProjectID:       projectID,
+		Task:            req.Task,
+		System:          req.System,
+		Model:           req.Model,
+		ExcludedTools:   req.ExcludedTools,
+		AllowedTools:    req.AllowedTools,
+		HasAllowedTools: req.HasAllowedTools,
+		Authority:       authority,
 	})
 	return delegatetool.SessionRunResult{
 		SessionID:       res.SessionID,

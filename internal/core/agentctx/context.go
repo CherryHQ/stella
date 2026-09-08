@@ -21,6 +21,7 @@ type (
 	systemOverrideKey struct{}
 	channelKey        struct{}
 	excludedToolsKey  struct{}
+	allowedToolsKey   struct{}
 	chatBindingKey    struct{}
 	turnKey           struct{}
 	sessionCallKey    struct{}
@@ -273,4 +274,33 @@ func ExcludedToolsFromContext(ctx context.Context) []string {
 	out := make([]string, len(names))
 	copy(out, names)
 	return out
+}
+
+// WithAllowedTools carries a child-run tool allowlist. An empty list is a
+// deliberate deny-all allowlist, so callers must use the presence bit.
+func WithAllowedTools(ctx context.Context, names ...string) context.Context {
+	filtered := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		filtered = append(filtered, name)
+	}
+	return context.WithValue(ctx, allowedToolsKey{}, filtered)
+}
+
+func AllowedToolsFromContext(ctx context.Context) ([]string, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	names, ok := ctx.Value(allowedToolsKey{}).([]string)
+	if !ok {
+		return nil, false
+	}
+	return slices.Clone(names), true
 }

@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,20 @@ import (
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
+
+func canonicalFilePluginID(t *testing.T, userID string) string {
+	t.Helper()
+	payload, err := json.Marshal(struct {
+		Scope  string `json:"scope"`
+		UserID string `json:"user_id,omitempty"`
+		Kind   string `json:"kind"`
+		Name   string `json:"name"`
+	}{Scope: "user", UserID: userID, Kind: "plugin", Name: "tool"})
+	if err != nil {
+		t.Fatalf("marshal file plugin identity: %v", err)
+	}
+	return "file:" + base64.RawURLEncoding.EncodeToString(payload)
+}
 
 type evidenceExecAPI struct {
 	noopAPI
@@ -533,8 +548,8 @@ func TestSelectionToolCacheHashIncludesIdentityAndRevision(t *testing.T) {
 	}
 	packageChanged := append([]ToolBinary(nil), base...)
 	packageChanged[0].PackageDigest = "sha256:package-b"
-	if selectionToolCacheHash("sha256:image-a", base, nil) == selectionToolCacheHash("sha256:image-a", packageChanged, nil) {
-		t.Fatal("selection cache identity must include package digest")
+	if selectionToolCacheHash("sha256:image-a", base, nil) != selectionToolCacheHash("sha256:image-a", packageChanged, nil) {
+		t.Fatal("provenance package digest must not change selection cache identity")
 	}
 	if selectionToolCacheHash("sha256:image-a", base, nil) == selectionToolCacheHash("sha256:image-b", base, nil) {
 		t.Fatal("selection cache identity must include resolved image ID")
@@ -548,6 +563,28 @@ func TestSelectionToolCacheHashIncludesIdentityAndRevision(t *testing.T) {
 	packageB.PackageDigest = "sha256:b"
 	if selectionToolCacheHash("sha256:image-a", []ToolBinary{packageA, packageB}, nil) != selectionToolCacheHash("sha256:image-a", []ToolBinary{packageB, packageA}, nil) {
 		t.Fatal("selection cache hash must order package identities deterministically")
+	}
+	fileID := canonicalFilePluginID(t, "user-1")
+	fileBase := ToolBinary{PluginID: fileID, ConfigID: "config-a", Scope: "user", Revision: 1, PackageDigest: "sha256:file-a", Name: "tool", Tool: "uv", Version: "1"}
+	fileDigestChanged := fileBase
+	fileDigestChanged.PackageDigest = "sha256:file-b"
+	if selectionToolCacheHash("sha256:image-a", []ToolBinary{fileBase}, nil) != selectionToolCacheHash("sha256:image-a", []ToolBinary{fileDigestChanged}, nil) {
+		t.Fatal("file-backed package digest is provenance and must not change the selection cache")
+	}
+	fileVersionChanged := fileBase
+	fileVersionChanged.Version = "2"
+	if selectionToolCacheHash("sha256:image-a", []ToolBinary{fileBase}, nil) == selectionToolCacheHash("sha256:image-a", []ToolBinary{fileVersionChanged}, nil) {
+		t.Fatal("file-backed CLI version must change the selection cache")
+	}
+	fileOwnerChanged := fileBase
+	fileOwnerChanged.PluginID = canonicalFilePluginID(t, "user-2")
+	if selectionToolCacheHash("sha256:image-a", []ToolBinary{fileBase}, nil) == selectionToolCacheHash("sha256:image-a", []ToolBinary{fileOwnerChanged}, nil) {
+		t.Fatal("file-backed owner must change the selection cache")
+	}
+	fileScopeChanged := fileBase
+	fileScopeChanged.Scope = "user_agent"
+	if selectionToolCacheHash("sha256:image-a", []ToolBinary{fileBase}, nil) == selectionToolCacheHash("sha256:image-a", []ToolBinary{fileScopeChanged}, nil) {
+		t.Fatal("file-backed scope must change the selection cache")
 	}
 	coreRuntimes := []systemplugins.RuntimeResource{{Name: "mise", Version: "core-1", Embedded: true}}
 	if selectionToolCacheHash("sha256:image-a", nil, coreRuntimes) == selectionToolCacheHash("sha256:image-a", nil, []systemplugins.RuntimeResource{{Name: "mise", Version: "core-2", Embedded: true}}) {

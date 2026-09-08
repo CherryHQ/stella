@@ -20,6 +20,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
+	internalmcp "github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
@@ -50,6 +51,19 @@ type (
 // depend on MCP internals.
 type MCPToolProvider interface {
 	ToolsForSnapshotWithDirectoryForPlugins(context.Context, plugin.Snapshot, []string) (pkgplugins.MCPToolSnapshot, error)
+}
+
+// FileMCPToolProvider discovers tools directly from the resources captured for
+// one filesystem-backed turn. It is optional so the legacy database provider
+// and small test providers do not need to own file-session connections.
+type FileMCPToolProvider interface {
+	ToolsForFileSession(context.Context, *internalmcp.FileSession, []plugin.FileResource, authz.Authority) (pkgplugins.MCPToolSnapshot, error)
+}
+
+// FileMCPSessionFactory is implemented by the MCP provider that owns the
+// service used to construct a runner-scoped FileSession.
+type FileMCPSessionFactory interface {
+	NewFileSession() *internalmcp.FileSession
 }
 
 type ToolUnavailableReason string
@@ -436,7 +450,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		hasPluginAuthority := false
 		if params.PluginContextReady {
 			pluginContext = params.PluginContext
-			hasPluginAuthority = pluginContext.Snapshot().Authority().Valid()
+			hasPluginAuthority = pluginContext.Authority().Valid()
 		} else if cfg.PluginContextBuilder != nil {
 			authority, authorityErr := runnerPluginAuthority(params)
 			err = authorityErr
@@ -508,7 +522,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			ChatTimeout:         defaultChatTimeout,
 		}
 		preparation := pluginContext.OAuthPreparationResult()
-		if len(preparation.Packages) == 0 && len(pluginView.PackageRequirements) > 0 {
+		if !pluginContext.IsFileBased() && len(preparation.Packages) == 0 && len(pluginView.PackageRequirements) > 0 {
 			preparation = sandbox.PrepareOAuthPackages(ctx, sandboxCfg, pluginView.PackageRequirements)
 			pluginContext = pluginContext.WithOAuthPreparationResult(preparation)
 			pluginView = pluginContext.SessionPluginView()
@@ -517,6 +531,15 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		sandboxCfg.BinarySpecs = slices.Clone(pluginView.BinarySpecs)
 		sandboxCfg.PluginRequirements = slices.Clone(pluginView.PackageRequirements)
 		sandboxCfg.PluginPreparationResult = &preparation
+		if pluginContext.IsFileBased() {
+			// File resources are captured per admission. The retained runner only
+			// owns the core session; each turn supplies the current package view,
+			// CLI selection, and environment through PrepareTurn.
+			sandboxCfg.SessionEnvSpecs = nil
+			sandboxCfg.BinarySpecs = nil
+			sandboxCfg.PluginRequirements = nil
+			sandboxCfg.PluginPreparationResult = nil
+		}
 
 		// CLI installation is package-scoped, but the final session must be
 		// created only after its failures have been merged into the same result.
@@ -544,6 +567,10 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if backendName != config.SandboxBackendDocker {
 			disabledSkillRefs = append(disabledSkillRefs, systemplugins.UnavailableSkillRefs()...)
 		}
+		if pluginContext.IsFileBased() {
+			pluginContext = pluginContext.InfrastructureContext()
+			pluginView = pluginContext.SessionPluginView()
+		}
 		promptBuild := pkgplugins.SystemPromptContext{
 			UserID:              params.UserID,
 			AgentID:             params.AgentID,
@@ -563,12 +590,14 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if params.GroupID != "" {
 			skillPromptBuild.UserID = ""
 		}
-		skillsSection, err := skillstool.BuildAuthorizedPromptSection(ctx, skillPromptBuild, projectSkillSnapshot, cfg.SkillRevisionReader, cfg.SkillReadAuthorizer)
-		if err != nil {
-			return nil, fmt.Errorf("runner: build skills prompt: %w", err)
-		}
-		if skillsSection.Title != "" && skillsSection.Content != "" {
-			sections = append(sections, skillsSection)
+		if !pluginContext.IsFileBased() {
+			skillsSection, err := skillstool.BuildAuthorizedPromptSection(ctx, skillPromptBuild, projectSkillSnapshot, cfg.SkillRevisionReader, cfg.SkillReadAuthorizer)
+			if err != nil {
+				return nil, fmt.Errorf("runner: build skills prompt: %w", err)
+			}
+			if skillsSection.Title != "" && skillsSection.Content != "" {
+				sections = append(sections, skillsSection)
+			}
 		}
 		if params.GroupID == "" && cfg.VaultEnvLoader != nil {
 			metas, err := cfg.VaultEnvLoader.ListAmbientSecretMetas(ctx, params.UserID, params.AgentID)

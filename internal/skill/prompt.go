@@ -50,17 +50,25 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 	if decision == nil {
 		return pkgplugins.SystemPromptSection{}, ErrSkillReadUnavailable
 	}
+	if turn, ok := SkillTurnViewFromContext(ctx); ok {
+		build = addTurnPackageVisibility(build, turn)
+	}
 	authorized := make([]ResolvedSkill, 0, len(merged))
 	for _, rs := range merged {
-		if !isDBSkill(rs) {
+		id, scope, userID, agentID, required := readAuthorizationTarget(rs)
+		if !required {
 			authorized = append(authorized, rs)
 			continue
 		}
-		allowed, err := decision.AllowRead(ctx, rs.ID, rs.Scope, rs.UserID, rs.AgentID)
+		allowed, err := decision.AllowRead(ctx, id, scope, userID, agentID)
 		if err != nil {
 			return pkgplugins.SystemPromptSection{}, err
 		}
 		if !allowed {
+			continue
+		}
+		if isFilePackageSkill(rs) {
+			authorized = append(authorized, rs)
 			continue
 		}
 		var revision ManagedRevision
@@ -157,6 +165,19 @@ func escapeXML(s string) string {
 	s = strings.ReplaceAll(s, `"`, "&quot;")
 	s = strings.ReplaceAll(s, "'", "&apos;")
 	return s
+}
+
+func addTurnPackageVisibility(build pkgplugins.SystemPromptContext, turn SkillTurnView) pkgplugins.SystemPromptContext {
+	build.RegisteredPluginIDs = append([]string(nil), build.RegisteredPluginIDs...)
+	build.EnabledPluginIDs = append([]string(nil), build.EnabledPluginIDs...)
+	for _, ref := range turn.PackageSkills() {
+		if ref.Builtin || ref.Masked || ref.Disabled || !isFilePackageSkillRef(ref) {
+			continue
+		}
+		build.RegisteredPluginIDs = append(build.RegisteredPluginIDs, ref.PackageID)
+		build.EnabledPluginIDs = append(build.EnabledPluginIDs, ref.PackageID)
+	}
+	return build
 }
 
 func filterVisibleResolvedSkills(skills []ResolvedSkill, build pkgplugins.SystemPromptContext) []ResolvedSkill {

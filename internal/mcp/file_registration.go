@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/core/mcpconfig"
 	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
 
 // RegistrationFromFileResource projects one trusted file resource into the MCP
@@ -22,7 +23,7 @@ func RegistrationFromFileResource(resource plugin.FileResource, serverKey string
 	if err := validateFileResourceAuthority(resource.Key, authority); err != nil {
 		return Registration{}, err
 	}
-	if resource.Disabled || resource.Diagnostics.HasErrors() {
+	if fileMCPResourceFatal(resource) {
 		return Registration{}, fmt.Errorf("mcp: file resource is disabled or invalid")
 	}
 	if serverKey == "" {
@@ -70,15 +71,33 @@ func RegistrationFromFileResource(resource plugin.FileResource, serverKey string
 	return Registration{
 		IdentityKind: RegistrationIdentityFile,
 		FileKey:      resource.Key, AuthenticationTarget: target,
-		ID: id, ServerKey: serverKey, PluginID: "file:" + resource.Key.Name,
+		ID: id, ServerKey: serverKey, PluginID: resource.Key.ID(),
 		Scope: string(resource.Key.Scope), UserID: resource.Key.UserID, AgentID: resource.Key.AgentID,
 		Name: resource.Key.Name, URL: declaration.URL, Transport: declaration.Transport,
 		AuthType: declaration.Type, CredentialRef: declaration.CredentialRef,
 		CredentialMode: mode, OAuthClientID: declaration.ClientID,
 		OAuthClientSecretRef: declaration.ClientSecretRef, TokenEndpointAuthMethod: declaration.TokenEndpointAuthMethod,
 		CallTimeoutSeconds: declaration.CallTimeoutSeconds, OAuthScopes: append([]string(nil), declaration.Scopes...), Headers: cloneHeaders(declaration.Headers),
+		// File resources use the canonical scoped key as their package identity.
+		// The exported tool name still uses fileToolPackageIdentity so a remote
+		// tool cannot collide with a legacy package merely because both are named
+		// the same on disk.
 		Enabled: true,
 	}, nil
+}
+
+// fileMCPResourceFatal blocks only resource-level failures. Component-level
+// MCP diagnostics are retained so a valid sibling server can still connect.
+func fileMCPResourceFatal(resource plugin.FileResource) bool {
+	if resource.Disabled || resource.Forbidden || resource.Key.Kind == plugin.ResourcePlugin && resource.Package == nil {
+		return true
+	}
+	for _, diagnostic := range resource.Diagnostics {
+		if diagnostic.Severity == agentpackage.SeverityError && (diagnostic.Code == "resource.capture" || diagnostic.Code == "resource.requirement_conflict") {
+			return true
+		}
+	}
+	return false
 }
 
 func validateFileResourceAuthority(key plugin.ResourceKey, authority authz.Authority) error {

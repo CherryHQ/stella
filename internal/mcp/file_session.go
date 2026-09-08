@@ -442,63 +442,6 @@ func (s *Service) buildFileTransport(ctx context.Context, reg Registration, owne
 	}
 }
 
-// ToolsForFileSession discovers a per-owner catalog directly from the MCP
-// server for this turn. It never reads or writes the persisted observation
-// table, and each returned proxy borrows the session-owned connection.
-func (p *ToolProvider) ToolsForFileSession(ctx context.Context, session *FileSession, registrations []Registration, authority authz.Authority) ([]tools.Tool, error) {
-	if p == nil || p.svc == nil || session == nil {
-		return nil, nil
-	}
-	if err := session.Prepare(ctx, registrations, authority); err != nil {
-		return nil, err
-	}
-	discoveryCtx, cancel := context.WithTimeout(ctx, defaultDiscoveryTimeout)
-	defer cancel()
-	var result []tools.Tool
-	var errs []error
-	seen := make(map[string]struct{})
-	for _, reg := range registrations {
-		if !reg.Enabled || reg.Status == StatusNeedsAuth {
-			continue
-		}
-		conn, err := session.borrow(discoveryCtx, reg, authority)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		client, err := conn.get()
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		remote, err := client.ListTools(discoveryCtx)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		catalog := make([]CatalogTool, 0, len(remote))
-		for _, remoteTool := range remote {
-			catalog = append(catalog, CatalogTool{Name: remoteTool.Name, Description: remoteTool.Description, InputSchema: cloneSchema(toolInputSchema(remoteTool.InputSchema)), Annotations: annotationsSchema(remoteTool.Annotations)})
-		}
-		if err := validateCatalogTools(reg, catalog); err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		for _, catalogTool := range catalog {
-			name := exportedToolName(reg, catalogTool.Name)
-			if name == "" {
-				continue
-			}
-			if _, exists := seen[name]; exists {
-				continue
-			}
-			seen[name] = struct{}{}
-			result = append(result, &toolProxy{svc: p.svc, reg: reg, fileConn: conn, remoteName: catalogTool.Name, def: tools.Definition{Name: name, Description: catalogTool.Description, InputSchema: cloneSchema(catalogTool.InputSchema)}})
-		}
-	}
-	return result, errors.Join(errs...)
-}
-
 // Compile-time checks keep accidental narrowing of the transport seam visible.
 var (
 	_ RemoteClient = (*Client)(nil)

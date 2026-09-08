@@ -3,11 +3,11 @@ package runtime
 import (
 	"context"
 	"maps"
-	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/core/mcpconfig"
 	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -29,9 +29,12 @@ func preparedPluginContext(ctx context.Context) (PluginContext, bool) {
 // runner. The snapshot and session view are built from the same authority and
 // must travel together for the lifetime of the runner and every turn using it.
 type PluginContext struct {
-	snapshot plugin.Snapshot
-	view     pkgplugins.SessionPluginView
-	mcp      *pkgplugins.MCPToolSnapshot
+	snapshot      plugin.Snapshot
+	view          pkgplugins.SessionPluginView
+	mcp           *pkgplugins.MCPToolSnapshot
+	authority     authz.Authority
+	fileBased     bool
+	fileResources []plugin.FileResource
 	// oauthResult is the admission-time OAuth predicate. It is separate from
 	// view.PackageResults because the latter also contains CLI preparation;
 	// cache identity must notice an OAuth permission change without making a
@@ -46,7 +49,92 @@ func NewPluginContext(snapshot plugin.Snapshot) (PluginContext, error) {
 	if err != nil {
 		return PluginContext{}, err
 	}
-	return PluginContext{snapshot: snapshot, view: view}, nil
+	return PluginContext{snapshot: snapshot, view: view, authority: snapshot.Authority()}, nil
+}
+
+// NewFilePluginContext builds a runner context directly from the trusted file
+// resource capture. File resources are already selected by DiscoverResources;
+// this constructor deliberately performs no database lookup or fallback.
+func NewFilePluginContext(authority authz.Authority, resources []plugin.FileResource) (PluginContext, error) {
+	if !authority.Valid() {
+		return PluginContext{}, authz.ErrForbidden
+	}
+	for _, resource := range resources {
+		if resource.Key.ID() == "" || !fileResourceVisibleToAuthority(resource.Key, authority) {
+			return PluginContext{}, authz.ErrForbidden
+		}
+	}
+	view, err := projectFileSessionPluginView(resources)
+	if err != nil {
+		return PluginContext{}, err
+	}
+	return PluginContext{
+		view:          view,
+		authority:     authority,
+		fileBased:     true,
+		fileResources: cloneFileResources(resources),
+	}, nil
+}
+
+func fileResourceVisibleToAuthority(key plugin.ResourceKey, authority authz.Authority) bool {
+	switch key.Scope {
+	case plugin.ScopeSystem:
+		return true
+	case plugin.ScopeSystemAgent:
+		// A user request may execute an explicitly authorized agent and receives
+		// its system-agent root through the trusted root capability. An agent
+		// actor is further pinned to its own agent root.
+		if authority.Kind() == authz.ActorAgent || authority.Kind() == authz.ActorGroupAgent {
+			return string(authority.AgentID()) == key.AgentID
+		}
+		return authority.Kind() == authz.ActorUser || authority.Kind() == authz.ActorSystem
+	case plugin.ScopeUser:
+		if authority.Kind() == authz.ActorUser || authority.Kind() == authz.ActorAgent {
+			return string(authority.UserID()) == key.UserID
+		}
+		return false
+	case plugin.ScopeUserAgent:
+		if authority.Kind() == authz.ActorAgent {
+			return string(authority.UserID()) == key.UserID && string(authority.AgentID()) == key.AgentID
+		}
+		if authority.Kind() == authz.ActorUser {
+			return string(authority.UserID()) == key.UserID
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+// Authority returns the trusted actor that produced this context.
+func (c PluginContext) Authority() authz.Authority {
+	if c.authority.Valid() {
+		return c.authority
+	}
+	return c.snapshot.Authority()
+}
+
+// IsFileBased reports whether this context was projected from filesystem
+// resources rather than the legacy database snapshot.
+func (c PluginContext) IsFileBased() bool { return c.fileBased }
+
+// InfrastructureContext drops captured file resources before a runner is
+// retained. File resources are turn-scoped observations; keeping them on a
+// cached runner would pin the first filesystem snapshot and its package
+// declarations across later admissions. Authority and the file marker remain
+// so the cache can still identify the confined execution shape.
+func (c PluginContext) InfrastructureContext() PluginContext {
+	if !c.fileBased {
+		return c
+	}
+	return PluginContext{authority: c.authority, fileBased: true}
+}
+
+// FileResources returns an independent copy of the captured resources. The
+// captured content is immutable; all mutable declarations and diagnostics are
+// copied before crossing the context boundary.
+func (c PluginContext) FileResources() []plugin.FileResource {
+	return cloneFileResources(c.fileResources)
 }
 
 // Snapshot returns the authority-bound plugin snapshot captured for this
@@ -57,25 +145,6 @@ func (c PluginContext) Snapshot() plugin.Snapshot { return c.snapshot }
 // visibility captured for this runner.
 func (c PluginContext) SessionPluginView() pkgplugins.SessionPluginView {
 	return applyPreparationResult(cloneSessionPluginView(c.view))
-}
-
-// SameIdentity compares the complete immutable plugin boundary. The snapshot
-// carries definition content and resolved configuration; the session view
-// carries the selected MCP directory and the successful tool/package set.
-// Comparing both prevents a shallow cache marker from accepting a runner whose
-// visible capability graph changed underneath admission.
-func (c PluginContext) SameIdentity(other PluginContext) bool {
-	if !sameOAuthReadiness(c.oauthResult, other.oauthResult) {
-		return false
-	}
-	left, right := c.view, other.view
-	// Preparation is an admission outcome, not authored selection identity. A
-	// fresh context is built before the sandbox can report CLI installation;
-	// comparing this field would make every successful build look stale. The
-	// immutable snapshot and MCP observation remain part of the cache identity.
-	left.PackageResults = pkgplugins.PluginPreparationResult{}
-	right.PackageResults = pkgplugins.PluginPreparationResult{}
-	return reflect.DeepEqual(c.snapshot, other.snapshot) && reflect.DeepEqual(left, right)
 }
 
 // WithMCPResources returns a copy whose view includes the one-shot
@@ -94,7 +163,7 @@ func (c PluginContext) WithMCPResources(directory []pkgplugins.MCPDirectoryEntry
 	}
 	view.SuccessfulPluginIDs = slices.Clone(successful)
 	slices.Sort(view.SuccessfulPluginIDs)
-	return PluginContext{snapshot: c.snapshot, view: view, mcp: c.mcp, oauthResult: c.oauthResult.Clone()}
+	return PluginContext{snapshot: c.snapshot, view: view, mcp: c.mcp, authority: c.authority, fileBased: c.fileBased, fileResources: c.fileResources, oauthResult: c.oauthResult.Clone()}
 }
 
 // OAuthPreparationResult returns the latest admission-time OAuth predicate.
@@ -104,33 +173,13 @@ func (c PluginContext) OAuthPreparationResult() pkgplugins.PluginPreparationResu
 	return c.oauthResult.Clone()
 }
 
-// HasFailedPackagePreparation reports whether the published runner was built
-// with any OAuth-ready package omitted by later CLI preparation. The cache
-// uses it to retry optional CLI failures on the next admission while leaving
-// runners with stable OAuth failures reusable.
-func (c PluginContext) HasFailedPackagePreparation() bool {
-	for _, status := range c.view.PackageResults.Packages {
-		if status.Ready {
-			continue
-		}
-		// OAuth failures are already represented by oauthResult and are retried
-		// by the next admission check. Only a package that was OAuth-ready but
-		// failed later CLI preparation should retire an otherwise usable runner.
-		if !c.oauthResult.Status(status.PluginID).Ready {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
 // WithOAuthPreparationResult records the per-admission OAuth predicate and
 // applies it to the public view. Later CLI preparation can merge into the
 // public PackageResults while preserving this cache identity input.
 func (c PluginContext) WithOAuthPreparationResult(result pkgplugins.PluginPreparationResult) PluginContext {
 	view := cloneSessionPluginView(c.view)
 	view.PackageResults = c.view.PackageResults.Merge(result)
-	return PluginContext{snapshot: c.snapshot, view: view, mcp: c.mcp, oauthResult: result.Clone()}
+	return PluginContext{snapshot: c.snapshot, view: view, mcp: c.mcp, authority: c.authority, fileBased: c.fileBased, fileResources: c.fileResources, oauthResult: result.Clone()}
 }
 
 // WithPreparationResult publishes one all-or-nothing result to every runner
@@ -139,7 +188,7 @@ func (c PluginContext) WithOAuthPreparationResult(result pkgplugins.PluginPrepar
 func (c PluginContext) WithPreparationResult(result pkgplugins.PluginPreparationResult) PluginContext {
 	view := cloneSessionPluginView(c.view)
 	view.PackageResults = c.view.PackageResults.Merge(result)
-	return PluginContext{snapshot: c.snapshot, view: view, mcp: c.mcp, oauthResult: c.oauthResult.Clone()}
+	return PluginContext{snapshot: c.snapshot, view: view, mcp: c.mcp, authority: c.authority, fileBased: c.fileBased, fileResources: c.fileResources, oauthResult: c.oauthResult.Clone()}
 }
 
 // SelectedPluginSkillSpecs returns the immutable selected Skill declarations,
@@ -160,6 +209,9 @@ func (c PluginContext) SelectedPluginBinarySpecs() []pkgplugins.PluginBinarySpec
 // small, secret-free record persisted on the user anchor. The optional Skill
 // view is the exact winner/mask decision captured for this turn.
 func (c PluginContext) ExecutionSummaryForTurn(view *skill.SkillTurnView) *ai.ExecutionSummary {
+	if c.fileBased {
+		return c.fileExecutionSummary(view)
+	}
 	byID := make(map[string]struct{}, len(c.view.ExposedPluginIDs))
 	for _, id := range c.view.ExposedPluginIDs {
 		byID[id] = struct{}{}
@@ -197,7 +249,7 @@ func (c PluginContext) ExecutionSummaryForTurn(view *skill.SkillTurnView) *ai.Ex
 		}
 		if len(payload.OAuth) == 0 {
 			item.Authorization = "not_required"
-		} else if status := c.oauthResult.Status(definition.ID); len(c.oauthResult.Packages) > 0 {
+		} else if status, prepared := packagePreparationStatus(c.oauthResult, definition.ID); prepared {
 			item.Authorization = "ready"
 			if !status.Ready {
 				item.Authorization = "unavailable"
@@ -206,15 +258,17 @@ func (c PluginContext) ExecutionSummaryForTurn(view *skill.SkillTurnView) *ai.Ex
 				}
 			}
 		}
-		status := c.view.PackageResults.Status(definition.ID)
-		if len(c.view.PackageResults.Packages) > 0 {
-			if status.Ready {
-				item.Readiness = "ready"
-			} else {
+		if status, prepared := packagePreparationStatus(c.view.PackageResults, definition.ID); prepared {
+			switch {
+			case !status.Ready:
 				item.Readiness = "unavailable"
 				if status.Reason != "" && !slices.Contains(item.Failures, status.Reason) {
 					item.Failures = append(item.Failures, status.Reason)
 				}
+			case c.packagePreparationComplete(definition.ID, len(payload.OAuth) > 0):
+				item.Readiness = "ready"
+			default:
+				item.Readiness = "unknown"
 			}
 		}
 		for _, spec := range c.view.BinarySpecs {
@@ -227,9 +281,7 @@ func (c PluginContext) ExecutionSummaryForTurn(view *skill.SkillTurnView) *ai.Ex
 			// keep it in RequestedVersion and leave Version empty if no resolved
 			// artifact version was observed.
 			for _, evidence := range c.view.PackageResults.Binaries {
-				if evidence.PluginID != spec.PluginID || evidence.ConfigID != spec.ConfigID ||
-					evidence.Scope != spec.Scope || evidence.Revision != spec.Revision ||
-					evidence.Name != spec.Name || evidence.Tool != spec.Tool {
+				if !binaryEvidenceMatchesSpec(evidence, spec) {
 					continue
 				}
 				binary.RequestedVersion = evidence.RequestedVersion
@@ -242,61 +294,200 @@ func (c PluginContext) ExecutionSummaryForTurn(view *skill.SkillTurnView) *ai.Ex
 		}
 		result.Plugins = append(result.Plugins, item)
 	}
-	if view != nil {
-		selectedProject := make(map[string]struct{})
-		for _, candidate := range view.ProjectSkills() {
-			selectedProject[candidate.Name] = struct{}{}
-			result.Skills = append(result.Skills, ai.ExecutionSkill{
-				Name: candidate.Name, Source: "project", Scope: "project", Digest: candidate.ContentDigest, State: "selected",
-			})
-		}
-		selectedManaged := make(map[string]struct{})
-		for _, candidate := range view.ManagedSkills() {
-			identity := candidate.Identity
-			result.Skills = append(result.Skills, ai.ExecutionSkill{
-				Name: identity.Name, Source: "managed", Scope: identity.Scope, Digest: identity.ContentDigest, State: "selected",
-			})
-			selectedManaged[identity.Name] = struct{}{}
-		}
-		maskedNames := make(map[string]struct{}, len(view.MaskedSkillNames()))
-		for _, name := range view.MaskedSkillNames() {
-			maskedNames[name] = struct{}{}
-		}
-		disabledNames := make(map[string]struct{})
-		for _, ref := range view.DisabledSkillRefs() {
-			if name, ok := strings.CutPrefix(ref, "system:"); ok {
-				disabledNames[name] = struct{}{}
-			}
-		}
-		for _, candidate := range view.PackageSkills() {
-			state := "selected"
-			if _, shadowed := selectedProject[candidate.Name]; shadowed {
-				state = "overridden"
-			} else if _, shadowed := selectedManaged[candidate.Name]; shadowed {
-				state = "overridden"
-			} else if candidate.Masked || candidate.Disabled {
-				state = "masked"
-			} else if _, masked := maskedNames[candidate.Name]; masked {
-				state = "masked"
-			} else if candidate.Builtin {
-				if _, disabled := disabledNames[candidate.Name]; disabled {
-					state = "masked"
-				}
-			}
-			scope := "package"
-			if candidate.Builtin {
-				scope = "system"
-			}
-			result.Skills = append(result.Skills, ai.ExecutionSkill{
-				PluginID: candidate.PackageID, Name: candidate.Name, Source: "package", Scope: scope, Version: packageVersions[candidate.PackageID],
-				Digest: candidate.PackageDigest, State: state,
-			})
-		}
-	}
+	appendExecutionSkills(result, view, packageVersions)
 	if len(result.Plugins) == 0 && len(result.Skills) == 0 {
 		return nil
 	}
 	return result
+}
+
+func (c PluginContext) fileExecutionSummary(view *skill.SkillTurnView) *ai.ExecutionSummary {
+	visible := make(map[string]struct{}, len(c.view.ExposedPluginIDs)+len(c.view.PackageResults.Packages))
+	for _, id := range c.view.ExposedPluginIDs {
+		visible[id] = struct{}{}
+	}
+	// SessionPluginView is filtered for execution consumers after preparation.
+	// Keep package IDs from the raw result as receipt entries even when a failed
+	// package was removed from ExposedPluginIDs by that projection.
+	for _, status := range c.view.PackageResults.Packages {
+		visible[status.PluginID] = struct{}{}
+	}
+	packageVersions := make(map[string]string)
+	for _, resource := range c.fileResources {
+		if resource.Key.Kind == plugin.ResourcePlugin && resource.Package != nil {
+			packageVersions[resource.Key.ID()] = resource.Package.Manifest.Version
+		}
+	}
+	result := &ai.ExecutionSummary{}
+	for _, resource := range c.fileResources {
+		id := resource.Key.ID()
+		if _, ok := visible[id]; !ok || (resource.Key.Kind != plugin.ResourcePlugin && resource.Key.Kind != plugin.ResourceMCP) {
+			continue
+		}
+		item := ai.ExecutionPlugin{PluginID: id, PackageDigest: resource.Digest, Source: "file", ConfigScope: string(resource.Key.Scope), Authorization: "not_required", Readiness: "unknown"}
+		if resource.Package != nil {
+			item.PackageVersion = resource.Package.Manifest.Version
+			if resource.Package.Extension != nil && len(resource.Package.Extension.OAuth) > 0 {
+				item.Authorization = "unknown"
+				if status, prepared := packagePreparationStatus(c.oauthResult, id); prepared {
+					item.Authorization = "ready"
+					if !status.Ready {
+						item.Authorization = "unavailable"
+						if status.Reason != "" {
+							item.Failures = append(item.Failures, status.Reason)
+						}
+					}
+				}
+			}
+		} else if resource.Key.Kind == plugin.ResourcePlugin {
+			item.Authorization = "unknown"
+		}
+		if status, prepared := packagePreparationStatus(c.view.PackageResults, id); prepared {
+			switch {
+			case !status.Ready:
+				item.Readiness = "unavailable"
+				if status.Reason != "" {
+					item.Failures = append(item.Failures, status.Reason)
+				}
+			case c.packagePreparationComplete(id, resourcePackageRequiresOAuth(resource)):
+				item.Readiness = "ready"
+			default:
+				item.Readiness = "unknown"
+			}
+		}
+		for _, spec := range c.view.BinarySpecs {
+			if spec.PluginID != id {
+				continue
+			}
+			binary := ai.ExecutionBinary{Name: spec.Name, Tool: spec.Tool, RequestedVersion: spec.Version, Source: "package"}
+			for _, evidence := range c.view.PackageResults.Binaries {
+				if !binaryEvidenceMatchesSpec(evidence, spec) {
+					continue
+				}
+				binary.RequestedVersion = evidence.RequestedVersion
+				binary.ResolvedVersion = evidence.ResolvedVersion
+				binary.Backend = evidence.Backend
+				binary.SelectionIdentity = evidence.SelectionIdentity
+				break
+			}
+			item.Binaries = append(item.Binaries, binary)
+		}
+		result.Plugins = append(result.Plugins, item)
+	}
+	appendExecutionSkills(result, view, packageVersions)
+	if len(result.Plugins) == 0 && len(result.Skills) == 0 {
+		return nil
+	}
+	return result
+}
+
+func packagePreparationStatus(result pkgplugins.PluginPreparationResult, pluginID string) (pkgplugins.PluginPackageStatus, bool) {
+	for _, status := range result.Packages {
+		if status.PluginID == pluginID {
+			return status, true
+		}
+	}
+	return pkgplugins.PluginPackageStatus{}, false
+}
+
+func binaryEvidenceMatchesSpec(evidence pkgplugins.PluginBinaryPreparation, spec pkgplugins.PluginBinarySpec) bool {
+	return evidence.PluginID == spec.PluginID && evidence.ConfigID == spec.ConfigID &&
+		evidence.Scope == spec.Scope && evidence.Revision == spec.Revision &&
+		evidence.PackageDigest == spec.PackageDigest && evidence.Name == spec.Name && evidence.Tool == spec.Tool
+}
+
+func (c PluginContext) packagePreparationComplete(pluginID string, oauthRequired bool) bool {
+	if oauthRequired {
+		if _, prepared := packagePreparationStatus(c.oauthResult, pluginID); !prepared {
+			return false
+		}
+	}
+	for _, spec := range c.view.BinarySpecs {
+		if spec.PluginID != pluginID {
+			continue
+		}
+		matched := false
+		for _, evidence := range c.view.PackageResults.Binaries {
+			if binaryEvidenceMatchesSpec(evidence, spec) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+func resourcePackageRequiresOAuth(resource plugin.FileResource) bool {
+	return resource.Package != nil && resource.Package.Extension != nil && len(resource.Package.Extension.OAuth) > 0
+}
+
+func appendExecutionSkills(result *ai.ExecutionSummary, view *skill.SkillTurnView, packageVersions map[string]string) {
+	if view == nil {
+		return
+	}
+	selectedProject := make(map[string]struct{})
+	for _, candidate := range view.ProjectSkills() {
+		selectedProject[candidate.Name] = struct{}{}
+		result.Skills = append(result.Skills, ai.ExecutionSkill{
+			Name: candidate.Name, Source: "project", Scope: "project", Digest: candidate.ContentDigest, State: "selected",
+		})
+	}
+	selectedManaged := make(map[string]struct{})
+	for _, candidate := range view.ManagedSkills() {
+		identity := candidate.Identity
+		source := "managed"
+		pluginID := ""
+		if strings.HasPrefix(identity.ID, "file:") {
+			source = "file"
+			pluginID = identity.ID
+		}
+		result.Skills = append(result.Skills, ai.ExecutionSkill{
+			PluginID: pluginID, Name: identity.Name, Source: source, Scope: identity.Scope, Digest: identity.ContentDigest, State: "selected",
+		})
+		selectedManaged[identity.Name] = struct{}{}
+	}
+	maskedNames := make(map[string]struct{}, len(view.MaskedSkillNames()))
+	for _, name := range view.MaskedSkillNames() {
+		maskedNames[name] = struct{}{}
+	}
+	disabledNames := make(map[string]struct{})
+	for _, ref := range view.DisabledSkillRefs() {
+		if name, ok := strings.CutPrefix(ref, "system:"); ok {
+			disabledNames[name] = struct{}{}
+		}
+	}
+	for _, candidate := range view.PackageSkills() {
+		state := "selected"
+		if _, shadowed := selectedProject[candidate.Name]; shadowed {
+			state = "overridden"
+		} else if _, shadowed := selectedManaged[candidate.Name]; shadowed {
+			state = "overridden"
+		} else if candidate.Masked || candidate.Disabled {
+			state = "masked"
+		} else if _, masked := maskedNames[candidate.Name]; masked {
+			state = "masked"
+		} else if candidate.Builtin {
+			if _, disabled := disabledNames[candidate.Name]; disabled {
+				state = "masked"
+			}
+		}
+		scope := "package"
+		source := "package"
+		if candidate.Builtin {
+			scope = "system"
+		}
+		if key, err := plugin.ParseResourceID(candidate.PackageID); err == nil {
+			source = "file"
+			scope = string(key.Scope)
+		}
+		result.Skills = append(result.Skills, ai.ExecutionSkill{
+			PluginID: candidate.PackageID, Name: candidate.Name, Source: source, Scope: scope, Version: packageVersions[candidate.PackageID],
+			Digest: candidate.PackageDigest, State: state,
+		})
+	}
 }
 
 func applyPreparationResult(view pkgplugins.SessionPluginView) pkgplugins.SessionPluginView {
@@ -335,7 +526,7 @@ func applyPreparationResult(view pkgplugins.SessionPluginView) pkgplugins.Sessio
 // querying observations a second time.
 func (c PluginContext) WithMCPToolSnapshot(snapshot pkgplugins.MCPToolSnapshot) PluginContext {
 	copy := pkgplugins.MCPToolSnapshot{Tools: slices.Clone(snapshot.Tools)}
-	return (PluginContext{snapshot: c.snapshot, view: c.view, mcp: &copy, oauthResult: c.oauthResult.Clone()}).WithMCPResources(snapshot.Directory, snapshot.SuccessfulPluginIDs)
+	return (PluginContext{snapshot: c.snapshot, view: c.view, mcp: &copy, authority: c.authority, fileBased: c.fileBased, fileResources: c.fileResources, oauthResult: c.oauthResult.Clone()}).WithMCPResources(snapshot.Directory, snapshot.SuccessfulPluginIDs)
 }
 
 func (c PluginContext) MCPToolSnapshot() (pkgplugins.MCPToolSnapshot, bool) {
@@ -384,18 +575,6 @@ func cloneSessionPluginView(view pkgplugins.SessionPluginView) pkgplugins.Sessio
 	return view
 }
 
-func sameOAuthReadiness(left, right pkgplugins.PluginPreparationResult) bool {
-	leftByID := make(map[string]bool, len(left.Packages))
-	for _, status := range left.Packages {
-		leftByID[status.PluginID] = status.Ready
-	}
-	rightByID := make(map[string]bool, len(right.Packages))
-	for _, status := range right.Packages {
-		rightByID[status.PluginID] = status.Ready
-	}
-	return maps.Equal(leftByID, rightByID)
-}
-
 func clonePluginOptions(options map[string]any) map[string]any {
 	if options == nil {
 		return nil
@@ -424,6 +603,74 @@ func clonePluginOption(value any) any {
 	default:
 		return value
 	}
+}
+
+func cloneFileResources(resources []plugin.FileResource) []plugin.FileResource {
+	if resources == nil {
+		return nil
+	}
+	cloned := make([]plugin.FileResource, len(resources))
+	for i, resource := range resources {
+		cloned[i] = resource
+		if resource.Content != nil {
+			content := *resource.Content
+			cloned[i].Content = &content
+		}
+		cloned[i].DisabledTools = slices.Clone(resource.DisabledTools)
+		cloned[i].Diagnostics = slices.Clone(resource.Diagnostics)
+		if resource.MCP != nil {
+			cloned[i].MCP = make(map[string]mcpconfig.Declaration, len(resource.MCP))
+			for name, declaration := range resource.MCP {
+				declaration.Headers = maps.Clone(declaration.Headers)
+				declaration.Scopes = slices.Clone(declaration.Scopes)
+				cloned[i].MCP[name] = declaration
+			}
+		}
+		if resource.Package != nil {
+			pkg := *resource.Package
+			pkg.Manifest.Keywords = slices.Clone(resource.Package.Manifest.Keywords)
+			if resource.Package.Manifest.Author != nil {
+				author := *resource.Package.Manifest.Author
+				pkg.Manifest.Author = &author
+			}
+			pkg.Skills = slices.Clone(resource.Package.Skills)
+			for j := range pkg.Skills {
+				pkg.Skills[j].Content = slices.Clone(pkg.Skills[j].Content)
+			}
+			pkg.MCPServers = slices.Clone(resource.Package.MCPServers)
+			for j := range pkg.MCPServers {
+				pkg.MCPServers[j].Headers = maps.Clone(resource.Package.MCPServers[j].Headers)
+			}
+			if resource.Package.Extension != nil {
+				extension := *resource.Package.Extension
+				extension.Binaries = slices.Clone(resource.Package.Extension.Binaries)
+				for j := range extension.Binaries {
+					extension.Binaries[j].Options = maps.Clone(resource.Package.Extension.Binaries[j].Options)
+					for name, raw := range extension.Binaries[j].Options {
+						extension.Binaries[j].Options[name] = slices.Clone(raw)
+					}
+				}
+				extension.SessionEnv = slices.Clone(resource.Package.Extension.SessionEnv)
+				extension.OAuth = slices.Clone(resource.Package.Extension.OAuth)
+				for j := range extension.OAuth {
+					extension.OAuth[j].Scopes = slices.Clone(resource.Package.Extension.OAuth[j].Scopes)
+					extension.OAuth[j].Bindings = slices.Clone(resource.Package.Extension.OAuth[j].Bindings)
+				}
+				extension.MCPAuth = maps.Clone(resource.Package.Extension.MCPAuth)
+				for name, auth := range extension.MCPAuth {
+					auth.Scopes = slices.Clone(auth.Scopes)
+					extension.MCPAuth[name] = auth
+				}
+				pkg.Extension = &extension
+			}
+			cloned[i].Package = &pkg
+		}
+		cloned[i].Skills = slices.Clone(resource.Skills)
+		for j := range cloned[i].Skills {
+			cloned[i].Skills[j].Content = slices.Clone(cloned[i].Skills[j].Content)
+		}
+	}
+	return cloned
 }
 
 // PluginContextBuilder captures all plugin state used to construct one new

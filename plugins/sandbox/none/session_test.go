@@ -3,6 +3,7 @@ package none
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -540,6 +541,90 @@ func TestStartProcess_success(t *testing.T) {
 	}
 	if result.ExitCode != 0 {
 		t.Errorf("expected exit code 0, got %d", result.ExitCode)
+	}
+}
+
+func TestNoneSessionRenderEnvRebuildsFilesystemAndBaselinePath(t *testing.T) {
+	s := newTestSession(t)
+	env, err := s.RenderEnv(context.Background(), map[string]string{"STALE": "removed"})
+	if err != nil {
+		t.Fatalf("RenderEnv: %v", err)
+	}
+	if env[sandboxpkg.EnvHome] != s.WorkingDir() {
+		t.Fatalf("HOME = %q, want %q", env[sandboxpkg.EnvHome], s.WorkingDir())
+	}
+	if env[sandboxpkg.EnvTempDir] == "" || env["PATH"] == "" {
+		t.Fatalf("rendered filesystem/path env = %#v, want temp dir and baseline PATH", env)
+	}
+	if env["STALE"] != "removed" {
+		t.Fatal("renderer unexpectedly filters unrelated current-turn variables")
+	}
+}
+
+func TestNoneSessionRenderEnvResolvesNativeShellCommand(t *testing.T) {
+	s := newTestSession(t)
+	env, err := s.RenderEnv(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("RenderEnv: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "tee-output")
+	proc, err := s.StartProcess(context.Background(), sandboxpkg.ProcessRequest{
+		Path:    "tee",
+		Args:    []string{target},
+		Env:     env,
+		EnvMode: sandboxpkg.EnvReplace,
+	})
+	if err != nil {
+		t.Fatalf("StartProcess tee: %v", err)
+	}
+	if _, err := proc.Stdin().Write([]byte("native-shell\n")); err != nil {
+		t.Fatalf("write tee stdin: %v", err)
+	}
+	if err := proc.Stdin().Close(); err != nil {
+		t.Fatalf("close tee stdin: %v", err)
+	}
+	result, err := proc.Wait(context.Background())
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("tee result = %+v, err=%v", result, err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "native-shell\n" {
+		t.Fatalf("tee output = %q, err=%v", data, err)
+	}
+}
+
+func TestStartProcessEnvReplaceUsesCurrentPath(t *testing.T) {
+	s := newTestSession(t)
+	bin := t.TempDir()
+	name := "stella-turn-tool"
+	tool := filepath.Join(bin, name)
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\nprintf 'current\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	proc, err := s.StartProcess(context.Background(), sandboxpkg.ProcessRequest{
+		Path:    name,
+		Env:     map[string]string{"PATH": bin},
+		EnvMode: sandboxpkg.EnvReplace,
+	})
+	if err != nil {
+		t.Fatalf("StartProcess current selection: %v", err)
+	}
+	out, err := io.ReadAll(proc.Stdout())
+	if err != nil {
+		t.Fatalf("read current selection: %v", err)
+	}
+	result, err := proc.Wait(context.Background())
+	if err != nil || result.ExitCode != 0 || string(out) != "current\n" {
+		t.Fatalf("current selection result = %+v, output=%q, err=%v", result, out, err)
+	}
+
+	_, err = s.StartProcess(context.Background(), sandboxpkg.ProcessRequest{
+		Path:    name,
+		Env:     map[string]string{"PATH": t.TempDir()},
+		EnvMode: sandboxpkg.EnvReplace,
+	})
+	if err == nil {
+		t.Fatal("StartProcess resolved a removed selection from the host PATH")
 	}
 }
 

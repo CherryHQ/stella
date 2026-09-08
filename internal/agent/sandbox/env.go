@@ -50,13 +50,28 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) (pkgsandbox.FilesystemPolic
 		sources[pkgsandbox.MountBuiltinSkills] = paths.BuiltinBundle
 	}
 	if cfg.ContextBinaryPlan != nil {
-		appendNativeSelectionMounts(&mounts, sources, paths.StellaHome, *cfg.ContextBinaryPlan, coreSelection)
+		if cfg.SessionID == "" || cfg.ManagedBinaryRoot != "" {
+			appendNativeSelectionMounts(&mounts, sources, paths.StellaHome, *cfg.ContextBinaryPlan, coreSelection)
+		}
 	}
 	if cfg.SystemRuntimePlan != nil {
 		appendNativeSecondarySelectionMount(&mounts, sources, paths.StellaHome, cfg.SystemRuntimePlan.PublicDir, coreSelection)
 	}
 	if cfg.UserBinaryPlan != nil {
-		appendNativeSelectionMounts(&mounts, sources, paths.StellaHome, *cfg.UserBinaryPlan, coreSelection)
+		if cfg.SessionID == "" || cfg.ManagedBinaryRoot != "" {
+			appendNativeSelectionMounts(&mounts, sources, paths.StellaHome, *cfg.UserBinaryPlan, coreSelection)
+		}
+	}
+	// The projection root is mounted once for the lifetime of this session.
+	// Individual turns publish new digest directories beneath it; the root is
+	// read-only here so a process can never mutate a selection or private mise
+	// state. Older digest directories remain available to already-started turns.
+	if cfg.ManagedBinaryRoot == "" && cfg.SessionID != "" {
+		if stableRoot := stablePublicSelectionRoot(paths.StellaHome, cfg); stableRoot != "" {
+			if rel, err := filepath.Rel(paths.StellaHome, stableRoot); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				appendSelectionMount(&mounts, sources, paths.StellaHome, rel)
+			}
+		}
 	}
 	if cfg.ManagedBinaryRoot != "" {
 		sandboxPath := remapStellaHomePolicyPath(cfg.ManagedBinaryRoot, paths.StellaHome)
@@ -185,7 +200,9 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	env := make(map[string]string)
 	var vaultEnv map[string]string
 	sessionSecretEnv := make(map[string]string)
-	cfg.SessionSecretValues.Set(nil)
+	// Keep the redaction union across session recreation and turns. A process
+	// started with an older token may still emit it after a refresh; dropping it
+	// here would turn a harmless rotation into an output leak.
 
 	// Group sessions never load human vault secrets (D9 isolation).
 	if cfg.GroupID == "" && cfg.VaultEnvLoader != nil {

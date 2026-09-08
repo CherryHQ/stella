@@ -10,6 +10,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/core/mcpconfig"
 	"github.com/CherryHQ/stella/internal/plugin"
 )
@@ -53,15 +54,15 @@ func TestFileMCPBearerTargetAndOwnerIsolation(t *testing.T) {
 	provider := NewToolProvider(svc)
 	sessionA, sessionB := NewFileSession(svc), NewFileSession(svc)
 	t.Cleanup(func() { _ = sessionA.Close(); _ = sessionB.Close() })
-	toolsA, err := provider.ToolsForFileSession(t.Context(), sessionA, []Registration{reg}, authorityA)
+	toolsA, err := fileSessionTools(t, provider, t.Context(), sessionA, []Registration{reg}, authorityA)
 	if err != nil || len(toolsA) != 1 {
 		t.Fatalf("A tool discovery: %d tools, %v", len(toolsA), err)
 	}
-	if got, err := toolsA[0].Execute(t.Context(), nil); err != nil || got != "authorized" {
+	if got, err := toolsA[0].Execute(authz.WithAuthority(t.Context(), authorityA), nil); err != nil || got != "authorized" {
 		t.Fatalf("A call = %q, %v", got, err)
 	}
 	before := requests.Load()
-	if toolsB, err := provider.ToolsForFileSession(t.Context(), sessionB, []Registration{reg}, authorityB); err == nil || len(toolsB) != 0 {
+	if toolsB, err := fileSessionTools(t, provider, t.Context(), sessionB, []Registration{reg}, authorityB); err != nil || len(toolsB) != 0 {
 		t.Fatalf("B borrowed A authorization: %d tools, %v", len(toolsB), err)
 	}
 	if requests.Load() != before {
@@ -75,7 +76,7 @@ func TestFileMCPBearerTargetAndOwnerIsolation(t *testing.T) {
 	if err := sessionA.Prepare(t.Context(), nil, authorityA); err != nil {
 		t.Fatal(err)
 	}
-	if restored, err := provider.ToolsForFileSession(t.Context(), sessionA, []Registration{unchanged}, authorityA); err != nil || len(restored) != 1 {
+	if restored, err := fileSessionTools(t, provider, t.Context(), sessionA, []Registration{unchanged}, authorityA); err != nil || len(restored) != 1 {
 		t.Fatalf("restored declaration lost grant: %v", err)
 	}
 	var newTargetRequests atomic.Int32
@@ -91,13 +92,13 @@ func TestFileMCPBearerTargetAndOwnerIsolation(t *testing.T) {
 	if err != nil || changed.ID == reg.ID {
 		t.Fatal("endpoint edit preserved old authentication identity")
 	}
-	if tools, err := provider.ToolsForFileSession(t.Context(), sessionA, []Registration{changed}, authorityA); err == nil || len(tools) != 0 {
+	if tools, err := fileSessionTools(t, provider, t.Context(), sessionA, []Registration{changed}, authorityA); err != nil || len(tools) != 0 {
 		t.Fatalf("new endpoint reused referenced token: %d tools, %v", len(tools), err)
 	}
 	if newTargetRequests.Load() != 0 {
 		t.Fatal("new endpoint received a request before authorization")
 	}
-	toolsA, err = provider.ToolsForFileSession(t.Context(), sessionA, []Registration{reg}, authorityA)
+	toolsA, err = fileSessionTools(t, provider, t.Context(), sessionA, []Registration{reg}, authorityA)
 	if err != nil || len(toolsA) != 1 {
 		t.Fatalf("original endpoint could not reuse grant: %v", err)
 	}

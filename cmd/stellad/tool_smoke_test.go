@@ -68,6 +68,7 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/plugins/email"
 	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
@@ -118,8 +119,9 @@ type smokeCase struct {
 	// the order the system makes them in.
 	extraReplies []string
 	// revokesTurn marks a terminal mutation that cancels the turn which invoked
-	// it. Such a turn is proved by the model->code->tool running events only;
-	// its child result and the model's closing text are intentionally absent.
+	// it. Such a turn is proved by a runner hook before dispatch and a sibling
+	// confirmation after the mutation, because its child result and the model's
+	// closing text may be absent.
 	revokesTurn bool
 	// assertsErrorShapeOnly names the canonical error a tool must return when its
 	// success precondition cannot be produced in a test deployment. The pattern
@@ -1783,15 +1785,53 @@ func (h *smokeHarness) runSmokeCase(t *testing.T, smoke smokeCase, state *smokeS
 	}
 }
 
+// smokeToolStartProbe observes the runner's own pre-dispatch hook. The hook is
+// attached only to a fresh runner for one terminal case, so a matching pair of
+// call IDs proves the model reached Code Mode and Code Mode reached the target
+// tool before the target revoked the turn.
+type smokeToolStartProbe struct {
+	sessionID     string
+	codeCallID    string
+	subjectTool   string
+	subjectCallID string
+
+	mu      sync.Mutex
+	sawCode bool
+	sawTool bool
+}
+
+func (p *smokeToolStartProbe) Name() string { return "tool-smoke-start-probe" }
+
+func (p *smokeToolStartProbe) Priority() int { return 1 }
+
+func (p *smokeToolStartProbe) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+	if hctx.SessionID != p.sessionID {
+		return hooks.PreToolCallResult{}, nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	switch {
+	case hctx.ToolName == "code" && hctx.ToolCallID == p.codeCallID:
+		p.sawCode = true
+	case hctx.ToolName == p.subjectTool && hctx.ToolCallID == p.subjectCallID:
+		p.sawTool = true
+	}
+	return hooks.PreToolCallResult{}, nil
+}
+
+func (p *smokeToolStartProbe) observed() (code, subject bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.sawCode, p.sawTool
+}
+
 // runRevokingSmokeCase proves a terminal tool reached its real handler before
 // it revoked the caller's active turn. The revocation deliberately cancels the
 // caller-facing stream before Code Mode can emit a child result or a model
-// closing text. Subscribe to the runtime hub first: runChatForwarder publishes
-// there before it observes the canceled delivery context, so this evidence is
-// independent of the stream the terminal mutation cuts off.
+// closing text. The hook is runner-local evidence, independent of the stream
+// delivery context that the terminal mutation cuts off.
 func (h *smokeHarness) runRevokingSmokeCase(t *testing.T, smoke smokeCase, state *smokeState) {
 	t.Helper()
-	h.fake.enqueueTool("toolu_smoke_"+smoke.tool, "code", h.smokeCodeArgs(t, smoke, state))
 
 	svc := h.setup.poolManager.GetService(h.agentID)
 	if svc == nil {
@@ -1807,8 +1847,20 @@ func (h *smokeHarness) runRevokingSmokeCase(t *testing.T, smoke smokeCase, state
 	if err != nil {
 		t.Fatalf("terminal %s: create session: %v", smoke.tool, err)
 	}
-	events, unsubscribe := svc.Runtime.Subscribe(info.ID)
-	defer unsubscribe()
+	codeCallID := "toolu_smoke_" + smoke.tool
+	probe := &smokeToolStartProbe{
+		sessionID:     info.ID,
+		codeCallID:    codeCallID,
+		subjectTool:   smoke.tool,
+		subjectCallID: codeCallID + ":1",
+	}
+	baseHooks := h.setup.poolManager.HookPlugins
+	svc.Runtime.SetHooks(func() []hooks.HookPlugin {
+		return append(slices.Clone(baseHooks()), probe)
+	})
+	defer svc.Runtime.SetHooks(baseHooks)
+
+	h.fake.enqueueTool(codeCallID, "code", h.smokeCodeArgs(t, smoke, state))
 
 	chat := svc.Chat(ctx, agent.ChatRequest{
 		SessionID: info.ID,
@@ -1817,29 +1869,13 @@ func (h *smokeHarness) runRevokingSmokeCase(t *testing.T, smoke smokeCase, state
 	})
 	for range chat {
 		// The caller-facing stream is intentionally drained, but its post-cancel
-		// delivery is not the evidence. The hub below receives the publication
-		// before the delivery select observes the canceled context.
+		// delivery is not the evidence. The runner hook above observes dispatch
+		// before the target mutation cancels this stream.
 	}
-	sawCode, sawSubject := false, false
-hubLoop:
-	for {
-		select {
-		case event, ok := <-events:
-			if !ok {
-				break hubLoop
-			}
-			if use := event.ToolUse; use != nil && use.Status == "running" {
-				switch use.Tool {
-				case "code":
-					sawCode = true
-				case smoke.tool:
-					sawSubject = true
-				}
-			}
-		case <-ctx.Done():
-			t.Fatalf("terminal %s hub observation timed out: %v", smoke.tool, ctx.Err())
-		}
+	if err := svc.Runtime.CloseSession(context.WithoutCancel(ctx), info.ID); err != nil {
+		t.Fatalf("terminal %s: close session: %v", smoke.tool, err)
 	}
+	sawCode, sawSubject := probe.observed()
 	if !sawCode || !sawSubject {
 		t.Fatalf("terminal %s did not reach model->code->tool start (code=%t subject=%t)", smoke.tool, sawCode, sawSubject)
 	}
