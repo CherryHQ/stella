@@ -42,7 +42,7 @@ const (
 	// plugin scheduler columns are checked explicitly, followed by native Agent
 	// deny admission and plugin tool identity cutover migrations.
 	currentMigrationVersion = sequentialAnchor + 40
-	latestMigrationVersion  = sequentialAnchor + 45
+	latestMigrationVersion  = sequentialAnchor + 46
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -890,6 +890,17 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if laneModel != nil || laneKey != nil {
 		t.Fatalf("embedding row still carries model/api_key (%v/%v), want them stripped", laneModel, laneKey)
+	}
+
+	if got := count("OAuth catalog foreign keys", `
+		SELECT count(*) FROM pg_constraint constraint_ref
+		JOIN pg_attribute column_ref ON column_ref.attrelid = constraint_ref.conrelid
+			AND column_ref.attnum = ANY(constraint_ref.conkey)
+		WHERE constraint_ref.contype = 'f'
+			AND constraint_ref.conrelid = 'public.mcp_oauth_flow'::regclass
+			AND column_ref.attname = 'server_id'
+	`); got != 0 {
+		t.Fatalf("OAuth catalog foreign keys = %d, want file targets to be independent", got)
 	}
 
 	var latest int64

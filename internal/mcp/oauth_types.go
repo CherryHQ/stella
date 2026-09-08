@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/plugin"
 )
 
 // oauthFlowTTL bounds one authorization attempt; the flow row expires with it.
@@ -23,7 +25,10 @@ const oauthRefreshSlop = 60 * time.Second
 // deliberately independent: connections are fixed YAML providers, MCP servers
 // are user-created, and the two must not grow coupled fields.
 type OAuthBundle struct {
-	Version       int    `json:"version"`
+	Version int `json:"version"`
+	// Generation is an opaque per-grant nonce. Disconnect rotates it before
+	// removing the bundle, so a late callback or refresh cannot revive access.
+	Generation    string `json:"generation,omitempty"`
 	ClientID      string `json:"client_id"`
 	TokenEndpoint string `json:"token_endpoint"`
 	// AuthStyle is derived from the RFC 7591 token_endpoint_auth_method
@@ -51,18 +56,24 @@ type oauthFlowConfig struct {
 	RedirectURI string   `json:"redirect_uri"`
 	// Common plugin identity is persisted with the one-shot flow so the
 	// callback never has to rediscover a legacy mcp_server row by UUID.
-	PluginID         string            `json:"plugin_id,omitempty"`
-	ParentConfigID   string            `json:"parent_config_id,omitempty"`
-	ServerKey        string            `json:"server_key,omitempty"`
-	ConfigRevision   int64             `json:"config_revision,omitempty"`
-	ConfigScope      string            `json:"config_scope,omitempty"`
-	ConfigUserID     string            `json:"config_user_id,omitempty"`
-	ConfigAgentID    string            `json:"config_agent_id,omitempty"`
-	CredentialMode   string            `json:"credential_mode,omitempty"`
-	Headers          map[string]string `json:"headers,omitempty"`
-	Endpoint         string            `json:"endpoint,omitempty"`
-	Transport        string            `json:"transport,omitempty"`
-	RegistrationName string            `json:"registration_name,omitempty"`
+	PluginID                string             `json:"plugin_id,omitempty"`
+	File                    bool               `json:"file,omitzero"`
+	FileKey                 plugin.ResourceKey `json:"file_key,omitzero"`
+	FileIdentity            string             `json:"file_identity,omitempty"`
+	FileGeneration          string             `json:"file_generation,omitempty"`
+	TokenEndpointAuthMethod string             `json:"token_endpoint_auth_method,omitempty"`
+	ParentConfigID          string             `json:"parent_config_id,omitempty"`
+	ServerKey               string             `json:"server_key,omitempty"`
+	ConfigRevision          int64              `json:"config_revision,omitempty"`
+	ConfigScope             string             `json:"config_scope,omitempty"`
+	ConfigUserID            string             `json:"config_user_id,omitempty"`
+	ConfigAgentID           string             `json:"config_agent_id,omitempty"`
+	CredentialMode          string             `json:"credential_mode,omitempty"`
+	Headers                 map[string]string  `json:"headers,omitempty"`
+	Endpoint                string             `json:"endpoint,omitempty"`
+	Transport               string             `json:"transport,omitempty"`
+	RegistrationName        string             `json:"registration_name,omitempty"`
+	CallTimeoutSeconds      int                `json:"call_timeout_seconds,omitzero"`
 }
 
 func (c oauthFlowConfig) marshal() (json.RawMessage, error) {
@@ -104,6 +115,9 @@ func (s *Service) storeBundle(ctx context.Context, reg Registration, owner Crede
 // refresh to prevent an older in-flight network response from overwriting a
 // newer bundle written by another process.
 func (s *Service) storeBundleCAS(ctx context.Context, reg Registration, owner CredentialOwner, bundle OAuthBundle, expectedRaw []byte) error {
+	if reg.IsFile() {
+		return s.storeFileBundleCAS(ctx, reg, owner, bundle, expectedRaw)
+	}
 	if err := s.withCredentialVault(ctx, reg, owner, func(vault Vault) error {
 		if expectedRaw != nil {
 			current, err := vault.GetScoped(ctx, owner.Scope, owner.UserID, owner.AgentID, oauthBundleName(reg.ID))

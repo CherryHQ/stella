@@ -115,6 +115,9 @@ func (ts *oauthRefreshSource) Token() (*oauth2.Token, error) {
 		// Refresh failure is terminal for this credential. Mark it before
 		// returning so the provider cannot repeatedly offer a dead token.
 		_ = ts.svc.setStatusForRegistration(ctx, ts.reg, ts.owner, StatusNeedsAuth, credentialRejectedHint)
+		if ts.reg.IsFile() {
+			return nil, fmt.Errorf("mcp: file OAuth refresh failed")
+		}
 		return nil, fmt.Errorf("mcp: refresh oauth token: %w", err)
 	}
 	bundle.AccessToken = refreshed.AccessToken

@@ -1211,6 +1211,11 @@ func TestCredentialRejectionMarksNeedsAuth(t *testing.T) {
 }
 
 func TestCallTimeoutDefaultsAndClamps(t *testing.T) {
+	for seconds, want := range map[int]time.Duration{0: defaultCallTimeout, 120: 120 * time.Second, 301: 300 * time.Second} {
+		if got := callTimeout(Registration{IdentityKind: RegistrationIdentityFile, CallTimeoutSeconds: seconds}); got != want {
+			t.Fatalf("file callTimeout(%d) = %v, want %v", seconds, got, want)
+		}
+	}
 	for _, tc := range []struct {
 		metadata map[string]any
 		want     time.Duration

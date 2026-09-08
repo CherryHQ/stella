@@ -11,18 +11,20 @@ import (
 )
 
 type Authentication struct {
-	Type            string   `json:"auth_type,omitempty"`
-	Mode            string   `json:"credential_mode,omitempty"`
-	CredentialRef   string   `json:"credential_ref,omitempty"`
-	ClientID        string   `json:"client_id,omitempty"`
-	ClientSecretRef string   `json:"client_secret_ref,omitempty"`
-	Scopes          []string `json:"scopes,omitempty"`
+	Type                    string   `json:"auth_type,omitempty"`
+	Mode                    string   `json:"credential_mode,omitempty"`
+	CredentialRef           string   `json:"credential_ref,omitempty"`
+	ClientID                string   `json:"client_id,omitempty"`
+	ClientSecretRef         string   `json:"client_secret_ref,omitempty"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method,omitempty"`
+	Scopes                  []string `json:"scopes,omitempty"`
 }
 
 type Declaration struct {
-	URL       string            `json:"url"`
-	Transport string            `json:"transport"`
-	Headers   map[string]string `json:"headers,omitempty"`
+	URL                string            `json:"url"`
+	Transport          string            `json:"transport"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	CallTimeoutSeconds int               `json:"call_timeout_seconds,omitzero"`
 	Authentication
 }
 
@@ -61,6 +63,9 @@ func decodeDeclaration(data []byte, target any) error {
 }
 
 func Normalize(d Declaration) (Declaration, error) {
+	if d.CallTimeoutSeconds < 0 || d.CallTimeoutSeconds > 300 {
+		return Declaration{}, errors.New("mcp: call timeout must be between 1 and 300 seconds")
+	}
 	if !ValidEndpoint(d.URL) || !ValidHeaders(d.Headers) {
 		return Declaration{}, errors.New("mcp: invalid endpoint or public headers")
 	}
@@ -91,8 +96,13 @@ func normalizeAuthentication(d Authentication) (Authentication, error) {
 	if d.Mode != "per_user" && d.Mode != "shared" {
 		return Authentication{}, errors.New("mcp: unsupported credential mode")
 	}
-	if d.Type != "oauth" && (d.ClientID != "" || d.ClientSecretRef != "" || len(d.Scopes) > 0) {
+	if d.Type != "oauth" && (d.ClientID != "" || d.ClientSecretRef != "" || len(d.Scopes) > 0 || d.TokenEndpointAuthMethod != "") {
 		return Authentication{}, errors.New("mcp: client configuration requires OAuth")
+	}
+	switch d.TokenEndpointAuthMethod {
+	case "", "none", "client_secret_basic", "client_secret_post":
+	default:
+		return Authentication{}, errors.New("mcp: unsupported token endpoint authentication method")
 	}
 	if d.Type == "none" && d.CredentialRef != "" {
 		return Authentication{}, errors.New("mcp: credential reference requires authentication")

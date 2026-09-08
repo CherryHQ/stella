@@ -91,9 +91,10 @@ func (c *serverConn) Close() error {
 type toolProxy struct {
 	mu sync.Mutex
 
-	svc  *Service
-	reg  Registration
-	conn *serverConn // nil until first use when not injected by the provider
+	svc      *Service
+	reg      Registration
+	conn     *serverConn // nil until first use when not injected by the provider
+	fileConn *fileConnection
 
 	def        pkgtools.Definition
 	remoteName string
@@ -144,6 +145,12 @@ func (t *toolProxy) call(ctx context.Context, args map[string]any) (*mcpsdk.Call
 		// A plain timeout is the model's problem to retry; only a credential
 		// rejection is a durable server state worth persisting.
 		if isCredentialRejection(err) {
+			if t.fileConn != nil {
+				t.fileConn.markDirty()
+				// File authorization has no observation row. Disconnect/revoke
+				// is owned by the file grant and its next request rechecks Vault.
+				return nil, fmt.Errorf("mcp: call tool %q: %s", t.remoteName, credentialRejectedHint)
+			}
 			owner := CredentialOwner{}
 			if t.conn != nil {
 				owner = t.conn.owner
@@ -162,6 +169,12 @@ func (t *toolProxy) call(ctx context.Context, args map[string]any) (*mcpsdk.Call
 
 func (t *toolProxy) ensureClient(ctx context.Context) (RemoteClient, error) {
 	t.mu.Lock()
+	fileConn := t.fileConn
+	t.mu.Unlock()
+	if fileConn != nil {
+		return fileConn.get()
+	}
+	t.mu.Lock()
 	if t.conn == nil {
 		t.conn = &serverConn{svc: t.svc, reg: t.reg, owner: t.svc.CredentialOwner(t.reg, "")}
 	}
@@ -174,6 +187,12 @@ func (t *toolProxy) ensureClient(ctx context.Context) (RemoteClient, error) {
 // registry may call it once per tool sharing the session.
 func (t *toolProxy) Close() error {
 	t.mu.Lock()
+	if t.fileConn != nil {
+		t.mu.Unlock()
+		// FileSession owns this connection. A turn-level registry must never
+		// close a borrowed handle while another tool in the same turn uses it.
+		return nil
+	}
 	conn := t.conn
 	t.mu.Unlock()
 	if conn == nil {
@@ -182,9 +201,16 @@ func (t *toolProxy) Close() error {
 	return conn.Close()
 }
 
-// callTimeout resolves the per-call timeout from the registration's metadata
-// JSONB. Values outside [1, 300] fall back to the default / cap.
+// callTimeout resolves the per-call timeout from a file declaration's typed
+// field, falling back to legacy registration metadata for database rows.
+// Values outside [1, 300] fall back to the default / cap.
 func callTimeout(reg Registration) time.Duration {
+	if reg.IsFile() {
+		if reg.CallTimeoutSeconds < 1 {
+			return defaultCallTimeout
+		}
+		return time.Duration(min(reg.CallTimeoutSeconds, maxCallTimeoutSeconds)) * time.Second
+	}
 	v, ok := reg.Metadata["call_timeout_seconds"]
 	if !ok {
 		return defaultCallTimeout

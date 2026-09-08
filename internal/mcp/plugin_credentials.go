@@ -38,6 +38,9 @@ type pluginConfigIdentity struct {
 // from one repeatable-read transaction. There is no legacy fallback: a
 // registration without a common identity is rejected before any secret read.
 func (s *Service) loadCredentialSnapshot(ctx context.Context, reg Registration, owner CredentialOwner) (credentialSnapshot, error) {
+	if reg.IsFile() {
+		return s.loadFileCredentialSnapshot(ctx, reg, owner)
+	}
 	if err := validateCredentialOwner(reg, owner); err != nil {
 		return credentialSnapshot{}, err
 	}
@@ -185,6 +188,12 @@ func registrationParentID(reg Registration) string {
 // they perform network discovery. It intentionally does not read Vault: a
 // first authorization flow has no token bundle yet.
 func (s *Service) validatePluginConfigRegistration(ctx context.Context, reg Registration) error {
+	if reg.IsFile() {
+		if reg.ID == "" || reg.AuthenticationTarget == "" {
+			return errPluginConfigIdentity
+		}
+		return nil
+	}
 	if s == nil || s.pool == nil || s.bindVault == nil {
 		return errPluginCredentialsUnavailable
 	}
@@ -207,6 +216,22 @@ func (s *Service) validatePluginConfigRegistration(ctx context.Context, reg Regi
 }
 
 func (s *Service) loadOAuthClientSecret(ctx context.Context, reg Registration) (string, error) {
+	if reg.IsFile() {
+		state, err := s.loadFileClientState(ctx, reg)
+		if err != nil {
+			return "", err
+		}
+		if reg.OAuthClientSecretRef == "" {
+			return state.ClientSecret, nil
+		}
+		owner := fileClientOwner(reg)
+		var secret string
+		err = s.withFileVault(ctx, reg, owner, func(vault Vault) error {
+			secret, err = fileVaultGet(ctx, vault, owner, reg.OAuthClientSecretRef)
+			return err
+		})
+		return secret, err
+	}
 	if s == nil || s.pool == nil || s.bindVault == nil {
 		return "", errPluginCredentialsUnavailable
 	}
@@ -260,6 +285,9 @@ func validateCredentialOwner(reg Registration, owner CredentialOwner) error {
 func (s *Service) setStatusForRegistration(ctx context.Context, reg Registration, owner CredentialOwner, status, reason string) error {
 	if !ValidStatus(status) {
 		return fmt.Errorf("mcp: invalid status %q", status)
+	}
+	if reg.IsFile() {
+		return nil
 	}
 	return s.persistCommonStatus(ctx, reg, owner, status, reason)
 }

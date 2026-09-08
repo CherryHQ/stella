@@ -131,9 +131,17 @@ type CatalogTool struct {
 
 // Registration is one MCP server registration (metadata only, no secret).
 type Registration struct {
-	// ID is the child server UUID. ParentConfigID and ServerKey identify the
-	// package resource that owns this child; keeping all three fields here
-	// prevents a child registration from being mistaken for its parent.
+	// IdentityKind distinguishes file-backed resources from the legacy
+	// database adapters. File registrations use a stable UUIDv8 derived from
+	// the trusted resource key and normalized authentication target; they do
+	// not acquire a plugin_config row.
+	IdentityKind string
+	FileKey      plugin.ResourceKey
+	// AuthenticationTarget is the canonical, non-secret target used to bind
+	// grants. It deliberately excludes package digests and presentation fields.
+	AuthenticationTarget string
+	// ID is the file authentication identity or legacy child server UUID.
+	// ParentConfigID belongs only to the legacy database adapter.
 	ID             string
 	ParentConfigID string
 	ServerKey      string
@@ -160,11 +168,19 @@ type Registration struct {
 	Description string
 	// OAuthClientID is the public pre-registered client id from
 	// metadata.oauth.client_id; the client secret never leaves the vault.
-	OAuthClientID        string
-	OAuthClientSecretRef string
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	OAuthClientID           string
+	OAuthClientSecretRef    string
+	TokenEndpointAuthMethod string
+	CallTimeoutSeconds      int
+	OAuthScopes             []string
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
+
+const RegistrationIdentityFile = "file"
+
+// IsFile reports whether r came from a trusted filesystem resource.
+func (r Registration) IsFile() bool { return r.IdentityKind == RegistrationIdentityFile }
 
 // SanitizeIdent normalizes a server or tool name to the [A-Za-z0-9_] charset
 // used inside exported MCP tool names.

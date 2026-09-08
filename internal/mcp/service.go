@@ -76,6 +76,8 @@ type Service struct {
 	// probePending coalesces tools/list_changed notifications so a burst of
 	// them triggers one background re-probe per registration.
 	probePending sync.Map
+	// Only live handles are indexed; Vault remains the authorization source.
+	fileConnections fileConnectionIndex
 }
 
 // defaultProbeTimeout bounds one probe (connect + tools/list).

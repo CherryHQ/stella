@@ -158,6 +158,9 @@ func buildBearerTransport(reg Registration, bearer string, policy EndpointPolicy
 // transport's OAuthHandler (SSE has no handler hook, so oauth + sse is
 // refused); everything else delegates to the bearer transport.
 func (s *Service) buildTransport(ctx context.Context, reg Registration, owner CredentialOwner) (mcpsdk.Transport, error) {
+	if reg.IsFile() {
+		return s.buildFileTransport(ctx, reg, owner)
+	}
 	if reg.AuthType == AuthTypeOAuth {
 		if _, err := s.loadCredentialSnapshot(ctx, reg, owner); err != nil {
 			return nil, err
@@ -207,10 +210,12 @@ func (c *Client) Close() error {
 	if c.closed {
 		return nil
 	}
+	// ClientSession.Close may return an OAuth TokenSource/DELETE error after
+	// it has already terminated the local JSON-RPC connection. Mark this
+	// handle terminal before calling it so callers never retry a half-closed
+	// SDK session or retain it after best-effort remote cleanup.
+	c.closed = true
 	err := c.session.Close()
-	if err == nil {
-		c.closed = true
-	}
 	return err
 }
 
@@ -235,13 +240,19 @@ func isCredentialRejection(err error) bool {
 // authRoundTripper injects a bearer token on every request. When the token is
 // empty it is a transparent pass-through, so unauthenticated servers work too.
 type authRoundTripper struct {
-	base    http.RoundTripper
-	bearer  string
-	headers map[string]string
-	policy  EndpointPolicy
+	base       http.RoundTripper
+	bearer     string
+	bearerFunc func(context.Context) (string, error)
+	headers    map[string]string
+	policy     EndpointPolicy
 }
 
 func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method == http.MethodDelete {
+		ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+		defer cancel()
+		req = req.WithContext(ctx)
+	}
 	base := a.base
 	if base == nil {
 		base = safeBaseTransport(a.policy)
@@ -253,11 +264,19 @@ func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 			return nil, err
 		}
 	}
-	if a.bearer != "" || len(a.headers) != 0 {
+	bearer := a.bearer
+	if a.bearerFunc != nil {
+		var err error
+		bearer, err = a.bearerFunc(req.Context())
+		if err != nil {
+			return nil, err
+		}
+	}
+	if bearer != "" || len(a.headers) != 0 {
 		// Clone before mutating: RoundTrippers must not modify the caller's request.
 		req = req.Clone(req.Context())
-		if a.bearer != "" {
-			req.Header.Set("Authorization", "Bearer "+a.bearer)
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
 		}
 		for name, value := range a.headers {
 			req.Header.Set(name, value)
@@ -266,14 +285,37 @@ func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	return base.RoundTrip(req)
 }
 
+func buildDynamicBearerTransport(reg Registration, bearer func(context.Context) (string, error), policy EndpointPolicy) (mcpsdk.Transport, error) {
+	if err := policy.validateEndpointURL(reg.URL); err != nil {
+		return nil, err
+	}
+	httpClient := safeHTTPClientWithBearerFunc(bearer, reg.Headers, policy)
+	switch reg.Transport {
+	case TransportStreamableHTTP:
+		return &mcpsdk.StreamableClientTransport{Endpoint: reg.URL, HTTPClient: httpClient}, nil
+	case TransportSSE:
+		return &mcpsdk.SSEClientTransport{Endpoint: reg.URL, HTTPClient: httpClient}, nil
+	default:
+		return nil, fmt.Errorf("mcp: unsupported transport %q: only %q and %q are allowed (stdio is not supported)", reg.Transport, TransportStreamableHTTP, TransportSSE)
+	}
+}
+
+func safeHTTPClientWithBearerFunc(bearer func(context.Context) (string, error), headers map[string]string, policy EndpointPolicy) *http.Client {
+	return safeHTTPClientWithTransport(&authRoundTripper{base: safeBaseTransport(policy), bearerFunc: bearer, headers: headers, policy: policy}, policy, 0)
+}
+
 func safeHTTPClient(bearer string, policy EndpointPolicy) *http.Client {
 	return safeHTTPClientWithHeaders(bearer, nil, policy)
 }
 
 func safeHTTPClientWithHeaders(bearer string, headers map[string]string, policy EndpointPolicy) *http.Client {
+	return safeHTTPClientWithTransport(&authRoundTripper{base: safeBaseTransport(policy), bearer: bearer, headers: headers, policy: policy}, policy, 30*time.Second)
+}
+
+func safeHTTPClientWithTransport(transport http.RoundTripper, policy EndpointPolicy, timeout time.Duration) *http.Client {
 	return &http.Client{
-		Transport: &authRoundTripper{base: safeBaseTransport(policy), bearer: bearer, headers: headers, policy: policy},
-		Timeout:   30 * time.Second,
+		Transport: transport,
+		Timeout:   timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if err := policy.validateEndpointURL(req.URL.String()); err != nil {
 				return err

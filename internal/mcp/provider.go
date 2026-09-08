@@ -479,6 +479,10 @@ func (p *ToolProvider) catalogProxies(reg Registration, catalog []CatalogTool, o
 }
 
 func exportedToolName(reg Registration, remoteName string) string {
+	if reg.IsFile() {
+		name, _ := agentpackage.ExportedToolName(fileToolPackageIdentity(reg), reg.ServerKey, remoteName)
+		return name
+	}
 	name, _ := agentpackage.ExportedToolName(reg.PluginID, reg.ServerKey, remoteName)
 	return name
 }

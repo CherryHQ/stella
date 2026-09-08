@@ -603,7 +603,9 @@ func legacyImportSchemaReady(ctx context.Context, tx pgx.Tx) error {
 		return fmt.Errorf("%w: mcp_connection_state table is missing", ErrLegacyMigrationConflict)
 	}
 	if !oauthConfigFK {
-		return ErrOAuthForeignKeySchema
+		if err := filesystemOAuthSchemaReady(ctx, tx); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -790,11 +792,56 @@ func validateLegacyOAuthForeignKey(ctx context.Context, tx pgx.Tx) error {
 		return fmt.Errorf("find plugin OAuth foreign key: %w", err)
 	}
 	if !found {
-		return ErrOAuthForeignKeySchema
+		if err := filesystemOAuthSchemaReady(ctx, tx); err != nil {
+			return err
+		}
+		// File flows capture their own target. Older flows still need a valid
+		// imported child even though the new schema no longer enforces that FK.
+		var orphan bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM mcp_oauth_flow flow
+				WHERE flow.oauth_config->>'file' IS DISTINCT FROM 'true'
+				AND NOT EXISTS (
+					SELECT 1 FROM plugin_config_mcp_server child WHERE child.id = flow.server_id
+				)
+			)
+		`).Scan(&orphan); err != nil {
+			return fmt.Errorf("validate legacy OAuth targets: %w", err)
+		}
+		if orphan {
+			return fmt.Errorf("%w: legacy OAuth flow target is missing", ErrLegacyMigrationConflict)
+		}
+		return nil
 	}
 	quoted := `"` + constraintName + `"`
 	if _, err := tx.Exec(ctx, `ALTER TABLE public.mcp_oauth_flow VALIDATE CONSTRAINT `+quoted); err != nil {
 		return fmt.Errorf("validate plugin OAuth foreign key: %w", err)
+	}
+	return nil
+}
+
+// Only the explicit schema migration may remove the old target constraint.
+// A missing or extra FK in an older schema remains a cutover error.
+func filesystemOAuthSchemaReady(ctx context.Context, tx pgx.Tx) error {
+	var ready bool
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE((
+			SELECT is_applied FROM goose_db_version
+			WHERE version_id = 90000000000046 ORDER BY id DESC LIMIT 1
+		), false) AND NOT EXISTS (
+			SELECT 1 FROM pg_constraint constraint_ref
+			JOIN pg_attribute column_ref ON column_ref.attrelid = constraint_ref.conrelid
+				AND column_ref.attnum = ANY(constraint_ref.conkey)
+			WHERE constraint_ref.contype = 'f'
+				AND constraint_ref.conrelid = 'public.mcp_oauth_flow'::regclass
+				AND column_ref.attname = 'server_id'
+		)
+	`).Scan(&ready); err != nil {
+		return fmt.Errorf("check filesystem OAuth schema: %w", err)
+	}
+	if !ready {
+		return ErrOAuthForeignKeySchema
 	}
 	return nil
 }

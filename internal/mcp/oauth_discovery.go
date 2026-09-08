@@ -179,6 +179,9 @@ func authServerMetadata(ctx context.Context, issuer string, policy EndpointPolic
 // a DCR registration whose result is persisted so it runs once per
 // registration.
 func (s *Service) resolveOAuthClient(ctx context.Context, reg Registration, asm *oauthex.AuthServerMeta, callback string) (Registration, string, string, oauth2.AuthStyle, error) {
+	if reg.IsFile() {
+		return s.resolveFileOAuthClient(ctx, reg, asm, callback)
+	}
 	if reg.OAuthClientID != "" {
 		secret, secretErr := s.oauthClientSecret(ctx, reg)
 		if secretErr != nil {
@@ -203,7 +206,7 @@ func (s *Service) resolveOAuthClient(ctx context.Context, reg Registration, asm 
 		ClientName:    "Stella",
 	}, oauthHTTPClient(s.endpoints))
 	if err != nil {
-		return Registration{}, "", "", 0, fmt.Errorf("mcp: dynamic client registration: %w", err)
+		return Registration{}, "", "", 0, fmt.Errorf("mcp: file OAuth client registration failed")
 	}
 	authStyle, authMethod, err := oauthTokenEndpointAuthStyle(resp.TokenEndpointAuthMethod)
 	if err != nil {
@@ -218,6 +221,53 @@ func (s *Service) resolveOAuthClient(ctx context.Context, reg Registration, asm 
 		return Registration{}, "", "", 0, err
 	}
 	return updated, resp.ClientID, resp.ClientSecret, authStyle, nil
+}
+
+func (s *Service) resolveFileOAuthClient(ctx context.Context, reg Registration, asm *oauthex.AuthServerMeta, callback string) (Registration, string, string, oauth2.AuthStyle, error) {
+	if reg.OAuthClientID != "" {
+		secret, err := s.oauthClientSecret(ctx, reg)
+		if err != nil {
+			return Registration{}, "", "", 0, err
+		}
+		method, _, err := oauthTokenEndpointAuthStyle(reg.TokenEndpointAuthMethod)
+		if err != nil {
+			return Registration{}, "", "", 0, err
+		}
+		return reg, reg.OAuthClientID, secret, method, nil
+	}
+	state, err := s.loadFileClientState(ctx, reg)
+	if err != nil {
+		return Registration{}, "", "", 0, err
+	}
+	if state.ClientID != "" {
+		return reg, state.ClientID, state.ClientSecret, oauth2.AuthStyle(state.AuthStyle), nil
+	}
+	if asm.RegistrationEndpoint == "" {
+		return Registration{}, "", "", 0, fmt.Errorf("mcp: server has no registration endpoint and no pre-registered client is configured")
+	}
+	authority, ok := oauthAuthority(ctx)
+	if !ok || !authority.IsAdmin() && IsSystemScope(reg.Scope) {
+		return Registration{}, "", "", 0, ErrOAuthClientInitializationRequired
+	}
+	resp, err := oauthex.RegisterClient(ctx, asm.RegistrationEndpoint, &oauthex.ClientRegistrationMetadata{
+		RedirectURIs: []string{callback}, GrantTypes: []string{"authorization_code", "refresh_token"},
+		ResponseTypes: []string{"code"}, ClientName: "Stella",
+	}, oauthHTTPClient(s.endpoints))
+	if err != nil {
+		// Registration responses are remote-controlled and may echo client
+		// secrets or other sensitive diagnostics. Keep this user-facing error
+		// fixed; the underlying cause remains available only to local tracing.
+		return Registration{}, "", "", 0, fmt.Errorf("mcp: file OAuth client registration failed")
+	}
+	style, _, err := oauthTokenEndpointAuthStyle(resp.TokenEndpointAuthMethod)
+	if err != nil {
+		return Registration{}, "", "", 0, err
+	}
+	winning, err := s.storeFileClientStateIfEmpty(ctx, reg, fileOAuthClientState{ClientID: resp.ClientID, ClientSecret: resp.ClientSecret, AuthStyle: int(style)})
+	if err != nil {
+		return Registration{}, "", "", 0, err
+	}
+	return reg, winning.ClientID, winning.ClientSecret, oauth2.AuthStyle(winning.AuthStyle), nil
 }
 
 // persistDCRClient writes the issued client id and normalized token endpoint
