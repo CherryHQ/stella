@@ -248,7 +248,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 当你在编排系统（Kubernetes 等）下运行 Stella 时，两个本地环境下的便利做法会变成陷阱：内嵌的单节点数据库，以及指向 pod 自身的 base URL。Docker 镜像默认拒绝前者（`STELLA_REQUIRE_EXTERNAL_DB=1`），对后者 Stella 会发出响亮的警告。
 
-在 Kubernetes 上部署请使用生产级 Helm chart，完整步骤见 [Kubernetes 部署指南](/docs/admin/kubernetes)；本节其余内容解释 chart 已为你配置好的那些概念。
+Kubernetes 生产部署清单由运维自行维护，Stella 不再提供维护中的部署 chart。原生本地/dev 后端与验证清单见 [Kubernetes sandbox 指南](/docs/admin/kubernetes)。
 
 ### 三种 URL 角色
 
@@ -266,7 +266,7 @@ Stella 使用三个不同的地址，务必区分：
 
 Docker 镜像设置了 `STELLA_REQUIRE_EXTERNAL_DB=1`：当 `STELLA_DATABASE_URL` 未设置时，启动会以可操作的错误快速失败，而不是在容器的临时文件系统上静默启动内嵌 PostgreSQL 集群——多副本时每个 pod 甚至会各建一套数据库。请将 `STELLA_DATABASE_URL` 指向带 `pgvector` 与 `pg_search` 的外部 PostgreSQL。若要有意在挂载持久卷的单容器中运行内嵌 PostgreSQL，设置 `STELLA_REQUIRE_EXTERNAL_DB=0`。
 
-上传的用户资产需要位于 `STELLA_HOME` 下的持久 POSIX 存储；S3 配置不会镜像或恢复这棵可变树。Stella 当前只开放单副本 Helm 拓扑；未来副本需要同一个共享、强一致 POSIX 命名空间。`STELLA_BLOB_S3_*` 是可选配置，仅服务于内容寻址 session media 等独立的 immutable BlobStore 数据。
+上传的用户资产需要位于 `STELLA_HOME` 下的持久 POSIX 存储；S3 配置不会镜像或恢复这棵可变树。Stella 当前只支持一个服务副本；未来副本需要同一个共享、强一致 POSIX 命名空间。`STELLA_BLOB_S3_*` 是可选配置，仅服务于内容寻址 session media 等独立的 immutable BlobStore 数据。
 
 loopback base URL 永远不是启动错误——通过 `localhost` 或 `kubectl port-forward` 访问 Stella 时它是合法的——但当配置了 OAuth/OIDC 登录时 Stella 会发出响亮警告，因为登录跳转会指回 pod 自身。部署 chart 应将 `STELLA_BASE_URL` 作为必填值：那一层才知道自己位于 ingress 之后。
 

@@ -109,7 +109,7 @@ plugins/
 
 `internal/platform/home.WorkspaceManager` 是单个 POSIX `STELLA_HOME` 下唯一的生产物化器。PostgreSQL user、group 与 Agent row 授权确定性本地路径；文件系统拥有布局和字节。owner 存活时会创建缺失 workspace；symlink、非目录、不安全 ID 或可信根被替换时会 fail closed。Phase 1 不存在 PostgreSQL Home catalog。
 
-显式破坏性删除 user、group 或 Agent 时，会先 fence 本地缓存执行，再在既有数据库事务中删除 owner。物理字节和 inode 保留，但 owner 校验阻止后续 workspace 访问。`agents/{id}` 的任意文件系统条目都会保留该全局 Agent ID。移除分配、移除成员、归档 Session 和卸载 Helm 不删除 workspace 字节。这是可信宿主、单副本边界；多副本、Kubernetes 与 S3 authority 需要未来设计。
+显式破坏性删除 user、group 或 Agent 时，会先 fence 本地缓存执行，再在既有数据库事务中删除 owner。物理字节和 inode 保留，但 owner 校验阻止后续 workspace 访问。`agents/{id}` 的任意文件系统条目都会保留该全局 Agent ID。移除分配、移除成员和归档 Session 不删除 workspace 字节。这是可信宿主、单副本边界；多副本、Kubernetes 与 S3 authority 需要未来设计。
 
 ## 组合与生命周期
 
@@ -259,7 +259,7 @@ type Channel interface {
 
 ### 通道入口归属
 
-Stella 只支持一个服务副本（[#637](https://github.com/CherryHQ/stella/issues/637)）。Helm chart 强制 `replicaCount: 1` 和 `Recreate` 发布策略，因此托管通道机器人会在依赖完成装配后无条件启动。针对同一份通道配置运行两个 `stellad` 进程不受支持：Telegram 可能返回 409，Discord、QQ、Feishu 和微信可能重复投递。多副本通道入口需要完整的 offset 与 fencing 设计；单独的数据库租约并不能解决它。
+Stella 只支持一个服务副本（[#637](https://github.com/CherryHQ/stella/issues/637)）。部署必须保持单副本，发布时避免新旧服务进程同时运行。托管通道机器人会在依赖完成装配后无条件启动。针对同一份通道配置运行两个 `stellad` 进程不受支持：Telegram 可能返回 409，Discord、QQ、Feishu 和微信可能重复投递。多副本通道入口需要完整的 offset 与 fencing 设计；单独的数据库租约并不能解决它。
 
 优雅排空时，`pluginHost.Quiesce` 停止新的通道轮询，同时保留已接受的工作和通知发送器。最终的 `pluginHost.Stop` 只在 River 排空后执行，确保已接受工作仍可向外投递。
 

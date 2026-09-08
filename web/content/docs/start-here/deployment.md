@@ -260,7 +260,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t stella .
 
 When you run Stella under an orchestrator (Kubernetes and similar), two things that are convenient locally become traps: the embedded single-node database and a base URL that points back at the pod. The Docker image refuses the first by default (`STELLA_REQUIRE_EXTERNAL_DB=1`), and Stella warns loudly about the second.
 
-For Kubernetes, use the production Helm chart and its walkthrough in the [Kubernetes deployment guide](/docs/admin/kubernetes); the rest of this section explains the concepts the chart configures for you.
+Kubernetes production manifests are operator-managed; Stella does not ship a maintained deployment chart. See the [Kubernetes sandbox guide](/docs/admin/kubernetes) for the local/dev backend and its validation fixture.
 
 ### The three URL roles
 
@@ -278,7 +278,7 @@ Binding to `0.0.0.0` (`HOST`) does **not** give you a public URL: with `STELLA_B
 
 The Docker image sets `STELLA_REQUIRE_EXTERNAL_DB=1`: startup fails with an actionable error when `STELLA_DATABASE_URL` is unset, instead of silently starting the embedded PostgreSQL cluster on the container's ephemeral filesystem — with multiple replicas, each pod would even create its own database. Point `STELLA_DATABASE_URL` at an external PostgreSQL with `pgvector` and `pg_search`. To deliberately run embedded PostgreSQL in a single container backed by a persistent volume, set `STELLA_REQUIRE_EXTERNAL_DB=0`.
 
-Uploaded user assets need durable POSIX storage under `STELLA_HOME`; S3 configuration does not mirror or recover this mutable tree. Stella currently exposes only the single-replica Helm topology. Future replicas will require one shared, strongly consistent POSIX namespace. `STELLA_BLOB_S3_*` is optional and serves separate immutable BlobStore data such as content-addressed session media.
+Uploaded user assets need durable POSIX storage under `STELLA_HOME`; S3 configuration does not mirror or recover this mutable tree. Stella currently supports only a single server replica. Future replicas will require one shared, strongly consistent POSIX namespace. `STELLA_BLOB_S3_*` is optional and serves separate immutable BlobStore data such as content-addressed session media.
 
 A loopback base URL is never a startup error — it is legitimate when you reach Stella via `localhost` or `kubectl port-forward` — but Stella logs a loud warning when OAuth/OIDC login is configured against one, because login redirects would point back at the pod. Deployment charts should make `STELLA_BASE_URL` a required value; that layer knows it sits behind an ingress.
 

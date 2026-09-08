@@ -710,8 +710,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	// Group-dispatch acceptance loop.
 	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })
-	// Helm enforces one replica with a Recreate rollout, so managed channel
-	// pollers start unconditionally after their dependencies are wired. Drain-time
+	// Only one server replica is supported, so managed channel pollers start
+	// unconditionally after their dependencies are wired. Drain-time
 	// Quiesce stops new polling; the final Stop remains after River drains.
 	applyManagedChannelPlugins(ingressCtx, s.pluginHost)
 	// HTTP serve — the final ingress source to come up.

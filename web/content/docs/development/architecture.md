@@ -109,7 +109,7 @@ Configuration is stored in PostgreSQL and accessed through the `config.Store` in
 
 `internal/platform/home.WorkspaceManager` is the sole production materializer beneath one POSIX `STELLA_HOME`. PostgreSQL user, group, and Agent rows authorize deterministic local paths; the filesystem owns layout and bytes. A missing workspace for live owners is created, while a symlink, non-directory, unsafe ID, or replaced trusted root fails closed. Existing files are never registered into a PostgreSQL Home catalog because Phase 1 has no such catalog.
 
-An explicit destructive user, group, or Agent delete fences local cached execution before deleting the owner in the existing database transaction. Physical bytes and inodes remain, but owner validation prevents later workspace access. A filesystem entry of any kind at `agents/{id}` reserves the global Agent ID. Assignment removal, member removal, Session archive, and Helm uninstall do not delete workspace bytes. This is a trusted-host, single-replica boundary; multi-replica, Kubernetes, and S3 storage authority require a future design.
+An explicit destructive user, group, or Agent delete fences local cached execution before deleting the owner in the existing database transaction. Physical bytes and inodes remain, but owner validation prevents later workspace access. A filesystem entry of any kind at `agents/{id}` reserves the global Agent ID. Assignment removal, member removal, and Session archive do not delete workspace bytes. This is a trusted-host, single-replica boundary; multi-replica, Kubernetes, and S3 storage authority require a future design.
 
 ## Composition & Lifecycle
 
@@ -274,7 +274,7 @@ Shared command logic for `/new`, `/compact`, and `/abort` lives in the channel c
 
 ### Channel ingress ownership
 
-Stella supports one server replica ([#637](https://github.com/CherryHQ/stella/issues/637)). The Helm chart enforces `replicaCount: 1` and a `Recreate` rollout, so managed channel bot pollers start unconditionally once their dependencies are wired. Running two `stellad` processes against the same channel configuration is unsupported: Telegram may return 409 and Discord, QQ, Feishu, or WeChat may duplicate delivery. Multi-replica channel ingress needs a complete offset and fencing design; a database lease alone is not that design.
+Stella supports one server replica ([#637](https://github.com/CherryHQ/stella/issues/637)). Deployments must run one replica and avoid overlapping server generations during rollout. Managed channel bot pollers start unconditionally once their dependencies are wired. Running two `stellad` processes against the same channel configuration is unsupported: Telegram may return 409 and Discord, QQ, Feishu, or WeChat may duplicate delivery. Multi-replica channel ingress needs a complete offset and fencing design; a database lease alone is not that design.
 
 During graceful drain, `pluginHost.Quiesce` stops new channel polling while accepted work and notifier senders remain alive. Final `pluginHost.Stop` runs only after River drains, preserving outbound delivery for accepted work.
 

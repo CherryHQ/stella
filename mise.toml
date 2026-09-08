@@ -6,7 +6,6 @@ jq = "1.8.1"
 yq = "4.49.2"
 act = "0.2.88"
 shellcheck = "0.11.0"
-helm = "3.16.4"
 # Go
 "github:pressly/goose" = "3.27.1"
 go = "1.25.9"
@@ -282,11 +281,3 @@ run = "goreleaser release --clean"
 [tasks."release:check"]
 description = "Validate GoReleaser configuration"
 run = "goreleaser check"
-
-# ============================================================================
-# Deploy
-# ============================================================================
-
-[tasks."deploy:helm:check"]
-description = "Lint and render-assert the Kubernetes Helm chart"
-run = "bash deploy/helm/check.sh"
