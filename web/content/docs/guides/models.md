@@ -16,6 +16,8 @@ Stella supports three types of providers:
 
 You can configure multiple providers at the same time and mix models from different providers across your agents.
 
+The configured maximum output tokens are forwarded to model requests. Use the selected model’s supported limit; an unknown limit leaves the provider default.
+
 ## Setting up a provider
 
 1. Open the Web UI.

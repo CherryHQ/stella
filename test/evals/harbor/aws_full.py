@@ -104,10 +104,6 @@ def require_environment() -> tuple[str, dict[str, str]]:
         "OPENAI_BASE_URL",
         "OPENAI_API_KEY",
         "OPENAI_MODEL",
-        "EVAL_COST_INPUT",
-        "EVAL_COST_OUTPUT",
-        "EVAL_COST_CACHE_READ",
-        "EVAL_COST_CACHE_WRITE",
     )
     missing = [name for name in required if not os.environ.get(name)]
     if missing:
@@ -119,6 +115,9 @@ def require_environment() -> tuple[str, dict[str, str]]:
         for name in required
         if name.startswith(("OPENAI_", "EVAL_COST_"))
     }
+    for field in ("INPUT", "OUTPUT", "CACHE_READ", "CACHE_WRITE"):
+        name = "EVAL_COST_" + field
+        provider[name] = os.environ.get(name, "0")
     return os.environ["AWS_REGION"], provider
 
 
@@ -148,6 +147,7 @@ def local_preflight(
         if smoke
         else ["-d", DATASET, "-k", "1"]
     )
+    os.environ["STELLA_EVAL_MODEL_ID"] = os.environ.get("OPENAI_MODEL", "")
     command = ["mise", "run", "eval:loop", "--", "--plan", *source, "-n", str(concurrency)]
     result = subprocess.run(command, cwd=root, text=True, capture_output=True, check=False)
     if result.returncode != 0 or "plan only, nothing is executed" not in result.stdout:
@@ -778,6 +778,12 @@ def provision(
             "BUCKET": bucket,
             "SECRET_ARN": secret_arn,
             "MODEL_ID": state["model_id"],
+            "HARNESS": state.get("agent", "stella"),
+            "HARNESS_VERSION": state.get("agent_version", ""),
+            "THINKING_LEVEL": state.get("thinking_level", ""),
+            "CONTEXT_WINDOW": state.get("context_window", 0),
+            "MAX_TOKENS": state.get("max_tokens", 0),
+            "DEFER_START": int(state.get("defer_start", False)),
             "CONCURRENCY": state["concurrency"],
             "PASSES": state["passes"],
             "EXPECTED_TASKS": state["expected_tasks"],
@@ -998,6 +1004,21 @@ def download_artifacts(aws: Aws, state: dict[str, Any], run_dir: Path, journal: 
     journal.record("artifacts-verified", directory=str(artifacts))
 
 
+def release_start(run_dir: Path) -> None:
+    state = json.loads((run_dir / "state.json").read_text())
+    if not state.get("defer_start") or state.get("cleaned_at"):
+        raise RuntimeError("run is not an active deferred evaluation")
+    journal = RunJournal(run_dir)
+    aws = Aws(state["region"], journal)
+    status = aws.run("s3", "cp", f"s3://{state['bucket']}/status.json", "-", "--only-show-errors", json_output=True)
+    if status.get("phase") != "ready-for-start" or status.get("run_id") != state["run_id"] or status.get("commit") != state["commit"]:
+        raise RuntimeError("worker has not passed preparation for this run and commit")
+    release = run_dir / "start.json"
+    atomic_json(release, {"run_id": state["run_id"], "commit": state["commit"]})
+    aws.run("s3", "cp", str(release), f"s3://{state['bucket']}/control/start.json", "--only-show-errors")
+    journal.record("start-released")
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", action="store_true", help="validate locally and print the cloud plan")
@@ -1016,14 +1037,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     modes.add_argument("--queued", action="store_true", help="performance-only: one cross-pass queue, bounded by --trial-limit; no retries")
     parser.add_argument("--sample-minutes", type=int, default=10, help="throughput sample duration, excluding host preparation (1-30, default 10)")
     parser.add_argument("--trial-limit", type=int, default=445, help="queued attempt count (89-445, default 445); always covers all 89 tasks")
-    parser.add_argument("--warmup", choices=("legacy", "environment"), default="legacy")
+    parser.add_argument("--warmup", choices=("none", "legacy", "environment"), default="legacy")
     parser.add_argument("--warmup-concurrency", type=int, default=4, help="environment preparation workers (1-4)")
     parser.add_argument("--topup-concurrency", type=int, default=1, help="missing-task batch workers (up to --concurrency)")
+    parser.add_argument("--defer-start", action="store_true", help="wait after preparation until --release-start RUN_DIR")
+    parser.add_argument("--release-start", type=Path, metavar="RUN_DIR")
     parser.add_argument("--cleanup", type=Path, metavar="RUN_DIR", help="delete resources recorded in RUN_DIR/state.json")
     parser.add_argument("--commit", default="origin/main", help="commit/ref to evaluate (default: origin/main)")
     parser.add_argument("--instance-type", default=DEFAULT_INSTANCE)
     parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
-    parser.add_argument("--passes", type=int, default=DEFAULT_PASSES)
+    parser.add_argument("--passes", "--k", dest="passes", type=int, default=DEFAULT_PASSES)
+    parser.add_argument("--agent", choices=("stella", "pi", "hermes"), default="stella")
+    parser.add_argument("--model", help="gateway model ID (defaults to OPENAI_MODEL)")
+    parser.add_argument("--thinking-level", choices=("none", "minimal", "low", "medium", "high", "xhigh", "max"), default="")
+    parser.add_argument("--agent-version", default="", help="pinned external harness release or commit")
+    parser.add_argument("--context-window", type=int, default=0)
+    parser.add_argument("--max-tokens", type=int, default=0)
     parser.add_argument("--max-topup-rounds", type=int, default=3)
     parser.add_argument("--timeout-hours", type=int, default=DEFAULT_TIMEOUT_HOURS)
     return parser.parse_args(argv)
@@ -1039,8 +1068,15 @@ def main(argv: list[str] | None = None) -> int:
         journal = RunJournal(args.cleanup.resolve())
         cleanup(Aws(state["region"], journal), state_path, state, journal)
         return 0
-    if args.passes != 5:
-        raise RuntimeError("reportable Terminal-Bench 2.1 comparison requires --passes 5")
+    if args.release_start:
+        release_start(args.release_start.resolve())
+        return 0
+    if args.passes < 1 or args.context_window < 0 or args.max_tokens < 0:
+        raise RuntimeError("k must be positive; token limits cannot be negative")
+    if args.agent != "stella" and not args.agent_version:
+        raise RuntimeError("external agents require --agent-version for reproducibility")
+    if args.agent != "stella" and (not args.thinking_level or args.max_tokens < 1 or args.context_window < 1):
+        raise RuntimeError("external agents require explicit thinking-level, context-window and max-tokens")
     if args.concurrency < 1 or args.max_topup_rounds < 0 or args.timeout_hours < 1:
         raise RuntimeError("concurrency and timeout must be positive; top-up rounds cannot be negative")
     if not 1 <= args.warmup_concurrency <= 4:
@@ -1058,6 +1094,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.queued and args.trial_limit != 445:
         raise RuntimeError("--trial-limit requires --queued")
 
+    if args.model:
+        os.environ["OPENAI_MODEL"] = args.model
     region, provider = require_environment()
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_mode = "full"
@@ -1074,7 +1112,7 @@ def main(argv: list[str] | None = None) -> int:
         run_mode, pass_concurrencies = "throughput", [args.concurrency]
     elif args.queued:
         run_mode, pass_concurrencies = "queued", [args.concurrency]
-    run_id = f"tb21-experimental-{run_mode}-{now}"
+    run_id = f"tb21-{run_mode}-{args.agent}-{now}"
     run_dir = root / "dist" / "evals" / "aws" / run_id
     journal = RunJournal(run_dir)
     commit = local_preflight(root, args.commit, args.concurrency, args.smoke or args.pilot, journal)
@@ -1093,6 +1131,12 @@ def main(argv: list[str] | None = None) -> int:
         "smoke_taskset_sha256": sha256(root / "test/evals/harbor/tasksets/aws-smoke.yaml"),
         "prepare_helper_sha256": sha256(root / "test/evals/harbor/stella_harbor/aws_prepare.py"),
         "model_id": provider["OPENAI_MODEL"],
+        "agent": args.agent,
+        "agent_version": args.agent_version,
+        "thinking_level": args.thinking_level,
+        "context_window": args.context_window,
+        "max_tokens": args.max_tokens,
+        "defer_start": args.defer_start,
         "instance_type": args.instance_type,
         "concurrency": args.concurrency,
         "passes": len(pass_concurrencies),

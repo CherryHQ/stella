@@ -27,3 +27,22 @@ func TestSnapshotUsesCatalogPriceForReferencedModelWithoutOverride(t *testing.T)
 		t.Fatalf("catalog model cost = %#v, present=%v", got, ok)
 	}
 }
+
+func TestSnapshotCarriesConfiguredOutputLimit(t *testing.T) {
+	db := dbtest.New(t)
+	store := cfgstore.NewDBStore(db)
+	ctx := t.Context()
+	if err := store.CreateProvider(ctx, config.Provider{ID: "gateway", Type: "openai-response", Name: "Gateway", Enabled: true, APIKey: "test", Models: map[string]config.ProviderModelOverride{"deepseek/deepseek-v4-flash": {Enabled: config.ValuePtr(true), MaxTokens: config.ValuePtr(384000)}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateAgent(ctx, config.Agent{ID: "limit-agent", Name: "Limit", Model: "gateway/deepseek/deepseek-v4-flash", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.Snapshot(ctx, "limit-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshot.ModelTokenLimit("gateway", "deepseek/deepseek-v4-flash"); got != 384000 {
+		t.Fatalf("output limit = %d, want 384000", got)
+	}
+}

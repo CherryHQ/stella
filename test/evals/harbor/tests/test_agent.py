@@ -302,3 +302,23 @@ def test_hybrid_code_execution_metrics_keeps_direct_specialized_tools_as_orchest
         "metrics": {"tool_call_total": 1, "tools": {"hidden": {"calls": 1}}},
     }
     assert execution_metrics(evidence, []) == []
+
+
+def test_timeout_uses_task_budget_and_harbor_overrides(tmp_path):
+    import json
+    from types import SimpleNamespace
+    from stella_harbor.agent import trial_timeout
+
+    logs = tmp_path / "trial" / "agent"
+    logs.mkdir(parents=True)
+    environment = tmp_path / "task" / "environment"
+    environment.mkdir(parents=True)
+    (environment.parent / "task.toml").write_text("[agent]\ntimeout_sec = 1200\n")
+    config = {"task": {"path": str(environment.parent)}, "trial_name": "test", "trials_dir": str(tmp_path), "agent": {"name": "stella"}}
+    (logs.parent / "config.json").write_text(json.dumps(config))
+    env = SimpleNamespace(environment_dir=environment)
+    assert trial_timeout(logs, env) == 1200
+    config.update(agent_timeout_multiplier=2)
+    config["agent"].update(override_timeout_sec=600, max_timeout_sec=500)
+    (logs.parent / "config.json").write_text(json.dumps(config))
+    assert trial_timeout(logs, env) == 1000

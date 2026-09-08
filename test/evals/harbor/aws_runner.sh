@@ -11,6 +11,16 @@ export EXPECTED_TASKS RUN_MODE MAX_TOPUP_ROUNDS INSTANCE_TYPE INSTANCE_ID AMI_ID
 export CONTROLLER_COMMIT REMOTE_RUNNER_SHA256 MERGE_HELPER_SHA256 SMOKE_TASKSET_SHA256
 export WARMUP_MODE WARMUP_CONCURRENCY TOPUP_CONCURRENCY PREPARE_HELPER_SHA256
 export SAMPLE_MINUTES TRIAL_LIMIT
+HARNESS=${HARNESS:-stella}
+HARNESS_VERSION=${HARNESS_VERSION:-}
+THINKING_LEVEL=${THINKING_LEVEL:-}
+CONTEXT_WINDOW=${CONTEXT_WINDOW:-0}
+MAX_TOKENS=${MAX_TOKENS:-0}
+DEFER_START=${DEFER_START:-0}
+export HARNESS HARNESS_VERSION THINKING_LEVEL CONTEXT_WINDOW MAX_TOKENS
+export STELLA_EVAL_THINKING_LEVEL=$THINKING_LEVEL
+export STELLA_EVAL_MAX_TOKENS=$MAX_TOKENS
+export STELLA_EVAL_CONTEXT_WINDOW=$CONTEXT_WINDOW
 
 ROOT=/opt/stella-tb21
 REPO=$ROOT/stella
@@ -63,7 +73,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-mkdir -p "$ROOT" "$ROOT/logs" "$ROOT/jobs" "$ROOT/metrics" "$ROOT/environment-jobs"
+mkdir -p "$ROOT" "$ROOT/logs" "$ROOT/jobs" "$ROOT/metrics" "$ROOT/environment-jobs" "$ROOT/contracts"
 journal preparing-host
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
@@ -116,7 +126,7 @@ if missing:
 pathlib.Path(sys.argv[2]).write_text("".join(f"{name}={shlex.quote(values[name])}\n" for name in required))
 PY
 chmod 600 "$REPO/.env"
-chown -R stella-eval:stella-eval "$REPO" "$ROOT/logs" "$ROOT/jobs" "$ROOT/metrics" "$ROOT/environment-jobs"
+chown -R stella-eval:stella-eval "$REPO" "$ROOT/logs" "$ROOT/jobs" "$ROOT/metrics" "$ROOT/environment-jobs" "$ROOT/contracts"
 
 as_eval() {
   # shellcheck disable=SC2016 # expanded by the child bash after positional args are installed
@@ -155,6 +165,25 @@ JSON
 systemctl restart docker
 until docker info >/dev/null 2>&1; do sleep 1; done
 [ "$(df --output=avail -B1 / | tail -1)" -ge 107374182400 ] || { echo "less than 100 GiB free before evaluation" >&2; exit 1; }
+
+# Validate a short tool round trip through a local field-checking proxy.
+# No benchmark task or task image is used before the start barrier.
+if [ "$HARNESS" != stella ]; then
+  [ -n "$THINKING_LEVEL" ] && [ "$CONTEXT_WINDOW" -gt 0 ] && [ "$MAX_TOKENS" -gt 0 ] || {
+    echo "external harnesses require explicit thinking and positive model limits" >&2
+    exit 1
+  }
+  journal harness-contract-running
+  if ! as_eval mise exec -- uv run --frozen --project test/evals/harbor python -m stella_harbor.harness_contract \
+    --agent "$HARNESS" --version "$HARNESS_VERSION" --model "$MODEL_ID" --thinking "$THINKING_LEVEL" \
+    --context-window "$CONTEXT_WINDOW" --max-tokens "$MAX_TOKENS" --output "$ROOT/contracts" --live \
+    > "$ROOT/logs/harness-contract.log" 2>&1; then
+    journal harness-contract-failed
+    exit 1
+  fi
+  cp "$ROOT/contracts/contract.json" "$ROOT/metrics/harness-contract.json"
+  journal harness-contract-complete
+fi
 
 journal remote-preflight
 if [ "$RUN_MODE" = smoke ] || [ "$RUN_MODE" = pilot ]; then
@@ -218,6 +247,15 @@ print(f"types={','.join(error_types) or 'none'} categories={','.join(categories)
 PY
 }
 
+if [ "$DEFER_START" -eq 1 ]; then
+  journal ready-for-start
+  until aws s3 cp "s3://$BUCKET/control/start.json" "$ROOT/start.json" --only-show-errors 2>/dev/null; do
+    sleep 5
+  done
+  jq -e --arg run "$RUN_ID" --arg commit "$COMMIT" '.run_id == $run and .commit == $commit' "$ROOT/start.json" >/dev/null
+  journal start-released
+fi
+
 ACTIVE_CONCURRENCY=$CONCURRENCY
 run_eval() {
   local group=$1
@@ -243,11 +281,18 @@ run_eval() {
   elif [ "$RUN_MODE" = queued ]; then
     measure_args=(--minimum-memory-gib 8 --trial-root "$REPO/dist/evals/jobs")
   fi
+  local eval_command=(mise run eval:loop -- "$@" --max-retries 0)
+  if [ "$HARNESS" != stella ]; then
+    eval_command=(mise exec -- uv run --frozen --project test/evals/harbor python -m stella_harbor.external_loop
+      --agent "$HARNESS" --version "$HARNESS_VERSION" --thinking "$THINKING_LEVEL"
+      --context-window "$CONTEXT_WINDOW" --max-tokens "$MAX_TOKENS"
+      --output "$REPO/dist/evals/jobs/$group" -- "$@")
+  fi
   set +e
   as_eval python3 "$ROOT/aws_prepare.py" measure \
     --output "$ROOT/metrics/$group.json" --concurrency "$ACTIVE_CONCURRENCY" \
     "${measure_args[@]}" \
-    -- mise run eval:loop -- "$@" >"$log" 2>&1
+    -- "${eval_command[@]}" >"$log" 2>&1
   eval_status=$?
   set -e
   if [ "$eval_status" -ne 0 ]; then
@@ -520,6 +565,7 @@ for task, count in sorted(json.loads(sys.argv[1])["missing"].items()):
 PY
 )
     [ -n "$MISSING" ] || break
+    [ "$MAX_TOPUP_ROUNDS" -ne 0 ] || break
     [ "$round" -le "$MAX_TOPUP_ROUNDS" ] || {
       echo "$pass_name still lacks scoreable evidence after $MAX_TOPUP_ROUNDS top-up rounds" >&2
       exit 1
@@ -533,7 +579,11 @@ PY
 done
 
 journal selecting-evidence
-python3 "$ROOT/aws_merge.py" "$ROOT/jobs" --k "$PASSES" \
+selection_args=()
+if [ "$MAX_TOPUP_ROUNDS" -eq 0 ]; then
+  selection_args=(--preserve-attempts)
+fi
+python3 "$ROOT/aws_merge.py" "$ROOT/jobs" --k "$PASSES" "${selection_args[@]}" \
   --expected-tasks "$EXPECTED_TASKS" --concurrency "$CONCURRENCY" \
   --output "$ROOT/merged" > "$ROOT/selection.json"
 if [ "$RUN_MODE" = pilot ]; then
@@ -575,7 +625,7 @@ as_eval mise exec -- uv run --project test/evals/harbor python -m stella_harbor.
 journal redacted-archive-complete
 
 python3 - "$ROOT/run-metadata.json" <<'PY'
-import datetime, json, os, pathlib, platform, subprocess
+import datetime, hashlib, json, os, pathlib, platform, subprocess
 
 def out(*args: str) -> str:
     return subprocess.run(args, text=True, capture_output=True, check=True).stdout.strip()
@@ -591,6 +641,13 @@ metadata = {
     "dataset": "terminal-bench/terminal-bench-2-1",
     "dataset_sha256": "7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
     "model": "gateway/" + os.environ["MODEL_ID"],
+    "harness": os.environ["HARNESS"],
+    "gateway_url_sha256": hashlib.sha256(os.environ["OPENAI_BASE_URL"].rstrip("/").encode()).hexdigest(),
+    "harness_version": os.environ["HARNESS_VERSION"],
+    "thinking_level": os.environ["THINKING_LEVEL"],
+    "max_output_tokens": int(os.environ["MAX_TOKENS"]),
+    "context_window": int(os.environ["CONTEXT_WINDOW"]),
+    "max_topup_rounds": int(os.environ["MAX_TOPUP_ROUNDS"]),
     "run_mode": os.environ["RUN_MODE"],
     "tasks": int(os.environ["EXPECTED_TASKS"]),
     "attempts_per_task": int(os.environ["PASSES"]),
@@ -601,7 +658,7 @@ metadata = {
     "warmup_concurrency": int(os.environ["WARMUP_CONCURRENCY"]),
     "topup_concurrency": int(os.environ["TOPUP_CONCURRENCY"]),
     "agent_timeout_multiplier": 1.0,
-    "tool_treatment": "Code Mode all registered Stella capabilities; view_image,vllm excluded; bridge-attributable bash execution",
+    "tool_treatment": "Code Mode all registered Stella capabilities; view_image,vllm excluded; bridge-attributable bash execution" if os.environ["HARNESS"] == "stella" else "upstream Harbor adapter tools",
     "otel_tool_io_recording": False,
     "host": {
         "instance_type": os.environ["INSTANCE_TYPE"],

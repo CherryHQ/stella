@@ -6,11 +6,11 @@ AWS runner 从部署本地的 `.env` 读取 `AWS_REGION`、`OPENAI_BASE_URL`、
 `OPENAI_API_KEY` 和 `OPENAI_MODEL`，支持使用 Luna 以外的模型。
 不要把凭据提交到 Git 或输出到日志。
 
-在 `.env` 或调用环境中设置全部四项价格，单位为美元/百万 token：
+可以在 `.env` 或调用环境中设置全部四项价格，单位为美元/百万 token：
 `EVAL_COST_INPUT`、`EVAL_COST_OUTPUT`、`EVAL_COST_CACHE_READ` 和
 `EVAL_COST_CACHE_WRITE`。不单独收费的类别填写 `0`。
 runner 会把这些值传到远端评估；它们是手动提供的估价，不是从网关查询的
-实际价格或账单对账结果。`.env` 中的值会覆盖调用环境中的同名变量。
+实际价格或账单对账结果。未设置的价格使用零占位，表示未计价，不表示免费。`.env` 中的值会覆盖调用环境中的同名变量。
 
 ```bash
 mise run eval:tb21:aws -- --plan
@@ -18,12 +18,41 @@ mise run eval:tb21:aws -- --smoke --commit HEAD
 mise run eval:tb21:aws -- --commit HEAD
 ```
 
-Full 模式先运行一轮不计成绩的 warm-up，再按顺序运行五轮完整数据集。
+默认 Full 模式先运行一轮不计成绩的 warm-up，再按顺序运行五轮完整数据集。
 warm-up 中缺少可计分证据的任务会自动补跑，最多补跑
 `--max-topup-rounds` 轮，默认 3 轮；补跑不根据 reward 筛选。
-正式评估前会丢弃 warm-up 证据。新运行 ID 使用 `tb21-experimental` 前缀，
+正式评估前会丢弃 warm-up 证据。新运行 ID 包含运行模式和 harness，
 引用成绩时应记录模型和 commit。不同模型是独立实验，不构成相同模型下
 与 Luna 基线的比较；比较结论遵循 [PROTOCOL.md](PROTOCOL.md)。
+
+## 选择 harness 和尝试次数
+
+`--agent stella|pi|hermes`、`--model`、`--thinking-level`、`--concurrency`、
+`--k`（别名 `--passes`）、`--context-window`、`--max-tokens` 可以独立设置。
+外部 harness 必须传 `--agent-version`，Pi 固定 npm 发布版本，Hermes 固定发布 ref。
+模型上限和 thinking 值必须符合所选模型及网关能力，不能沿用其他模型的配置。
+
+完整运行 89 题，每题一次，无预热、Harbor 重试或替换尝试：
+
+```bash
+mise run eval:tb21:aws -- --commit HEAD --agent stella \
+  --model deepseek/deepseek-v4-flash --thinking-level max \
+  --context-window 1000000 --max-tokens 384000 \
+  --concurrency 16 --k 1 --warmup none --max-topup-rounds 0
+```
+
+使用相同参数，将 agent 换成 `--agent pi --agent-version 0.85.1` 或
+`--agent hermes --agent-version v2026.9.7`，即可分别在独立主机运行。
+每次调用负责自身 AWS 资源的创建和清理。`--max-topup-rounds 0` 会把所有计划内
+尝试保留到归档，包括无效 trial，不会用后来的有效结果替换。报告成绩时必须同时
+列出无效数量。k=1 的 harness 对比属于探索性测量，不能据此宣称确认改进。
+
+Stella 按每题 agent timeout 及 Harbor 覆盖参数计算预算，在总预算内预留
+15 秒适配开销和最多 60 秒停止确认。600 秒环境构建超时与 agent 工作预算独立。
+
+外部 harness 主机会先通过本地校验代理完成一次简短的 shell 工具往返。代理在转发到真实网关前核对模型名、thinking 和输出上限。它会调用模型，但不运行任何 benchmark 题目或题目镜像；通过后才消耗正式尝试次数。单独运行 `stella_harbor.harness_contract` 且不传 `--live` 时，只使用假接口。
+
+多机协调启动时加入 `--defer-start`。所有主机报告 `ready-for-start` 后，分别执行 `mise run eval:tb21:aws -- --release-start RUN_DIR` 放行。准备阶段包含原生请求契约检查；主机未就绪或提交不匹配时拒绝放行。等待期间仍受原有超时租约和清理机制约束。
 
 ## 性能实验
 

@@ -960,7 +960,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 		ModelFastThinking:   ag.ModelFastThinking,
 	})
 
-	providers, modelInputs, modelCosts, defaultCreds, err := s.resolveProviders(ctx, models.Model, models.ModelStrong, models.ModelFast, defaults.ModelVision)
+	providers, modelInputs, modelCosts, modelMaxTokens, defaultCreds, err := s.resolveProviders(ctx, models.Model, models.ModelStrong, models.ModelFast, defaults.ModelVision)
 	if err != nil {
 		return nil, err
 	}
@@ -991,6 +991,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 		Providers:           providers,
 		ModelInputs:         modelInputs,
 		ModelCosts:          modelCosts,
+		ModelMaxTokens:      modelMaxTokens,
 		DisabledSkillRefs:   append([]string(nil), policy.Disabled...),
 		Plugins:             plugins,
 	}
@@ -1012,13 +1013,13 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 }
 
 // resolveProviders returns the credentials for every provider referenced by the
-// given model refs, the declared input modalities of those providers' models,
-// and the credentials of the first ref's provider.
-func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[string]config.ProviderCreds, map[config.ModelKey][]string, map[config.ModelKey]ai.ModelCost, config.ProviderCreds, error) {
+// given model refs, their model modalities, prices and output limits, and the
+// credentials of the first ref's provider.
+func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[string]config.ProviderCreds, map[config.ModelKey][]string, map[config.ModelKey]ai.ModelCost, map[config.ModelKey]int, config.ProviderCreds, error) {
 	provIDs := collectProviderIDs(models...)
 	rows, err := s.q.ListProviders(ctx)
 	if err != nil {
-		return nil, nil, nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list providers: %w", err)
+		return nil, nil, nil, nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list providers: %w", err)
 	}
 
 	provs := make([]config.Provider, 0, len(rows))
@@ -1030,11 +1031,11 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 	index := config.NewProviderIndex(provs)
 	catalog, _, catalogErr := modelcatalog.Load(ctx, s, nil)
 	if catalogErr != nil {
-		return nil, nil, nil, config.ProviderCreds{}, catalogErr
+		return nil, nil, nil, nil, config.ProviderCreds{}, catalogErr
 	}
 	cached, cacheErr := s.ListCachedModels(ctx)
 	if cacheErr != nil {
-		return nil, nil, nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list cached models: %w", cacheErr)
+		return nil, nil, nil, nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list cached models: %w", cacheErr)
 	}
 	fetchedByProvider := make(map[string]map[string]bool)
 	for _, model := range cached {
@@ -1047,6 +1048,7 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 	creds := make(map[string]config.ProviderCreds, len(provIDs))
 	modelInputs := make(map[config.ModelKey][]string)
 	modelCosts := make(map[config.ModelKey]ai.ModelCost)
+	modelMaxTokens := make(map[config.ModelKey]int)
 	for _, pid := range provIDs {
 		p, ok := index.Lookup(pid)
 		if !ok {
@@ -1069,6 +1071,9 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 				continue
 			}
 			key := config.ModelKey{Provider: pid, Model: modelID}
+			if resolved.Model.MaxTokens > 0 {
+				modelMaxTokens[key] = resolved.Model.MaxTokens
+			}
 			if resolved.Model.Input != nil {
 				modelInputs[key] = append([]string(nil), resolved.Model.Input...)
 			}
@@ -1085,7 +1090,7 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 	defaultProvID, _ := config.ParseModelRef(defaultModel)
 	defaultCreds := creds[defaultProvID]
 
-	return creds, modelInputs, modelCosts, defaultCreds, nil
+	return creds, modelInputs, modelCosts, modelMaxTokens, defaultCreds, nil
 }
 
 // --- Bootstrap ---

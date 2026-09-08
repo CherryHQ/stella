@@ -6,11 +6,12 @@ The AWS runner reads `AWS_REGION`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and
 `OPENAI_MODEL` from the deployment-local `.env`. It accepts models other than
 Luna. Keep credentials out of Git and command output.
 
-Set all four cost variables in `.env` or the calling environment, in USD per
+Optionally set all four cost variables in `.env` or the calling environment, in USD per
 million tokens: `EVAL_COST_INPUT`, `EVAL_COST_OUTPUT`, `EVAL_COST_CACHE_READ`,
 and `EVAL_COST_CACHE_WRITE`. Use `0` for a category with no separate charge.
 The runner forwards these values to the remote evaluation. They are supplied
 estimates, not prices discovered from the gateway or a billing reconciliation.
+Unset prices remain unpriced (zero placeholders); they are not free-model estimates.
 Values in `.env` override the calling environment.
 
 ```bash
@@ -19,12 +20,45 @@ mise run eval:tb21:aws -- --smoke --commit HEAD
 mise run eval:tb21:aws -- --commit HEAD
 ```
 
-Full mode runs an excluded warm-up followed by five ordered dataset passes.
+By default, full mode runs an excluded warm-up followed by five ordered dataset passes.
 Warm-up trials without scoreable evidence are retried, up to
 `--max-topup-rounds` (default 3), without selecting on reward. Warm-up evidence
-is discarded before the measured passes. New run IDs use `tb21-experimental`;
+is discarded before the measured passes. Run IDs include the mode and harness;
 record the model and commit when citing results. Follow [PROTOCOL.md](PROTOCOL.md)
 for comparison claims.
+
+## Choosing the harness and attempt budget
+
+`--agent stella|pi|hermes`, `--model`, `--thinking-level`, `--concurrency`,
+`--k` (alias `--passes`), `--context-window`, and `--max-tokens` are independent
+run parameters. External harnesses require `--agent-version`; pin Pi to an npm
+release and Hermes to a release ref. Model limits and thinking levels must be
+supported by the selected model and gateway, not copied from another model.
+
+For one complete 89-task pass with no warm-up, retries, or replacement attempts:
+
+```bash
+mise run eval:tb21:aws -- --commit HEAD --agent stella \
+  --model deepseek/deepseek-v4-flash --thinking-level max \
+  --context-window 1000000 --max-tokens 384000 \
+  --concurrency 16 --k 1 --warmup none --max-topup-rounds 0
+```
+
+Use the same flags with `--agent pi --agent-version 0.85.1` or
+`--agent hermes --agent-version v2026.9.7` on separate hosts. Each invocation
+owns its AWS resources and cleanup. `--max-topup-rounds 0` retains all planned
+attempts, including invalid trials, in the archive; it never substitutes a
+later valid trial. Report invalid counts with the score. A k=1 harness comparison
+is exploratory and cannot establish an improvement verdict under the protocol.
+
+Stella reads each task's agent timeout and Harbor timeout overrides. It reserves
+15 seconds for adapter overhead and up to 60 seconds for stop confirmation
+inside that timeout. The 600-second environment build timeout is separate from
+the agent's working budget.
+
+External workers first run a short shell-tool round trip through a local proxy that checks the actual model, reasoning effort, and output cap before forwarding to the gateway. This calls the model but runs no benchmark tasks or task images. The contract must pass before any dataset attempt is consumed. Use the `stella_harbor.harness_contract` module without `--live` for a fake-API-only check.
+
+For coordinated hosts, add `--defer-start`. After every worker reports `ready-for-start`, release each with `mise run eval:tb21:aws -- --release-start RUN_DIR`. Preparation includes native request contracts; the release refuses a worker that is not ready for its recorded commit. The normal timeout lease and cleanup still apply while waiting.
 
 ## Performance experiments
 

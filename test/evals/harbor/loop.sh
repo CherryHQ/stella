@@ -326,7 +326,11 @@ import json, os, sys
 # Per-million-token prices, the same numbers the pi baseline is scored with, so
 # the two cost columns mean the same thing.
 cost = {"input": float(os.environ.get("EVAL_COST_INPUT", "0.20")), "output": float(os.environ.get("EVAL_COST_OUTPUT", "1.20")), "cacheRead": float(os.environ.get("EVAL_COST_CACHE_READ", "0.02")), "cacheWrite": float(os.environ.get("EVAL_COST_CACHE_WRITE", "0.25"))}
-json.dump({"id": os.environ["PROVIDER_ID"], "type": os.environ["PROVIDER_TYPE"], "name": "Eval gateway", "enabled": True, "api_key": os.environ["OPENAI_API_KEY"], "base_url": os.environ["OPENAI_BASE_URL"], "models": {os.environ["MODEL_ID"]: {"enabled": True, "cost": cost}}}, open(sys.argv[1], "w"))
+provider = {"id": os.environ["PROVIDER_ID"], "type": os.environ["PROVIDER_TYPE"], "name": "Eval gateway", "enabled": True, "api_key": os.environ["OPENAI_API_KEY"], "base_url": os.environ["OPENAI_BASE_URL"], "models": {os.environ["MODEL_ID"]: {"enabled": True, "cost": cost}}}
+for env, field in (("STELLA_EVAL_MAX_TOKENS", "maxTokens"), ("STELLA_EVAL_CONTEXT_WINDOW", "contextWindow")):
+    if int(os.environ.get(env, "0")) > 0:
+        provider["models"][os.environ["MODEL_ID"]][field] = int(os.environ[env])
+json.dump(provider, open(sys.argv[1], "w"))
 PY
 api POST /api/providers bearer "$WORK/provider.json" >/dev/null
 python3 - "$WORK/provisioning.json" <<'PY'
@@ -384,7 +388,7 @@ git = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True).std
 # option names, never arbitrary values that may be credentials or private paths.
 harbor_flags = [arg.split("=", 1)[0] for arg in open(sys.argv[3]).read().split() if arg.startswith("-")]
 json.dump({"created_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "job": os.path.basename(os.environ["JOB"]), "commit": os.environ["SNAPSHOT_COMMIT"], "dirty": bool(git("status", "--porcelain")), "taskset": os.environ["TASKSET_PATH"] or None, "task_names": tasks, # Canonical over sorted dataset-qualified names.
-"task_hash": "sha256:" + hashlib.sha256("\n".join(tasks).encode()).hexdigest(), "k": config.get("n_attempts", 1), "concurrency": config.get("n_concurrent_trials"), "model": os.environ["MODEL"], "thinking_level": os.environ.get("STELLA_EVAL_THINKING_LEVEL", ""), # Host only: the path can carry a deployment id.
+"task_hash": "sha256:" + hashlib.sha256("\n".join(tasks).encode()).hexdigest(), "k": config.get("n_attempts", 1), "concurrency": config.get("n_concurrent_trials"), "model": os.environ["MODEL"], "thinking_level": os.environ.get("STELLA_EVAL_THINKING_LEVEL", ""), "max_output_tokens": int(os.environ.get("STELLA_EVAL_MAX_TOKENS", "0")), "context_window": int(os.environ.get("STELLA_EVAL_CONTEXT_WINDOW", "0")), # Host only: the path can carry a deployment id.
 "requested_gateway_host": urlsplit(os.environ["OPENAI_BASE_URL"]).hostname, "harbor_args": harbor_flags, "otel": os.environ["OTEL"] == "1",
 "excluded_tools": os.environ["EXCLUDED_TOOLS"].split(",") if os.environ["EXCLUDED_TOOLS"] else []}, open(sys.argv[1], "w"), indent=2)
 PY

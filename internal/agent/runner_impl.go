@@ -37,6 +37,7 @@ type providerConfig struct {
 	Model      string   // e.g. "claude-sonnet-4-20250514"
 	Input      []string // declared model input modalities, e.g. ["text", "image"]; nil when undeclared
 	Cost       ai.ModelCost
+	MaxTokens  int
 	APIKey     string
 	BaseURL    string // optional provider base URL override
 	Builder    ProviderStreamBuilder
@@ -112,7 +113,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (built *runner, err error)
 	if providerID == "" {
 		providerID = cfg.Provider.API
 	}
-	model := ai.Model{ID: cfg.Provider.Model, API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: providerID, BaseURL: cfg.Provider.BaseURL, Input: cfg.Provider.Input, Cost: cfg.Provider.Cost}
+	model := ai.Model{ID: cfg.Provider.Model, API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: providerID, BaseURL: cfg.Provider.BaseURL, Input: cfg.Provider.Input, Cost: cfg.Provider.Cost, MaxTokens: cfg.Provider.MaxTokens}
 
 	var session pkgsandbox.Session
 	if !cfg.NoCapabilities {

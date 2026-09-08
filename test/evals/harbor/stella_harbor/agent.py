@@ -290,6 +290,22 @@ def split_trial_budget(limit: int, margin: int, confirm: int) -> tuple[int, int]
     return max(1, wall - confirm), confirm
 
 
+def trial_timeout(logs_dir: Path, environment: BaseEnvironment) -> int:
+    """Match Harbor 0.21's per-task deadline without a process-global override."""
+    from harbor.models.task.config import TaskConfig
+    from harbor.models.trial.config import TrialConfig
+
+    config = TrialConfig.model_validate_json((logs_dir.parent / "config.json").read_text())
+    task = TaskConfig.model_validate_toml((environment.environment_dir.parent / "task.toml").read_text())
+    limit = config.agent.override_timeout_sec or task.agent.timeout_sec
+    if limit is None:
+        raise ValueError("Stella requires a finite task timeout")
+    if config.agent.max_timeout_sec:
+        limit = min(limit, config.agent.max_timeout_sec)
+    multiplier = config.agent_timeout_multiplier if config.agent_timeout_multiplier is not None else config.timeout_multiplier
+    return max(1, int(limit * multiplier))
+
+
 class StellaAgent(BaseInstalledAgent):
     """Run Stella on the host while its core tools execute in Harbor's container."""
 
@@ -350,13 +366,13 @@ class StellaAgent(BaseInstalledAgent):
             raise RuntimeError(f"discover task workdir: {workdir_result.stderr}")
         workdir = (workdir_result.stdout or "").strip() or "/"
         # One wall clock, and the arithmetic that divides it lives here. Harbor
-        # kills the trial at HARBOR_AGENT_TIMEOUT_SEC, so working time, the stop
+        # kills the trial at the per-task configured timeout, so working time, the stop
         # confirmation that follows it, and the evidence export all have to fit
         # inside that number. The margin covers process spawn and exit only.
         # Every command the agent runs is clamped to `deadline` too, so nothing
         # is still executing when the confirmation starts.
         deadline, confirm = split_trial_budget(
-            int(os.environ.get("HARBOR_AGENT_TIMEOUT_SEC", "900")), self.deadline_margin_sec, self.stop_confirm_sec
+            trial_timeout(self.logs_dir, environment), self.deadline_margin_sec, self.stop_confirm_sec
         )
         server = BridgeServer(environment, workdir, trial_dir / "bridge.sock", trial_dir / "bridge-ledger.jsonl", tool_path_prepend="/installed-agent/stella/bin", budget_sec=deadline)
         binding = await server.start()

@@ -271,3 +271,16 @@ func TestResolveProviderCreds_UnresolvableExplicitProviderGetsNothing(t *testing
 		}
 	}
 }
+
+func TestSnapshotOutputLimitSurvivesProviderAlias(t *testing.T) {
+	snap := Snapshot{
+		Model: "canonical/model", Providers: map[string]ProviderCreds{"openai": {ProviderID: "canonical", Type: "openai-response"}},
+		ModelMaxTokens: map[ModelKey]int{{Provider: "openai", Model: "model"}: 384000},
+	}
+	if got := snap.ResolveModel().MaxTokens; got != 384000 {
+		t.Fatalf("output limit = %d, want 384000", got)
+	}
+	if got := snap.ModelTokenLimit("canonical", "unknown"); got != 0 {
+		t.Fatalf("unknown model limit = %d, want 0", got)
+	}
+}

@@ -375,6 +375,9 @@ func TestProviderStreamReasoningEffort(t *testing.T) {
 						t.Errorf("wire effort = %q, want %q", reasoning.Effort, level)
 					}
 				}
+				if got := string(body["max_output_tokens"]); got != "384000" {
+					t.Errorf("wire max_output_tokens = %s, want 384000", got)
+				}
 				w.Header().Set("Content-Type", "text/event-stream")
 				if _, err := fmt.Fprintf(w, "data: %s\n\n", completedResponseEvent("reasoning-test", 1, 1, 2)); err != nil {
 					t.Error(err)
@@ -382,7 +385,7 @@ func TestProviderStreamReasoningEffort(t *testing.T) {
 			}))
 			defer server.Close()
 			provider := New(Config{APIKey: contractAPIKey, BaseURL: server.URL + "/v1"})
-			stream, err := provider.Stream(t.Context(), ai.Model{Name: contractModel}, ai.Context{Messages: []ai.Message{ai.UserMessage{Content: "hi"}}}, ai.StreamOptions{Reasoning: level})
+			stream, err := provider.Stream(t.Context(), ai.Model{Name: contractModel, MaxTokens: 384000}, ai.Context{Messages: []ai.Message{ai.UserMessage{Content: "hi"}}}, ai.StreamOptions{Reasoning: level})
 			if err != nil {
 				t.Fatal(err)
 			}

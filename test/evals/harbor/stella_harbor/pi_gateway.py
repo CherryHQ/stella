@@ -16,6 +16,7 @@ import shlex
 from typing import Any, override
 
 from harbor.agents.installed.pi import Pi
+from harbor.agents.installed.base import CliFlag
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
@@ -82,6 +83,10 @@ def _decode_output(data: bytes) -> tuple[str, int, bool]:
 class PiGateway(Pi):
     """pi against `gateway/<model>`, configured from OPENAI_BASE_URL/OPENAI_API_KEY."""
 
+    # Harbor 0.21 predates Pi support for max. Keep the provider value literal.
+    CLI_FLAGS = [CliFlag("thinking", cli="--thinking", type="enum",
+                         choices=["off", "minimal", "low", "medium", "high", "xhigh", "max"])]
+
     def __init__(self, *args: Any, cost_input: float | str | None = None,
                  cost_output: float | str | None = None,
                  cost_cache_read: float | str | None = None,
@@ -131,6 +136,7 @@ class PiGateway(Pi):
             "id": model_id, "name": model_id, **_MODEL_DEFAULTS,
             "contextWindow": self.context_window, "maxTokens": self.max_tokens,
             "cost": self._cost(),
+            "thinkingLevelMap": {"max": "max", "xhigh": "xhigh"},
         }
         return json.dumps(
             {

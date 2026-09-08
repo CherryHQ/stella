@@ -372,6 +372,7 @@ def _validate_payloads(payloads: list[Path]) -> None:
 _TRANSCRIPTS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("stella", ("trajectory.json", "agent/stella/trajectory.json"), "json"),
     ("pi", ("agent/pi.txt",), "jsonl"),
+    ("hermes", ("agent/hermes-session.jsonl",), "jsonl"),
 )
 
 
