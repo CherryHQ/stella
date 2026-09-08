@@ -9,6 +9,73 @@ external PostgreSQL, a persistent volume for `STELLA_HOME`, health probes, and a
 two-phase graceful drain. Multiple replicas are not supported — see
 [Why only one replica?](#why-only-one-replica).
 
+## Native Pod sandbox (local/dev)
+
+Set `STELLA_SANDBOX_BACKEND=kubernetes` to run each sandbox Session in a separate
+Linux Pod. This backend requires Kubernetes 1.35, one Stella replica, the same
+namespace and node for Stella and its sandboxes, and a shared `ReadWriteOnce` PVC.
+Use `Recreate` for the Stella Deployment. The Helm chart below does not configure
+this backend; the local fixture lives in `test/testbed/kubernetes/fixture.yaml`.
+Cross-node placement, multiple replicas and automatic failover are not supported.
+
+Provide these deployment-owned environment values:
+
+- `STELLA_KUBERNETES_NAMESPACE`, `STELLA_KUBERNETES_POD_NAME`,
+  `STELLA_KUBERNETES_POD_UID`, `STELLA_KUBERNETES_NODE_NAME`: Downward API fields.
+- `STELLA_KUBERNETES_DEPLOYMENT`: stable identity shared by server replacements.
+- `STELLA_KUBERNETES_PVC`: the claim mounted at or above `STELLA_HOME`.
+- `STELLA_KUBERNETES_IMAGE`: sandbox image built from the same source bundle as
+  stellad. Pin a digest for deployment; the local test uses a local image tag.
+- `STELLA_SANDBOX_SERVER_URL`: an HTTP(S) Service URL reachable from sandbox Pods.
+
+The server uses its in-cluster identity and checks owner UID, node and PVC at
+startup. It copies the server Pod's image pull secrets. RBAC needs namespace Pod
+create/get/list/delete/patch, `pods/exec` create and read access to the one
+PVC. Create an unprivileged `stella-sandbox` ServiceAccount. Sandbox Pods disable
+token mounting and service environment injection, run as UID/GID 1000, drop all
+capabilities and use a read-only image filesystem. The server's authorized data
+roots must be writable by that UID. Each sandbox requests 100m CPU and 128Mi
+memory, with limits of 2 CPU, 2Gi memory and 1Gi ephemeral storage. Configure a
+finite kubelet `podPidsLimit` on the nodes; namespace quotas do not limit PIDs. Startup waits
+at most 120 seconds by default (`STELLA_KUBERNETES_STARTUP_TIMEOUT`, e.g. `2m`). Apply namespace quotas to limit total consumption.
+
+Only authorized PVC subdirectories are mounted. The image owns builtin tools;
+per-principal mise directories stay on the PVC. Agent credentials travel through
+exec stdin, not Pod environment variables or command URL arguments. Stella
+checks the image bundle revision before accepting a Session.
+
+NetworkPolicy must enforce default-deny for sandbox Pods. Select network modes
+with `stella.cherryhq.io/network=allow_all` or `disabled`. Disabled means no
+network, including DNS and Stella callbacks; the backend also removes the
+callback URL. Allow only DNS, the Stella callback port and approved public
+outbound destinations for normal sessions. Block database, Kubernetes API, node
+management and metadata endpoints. Verify actual connections on your CNI;
+creating a NetworkPolicy object does not prove enforcement. The fixture denies
+all IPv6 traffic and restricts IPv4; adapt and re-test for your cluster.
+
+A timeout, broken exec stream or unfinished process Close terminates the whole
+Session Pod, including other background processes. Execution is never replayed.
+Stella retains an execution-fence finalizer until Kubernetes reports termination.
+API errors leave Close retryable and prevent generation replacement. Never force
+delete Pods or remove this finalizer to bypass an unavailable node: first prove
+execution has stopped. An uncertain Pod creation blocks further creation until a
+server restart reconciles owned Pods. Unknown explicit backend names fail startup.
+Single-replica upgrades interrupt service; back up the database and PVC before
+upgrades because reverting an image does not reverse a migration.
+
+To verify locally:
+
+```bash
+SANDBOX_IMAGE=stella-sandbox:kubernetes-test mise run sandbox:docker:build
+mise run test:kubernetes -- --context orbstack --suite all
+```
+
+The task owns a temporary namespace and runs storage/process contracts plus
+existing testbed Agent/SSE journeys inside a trusted test Pod. `storage` and
+`process` select the narrower contracts. Ordinary `mise run test` does not need
+a Kubernetes cluster. The local fixture is test infrastructure; it is not a
+production manifest or a Helm extension.
+
 ## Prerequisites
 
 - A Kubernetes cluster (1.23+) and `helm` 3.

@@ -8,6 +8,63 @@ Stella 在 `deploy/helm/stella` 提供了一个 Helm chart，用于在 Kubernete
 健康探针，以及两阶段优雅摘流。**不支持多副本** —— 参见
 [为什么只能单副本？](#why-only-one-replica)。
 
+## 原生 Pod sandbox（本地/dev）
+
+设置 `STELLA_SANDBOX_BACKEND=kubernetes`，每个 Session 使用独立 Linux Pod。
+首版要求 Kubernetes 1.35、单副本 Stella、同 namespace、同节点及共享
+`ReadWriteOnce` PVC。Stella Deployment 使用 `Recreate`。下方 Helm chart
+尚未支持此 backend；本地测试清单位于 `test/testbed/kubernetes/fixture.yaml`。
+不支持跨节点调度、多副本或自动故障迁移。
+
+部署环境变量：
+
+- `STELLA_KUBERNETES_NAMESPACE`、`STELLA_KUBERNETES_POD_NAME`、
+  `STELLA_KUBERNETES_POD_UID`、`STELLA_KUBERNETES_NODE_NAME`：来自 Downward API。
+- `STELLA_KUBERNETES_DEPLOYMENT`：服务换代时保持一致的部署标识。
+- `STELLA_KUBERNETES_PVC`：挂载于 `STELLA_HOME` 或其上级路径的 PVC。
+- `STELLA_KUBERNETES_IMAGE`：与 stellad 使用相同 builtin bundle 的 sandbox 镜像。
+  部署固定 digest，本地测试使用本地 tag。
+- `STELLA_SANDBOX_SERVER_URL`：sandbox 可达的 HTTP(S) Service 地址。
+
+服务启动时用集群内身份检查 owner UID、节点和 PVC，并继承主 Pod 的镜像拉取
+Secret 引用。RBAC 仅需本 namespace 的 Pod create/get/list/delete/patch、
+`pods/exec` create，以及指定 PVC 的 get。创建无权限的 `stella-sandbox`
+ServiceAccount。sandbox 禁用 token 挂载和 Service 环境注入，使用 UID/GID 1000、
+只读镜像根目录、无 capabilities。授权数据目录需要允许该 UID 读写。
+每个 sandbox 请求 100m CPU、128Mi 内存，上限为 2 CPU、2Gi 内存、1Gi 临时存储；
+启动默认最多等待 120 秒，可用 `STELLA_KUBERNETES_STARTUP_TIMEOUT=2m` 调整。
+通过 namespace 配额限制总量。节点还需配置有限的 kubelet `podPidsLimit`，
+namespace 配额不能限制 PID 数量。
+
+sandbox 只挂载获授权的 PVC 子目录。builtin 工具来自已校验 bundle revision
+的镜像，principal 的 mise 目录保留在 PVC。执行凭据通过 exec stdin 传递，
+不写入 Pod 环境变量或 exec URL 参数。
+
+NetworkPolicy 必须默认拒绝 sandbox 网络，使用
+`stella.cherryhq.io/network=allow_all` 或 `disabled` 选择模式。
+断网模式阻断全部网络，包括 DNS 和 Stella 回调，并移除回调 URL；正常模式仅放行
+DNS、Stella 回调端口和获准的公网出口，阻断数据库、集群 API、节点管理和元数据。
+必须在实际 CNI 上验证连接，不能把创建策略对象当成策略生效。测试清单阻断全部
+IPv6 并限制 IPv4，部署到其他集群时需要调整并重新测试。
+
+超时、exec 断连或未结束进程的 Close 会终止整个 Session Pod，也会中断其中其他
+后台进程。执行不会自动重放。服务保留 execution-fence finalizer，直到 Kubernetes
+确认终止；API 故障时 Close 可以重试，确认前不创建替代 generation。不要通过
+force delete 或手动移除 finalizer 绕过节点故障，应先确认进程已停止。Pod 创建
+结果不明时暂停后续创建，重启服务后按所属资源恢复清理。显式未知 backend 在
+启动时报错。单副本升级有停机，升级前备份数据库和 PVC，镜像回退不会撤销迁移。
+
+本机验证：
+
+```bash
+SANDBOX_IMAGE=stella-sandbox:kubernetes-test mise run sandbox:docker:build
+mise run test:kubernetes -- --context orbstack --suite all
+```
+
+测试任务管理临时 namespace，在受信任的测试 Pod 中运行存储/进程契约，以及
+既有 testbed 的 Agent/SSE 链路。`storage`、`process` 可选较窄的契约测试。
+常规 `mise run test` 不依赖 K8s。该清单用于测试，不是生产部署清单或 Helm 扩展。
+
 ## 前置条件
 
 - 一个 Kubernetes 集群（1.23+）和 `helm` 3。

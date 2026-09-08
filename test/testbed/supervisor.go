@@ -150,6 +150,11 @@ func serverEnvironment(home, dsn, vaultKey string, port int) []string {
 	// other STELLA_* value stays isolated. The docker backend also needs its
 	// deploy-time mode (host/bind/volume), or it refuses to start.
 	keep := []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "STELLA_SANDBOX_BACKEND", "STELLA_DOCKER_SANDBOX_MODE", "STELLA_EVAL_BRIDGE_DIR", "STELLA_EVAL_CODE_TOOL_SURFACE", "STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS", "STELLA_MCP_REGISTRY_URL"}
+	bindHost := "127.0.0.1"
+	if os.Getenv("STELLA_SANDBOX_BACKEND") == "kubernetes" {
+		bindHost = "0.0.0.0"
+		keep = append(keep, "STELLA_KUBERNETES_NAMESPACE", "STELLA_KUBERNETES_POD_NAME", "STELLA_KUBERNETES_POD_UID", "STELLA_KUBERNETES_NODE_NAME", "STELLA_KUBERNETES_DEPLOYMENT", "STELLA_KUBERNETES_PVC", "STELLA_KUBERNETES_IMAGE", "STELLA_SANDBOX_SERVER_URL", "KUBERNETES_SERVICE_HOST", "KUBERNETES_SERVICE_PORT")
+	}
 	env := make([]string, 0, len(keep)+6)
 	for _, name := range keep {
 		if value, ok := os.LookupEnv(name); ok {
@@ -161,7 +166,7 @@ func serverEnvironment(home, dsn, vaultKey string, port int) []string {
 		"STELLA_DATABASE_URL="+dsn,
 		"STELLA_VAULT_KEY="+vaultKey,
 		"STELLA_SERVER_URL="+fmt.Sprintf("http://127.0.0.1:%d", port),
-		"HOST=127.0.0.1",
+		"HOST="+bindHost,
 		fmt.Sprintf("PORT=%d", port),
 	)
 }
