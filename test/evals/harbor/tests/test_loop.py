@@ -241,6 +241,11 @@ def test_mise_keeps_only_the_eval_loop_and_fresh_build_tasks():
     assert '[tasks."eval:runtime"]' not in mise
 
 
+def test_eval_build_compiles_the_testbed_command():
+    source = BUILD.read_text()
+    assert "go build -o ./dist/bin/testbed ./test/testbed/cmd" in source
+
+
 def test_attached_short_options_select_the_right_source_and_concurrency():
     output = plan("-iterminal-bench/regex-log", "-n6")
     assert "task filter given" in output

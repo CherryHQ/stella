@@ -87,8 +87,10 @@ The result records the exclusion list and Code Mode surface as run identity.
 
 ## Complete Terminal-Bench 2.1 run on AWS
 
-Use the AWS runner when the result must be comparable with the archived 89-task,
-`k=5` Luna baseline:
+Use the AWS runner for the complete 89-task, `k=5` dataset. It uses the configured
+model; a different model is a separate experiment, not a same-model comparison
+with the archived Luna baseline. Configure the required model and cost variables
+first: [AWS configuration](AWS.md) ([中文](AWS.zh.md)).
 
 ```bash
 mise run eval:tb21:aws -- --plan   # local validation; creates nothing
