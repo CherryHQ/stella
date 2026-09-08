@@ -23,7 +23,7 @@ const (
 // deletePod keeps a finalizer until kubelet reports terminal execution. Object
 // disappearance alone cannot fence a partitioned node or an external force delete.
 func (c *Client) deletePod(ctx context.Context, name string, uid types.UID) error {
-	p, err := c.api.CoreV1().Pods(c.cfg.Namespace).Get(ctx, name, meta.GetOptions{})
+	p, err := c.api.CoreV1().Pods(c.owner.Namespace).Get(ctx, name, meta.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("kubernetes: cannot establish execution termination: %w", err)
 	}
@@ -31,11 +31,11 @@ func (c *Client) deletePod(ctx context.Context, name string, uid types.UID) erro
 		return errors.New("kubernetes: pod UID changed before termination")
 	}
 	grace := int64(1)
-	if err = c.api.CoreV1().Pods(c.cfg.Namespace).Delete(ctx, name, meta.DeleteOptions{GracePeriodSeconds: &grace, Preconditions: &meta.Preconditions{UID: &uid}}); err != nil && !apierrors.IsNotFound(err) {
+	if err = c.api.CoreV1().Pods(c.owner.Namespace).Delete(ctx, name, meta.DeleteOptions{GracePeriodSeconds: &grace, Preconditions: &meta.Preconditions{UID: &uid}}); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	return wait.PollUntilContextCancel(ctx, 200*time.Millisecond, true, func(ctx context.Context) (bool, error) {
-		p, err := c.api.CoreV1().Pods(c.cfg.Namespace).Get(ctx, name, meta.GetOptions{})
+		p, err := c.api.CoreV1().Pods(c.owner.Namespace).Get(ctx, name, meta.GetOptions{})
 		if err != nil {
 			return false, fmt.Errorf("kubernetes: termination unconfirmed: %w", err)
 		}
@@ -48,7 +48,7 @@ func (c *Client) deletePod(ctx context.Context, name string, uid types.UID) erro
 		// The backend's own finalizer is the only one it may release.
 		remaining := slices.DeleteFunc(slices.Clone(p.Finalizers), func(value string) bool { return value == finalizer })
 		patch, _ := json.Marshal(map[string]any{"metadata": map[string]any{"uid": uid, "resourceVersion": p.ResourceVersion, "finalizers": remaining}})
-		_, err = c.api.CoreV1().Pods(c.cfg.Namespace).Patch(ctx, name, types.MergePatchType, patch, meta.PatchOptions{})
+		_, err = c.api.CoreV1().Pods(c.owner.Namespace).Patch(ctx, name, types.MergePatchType, patch, meta.PatchOptions{})
 		if apierrors.IsConflict(err) {
 			return false, nil
 		}
@@ -57,7 +57,7 @@ func (c *Client) deletePod(ctx context.Context, name string, uid types.UID) erro
 }
 
 func (c *Client) cleanupPreviousBoot(ctx context.Context) error {
-	pods, err := c.api.CoreV1().Pods(c.cfg.Namespace).List(ctx, meta.ListOptions{LabelSelector: labelStorage + "=" + c.storageID})
+	pods, err := c.api.CoreV1().Pods(c.owner.Namespace).List(ctx, meta.ListOptions{LabelSelector: labelStorage + "=" + string(c.pvc.UID)})
 	if err != nil {
 		return err
 	}
@@ -70,7 +70,7 @@ func (c *Client) cleanupPreviousBoot(ctx context.Context) error {
 		}
 		owner := p.OwnerReferences[0]
 		if owner.UID != c.owner.UID {
-			old, err := c.api.CoreV1().Pods(c.cfg.Namespace).Get(ctx, owner.Name, meta.GetOptions{})
+			old, err := c.api.CoreV1().Pods(c.owner.Namespace).Get(ctx, owner.Name, meta.GetOptions{})
 			if err != nil && !apierrors.IsNotFound(err) {
 				return err
 			}

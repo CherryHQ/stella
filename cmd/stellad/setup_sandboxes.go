@@ -37,7 +37,7 @@ func setupSandboxBackends(ctx context.Context, cfg config.ServerConfig) (*agents
 		}
 		initCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 		defer cancel()
-		kubeClient, err = kubernetesbackend.NewInCluster(initCtx, kubernetesbackend.Config{Namespace: cfg.KubernetesSandbox.Namespace, OwnerName: cfg.KubernetesSandbox.PodName, PVC: cfg.KubernetesSandbox.PVC, Image: cmp.Or(cfg.KubernetesSandbox.Image, sandboxImage()), ServerPort: cfg.KubernetesSandbox.ServerPort, StartupTimeout: cfg.KubernetesSandbox.StartupTimeout, ServerURL: cfg.KubernetesSandbox.ServerURL, StellaHome: config.StellaHome(), BundleRevision: registry.BundleRevision()})
+		kubeClient, err = kubernetesbackend.NewInCluster(initCtx, kubernetesbackend.Config{Image: cmp.Or(cfg.KubernetesSandbox.Image, sandboxImage()), ServerPort: cfg.KubernetesSandbox.ServerPort, StartupTimeout: cfg.KubernetesSandbox.StartupTimeout, ServerURL: cfg.KubernetesSandbox.ServerURL, StellaHome: config.StellaHome(), BundleRevision: registry.BundleRevision()})
 		if err != nil {
 			return nil, err
 		}

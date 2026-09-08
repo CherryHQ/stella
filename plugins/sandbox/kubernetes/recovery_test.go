@@ -27,7 +27,7 @@ func TestOwnerRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{Namespace: os.Getenv("STELLA_KUBERNETES_NAMESPACE"), OwnerName: os.Getenv("STELLA_KUBERNETES_POD_NAME"), PVC: "home", Image: os.Getenv("STELLA_KUBERNETES_IMAGE"), ServerPort: 25777, StellaHome: home, BundleRevision: strings.TrimPrefix(bundle, "../bundles/")}
+	cfg := Config{Image: os.Getenv("STELLA_KUBERNETES_IMAGE"), ServerPort: 25777, StellaHome: home, BundleRevision: strings.TrimPrefix(bundle, "../bundles/")}
 	c, err := NewInCluster(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestOwnerRecovery(t *testing.T) {
 	if string(old) == string(c.owner.UID) {
 		t.Fatal("owner Pod was not replaced")
 	}
-	pods, err := c.api.CoreV1().Pods(cfg.Namespace).List(t.Context(), meta.ListOptions{LabelSelector: labelStorage + "=" + c.storageID})
+	pods, err := c.api.CoreV1().Pods(c.owner.Namespace).List(t.Context(), meta.ListOptions{LabelSelector: labelStorage + "=" + string(c.pvc.UID)})
 	if err != nil {
 		t.Fatal(err)
 	}

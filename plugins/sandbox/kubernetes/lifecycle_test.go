@@ -39,7 +39,7 @@ func TestCloseRetriesWithoutReleasingRoots(t *testing.T) {
 		}
 		return true, nil, nil
 	})
-	s := &session{client: &Client{api: api, cfg: Config{Namespace: "test"}}, pod: pod, resolver: resolver, files: sessionfs.NewAccess(resolver), tmp: tmp, done: make(chan struct{})}
+	s := &session{client: &Client{api: api, owner: &core.Pod{ObjectMeta: meta.ObjectMeta{Namespace: "test"}}}, pod: pod, resolver: resolver, files: sessionfs.NewAccess(resolver), tmp: tmp, done: make(chan struct{})}
 	resilient := sandbox.NewResilientSession(s, func(_ context.Context) (sandbox.Session, error) {
 		t.Fatal("must not recreate after explicit close")
 		return nil, nil

@@ -53,7 +53,7 @@ func TestLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{Namespace: os.Getenv("STELLA_KUBERNETES_NAMESPACE"), OwnerName: os.Getenv("STELLA_KUBERNETES_POD_NAME"), ServerPort: 25777, PVC: "home", Image: os.Getenv("STELLA_KUBERNETES_IMAGE"), StellaHome: home, BundleRevision: strings.TrimPrefix(bundle, "../bundles/")}
+	cfg := Config{ServerPort: 25777, Image: os.Getenv("STELLA_KUBERNETES_IMAGE"), StellaHome: home, BundleRevision: strings.TrimPrefix(bundle, "../bundles/")}
 	client, err := NewInCluster(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -179,10 +179,10 @@ func TestLive(t *testing.T) {
 		if _, err := client.api.CoreV1().Pods("default").List(t.Context(), meta.ListOptions{}); !apierrors.IsForbidden(err) {
 			t.Fatalf("cross-namespace Pod access: %v", err)
 		}
-		if _, err := client.api.CoreV1().Secrets(cfg.Namespace).List(t.Context(), meta.ListOptions{}); !apierrors.IsForbidden(err) {
+		if _, err := client.api.CoreV1().Secrets(client.owner.Namespace).List(t.Context(), meta.ListOptions{}); !apierrors.IsForbidden(err) {
 			t.Fatalf("Secret access: %v", err)
 		}
-		owner, err := client.api.CoreV1().Pods(cfg.Namespace).Get(t.Context(), cfg.OwnerName, meta.GetOptions{})
+		owner, err := client.api.CoreV1().Pods(client.owner.Namespace).Get(t.Context(), client.owner.Name, meta.GetOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -236,7 +236,7 @@ func TestLive(t *testing.T) {
 		if err := s.Files().WriteFile("persist", []byte("kept"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := client.api.CoreV1().Pods(cfg.Namespace).Delete(t.Context(), s.pod.Name, meta.DeleteOptions{}); err != nil {
+		if err := client.api.CoreV1().Pods(client.owner.Namespace).Delete(t.Context(), s.pod.Name, meta.DeleteOptions{}); err != nil {
 			t.Fatal(err)
 		}
 		select {
@@ -263,7 +263,7 @@ func TestLive(t *testing.T) {
 	startupErrors := func(t *testing.T) {
 		for _, failure := range []string{"bundle", "image", "scheduling"} {
 			t.Run(failure, func(t *testing.T) {
-				bad := &Client{api: client.api, rest: client.rest, cfg: client.cfg, boot: sandbox.NewSessionID(), volumePrefix: client.volumePrefix, owner: client.owner, storageID: client.storageID}
+				bad := &Client{api: client.api, rest: client.rest, cfg: client.cfg, boot: sandbox.NewSessionID(), volumePrefix: client.volumePrefix, owner: client.owner, pvc: client.pvc}
 				bad.cfg.StartupTimeout = 15 * time.Second
 				switch failure {
 				case "bundle":
@@ -292,7 +292,7 @@ func TestLive(t *testing.T) {
 				}
 				// The finalizer patch confirms termination before API deletion finishes.
 				err = wait.PollUntilContextTimeout(t.Context(), 100*time.Millisecond, 5*time.Second, true, func(ctx context.Context) (bool, error) {
-					pods, err := client.api.CoreV1().Pods(cfg.Namespace).List(ctx, meta.ListOptions{LabelSelector: labelBoot + "=" + bad.boot})
+					pods, err := client.api.CoreV1().Pods(client.owner.Namespace).List(ctx, meta.ListOptions{LabelSelector: labelBoot + "=" + bad.boot})
 					if err != nil {
 						return false, err
 					}

@@ -77,7 +77,7 @@ func (f *factory) CreateSession(ctx context.Context, p sandbox.Policy) (sandbox.
 	ctx, cancel := context.WithTimeout(ctx, c.cfg.StartupTimeout)
 	defer cancel()
 	id := sandbox.NewSessionID()
-	tempBase := filepath.Join(c.cfg.StellaHome, "tmp", "kubernetes", c.storageID)
+	tempBase := filepath.Join(c.cfg.StellaHome, "tmp", "kubernetes", string(c.pvc.UID))
 	if err := os.MkdirAll(tempBase, 0o700); err != nil {
 		return nil, err
 	}
@@ -158,17 +158,17 @@ func (f *factory) CreateSession(ctx context.Context, p sandbox.Policy) (sandbox.
 		p.Env["STELLA_SERVER_URL"] = c.cfg.ServerURL
 	}
 	p.Filesystem.Mounts = sessionfs.PolicyMounts(mounts)
-	pod := &core.Pod{ObjectMeta: meta.ObjectMeta{Name: "stella-sandbox-" + id, Namespace: c.cfg.Namespace, Labels: map[string]string{labelStorage: c.storageID, labelBoot: c.boot, "stella.cherryhq.io/generation": id, "stella.cherryhq.io/network": string(p.NetworkModeOrDefault())}, Finalizers: []string{finalizer}, OwnerReferences: []meta.OwnerReference{{APIVersion: "v1", Kind: "Pod", Name: c.owner.Name, UID: c.owner.UID}}}, Spec: core.PodSpec{
+	pod := &core.Pod{ObjectMeta: meta.ObjectMeta{Name: "stella-sandbox-" + id, Namespace: c.owner.Namespace, Labels: map[string]string{labelStorage: string(c.pvc.UID), labelBoot: c.boot, "stella.cherryhq.io/generation": id, "stella.cherryhq.io/network": string(p.NetworkModeOrDefault())}, Finalizers: []string{finalizer}, OwnerReferences: []meta.OwnerReference{{APIVersion: "v1", Kind: "Pod", Name: c.owner.Name, UID: c.owner.UID}}}, Spec: core.PodSpec{
 		ImagePullSecrets: c.owner.Spec.ImagePullSecrets, RestartPolicy: core.RestartPolicyNever, AutomountServiceAccountToken: ptr.To(false), EnableServiceLinks: ptr.To(false), ServiceAccountName: "stella-sandbox", TerminationGracePeriodSeconds: ptr.To(int64(1)),
 		SecurityContext: &core.PodSecurityContext{RunAsNonRoot: ptr.To(true), RunAsUser: ptr.To(int64(1000)), RunAsGroup: ptr.To(int64(1000)), SeccompProfile: &core.SeccompProfile{Type: core.SeccompProfileTypeRuntimeDefault}},
 		Affinity:        &core.Affinity{NodeAffinity: &core.NodeAffinity{RequiredDuringSchedulingIgnoredDuringExecution: &core.NodeSelector{NodeSelectorTerms: []core.NodeSelectorTerm{{MatchFields: []core.NodeSelectorRequirement{{Key: "metadata.name", Operator: core.NodeSelectorOpIn, Values: []string{c.owner.Spec.NodeName}}}}}}}},
-		Volumes:         []core.Volume{{Name: "home", VolumeSource: core.VolumeSource{PersistentVolumeClaim: &core.PersistentVolumeClaimVolumeSource{ClaimName: c.cfg.PVC}}}},
+		Volumes:         []core.Volume{{Name: "home", VolumeSource: core.VolumeSource{PersistentVolumeClaim: &core.PersistentVolumeClaimVolumeSource{ClaimName: c.pvc.Name}}}},
 		Containers:      []core.Container{{Name: "sandbox", Image: c.cfg.Image, Command: []string{"/usr/bin/sleep", "infinity"}, VolumeMounts: volumes, SecurityContext: &core.SecurityContext{AllowPrivilegeEscalation: ptr.To(false), ReadOnlyRootFilesystem: ptr.To(true), Capabilities: &core.Capabilities{Drop: []core.Capability{"ALL"}}}, Resources: core.ResourceRequirements{Requests: core.ResourceList{core.ResourceCPU: resource.MustParse("100m"), core.ResourceMemory: resource.MustParse("128Mi")}, Limits: core.ResourceList{core.ResourceCPU: resource.MustParse("2"), core.ResourceMemory: resource.MustParse("2Gi"), core.ResourceEphemeralStorage: resource.MustParse("1Gi")}}}},
 	}}
 	if err = resolver.ValidateBackingPaths(); err != nil {
 		return nil, err
 	}
-	created, err := c.api.CoreV1().Pods(c.cfg.Namespace).Create(ctx, pod, meta.CreateOptions{})
+	created, err := c.api.CoreV1().Pods(c.owner.Namespace).Create(ctx, pod, meta.CreateOptions{})
 	if err != nil {
 		if !apierrors.IsInvalid(err) && !apierrors.IsForbidden(err) && !apierrors.IsUnauthorized(err) && !apierrors.IsAlreadyExists(err) {
 			keep = true
@@ -181,7 +181,7 @@ func (f *factory) CreateSession(ctx context.Context, p sandbox.Policy) (sandbox.
 	s.policy.Env = s.environment(nil)
 	keep = true // Never remove backing storage before execution has been fenced.
 	err = wait.PollUntilContextCancel(ctx, 200*time.Millisecond, true, func(ctx context.Context) (bool, error) {
-		got, err := c.api.CoreV1().Pods(c.cfg.Namespace).Get(ctx, pod.Name, meta.GetOptions{})
+		got, err := c.api.CoreV1().Pods(c.owner.Namespace).Get(ctx, pod.Name, meta.GetOptions{})
 		if err != nil {
 			return false, err
 		}
@@ -283,7 +283,7 @@ func (s *session) watch() {
 				continue
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			p, err := s.client.api.CoreV1().Pods(s.client.cfg.Namespace).Get(ctx, s.pod.Name, meta.GetOptions{})
+			p, err := s.client.api.CoreV1().Pods(s.client.owner.Namespace).Get(ctx, s.pod.Name, meta.GetOptions{})
 			cancel()
 			if err != nil {
 				continue

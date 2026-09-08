@@ -110,6 +110,7 @@ metadata:
   labels:
     app: stella-testbed
 spec:
+  hostname: identity-from-token
   serviceAccountName: stella-testbed
   restartPolicy: Never
   securityContext:
@@ -140,16 +141,6 @@ spec:
           value: /data
         - name: STELLA_KUBERNETES_LIVE
           value: "1"
-        - name: STELLA_KUBERNETES_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-        - name: STELLA_KUBERNETES_POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: STELLA_KUBERNETES_PVC
-          value: home
         - name: STELLA_KUBERNETES_IMAGE
           value: stella-sandbox:kubernetes-test
       volumeMounts:

@@ -19,12 +19,12 @@ Stella 在 `deploy/helm/stella` 提供了一个 Helm chart，用于在 Kubernete
 升级曾使用 `STELLA_KUBERNETES_DEPLOYMENT` 的实验部署时，先停止旧 sandbox Pod。
 启动清理现在按 PVC UID 分组，不迁移原来的部署标签。
 
-部署环境变量：
-
-- `STELLA_KUBERNETES_NAMESPACE`、`STELLA_KUBERNETES_POD_NAME`：通过
-  Downward API 自动注入。
-- `STELLA_KUBERNETES_PVC`：以读写方式直接挂载到 `/data` 的 PVC，不使用
-  `subPath` 或 `subPathExpr`。`STELLA_HOME` 设为 `/data` 或其子目录。
+Stella 从默认挂载的 ServiceAccount token 读取 Pod 名称、UID 和 namespace。
+主 Pod 保留该 token 挂载即可，不需要 Pod 名称或 namespace 环境变量，
+自定义 Pod hostname 也不影响识别。
+服务从直接读写挂载到 `/data` 的卷识别 PVC，不使用 `subPath` 或 `subPathExpr`。
+`STELLA_HOME` 设为 `/data` 或其子目录。多个容器若在 `/data` 挂载不同 PVC，
+启动会报错，不会猜测使用哪个卷。
 
 可选覆盖：
 
@@ -37,7 +37,9 @@ Stella 在 `deploy/helm/stella` 提供了一个 Helm chart，用于在 Kubernete
   服务须监听 Pod 网络接口，不能只监听回环地址。
 
 服务启动时从 Kubernetes 读取主 Pod UID 和节点，以 PVC UID 关联服务换代前后的
-sandbox，并继承主 Pod 的镜像拉取 Secret 引用。RBAC 仅需本 namespace 的 Pod create/get/list/delete/patch、
+sandbox，并继承主 Pod 的镜像拉取 Secret 引用。PVC 只限定自动清理的存储范围，
+与 Docker 按 Stella Home 或数据卷限定清理范围类似；是否为旧执行由 owner Pod 和
+启动标识判断，共用 PVC 不代表 sandbox 已失去主人。RBAC 仅需本 namespace 的 Pod create/get/list/delete/patch、
 `pods/exec` create，以及指定 PVC 的 get。创建无权限的 `stella-sandbox`
 ServiceAccount。sandbox 禁用 token 挂载和 Service 环境注入，使用 UID/GID 1000、
 只读镜像根目录、无 capabilities。授权数据目录需要允许该 UID 读写。

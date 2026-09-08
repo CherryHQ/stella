@@ -38,7 +38,7 @@ os.execvpe(m['argv'][0],m['argv'],m['env'])
 `
 
 func (c *Client) stream(ctx context.Context, p *core.Pod, argv []string, in io.Reader, out, stderr io.Writer) error {
-	current, err := c.api.CoreV1().Pods(c.cfg.Namespace).Get(ctx, p.Name, meta.GetOptions{})
+	current, err := c.api.CoreV1().Pods(c.owner.Namespace).Get(ctx, p.Name, meta.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func (c *Client) stream(ctx context.Context, p *core.Pod, argv []string, in io.R
 	if err != nil {
 		return err
 	}
-	url := client.Post().Resource("pods").Namespace(c.cfg.Namespace).Name(p.Name).SubResource("exec").VersionedParams(&core.PodExecOptions{Container: "sandbox", Command: argv, Stdin: in != nil, Stdout: out != nil, Stderr: stderr != nil}, scheme.ParameterCodec).URL()
+	url := client.Post().Resource("pods").Namespace(c.owner.Namespace).Name(p.Name).SubResource("exec").VersionedParams(&core.PodExecOptions{Container: "sandbox", Command: argv, Stdin: in != nil, Stdout: out != nil, Stderr: stderr != nil}, scheme.ParameterCodec).URL()
 	executor, err := remotecommand.NewSPDYExecutor(c.rest, "POST", url)
 	if err != nil {
 		return err

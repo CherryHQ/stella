@@ -22,12 +22,13 @@ When upgrading an experiment that used `STELLA_KUBERNETES_DEPLOYMENT`, stop its
 old sandbox Pods first. Startup cleanup now groups Pods by PVC UID and does not
 migrate the former deployment labels.
 
-Provide these deployment-owned environment values:
-
-- `STELLA_KUBERNETES_NAMESPACE`, `STELLA_KUBERNETES_POD_NAME`: automatically
-  injected through the Downward API.
-- `STELLA_KUBERNETES_PVC`: the claim mounted read-write directly at `/data`, without
-  `subPath` or `subPathExpr`. Set `STELLA_HOME` to `/data` or a directory beneath it.
+Stella discovers its Pod name, UID and namespace from the default projected
+ServiceAccount token. Keep this token mounted on the server Pod; no Pod-name or
+namespace environment variables are needed, even with a custom Pod hostname.
+The home PVC is discovered from the direct read-write `/data` mount, without
+`subPath` or `subPathExpr`. Set `STELLA_HOME` to `/data` or a directory beneath it.
+If multiple containers mount different PVCs at `/data`, startup fails rather
+than selecting an unrelated claim.
 
 Optional overrides:
 
@@ -39,9 +40,13 @@ Optional overrides:
   routing. The server must listen on the Pod interface, not only loopback.
 
 The server reads its Pod UID and node from Kubernetes and uses the PVC UID to
-group sandboxes across server replacements. It inherits the server Pod's image
-pull secrets. RBAC needs namespace Pod
-create/get/list/delete/patch, `pods/exec` create and read access to the one
+group sandboxes across server replacements. This limits automatic orphan
+cleanup to the same storage, just as Docker scopes cleanup to Stella Home or its
+data volume. The owner Pod and boot identity determine which executions are old;
+sharing a PVC alone does not make a sandbox orphaned.
+
+Sandbox Pods inherit the server Pod's image pull secrets. RBAC needs namespace
+Pod create/get/list/delete/patch, `pods/exec` create and read access to the one
 PVC. Create an unprivileged `stella-sandbox` ServiceAccount. Sandbox Pods disable
 token mounting and service environment injection, run as UID/GID 1000, drop all
 capabilities and use a read-only image filesystem. The server's authorized data
