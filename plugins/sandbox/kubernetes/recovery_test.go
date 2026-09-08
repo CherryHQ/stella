@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	sandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -28,7 +27,7 @@ func TestOwnerRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{Namespace: os.Getenv("STELLA_KUBERNETES_NAMESPACE"), OwnerName: os.Getenv("STELLA_KUBERNETES_POD_NAME"), OwnerUID: types.UID(os.Getenv("STELLA_KUBERNETES_POD_UID")), NodeName: os.Getenv("STELLA_KUBERNETES_NODE_NAME"), Deployment: "testbed", PVC: "home", Image: os.Getenv("STELLA_KUBERNETES_IMAGE"), ServerURL: os.Getenv("STELLA_SANDBOX_SERVER_URL"), StellaHome: home, BundleRevision: strings.TrimPrefix(bundle, "../bundles/")}
+	cfg := Config{Namespace: os.Getenv("STELLA_KUBERNETES_NAMESPACE"), OwnerName: os.Getenv("STELLA_KUBERNETES_POD_NAME"), PVC: "home", Image: os.Getenv("STELLA_KUBERNETES_IMAGE"), ServerPort: 25777, StellaHome: home, BundleRevision: strings.TrimPrefix(bundle, "../bundles/")}
 	c, err := NewInCluster(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +41,7 @@ func TestOwnerRecovery(t *testing.T) {
 		if err = s.Files().WriteFile("persistent", []byte("survived-owner-replacement"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err = os.WriteFile(filepath.Join(home, "old-owner"), []byte(cfg.OwnerUID), 0o600); err != nil {
+		if err = os.WriteFile(filepath.Join(home, "old-owner"), []byte(c.owner.UID), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		return
@@ -59,10 +58,10 @@ func TestOwnerRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(old) == string(cfg.OwnerUID) {
+	if string(old) == string(c.owner.UID) {
 		t.Fatal("owner Pod was not replaced")
 	}
-	pods, err := c.api.CoreV1().Pods(cfg.Namespace).List(t.Context(), meta.ListOptions{LabelSelector: labelDeployment + "=testbed"})
+	pods, err := c.api.CoreV1().Pods(cfg.Namespace).List(t.Context(), meta.ListOptions{LabelSelector: labelStorage + "=" + c.storageID})
 	if err != nil {
 		t.Fatal(err)
 	}

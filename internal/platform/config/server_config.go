@@ -114,8 +114,9 @@ type ServerConfig struct {
 
 // KubernetesSandboxConfig contains deployment-owned in-cluster coordinates.
 type KubernetesSandboxConfig struct {
-	Namespace, PodName, PodUID, NodeName, Deployment, PVC, Image, ServerURL string
-	StartupTimeout                                                          time.Duration
+	Namespace, PodName, PVC, Image, ServerURL string
+	ServerPort                                int
+	StartupTimeout                            time.Duration
 }
 
 // MCPConfig carries deploy-time policy for remote MCP server registrations.
@@ -283,7 +284,7 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 	// never logged.
 	get := func(name string) string { v, _ := lookup(name); return v }
 	cfg.KubernetesSandbox = KubernetesSandboxConfig{
-		Namespace: get("STELLA_KUBERNETES_NAMESPACE"), PodName: get("STELLA_KUBERNETES_POD_NAME"), PodUID: get("STELLA_KUBERNETES_POD_UID"), NodeName: get("STELLA_KUBERNETES_NODE_NAME"), Deployment: get("STELLA_KUBERNETES_DEPLOYMENT"), PVC: get("STELLA_KUBERNETES_PVC"), Image: get("STELLA_KUBERNETES_IMAGE"), ServerURL: get("STELLA_SANDBOX_SERVER_URL"),
+		Namespace: get("STELLA_KUBERNETES_NAMESPACE"), PodName: get("STELLA_KUBERNETES_POD_NAME"), PVC: get("STELLA_KUBERNETES_PVC"), Image: get("STELLA_KUBERNETES_IMAGE"), ServerURL: get("STELLA_SANDBOX_SERVER_URL"),
 	}
 	cfg.KubernetesSandbox.StartupTimeout, err = parseServerDuration("STELLA_KUBERNETES_STARTUP_TIMEOUT", get("STELLA_KUBERNETES_STARTUP_TIMEOUT"), 120*time.Second)
 	if err != nil {

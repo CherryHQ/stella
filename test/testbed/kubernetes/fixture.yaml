@@ -148,22 +148,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        - name: STELLA_KUBERNETES_POD_UID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.uid
-        - name: STELLA_KUBERNETES_NODE_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: spec.nodeName
-        - name: STELLA_KUBERNETES_DEPLOYMENT
-          value: testbed
         - name: STELLA_KUBERNETES_PVC
           value: home
         - name: STELLA_KUBERNETES_IMAGE
           value: stella-sandbox:kubernetes-test
-        - name: STELLA_SANDBOX_SERVER_URL
-          value: http://stella-testbed:25777
       volumeMounts:
         - name: home
           mountPath: /data
@@ -171,17 +159,6 @@ spec:
     - name: home
       persistentVolumeClaim:
         claimName: home
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: stella-testbed
-spec:
-  selector:
-    app: stella-testbed
-  ports:
-    - port: 25777
-      targetPort: 25777
 ---
 apiVersion: v1
 kind: ResourceQuota

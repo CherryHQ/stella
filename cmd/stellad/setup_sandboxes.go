@@ -1,13 +1,12 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
-
-	"k8s.io/apimachinery/pkg/types"
 
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -38,7 +37,7 @@ func setupSandboxBackends(ctx context.Context, cfg config.ServerConfig) (*agents
 		}
 		initCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 		defer cancel()
-		kubeClient, err = kubernetesbackend.NewInCluster(initCtx, kubernetesbackend.Config{Namespace: cfg.KubernetesSandbox.Namespace, OwnerName: cfg.KubernetesSandbox.PodName, OwnerUID: types.UID(cfg.KubernetesSandbox.PodUID), NodeName: cfg.KubernetesSandbox.NodeName, Deployment: cfg.KubernetesSandbox.Deployment, PVC: cfg.KubernetesSandbox.PVC, Image: cfg.KubernetesSandbox.Image, StartupTimeout: cfg.KubernetesSandbox.StartupTimeout, ServerURL: cfg.KubernetesSandbox.ServerURL, StellaHome: config.StellaHome(), BundleRevision: registry.BundleRevision()})
+		kubeClient, err = kubernetesbackend.NewInCluster(initCtx, kubernetesbackend.Config{Namespace: cfg.KubernetesSandbox.Namespace, OwnerName: cfg.KubernetesSandbox.PodName, PVC: cfg.KubernetesSandbox.PVC, Image: cmp.Or(cfg.KubernetesSandbox.Image, sandboxImage()), ServerPort: cfg.KubernetesSandbox.ServerPort, StartupTimeout: cfg.KubernetesSandbox.StartupTimeout, ServerURL: cfg.KubernetesSandbox.ServerURL, StellaHome: config.StellaHome(), BundleRevision: registry.BundleRevision()})
 		if err != nil {
 			return nil, err
 		}
@@ -57,7 +56,7 @@ func setupSandboxBackends(ctx context.Context, cfg config.ServerConfig) (*agents
 				return nil, fmt.Errorf("load builtin skill bundle: %w", err)
 			}
 			factory, err := dockerbackend.NewFactoryWithMountSources(dockerbackend.Config{
-				Image:                  sandboxDockerImage(),
+				Image:                  sandboxImage(),
 				StellaHome:             request.Paths.StellaHome,
 				ExpectedBundleRevision: resourceRegistry.BundleRevision(),
 			}, request.MountSources)
@@ -98,7 +97,7 @@ func setupSandboxBackends(ctx context.Context, cfg config.ServerConfig) (*agents
 	)
 }
 
-func sandboxDockerImage() string {
+func sandboxImage() string {
 	if version.IsDev() {
 		return dockerDevImage
 	}
@@ -108,7 +107,7 @@ func sandboxDockerImage() string {
 func sandboxDockerSessionError(err error) error {
 	var imageErr *dockerbackend.ImageUnavailableError
 	if version.IsDev() && errors.As(err, &imageErr) {
-		return fmt.Errorf("%w (run `mise run sandbox:docker:build` to build the local %q image)", err, sandboxDockerImage())
+		return fmt.Errorf("%w (run `mise run sandbox:docker:build` to build the local %q image)", err, sandboxImage())
 	}
 	return fmt.Errorf("create docker session: %w", err)
 }

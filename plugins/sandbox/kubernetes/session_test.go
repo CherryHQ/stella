@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	sandbox "github.com/CherryHQ/stella/pkg/sandbox"
@@ -53,7 +53,7 @@ func TestLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{Namespace: os.Getenv("STELLA_KUBERNETES_NAMESPACE"), OwnerName: os.Getenv("STELLA_KUBERNETES_POD_NAME"), OwnerUID: types.UID(os.Getenv("STELLA_KUBERNETES_POD_UID")), NodeName: os.Getenv("STELLA_KUBERNETES_NODE_NAME"), ServerURL: os.Getenv("STELLA_SANDBOX_SERVER_URL"), Deployment: "testbed", PVC: "home", Image: os.Getenv("STELLA_KUBERNETES_IMAGE"), StellaHome: home, BundleRevision: strings.TrimPrefix(bundle, "../bundles/")}
+	cfg := Config{Namespace: os.Getenv("STELLA_KUBERNETES_NAMESPACE"), OwnerName: os.Getenv("STELLA_KUBERNETES_POD_NAME"), ServerPort: 25777, PVC: "home", Image: os.Getenv("STELLA_KUBERNETES_IMAGE"), StellaHome: home, BundleRevision: strings.TrimPrefix(bundle, "../bundles/")}
 	client, err := NewInCluster(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -203,7 +203,7 @@ func TestLive(t *testing.T) {
 		server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "callback") }), ReadHeaderTimeout: time.Second}
 		go func() { _ = server.Serve(listener) }()
 		defer func() { _ = server.Close() }()
-		command := `python3 -c 'import urllib.request; print(urllib.request.urlopen("http://stella-testbed:25777",timeout=2).read().decode())'`
+		command := `python3 -c 'import os,urllib.request; print(urllib.request.urlopen(os.environ["STELLA_SERVER_URL"],timeout=2).read().decode())'`
 		allowed := makeSession(t)
 		result, err := allowed.Exec(t.Context(), command, sandbox.ExecOptions{})
 		if err != nil || result.ExitCode != 0 || strings.TrimSpace(result.Stdout) != "callback" {
@@ -214,7 +214,7 @@ func TestLive(t *testing.T) {
 			t.Fatalf("database port was reachable: %+v %v", result, err)
 		}
 		disabled := makeMode(t, sandbox.NetworkDisabled)
-		result, err = disabled.Exec(t.Context(), command, sandbox.ExecOptions{})
+		result, err = disabled.Exec(t.Context(), strings.ReplaceAll(command, `os.environ["STELLA_SERVER_URL"]`, strconv.Quote(client.cfg.ServerURL)), sandbox.ExecOptions{})
 		if err != nil || result.ExitCode == 0 {
 			t.Fatalf("disabled callback %+v %v", result, err)
 		}
@@ -263,7 +263,7 @@ func TestLive(t *testing.T) {
 	startupErrors := func(t *testing.T) {
 		for _, failure := range []string{"bundle", "image", "scheduling"} {
 			t.Run(failure, func(t *testing.T) {
-				bad := &Client{api: client.api, rest: client.rest, cfg: client.cfg, boot: sandbox.NewSessionID(), volumePrefix: client.volumePrefix, pullSecrets: client.pullSecrets}
+				bad := &Client{api: client.api, rest: client.rest, cfg: client.cfg, boot: sandbox.NewSessionID(), volumePrefix: client.volumePrefix, owner: client.owner, storageID: client.storageID}
 				bad.cfg.StartupTimeout = 15 * time.Second
 				switch failure {
 				case "bundle":
@@ -272,7 +272,8 @@ func TestLive(t *testing.T) {
 					bad.cfg.Image = "stella-sandbox:missing-test-image"
 					bad.cfg.StartupTimeout = 3 * time.Second
 				case "scheduling":
-					bad.cfg.NodeName = "missing-test-node"
+					bad.owner = client.owner.DeepCopy()
+					bad.owner.Spec.NodeName = "missing-test-node"
 					bad.cfg.StartupTimeout = 3 * time.Second
 				}
 				policy := sandbox.Policy{Filesystem: sandbox.FilesystemPolicy{WorkingDir: "/workspace", Mounts: []sandbox.Mount{{SandboxPath: "/workspace", Access: sandbox.MountReadWrite}}}}

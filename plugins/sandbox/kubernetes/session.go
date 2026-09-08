@@ -77,7 +77,7 @@ func (f *factory) CreateSession(ctx context.Context, p sandbox.Policy) (sandbox.
 	ctx, cancel := context.WithTimeout(ctx, c.cfg.StartupTimeout)
 	defer cancel()
 	id := sandbox.NewSessionID()
-	tempBase := filepath.Join(c.cfg.StellaHome, "tmp", "kubernetes", c.cfg.Deployment)
+	tempBase := filepath.Join(c.cfg.StellaHome, "tmp", "kubernetes", c.storageID)
 	if err := os.MkdirAll(tempBase, 0o700); err != nil {
 		return nil, err
 	}
@@ -158,10 +158,10 @@ func (f *factory) CreateSession(ctx context.Context, p sandbox.Policy) (sandbox.
 		p.Env["STELLA_SERVER_URL"] = c.cfg.ServerURL
 	}
 	p.Filesystem.Mounts = sessionfs.PolicyMounts(mounts)
-	pod := &core.Pod{ObjectMeta: meta.ObjectMeta{Name: "stella-sandbox-" + id, Namespace: c.cfg.Namespace, Labels: map[string]string{labelDeployment: c.cfg.Deployment, labelBoot: c.boot, "stella.cherryhq.io/generation": id, "stella.cherryhq.io/network": string(p.NetworkModeOrDefault())}, Finalizers: []string{finalizer}, OwnerReferences: []meta.OwnerReference{{APIVersion: "v1", Kind: "Pod", Name: c.cfg.OwnerName, UID: c.cfg.OwnerUID}}}, Spec: core.PodSpec{
-		ImagePullSecrets: c.pullSecrets, RestartPolicy: core.RestartPolicyNever, AutomountServiceAccountToken: ptr.To(false), EnableServiceLinks: ptr.To(false), ServiceAccountName: "stella-sandbox", TerminationGracePeriodSeconds: ptr.To(int64(1)),
+	pod := &core.Pod{ObjectMeta: meta.ObjectMeta{Name: "stella-sandbox-" + id, Namespace: c.cfg.Namespace, Labels: map[string]string{labelStorage: c.storageID, labelBoot: c.boot, "stella.cherryhq.io/generation": id, "stella.cherryhq.io/network": string(p.NetworkModeOrDefault())}, Finalizers: []string{finalizer}, OwnerReferences: []meta.OwnerReference{{APIVersion: "v1", Kind: "Pod", Name: c.owner.Name, UID: c.owner.UID}}}, Spec: core.PodSpec{
+		ImagePullSecrets: c.owner.Spec.ImagePullSecrets, RestartPolicy: core.RestartPolicyNever, AutomountServiceAccountToken: ptr.To(false), EnableServiceLinks: ptr.To(false), ServiceAccountName: "stella-sandbox", TerminationGracePeriodSeconds: ptr.To(int64(1)),
 		SecurityContext: &core.PodSecurityContext{RunAsNonRoot: ptr.To(true), RunAsUser: ptr.To(int64(1000)), RunAsGroup: ptr.To(int64(1000)), SeccompProfile: &core.SeccompProfile{Type: core.SeccompProfileTypeRuntimeDefault}},
-		Affinity:        &core.Affinity{NodeAffinity: &core.NodeAffinity{RequiredDuringSchedulingIgnoredDuringExecution: &core.NodeSelector{NodeSelectorTerms: []core.NodeSelectorTerm{{MatchFields: []core.NodeSelectorRequirement{{Key: "metadata.name", Operator: core.NodeSelectorOpIn, Values: []string{c.cfg.NodeName}}}}}}}},
+		Affinity:        &core.Affinity{NodeAffinity: &core.NodeAffinity{RequiredDuringSchedulingIgnoredDuringExecution: &core.NodeSelector{NodeSelectorTerms: []core.NodeSelectorTerm{{MatchFields: []core.NodeSelectorRequirement{{Key: "metadata.name", Operator: core.NodeSelectorOpIn, Values: []string{c.owner.Spec.NodeName}}}}}}}},
 		Volumes:         []core.Volume{{Name: "home", VolumeSource: core.VolumeSource{PersistentVolumeClaim: &core.PersistentVolumeClaimVolumeSource{ClaimName: c.cfg.PVC}}}},
 		Containers:      []core.Container{{Name: "sandbox", Image: c.cfg.Image, Command: []string{"/usr/bin/sleep", "infinity"}, VolumeMounts: volumes, SecurityContext: &core.SecurityContext{AllowPrivilegeEscalation: ptr.To(false), ReadOnlyRootFilesystem: ptr.To(true), Capabilities: &core.Capabilities{Drop: []core.Capability{"ALL"}}}, Resources: core.ResourceRequirements{Requests: core.ResourceList{core.ResourceCPU: resource.MustParse("100m"), core.ResourceMemory: resource.MustParse("128Mi")}, Limits: core.ResourceList{core.ResourceCPU: resource.MustParse("2"), core.ResourceMemory: resource.MustParse("2Gi"), core.ResourceEphemeralStorage: resource.MustParse("1Gi")}}}},
 	}}

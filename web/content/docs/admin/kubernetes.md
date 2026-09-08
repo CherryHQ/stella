@@ -12,25 +12,35 @@ two-phase graceful drain. Multiple replicas are not supported — see
 ## Native Pod sandbox (local/dev)
 
 Set `STELLA_SANDBOX_BACKEND=kubernetes` to run each sandbox Session in a separate
-Linux Pod. This backend requires Kubernetes 1.35, one Stella replica, the same
+Linux Pod. This backend requires one Stella replica, the same
 namespace and node for Stella and its sandboxes, and a shared `ReadWriteOnce` PVC.
 Use `Recreate` for the Stella Deployment. The Helm chart below does not configure
 this backend; the local fixture lives in `test/testbed/kubernetes/fixture.yaml`.
 Cross-node placement, multiple replicas and automatic failover are not supported.
+Kubernetes 1.35 is the tested version; earlier versions have not been validated.
+When upgrading an experiment that used `STELLA_KUBERNETES_DEPLOYMENT`, stop its
+old sandbox Pods first. Startup cleanup now groups Pods by PVC UID and does not
+migrate the former deployment labels.
 
 Provide these deployment-owned environment values:
 
-- `STELLA_KUBERNETES_NAMESPACE`, `STELLA_KUBERNETES_POD_NAME`,
-  `STELLA_KUBERNETES_POD_UID`, `STELLA_KUBERNETES_NODE_NAME`: Downward API fields.
-- `STELLA_KUBERNETES_DEPLOYMENT`: stable identity shared by server replacements.
+- `STELLA_KUBERNETES_NAMESPACE`, `STELLA_KUBERNETES_POD_NAME`: automatically
+  injected through the Downward API.
 - `STELLA_KUBERNETES_PVC`: the claim mounted read-write directly at `/data`, without
   `subPath` or `subPathExpr`. Set `STELLA_HOME` to `/data` or a directory beneath it.
-- `STELLA_KUBERNETES_IMAGE`: sandbox image built from the same source bundle as
-  stellad. Pin a digest for deployment; the local test uses a local image tag.
-- `STELLA_SANDBOX_SERVER_URL`: an HTTP(S) Service URL reachable from sandbox Pods.
 
-The server uses its in-cluster identity and checks owner UID, node and PVC at
-startup. It copies the server Pod's image pull secrets. RBAC needs namespace Pod
+Optional overrides:
+
+- `STELLA_KUBERNETES_IMAGE`: defaults to `ghcr.io/cherryhq/stella-sandbox:<version>`
+  for releases, or `stella-sandbox:dev` for development builds. A custom image must
+  contain the same builtin bundle as stellad. Pin a digest when deploying.
+- `STELLA_SANDBOX_SERVER_URL`: defaults to the server Pod IP and configured HTTP
+  listening port (use a fixed, nonzero port). Override with a reachable HTTP(S) URL for a proxy or custom
+  routing. The server must listen on the Pod interface, not only loopback.
+
+The server reads its Pod UID and node from Kubernetes and uses the PVC UID to
+group sandboxes across server replacements. It inherits the server Pod's image
+pull secrets. RBAC needs namespace Pod
 create/get/list/delete/patch, `pods/exec` create and read access to the one
 PVC. Create an unprivileged `stella-sandbox` ServiceAccount. Sandbox Pods disable
 token mounting and service environment injection, run as UID/GID 1000, drop all

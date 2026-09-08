@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	labelDeployment = "stella.cherryhq.io/deployment"
-	labelBoot       = "stella.cherryhq.io/boot"
+	labelStorage = "stella.cherryhq.io/storage"
+	labelBoot    = "stella.cherryhq.io/boot"
 )
 
 // deletePod keeps a finalizer until kubelet reports terminal execution. Object
@@ -57,7 +57,7 @@ func (c *Client) deletePod(ctx context.Context, name string, uid types.UID) erro
 }
 
 func (c *Client) cleanupPreviousBoot(ctx context.Context) error {
-	pods, err := c.api.CoreV1().Pods(c.cfg.Namespace).List(ctx, meta.ListOptions{LabelSelector: labelDeployment + "=" + c.cfg.Deployment})
+	pods, err := c.api.CoreV1().Pods(c.cfg.Namespace).List(ctx, meta.ListOptions{LabelSelector: labelStorage + "=" + c.storageID})
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func (c *Client) cleanupPreviousBoot(ctx context.Context) error {
 			return errors.New("kubernetes: ambiguous sandbox ownership")
 		}
 		owner := p.OwnerReferences[0]
-		if owner.UID != c.cfg.OwnerUID {
+		if owner.UID != c.owner.UID {
 			old, err := c.api.CoreV1().Pods(c.cfg.Namespace).Get(ctx, owner.Name, meta.GetOptions{})
 			if err != nil && !apierrors.IsNotFound(err) {
 				return err

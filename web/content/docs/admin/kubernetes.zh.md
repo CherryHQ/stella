@@ -11,24 +11,33 @@ Stella 在 `deploy/helm/stella` 提供了一个 Helm chart，用于在 Kubernete
 ## 原生 Pod sandbox（本地/dev）
 
 设置 `STELLA_SANDBOX_BACKEND=kubernetes`，每个 Session 使用独立 Linux Pod。
-首版要求 Kubernetes 1.35、单副本 Stella、同 namespace、同节点及共享
+首版要求单副本 Stella、同 namespace、同节点及共享
 `ReadWriteOnce` PVC。Stella Deployment 使用 `Recreate`。下方 Helm chart
 尚未支持此 backend；本地测试清单位于 `test/testbed/kubernetes/fixture.yaml`。
 不支持跨节点调度、多副本或自动故障迁移。
+目前已验证 Kubernetes 1.35，尚未验证更早版本。
+升级曾使用 `STELLA_KUBERNETES_DEPLOYMENT` 的实验部署时，先停止旧 sandbox Pod。
+启动清理现在按 PVC UID 分组，不迁移原来的部署标签。
 
 部署环境变量：
 
-- `STELLA_KUBERNETES_NAMESPACE`、`STELLA_KUBERNETES_POD_NAME`、
-  `STELLA_KUBERNETES_POD_UID`、`STELLA_KUBERNETES_NODE_NAME`：来自 Downward API。
-- `STELLA_KUBERNETES_DEPLOYMENT`：服务换代时保持一致的部署标识。
+- `STELLA_KUBERNETES_NAMESPACE`、`STELLA_KUBERNETES_POD_NAME`：通过
+  Downward API 自动注入。
 - `STELLA_KUBERNETES_PVC`：以读写方式直接挂载到 `/data` 的 PVC，不使用
   `subPath` 或 `subPathExpr`。`STELLA_HOME` 设为 `/data` 或其子目录。
-- `STELLA_KUBERNETES_IMAGE`：与 stellad 使用相同 builtin bundle 的 sandbox 镜像。
-  部署固定 digest，本地测试使用本地 tag。
-- `STELLA_SANDBOX_SERVER_URL`：sandbox 可达的 HTTP(S) Service 地址。
 
-服务启动时用集群内身份检查 owner UID、节点和 PVC，并继承主 Pod 的镜像拉取
-Secret 引用。RBAC 仅需本 namespace 的 Pod create/get/list/delete/patch、
+可选覆盖：
+
+- `STELLA_KUBERNETES_IMAGE`：发布版默认使用
+  `ghcr.io/cherryhq/stella-sandbox:<version>`，开发版使用 `stella-sandbox:dev`。
+  自定义镜像须与 stellad 使用相同 builtin bundle；部署时固定 digest。
+- `STELLA_SANDBOX_SERVER_URL`：默认使用主 Pod IP 和配置的 HTTP 监听端口，
+  端口须为固定非零值。
+  代理或自定义路由可覆盖为 sandbox 可达的 HTTP(S) 地址。
+  服务须监听 Pod 网络接口，不能只监听回环地址。
+
+服务启动时从 Kubernetes 读取主 Pod UID 和节点，以 PVC UID 关联服务换代前后的
+sandbox，并继承主 Pod 的镜像拉取 Secret 引用。RBAC 仅需本 namespace 的 Pod create/get/list/delete/patch、
 `pods/exec` create，以及指定 PVC 的 get。创建无权限的 `stella-sandbox`
 ServiceAccount。sandbox 禁用 token 挂载和 Service 环境注入，使用 UID/GID 1000、
 只读镜像根目录、无 capabilities。授权数据目录需要允许该 UID 读写。

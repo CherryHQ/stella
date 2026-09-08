@@ -226,6 +226,7 @@ func serverAction(c *ucli.Context) error {
 		}
 	}()
 
+	cfg.KubernetesSandbox.ServerPort = adminPort
 	s, err := setup(ctx, cfg, baseURL)
 	if err != nil {
 		cancel()

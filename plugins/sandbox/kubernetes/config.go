@@ -11,26 +11,24 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	sandbox "github.com/CherryHQ/stella/pkg/sandbox"
 
-	"k8s.io/apimachinery/pkg/util/validation"
-
 	core "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
 
 // Config is deployment-owned; agents cannot supply Kubernetes object fields.
 type Config struct {
-	Namespace, OwnerName, NodeName, Deployment, PVC, Image, StellaHome, BundleRevision, ServerURL string
-	OwnerUID                                                                                      types.UID
-	StartupTimeout                                                                                time.Duration
+	Namespace, OwnerName, PVC, Image, StellaHome, BundleRevision, ServerURL string
+	ServerPort                                                              int
+	StartupTimeout                                                          time.Duration
 }
 
 // Client owns one deployment connection and boot identity. Reuse it across factories.
@@ -39,11 +37,12 @@ type Client struct {
 	rest         *rest.Config
 	cfg          Config
 	boot         string
+	owner        *core.Pod
+	storageID    string
 	volumePrefix string
 	mu           sync.Mutex
 	pending      *session // Only a failed startup can remain unowned by a caller.
 	creationErr  error
-	pullSecrets  []core.LocalObjectReference
 }
 
 func NewInCluster(ctx context.Context, cfg Config) (*Client, error) {
@@ -55,34 +54,35 @@ func NewInCluster(ctx context.Context, cfg Config) (*Client, error) {
 }
 
 func NewClient(ctx context.Context, cfg Config, rc *rest.Config) (*Client, error) {
-	for name, value := range map[string]string{"namespace": cfg.Namespace, "owner name": cfg.OwnerName, "owner UID": string(cfg.OwnerUID), "node": cfg.NodeName, "deployment": cfg.Deployment, "PVC": cfg.PVC, "image": cfg.Image, "home": cfg.StellaHome, "bundle revision": cfg.BundleRevision} {
+	for name, value := range map[string]string{"namespace": cfg.Namespace, "owner name": cfg.OwnerName, "PVC": cfg.PVC, "image": cfg.Image, "home": cfg.StellaHome, "bundle revision": cfg.BundleRevision} {
 		if strings.TrimSpace(value) == "" {
 			return nil, fmt.Errorf("kubernetes: %s is required", name)
 		}
 	}
-	u, parseErr := url.Parse(cfg.ServerURL)
-	if parseErr != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Hostname() == "localhost" || net.ParseIP(u.Hostname()).IsLoopback() {
-		return nil, errors.New("kubernetes: server URL must be a non-loopback http(s) service URL")
-	}
 	if cfg.StartupTimeout <= 0 {
 		cfg.StartupTimeout = 120 * time.Second
-	}
-	if len(validation.IsDNS1123Label(cfg.Deployment)) != 0 {
-		return nil, errors.New("kubernetes: deployment must be a DNS label")
 	}
 	api, err := kubernetes.NewForConfig(rc)
 	if err != nil {
 		return nil, err
 	}
-	c := &Client{api: api, rest: rest.CopyConfig(rc), cfg: cfg, boot: sandbox.NewSessionID()}
+	c := &Client{api: api, rest: rest.CopyConfig(rc), boot: sandbox.NewSessionID()}
 	owner, err := api.CoreV1().Pods(cfg.Namespace).Get(ctx, cfg.OwnerName, meta.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: owner: %w", err)
 	}
-	if owner.UID != cfg.OwnerUID || owner.Spec.NodeName != cfg.NodeName || owner.DeletionTimestamp != nil {
-		return nil, errors.New("kubernetes: owner identity or node mismatch")
+	if owner.DeletionTimestamp != nil {
+		return nil, errors.New("kubernetes: owner Pod is terminating")
 	}
-	c.pullSecrets = append([]core.LocalObjectReference(nil), owner.Spec.ImagePullSecrets...)
+	c.owner = owner
+	if cfg.ServerURL == "" {
+		cfg.ServerURL = "http://" + net.JoinHostPort(owner.Status.PodIP, strconv.Itoa(cfg.ServerPort))
+	}
+	u, parseErr := url.Parse(cfg.ServerURL)
+	if parseErr != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Hostname() == "localhost" || net.ParseIP(u.Hostname()).IsLoopback() {
+		return nil, errors.New("kubernetes: server URL must be a non-loopback http(s) URL")
+	}
+	c.cfg = cfg
 	c.volumePrefix, err = ownerHomePrefix(owner, cfg)
 	if err != nil {
 		return nil, err
@@ -94,10 +94,11 @@ func NewClient(ctx context.Context, cfg Config, rc *rest.Config) (*Client, error
 	if slices.Contains(pvc.Spec.AccessModes, core.ReadWriteOncePod) {
 		return nil, errors.New("kubernetes: shared PVC cannot use ReadWriteOncePod")
 	}
+	c.storageID = string(pvc.UID)
 	if err = c.cleanupPreviousBoot(ctx); err != nil {
 		return nil, err
 	}
-	if err = os.RemoveAll(filepath.Join(cfg.StellaHome, "tmp", "kubernetes", cfg.Deployment)); err != nil {
+	if err = os.RemoveAll(filepath.Join(cfg.StellaHome, "tmp", "kubernetes", c.storageID)); err != nil {
 		return nil, err
 	}
 	return c, nil
