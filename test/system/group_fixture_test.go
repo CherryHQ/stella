@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -33,6 +34,46 @@ func (h *harness) createWebGroup(t *testing.T, ctx context.Context, name string,
 		t.Fatal("created group has empty id")
 	}
 	return group.ID
+}
+
+func (h *harness) disableWebAgent(ctx context.Context, agentID string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, h.baseURL+fmt.Sprintf("/api/agents/%s", agentID), strings.NewReader(`{"enabled":false}`))
+	if err != nil {
+		return fmt.Errorf("build PATCH agent request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("PATCH agent %s: %w", agentID, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	return fmt.Errorf("PATCH agent %s = %d\n%s", agentID, resp.StatusCode, h.proc.LogTail(40))
+}
+
+func (h *harness) cleanupWebGroup(t *testing.T, fake *fakeAnthropic, agentIDs ...string) {
+	t.Helper()
+	t.Cleanup(func() {
+		// testing.T.Context is canceled before cleanup callbacks run. Agent
+		// disable must still get a bounded chance to close active group turns.
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		var cleanupErr error
+		for _, agentID := range agentIDs {
+			if err := h.disableWebAgent(ctx, agentID); err != nil {
+				cleanupErr = errors.Join(cleanupErr, err)
+			}
+		}
+		if cleanupErr != nil {
+			t.Errorf("cleanup group agents: %v", cleanupErr)
+			return
+		}
+		// PATCH /api/agents/{id} synchronously closes the agent Runtime after
+		// persisting enabled=false, so no group turn can issue a late request.
+		fake.discardModelScripts()
+	})
 }
 
 func (h *harness) sendGroupMessage(t *testing.T, ctx context.Context, groupID, content string) {
@@ -122,6 +163,7 @@ func (h *harness) testGroupConcurrentCounting(t *testing.T) {
 	a := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelA, providerID+"/"+modelA, "count-a-"+h.runID)
 	b := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelB, providerID+"/"+modelB, "count-b-"+h.runID)
 	groupID := h.createWebGroup(t, ctx, "count-"+h.runID, a, b)
+	h.cleanupWebGroup(t, fake, a, b)
 	h.sendGroupMessage(t, ctx, groupID, "count from 1")
 	deadline := time.NewTicker(100 * time.Millisecond)
 	defer deadline.Stop()
@@ -141,7 +183,6 @@ func (h *harness) testGroupConcurrentCounting(t *testing.T) {
 					t.Fatalf("no-tools model request in a group journey: %+v", request)
 				}
 			}
-			fake.discardModelScripts()
 			return
 		}
 		select {
@@ -169,6 +210,7 @@ func (h *harness) testGroupPingPongHardCap(t *testing.T) {
 	a := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelA, providerID+"/"+modelA, "ping-a-"+h.runID)
 	b := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelB, providerID+"/"+modelB, "ping-b-"+h.runID)
 	groupID := h.createWebGroup(t, ctx, "ping-"+h.runID, a, b)
+	h.cleanupWebGroup(t, fake, a, b)
 	// Set the cap below the two-agent lapping floor. The lapping guard naturally
 	// stops an agent pair after its first lap, so it cannot prove D7's hard
 	// cap by itself.
@@ -230,7 +272,6 @@ func (h *harness) testGroupPingPongHardCap(t *testing.T) {
 	if calls := fake.requestCount() - beforeCalls; calls > 6 {
 		t.Fatalf("post-reset model calls=%d, want <=6", calls)
 	}
-	fake.discardModelScripts()
 }
 
 // testGroupModelPass covers the seam a Go test cannot reach: a full turn runs
@@ -251,6 +292,7 @@ func (h *harness) testGroupModelPass(t *testing.T) {
 	a := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelA, providerID+"/"+modelA, "pass-a-"+h.runID)
 	b := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelB, providerID+"/"+modelB, "pass-b-"+h.runID)
 	groupID := h.createWebGroup(t, ctx, "pass-"+h.runID, a, b)
+	h.cleanupWebGroup(t, fake, a, b)
 	h.sendGroupMessage(t, ctx, groupID, "@"+a+" when did the deploy finish?")
 
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -277,7 +319,6 @@ func (h *harness) testGroupModelPass(t *testing.T) {
 			if cursor < 1 {
 				t.Fatalf("passer ingest cursor=%d, want the trigger committed", cursor)
 			}
-			fake.discardModelScripts()
 			return
 		}
 		select {

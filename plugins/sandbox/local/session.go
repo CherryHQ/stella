@@ -13,11 +13,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/processpath"
 	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
@@ -29,8 +31,8 @@ var sandboxEnvDenyList = []string{"STELLA_VAULT_KEY"}
 
 // Config configures the local sandbox factory.
 type Config struct {
-	// StellaHome is the host path to the stella home directory, used for
-	// building a sandboxed PATH that includes $STELLA_HOME/bin.
+	// StellaHome is the host path to the Stella home directory, used to resolve
+	// per-user paths and runner-owned environment values.
 	StellaHome string
 }
 
@@ -156,13 +158,42 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 		p = remapToSandboxRoot(p, realRoot, sandboxRoot)
 		return remapStellaHomePath(p, hostSH, sandboxSH)
 	}
+	remapSelection := func(value string) string {
+		paths := filepath.SplitList(value)
+		for i, path := range paths {
+			paths[i] = remapMise(path)
+		}
+		return strings.Join(paths, string(filepath.ListSeparator))
+	}
 	// Recover the per-user mise home from the runtime env (MISE_DATA_DIR, still a
 	// host path here) and remap it to the sandbox tree to put its shims on PATH.
 	userShims := ""
 	if dir := sandboxpkg.PerUserMiseDataDir(env, hostSH); dir != "" {
 		userShims = sandboxpkg.MiseUserShimsDir(remapMise(dir))
 	}
-	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH, userShims)
+	selectionShims := ""
+	userSelectionShims := ""
+	if dir := env[sandboxpkg.EnvNativeSelectionDir]; dir != "" {
+		// Optional selections retain separate mounts; core owns STELLA_HOME/bin.
+		selectionShims = remapSelection(dir)
+		env[sandboxpkg.EnvNativeSelectionDir] = selectionShims
+	} else if dir := env["MISE_SHIMS_DIR"]; dir != "" {
+		selectionShims = remapMise(dir)
+	}
+	if dir := env[sandboxpkg.EnvUserNativeSelectionDir]; dir != "" {
+		userSelectionShims = remapSelection(dir)
+		env[sandboxpkg.EnvUserNativeSelectionDir] = userSelectionShims
+	}
+	bundledShims := ""
+	if dir := env[sandboxpkg.EnvCoreRuntimeDir]; dir != "" {
+		bundledShims = dir
+		if runtime.GOOS != "darwin" {
+			bundledShims = filepath.Join(sandboxSH, "bin")
+		}
+	}
+	selections := append(filepath.SplitList(userSelectionShims), filepath.SplitList(selectionShims)...)
+	selections = append(selections, bundledShims)
+	env["PATH"] = sandboxpkg.HostEnvBuildPath(hostSH, userShims, selections...)
 	env[sandboxpkg.EnvRunnerPath] = env["PATH"]
 	env["STELLA_HOME"] = sandboxSH
 	if shellEnv := env["BASH_ENV"]; shellEnv != "" {
@@ -360,8 +391,11 @@ type localSession struct {
 	files           sandboxpkg.FileAccess
 	done            chan struct{}
 	doneOnce        sync.Once
+	closeMu         sync.Mutex
 	mu              sync.RWMutex
 	closed          bool
+	closing         bool
+	nativePending   bool
 	procs           []*localProcess
 }
 
@@ -369,6 +403,32 @@ func (s *localSession) Policy() sandboxpkg.Policy {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.policy
+}
+
+// RenderEnv applies the local backend's fixed filesystem and path view to a
+// fresh logical turn environment. The retained policy is intentionally not
+// consulted so removed package state cannot cross the EnvReplace boundary.
+func (s *localSession) RenderEnv(_ context.Context, env map[string]string) (map[string]string, error) {
+	s.mu.RLock()
+	closed := s.closed || s.closing
+	root, realRoot := s.sandboxRoot, s.realRoot
+	userDataSandbox, userDataReal := s.userDataSandbox, s.userDataReal
+	stellaHome := s.stellaHomeHost
+	tmpMounts := append([]tmpMount(nil), s.tmpMounts...)
+	s.mu.RUnlock()
+	if closed {
+		return nil, errors.New("local: session is closed")
+	}
+	policy := sandboxpkg.Policy{Env: maps.Clone(env)}
+	policy = (&Factory{cfg: Config{StellaHome: stellaHome}}).adjustPolicy(policy, root, realRoot, userDataSandbox, userDataReal)
+	if err := applyFilesystemEnv(&policy, root, userDataSandbox, tmpMounts); err != nil {
+		return nil, fmt.Errorf("local: render filesystem environment: %w", err)
+	}
+	if policy.Env["PATH"] == "" {
+		policy.Env["PATH"] = sandboxpkg.HostEnvBuildPath(stellaHome, "")
+		policy.Env[sandboxpkg.EnvRunnerPath] = policy.Env["PATH"]
+	}
+	return policy.Env, nil
 }
 
 func (s *localSession) Files() sandboxpkg.FileAccess { return s.files }
@@ -383,33 +443,56 @@ func (s *localSession) WorkingDir() string {
 func (s *localSession) Alive() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return !s.closed
+	return !s.closed && !s.closing
 }
 
 func (s *localSession) Done() <-chan struct{} { return s.done }
 
 func (s *localSession) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
 
+	s.mu.Lock()
 	if s.closed {
+		s.mu.Unlock()
 		return nil
 	}
-	s.closed = true
+	s.closing = true
 
-	// Snapshot and clear the process list, then close each.
-	// localProcess.Close() is idempotent so double-close from natural exit is safe.
-	procs := s.procs
-	s.procs = nil
-	for _, p := range procs {
-		p.Close() //nolint:errcheck
-	}
+	// Snapshot the process list, but retain ownership until every teardown step
+	// succeeds. A failed close is retried by the next lifecycle caller.
+	procs := append([]*localProcess(nil), s.procs...)
+	resolver := s.resolver
+	tmpMounts := append([]tmpMount(nil), s.tmpMounts...)
+	s.mu.Unlock()
 
 	var closeErr error
-	if s.resolver != nil {
-		closeErr = s.resolver.Close()
+	for _, p := range procs {
+		closeErr = errors.Join(closeErr, p.Close())
 	}
-	cleanupOwnedTmpMounts(s.tmpMounts)
+	if resolver != nil {
+		closeErr = errors.Join(closeErr, resolver.Close())
+	}
+	s.mu.RLock()
+	noProcs := len(s.procs) == 0
+	nativePending := s.nativePending
+	s.mu.RUnlock()
+	if closeErr == nil && noProcs && !nativePending {
+		for _, mount := range tmpMounts {
+			if mount.owned {
+				closeErr = errors.Join(closeErr, os.RemoveAll(mount.realPath))
+			}
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if closeErr != nil {
+		return closeErr
+	}
+	s.closed = true
+	s.closing = false
+	s.procs = nil
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "local", "explicit_close")
 	return closeErr
@@ -475,7 +558,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	// Finding 5: check closed before starting. Per-exec env reads take a policy
 	// snapshot under the same lock.
 	s.mu.RLock()
-	closed := s.closed
+	closed := s.closed || s.closing
 	policy := s.policy
 	s.mu.RUnlock()
 	if closed {
@@ -514,14 +597,18 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	// leaving process-group children alive. We manage cancellation manually.
 	cmd := exec.Command(execPath, execArgs...)
 	cmd.Dir = realCwd
-	cmd.Env = buildEnv(policy, opts.Env)
+	cmd.Env = buildEnvMode(policy, opts.Env, opts.EnvMode)
 	setSysProcAttr(cmd)
 
 	stdout := sandboxpkg.NewExecOutputBuffer()
 	stderr := sandboxpkg.NewExecOutputBuffer()
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-
+	if s.stellaHomeHost != "" {
+		s.mu.Lock()
+		s.nativePending = true
+		s.mu.Unlock()
+	}
 	if startErr := cmd.Start(); startErr != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: start: %w", startErr)
 	}
@@ -564,7 +651,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
 	// Per-exec env reads take a policy snapshot under the lock.
 	s.mu.RLock()
-	closed := s.closed
+	closed := s.closed || s.closing
 	policy := s.policy
 	s.mu.RUnlock()
 	if closed {
@@ -596,6 +683,25 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 
 	args := make([]string, 0, len(req.Args))
 	args = append(args, req.Args...)
+	cmdEnv := buildEnvMode(policy, req.Env, req.EnvMode)
+	processPath := req.Path
+	var err error
+	// Linux bwrap resolves the command inside its sandbox, where host paths are
+	// intentionally unavailable. Native backends must resolve against the exact
+	// per-call environment instead, because os/exec otherwise consults the host
+	// PATH before cmd.Env is applied.
+	if runtime.GOOS != "linux" {
+		processPath, err = processpath.Resolve(processPath, cmdEnv)
+		if err != nil && req.EnvMode == sandboxpkg.EnvOverlay && !processpath.HasPath(cmdEnv) {
+			// Overlay sessions historically allow host PATH lookup when the
+			// policy intentionally omits PATH (for example InheritEnv=false).
+			processPath, err = exec.LookPath(req.Path)
+		}
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("local start_process: resolve %q from process PATH: %w", req.Path, err)
+		}
+	}
 
 	sandboxCwd, realCwd, err := s.resolveCwd(sandboxCwd)
 	if err != nil {
@@ -603,7 +709,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		return nil, fmt.Errorf("local start_process: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, err := s.wrapCommand(policy, sandboxCwd, req.Path, args)
+	execPath, execArgs, err := s.wrapCommand(policy, sandboxCwd, processPath, args)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("local start_process: wrap: %w", err)
@@ -612,7 +718,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 	// Finding 2: do NOT use exec.CommandContext — kill the process group instead.
 	cmd := exec.Command(execPath, execArgs...)
 	cmd.Dir = realCwd
-	cmd.Env = buildEnv(policy, req.Env)
+	cmd.Env = cmdEnv
 	setSysProcAttr(cmd)
 
 	// Finding 7: close previously opened pipes on error.
@@ -634,7 +740,11 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		cancel()
 		return nil, fmt.Errorf("local start_process: stderr pipe: %w", err)
 	}
-
+	if s.stellaHomeHost != "" {
+		s.mu.Lock()
+		s.nativePending = true
+		s.mu.Unlock()
+	}
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
@@ -653,7 +763,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 
 	// Finding 5: check closed and register atomically under write lock.
 	s.mu.Lock()
-	if s.closed {
+	if s.closed || s.closing {
 		s.mu.Unlock()
 		killProcessGroup(cmd)
 		_ = cmd.Wait()
@@ -689,9 +799,13 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 // If policy.InheritEnv is true, the host environment is included as a base.
 // Policy env vars are applied on top, then per-call overrides.
 func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
+	return buildEnvMode(policy, overrides, sandboxpkg.EnvOverlay)
+}
+
+func buildEnvMode(policy sandboxpkg.Policy, overrides map[string]string, mode sandboxpkg.EnvMode) []string {
 	merged := make(map[string]string)
 
-	if policy.InheritEnv {
+	if mode == sandboxpkg.EnvOverlay && policy.InheritEnv {
 		for _, kv := range os.Environ() {
 			if before, after, ok := strings.Cut(kv, "="); ok {
 				if slices.Contains(sandboxEnvDenyList, before) {
@@ -702,7 +816,9 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 		}
 	}
 
-	maps.Copy(merged, policy.Env)
+	if mode == sandboxpkg.EnvOverlay {
+		maps.Copy(merged, policy.Env)
+	}
 	maps.Copy(merged, overrides)
 	if renderedPath, ok := merged["PATH"]; ok {
 		merged[sandboxpkg.EnvRunnerPath] = renderedPath

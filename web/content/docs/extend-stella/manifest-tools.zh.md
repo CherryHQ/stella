@@ -1,207 +1,185 @@
 ---
-title: 清单工具插件
-description: 随服务端一同发布、并可在管理界面中自定义的声明式 CLI 工具集成。
+title: Agent Plugin 清单
+description: 在 plugin.json 中声明 CLI 需求和 Stella 运行时元数据。
 ---
 
 ## 概览
 
-清单工具插件是一种轻量替代方案：无需编写 Go 包，只要把工具声明为数据，Stella 就会自动协调二进制文件的下载。
+Agent Plugin 包是一个包含标准 `plugin.json` 的目录。Stella 读取清单、包内
+skill，以及可选的 `com.cherryhq.stella` 扩展。包读取器只把文件转换为声明，
+不会启动进程、安装二进制文件、创建 OAuth 连接，也不会启用 Native 能力。
 
-Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集成（`gh`、`lark-cli`、`lightpanda`）。它们会显示在对应语义标签页中，例如 **Tools** 或 **Hooks**，并带有 `manifest` 标记。你在 Plugins 管理界面中覆盖或扩展这些配置，改动存入数据库，编译进服务端的清单本身不会被修改。
+包的源码布局如下：
 
-## 工作原理
-
-启动时，Stella 会：
-
-1. 加载内嵌的内置清单（`resources/oauth.yaml` 和 `resources/tools.yaml`）
-2. 从数据库读取已存储的自定义并覆盖到内置定义之上，同时追加没有内置定义支撑的、由你创建的插件
-3. 将已启用的清单插件注册到插件主机
-4. 在后台启动二进制协调：将缺失的二进制文件下载到 `$STELLA_HOME/bin`
-
-启动不会被二进制下载阻塞。新增或更新的清单二进制会在后台同步完成后，出现在 Agent 沙箱会话的 `PATH` 中。对于本地沙箱会话，二进制文件通过 `$STELLA_HOME/bin` 提供。Docker 沙箱会话需要单独处理，因为宿主机二进制可能面向宿主机 OS/架构，而不是 Linux。
-
-## Docker 沙箱中的 CLI 可用性
-
-不要把宿主机 `$STELLA_HOME/bin` 当作 Docker 沙箱可执行文件的来源。在 macOS 和 Windows 上，清单同步可能安装宿主机平台的二进制文件，它们无法在 Linux 容器中运行。把该目录绑定挂载进 Docker 也会模糊宿主机工具管理和容器运行时之间的边界。
-
-对于 Docker：
-
-- 必须开箱即用的内置 CLI 插件会预装到带版本的沙箱镜像中。沙箱镜像标签与 Stella release 绑定，因此一个 release 镜像可以包含该 Stella 版本对应的内置工具集合。镜像构建时运行 `stellad mise reconcile-builtins`（与守护进程相同的 reconcile 流程），按 `resources/tools.yaml` 声明的标识符与版本安装，无需再单独维护一份 Docker 工具列表。
-- 解析后的清单（内置定义加上已存储的自定义）仍然是插件元数据、启用状态、会话环境变量、OAuth 注入以及本地沙箱二进制安装的来源。
-- 用户配置的 CLI 二进制需要一条容器原生的加载路径。它们应在 Docker 环境内按 Linux 目标安装，而不是从宿主机 `$STELLA_HOME/bin` 复制。
-
-一种用于用户配置 CLI 的安全 Docker 加载设计是：
-
-1. 从已启用的清单插件 `binaries` 条目生成容器工具清单，排除 release 镜像中已经存在的内置工具。
-2. 基于同一个沙箱镜像启动短生命周期 helper 容器，在 Linux 上下文中运行 `mise install`。
-3. 将安装结果保存到由 Docker 管理的工具缓存或 volume，并用沙箱镜像标签加解析后清单的哈希作为缓存键。
-4. 将该缓存挂载到沙箱会话中的容器专用路径，并前置到容器内 `PATH`。
-5. 当已启用的插件集合或二进制版本变化时，重建或刷新缓存。
-
-这样可以保持 release 沙箱镜像稳定，同时仍支持用户新增 CLI。安装得到的用户二进制是 Linux 容器二进制，宿主机 `$STELLA_HOME/bin` 不参与 Docker 可执行文件解析。
-
-## 插件定义
-
-无论是随 `resources/tools.yaml` 发布，还是在管理界面里填写，清单插件都是同一组字段。下面的 YAML 形式是阅读这个结构最清楚的方式；管理界面编辑的是同样这些字段，只是呈现为表单行。
-
-```yaml
-plugins:
-  - id: tool/my-cli
-    kind: tool
-    name: my-cli
-    display_name: My CLI
-    description: 执行某些有用的操作。
-    enabled: true
-    binaries:
-      - name: my-cli
-        tool: github:owner/my-cli
-        version: "1.2.3" # 省略则使用最新版
-    session_env:
-      - env_var: MY_TOKEN
-        source: static
-        value: "abc123"
-        required: true
+```text
+plugins/agent/<name>/
+  plugin.json
+  skills/<skill-name>/SKILL.md
+  mcp.json                         # 可选，仅支持 HTTP transport
 ```
 
-## 插件字段
+`<name>` 是规范包名，只能使用小写字母、数字、连字符和句点，且不能以分隔符
+开头或结尾。只有 `skills/` 的直接子目录中包含 `SKILL.md` 时，读取器才会发现
+对应 skill。Stella 会把 skill 的字节内容和文件 mode 保留给后续 asset 层使用。
 
-| 字段             | 必填 | 描述                                                                  |
-| ---------------- | ---- | --------------------------------------------------------------------- |
-| `id`             | 是   | 唯一插件 ID，格式为 `kind/name`，例如 `tool/my-cli`                   |
-| `kind`           | 是   | 插件类型，通常为 `tool`                                               |
-| `name`           | 是   | 简短的机器可读名称                                                    |
-| `display_name`   | 否   | 在管理界面显示的人类可读标签                                          |
-| `description`    | 否   | 在管理界面显示的简短描述                                              |
-| `enabled`        | 否   | 插件是否激活，默认为 false。内置插件默认为 true。                     |
-| `binaries`       | 否   | 需要下载并放置到 `$STELLA_HOME/bin` 的 CLI 二进制文件                 |
-| `session_env`    | 否   | 要注入沙箱会话的环境变量                                              |
-| `oauth_provider` | 否   | `oauth.*` 会话环境变量来源使用的静态 OAuth provider ID，例如 `github` |
+Native 能力有独立的编译注册和生命周期。包清单不会创建或替换 channel、provider、
+hook 或其他 Native 能力。
 
-## 二进制字段
+## 标准清单
 
-每个二进制需要 `name` 和 `tool` 字段。`tool` 字段使用 mise 的工具键格式：`backend:identifier`。
+标准清单要求 `$schema` 和 `name`。`version`、`description`、`author`、`homepage`、
+`repository`、`license` 和 `keywords` 是可选的标准元数据。读取器遇到顶层未知字段
+时会产生诊断并在容错读取中忽略；严格 authoring 校验会拒绝它们。
 
-### 公共字段
+Stella 的声明放在 `com.cherryhq.stella` namespace 下。当前扩展版本为 `"1"`：
 
-| 字段               | 必填 | 描述                                                            |
-| ------------------ | ---- | --------------------------------------------------------------- |
-| `name`             | 是   | 放置到 `$STELLA_HOME/bin` 的二进制文件名（不含扩展名）          |
-| `tool`             | 是   | mise 工具键，格式为 `backend:identifier`（如 `github:cli/cli`） |
-| `version`          | 否   | 要安装的版本，默认为 `latest`。                                 |
-| `strip_components` | 否   | 解压归档时去除的前导目录层数，大多数布局可自动检测。            |
-| `bin_path`         | 否   | 归档内包含二进制的子目录（如 `"bin"`）。                        |
-| `bin`              | 否   | 当资产为单个二进制（非归档）时重命名下载文件。                  |
-| `rename_exe`       | 否   | 从归档提取后重命名可执行文件。                                  |
-| `checksum`         | 否   | 以 `algo:hex` 格式验证资产校验和（如 `"sha256:abc123..."`）。   |
-
-### GitHub 后端（`github:owner/repo`）
-
-```yaml
-binaries:
-  - name: gh
-    tool: github:cli/cli
-    version: "2.40.1"
-    bin_path: bin
+```json
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "example-cli",
+  "version": "1.0.0",
+  "description": "一个示例命令行集成。",
+  "extensions": {
+    "com.cherryhq.stella": {
+      "version": "1",
+      "display_name": "Example CLI",
+      "prompt": "使用 example-cli 执行示例操作。",
+      "binaries": [
+        {
+          "name": "example",
+          "tool": "github:owner/example",
+          "version": "1.2.3",
+          "options": {
+            "asset_pattern": "example_*_linux_x86_64.tar.gz",
+            "bin_path": "bin"
+          }
+        }
+      ],
+      "session_env": [
+        {
+          "env_var": "EXAMPLE_ACCESS_TOKEN",
+          "source": "oauth.access_token",
+          "required": true
+        }
+      ],
+      "oauth": [
+        {
+          "provider": "example",
+          "scopes": ["read"],
+          "bindings": [{ "credential": "access_token", "env_var": "EXAMPLE_ACCESS_TOKEN" }]
+        }
+      ]
+    }
+  }
+}
 ```
 
-| 字段             | 描述                                                                            |
-| ---------------- | ------------------------------------------------------------------------------- |
-| `asset_pattern`  | 选择发布资产的 glob 模式（如 `"gh_*_linux_x64.tar.gz"`）。                      |
-| `version_prefix` | 标签自定义前缀（如 `"release-"`）。                                             |
-| `no_app`         | 跳过 macOS `.app` 包，优先使用独立二进制。                                      |
-| `filter_bins`    | 当归档含多个可执行文件时，逗号分隔的 PATH 可见二进制列表。                      |
-| `prerelease`     | 解析 `latest` 时包含预发布版本。                                                |
-| `api_url`        | GitHub Enterprise 的 API 基础 URL（如 `"https://github.example.com/api/v3"`）。 |
+`display_name` 和 `prompt` 是公开的展示与指导字段。它们不能包含凭据，也不会
+执行代码。
 
-### HTTP 后端（`http:name`）
+## Stella 扩展字段
 
-`http:` 后的标识符是 mise 内部使用的工具名称。
+| 字段           | 必填 | 含义                                              |
+| -------------- | ---- | ------------------------------------------------- |
+| `version`      | 是   | Stella 扩展版本，目前必须为 `"1"`。               |
+| `display_name` | 否   | Stella 显示的公开名称。                           |
+| `prompt`       | 否   | 与包关联的公开指导文字，是数据而不是可执行代码。  |
+| `binaries`     | 否   | 选中会话需要准备的 CLI 声明。                     |
+| `session_env`  | 否   | 选中会话的公开环境绑定。                          |
+| `oauth`        | 否   | 公开的 provider、scope 以及凭据到环境变量的声明。 |
 
-```yaml
-binaries:
-  - name: sentinel
-    tool: http:sentinel
-    url: "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_{{os()}}_{{arch()}}.zip"
-    version: "0.26.3"
+### 二进制和安装选项
+
+每个 binary 有 `name`、mise `tool` key、可选的 `version`，以及可选的 JSON
+`options` 对象。省略 `version` 时，安装器使用 `latest`。`options` 会传给安装器，
+并参与 binary 身份计算。安装设置必须放在 `options` 内，不能与它并列。
+
+```json
+{
+  "name": "gh",
+  "tool": "github:cli/cli",
+  "version": "2.40.1",
+  "options": {
+    "bin_path": "bin",
+    "strip_components": 1,
+    "checksum": "sha256:..."
+  }
+}
 ```
 
-| 字段                | 描述                                                                         |
-| ------------------- | ---------------------------------------------------------------------------- |
-| `url`               | 下载 URL，http 后端必填，支持 `{{version}}`、`{{os()}}`、`{{arch()}}` 模板。 |
-| `size`              | 用于验证的预期文件大小（字节）。                                             |
-| `format`            | 归档格式覆盖（如 `"tar.xz"`）。                                              |
-| `version_list_url`  | 获取可用版本列表的 URL。                                                     |
-| `version_regex`     | 从版本列表中提取版本号的正则表达式。                                         |
-| `version_json_path` | 从 JSON 中提取版本的 jq 风格路径（如 `".[].tag_name"`）。                    |
-| `version_expr`      | 提取版本的 expr-lang 表达式。                                                |
+常用安装选项类别如下：
 
-### Pipx 后端（`pipx:package`）
+| 安装器或用途     | 选项                                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------- |
+| 归档和单文件布局 | `strip_components`、`bin_path`、`bin`、`rename_exe`、`checksum`                                   |
+| GitHub release   | `asset_pattern`、`version_prefix`、`no_app`、`filter_bins`、`prerelease`、`api_url`               |
+| 直接 HTTP        | `url`、`size`、`format`、`version_list_url`、`version_regex`、`version_json_path`、`version_expr` |
+| pipx 和 uvx      | `extras`、`pipx_args`、`uvx`、`uvx_args`                                                          |
 
-标识符是 PyPI 包名、`org/repo` GitHub 格式，或 `git+https://...`。
+具体选项由选中的安装器后端负责。选项不同会产生不同的 binary 身份，也不会复用
+不相关的安装。不要把 token、密码、client secret 或 Vault 定位信息放进
+`plugin.json` 或 `options`。
 
-```yaml
-binaries:
-  - name: mypy
-    tool: pipx:mypy
-    version: "1.8.0"
+支持的 binary tool key 包括 GitHub release（`github:`）、直接 HTTP 下载（`http:`）、
+pipx（`pipx:`）、npm（`npm:`）以及托管安装器提供的其他 tool key。清单集成不支持
+平台专属的 `platforms` 映射。
+
+### 会话环境
+
+每个 `session_env` 条目声明 `env_var`、`source` 和可选的 `required`。标准条目没有
+`value` 字段。`source` 是解析器名称，例如 `oauth.access_token` 或
+`oauth.client_id`；凭据会在运行时解析。
+
+OAuth 声明包含公开的 `provider`、可选的 `scopes`，以及绑定数组。每个绑定声明
+`credential` 和目标 `env_var`：
+
+```json
+{
+  "oauth": [
+    {
+      "provider": "github",
+      "bindings": [{ "credential": "access_token", "env_var": "GH_TOKEN" }]
+    }
+  ]
+}
 ```
 
-| 字段        | 描述                                     |
-| ----------- | ---------------------------------------- |
-| `extras`    | 随包安装的 pip extras。                  |
-| `pipx_args` | 传递给 pipx 的额外参数。                 |
-| `uvx`       | 使用 `uvx`（uv 的工具运行器）代替 pipx。 |
-| `uvx_args`  | uvx 的额外参数。                         |
+OAuth connection binding 暂未实现。MCP 认证应在各个 MCP 子服务上配置。包读取器
+不会创建连接，也不会读取凭据。
 
-### NPM 后端（`npm:package`）
+## 发行版 builtin 和运行时位置
 
-```yaml
-binaries:
-  - name: serve
-    tool: npm:serve
-    version: "14.2.0"
-```
+内置 `plugin.json` 定义是不可变的发行资源。管理员可以修改选中范围的启停状态，
+也可以覆盖 CLI 的 `binary_versions`；随版本发布的 binary tool、安装选项、公开
+元数据和 prompt 仍由发行版拥有。内置 skill 同样由发行版拥有，范围配置不能替换
+其成员列表。
 
-平台特定资产模式（`platforms:` 映射）在清单中不受支持。
+只有 `mise` 和 `xberg` 是随发行版嵌入的 runtime。Stella 随版本同步并提取这两个
+嵌入式二进制文件。其他 CLI artifact 由服务端后台准备，并通过四种插件范围暴露给
+会话：`system`、`system_agent`、`user` 和 `user_agent`。artifact 已准备不等于会话
+已经获得访问权，范围解析仍决定会话能看到什么。
 
-## 会话环境变量字段
+`web` 包独立存在，包含 Web skill 所需的 Bun runtime 和 Lightpanda binary。独立的
+`bun` 插件开关不会启用或禁用 `web`；应配置 `web` 包及其范围。
 
-| 字段       | 必填     | 描述                                    |
-| ---------- | -------- | --------------------------------------- |
-| `env_var`  | 是       | 环境变量名称                            |
-| `source`   | 是       | 值的解析方式（见下文）                  |
-| `value`    | 条件必填 | 当 `source: static` 时使用的字面值      |
-| `required` | 否       | 若为 true，则当值无法解析时会话创建失败 |
+## 配置和安装
 
-### 环境变量来源
+包定义与范围配置分开保存。范围可以启用或禁用插件，也可以覆盖 CLI binary 版本。
+会话启动前，Stella 会为可信 user 和 Agent 解析选中的范围。
 
-| 来源                 | 描述                                         |
-| -------------------- | -------------------------------------------- |
-| `static`             | 使用清单中的字面 `value`                     |
-| `oauth.access_token` | 注入已连接 provider 的 OAuth access token    |
-| `oauth.client_id`    | 注入已连接 provider 令牌包中的 client/app ID |
+如果选中的 binary 不在准备好的缓存中，Stella 会通过托管安装器为目标 runtime 安装。
+匹配的准备结果可以复用。Stella 不会把宿主机安装复制进 Docker Linux 沙箱。Native
+managed 会话和沙箱会话使用各自的 runtime tree。
 
-`oauth.*` 来源会通过插件的 `oauth_provider` 解析。GitHub 使用 Stella 内置的 GitHub CLI 设备流程应用，无需管理员配置插件。其他 provider 必须另行声明和配置。
+包不运行任意安装 hook 或自定义 shell 脚本。安装器只处理声明的 binary。包读取本身
+没有进程执行或网络访问路径。
 
-## 状态与缓存
+## 限制
 
-Stella 在 `$STELLA_HOME/plugin-manifest-state.json` 中跟踪已安装的二进制版本。后续启动时，版本正确的二进制文件会被跳过。修改二进制的 `version` 可触发重新下载。启动时的协调会在后台运行，并会在关闭时取消；Stella 也会终止安装器派生出的子进程。
-
-## 管理界面
-
-清单驱动的插件只显示一次，并出现在符合其类型的标签页中：
-
-- `tool/gh`、`tool/lark-cli` 和 `tool/lightpanda` 显示在 **Tools**。
-
-由清单管理的行会显示 `manifest` 标记，并提供 **Edit definition** 操作用于编辑插件定义。二进制文件和会话环境变量会以表单行编辑。如果同一个插件还提供运行时配置，该行也会显示 **Configure**。启用开关与定义分开存储，因此禁用内置插件不算自定义；而把某个二进制固定到指定版本，则是一次普通的定义编辑。
-
-**Tools** 标签页提供 **Add Tool**，可以从 GitHub release 二进制创建新的清单 CLI 工具。保存后会注册插件并自动同步二进制文件，无需重启。内嵌的内置清单不会被修改。
-
-在管理界面里编辑内置插件时，只会存储你改动过的字段，其余字段继续跟随服务端自带的定义，升级后仍会随之更新。这类插件会标记为 **已自定义**，并提供 **恢复默认**：丢弃已存储的改动，启用开关保持不变。列表类字段（二进制文件、技能、会话环境变量）整体存储 —— 改了其中一个二进制，就等于接管了整个列表。在此行为出现之前保存的自定义存的是一整份定义，会一直冻结在那个版本；重新保存一次该插件即可改写为新格式，之后便会继续跟随升级。
-
-## v1 的限制
-
-- 清单不支持系统提示词和技能注册。需要这些功能的插件仍使用 Go 注册。
-- 不支持自定义安装脚本。
-- 不支持平台特定资产模式（`platforms:` 映射），请改用 `asset_pattern`。
-- 支持的二进制来源：GitHub 发布（`github`）、直接 HTTP 下载（`http`）、pipx（`pipx`）、npm（`npm`）。
+- Stella 扩展版本必须严格为 `"1"`。
+- `stdio` MCP entry 不支持，会带诊断跳过；请使用支持的 HTTP transport。
+- OAuth connection binding 尚未实现。
+- 不支持任意安装 hook 和自定义安装脚本。
+- 清单和安装选项不得包含 secret 或凭据定位信息。
+- 读取器会尽可能在组件边界隔离错误，因此有效 skill 和其他资源仍可加载。严格
+  authoring 校验会把未知或不支持的声明报告为错误。

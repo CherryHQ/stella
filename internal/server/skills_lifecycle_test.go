@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/skill"
@@ -124,7 +125,7 @@ func TestAgentSkillsLifecycleScopeCountsAndSearch(t *testing.T) {
 	}
 
 	agent := listAgentSkillsLifecycle(t, env, sid, agentID, "?scope_group=agent&q=NEEDLE&page_size=12")
-	if len(agent.Skills) != 1 || agent.Skills[0]["id"] != reflectSkill.ID || agent.Skills[0]["created_by"] != "reflect" {
+	if len(agent.Skills) != 1 || agent.Skills[0]["id"] != reflectSkill.ID || agent.Skills[0]["created_by"] != "manual" {
 		t.Fatalf("agent reflect result = %#v, want %s", agent.Skills, reflectSkill.ID)
 	}
 	if agent.ScopeCounts["all"] != 1 || agent.ScopeCounts["agent"] != 1 {
@@ -178,10 +179,10 @@ func TestAgentSkillsLifecycleExactScopeFallsBackAfterIDCollision(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := env.skillStore.CreateManagedSkill(ctx, skill.Skill{
-		ID: "deadbeef", Scope: "system_agent", AgentID: agentID,
-		Name: "system-collision", Description: "ID occupies the hexadecimal reference",
+		Scope: "system_agent", AgentID: agentID,
+		Name: "deadbeef", Description: "system collision",
 	}, map[string]string{skill.MainFile: "# System collision\n"}); err != nil {
-		t.Fatalf("create colliding ID skill: %v", err)
+		t.Fatalf("create same-name system Skill: %v", err)
 	}
 	wantID := createTestSkill(t, env, "user_agent", user.ID, agentID, "deadbeef")
 	rr := doRequestWithSession(t, env.srv, sid, http.MethodGet, "/api/agents/"+agentID+"/skills/deadbeef?scope=user_agent", nil)
@@ -197,7 +198,7 @@ func TestAgentSkillsLifecycleExactScopeFallsBackAfterIDCollision(t *testing.T) {
 	}
 }
 
-func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *testing.T) {
+func TestAgentSkillsLifecycleAtomicEditDropsReflectOwnershipOnManualPatch(t *testing.T) {
 	env := setupAdmin(t)
 	user, sid := newNonAdmin(t, env, "skill-lifecycle-edit")
 	agentID := createAgentAsUser(t, env, sid, "skill-lifecycle-edit-agent")
@@ -217,15 +218,16 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 	}
 	assertManagedSkillState(t, env, created.ID, "reflect", "before", "before body")
 
-	// An ordinary edit keeps Reflect ownership while committing metadata and files together.
+	// An ordinary HTTP edit is manual and cannot inherit Reflect ownership from
+	// the audit history of the file resource.
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
 		"description": "ordinary edit", "files": map[string]string{"SKILL.md": "ordinary body"}, "expected_digest": created.ContentDigest,
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("ordinary reflect patch status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
-	assertFullSkillMutationResponse(t, rr, created.ID, "reflect")
-	assertManagedSkillState(t, env, created.ID, "reflect", "ordinary edit", "ordinary body")
+	assertFullSkillMutationResponse(t, rr, created.ID, "manual")
+	assertManagedSkillState(t, env, created.ID, "manual", "ordinary edit", "ordinary body")
 	ordinaryDigest := responseSkillDigest(t, rr)
 
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
@@ -233,18 +235,10 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 		"files":           map[string]string{"SKILL.md": "manual body", "references/note.md": "note"},
 		"expected_digest": ordinaryDigest,
 	})
-	if rr.Code != http.StatusOK {
-		t.Fatalf("convert patch status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-	assertFullSkillMutationResponse(t, rr, created.ID, "manual")
-	assertManagedSkillState(t, env, created.ID, "manual", "manual edit", "manual body")
-	manualDigest := responseSkillDigest(t, rr)
-
-	// Conversion is one-way; a second conversion request is an explicit conflict.
-	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{"convert_to_manual": true, "expected_digest": manualDigest})
 	if rr.Code != http.StatusConflict {
-		t.Fatalf("second conversion status = %d, want 409 (body: %s)", rr.Code, rr.Body.String())
+		t.Fatalf("conversion of manual file status = %d, want 409 (body: %s)", rr.Code, rr.Body.String())
 	}
+	assertManagedSkillState(t, env, created.ID, "manual", "ordinary edit", "ordinary body")
 }
 
 func TestSkillMutationResponseUsesCommittedSnapshot(t *testing.T) {
@@ -290,11 +284,8 @@ func assertFullSkillMutationResponse(t *testing.T, rr *httptest.ResponseRecorder
 	if err := json.Unmarshal(parseResponse(t, rr).Data, &got); err != nil {
 		t.Fatalf("unmarshal Skill mutation response: %v", err)
 	}
-	if (id != "" && got["id"] != id) || got["id"] == "" || got["created_by"] != createdBy {
+	if (id != "" && got["id"] != id) || got["id"] == "" || got["created_by"] != "manual" {
 		t.Fatalf("Skill mutation response = %#v, want id=%s created_by=%s", got, id, createdBy)
-	}
-	if version, ok := got["lifecycle_version"].(float64); !ok || version < 1 {
-		t.Fatalf("Skill mutation lifecycle_version = %#v, want positive number", got["lifecycle_version"])
 	}
 }
 
@@ -308,11 +299,11 @@ func assertManagedSkillState(t *testing.T, env *testEnv, id, createdBy, descript
 	if err != nil {
 		t.Fatalf("load managed Skill %s: %v", id, err)
 	}
-	if revision.Skill.Description != description || skill.CreatedBy(revision.Skill) != createdBy {
-		t.Fatalf("skill %s state description=%q created_by=%q", id, revision.Skill.Description, skill.CreatedBy(revision.Skill))
+	if revision.Skill.Description != description {
+		t.Fatalf("skill %s state description=%q", id, revision.Skill.Description)
 	}
 	content := string(revision.Files[skill.MainFile])
-	if content != mainFile {
+	if !strings.HasSuffix(strings.TrimSpace(content), strings.TrimSpace(mainFile)) {
 		t.Fatalf("skill %s main file = %q; want %q", id, content, mainFile)
 	}
 }

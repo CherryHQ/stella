@@ -322,15 +322,17 @@ describe("AgentToolsPanel control contract", () => {
 // SAFETY: fixed response fixture satisfies the AgentMCPServer projection shape.
 const healthyServer = {
   id: "srv-1",
-  name: "github",
-  url: "https://mcp.example.com",
+  resource_id: "resource-1",
+  name: "GitHub",
+  server_key: "github",
+  content_digest: "sha256:healthy",
   scope: "user",
-  auth_type: "none",
-  transport: "streamable_http",
   enabled: true,
-  status: "ok",
+  status: "ready",
+  auth_type: "none",
   credential_mode: "shared",
-  version: "v1",
+  needs_auth: false,
+  tools: [],
   readable: true,
 } as import("@/lib/api-client/types.gen").AgentMcpServer;
 
@@ -338,8 +340,13 @@ const healthyServer = {
 const needsAuthServer = {
   ...healthyServer,
   id: "srv-2",
-  name: "notion",
+  resource_id: "resource-2",
+  name: "Notion",
+  server_key: "notion",
+  content_digest: "sha256:needs-auth",
   status: "needs_auth",
+  auth_type: "bearer",
+  needs_auth: true,
 } as import("@/lib/api-client/types.gen").AgentMcpServer;
 
 // SAFETY: fixed fixture preserves the MCP override-controlled tool row shape.
@@ -365,10 +372,8 @@ describe("McpServerGroup", () => {
         isAdmin={false}
         busyToolName={null}
         familyBusy={false}
-        toggleBusy={false}
         onToggle={vi.fn()}
         onSetFamilyEnabled={vi.fn()}
-        onToggleServer={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onConnect={vi.fn()}
@@ -394,10 +399,8 @@ describe("McpServerGroup", () => {
         isAdmin={false}
         busyToolName={null}
         familyBusy={false}
-        toggleBusy={false}
         onToggle={vi.fn()}
         onSetFamilyEnabled={vi.fn()}
-        onToggleServer={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onConnect={vi.fn()}
@@ -420,10 +423,8 @@ describe("McpServerGroup", () => {
         isAdmin={false}
         busyToolName={null}
         familyBusy={false}
-        toggleBusy={false}
         onToggle={vi.fn()}
         onSetFamilyEnabled={vi.fn()}
-        onToggleServer={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onConnect={vi.fn()}

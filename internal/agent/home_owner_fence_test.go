@@ -25,11 +25,12 @@ func (*ownerFenceRunner) Chat(context.Context, []ai.Message, agentruntime.Messag
 	close(out)
 	return out
 }
-func (*ownerFenceRunner) Alive() bool             { return true }
-func (*ownerFenceRunner) Busy() bool              { return false }
-func (*ownerFenceRunner) LastActivity() time.Time { return time.Now() }
-func (*ownerFenceRunner) SystemPrompt() string    { return "" }
-func (*ownerFenceRunner) Close() error            { return nil }
+func (*ownerFenceRunner) Alive() bool                  { return true }
+func (*ownerFenceRunner) Busy() bool                   { return false }
+func (*ownerFenceRunner) LastActivity() time.Time      { return time.Now() }
+func (*ownerFenceRunner) SystemPrompt() string         { return "" }
+func (*ownerFenceRunner) PluginContext() PluginContext { return PluginContext{} }
+func (*ownerFenceRunner) Close() error                 { return nil }
 
 type signalingFenceAcquirer struct {
 	delegate home.OwnerFenceAcquirer
@@ -38,11 +39,12 @@ type signalingFenceAcquirer struct {
 }
 
 func (f *signalingFenceAcquirer) AcquireHomeOwnerFence(ctx context.Context, kind home.OwnerKind, id string) (home.OwnerFenceLease, error) {
+	lease, err := f.delegate.AcquireHomeOwnerFence(ctx, kind, id)
 	f.once.Do(func() { close(f.entered) })
-	return f.delegate.AcquireHomeOwnerFence(ctx, kind, id)
+	return lease, err
 }
 
-func TestHomeOwnerDeletionWaitsForWorkspaceAdmissionWithoutDeadlock(t *testing.T) {
+func TestHomeOwnerDeletionFencesBlockedWorkspaceAdmissionWithoutDeadlock(t *testing.T) {
 	for _, kind := range []home.OwnerKind{home.OwnerUser, home.OwnerGroup, home.OwnerAgent} {
 		t.Run(string(kind), func(t *testing.T) {
 			ctx := t.Context()
@@ -108,16 +110,27 @@ func TestHomeOwnerDeletionWaitsForWorkspaceAdmissionWithoutDeadlock(t *testing.T
 				}
 			}()
 			<-fencer.entered
+			select {
+			case <-deleteDone:
+				t.Fatal("deletion completed before blocked construction was fenced")
+			default:
+			}
 			close(releaseFactory)
-			for label, done := range map[string]<-chan error{"admission": admitDone, "deletion": deleteDone} {
-				select {
-				case err := <-done:
-					if err != nil {
-						t.Fatalf("%s: %v", label, err)
-					}
-				case <-time.After(2 * time.Second):
-					t.Fatalf("%s deadlocked", label)
+			select {
+			case err := <-admitDone:
+				if err == nil {
+					t.Fatal("admission succeeded after owner deletion")
 				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("admission remained blocked after owner fence")
+			}
+			select {
+			case err := <-deleteDone:
+				if err != nil {
+					t.Fatalf("deletion: %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("deletion remained blocked after construction returned")
 			}
 			if kind == home.OwnerAgent && pm.GetService(agentID) != nil {
 				t.Fatal("Agent service remained published after commit")

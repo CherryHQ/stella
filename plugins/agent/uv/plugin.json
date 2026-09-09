@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "uv",
+  "version": "1.0.0",
+  "description": "An extremely fast Python package manager and resolver written in Rust.",
+  "extensions": {
+    "com.cherryhq.stella": {
+      "version": "1",
+      "binaries": [{ "name": "uv", "tool": "uv" }]
+    }
+  }
+}

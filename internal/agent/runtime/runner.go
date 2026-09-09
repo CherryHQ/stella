@@ -79,6 +79,15 @@ type RunnerParams struct {
 	HooksFn         func() []hooks.HookPlugin
 	ExtraTools      []tools.Tool
 	DelegateRunner  delegatetool.SessionRunner
+	// PluginContext is an admission-captured context. Production builders set
+	// PluginContextReady when a fresh identity was prepared so the runner and
+	// cache compare and consume the same snapshot.
+	PluginContext      PluginContext
+	PluginContextReady bool
+	// BuildOwner is registered in the runner cache before the factory starts
+	// slow workspace/package work. It owns external cleanup until construction
+	// completes and the returned Runner takes over the owner.
+	BuildOwner *RunnerBuildOwner
 }
 
 // Runner executes prompts against an AI backend.
@@ -88,11 +97,21 @@ type Runner interface {
 	Busy() bool
 	LastActivity() time.Time
 	SystemPrompt() string
+	PluginContext() PluginContext
 	Close() error
 }
 
-// NewRunnerFunc creates a new Runner with the given params. On failure it may
-// return a non-nil runner solely for Close retry; no other method may be called.
+// TurnPreparer refreshes resource-backed turn state on a cached runner. It is
+// deliberately optional: runners without per-turn resources keep using their
+// immutable admission context. Preparation happens after reservation, so a
+// resource refresh never rebuilds the runner or changes its cached identity.
+type TurnPreparer interface {
+	PrepareTurn(context.Context, PluginContext) (context.Context, PluginContext, error)
+}
+
+// NewRunnerFunc creates a new Runner with the given params. On initialization
+// failure it may return a non-nil Close-only runner so the caller can retry
+// cleanup after a failed sandbox termination.
 type NewRunnerFunc func(ctx context.Context, params RunnerParams) (Runner, error)
 
 // MessageText extracts and joins all text from a MessageContent.

@@ -218,6 +218,9 @@ components:
             agent_management; generated builtin actions use their toolmeta
             family; hand-written core and plugin tools use stable fallback
             families. Clients must not infer this value from the tool name.
+        plugin_server_key:
+          type: string
+          description: Authored MCP server key for plugin-owned tools.
         policy_reason:
           type: string
           enum: [
@@ -411,26 +414,58 @@ components:
 
     AgentMCPServer:
       type: object
-      allOf:
-        - $ref: "#/components/schemas/MCPServer"
-        - type: object
-          required: [readable]
-          properties:
-            shadowed_scopes:
-              type: array
-              description: >-
-                Scopes of same-named registrations that lost the precedence
-                resolution to this one. Overrides are keyed by tool name, so a
-                shadowed registration's overrides simply lose with it.
-              items:
-                type: string
-                enum: [user, user_agent, system, system_agent]
-            readable:
-              type: boolean
-              description: >-
-                Whether the caller could read this registration through the
-                scoped MCP API; a user sees another user's row only as an
-                unreadable system-owned shadow it cannot manage.
+      required: [
+        id,
+        resource_id,
+        name,
+        server_key,
+        content_digest,
+        scope,
+        enabled,
+        auth_type,
+        credential_mode,
+        needs_auth,
+        status,
+        tools,
+        readable,
+      ]
+      additionalProperties: false
+      description: >-
+        Safe effective MCP projection for an agent. This is a file-backed
+        resource identity; it omits endpoints, payloads, credential references,
+        OAuth state, and legacy plugin configuration identifiers.
+      properties:
+        id:
+          type: string
+          readOnly: true
+          description: Stable opaque mcp-file identity for this server.
+        resource_id:
+          type: string
+          readOnly: true
+          description: Stable file resource identifier for the source package or declaration.
+        name: { type: string, readOnly: true }
+        server_key: { type: string, readOnly: true }
+        content_digest: { type: string, readOnly: true }
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+        enabled: { type: boolean }
+        auth_type:
+          type: string
+          enum: [none, bearer, oauth]
+        credential_mode:
+          type: string
+          enum: [shared, per_user]
+        needs_auth: { type: boolean }
+        status:
+          type: string
+          enum: [unknown, ready, error, needs_auth]
+        tools:
+          type: array
+          items: { $ref: "#/components/schemas/MCPTool" }
+        readable:
+          type: boolean
+          description: Whether the caller may read and manage this file-backed resource.
 
     AgentMCPServerList:
       type: object

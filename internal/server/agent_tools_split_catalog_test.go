@@ -8,12 +8,14 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/agent"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/library/recally"
 	"github.com/CherryHQ/stella/internal/memory"
+	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
@@ -32,18 +34,18 @@ import (
 // (rules/agent-tools.md §10).
 var splitCatalog = []string{
 	"goal_cancel", "goal_create", "goal_get", "goal_list",
-	"scheduler_job_create", "scheduler_job_delete", "scheduler_job_get",
-	"scheduler_job_list", "scheduler_job_pause", "scheduler_job_resume",
-	"scheduler_job_update",
+	"scheduler__job_create", "scheduler__job_delete", "scheduler__job_get",
+	"scheduler__job_list", "scheduler__job_pause", "scheduler__job_resume",
+	"scheduler__job_update",
 	"workflow_get", "workflow_list", "workflow_run", "workflow_save",
 	"oauth_connect", "oauth_disconnect", "oauth_flow_status", "oauth_list",
-	"email_account_list", "email_message_list", "email_message_read", "email_message_send",
+	"email__account_list", "email__message_list", "email__message_read", "email__message_send",
 	"share_create_article", "share_create_artifact", "share_list", "share_revoke",
 	"vault_secret_delete", "vault_secret_list", "vault_secret_set",
-	"recally_article_get", "recally_article_list", "recally_article_save",
-	"recally_digest_get", "recally_digest_save",
-	"recally_entry_add", "recally_entry_list", "recally_entry_update",
-	"recally_feed_add", "recally_feed_list", "recally_feed_poll", "recally_feed_remove",
+	"recally__article_get", "recally__article_list", "recally__article_save",
+	"recally__digest_get", "recally__digest_save",
+	"recally__entry_add", "recally__entry_list", "recally__entry_update",
+	"recally__feed_add", "recally__feed_list", "recally__feed_poll", "recally__feed_remove",
 	"session_create", "session_get", "session_list", "session_send",
 	"skill_installed_search", "skill_load",
 	"memory_read", "memory_search",
@@ -54,9 +56,17 @@ func TestListAgentToolsServesEverySplitActionWithAnExactSchema(t *testing.T) {
 	_, sessionID := newNonAdmin(t, env, "split-catalog-user")
 	agentID := createAgentAsUser(t, env, sessionID, "split-catalog-agent")
 	meta := splitCatalogToolMeta()
+	nativeIDs := pluginpkg.NativeRegistryMap{}
+	for _, spec := range meta.Tools() {
+		if spec.PluginID != "" {
+			nativeIDs[spec.PluginID] = true
+		}
+	}
+	nativePolicy := pluginpkg.NewNativePolicy(store.NewDBStore(env.db), nativeIDs)
 	env.rebuild(t, func(deps *server.Deps) {
 		deps.BuiltinTools = splitCatalogBuiltins()
 		deps.ToolMeta = meta
+		deps.NativePolicy = nativePolicy
 	})
 
 	rr := doRequestWithSession(t, env.srv, sessionID, http.MethodGet, "/api/agents/"+agentID+"/tools", nil)

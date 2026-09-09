@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/plugin"
 )
 
 // oauthFlowTTL bounds one authorization attempt; the flow row expires with it.
@@ -23,9 +25,14 @@ const oauthRefreshSlop = 60 * time.Second
 // deliberately independent: connections are fixed YAML providers, MCP servers
 // are user-created, and the two must not grow coupled fields.
 type OAuthBundle struct {
-	Version         int       `json:"version"`
-	ClientID        string    `json:"client_id"`
-	TokenEndpoint   string    `json:"token_endpoint"`
+	Version int `json:"version"`
+	// Generation is an opaque per-grant nonce. Disconnect rotates it before
+	// removing the bundle, so a late callback or refresh cannot revive access.
+	Generation    string `json:"generation,omitempty"`
+	ClientID      string `json:"client_id"`
+	TokenEndpoint string `json:"token_endpoint"`
+	// AuthStyle is derived from the RFC 7591 token_endpoint_auth_method
+	// returned by discovery/DCR and is consumed by exchange and refresh.
 	AuthStyle       int       `json:"auth_style"`
 	Resource        string    `json:"resource,omitempty"`
 	AccessToken     string    `json:"access_token"`
@@ -38,13 +45,35 @@ type OAuthBundle struct {
 // during StartOAuth and consumed by CompleteOAuth. The client secret never
 // lands here — ClientSecretRef names the vault entry holding it.
 type oauthFlowConfig struct {
-	ClientID        string   `json:"client_id"`
-	ClientSecretRef string   `json:"client_secret_ref,omitempty"`
-	TokenEndpoint   string   `json:"token_endpoint"`
-	AuthStyle       int      `json:"auth_style"`
-	Resource        string   `json:"resource,omitempty"`
-	Scopes          []string `json:"scopes,omitempty"`
-	RedirectURI     string   `json:"redirect_uri"`
+	ClientID        string `json:"client_id"`
+	ClientSecretRef string `json:"client_secret_ref,omitempty"`
+	TokenEndpoint   string `json:"token_endpoint"`
+	// AuthStyle is captured at start so the callback uses the AS-selected
+	// client_secret_basic/post/none wire format without rediscovery.
+	AuthStyle   int      `json:"auth_style"`
+	Resource    string   `json:"resource,omitempty"`
+	Scopes      []string `json:"scopes,omitempty"`
+	RedirectURI string   `json:"redirect_uri"`
+	// Common plugin identity is persisted with the one-shot flow so the
+	// callback never has to rediscover a legacy mcp_server row by UUID.
+	PluginID                string             `json:"plugin_id,omitempty"`
+	File                    bool               `json:"file,omitzero"`
+	FileKey                 plugin.ResourceKey `json:"file_key,omitzero"`
+	FileIdentity            string             `json:"file_identity,omitempty"`
+	FileGeneration          string             `json:"file_generation,omitempty"`
+	TokenEndpointAuthMethod string             `json:"token_endpoint_auth_method,omitempty"`
+	ParentConfigID          string             `json:"parent_config_id,omitempty"`
+	ServerKey               string             `json:"server_key,omitempty"`
+	ConfigRevision          int64              `json:"config_revision,omitempty"`
+	ConfigScope             string             `json:"config_scope,omitempty"`
+	ConfigUserID            string             `json:"config_user_id,omitempty"`
+	ConfigAgentID           string             `json:"config_agent_id,omitempty"`
+	CredentialMode          string             `json:"credential_mode,omitempty"`
+	Headers                 map[string]string  `json:"headers,omitempty"`
+	Endpoint                string             `json:"endpoint,omitempty"`
+	Transport               string             `json:"transport,omitempty"`
+	RegistrationName        string             `json:"registration_name,omitempty"`
+	CallTimeoutSeconds      int                `json:"call_timeout_seconds,omitzero"`
 }
 
 func (c oauthFlowConfig) marshal() (json.RawMessage, error) {
@@ -70,31 +99,27 @@ func decodeOAuthFlowConfig(raw json.RawMessage) (oauthFlowConfig, error) {
 // owner's vault tuple. A missing entry is not an error: it means "never
 // connected", so it yields a nil bundle.
 func (s *Service) loadBundle(ctx context.Context, reg Registration, owner CredentialOwner) (*OAuthBundle, error) {
-	if s.vault == nil {
-		return nil, fmt.Errorf("mcp: oauth requires the vault, which is not configured")
+	if !reg.IsFile() {
+		return nil, errPluginConfigIdentity
 	}
-	raw, err := s.vault.GetScoped(ctx, owner.Scope, owner.UserID, owner.AgentID, oauthBundleName(reg.ID))
+	snapshot, err := s.loadFileCredentialSnapshot(ctx, reg, owner)
 	if err != nil {
-		return nil, fmt.Errorf("mcp: read oauth bundle: %w", err)
+		return nil, err
 	}
-	if raw == "" {
-		return nil, nil
-	}
-	var bundle OAuthBundle
-	if err := json.Unmarshal([]byte(raw), &bundle); err != nil {
-		return nil, fmt.Errorf("mcp: decode oauth bundle: %w", err)
-	}
-	return &bundle, nil
+	return snapshot.Bundle, nil
 }
 
 // storeBundle marshals and writes the bundle at the owner's vault tuple.
 func (s *Service) storeBundle(ctx context.Context, reg Registration, owner CredentialOwner, bundle OAuthBundle) error {
-	raw, err := json.Marshal(bundle)
-	if err != nil {
-		return fmt.Errorf("mcp: encode oauth bundle: %w", err)
+	return s.storeBundleCAS(ctx, reg, owner, bundle, nil)
+}
+
+// storeBundleCAS writes through the config-row lock. expectedRaw is used by a
+// refresh to prevent an older in-flight network response from overwriting a
+// newer bundle written by another process.
+func (s *Service) storeBundleCAS(ctx context.Context, reg Registration, owner CredentialOwner, bundle OAuthBundle, expectedRaw []byte) error {
+	if !reg.IsFile() {
+		return errPluginConfigIdentity
 	}
-	if err := s.storeToken(ctx, owner.Scope, owner.UserID, owner.AgentID, oauthBundleName(reg.ID), string(raw)); err != nil {
-		return fmt.Errorf("mcp: store oauth bundle: %w", err)
-	}
-	return nil
+	return s.storeFileBundleCAS(ctx, reg, owner, bundle, expectedRaw)
 }

@@ -1,7 +1,10 @@
 package skill
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,6 +15,8 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/plugin"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -31,7 +36,23 @@ type Tool struct {
 	disabledSkillRefs   []string
 	// readAuthz enforces Skill read authorization on every managed Skill before
 	// Home content is opened. It is mandatory at construction.
-	readAuthz SkillReadAuthorizer
+	readAuthz     SkillReadAuthorizer
+	packageReader PackageSkillReader
+}
+
+// PackageSkillReader is the narrow immutable package-store seam. It resolves
+// only the digest/path selected for this turn; it is not a general filesystem
+// or source registry.
+type PackageSkillReader interface {
+	LoadPackageSkill(context.Context, PackageSkillRef) (PackageSkillRevision, error)
+}
+
+// PackageSkillRevision contains the complete files of one package Skill,
+// relative to its Skill directory. The reader owns integrity verification.
+type PackageSkillRevision struct {
+	Ref   PackageSkillRef
+	Files map[string][]byte
+	Modes map[string]fs.FileMode
 }
 
 func (t *Tool) WithProjectSnapshot(snapshot *ProjectSnapshot) *Tool {
@@ -71,12 +92,43 @@ func (t *Tool) WithAgentSkillPolicy(disabled []string) *Tool {
 	return t
 }
 
-// authorizeReadable filters merged skills through the read PEP: filesystem
-// project/built-in skills pass unchanged; each DB row is authorized under one
-// evaluation.
+func (t *Tool) WithPackageReader(reader PackageSkillReader) *Tool {
+	t.packageReader = reader
+	return t
+}
+
+// readAuthorizationTarget returns the durable identity used by the read PEP.
+// File package bytes are immutable after admission, but their owner policy is
+// still evaluated on every consumer operation.
+func readAuthorizationTarget(rs ResolvedSkill) (id, scope, userID, agentID string, required bool) {
+	if isDBSkill(rs) {
+		return rs.ID, rs.Scope, rs.UserID, rs.AgentID, true
+	}
+	ref, ok := rs.PackageRef()
+	if !ok || !isFilePackageSkillRef(ref) {
+		return "", "", "", "", false
+	}
+	key, err := plugin.ParseResourceID(ref.PackageID)
+	if err != nil {
+		return "", "", "", "", false
+	}
+	return ref.PackageID, string(key.Scope), key.UserID, key.AgentID, true
+}
+
+func isFilePackageSkill(rs ResolvedSkill) bool {
+	ref, ok := rs.PackageRef()
+	return ok && isFilePackageSkillRef(ref)
+}
+
+// authorizeReadable filters merged skills through the read PEP. Project and
+// release-builtin skills remain immutable public data; DB rows and file-backed
+// package Skills require a fresh decision under one evaluation.
 func (t *Tool) authorizeReadable(ctx context.Context, merged []ResolvedSkill) ([]ResolvedSkill, error) {
-	anyDB := slices.ContainsFunc(merged, isDBSkill)
-	if !anyDB {
+	needsAuth := slices.ContainsFunc(merged, func(rs ResolvedSkill) bool {
+		_, _, _, _, required := readAuthorizationTarget(rs)
+		return required
+	})
+	if !needsAuth {
 		return merged, nil
 	}
 	out := make([]ResolvedSkill, 0, len(merged))
@@ -94,14 +146,15 @@ func (t *Tool) authorizeReadable(ctx context.Context, merged []ResolvedSkill) ([
 		return nil, err
 	}
 	for _, rs := range merged {
-		if !isDBSkill(rs) {
+		id, scope, userID, agentID, required := readAuthorizationTarget(rs)
+		if !required {
 			out = append(out, rs)
 			continue
 		}
 		if dec == nil {
 			continue // fail closed: no decider, drop the DB row
 		}
-		allowed, err := dec.AllowRead(ctx, rs.ID, rs.Scope, rs.UserID, rs.AgentID)
+		allowed, err := dec.AllowRead(ctx, id, scope, userID, agentID)
 		if err != nil {
 			return nil, err
 		}
@@ -113,9 +166,14 @@ func (t *Tool) authorizeReadable(ctx context.Context, merged []ResolvedSkill) ([
 }
 
 // authorizeLoadable authorizes a single resolved skill for load. A denied or
-// unauthorized DB row is reported not-found; filesystem skills pass.
+// unauthorized DB row or file package is reported not-found; public immutable
+// project/release skills pass.
 func (t *Tool) authorizeLoadable(ctx context.Context, rs *ResolvedSkill) error {
-	if rs == nil || !isDBSkill(*rs) {
+	if rs == nil {
+		return nil
+	}
+	id, scope, userID, agentID, required := readAuthorizationTarget(*rs)
+	if !required {
 		return nil
 	}
 	dec, err := t.readAuthz.BeginRead(ctx)
@@ -126,7 +184,10 @@ func (t *Tool) authorizeLoadable(ctx context.Context, rs *ResolvedSkill) error {
 		}
 		return err
 	}
-	allowed, err := dec.AllowRead(ctx, rs.ID, rs.Scope, rs.UserID, rs.AgentID)
+	if dec == nil {
+		return ErrSkillReadUnavailable
+	}
+	allowed, err := dec.AllowRead(ctx, id, scope, userID, agentID)
 	if err != nil {
 		return err
 	}
@@ -198,12 +259,41 @@ func resolvedIdentity(rs ResolvedSkill) Skill {
 }
 
 func (t *Tool) identityMerged(ctx context.Context, vc ViewContext) ([]ResolvedSkill, error) {
+	if turn, ok := SkillTurnViewFromContext(ctx); ok {
+		if err := ValidateSkillTurnSelection(turn); err != nil {
+			return nil, err
+		}
+		merged := t.svc.ListMergedWithPackages(turn.ManagedIdentities(), turn.ProjectSnapshot(), turn.PackageSkills(), turn.MaskedSkillNames())
+		merged = filterMaskedSkills(merged, turn.MaskedSkillNames())
+		return filterDisabled(merged, turn.DisabledSkillRefs()), nil
+	}
 	rows, err := listManagedIdentitiesWhenAvailable(ctx, t.runtime, ViewContext{UserID: vc.UserID, AgentID: vc.AgentID})
 	if err != nil {
 		return nil, err
 	}
 	merged := t.svc.ListMerged(rows, t.projectSnapshot)
 	return filterDisabled(merged, vc.DisabledSkillRefs), nil
+}
+
+func filterMaskedSkills(skills []ResolvedSkill, names []string) []ResolvedSkill {
+	if len(names) == 0 {
+		return skills
+	}
+	masked := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		masked[name] = struct{}{}
+	}
+	out := make([]ResolvedSkill, 0, len(skills))
+	for _, candidate := range skills {
+		if candidate.project != nil {
+			out = append(out, candidate)
+			continue
+		}
+		if _, ok := masked[candidate.Name]; !ok {
+			out = append(out, candidate)
+		}
+	}
+	return out
 }
 
 func (t *Tool) hydrateAuthorized(ctx context.Context, merged []ResolvedSkill) ([]ResolvedSkill, error) {
@@ -217,10 +307,7 @@ func (t *Tool) hydrateAuthorized(ctx context.Context, merged []ResolvedSkill) ([
 			out = append(out, rs)
 			continue
 		}
-		revision, err := t.runtime.LoadCurrentRevision(ctx, resolvedIdentity(rs))
-		if errors.Is(err, errCurrentSkillSelectorMissing) {
-			continue
-		}
+		revision, err := t.loadSelectedRevision(ctx, rs)
 		if err != nil {
 			return nil, err
 		}
@@ -234,6 +321,22 @@ func (t *Tool) hydrateAuthorized(ctx context.Context, merged []ResolvedSkill) ([
 		out = append(out, rs)
 	}
 	return out, nil
+}
+
+func (t *Tool) loadSelectedRevision(ctx context.Context, rs ResolvedSkill) (ManagedRevision, error) {
+	if turn, ok := SkillTurnViewFromContext(ctx); ok {
+		if revision, captured := turn.ManagedRevision(rs.ID); captured {
+			return revision, nil
+		}
+		if isFileSkillID(rs.ID) {
+			return ManagedRevision{}, ErrInvalidSkillRevision
+		}
+	}
+	identity := resolvedIdentity(rs)
+	if validSkillDigest(rs.ContentDigest) {
+		return t.runtime.LoadExactRevision(ctx, identity, rs.ContentDigest)
+	}
+	return t.runtime.LoadCurrentRevision(ctx, identity)
 }
 
 func (t *Tool) loadManagedOrImmutable(ctx context.Context, name, filename string, vc ViewContext) (string, error) {
@@ -260,13 +363,63 @@ func (t *Tool) loadManagedOrImmutable(ctx context.Context, name, filename string
 	if resolved == nil {
 		return "", fmt.Errorf("skill %q not found", name)
 	}
+	if _, turn := SkillTurnViewFromContext(ctx); !turn || !isFilePackageSkill(*resolved) {
+		if len(filterVisibleResolvedSkills([]ResolvedSkill{*resolved}, pkgplugins.SystemPromptContext{
+			RegisteredPluginIDs: t.registeredPluginIDs,
+			EnabledPluginIDs:    t.enabledPluginIDs,
+		})) == 0 {
+			return "", errSkillNotFound
+		}
+	}
 	if err := t.authorizeLoadable(ctx, resolved); err != nil {
 		return "", err
 	}
 
 	var data string
 	var projection immutableSkillProjection
-	if !isDBSkill(*resolved) {
+	switch {
+	case resolved.IsPackage():
+		ref, _ := resolved.PackageRef()
+		var revision PackageSkillRevision
+		if _, turn := SkillTurnViewFromContext(ctx); turn {
+			switch {
+			case resolved.packageRef != nil && resolved.packageRef.captured != nil:
+				revision = clonePackageSkillRevision(*resolved.packageRef.captured)
+			case isFilePackageSkillRef(ref):
+				return "", ErrInvalidSkillRevision
+			default:
+				if t.packageReader == nil {
+					return "", errors.New("package Skills are unavailable: package reader is not configured")
+				}
+				var readErr error
+				revision, readErr = t.packageReader.LoadPackageSkill(ctx, ref)
+				if readErr != nil {
+					return "", fmt.Errorf("load package skill %q: %w", name, readErr)
+				}
+			}
+		} else {
+			if t.packageReader == nil {
+				return "", errors.New("package Skills are unavailable: package reader is not configured")
+			}
+			var readErr error
+			revision, readErr = t.packageReader.LoadPackageSkill(ctx, ref)
+			if readErr != nil {
+				return "", fmt.Errorf("load package skill %q: %w", name, readErr)
+			}
+		}
+		if !samePackageSkillRef(ref, revision.Ref) {
+			return "", ErrInvalidSkillRevision
+		}
+		projection, err = packageSkillProjection(revision)
+		if err != nil {
+			return "", fmt.Errorf("prepare package skill %q projection: %w", name, err)
+		}
+		dataBytes, ok := revision.Files[filename]
+		if !ok {
+			return "", fmt.Errorf("load package skill %q file %q: %w", name, filename, fs.ErrNotExist)
+		}
+		data = string(dataBytes)
+	case !isDBSkill(*resolved):
 		data, err = resolved.LoadImmutableFile(filename)
 		if err != nil {
 			return "", fmt.Errorf("load %s skill %q file %q: %w", resolved.Scope, name, filename, err)
@@ -275,8 +428,8 @@ func (t *Tool) loadManagedOrImmutable(ctx context.Context, name, filename string
 		if err != nil {
 			return "", fmt.Errorf("prepare %s skill %q projection: %w", resolved.Scope, name, err)
 		}
-	} else {
-		revision, readErr := t.runtime.LoadCurrentRevision(ctx, resolvedIdentity(*resolved))
+	default:
+		revision, readErr := t.loadSelectedRevision(ctx, *resolved)
 		if readErr != nil {
 			return "", fmt.Errorf("load skill %q: %w", name, readErr)
 		}
@@ -311,8 +464,60 @@ func (t *Tool) loadManagedOrImmutable(ctx context.Context, name, filename string
 	return out.String(), nil
 }
 
+func samePackageSkillRef(expected, actual PackageSkillRef) bool {
+	if expected.PackageID != actual.PackageID || expected.PackageDigest != actual.PackageDigest || expected.Name != actual.Name {
+		return false
+	}
+	expectedPath := expected.Path
+	if expectedPath == "" {
+		expectedPath = "skills/" + expected.Name + "/SKILL.md"
+	}
+	actualPath := actual.Path
+	if actualPath == "" {
+		actualPath = "skills/" + actual.Name + "/SKILL.md"
+	}
+	return expectedPath == actualPath
+}
+
+func packageSkillProjection(revision PackageSkillRevision) (immutableSkillProjection, error) {
+	if revision.Ref.PackageID == "" || !validPackageDigest(revision.Ref.PackageDigest) || revision.Ref.Name == "" || len(revision.Files) == 0 {
+		return immutableSkillProjection{}, ErrInvalidSkillRevision
+	}
+	files := make([]revisionFile, 0, len(revision.Files))
+	for filename, content := range revision.Files {
+		mode := revision.Modes[filename]
+		if mode == 0 {
+			mode = 0o444
+		}
+		mode = mode.Perm() & 0o555
+		if mode&0o444 == 0 {
+			return immutableSkillProjection{}, ErrInvalidSkillRevision
+		}
+		files = append(files, revisionFile{Path: filename, Content: bytes.Clone(content), Mode: mode})
+	}
+	files, err := validateRevisionFiles(files)
+	if err != nil {
+		return immutableSkillProjection{}, err
+	}
+	projected := make([]immutableSkillFile, 0, len(files))
+	for _, file := range files {
+		projected = append(projected, immutableSkillFile{path: file.Path, content: file.Content, mode: file.Mode})
+	}
+	return immutableSkillProjection{kind: "package", id: packageProjectionID(revision.Ref), digest: packageDigestHex(revision.Ref.PackageDigest), files: projected}, nil
+}
+
+func packageProjectionID(ref PackageSkillRef) string {
+	id := ref.PackageID + ":" + ref.Name
+	if !isFilePackageSkillRef(ref) {
+		return id
+	}
+	digest := sha256.Sum256([]byte(id))
+	return hex.EncodeToString(digest[:])
+}
+
 func managedSkillProjection(revision ManagedRevision) (immutableSkillProjection, error) {
-	if !validInventoryComponent(revision.Skill.Scope) || !validInventoryComponent(revision.Skill.ID) || !validSkillDigest(revision.Skill.ContentDigest) {
+	validID := validInventoryComponent(revision.Skill.ID) || isFileSkillID(revision.Skill.ID)
+	if !validInventoryComponent(revision.Skill.Scope) || !validID || !validSkillDigest(revision.Skill.ContentDigest) {
 		return immutableSkillProjection{}, ErrInvalidSkillRevision
 	}
 	if len(revision.Modes) != len(revision.Files) {
@@ -340,10 +545,18 @@ func managedSkillProjection(revision ManagedRevision) (immutableSkillProjection,
 	}
 	return immutableSkillProjection{
 		kind:   revision.Skill.Scope,
-		id:     revision.Skill.ID,
+		id:     skillProjectionID(revision.Skill),
 		digest: revision.Skill.ContentDigest,
 		files:  projected,
 	}, nil
+}
+
+func skillProjectionID(skill Skill) string {
+	if !isFileSkillID(skill.ID) {
+		return skill.ID
+	}
+	digest := sha256.Sum256([]byte(skill.ID))
+	return hex.EncodeToString(digest[:])
 }
 
 func (t *Tool) projectSkill(projection immutableSkillProjection) (string, error) {
@@ -388,7 +601,7 @@ func (t *Tool) touchReflectSkillRuntimeUse(ctx context.Context, resolved *Resolv
 	if resolved == nil || resolved.Scope != "user_agent" || resolved.UserID != vc.UserID || resolved.AgentID != vc.AgentID {
 		return nil
 	}
-	if !IsReflectOwned(Skill{Metadata: resolved.Metadata}) {
+	if !isFileSkillID(resolved.ID) && !IsReflectOwned(Skill{Metadata: resolved.Metadata}) {
 		return nil
 	}
 	touchCtx, cancel := context.WithTimeout(ctx, runtimeUsageTouchTimeout)

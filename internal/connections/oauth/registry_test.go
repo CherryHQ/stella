@@ -156,6 +156,63 @@ func TestRegistryDeleteBundleWaitsForRefreshAndDoesNotResurrect(t *testing.T) {
 	}
 }
 
+func TestDeleteBundleWithMutationWaitsPerBundleBeforeCoordinator(t *testing.T) {
+	reg := NewProviderRegistry()
+	reg.Register(ProviderConfig{ID: "acme", VaultKey: "ACME_OAUTH"})
+	store := newMockVaultStore()
+	refreshEntered := make(chan struct{})
+	refreshRelease := make(chan struct{})
+	refreshDone := make(chan error, 1)
+	go func() {
+		_, err := withBundleLock(reg, "acme", "user-1", func() (*OAuthBundle, error) {
+			close(refreshEntered)
+			<-refreshRelease
+			return nil, nil
+		})
+		refreshDone <- err
+	}()
+	<-refreshEntered
+
+	userOneCoordinatorEntered := make(chan struct{})
+	userOneDone := make(chan error, 1)
+	go func() {
+		userOneDone <- reg.DeleteBundleWithMutation(t.Context(), store, "acme", "user-1", func(mutate func() error) error {
+			close(userOneCoordinatorEntered)
+			return mutate()
+		})
+	}()
+	select {
+	case <-userOneCoordinatorEntered:
+		t.Fatal("user-1 coordinator entered while its refresh held the bundle lock")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	userTwoCoordinatorEntered := make(chan struct{})
+	userTwoDone := make(chan error, 1)
+	go func() {
+		userTwoDone <- reg.DeleteBundleWithMutation(t.Context(), store, "acme", "user-2", func(_ func() error) error {
+			close(userTwoCoordinatorEntered)
+			return nil
+		})
+	}()
+	select {
+	case <-userTwoCoordinatorEntered:
+	case <-time.After(time.Second):
+		t.Fatal("user-2 coordinator blocked behind user-1 refresh")
+	}
+	if err := <-userTwoDone; err != nil {
+		t.Fatalf("user-2 deletion: %v", err)
+	}
+
+	close(refreshRelease)
+	if err := <-refreshDone; err != nil {
+		t.Fatalf("refresh lock holder: %v", err)
+	}
+	if err := <-userOneDone; err != nil {
+		t.Fatalf("user-1 deletion: %v", err)
+	}
+}
+
 func TestNeedsRefresh(t *testing.T) {
 	now := time.Now()
 

@@ -51,13 +51,12 @@ func init() {
 		pkgplugins.RegisterManagedChannelPlugin(host, pkgplugins.ManagedChannelPluginRegistration{
 			PluginID:    PluginID,
 			RuntimeName: RuntimeName,
-			Meta: pkgplugins.PluginInfo{
-				ID:           PluginID,
-				Kind:         "channel",
-				Name:         pkgchannel.PlatformTelegram,
-				DisplayName:  "Telegram",
-				Description:  "Telegram bot integration.",
-				AdminVisible: true,
+			Info: pkgplugins.PluginInfo{
+				ID:          PluginID,
+				Kind:        "channel",
+				Name:        pkgchannel.PlatformTelegram,
+				DisplayName: "Telegram",
+				Description: "Telegram bot integration.",
 				Capabilities: []string{
 					pkgplugins.CapabilityRuntime,
 					pkgplugins.CapabilityConfig,

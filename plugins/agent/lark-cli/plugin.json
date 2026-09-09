@@ -1,0 +1,27 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "lark-cli",
+  "version": "1.0.0",
+  "description": "Lark CLI with environment or managed OAuth authentication and built-in CLI documentation.",
+  "extensions": {
+    "com.cherryhq.stella": {
+      "version": "1",
+      "display_name": "Lark CLI",
+      "prompt": "Use lark-cli for Feishu/Lark operations. Read the bundled lark-cli skill for Stella's environment/OAuth authentication rules, then use lark-cli skills read for domain documentation. Never run lark-cli config init or auth login inside Stella.",
+      "binaries": [{ "name": "lark-cli", "tool": "github:larksuite/cli", "version": "1.0.87" }],
+      "session_env": [
+        { "env_var": "LARKSUITE_CLI_USER_ACCESS_TOKEN", "source": "oauth.access_token" },
+        { "env_var": "LARKSUITE_CLI_APP_ID", "source": "oauth.client_id" },
+        { "env_var": "LARKSUITE_CLI_BRAND", "source": "oauth.brand" }
+      ],
+      "oauth": [{
+        "provider": "feishu",
+        "bindings": [
+          { "credential": "access_token", "env_var": "LARKSUITE_CLI_USER_ACCESS_TOKEN" },
+          { "credential": "client_id", "env_var": "LARKSUITE_CLI_APP_ID" },
+          { "credential": "brand", "env_var": "LARKSUITE_CLI_BRAND" }
+        ]
+      }]
+    }
+  }
+}

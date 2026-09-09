@@ -330,6 +330,7 @@ export function sessionMessagesToMessages(messages: SessionMessage[] | undefined
       actor_type: message.actor_type,
       actor_id: message.actor_id,
       source_session_id: message.source_session_id,
+      execution: message.execution,
       ...(message.tool_name ? { tool_name: message.tool_name } : undefined),
       ...(message.is_error !== undefined ? { is_error: message.is_error } : undefined),
     };
@@ -454,6 +455,7 @@ export function messageToUIMessage(m: Message): UIMessage {
       actor_type: m.actor_type,
       actor_id: m.actor_id,
       source_session_id: m.source_session_id,
+      execution: m.execution,
     },
   };
 }
@@ -499,6 +501,7 @@ interface UiMetadata {
   actor_type?: Message["actor_type"];
   actor_id?: string;
   source_session_id?: string;
+  execution?: Message["execution"];
 }
 
 // SAFETY: messageToUIMessage writes the six Message metadata fields into each
@@ -519,7 +522,8 @@ function parseUiMetadata(meta: UIMessage["metadata"]): UiMetadata {
   const actor_type = rawActorType as Message["actor_type"] | undefined;
   const actor_id = base.actor_id;
   const source_session_id = base.source_session_id;
-  return { timestamp, token_count, model, actor_type, actor_id, source_session_id };
+  const execution = base.execution;
+  return { timestamp, token_count, model, actor_type, actor_id, source_session_id, execution };
 }
 
 export function uiMessageToMessage(m: UIMessage): Message {
@@ -633,6 +637,7 @@ export function uiMessageToMessage(m: UIMessage): Message {
     actor_type: meta.actor_type,
     actor_id: meta.actor_id,
     source_session_id: meta.source_session_id,
+    execution: meta.execution,
     streaming,
   };
 }

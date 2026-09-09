@@ -2,86 +2,78 @@
 title: 技能
 ---
 
-## 什么是技能
+Skill 是教 Stella 执行某项任务的可复用操作手册。一个 Skill 是包含
+`SKILL.md` 的目录，也可以带有参考文件或脚本。Stella 在每轮开始时读取当前
+Agent 选中的文件。
 
-技能是可复用的操作手册，教会 Stella 如何执行特定任务。当你让 Stella 做一些事情，比如"创建一个 GitHub release"或"写一篇博客文章"时，她可以加载一个技能，获得该工作流程的分步指令。
+## 作用域和优先级
 
-技能用纯 Markdown 编写——本质上就是 Stella 阅读并遵循的速查表。你可以从公共注册中心安装技能，也可以自己编写。
+Stella 读取四个有明确类型的资源根：
 
-## 技能作用域与优先级
+| 作用域         | 文件位置              | 适用范围             |
+| -------------- | --------------------- | -------------------- |
+| `system`       | 部署资源              | 所有用户和 Agent     |
+| `system_agent` | 某个 Agent 的系统资源 | 该 Agent 的所有用户  |
+| `user`         | 某个用户的资源        | 该用户的所有 Agent   |
+| `user_agent`   | 某个用户的 Agent 资源 | 一个用户和一个 Agent |
 
-每类 Skill 只有一个内容权威。随发行版提供的 builtin 来自不可变、内容寻址的发行 bundle。Project Skill 是持久 Agent/项目工作树中的普通文件。托管的全局、Agent 绑定、用户和用户-Agent Skill 在类型化 Stella Home 根中使用不可变 revision；current selector 决定 Stella 加载哪个精确 revision。
-
-存储的作用域为 `project`、`user_agent`、`user`、`system_agent` 和 `system`。`builtin` 是上下文作用域：发行版 Skill 使用不可变身份 `builtin:<name>`。管理员安装的全局 Skill 是另一个可变身份 `system:<name>`，绑定到 Agent 的管理员 Skill 则是 `system_agent:<name>`。
-
-- **项目技能** — 存放在你的仓库的 `.agents/skills/` 目录下。它们随代码发布，并在当前会话绑定到该项目时可用。
-- **用户技能** — 你的个人技能，对你的所有代理可用。
-- **用户 · 当前代理** — 你限定于单个代理的个人技能。
-- **共享代理技能** — 由管理员管理，对使用该代理的所有人可用。
-- **全局技能** — 由管理员管理，处处可用。Stella 随附的技能仍属于安装内容；管理员可以在管理控制台安装、启用、停用和删除受管理的全局技能。
-
-同名时，Stella 按以下顺序选择唯一的胜出项：
+项目中的 `.agents/skills/` 只对 Skill 生效，并优先于包内 Skill。对于每个包名，
+Stella 只在四个资源根中按以下顺序选择最具体的完整包：
 
 ```
-项目 > 用户 · 当前代理 > 用户 > 共享代理 > 全局 > builtin
+user_agent > user > system_agent > system
 ```
 
-策略在选择胜出项后才应用。禁用胜出项不会让同名的低优先级 Skill 出现。
+选中的包会整体替换更宽作用域中的同名完整包。包内的文件、Skill、CLI、环境绑定
+和 MCP 声明作为一个整体解析。独立副本没有来源链接，不会自动接收来源后续更新。
+独立 Skill 按名称遵循同样的作用域优先级。
 
-## 按 Agent 启用
+`settings.json` 可以停用资源，也可以添加只有管理员能设置的 `forbidden` 和
+`disabled_tools`。被停用或解析失败的胜者会遮蔽继承资源。更窄作用域的个人设置
+不能解除管理员禁止项。
 
-Skill 对 Agent 默认启用。管理员或该 Agent 的持久创建者可以在该 Agent 的 **技能** 标签页启用或禁用 builtin、全局或与该 Agent 匹配的 Agent Skill。这里编辑的是同一份共享设置，最后一次成功提交的更新生效。
+Stella 在接纳 turn 时捕获资源文件。turn 中途的编辑在下一轮生效，本轮继续使用
+已经捕获的内容。搜索、提示词加载、CLI 准备和 MCP 发现也使用同一份捕获视图。
 
-启用状态与编辑 Skill 内容的权限、以及 `disable_model_invocation` 相互独立。已被接纳的 turn 保留自己的 Skill 快照；下一次 turn 才会看到已提交的启用状态变更。
+## 安装和编辑
 
-指向已不存在 Skill 的禁用引用不影响执行；请在 Web UI 中显式清除。Skill 启用状态是产品偏好设置，而不是文件系统访问控制。
+每次安装或上传前都要选择目标作用域。Stella 不会从对话推断作用域。Web UI 和
+API 可以在可写作用域创建、复制、编辑和删除完整包或独立 Skill。包编辑会替换
+完整目录；API 提供摘要时，文件编辑必须带当前摘要，过期编辑会返回冲突。Shell
+直接写文件是支持的，但不提供多文件事务或文件系统 compare-and-swap 保证。
 
-在 **个人设置 → 技能** 管理个人的 `user` 与 `user_agent` 技能。管理员在 **管理控制台 → 部署资源 → 全局技能** 管理部署所有的 `system` 与 `system_agent` 技能。两个页面不会混合不同所有权的作用域。
+上传的压缩包必须包含一个带有 `SKILL.md` 的 Skill 目录。复制包会在目标所有者下
+创建新的独立资源，拥有自己的文件、设置、凭据和 OAuth grant；之后编辑来源不会
+升级副本。
 
-## 安装技能
+## 使用 Skill
 
-### 选择目标位置
+先让 Stella 查找已安装的 Skill，再加载与任务匹配的那个。`skill_installed_search`
+只搜索当前 Agent 可见的 Skill，不搜索市场。`skill_load` 把选中的文件读入当前会话的
+临时 sandbox 目录。返回路径是一次性的，Skill 的脚本和附带文件应从该路径读取。
 
-每次安装和上传都必须选择目标位置。Stella 不会从对话中推断目标位置，也不会把上一次选择当成后续写入的授权。
+如果资源准备失败，Stella 会在本轮保留选中的包为 masked，不会静默恢复更低优先级的
+同名资源。Native 工具属于独立的系统能力，Skill 或同名包不会因此获得 Native 权限。
 
-- 在 Agent 的 **技能** 标签页中，选择 **仅自己 · 当前 Agent**（`user_agent`）；管理员还可选择 **所有人 · 当前 Agent**（`system_agent`）。
-- 在 **个人设置 → 技能** 中，选择个人目标位置（`user` 或 `user_agent`）。
-- 在 **管理控制台 → 部署资源 → 全局技能** 中，选择部署所有的目标位置（`system` 或 `system_agent`）。
+## 更新、停用、断开和删除
 
-Web UI 会在执行写入前要求你立即确认目标位置。
+更新 Skill 或包时，在目标作用域编辑或替换完整文件。摘要冲突后先重新读取
+当前资源，再重试。成功写入会在下一轮生效，本轮继续使用已捕获的 Skill 和包视图。
 
-### 选择来源
+停用包或 Skill 会阻止后续选择，不会撤销 OAuth grant，也不会删除资源字节。删除
+MCP 声明文件只删除声明本身。需要撤销本地访问时，使用 MCP 的 **Disconnect**，它会
+撤销匹配的已存 OAuth grant、关闭连接并阻止迟到的回调或刷新；不承诺远端 provider 一定
+撤权。两者是独立动作。
 
-Stella 可以从多个来源安装技能：
+卸载 Skill 或删除包会让它不再参与后续选择。Stella 保留 Skill 反射所需的历史 usage
+和 changelog 证据，也不会在线清理资源字节或缓存。只有在能够证明相关进程及其后代
+已经停止后，明确的维护操作才能清理这些数据。
 
-- **[clawhub.ai](https://clawhub.ai)** — 在 Web UI 中浏览或搜索市场。
-- **GitHub / GitLab** — 在安装表单中输入仓库来源。
-- **ZIP 上传** — 上传包含 `SKILL.md` 的 Skill 目录。
+local backend 会执行配置的沙箱策略，但不能证明脱离进程组的后代已经停止；`none` sandbox
+不提供可靠的进程隔离。不要把正常 turn 关闭当作后代进程已停止的证明，也不要用 TTL
+或猜测进程 ID 清除资源字节。需要严格进程边界的清理场景不适合使用 `none` backend。
 
-如果你在 clawhub.ai 遇到频率限制，可以设置一个免费的 API 令牌：
-
-1. 在 [clawhub.ai](https://clawhub.ai) 注册。
-2. 进入 Settings，然后 API Tokens，创建一个令牌。
-3. 在聊天中发送：`/config CLAWHUB_TOKEN your-token`
-
-## 管理技能
-
-### 从对话中管理
-
-- **"找一个已安装的技能来部署这个服务。"** — Stella 只搜索当前 Agent 已可见的 Skill。
-- **"加载部署技能。"** — Stella 为当前任务加载选中的精确 revision。
-
-对话工具是只读的，不能安装、创建、编辑、升级、弃用或删除 Skill。
-
-### 从 Web UI 管理
-
-在个人设置中浏览、安装和移除你的技能。管理员通过“全局技能”管理部署级与共享代理技能。
-
-## 创建自定义技能
-
-你可以创建自定义技能来教 Stella 你的工作流程。一个技能就是一个包含 `SKILL.md` 文件的目录。
-
-### 技能格式
+## 创建 Skill
 
 ```markdown
 ---
@@ -89,33 +81,21 @@ name: my-deploy-script
 description: Deploy the application to production.
 ---
 
-# Deploy to Production
+# Deploy to production
 
-Follow these steps to deploy:
-
-1. Run the test suite and confirm all tests pass.
+1. Run the test suite.
 2. Build the production bundle.
-3. Push to the production branch.
-4. Verify the deployment is healthy.
-
-Always ask the user for confirmation before pushing to production.
+3. Verify the deployment is healthy.
 ```
 
-### Frontmatter 字段
+`name` 只能使用小写字母、数字和连字符，最长 64 个字符。`description` 必填，并会
+显示在搜索结果中。`disable-model-invocation` 可选。需要只有明确请求时才自动调用
+Skill 时，将它设为 `true`；它不会停用 Skill，也不会改变编辑权限。
 
-| 字段                       | 必填 | 描述                                 |
-| -------------------------- | ---- | ------------------------------------ |
-| `name`                     | 是   | 小写加连字符，最长 64 个字符         |
-| `description`              | 是   | 一行摘要，显示在搜索结果中           |
-| `disable-model-invocation` | 否   | 禁止自动选择，但仍允许显式加载和使用 |
-
-### 保存自定义技能
-
-对于托管 Skill，请在本地创建目录，将其打包为 ZIP，然后在 Web UI 中上传到明确的目标位置。对于 Project Skill，请把目录直接添加到项目仓库的 `.agents/skills/` 下。
+团队工作流可以把 Project Skill 提交到 `.agents/skills/`。共享或个人 Skill 则应在
+指定作用域创建或上传完整目录。
 
 ## 小贴士
 
-- **先搜索再创建。** 在从头创建技能之前，先在 Web UI 的市场中检查是否已经存在。
-- **保持技能专注。** 一个技能对应一个任务。一个"部署"技能和一个"回滚"技能比一个试图同时做两件事的技能要好。
-- **团队工作流程使用项目技能。** 把共享技能放在仓库的 `.agents/skills/` 目录中，让团队所有人受益。
-- **通过加载来测试技能。** 创建技能后，让 Stella 加载它并尝试工作流程，验证指令是否有效。
+创建前先搜索已有 Skill。一个 Skill 专注一个工作流。创建或更新后先加载它，运行一个
+小型代表性任务，再把它用于正式工作。

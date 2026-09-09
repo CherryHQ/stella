@@ -4,19 +4,20 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path"
 	"reflect"
 	"sort"
 	"strings"
 	"sync"
+
+	builtinplugins "github.com/CherryHQ/stella/plugins"
 )
 
 // Registry is the read-only catalog of builtin resources, keyed by Kind and ID.
 type Registry struct {
-	byKind   map[Kind]map[string]Resource
-	manifest BuiltinManifest
-	skills   map[string]BuiltinSkillDescriptor
-	source   fs.FS
+	byKind      map[Kind]map[string]Resource
+	manifest    BuiltinManifest
+	skills      map[string]BuiltinSkillDescriptor
+	skillReader builtinSkillReader
 }
 
 var (
@@ -33,20 +34,22 @@ func Default() (*Registry, error) {
 			defaultErr = err
 			return
 		}
-		defaultReg, defaultErr = LoadBuiltin(fsys, manifest)
+		defaultReg, defaultErr = loadBuiltin(fsys, manifest, func(skill BuiltinSkillDescriptor, file string) ([]byte, error) {
+			return builtinplugins.ReadBuiltinSkillFile(skill.SourceRoot, file)
+		})
 	})
 	return defaultReg, defaultErr
 }
 
-// Load walks sourceFS and parses every supported resource kind it finds.
+// loadResources parses single-file resources; skills come from the release manifest.
 // sourceFS must have subdirectories matching Kind.subdir() for each kind to load.
 // Missing subdirectories are silently skipped (useful for tests with partial fixtures).
-func Load(sourceFS fs.FS) (*Registry, error) {
-	r := &Registry{byKind: make(map[Kind]map[string]Resource, len(AllKinds())), source: sourceFS}
+func loadResources(sourceFS fs.FS) (*Registry, error) {
+	r := &Registry{byKind: make(map[Kind]map[string]Resource, len(AllKinds()))}
 	for _, kind := range AllKinds() {
 		r.byKind[kind] = map[string]Resource{}
 		sub := kind.subdir()
-		if sub == "" {
+		if sub == "" || kind == KindSkill {
 			continue
 		}
 		subFS, err := fs.Sub(sourceFS, sub)
@@ -60,24 +63,28 @@ func Load(sourceFS fs.FS) (*Registry, error) {
 	return r, nil
 }
 
-// LoadBuiltin loads a registry from an embedded-style filesystem and validates
-// every manifest-described byte before making it available to callers.
-func LoadBuiltin(sourceFS fs.FS, manifest BuiltinManifest) (*Registry, error) {
+// builtinSkillReader reads a manifest file from the release-owned asset
+// package. It separates physical source layout from the stable bundle Root.
+type builtinSkillReader func(skill BuiltinSkillDescriptor, file string) ([]byte, error)
+
+// loadBuiltin validates release descriptors and reads every skill through its explicit source.
+func loadBuiltin(sourceFS fs.FS, manifest BuiltinManifest, reader builtinSkillReader) (*Registry, error) {
 	if err := validateBuiltinManifest(manifest); err != nil {
 		return nil, err
 	}
-	r, err := Load(sourceFS)
+	r, err := loadResources(sourceFS)
 	if err != nil {
 		return nil, err
 	}
 	r.manifest = BuiltinManifest{Revision: manifest.Revision, Skills: make([]BuiltinSkillDescriptor, 0, len(manifest.Skills))}
 	r.skills = make(map[string]BuiltinSkillDescriptor, len(manifest.Skills))
+	r.skillReader = reader
 	for _, skill := range manifest.Skills {
 		if _, exists := r.skills[skill.Name]; exists {
 			return nil, fmt.Errorf("duplicate builtin descriptor %q", skill.Name)
 		}
 		for _, file := range skill.Files {
-			data, err := fs.ReadFile(sourceFS, path.Join("skills", skill.Root, file.Path))
+			data, err := r.skillReader(skill, file.Path)
 			if err != nil {
 				return nil, fmt.Errorf("read builtin skill %q file %q: %w", skill.Name, file.Path, err)
 			}
@@ -85,10 +92,18 @@ func LoadBuiltin(sourceFS fs.FS, manifest BuiltinManifest) (*Registry, error) {
 				return nil, fmt.Errorf("builtin skill %q file %q does not match manifest", skill.Name, file.Path)
 			}
 		}
-		resource, ok := r.Get(KindSkill, skill.Name)
-		if !ok || resource.Name != skill.Name || resource.Description != skill.Description || !reflect.DeepEqual(resource.Tags, skill.Tags) || boolMetadata(resource.Metadata, "disable_model_invocation") != skill.DisableModelInvocation || !reflect.DeepEqual(resource.Metadata, skill.Metadata) {
+		raw, err := r.skillReader(skill, "SKILL.md")
+		if err != nil {
+			return nil, fmt.Errorf("read builtin skill %q metadata: %w", skill.Name, err)
+		}
+		resource, err := parseResource(KindSkill, skill.Name, string(raw))
+		if err != nil {
+			return nil, fmt.Errorf("parse builtin skill %q: %w", skill.Name, err)
+		}
+		if resource.Name != skill.Name || resource.Description != skill.Description || !reflect.DeepEqual(resource.Tags, skill.Tags) || boolMetadata(resource.Metadata, "disable_model_invocation") != skill.DisableModelInvocation || !reflect.DeepEqual(resource.Metadata, skill.Metadata) {
 			return nil, fmt.Errorf("builtin skill %q metadata does not match manifest", skill.Name)
 		}
+		r.byKind[KindSkill][resource.ID] = resource
 		cloned := cloneBuiltinSkillDescriptor(skill)
 		r.skills[skill.Name] = cloned
 		r.manifest.Skills = append(r.manifest.Skills, cloned)
@@ -99,9 +114,22 @@ func LoadBuiltin(sourceFS fs.FS, manifest BuiltinManifest) (*Registry, error) {
 	return r, nil
 }
 
-// loadKind discovers resources of a single kind under subFS.
-// Skills are multi-file directories (id = dir name, main = SKILL.md).
-// Souls/delegates/templates are single files (id = basename without .md).
+// ValidateBuiltinSkillOwners checks the immutable owner projection against the
+// runtime plugin catalog. The map is supplied by the composition root, so this
+// package does not maintain a second ownership registry.
+func (r *Registry) ValidateBuiltinSkillOwners(knownOwners map[string]struct{}) error {
+	if r == nil {
+		return fmt.Errorf("builtin registry is nil")
+	}
+	for _, skill := range r.BuiltinSkills() {
+		if _, ok := knownOwners[skill.OwnerPluginID]; !ok {
+			return fmt.Errorf("builtin skill %q has unknown plugin owner %q", skill.Name, skill.OwnerPluginID)
+		}
+	}
+	return nil
+}
+
+// loadKind reads souls, delegates or templates (id = basename without .md).
 func loadKind(r *Registry, kind Kind, subFS fs.FS) error {
 	entries, err := fs.ReadDir(subFS, ".")
 	if err != nil {
@@ -110,25 +138,6 @@ func loadKind(r *Registry, kind Kind, subFS fs.FS) error {
 			return nil
 		}
 		return fmt.Errorf("read %s: %w", kind.subdir(), err)
-	}
-
-	if kind == KindSkill {
-		roots, err := listSkillRoots(subFS)
-		if err != nil {
-			return fmt.Errorf("discover skills: %w", err)
-		}
-		for _, root := range roots {
-			raw, err := fs.ReadFile(subFS, path.Join(root.Path, "SKILL.md"))
-			if err != nil {
-				return fmt.Errorf("read %s/SKILL.md: %w", root.Path, err)
-			}
-			res, err := parseResource(kind, root.Leaf, string(raw))
-			if err != nil {
-				return fmt.Errorf("skill %s: %w", root.Path, err)
-			}
-			r.byKind[kind][res.ID] = res
-		}
-		return nil
 	}
 
 	for _, entry := range entries {
@@ -215,7 +224,7 @@ func (r *Registry) ReadBuiltinSkillFile(name, filePath string) ([]byte, BuiltinS
 		if file.Path != filePath {
 			continue
 		}
-		data, err := fs.ReadFile(r.source, path.Join("skills", skill.Root, file.Path))
+		data, err := r.skillReader(skill, file.Path)
 		if err != nil {
 			return nil, BuiltinSkillFile{}, fmt.Errorf("read builtin skill %q file %q: %w", name, filePath, err)
 		}
@@ -229,6 +238,7 @@ func (r *Registry) ReadBuiltinSkillFile(name, filePath string) ([]byte, BuiltinS
 
 func cloneBuiltinSkillDescriptor(skill BuiltinSkillDescriptor) BuiltinSkillDescriptor {
 	cloned := skill
+	cloned.SourceRoot = skill.SourceRoot
 	cloned.Files = append([]BuiltinSkillFile(nil), skill.Files...)
 	cloned.Tags = append([]string(nil), skill.Tags...)
 	cloned.Metadata = cloneBuiltinMetadata(skill.Metadata)

@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/version"
+	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 )
 
 func (s *Server) GetStatus(w http.ResponseWriter, r *http.Request) {
@@ -24,11 +26,16 @@ func (s *Server) GetStatus(w http.ResponseWriter, r *http.Request) {
 		resp.BuildDate = &version.BuildDate
 	}
 	if info := UserFromContext(r.Context()); info != nil && info.IsAdmin {
+		authority, err := info.authority()
+		if err != nil {
+			writeData(w, http.StatusOK, resp)
+			return
+		}
 		uptimeSeconds := int64(time.Since(s.startedAt).Seconds())
 		resp.UptimeSeconds = &uptimeSeconds
 		resp.Runtime = s.statusRuntime()
 		resp.Database = s.statusDatabase(r.Context())
-		resp.Plugins = s.statusPlugins(r.Context())
+		resp.Plugins = s.statusPlugins(r.Context(), authority)
 	}
 	writeData(w, http.StatusOK, resp)
 }
@@ -65,14 +72,24 @@ func (s *Server) statusDatabase(ctx context.Context) *types.StatusDatabase {
 	return &types.StatusDatabase{Status: "ok", LatencyMs: &latency}
 }
 
-func (s *Server) statusPlugins(ctx context.Context) *types.StatusPlugins {
-	plugins, err := s.pluginHost.ListAdminVisiblePlugins(ctx)
+func (s *Server) statusPlugins(ctx context.Context, authority authz.Authority) *types.StatusPlugins {
+	if s == nil || s.pluginFiles == nil || !authority.Valid() || authority.Kind() != authz.ActorUser || !authority.IsAdmin() {
+		return nil
+	}
+	access, err := s.pluginFiles.Begin(authority)
 	if err != nil {
 		return nil
 	}
-	out := types.StatusPlugins{Total: len(plugins)}
-	for _, plugin := range plugins {
-		if plugin.State.Enabled {
+	// A deployment count covers system resources only; private or agent roots
+	// have no single effective state for the whole deployment.
+	scope := pluginpkg.ScopeSystem
+	resources, err := access.List(ctx, pluginpkg.ResourcePlugin, &scope, "")
+	if err != nil {
+		return nil
+	}
+	out := types.StatusPlugins{Total: len(resources)}
+	for _, resource := range resources {
+		if !resource.Disabled && !resource.Forbidden && resource.Package != nil {
 			out.Enabled++
 		} else {
 			out.Disabled++

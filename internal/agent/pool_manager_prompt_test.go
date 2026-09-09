@@ -2,15 +2,18 @@ package agent
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
+	skillstool "github.com/CherryHQ/stella/internal/skill"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -35,7 +38,7 @@ func TestPoolSnapshotPromptPassesLogicalIdentityWithoutPhysicalPaths(t *testing.
 				got = build
 				return nil, nil
 			}}
-			if _, err := pm.buildSnapshotPromptFunc(snap)(context.Background(), tt.info, memory.SessionSnapshot{}); err != nil {
+			if _, err := pm.buildSnapshotPromptFunc(snap)(context.Background(), tt.info, memory.SessionSnapshot{}, PluginContext{}); err != nil {
 				t.Fatal(err)
 			}
 			if got.UserID != tt.info.UserID || got.AgentID != tt.info.AgentID {
@@ -47,7 +50,7 @@ func TestPoolSnapshotPromptPassesLogicalIdentityWithoutPhysicalPaths(t *testing.
 
 func TestPoolSnapshotPromptDoesNotResolvePhysicalWorkspaceWithoutProject(t *testing.T) {
 	pm := &PoolManager{homeWorkspace: failingWorkspaceViewer{err: os.ErrPermission}, skillRevisionReader: emptySkillRuntime{}, skillReadAuthz: allowSkillReads{}}
-	if _, err := pm.buildSnapshotPromptFunc(&config.Snapshot{AgentID: "a"})(context.Background(), session.Info{UserID: "u", AgentID: "a"}, memory.SessionSnapshot{}); err != nil {
+	if _, err := pm.buildSnapshotPromptFunc(&config.Snapshot{AgentID: "a"})(context.Background(), session.Info{UserID: "u", AgentID: "a"}, memory.SessionSnapshot{}, PluginContext{}); err != nil {
 		t.Fatalf("snapshot prompt consulted physical workspace: %v", err)
 	}
 }
@@ -80,7 +83,7 @@ func TestPoolSnapshotPromptUsesAuthorizedRootToLeafProjectContextWithoutHostPath
 			return ProjectDescriptor{ID: projectID, UserID: userID, AgentID: agentID, Path: "projects/app"}, nil
 		},
 	}
-	got, err := pm.buildSnapshotPromptFunc(&config.Snapshot{AgentID: "a1"})(context.Background(), session.Info{UserID: "u1", AgentID: "a1", ProjectID: "p1"}, memory.SessionSnapshot{})
+	got, err := pm.buildSnapshotPromptFunc(&config.Snapshot{AgentID: "a1"})(context.Background(), session.Info{UserID: "u1", AgentID: "a1", ProjectID: "p1"}, memory.SessionSnapshot{}, PluginContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,6 +92,54 @@ func TestPoolSnapshotPromptUsesAuthorizedRootToLeafProjectContextWithoutHostPath
 	}
 	if resolveCalls != 1 {
 		t.Fatalf("project resolved %d times, want exactly once", resolveCalls)
+	}
+}
+
+type promptOverrideSkillRuntime struct {
+	emptySkillRuntime
+	skill skillstool.Skill
+}
+
+func (r promptOverrideSkillRuntime) LoadExactRevision(context.Context, skillstool.Skill, string) (skillstool.ManagedRevision, error) {
+	return skillstool.ManagedRevision{Skill: r.skill, Files: map[string][]byte{skillstool.MainFile: []byte("# skill")}, Modes: map[string]fs.FileMode{skillstool.MainFile: 0o444}}, nil
+}
+
+func TestPoolSnapshotPromptRetainsBusinessOverrideAndCapturedSkillSection(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	managed := skillstool.Skill{
+		ID:            "managed-system",
+		Scope:         "system",
+		Name:          "incident-runbook",
+		Description:   "incident response steps",
+		Status:        skillstool.SkillStatusActive,
+		ContentDigest: digest,
+	}
+	view, err := skillstool.NewSkillTurnView(nil, []skillstool.ManagedSkillRef{{Identity: managed}}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := skillstool.WithSkillTurnView(agentctx.WithSystemOverride(context.Background(), "business override"), view)
+	pm := &PoolManager{
+		skillRevisionReader: promptOverrideSkillRuntime{skill: managed},
+		skillReadAuthz:      allowSkillReads{},
+	}
+	got, err := pm.buildSnapshotPromptFunc(&config.Snapshot{AgentID: "a1", SystemPrompt: "base prompt"})(ctx, session.Info{UserID: "u1", AgentID: "a1"}, memory.SessionSnapshot{}, PluginContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "business override") {
+		t.Fatalf("system prompt dropped business override:\n%s", got)
+	}
+	if strings.Contains(got, "base prompt") {
+		t.Fatalf("system prompt retained base prompt after override:\n%s", got)
+	}
+	for _, want := range []string{"<system_skills>", "<name>incident-runbook</name>", "incident response steps"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("system prompt missing captured skill section %q:\n%s", want, got)
+		}
+	}
+	if got := strings.Count(got, "<system_skills>"); got != 1 {
+		t.Fatalf("system skill section count = %d, want 1", got)
 	}
 }
 

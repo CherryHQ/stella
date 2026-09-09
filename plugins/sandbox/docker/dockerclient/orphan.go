@@ -4,27 +4,33 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"runtime"
-	"strconv"
-	"syscall"
-	"time"
 
 	"github.com/containerd/errdefs"
 	mobyclient "github.com/moby/moby/client"
 )
 
-// CleanupOrphanedContainers force-removes stella-labeled containers whose owning
-// process is clearly gone:
-//   - dead-state containers (exited, dead, created) are always removed
-//   - running / paused containers are removed only when their owner_pid label
-//     points to a process that no longer exists on this host — this keeps
-//     peer stella processes with live sessions safe from another stella startup
-//   - transitional states (restarting, …) fall back to an age cutoff so
-//     truly-hung containers eventually clear
+// CleanupOrphanedContainers force-removes only stella-labeled containers that
+// Docker itself reports as non-running terminal states. Host PIDs and age are
+// diagnostics, not ownership proofs: PID reuse, a different PID namespace, and
+// daemon restarts make both unsafe for reclaiming a live container.
 //
-// Best-effort: errors are logged, not returned.
-func CleanupOrphanedContainers(ctx context.Context, c *Client, stellaHome string) {
+// The returned guard is true only when every scoped container was in a terminal
+// state and was either removed or was already absent. A running, transitional,
+// or uninspectable container keeps the scope pending so callers must retain all
+// host resources whose ownership cannot be reconstructed.
+func CleanupOrphanedContainers(ctx context.Context, c *Client, stellaHome string) (bool, error) {
+	guard, err := CaptureOrphanedContainers(ctx, c, stellaHome)
+	if err != nil {
+		return false, err
+	}
+	return guard(ctx)
+}
+
+// CaptureOrphanedContainers snapshots the scoped container IDs at startup and
+// returns a repeatable recovery check for that exact set. Containers created
+// after the snapshot are owned by the current runtime and are deliberately not
+// considered by the guard.
+func CaptureOrphanedContainers(ctx context.Context, c *Client, stellaHome string) (func(context.Context) (bool, error), error) {
 	filters := mobyclient.Filters{}.Add("label", LabelStellaHome+"="+stellaHome)
 
 	list, err := c.api.ContainerList(ctx, mobyclient.ContainerListOptions{
@@ -33,12 +39,34 @@ func CleanupOrphanedContainers(ctx context.Context, c *Client, stellaHome string
 	})
 	if err != nil {
 		slog.Warn("dockerclient: orphan cleanup: list containers", "error", err)
-		return
+		return nil, err
 	}
 
+	ids := make([]string, 0, len(list.Items))
+	seen := make(map[string]struct{}, len(list.Items))
 	for _, cs := range list.Items {
-		cleanupContainer(ctx, c, cs.ID)
+		if cs.ID == "" {
+			continue
+		}
+		if _, ok := seen[cs.ID]; ok {
+			continue
+		}
+		seen[cs.ID] = struct{}{}
+		ids = append(ids, cs.ID)
 	}
+	return func(checkCtx context.Context) (bool, error) {
+		clean := true
+		for _, id := range ids {
+			removed, err := cleanupContainer(checkCtx, c, id)
+			if err != nil {
+				return false, err
+			}
+			if !removed {
+				clean = false
+			}
+		}
+		return clean, nil
+	}, nil
 }
 
 // SessionIDsWithContainers returns session IDs still represented by any scoped
@@ -59,82 +87,42 @@ func (c *Client) SessionIDsWithContainers(ctx context.Context, stellaHome string
 	return ids, nil
 }
 
-func cleanupContainer(ctx context.Context, c *Client, id string) {
+func cleanupContainer(ctx context.Context, c *Client, id string) (bool, error) {
 	res, err := c.api.ContainerInspect(ctx, id, mobyclient.ContainerInspectOptions{})
 	if err != nil {
 		if errdefs.IsNotFound(err) {
-			return
+			return true, nil
 		}
 		slog.Warn("dockerclient: orphan cleanup: inspect container", "id", id, "error", err)
-		return
+		return false, err
 	}
 
 	status := ""
 	if res.Container.State != nil {
 		status = string(res.Container.State.Status)
 	}
-	labels := map[string]string{}
-	if res.Container.Config != nil && res.Container.Config.Labels != nil {
-		labels = res.Container.Config.Labels
+	if !isContainerTerminal(status) {
+		return false, nil
 	}
 
-	if !isContainerStale(status, labels[LabelOwnerPID], labels[LabelCreatedAt]) {
-		return
-	}
-
-	if _, err := c.api.ContainerRemove(ctx, id, mobyclient.ContainerRemoveOptions{Force: true}); err != nil {
+	if _, err := c.api.ContainerRemove(ctx, id, mobyclient.ContainerRemoveOptions{}); err != nil {
 		if errdefs.IsNotFound(err) {
-			return
+			return true, nil
 		}
 		slog.Warn("dockerclient: orphan cleanup: remove container", "id", id, "error", err)
-		return
+		return false, err
 	}
 	slog.Info("dockerclient: orphan cleanup: removed container", "id", id, "status", status)
+	return true, nil
 }
 
-// isContainerStale reports whether a labelled container should be force-removed
-// during startup cleanup. Age alone never triggers removal of a running or
-// paused container — that would race with peer stella processes — so live states
-// are gated on whether the recorded owner PID is still a live process.
-func isContainerStale(status, ownerPID, createdAt string) bool {
+// isContainerTerminal reports whether Docker has already proved that a
+// labelled container is stopped and therefore safe to remove.
+func isContainerTerminal(status string) bool {
 	switch status {
-	case "exited", "dead", "created":
+	case "exited", "dead":
 		return true
-	case "running", "paused":
-		return ownerProcessGone(ownerPID)
-	}
-	// restarting, removing, or unknown: fall back to age so truly-hung
-	// transitional containers eventually clear. Peer stella processes that
-	// are actively running sit in "running" above, not here.
-	if createdAt == "" {
+	default:
 		return false
 	}
-	t, err := time.Parse(time.RFC3339, createdAt)
-	if err != nil {
-		return false
-	}
-	return time.Since(t) > time.Hour
-}
-
-// ownerProcessGone reports whether the PID label refers to a process that no
-// longer exists on this host. Missing or unparseable labels return false —
-// without positive evidence of death we leave the container alone.
-func ownerProcessGone(pidStr string) bool {
-	if pidStr == "" {
-		return false
-	}
-	pid, err := strconv.Atoi(pidStr)
-	if err != nil || pid <= 0 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return true
-	}
-	if runtime.GOOS == "windows" {
-		// FindProcess on Windows fails for dead PIDs, so success == alive.
-		return false
-	}
-	// Unix: FindProcess is a no-op. Signal(0) probes liveness without effect.
-	return proc.Signal(syscall.Signal(0)) != nil
 }

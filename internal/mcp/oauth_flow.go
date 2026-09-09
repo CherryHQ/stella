@@ -8,7 +8,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/oauth2"
+
+	"github.com/CherryHQ/stella/internal/authz"
 )
 
 // StartOAuth runs discovery, resolves (or registers) the client, persists a
@@ -16,6 +19,37 @@ import (
 // open. The flow binds the initiating user, so the unauthenticated callback can
 // re-identify safely.
 func (s *Service) StartOAuth(ctx context.Context, reg Registration, userID, callback string) (string, string, time.Time, error) {
+	return s.startOAuth(ctx, reg, userID, callback, authz.Authority{})
+}
+
+// StartOAuthForAuthority carries the already verified request authority into
+// DCR persistence. The authority never comes from registration fields or the
+// callback URL; it is supplied by MCP Access after its PEP checks.
+func (s *Service) StartOAuthForAuthority(ctx context.Context, reg Registration, authority authz.Authority, callback string) (string, string, time.Time, error) {
+	if !authority.Valid() {
+		return "", "", time.Time{}, authz.ErrForbidden
+	}
+	return s.startOAuth(ctx, reg, string(authority.UserID()), callback, authority)
+}
+
+func (s *Service) startOAuth(ctx context.Context, reg Registration, userID, callback string, authority authz.Authority) (string, string, time.Time, error) {
+	if !reg.IsFile() {
+		return "", "", time.Time{}, ErrOAuthClientInitializationRequired
+	}
+	if reg.IsFile() {
+		if _, err := FileCredentialOwner(reg, authority); err != nil {
+			return "", "", time.Time{}, err
+		}
+		if reg.CredentialMode == CredentialModeShared && !authority.IsAdmin() {
+			return "", "", time.Time{}, authz.ErrForbidden
+		}
+		if reg.AuthType != AuthTypeOAuth {
+			return "", "", time.Time{}, fmt.Errorf("mcp: OAuth authorization requires an OAuth declaration")
+		}
+	}
+	if authority.Valid() {
+		ctx = withOAuthAuthority(ctx, authority)
+	}
 	if reg.Transport != TransportStreamableHTTP {
 		return "", "", time.Time{}, fmt.Errorf("mcp: auth_type %q requires the streamable_http transport", AuthTypeOAuth)
 	}
@@ -31,7 +65,7 @@ func (s *Service) StartOAuth(ctx context.Context, reg Registration, userID, call
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
-	clientID, clientSecret, err := s.resolveOAuthClient(ctx, reg, asm, callback)
+	reg, clientID, clientSecret, authStyle, err := s.resolveOAuthClient(ctx, reg, asm, callback)
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
@@ -40,17 +74,37 @@ func (s *Service) StartOAuth(ctx context.Context, reg Registration, userID, call
 	if len(scopes) == 0 {
 		scopes = prm.ScopesSupported
 	}
+	if len(reg.OAuthScopes) != 0 {
+		scopes = append([]string(nil), reg.OAuthScopes...)
+	}
 	verifier := oauth2.GenerateVerifier()
 	flowID := uuid.Must(uuid.NewV7()).String()
 	expiresAt := time.Now().UTC().Add(oauthFlowTTL)
 	secretRef := ""
-	if clientSecret != "" {
-		secretRef = oauthClientSecretName(reg.ID)
+	if reg.OAuthClientSecretRef != "" {
+		secretRef = reg.OAuthClientSecretRef
+	}
+	fileGeneration := ""
+	if reg.IsFile() {
+		owner, ownerErr := FileCredentialOwner(reg, authority)
+		if ownerErr != nil {
+			return "", "", time.Time{}, ownerErr
+		}
+		fileGeneration, err = s.prepareFileOAuthGrant(ctx, reg, owner)
+		if err != nil {
+			return "", "", time.Time{}, err
+		}
 	}
 	configRaw, err := oauthFlowConfig{
 		ClientID: clientID, ClientSecretRef: secretRef,
-		TokenEndpoint: asm.TokenEndpoint, AuthStyle: int(oauth2.AuthStyleInParams),
+		TokenEndpoint: asm.TokenEndpoint, AuthStyle: int(authStyle),
 		Resource: prm.Resource, Scopes: scopes, RedirectURI: callback,
+		PluginID: reg.PluginID, ParentConfigID: reg.ParentConfigID, ServerKey: reg.ServerKey, ConfigRevision: reg.ConfigRevision,
+		ConfigScope: reg.Scope, ConfigUserID: reg.UserID, ConfigAgentID: reg.AgentID,
+		CredentialMode: reg.CredentialMode, Headers: cloneHeaders(reg.Headers),
+		Endpoint: reg.URL, Transport: reg.Transport, RegistrationName: reg.Name, CallTimeoutSeconds: reg.CallTimeoutSeconds,
+		File: reg.IsFile(), FileKey: reg.FileKey, FileIdentity: reg.AuthenticationTarget, FileGeneration: fileGeneration,
+		TokenEndpointAuthMethod: reg.TokenEndpointAuthMethod,
 	}.marshal()
 	if err != nil {
 		return "", "", time.Time{}, err
@@ -83,74 +137,82 @@ func (s *Service) CompleteOAuth(ctx context.Context, flowID, code string) (Regis
 	if err != nil {
 		return Registration{}, err
 	}
-	owner := CredentialOwner{Scope: flow.CredentialScope, UserID: textOrEmpty(flow.CredentialUserID), AgentID: textOrEmpty(flow.CredentialAgentID)}
-
-	row, err := s.db.GetMCPServerByID(ctx, flow.ServerID)
-	if err != nil {
-		return Registration{}, fmt.Errorf("mcp: get registration: %w", err)
+	if !cfg.File || cfg.FileIdentity == "" || cfg.FileGeneration == "" {
+		return Registration{}, errFileMCPGrantRevoked
 	}
-	reg := registrationFromRow(row)
+	owner := CredentialOwner{Scope: flow.CredentialScope, UserID: flowText(flow.CredentialUserID), AgentID: flowText(flow.CredentialAgentID)}
+	reg, err := fileOAuthRegistration(flow, cfg)
+	if err != nil {
+		return Registration{}, err
+	}
+	if err := fileGenerationIsCurrent(ctx, s, reg, owner, cfg.FileGeneration); err != nil {
+		return Registration{}, err
+	}
+	return s.completeFileOAuth(ctx, flow, cfg, reg, owner, code)
+}
 
-	// Same SSRF-safe client binding as the refresh path.
-	exchangeCtx, cancel := context.WithTimeout(oauth2Context(s.endpoints), oauthExchangeTimeout)
+func flowText(v pgtype.Text) string {
+	if !v.Valid {
+		return ""
+	}
+	return v.String
+}
+
+func fileOAuthRegistration(flow McpOauthFlow, cfg oauthFlowConfig) (Registration, error) {
+	if !cfg.File || cfg.FileIdentity == "" || cfg.FileKey.Name == "" || !ValidScope(string(cfg.FileKey.Scope)) || cfg.Endpoint == "" || cfg.Transport == "" || cfg.CredentialMode == "" ||
+		cfg.ConfigScope != string(cfg.FileKey.Scope) || cfg.ConfigUserID != cfg.FileKey.UserID || cfg.ConfigAgentID != cfg.FileKey.AgentID {
+		return Registration{}, fmt.Errorf("mcp: file oauth flow identity is incomplete")
+	}
+	return Registration{
+		IdentityKind: RegistrationIdentityFile, AuthenticationTarget: cfg.FileIdentity,
+		FileKey: cfg.FileKey, PluginID: cfg.PluginID,
+		ID: flow.ServerID, ServerKey: cfg.ServerKey, Scope: cfg.ConfigScope,
+		UserID: cfg.ConfigUserID, AgentID: cfg.ConfigAgentID, Name: cfg.RegistrationName,
+		URL: cfg.Endpoint, Transport: cfg.Transport, AuthType: AuthTypeOAuth,
+		Enabled: true, CredentialMode: cfg.CredentialMode, Headers: cloneHeaders(cfg.Headers),
+		OAuthClientID: cfg.ClientID, OAuthClientSecretRef: cfg.ClientSecretRef,
+		TokenEndpointAuthMethod: cfg.TokenEndpointAuthMethod,
+		CallTimeoutSeconds:      cfg.CallTimeoutSeconds, OAuthScopes: append([]string(nil), cfg.Scopes...),
+	}, nil
+}
+
+func (s *Service) completeFileOAuth(ctx context.Context, flow McpOauthFlow, cfg oauthFlowConfig, reg Registration, owner CredentialOwner, code string) (Registration, error) {
+	exchangeCtx, cancel := context.WithTimeout(oauth2Context(ctx, s.endpoints), oauthExchangeTimeout)
 	defer cancel()
-	clientSecret := ""
-	if cfg.ClientSecretRef != "" {
-		clientSecret = s.oauthClientSecret(ctx, reg)
+	clientSecret, err := s.oauthClientSecret(ctx, reg)
+	if err != nil {
+		return Registration{}, err
 	}
 	tok, err := (&oauth2.Config{
 		ClientID: cfg.ClientID, ClientSecret: clientSecret,
 		Endpoint:    oauth2.Endpoint{TokenURL: cfg.TokenEndpoint, AuthStyle: oauth2.AuthStyle(cfg.AuthStyle)},
 		RedirectURL: cfg.RedirectURI, Scopes: cfg.Scopes,
-	}).Exchange(exchangeCtx, code,
-		oauth2.VerifierOption(flow.PkceVerifier),
-		oauth2.SetAuthURLParam("resource", cfg.Resource))
+	}).Exchange(exchangeCtx, code, oauth2.VerifierOption(flow.PkceVerifier), oauth2.SetAuthURLParam("resource", cfg.Resource))
 	if err != nil {
-		return Registration{}, fmt.Errorf("mcp: exchange authorization code: %w", err)
+		return Registration{}, fmt.Errorf("mcp: file OAuth authorization failed")
 	}
-
-	bundle := OAuthBundle{
-		Version: 1, ClientID: cfg.ClientID, TokenEndpoint: cfg.TokenEndpoint,
-		AuthStyle: cfg.AuthStyle, Resource: cfg.Resource,
-		AccessToken: tok.AccessToken, RefreshToken: tok.RefreshToken,
-		AccessExpiresAt: tok.Expiry, GrantedScope: tokenScope(tok),
-	}
+	bundle := OAuthBundle{Version: 1, Generation: cfg.FileGeneration, ClientID: cfg.ClientID, TokenEndpoint: cfg.TokenEndpoint, AuthStyle: cfg.AuthStyle, Resource: cfg.Resource, AccessToken: tok.AccessToken, RefreshToken: tok.RefreshToken, AccessExpiresAt: tok.Expiry, GrantedScope: tokenScope(tok)}
 	if err := s.storeBundle(ctx, reg, owner, bundle); err != nil {
 		return Registration{}, err
 	}
-	if err := s.SetStatus(ctx, reg.ID, StatusUnknown, ""); err != nil {
-		return Registration{}, err
-	}
-	probed, err := s.Probe(ctx, reg, owner)
-	if err != nil {
-		return Registration{}, err
-	}
-	return probed, nil
+	return reg, nil
 }
 
 // Disconnect removes the caller-appropriate bundle and marks the server
 // needs_auth, so subsequent tool calls fail closed until a reconnect.
 func (s *Service) Disconnect(ctx context.Context, reg Registration, userID string) (Registration, error) {
-	owner := s.CredentialOwner(reg, userID)
-	if s.vault != nil {
-		if err := s.deleteToken(ctx, owner.Scope, owner.UserID, owner.AgentID, oauthBundleName(reg.ID)); err != nil {
-			return Registration{}, fmt.Errorf("mcp: delete oauth bundle: %w", err)
-		}
+	if !reg.IsFile() {
+		return Registration{}, ErrOAuthClientInitializationRequired
 	}
-	if err := s.SetStatus(ctx, reg.ID, StatusNeedsAuth, credentialRejectedHint); err != nil {
+	authority, ok := oauthAuthority(ctx)
+	if !ok {
+		return Registration{}, authz.ErrForbidden
+	}
+	if err := s.DisconnectFile(ctx, reg, authority); err != nil {
 		return Registration{}, err
 	}
-	return s.GetMCPServerForOwner(ctx, reg.ID)
-}
-
-// GetMCPServerForOwner re-reads a registration by id, unmapped by scope —
-// the callers have already passed the PEP for this exact row.
-func (s *Service) GetMCPServerForOwner(ctx context.Context, id string) (Registration, error) {
-	row, err := s.db.GetMCPServerByID(ctx, id)
-	if err != nil {
-		return Registration{}, fmt.Errorf("mcp: get registration: %w", err)
-	}
-	return registrationFromRow(row), nil
+	reg.Status, reg.StatusError, reg.Tools = StatusNeedsAuth, credentialRejectedHint, nil
+	return reg, nil
 }
 
 // HasUserCredential reports whether the given user has a credential to use

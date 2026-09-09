@@ -36,6 +36,7 @@ type MountType string
 const (
 	MountTypeBind   MountType = "bind"
 	MountTypeVolume MountType = "volume"
+	MountTypeTmpfs  MountType = "tmpfs"
 )
 
 // Mount represents a mount from a daemon-visible source to a container path.
@@ -50,6 +51,14 @@ type Mount struct {
 	// VolumeSubpath selects a sub-path within the named volume to mount.
 	// Only valid when Type is MountTypeVolume. Requires Docker Engine 25+.
 	VolumeSubpath string
+	// NoCopy prevents Docker from copying files from the image into a named
+	// volume when the volume is mounted over an image directory. Selection
+	// volumes rely on this to mask unselected image binaries.
+	NoCopy bool
+	// TmpfsExec permits executable files on a tmpfs mount. It is restricted to
+	// short-lived trusted helper scratch; ordinary sandbox tmpfs mounts keep the
+	// daemon's noexec default.
+	TmpfsExec bool
 }
 
 // CreateOptions configures a new sandbox container.
@@ -310,8 +319,13 @@ func buildMounts(opts CreateOptions) []mount.Mount {
 			Target:   m.ContainerPath,
 			ReadOnly: m.ReadOnly,
 		}
-		if m.Type == MountTypeVolume && m.VolumeSubpath != "" {
-			mm.VolumeOptions = &mount.VolumeOptions{Subpath: m.VolumeSubpath}
+		switch {
+		case m.Type == MountTypeVolume && m.VolumeSubpath != "":
+			mm.VolumeOptions = &mount.VolumeOptions{Subpath: m.VolumeSubpath, NoCopy: m.NoCopy}
+		case m.Type == MountTypeVolume && m.NoCopy:
+			mm.VolumeOptions = &mount.VolumeOptions{NoCopy: true}
+		case m.Type == MountTypeTmpfs && m.TmpfsExec:
+			mm.TmpfsOptions = &mount.TmpfsOptions{Options: [][]string{{"exec"}}}
 		}
 		mounts = append(mounts, mm)
 	}
@@ -322,6 +336,8 @@ func dockerMountType(t MountType) mount.Type {
 	switch t {
 	case MountTypeVolume:
 		return mount.TypeVolume
+	case MountTypeTmpfs:
+		return mount.TypeTmpfs
 	default:
 		return mount.TypeBind
 	}
@@ -342,6 +358,28 @@ func envSlice(env map[string]string) []string {
 	out := make([]string, 0, len(keys))
 	for _, k := range keys {
 		out = append(out, fmt.Sprintf("%s=%s", k, env[k]))
+	}
+	return out
+}
+
+// envSliceWithUnset appends variable names without an equals sign. Docker's
+// daemon interprets those entries as explicit removals from the container
+// environment inherited by docker exec.
+func envSliceWithUnset(env map[string]string, unset []string) []string {
+	out := envSlice(env)
+	if len(unset) == 0 {
+		return out
+	}
+	keys := append([]string(nil), unset...)
+	sort.Strings(keys)
+	for _, key := range keys {
+		if key == "" || strings.ContainsRune(key, '=') {
+			continue
+		}
+		if _, present := env[key]; present {
+			continue
+		}
+		out = append(out, key)
 	}
 	return out
 }

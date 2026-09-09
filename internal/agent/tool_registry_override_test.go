@@ -73,7 +73,7 @@ func TestBuildToolRegistryAppliesToolOverrides(t *testing.T) {
 		SkillRevisionReader: emptySkillRuntime{},
 		SkillReadAuthorizer: allowSkillReads{},
 		ToolOverrideFetcher: func(context.Context, string, string) ([]ToolOverride, error) {
-			return []ToolOverride{{ToolName: "memory", Scope: ToolOverrideScopeUserAgent, Enabled: false}}, nil
+			return []ToolOverride{{Identity: ToolIdentity{CoreToolName: "memory"}, Scope: ToolOverrideScopeUserAgent, Enabled: false}}, nil
 		},
 	}, &fakeSession{alive: true}, nil, ai.Model{}, "")
 	if err != nil {
@@ -85,6 +85,45 @@ func TestBuildToolRegistryAppliesToolOverrides(t *testing.T) {
 	if !reg.Has("bash") {
 		t.Fatal("core tools should remain registered")
 	}
+}
+
+func TestBuiltToolRechecksEveryOverrideScopeAtInvocation(t *testing.T) {
+	ctx := context.Background()
+	var rows []ToolOverride
+	calls := 0
+	tool := countingTool{name: "share", calls: &calls}
+	cfg := failClosedConfig(t)
+	cfg.BuiltinTools = []BuiltinTool{{Tool: tool}}
+	cfg.ToolOverrideFetcher = func(context.Context, string, string) ([]ToolOverride, error) {
+		return slices.Clone(rows), nil
+	}
+	reg, _, _, err := buildToolRegistry(ctx, cfg, &fakeSession{alive: true}, nil, ai.Model{}, "")
+	if err != nil {
+		t.Fatalf("buildToolRegistry: %v", err)
+	}
+	for _, scope := range []string{ToolOverrideScopeSystem, ToolOverrideScopeSystemAgent, ToolOverrideScopeUser, ToolOverrideScopeUserAgent} {
+		rows = []ToolOverride{{Identity: ToolIdentity{CoreToolName: "share"}, Scope: scope, Enabled: false}}
+		if _, err := reg.Execute(ctx, "share", nil); err == nil {
+			t.Fatalf("scope %q allowed a call after the runner was built", scope)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("inner tool calls = %d, want 0", calls)
+	}
+}
+
+type countingTool struct {
+	name  string
+	calls *int
+}
+
+func (t countingTool) Definition() pkgtools.Definition {
+	return pkgtools.Definition{Name: t.name, Description: t.name}
+}
+
+func (t countingTool) Execute(context.Context, map[string]any) (string, error) {
+	*t.calls++
+	return "called", nil
 }
 
 func TestBuildToolRegistryRejectsEveryReservedCoreName(t *testing.T) {
@@ -203,7 +242,7 @@ func TestBuildToolRegistryOverridesAreExactNamesNotFamilies(t *testing.T) {
 	}
 
 	t.Run("unmigrated union row hides nothing", func(t *testing.T) {
-		reg := build(t, []ToolOverride{{ToolName: "goal", Scope: ToolOverrideScopeUserAgent, Enabled: false}})
+		reg := build(t, []ToolOverride{{Identity: ToolIdentity{CoreToolName: "goal"}, Scope: ToolOverrideScopeUserAgent, Enabled: false}})
 		for _, name := range goalTools {
 			if !reg.Has(name) {
 				t.Fatalf("%s was hidden by an unmigrated union row", name)
@@ -214,7 +253,7 @@ func TestBuildToolRegistryOverridesAreExactNamesNotFamilies(t *testing.T) {
 	t.Run("migrated action rows hide the whole family", func(t *testing.T) {
 		var overrides []ToolOverride
 		for _, name := range goalTools {
-			overrides = append(overrides, ToolOverride{ToolName: name, Scope: ToolOverrideScopeUserAgent, Enabled: false})
+			overrides = append(overrides, ToolOverride{Identity: ToolIdentity{CoreToolName: name}, Scope: ToolOverrideScopeUserAgent, Enabled: false})
 		}
 		reg := build(t, overrides)
 		for _, name := range goalTools {
@@ -243,7 +282,7 @@ func TestMigratedOverridesNeverReachTheProviderRequest(t *testing.T) {
 	}
 	overrides := make([]ToolOverride, 0, len(goalTools))
 	for _, name := range goalTools {
-		overrides = append(overrides, ToolOverride{ToolName: name, Scope: ToolOverrideScopeUserAgent, Enabled: false})
+		overrides = append(overrides, ToolOverride{Identity: ToolIdentity{CoreToolName: name}, Scope: ToolOverrideScopeUserAgent, Enabled: false})
 	}
 
 	reg, _, _, err := buildToolRegistry(context.Background(), runnerConfig{

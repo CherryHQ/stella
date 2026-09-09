@@ -200,19 +200,18 @@ func hostPathForSandboxMount(mounts []sessionfs.Mount, sandboxPath string) strin
 // applyDockerFilesystemEnv renders the exact container coordinates exposed by
 // both commands and Session.Files().
 func applyDockerFilesystemEnv(env map[string]string, hasUserData, hasTemp bool) error {
-	userData := ""
+	return sandboxpkg.ApplyFilesystemEnv(env, dockerFilesystemView(hasUserData, hasTemp))
+}
+
+func dockerFilesystemView(hasUserData, hasTemp bool) sandboxpkg.FilesystemView {
+	view := sandboxpkg.FilesystemView{Home: workspaceMount}
 	if hasUserData {
-		userData = userDataMount
+		view.SharedDataDir = userDataMount
 	}
-	tempDir := ""
 	if hasTemp {
-		tempDir = "/tmp"
+		view.TempDir = "/tmp"
 	}
-	return sandboxpkg.ApplyFilesystemEnv(env, sandboxpkg.FilesystemView{
-		Home:          workspaceMount,
-		SharedDataDir: userData,
-		TempDir:       tempDir,
-	})
+	return view
 }
 
 func dockerMountProvidedByImage(m sessionfs.Mount) bool {
@@ -241,12 +240,11 @@ func nonWorkspacePolicyMounts(mounts []sessionfs.Mount) []sessionfs.Mount {
 
 // dockerImageProvidedStellaDirs are STELLA_HOME subdirs the sandbox image bakes
 // itself, built for the container's linux platform: the mise binary (bin) and the
-// shared system mise tree (.mise-tools). They must NOT be mounted from the host —
-// whose binaries may be a different platform — so the /opt/stella image versions
-// win and the per-user relative symlinks resolve against a runnable system tree.
+// core runtime bin. It must NOT be mounted from the host, whose binaries may be
+// a different platform. Selection-owned config and artifact directories are
+// mounted separately from the snapshot, never by mounting .mise-tools wholesale.
 var dockerImageProvidedStellaDirs = map[string]struct{}{
 	"bin":            {},
-	".mise-tools":    {},
 	"skills/builtin": {},
 }
 

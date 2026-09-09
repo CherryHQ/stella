@@ -76,6 +76,18 @@ one row:
    twenty packages and imports twenty-five, the types other packages actually
    need belong in `internal/core`, not in `A/<leaf>`.
 
+`plugins/system` prepares mise and Xberg from the immutable embedded release
+resources, independently of Agent Plugin enablement. Every other CLI, including
+fd and rg, belongs to a standard Agent package and uses background installation
+and snapshot selection. Package declarations never grant embedded status.
+The runtime package may import only the exact repository packages
+`internal/platform/toolinstall` (shared installation primitives) and
+`resources/binaries` (embedded assets); its tests may also read `resources`.
+Internal runtime consumers may import the exact `plugins/system` package.
+This exception does not let internal callers import `plugins/system`
+subpackages or other replaceable plugins. The architecture guard enforces both
+directions.
+
 **How it breaks.** `internal/agent` was both hub and kernel. Its leaves —
 `toolmeta`, `access`, `agentctx`, `agenterr`, `providercred` — carried 15–16
 external consumers each, so `memory`, `vault`, `connections`, and

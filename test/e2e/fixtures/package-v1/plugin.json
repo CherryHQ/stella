@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "e2e.package",
+  "version": "1.0.0",
+  "description": "E2E package v1",
+  "extensions": {
+    "com.cherryhq.stella": {
+      "version": "1"
+    }
+  }
+}

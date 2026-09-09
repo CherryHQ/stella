@@ -1,6 +1,9 @@
 package connections
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Reconnect reasons reported in ProviderStatus.ReconnectReason (D4). This is a
 // Go-enforced closed enum; callers must not invent new values.
@@ -89,4 +92,12 @@ type RunnerInvalidator interface {
 	InvalidateUser(userID string) error
 	InvalidateAgent(agentID string) error
 	InvalidateAll() error
+}
+
+// UserRevocationCoordinator serializes an explicit connection removal with
+// the runtime revocation cutoff. Token rotation and successful OAuth
+// callbacks do not use this terminal path because they preserve the same
+// user/provider authorization.
+type UserRevocationCoordinator interface {
+	ApplyUserRevocation(ctx context.Context, userID, agentID string, mutate func() error) error
 }

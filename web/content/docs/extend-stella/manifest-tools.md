@@ -1,207 +1,206 @@
 ---
-title: Manifest Tool Plugins
-description: Declarative CLI tool integrations, shipped with the server and customized from the admin UI.
+title: Agent Plugin manifests
+description: Package CLI requirements and Stella runtime metadata in plugin.json.
 ---
 
 ## Overview
 
-Manifest tool plugins are a lightweight alternative to full Go-compiled plugins for simple CLI tool integrations. Instead of writing a Go package, the tool is declared as data, and Stella reconciles the binary download automatically.
+An Agent Plugin package is a directory with a standard `plugin.json`. Stella
+reads that manifest, the package's skills, and the optional
+`com.cherryhq.stella` extension. The package reader only turns files into
+declarations. It does not run a process, install a binary, create an OAuth
+connection, or enable a Native capability.
 
-Stella ships with a built-in manifest that declares the default manifest-managed CLI integrations (`gh`, `lark-cli`, `lightpanda`). They appear in their semantic tabs, such as **Tools** or **Hooks**, with a `manifest` badge. You override or extend them from the Plugins admin UI; your changes are stored in the database, and the manifest compiled into the server is never modified.
+The source layout for a packaged plugin is:
 
-## How It Works
-
-At startup, Stella:
-
-1. Loads the embedded built-in manifests (`resources/oauth.yaml` and `resources/tools.yaml`)
-2. Loads your stored customizations from the database and lays them over the built-in definitions, adding any plugin you created that has no built-in behind it
-3. Registers enabled manifest plugins into the plugin host
-4. Starts binary reconciliation in the background: downloads missing binaries into `$STELLA_HOME/bin`
-
-Startup is not blocked by binary downloads. A newly added or updated manifest binary becomes available on `PATH` inside agent sandbox sessions after the background sync completes. For local sandbox sessions the binary is available from `$STELLA_HOME/bin`. Docker sandbox sessions need separate handling because host binaries may target the host OS/architecture rather than Linux.
-
-## Docker sandbox CLI availability
-
-Do not treat host `$STELLA_HOME/bin` as the source of Docker sandbox executables. On macOS and Windows, manifest sync can install host-platform binaries, which cannot run in a Linux container. Binding that directory into Docker also blurs the boundary between host-side tool management and the container runtime.
-
-For Docker:
-
-- Built-in CLI plugins that must work out of the box are pre-installed in the versioned sandbox image. The sandbox image tag is tied to the Stella release, so one release image can contain the built-in tool set for that Stella version. The image build runs `stellad mise reconcile-builtins` — the same reconcile path the daemon uses — so it installs the exact identifiers and versions declared in `resources/tools.yaml`. There is no separate Docker tool list to keep in sync.
-- The resolved manifest — built-in definitions plus your stored customizations — remains the source of plugin metadata, enablement, session environment, OAuth injection, and local-sandbox binary installation.
-- User-configured CLI binaries need a container-native provisioning path. They should be installed for Linux inside the Docker environment, not copied from the host's `$STELLA_HOME/bin`.
-
-A safe Docker loading design for user-configured CLIs is:
-
-1. Build a container tool manifest from enabled manifest plugins' `binaries` entries, excluding built-in tools already present in the release image.
-2. Use a short-lived helper container based on the same sandbox image to run `mise install` in a Linux context.
-3. Store the resulting tools in a Docker-managed tool cache or volume keyed by the sandbox image tag plus a hash of the resolved manifest.
-4. Mount that cache into sandbox sessions at a container-only path and prepend it to the in-container `PATH`.
-5. Rebuild or refresh the cache when the enabled plugin set or binary versions change.
-
-This keeps the release sandbox image stable while still allowing user-added CLIs. The installed user binaries are Linux container binaries, and the host `$STELLA_HOME/bin` is not part of Docker executable resolution.
-
-## The plugin definition
-
-A manifest plugin is the same set of fields whether it ships in `resources/tools.yaml` or you fill it in from the admin UI. The YAML form below is the clearest way to read that shape; the admin UI edits the same fields as form rows.
-
-```yaml
-plugins:
-  - id: tool/my-cli
-    kind: tool
-    name: my-cli
-    display_name: My CLI
-    description: Does something useful.
-    enabled: true
-    binaries:
-      - name: my-cli
-        tool: github:owner/my-cli
-        version: "1.2.3" # omit for latest
-    session_env:
-      - env_var: MY_TOKEN
-        source: static
-        value: "abc123"
-        required: true
+```text
+plugins/agent/<name>/
+  plugin.json
+  skills/<skill-name>/SKILL.md
+  mcp.json                         # optional, HTTP transports only
 ```
 
-## Plugin fields
+`<name>` is the canonical package name. It uses lowercase letters, digits,
+hyphens, and periods, with no leading or trailing separator. A skill is found
+only when its `SKILL.md` is in an immediate child directory of `skills/`.
+Stella keeps the package's skill bytes and file mode for the later asset layer.
 
-| Field            | Required | Description                                                                        |
-| ---------------- | -------- | ---------------------------------------------------------------------------------- |
-| `id`             | Yes      | Unique plugin ID in `kind/name` form, e.g. `tool/my-cli`                           |
-| `kind`           | Yes      | Plugin kind, typically `tool`                                                      |
-| `name`           | Yes      | Short machine-readable name                                                        |
-| `display_name`   | No       | Human-readable label shown in the admin UI                                         |
-| `description`    | No       | Short description shown in the admin UI                                            |
-| `enabled`        | No       | Whether the plugin is active. Defaults to false. Built-in plugins default to true. |
-| `binaries`       | No       | CLI binaries to download and place in `$STELLA_HOME/bin`                           |
-| `session_env`    | No       | Environment variables to inject into sandbox sessions                              |
-| `oauth_provider` | No       | Static OAuth provider ID used by `oauth.*` session env sources, such as `github`   |
+Native capabilities have a separate compiled registration and lifecycle. A
+package manifest does not create or replace a channel, provider, hook, or
+other Native capability.
 
-## Binary fields
+## Standard manifest
 
-Each binary requires a `name` and a `tool` field. The `tool` field uses mise's tool key format: `backend:identifier`.
+The standard manifest requires `$schema` and `name`. `version`, `description`,
+`author`, `homepage`, `repository`, `license`, and `keywords` are optional
+standard metadata. Unknown top-level fields produce a diagnostic and are
+ignored by tolerant loading. Strict authoring validation rejects them.
 
-### Common fields
+Stella declarations belong under the `com.cherryhq.stella` namespace. The
+extension currently uses version `"1"`:
 
-| Field              | Required | Description                                                                                   |
-| ------------------ | -------- | --------------------------------------------------------------------------------------------- |
-| `name`             | Yes      | Binary filename placed in `$STELLA_HOME/bin` (without extension)                              |
-| `tool`             | Yes      | Mise tool key in `backend:identifier` format (e.g. `github:cli/cli`)                          |
-| `version`          | No       | Version to install. Defaults to `latest` for all backends.                                    |
-| `strip_components` | No       | Leading directory levels to strip when extracting an archive. Auto-detected for most layouts. |
-| `bin_path`         | No       | Subdirectory inside the archive containing the binary (e.g. `"bin"`).                         |
-| `bin`              | No       | Rename the downloaded file when the asset is a single binary (non-archive).                   |
-| `rename_exe`       | No       | Rename the executable after extraction from an archive.                                       |
-| `checksum`         | No       | Verify the asset with a checksum in `algo:hex` format (e.g. `"sha256:abc123..."`).            |
-
-### GitHub backend (`github:owner/repo`)
-
-```yaml
-binaries:
-  - name: gh
-    tool: github:cli/cli
-    version: "2.40.1"
-    bin_path: bin
+```json
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "example-cli",
+  "version": "1.0.0",
+  "description": "An example command line integration.",
+  "extensions": {
+    "com.cherryhq.stella": {
+      "version": "1",
+      "display_name": "Example CLI",
+      "prompt": "Use example-cli for example operations.",
+      "binaries": [
+        {
+          "name": "example",
+          "tool": "github:owner/example",
+          "version": "1.2.3",
+          "options": {
+            "asset_pattern": "example_*_linux_x86_64.tar.gz",
+            "bin_path": "bin"
+          }
+        }
+      ],
+      "session_env": [
+        {
+          "env_var": "EXAMPLE_ACCESS_TOKEN",
+          "source": "oauth.access_token",
+          "required": true
+        }
+      ],
+      "oauth": [
+        {
+          "provider": "example",
+          "scopes": ["read"],
+          "bindings": [{ "credential": "access_token", "env_var": "EXAMPLE_ACCESS_TOKEN" }]
+        }
+      ]
+    }
+  }
+}
 ```
 
-| Field            | Description                                                                                |
-| ---------------- | ------------------------------------------------------------------------------------------ |
-| `asset_pattern`  | Glob pattern to select the release asset (e.g. `"gh_*_linux_x64.tar.gz"`).                 |
-| `version_prefix` | Custom tag prefix (e.g. `"release-"`).                                                     |
-| `no_app`         | Skip macOS `.app` bundles; prefer standalone binaries.                                     |
-| `filter_bins`    | Comma-separated list of binaries to expose when the archive contains multiple executables. |
-| `prerelease`     | Include pre-release versions when resolving `latest`.                                      |
-| `api_url`        | GitHub API base URL for GitHub Enterprise (e.g. `"https://github.example.com/api/v3"`).    |
+`display_name` and `prompt` are public presentation and guidance fields. They
+contain no credentials and do not execute code.
 
-### HTTP backend (`http:name`)
+## Stella extension fields
 
-The identifier after `http:` is the tool name used internally by mise.
+| Field          | Required | Meaning                                                                       |
+| -------------- | -------- | ----------------------------------------------------------------------------- |
+| `version`      | Yes      | Stella extension version, currently `"1"`.                                    |
+| `display_name` | No       | Public label shown by Stella.                                                 |
+| `prompt`       | No       | Public guidance associated with the package. It is data, not executable code. |
+| `binaries`     | No       | CLI requirements to prepare for a selected session.                           |
+| `session_env`  | No       | Public environment bindings for a selected session.                           |
+| `oauth`        | No       | Public provider, scope, and credential-to-environment declarations.           |
 
-```yaml
-binaries:
-  - name: sentinel
-    tool: http:sentinel
-    url: "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_{{os()}}_{{arch()}}.zip"
-    version: "0.26.3"
+### Binaries and installer options
+
+Each binary has a `name`, a mise `tool` key, an optional `version`, and an
+optional JSON `options` object. When `version` is omitted, the installer uses
+`latest`. The options object is passed to the installer and is part of the
+binary identity. Put installer settings inside `options`, not beside it.
+
+```json
+{
+  "name": "gh",
+  "tool": "github:cli/cli",
+  "version": "2.40.1",
+  "options": {
+    "bin_path": "bin",
+    "strip_components": 1,
+    "checksum": "sha256:..."
+  }
+}
 ```
 
-| Field               | Description                                                                                          |
-| ------------------- | ---------------------------------------------------------------------------------------------------- |
-| `url`               | Download URL. Required for http backend. Supports `{{version}}`, `{{os()}}`, `{{arch()}}` templates. |
-| `size`              | Expected file size in bytes for verification.                                                        |
-| `format`            | Archive format override (e.g. `"tar.xz"`).                                                           |
-| `version_list_url`  | URL to fetch available versions from.                                                                |
-| `version_regex`     | Regex to extract versions from the version list.                                                     |
-| `version_json_path` | jq-style path to extract versions from JSON (e.g. `".[].tag_name"`).                                 |
-| `version_expr`      | expr-lang expression to extract versions.                                                            |
+Useful installer option families include:
 
-### Pipx backend (`pipx:package`)
+| Installer or purpose           | Options                                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Archive and single-file layout | `strip_components`, `bin_path`, `bin`, `rename_exe`, `checksum`                                   |
+| GitHub releases                | `asset_pattern`, `version_prefix`, `no_app`, `filter_bins`, `prerelease`, `api_url`               |
+| Direct HTTP                    | `url`, `size`, `format`, `version_list_url`, `version_regex`, `version_json_path`, `version_expr` |
+| pipx and uvx                   | `extras`, `pipx_args`, `uvx`, `uvx_args`                                                          |
 
-The identifier is the PyPI package name, `org/repo` for a GitHub source, or a `git+https://...` URL.
+The exact option set is owned by the selected installer backend. An option
+mismatch produces a different binary identity and does not reuse an unrelated
+installation. Never put tokens, passwords, client secrets, or vault locators
+in `plugin.json` or in `options`.
 
-```yaml
-binaries:
-  - name: mypy
-    tool: pipx:mypy
-    version: "1.8.0"
+The supported binary tool keys include GitHub releases (`github:`), direct HTTP
+downloads (`http:`), pipx (`pipx:`), npm (`npm:`), and the tool keys provided by
+the managed installer. Platform-specific `platforms` maps are not supported by
+the manifest integration.
+
+### Session environment
+
+Each `session_env` entry declares `env_var`, `source`, and optional `required`.
+The standard entry has no `value` field. Sources name a resolver, such as
+`oauth.access_token` or `oauth.client_id`; credentials are resolved at runtime.
+
+OAuth declarations list a public `provider`, optional `scopes`, and `bindings`.
+Each binding names a `credential` and its target `env_var`:
+
+```json
+{
+  "oauth": [
+    {
+      "provider": "github",
+      "bindings": [{ "credential": "access_token", "env_var": "GH_TOKEN" }]
+    }
+  ]
+}
 ```
 
-| Field       | Description                                   |
-| ----------- | --------------------------------------------- |
-| `extras`    | Pip extras to install alongside the package.  |
-| `pipx_args` | Extra arguments to pass to pipx.              |
-| `uvx`       | Use `uvx` (uv's tool runner) instead of pipx. |
-| `uvx_args`  | Extra arguments for uvx.                      |
+OAuth connection bindings are reserved for a later implementation. Configure
+MCP authentication on the individual MCP child instead. The package reader
+does not create connections or fetch credentials.
 
-### NPM backend (`npm:package`)
+## Release-owned builtins and runtime placement
 
-```yaml
-binaries:
-  - name: serve
-    tool: npm:serve
-    version: "14.2.0"
-```
+Built-in `plugin.json` definitions are immutable release resources. The
+administrator can change a selected scope's enablement and can override CLI
+`binary_versions`; the shipped binary tool, installer options, public metadata,
+and prompt remain release-owned. Built-in skills are also release-owned and
+their membership cannot be replaced by a scope configuration.
 
-Platform-specific asset patterns (`platforms:` map) are not supported in the manifest.
+Only `mise` and `xberg` are embedded release runtimes. Stella synchronizes and
+extracts those embedded binaries with the release. Other CLI artifacts are
+prepared by the server in the background and exposed to sessions through the
+four plugin scopes: `system`, `system_agent`, `user`, and `user_agent`. An
+artifact being prepared does not grant a session access to it; scope resolution
+still decides what the session sees.
 
-## Session env fields
+The `web` package is independent. It carries the Bun runtime and Lightpanda
+binary needed by the Web skill. The standalone `bun` plugin switch does not
+enable or disable `web`; configure the `web` package and its scope instead.
 
-| Field      | Required    | Description                                                       |
-| ---------- | ----------- | ----------------------------------------------------------------- |
-| `env_var`  | Yes         | Environment variable name                                         |
-| `source`   | Yes         | How the value is resolved (see below)                             |
-| `value`    | Conditional | Value when `source: static`                                       |
-| `required` | No          | If true, session creation fails when the value cannot be resolved |
+## Configuration and installation
 
-### Env sources
+The package definition and scope configuration are separate. A scope can
+enable or disable a plugin and can override CLI binary versions. The selected
+scope is resolved for the trusted user and Agent before a session starts.
 
-| Source               | Description                                           |
-| -------------------- | ----------------------------------------------------- |
-| `static`             | Uses the literal `value` from the manifest            |
-| `oauth.access_token` | Injects the connected provider's OAuth access token   |
-| `oauth.client_id`    | Injects the connected provider bundle's client/app ID |
+When a selected binary is missing from the prepared cache, Stella installs it
+for the target runtime through the managed installer. A matching prepared
+artifact can be reused. Stella never copies a host installation into a Docker
+Linux sandbox. Native managed sessions and sandbox sessions use their own
+runtime trees.
 
-`oauth.*` sources resolve through the plugin's `oauth_provider`. GitHub uses Stella's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. Other providers must be declared and configured separately.
+Packages do not run arbitrary install hooks or custom shell scripts. The
+installer handles declared binaries only. Package reading itself has no
+process or network execution path.
 
-## State and caching
+## Limits
 
-Stella tracks installed binary versions in `$STELLA_HOME/plugin-manifest-state.json`. On subsequent startups, binaries at the correct version are skipped. Change a binary's `version` to trigger a re-download. Startup reconciliation runs in the background and is cancelled on shutdown; Stella also terminates any child processes spawned by the installer.
-
-## Admin UI
-
-Manifest-backed plugins are shown once, in the tab that matches their kind:
-
-- `tool/gh`, `tool/lark-cli`, and `tool/lightpanda` appear in **Tools**.
-
-Rows with manifest backing show a `manifest` badge and an **Edit definition** action for the plugin definition. Binaries and session environment variables are edited as form rows. If the same plugin also exposes runtime config, the row also shows **Configure**. The enable switch is stored separately from the definition, so disabling a built-in does not count as customizing it, and pinning a binary to a specific version is an ordinary definition edit.
-
-The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI from a GitHub release binary. Saving registers the plugin and syncs binaries automatically without a restart. The embedded built-in manifest is never modified.
-
-Editing a built-in stores only the fields you changed, so the rest keep following the definition shipped with the server and still improve when you upgrade. Such a plugin is marked **customized** and offers **Reset to default**, which drops the stored edits and leaves the enable switch as it is. Lists — binaries, skills, session environment variables — are stored whole: edit one binary and you own that list. A customization saved before this behaviour existed holds a whole definition and stays frozen at it; saving that plugin once rewrites the row and it starts following upgrades again.
-
-## Limitations in v1
-
-- System prompts and skill registration are not supported in the manifest. Plugins that need these capabilities still use Go registration.
-- Custom install scripts are not supported.
-- Platform-specific asset patterns (`platforms:` map) are not supported. Use `asset_pattern` instead.
-- Supported binary sources: GitHub releases (`github`), direct HTTP download (`http`), pipx (`pipx`), npm (`npm`).
+- The Stella extension version must be exactly `"1"`.
+- `stdio` MCP entries are unsupported and skipped with a diagnostic. Use the
+  supported HTTP transports instead.
+- OAuth connection bindings are not implemented yet.
+- Arbitrary install hooks and custom install scripts are unsupported.
+- Manifests and installer options must not contain secrets or credential
+  locators.
+- A malformed component is isolated where possible, so valid skills and other
+  resources can remain loadable. Strict authoring validation reports unknown or
+  unsupported declarations as errors.

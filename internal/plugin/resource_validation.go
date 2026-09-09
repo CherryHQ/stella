@@ -1,0 +1,481 @@
+package plugin
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"path"
+	"reflect"
+	"strings"
+	"unicode"
+)
+
+// ValidatePayload validates resources against their configuration owner. Definition
+// resources are published input; config parameters let a user
+// pin a release version but cannot replace the
+// executable, its install location, or the skill that belongs to it.
+//
+// The plugin service calls this with the resolved definition plus overlay. The
+// reset list is checked here as well because reset is an ownership operation,
+// even when the resulting value happens to equal the release definition.
+func ValidatePayload(_ context.Context, definition Definition, config Config, resetFields []string) error {
+	if err := config.Validate(); err != nil {
+		return err
+	}
+	if err := definition.Validate(); err != nil {
+		return invalidPayload("definition: %v", err)
+	}
+	if err := validateResetFields(resetFields); err != nil {
+		return err
+	}
+	if err := validateCredentialRefs(config); err != nil {
+		return err
+	}
+
+	shipped, err := decodeResourcePayload(definition.Spec, "definition spec")
+	if err != nil {
+		return err
+	}
+	// A nil config payload is still checked against the release resource
+	// contract. Only the selected config's completeness is suppressed by false.
+	// Custom definitions may leave all resources to their scoped configs,
+	// including an empty MCP set after the last child is removed.
+	allowEmpty := definition.Source == SourceCustom || payloadHasNoResources(shipped)
+	if err := validateResources(shipped, "definition spec", true, allowEmpty); err != nil {
+		return err
+	}
+	if len(config.Payload) == 0 {
+		if config.Enabled != nil && *config.Enabled {
+			return invalidPayload("enabled config has no payload")
+		}
+		return nil
+	}
+	resolved, err := decodeResourcePayload(config.Payload, "config payload")
+	if err != nil {
+		return err
+	}
+	if definition.Source == SourceBuiltin && payloadHasNoResources(shipped) && len(resolved.Binaries) > 0 {
+		return invalidPayload("a metadata-only package cannot add CLI binaries")
+	}
+	complete := definition.DefaultEnabled
+	if config.Enabled != nil {
+		complete = *config.Enabled
+	}
+	if err := validateResources(resolved, "config payload", complete, allowEmpty); err != nil {
+		return err
+	}
+	if err := validateConfigEnvValues(resolved); err != nil {
+		return err
+	}
+	if config.Scope == ScopeUser || config.Scope == ScopeUserAgent {
+		if err := validateUserOverlay(shipped, resolved, config); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func payloadHasNoResources(payload ResourcePayload) bool {
+	return len(payload.Binaries) == 0 && len(payload.Skills) == 0 &&
+		len(payload.SessionEnvs) == 0 && len(payload.OAuth) == 0 &&
+		len(payload.MCPServers) == 0 && payload.Prompt == ""
+}
+
+// DecodeResourcePayload rejects identity fields and unknown resource fields.
+// Callers must validate ownership before executing any decoded resource.
+func DecodeResourcePayload(raw json.RawMessage, name string) (ResourcePayload, error) {
+	return decodeResourcePayload(raw, name)
+}
+
+func decodeResourcePayload(raw json.RawMessage, name string) (ResourcePayload, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return ResourcePayload{}, invalidPayload("%s is empty", name)
+	}
+	if trimmed[0] != '{' {
+		return ResourcePayload{}, invalidPayload("%s must be an object", name)
+	}
+	var payload ResourcePayload
+	if err := decodeStrictJSON(trimmed, &payload); err != nil {
+		return ResourcePayload{}, invalidPayload("%s: %v", name, err)
+	}
+	return payload, nil
+}
+
+func decodeStrictJSON(raw json.RawMessage, dst any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("trailing JSON")
+		}
+		return fmt.Errorf("trailing JSON: %w", err)
+	}
+	return nil
+}
+
+func validateResources(payload ResourcePayload, name string, complete, allowEmpty bool) error {
+	seenBinaries := make(map[string]struct{}, len(payload.Binaries))
+	for i, binary := range payload.Binaries {
+		if _, ok := seenBinaries[binary.Name]; ok {
+			return invalidPayload("%s binaries[%d] duplicates name %q", name, i, binary.Name)
+		}
+		seenBinaries[binary.Name] = struct{}{}
+		if err := validateString(binary.Name, "binary name"); err != nil {
+			return err
+		}
+		if err := validateString(binary.Tool, "binary tool"); err != nil {
+			return err
+		}
+		if err := validateString(binary.Version, "binary version"); err != nil {
+			return err
+		}
+		if binary.Options == nil {
+			continue
+		}
+		for key, value := range binary.Options {
+			if err := validateString(key, "binary option name"); err != nil {
+				return err
+			}
+			if err := validateJSONValue(value, "binary option "+key); err != nil {
+				return err
+			}
+		}
+	}
+
+	seenSkills := make(map[string]struct{}, len(payload.Skills))
+	for i, skill := range payload.Skills {
+		if err := validateString(skill.Name, "skill name"); err != nil {
+			return err
+		}
+		if skill.Path != "" && (path.IsAbs(skill.Path) || strings.Contains(skill.Path, `\`) || path.Clean(skill.Path) != skill.Path || !strings.HasPrefix(skill.Path, "skills/"+skill.Name+"/")) {
+			return invalidPayload("%s skills[%d] has invalid package path %q", name, i, skill.Path)
+		}
+		if _, ok := seenSkills[skill.Name]; ok {
+			return invalidPayload("%s skills[%d] duplicates %q", name, i, skill.Name)
+		}
+		seenSkills[skill.Name] = struct{}{}
+	}
+
+	seenEnv := make(map[string]struct{}, len(payload.SessionEnvs))
+	for i, env := range payload.SessionEnvs {
+		if err := validateString(env.EnvVar, "session env var"); err != nil {
+			return err
+		}
+		if err := validateString(env.Source, "session env source"); err != nil {
+			return err
+		}
+		if _, ok := seenEnv[env.EnvVar]; ok {
+			return invalidPayload("%s session_env[%d] duplicates %q", name, i, env.EnvVar)
+		}
+		seenEnv[env.EnvVar] = struct{}{}
+		if env.Source != "" {
+			if after, ok := strings.CutPrefix(env.Source, "oauth."); ok {
+				if !knownOAuthField(after) {
+					return invalidPayload("%s session_env[%d] has unknown OAuth field %q", name, i, env.Source)
+				}
+			} else if env.Source != "static" {
+				return invalidPayload("%s session_env[%d] has unknown source %q", name, i, env.Source)
+			}
+		}
+	}
+	if err := errors.Join(validateOAuthBindings(payload)...); err != nil {
+		return invalidPayload("%s: %v", name, err)
+	}
+
+	// An embedded-only system plugin can have no configurable capabilities.
+	// Its executable belongs to the independent embedded runtime catalog.
+	empty := payloadHasNoResources(payload)
+	if complete && (!allowEmpty || !empty) {
+		if err := validateCompleteResources(payload, name); err != nil {
+			return invalidPayload("%v", err)
+		}
+	}
+	return nil
+}
+
+// ValidateBundledSkillNames checks the immutable skill membership declared by
+// a plugin against the release descriptor owned by that plugin. Configs may
+// pin mutable CLI fields, but they cannot add, remove, or redirect skills.
+func ValidateBundledSkillNames(declared []SkillResource, expected []string) error {
+	declaredSet := make(map[string]struct{}, len(declared))
+	for i, skill := range declared {
+		if err := validateString(skill.Name, "skill name"); err != nil {
+			return err
+		}
+		if _, exists := declaredSet[skill.Name]; exists {
+			return invalidPayload("skills[%d] duplicates %q", i, skill.Name)
+		}
+		declaredSet[skill.Name] = struct{}{}
+	}
+	expectedSet := make(map[string]struct{}, len(expected))
+	for _, name := range expected {
+		if err := validateString(name, "bundled skill name"); err != nil {
+			return err
+		}
+		if _, exists := expectedSet[name]; exists {
+			return invalidPayload("release descriptor duplicates skill %q", name)
+		}
+		expectedSet[name] = struct{}{}
+	}
+	if len(declaredSet) != len(expectedSet) {
+		return invalidPayload("skills must exactly match the release descriptor")
+	}
+	for name := range expectedSet {
+		if _, exists := declaredSet[name]; !exists {
+			return invalidPayload("skills must exactly match the release descriptor: missing %q", name)
+		}
+	}
+	return nil
+}
+
+func validateConfigEnvValues(payload ResourcePayload) error {
+	for i, env := range payload.SessionEnvs {
+		if env.Value != "" {
+			return invalidPayload("config payload session_env[%d].value must be empty; use credential_refs", i)
+		}
+	}
+	return nil
+}
+
+func validateUserOverlay(shipped, resolved ResourcePayload, config Config) error {
+	if resolved.Description != shipped.Description || resolved.Category != shipped.Category ||
+		resolved.Prompt != shipped.Prompt ||
+		!reflect.DeepEqual(resolved.Skills, shipped.Skills) || !reflect.DeepEqual(resolved.OAuth, shipped.OAuth) {
+		return invalidPayload("user scope cannot replace resource declarations")
+	}
+	if len(resolved.Binaries) != len(shipped.Binaries) {
+		return invalidPayload("user scope cannot add or remove binaries")
+	}
+	for i := range shipped.Binaries {
+		want, got := shipped.Binaries[i], resolved.Binaries[i]
+		if got.Name != want.Name || got.Tool != want.Tool {
+			return invalidPayload("user scope cannot change binary[%d] name or tool", i)
+		}
+		if err := validateUserOptions(want.Options, got.Options, got.Version); err != nil {
+			return fmt.Errorf("%w: binary[%d] options: %w", ErrInvalidConfig, i, err)
+		}
+		if err := ValidateBinaryVersion(got.Version); err != nil {
+			return err
+		}
+	}
+	if len(resolved.SessionEnvs) != len(shipped.SessionEnvs) {
+		return invalidPayload("user scope cannot add or remove session env declarations")
+	}
+	for i := range shipped.SessionEnvs {
+		want, got := shipped.SessionEnvs[i], resolved.SessionEnvs[i]
+		if got.EnvVar != want.EnvVar || got.Required != want.Required || got.Value != want.Value || got.Source != want.Source {
+			return invalidPayload("user scope cannot change session_env[%d] declaration", i)
+		}
+		if strings.HasPrefix(got.Source, "oauth.") && config.UserID == "" {
+			return invalidPayload("OAuth session env requires a user-owned config")
+		}
+	}
+	return nil
+}
+
+func validateUserOptions(shipped, resolved map[string]any, version string) error {
+	for key, value := range resolved {
+		if key == "version" {
+			optionVersion, _ := value.(string)
+			if _, ok := value.(string); !ok {
+				return errors.New("options.version must be a string")
+			}
+			if optionVersion != version {
+				return errors.New("options.version must match binary version")
+			}
+		}
+		if key == "extras" {
+			if _, ok := value.(string); !ok {
+				return errors.New("options.extras must be a string")
+			}
+			continue
+		}
+		published, ok := shipped[key]
+		if !ok {
+			return fmt.Errorf("option %q is unknown", key)
+		}
+		if !reflect.DeepEqual(published, value) {
+			return fmt.Errorf("option %q is release-owned", key)
+		}
+	}
+	for key, value := range shipped {
+		if key == "extras" {
+			continue
+		}
+		if resolvedValue, ok := resolved[key]; !ok || !reflect.DeepEqual(resolvedValue, value) {
+			return fmt.Errorf("option %q is release-owned", key)
+		}
+	}
+	return nil
+}
+
+// ValidateBinaryVersion accepts a published version or tag, never a new tool source.
+func ValidateBinaryVersion(version string) error {
+	if err := validateString(version, "binary version"); err != nil {
+		return err
+	}
+	if len(version) > 256 {
+		return invalidPayload("binary version is too long")
+	}
+	// mise tool keys and URLs belong to the release definition. A config
+	// version is a registry version or tag, never another implementation source.
+	if strings.ContainsAny(version, "/\\:@?%") {
+		return invalidPayload("binary version must be a published version or tag")
+	}
+	return nil
+}
+
+func validateResetFields(fields []string) error {
+	seen := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		if _, ok := seen[field]; ok {
+			return invalidPayload("reset_fields contains duplicate %q", field)
+		}
+		seen[field] = struct{}{}
+		switch field {
+		case "binaries", "mcp_servers":
+		default:
+			return invalidPayload("reset_fields contains unknown field %q", field)
+		}
+	}
+	return nil
+}
+
+func validateCredentialRefs(config Config) error {
+	if len(config.CredentialRefs) == 0 {
+		return nil
+	}
+	trimmed := bytes.TrimSpace(config.CredentialRefs)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return invalidPayload("credential_refs must be an object")
+	}
+	var refs cliCredentialRefs
+	if err := decodeStrictJSON(trimmed, &refs); err != nil {
+		return invalidPayload("credential_refs: %v", err)
+	}
+	var rawRefs map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &rawRefs); err != nil {
+		return invalidPayload("credential_refs must be an object")
+	}
+	if raw, ok := rawRefs["session_env"]; ok && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return invalidPayload("credential_refs.session_env must be an object")
+	}
+	if refs.SessionEnv != nil {
+		if err := validateCredentialRef(*refs.SessionEnv, config); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type cliCredentialRefs struct {
+	SessionEnv *cliCredentialRef `json:"session_env,omitempty"`
+	// MCP validates its own locator map at the same parent mutation boundary.
+	MCPServers json.RawMessage `json:"mcp_servers,omitempty"`
+}
+
+type cliCredentialRef struct {
+	Name    string `json:"name"`
+	Scope   Scope  `json:"scope"`
+	UserID  string `json:"user_id,omitempty"`
+	AgentID string `json:"agent_id,omitempty"`
+	Mode    string `json:"mode,omitempty"`
+	Owner   string `json:"owner,omitempty"`
+}
+
+func validateCredentialRef(ref cliCredentialRef, config Config) error {
+	if ref.Name == "" {
+		return invalidPayload("credential_refs.session_env.name is required")
+	}
+	for name, value := range map[string]string{
+		"name": ref.Name, "user_id": ref.UserID, "agent_id": ref.AgentID,
+		"mode": ref.Mode, "owner": ref.Owner,
+	} {
+		if value != "" {
+			if err := validateString(value, "credential ref "+name); err != nil {
+				return err
+			}
+		}
+	}
+	if !credentialOwnerMatches(ref.Scope, ref.UserID, ref.AgentID, config) {
+		return invalidPayload("credential ref owner does not match config scope")
+	}
+	return nil
+}
+
+func credentialOwnerMatches(scope Scope, refUserID, refAgentID string, config Config) bool {
+	switch scope {
+	case ScopeSystem:
+		return config.Scope == ScopeSystem && refUserID == "" && refAgentID == "" && config.UserID == "" && config.AgentID == ""
+	case ScopeSystemAgent:
+		return config.Scope == ScopeSystemAgent && refUserID == "" && refAgentID == config.AgentID && config.UserID == "" && config.AgentID != ""
+	case ScopeUser:
+		return (config.Scope == ScopeUser || config.Scope == ScopeUserAgent) && refUserID == config.UserID && refAgentID == "" && config.UserID != ""
+	case ScopeUserAgent:
+		return config.Scope == ScopeUserAgent && refUserID == config.UserID && refAgentID == config.AgentID && config.UserID != "" && config.AgentID != ""
+	default:
+		return false
+	}
+}
+
+func knownOAuthField(field string) bool {
+	switch field {
+	case "access_token", "client_id", "brand", "refresh_token":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateString(value, field string) error {
+	if strings.IndexByte(value, 0) >= 0 {
+		return invalidPayload("%s contains NUL", field)
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return invalidPayload("%s contains control character", field)
+		}
+	}
+	return nil
+}
+
+func validateJSONValue(value any, field string) error {
+	switch value := value.(type) {
+	case nil, bool, string, float64:
+		if text, ok := value.(string); ok {
+			return validateString(text, field)
+		}
+		return nil
+	case []any:
+		for _, item := range value {
+			if err := validateJSONValue(item, field); err != nil {
+				return err
+			}
+		}
+		return nil
+	case map[string]any:
+		for key, item := range value {
+			if err := validateString(key, field+" key"); err != nil {
+				return err
+			}
+			if err := validateJSONValue(item, field+"."+key); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return invalidPayload("%s has unsupported JSON type %T", field, value)
+	}
+}
+
+func invalidPayload(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", ErrInvalidConfig, fmt.Sprintf(format, args...))
+}

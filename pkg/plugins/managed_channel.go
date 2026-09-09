@@ -9,7 +9,6 @@ import (
 type ManagedChannelPluginRegistration struct {
 	PluginID       string
 	RuntimeName    string
-	Meta           PluginInfo
 	Info           PluginInfo
 	DefaultConfig  func() map[string]any
 	Schema         map[string]any
@@ -23,12 +22,8 @@ type ManagedChannelPluginRegistration struct {
 func RegisterManagedChannelPlugin(host Host, reg ManagedChannelPluginRegistration) {
 	info := reg.Info.Clone()
 	if info.ID == "" {
-		info = reg.Meta.Clone()
-	}
-	if info.ID == "" {
 		info.ID = reg.PluginID
 	}
-	info.Managed = true
 
 	host.SetInfo(info)
 	host.AddAdmin(AdminSpec{

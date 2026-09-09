@@ -19,9 +19,14 @@ type ExecOptions struct {
 	Command     []string // argv — not a shell string
 	Cwd         string   // absolute in-container path
 	Env         map[string]string
-	User        string    // optional override
-	Stdin       io.Reader // optional
-	Tty         bool      // default false
+	// UnsetEnv names variables that must be removed from the container's
+	// creation environment for this exec. Docker represents these as Env
+	// entries without an equals sign; names only, never secret values, cross
+	// this boundary.
+	UnsetEnv []string
+	User     string    // optional override
+	Stdin    io.Reader // optional
+	Tty      bool      // default false
 }
 
 // ExecResult holds the result of a blocking Exec call.
@@ -214,7 +219,7 @@ func buildExecCreateOptions(opts ExecOptions) mobyclient.ExecCreateOptions {
 		AttachStdin:  opts.Stdin != nil,
 		AttachStdout: true,
 		AttachStderr: true,
-		Env:          envSlice(opts.Env),
+		Env:          envSliceWithUnset(opts.Env, opts.UnsetEnv),
 		WorkingDir:   opts.Cwd,
 		Cmd:          opts.Command,
 	}

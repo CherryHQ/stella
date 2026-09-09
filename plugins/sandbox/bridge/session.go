@@ -89,12 +89,14 @@ func (f *Factory) CreateSession(ctx context.Context, policy sandboxpkg.Policy) (
 	var entropy [6]byte
 	_, _ = rand.Read(entropy[:])
 	s := &session{
-		id:       "bridge-" + hex.EncodeToString(entropy[:]),
-		client:   c,
-		policy:   policy,
-		tempDir:  tempDir,
-		deadline: binding.Deadline,
-		done:     make(chan struct{}),
+		id:             "bridge-" + hex.EncodeToString(entropy[:]),
+		client:         c,
+		policy:         policy,
+		tempDir:        tempDir,
+		filesystemView: sandboxpkg.FilesystemView{Home: home, TempDir: tempDir},
+		runnerPath:     binding.Path,
+		deadline:       binding.Deadline,
+		done:           make(chan struct{}),
 	}
 	s.files = &fileAccess{s: s}
 	sandboxpkg.LogSessionCreated(s.id, "bridge", policy)
@@ -102,16 +104,43 @@ func (f *Factory) CreateSession(ctx context.Context, policy sandboxpkg.Policy) (
 }
 
 type session struct {
-	id       string
-	client   *client
-	tempDir  string
-	deadline time.Time
-	done     chan struct{}
-	files    *fileAccess
+	id             string
+	client         *client
+	tempDir        string
+	filesystemView sandboxpkg.FilesystemView
+	runnerPath     string
+	done           chan struct{}
+	files          *fileAccess
+	deadline       time.Time
 
 	mu     sync.RWMutex
 	policy sandboxpkg.Policy
 	closed bool
+}
+
+// RenderEnv applies the bridge container's fixed filesystem and PATH view to
+// a fresh logical turn environment. The binding is the source of truth; the
+// retained policy is deliberately not copied across an EnvReplace boundary.
+func (s *session) RenderEnv(_ context.Context, env map[string]string) (map[string]string, error) {
+	s.mu.RLock()
+	closed := s.closed
+	view, runnerPath := s.filesystemView, s.runnerPath
+	s.mu.RUnlock()
+	if closed {
+		return nil, errors.New("bridge: session is closed")
+	}
+	rendered := maps.Clone(env)
+	if rendered == nil {
+		rendered = make(map[string]string)
+	}
+	if err := sandboxpkg.ApplyFilesystemEnv(rendered, view); err != nil {
+		return nil, err
+	}
+	if runnerPath != "" {
+		rendered["PATH"] = runnerPath
+		rendered[sandboxpkg.EnvRunnerPath] = runnerPath
+	}
+	return rendered, nil
 }
 
 func (s *session) Policy() sandboxpkg.Policy {
@@ -171,8 +200,13 @@ func (s *session) Exec(ctx context.Context, command string, opts sandboxpkg.Exec
 		return sandboxpkg.ExecResult{}, err
 	}
 	policy := s.Policy()
-	env := maps.Clone(policy.Env)
-	maps.Copy(env, opts.Env)
+	var env map[string]string
+	if opts.EnvMode == sandboxpkg.EnvReplace {
+		env = maps.Clone(opts.Env)
+	} else {
+		env = maps.Clone(policy.Env)
+		maps.Copy(env, opts.Env)
+	}
 	timeout := opts.Timeout
 	if timeout == 0 {
 		timeout = policy.Timeout

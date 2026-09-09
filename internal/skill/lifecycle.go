@@ -1,7 +1,6 @@
 package skill
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -23,29 +22,4 @@ func validateSkillFilePaths(files map[string]string) error {
 		}
 	}
 	return nil
-}
-
-func managedUpdateMetadata(metadata json.RawMessage, existingCreatedBy string, convertToManual bool) (json.RawMessage, error) {
-	fields := map[string]any{}
-	if len(metadata) > 0 && string(metadata) != "null" {
-		if err := json.Unmarshal(metadata, &fields); err != nil {
-			return nil, fmt.Errorf("decode managed skill metadata: %w", err)
-		}
-	}
-	if fields == nil {
-		fields = map[string]any{}
-	}
-	switch {
-	case convertToManual:
-		fields[reflectSkillCreatedByKey] = ManualSkillCreatedBy
-	case existingCreatedBy == "":
-		delete(fields, reflectSkillCreatedByKey)
-	default:
-		fields[reflectSkillCreatedByKey] = existingCreatedBy
-	}
-	out, err := json.Marshal(fields)
-	if err != nil {
-		return nil, fmt.Errorf("encode managed skill metadata: %w", err)
-	}
-	return json.RawMessage(out), nil
 }

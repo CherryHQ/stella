@@ -76,25 +76,24 @@ type skillMigrationEvidenceItem struct {
 type SkillHomeMigrator struct {
 	db     *pgxpool.Pool
 	q      *sqlc.Queries
-	store  *POSIXStore
+	store  *LegacySkillStore
 	now    func() time.Time
 	commit func(context.Context, pgx.Tx) error
 }
 
 func NewSkillHomeMigrator(db *pgxpool.Pool, roots home.SkillRootOpener) (*SkillHomeMigrator, error) {
-	store, err := NewPOSIXStore(db, roots)
+	store, err := NewLegacySkillStore(db, roots)
 	if err != nil {
 		return nil, err
 	}
 	return NewSkillHomeMigratorFromStore(db, store)
 }
 
-// NewSkillHomeMigratorFromStore shares the runtime store so a failed automatic
-// cutover can disable managed-Skill entry points before releasing its mutation
-// lock.
-func NewSkillHomeMigratorFromStore(db *pgxpool.Pool, store *POSIXStore) (*SkillHomeMigrator, error) {
+// NewSkillHomeMigratorFromStore shares the migration-only store for one
+// consistent legacy PostgreSQL/Home cutover.
+func NewSkillHomeMigratorFromStore(db *pgxpool.Pool, store *LegacySkillStore) (*SkillHomeMigrator, error) {
 	if db == nil || store == nil {
-		return nil, errors.New("skills: database and POSIX store are required")
+		return nil, errors.New("skills: database and legacy Skill store are required")
 	}
 	return &SkillHomeMigrator{
 		db: db, q: sqlc.New(db), store: store,
@@ -351,11 +350,6 @@ func (m *SkillHomeMigrator) reconcile(ctx context.Context) (result SkillHomeMigr
 		return result, err
 	}
 	defer finishManagedMutation(release, &resultErr)
-	defer func() {
-		if resultErr != nil {
-			m.store.SetUnavailable(resultErr)
-		}
-	}()
 	if completed, done, err := m.completedResult(ctx); err != nil || done {
 		return completed, err
 	}
@@ -396,14 +390,11 @@ func (m *SkillHomeMigrator) reconcile(ctx context.Context) (result SkillHomeMigr
 // Home revisions are published and verified; conflicting pre-revision mirrors
 // are quarantined, never replaced.
 func (m *SkillHomeMigrator) ReconcileStartup(ctx context.Context) (SkillStartupReconcileResult, error) {
-	m.store.BeginStartupReconciliation()
 	result, err := m.reconcile(ctx)
 	startup := SkillStartupReconcileResult{Migration: result}
 	if err == nil {
-		m.store.setAvailable()
 		return startup, nil
 	}
-	m.store.SetUnavailable(err)
 	if isSkillMigrationDataError(err) {
 		startup.Degraded = err
 		return startup, nil

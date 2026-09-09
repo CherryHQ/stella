@@ -18,15 +18,15 @@ import (
 
 func TestGenerateBuiltinManifestNestedRootAndExecutable(t *testing.T) {
 	root := t.TempDir()
-	writeTestBuiltin(t, root, "system/demo/SKILL.md", "---\nname: demo\ndescription: Demo\ntags: [one, two]\ndisable_model_invocation: true\nmetadata:\n  owner_plugin: tool/demo\n---\nbody\n", 0o644)
-	writeTestBuiltin(t, root, "system/demo/scripts/run.sh", "#!/bin/sh\necho demo\n", 0o755)
+	writeTestBuiltin(t, root, "plugins/agent/demo/skills/demo/SKILL.md", "---\nname: demo\ndescription: Demo\ntags: [one, two]\ndisable_model_invocation: true\nmetadata:\n  owner_plugin: tool/demo\n---\nbody\n", 0o644)
+	writeTestBuiltin(t, root, "plugins/agent/demo/skills/demo/scripts/run.sh", "#!/bin/sh\necho demo\n", 0o755)
 
-	manifest, err := GenerateBuiltinManifest(root)
+	manifest, err := GenerateBuiltinManifestFromAssets(root, testBuiltinSources("demo"))
 	if err != nil {
-		t.Fatalf("GenerateBuiltinManifest: %v", err)
+		t.Fatalf("GenerateBuiltinManifestFromAssets: %v", err)
 	}
-	if len(manifest.Skills) != 1 || manifest.Skills[0].Root != "system/demo" {
-		t.Fatalf("skills = %#v, want nested system/demo root", manifest.Skills)
+	if len(manifest.Skills) != 1 || manifest.Skills[0].Root != "core/demo" {
+		t.Fatalf("skills = %#v, want nested core/demo root", manifest.Skills)
 	}
 	skill := manifest.Skills[0]
 	if skill.Ref != "builtin:demo" || skill.APIID != "builtin-demo" || skill.Digest == "" || manifest.Revision == "" {
@@ -46,6 +46,33 @@ func TestGenerateBuiltinManifestNestedRootAndExecutable(t *testing.T) {
 	}
 }
 
+func TestGenerateBuiltinManifestUsesExplicitOwner(t *testing.T) {
+	root := t.TempDir()
+	writeTestBuiltin(t, root, "plugins/agent/demo/skills/demo/SKILL.md", "---\nname: demo\nmetadata:\n  owner_plugin: tool/attacker\n---\nbody\n", 0o644)
+
+	manifest, err := GenerateBuiltinManifestFromAssets(root, testBuiltinSources("demo"))
+	if err != nil {
+		t.Fatalf("GenerateBuiltinManifestFromAssets: %v", err)
+	}
+	if got := manifest.Skills[0].OwnerPluginID; got != "demo" {
+		t.Fatalf("owner = %q, want demo", got)
+	}
+	metadata := manifest.Skills[0].Metadata["metadata"].(map[string]any)
+	if got := metadata["owner_plugin"]; got != "tool/attacker" {
+		t.Fatalf("frontmatter owner = %#v, want preserved metadata only", got)
+	}
+}
+
+func TestGenerateBuiltinManifestRequiresExplicitOwner(t *testing.T) {
+	root := t.TempDir()
+	writeTestBuiltin(t, root, "plugins/agent/demo/skills/demo/SKILL.md", "---\nname: demo\n---\nbody\n", 0o644)
+	assets := testBuiltinSources("demo")
+	assets[0].OwnerPluginID = ""
+	if _, err := GenerateBuiltinManifestFromAssets(root, assets); err == nil || !strings.Contains(err.Error(), "no explicit plugin owner") {
+		t.Fatalf("error = %v, want explicit owner rejection", err)
+	}
+}
+
 func TestGenerateBuiltinManifestRejectsInvalidSource(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -55,22 +82,22 @@ func TestGenerateBuiltinManifestRejectsInvalidSource(t *testing.T) {
 		{
 			name: "duplicate names",
 			setup: func(t *testing.T, root string) {
-				writeTestBuiltin(t, root, "system/demo/SKILL.md", "---\nname: demo\n---\n", 0o644)
-				writeTestBuiltin(t, root, "other/demo/SKILL.md", "---\nname: demo\n---\n", 0o644)
+				writeTestBuiltin(t, root, "plugins/agent/demo/skills/demo/SKILL.md", "---\nname: demo\n---\n", 0o644)
+				writeTestBuiltin(t, root, "plugins/agent/other/skills/demo/SKILL.md", "---\nname: demo\n---\n", 0o644)
 			},
 			want: "duplicate",
 		},
 		{
 			name: "name mismatch",
 			setup: func(t *testing.T, root string) {
-				writeTestBuiltin(t, root, "system/demo/SKILL.md", "---\nname: other\n---\n", 0o644)
+				writeTestBuiltin(t, root, "plugins/agent/demo/skills/demo/SKILL.md", "---\nname: other\n---\n", 0o644)
 			},
 			want: "does not match",
 		},
 		{
 			name: "unsupported mode",
 			setup: func(t *testing.T, root string) {
-				writeTestBuiltin(t, root, "system/demo/SKILL.md", "---\nname: demo\n---\n", 0o600)
+				writeTestBuiltin(t, root, "plugins/agent/demo/skills/demo/SKILL.md", "---\nname: demo\n---\n", 0o600)
 			},
 			want: "unsupported mode",
 		},
@@ -83,8 +110,8 @@ func TestGenerateBuiltinManifestRejectsInvalidSource(t *testing.T) {
 		}{
 			name: "symlink",
 			setup: func(t *testing.T, root string) {
-				writeTestBuiltin(t, root, "system/demo/SKILL.md", "---\nname: demo\n---\n", 0o644)
-				if err := os.Symlink("SKILL.md", filepath.Join(root, "system", "demo", "linked.md")); err != nil {
+				writeTestBuiltin(t, root, "plugins/agent/demo/skills/demo/SKILL.md", "---\nname: demo\n---\n", 0o644)
+				if err := os.Symlink("SKILL.md", filepath.Join(root, "plugins", "agent", "demo", "skills", "demo", "linked.md")); err != nil {
 					t.Fatalf("Symlink: %v", err)
 				}
 			},
@@ -95,9 +122,13 @@ func TestGenerateBuiltinManifestRejectsInvalidSource(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
 			test.setup(t, root)
-			_, err := GenerateBuiltinManifest(root)
+			assets := testBuiltinSources("demo")
+			if test.name == "duplicate names" {
+				assets = append(assets, BuiltinSkillSource{Name: "demo", SourceRoot: "agent/other/skills/demo", LogicalRoot: "plugins/agent/other/demo", OwnerPluginID: "other"})
+			}
+			_, err := GenerateBuiltinManifestFromAssets(root, assets)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("GenerateBuiltinManifest() error = %v, want %q", err, test.want)
+				t.Fatalf("GenerateBuiltinManifestFromAssets() error = %v, want %q", err, test.want)
 			}
 		})
 	}
@@ -108,12 +139,14 @@ func TestBuiltinManifestRejectsTraversal(t *testing.T) {
 	manifest := BuiltinManifest{
 		Revision: strings.Repeat("0", 64),
 		Skills: []BuiltinSkillDescriptor{{
-			Ref:    "builtin:demo",
-			APIID:  "builtin-demo",
-			Name:   "demo",
-			Root:   "system/demo",
-			Digest: builtinSkillDigest(files),
-			Files:  files,
+			Ref:           "builtin:demo",
+			APIID:         "builtin-demo",
+			Name:          "demo",
+			Root:          "core/demo",
+			SourceRoot:    "agent/demo/skills/demo",
+			OwnerPluginID: "demo",
+			Digest:        builtinSkillDigest(files),
+			Files:         files,
 		}},
 	}
 	if err := validateBuiltinManifest(manifest); err == nil || !strings.Contains(err.Error(), "invalid builtin file descriptor") {
@@ -123,13 +156,13 @@ func TestBuiltinManifestRejectsTraversal(t *testing.T) {
 
 func TestBuiltinManifestGenerationIsDeterministic(t *testing.T) {
 	root := t.TempDir()
-	writeTestBuiltin(t, root, "z/demo/SKILL.md", "---\nname: demo\n---\n", 0o644)
-	writeTestBuiltin(t, root, "a/other/SKILL.md", "---\nname: other\n---\n", 0o644)
-	first, err := GenerateBuiltinManifest(root)
+	writeTestBuiltin(t, root, "plugins/agent/demo/skills/demo/SKILL.md", "---\nname: demo\n---\n", 0o644)
+	writeTestBuiltin(t, root, "plugins/agent/other/skills/other/SKILL.md", "---\nname: other\n---\n", 0o644)
+	first, err := GenerateBuiltinManifestFromAssets(root, testBuiltinSources("demo", "other"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := GenerateBuiltinManifest(root)
+	second, err := GenerateBuiltinManifestFromAssets(root, testBuiltinSources("demo", "other"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +207,7 @@ func TestBuiltinBundleInstallerVerifiesTamperingAndDoesNotRewrite(t *testing.T) 
 	if err != nil {
 		t.Fatalf("InstallBuiltinBundle: %v", err)
 	}
-	script := filepath.Join(bundle, "system", "demo", "scripts", "run.sh")
+	script := filepath.Join(bundle, "core", "demo", "scripts", "run.sh")
 	info, err := os.Stat(script)
 	if err != nil {
 		t.Fatal(err)
@@ -260,7 +293,7 @@ func TestBuiltinBundleInstallerQuarantinesBeforePublishingRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := filepath.Join(bundle, "system", "demo", "SKILL.md")
+	tampered := filepath.Join(bundle, "core", "demo", "SKILL.md")
 	if err := os.WriteFile(tampered, []byte("tampered"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +314,7 @@ func TestBuiltinBundleInstallerQuarantinesBeforePublishingRepair(t *testing.T) {
 			if _, err := os.Lstat(bundle); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("published pathname after quarantine = %v, want absent", err)
 			}
-			if got, err := os.ReadFile(filepath.Join(quarantine, "system", "demo", "SKILL.md")); err != nil || string(got) != "tampered" {
+			if got, err := os.ReadFile(filepath.Join(quarantine, "core", "demo", "SKILL.md")); err != nil || string(got) != "tampered" {
 				t.Fatalf("quarantined tree = %q, %v; want intact invalid tree", got, err)
 			}
 			if _, err := os.Stat(filepath.Join(quarantine, bundleCompleteMarker)); err != nil {
@@ -320,7 +353,7 @@ func TestBuiltinBundleInstallerRestoresQuarantineAfterPublicationFailure(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := filepath.Join(bundle, "system", "demo", "SKILL.md")
+	tampered := filepath.Join(bundle, "core", "demo", "SKILL.md")
 	if err := os.WriteFile(tampered, []byte("tampered"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +398,7 @@ func TestBuiltinBundleInstallerPreservesQuarantineWhenRestorationFails(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(bundle, "system", "demo", "SKILL.md"), []byte("tampered"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(bundle, "core", "demo", "SKILL.md"), []byte("tampered"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -396,7 +429,7 @@ func TestBuiltinBundleInstallerPreservesQuarantineWhenRestorationFails(t *testin
 	if _, err := os.Lstat(bundle); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("published pathname = %v, want absent rather than partial", err)
 	}
-	if got, err := os.ReadFile(filepath.Join(quarantine, "system", "demo", "SKILL.md")); err != nil || string(got) != "tampered" {
+	if got, err := os.ReadFile(filepath.Join(quarantine, "core", "demo", "SKILL.md")); err != nil || string(got) != "tampered" {
 		t.Fatalf("preserved quarantine = %q, %v; want intact previous tree", got, err)
 	}
 	if _, err := os.Stat(filepath.Join(quarantine, bundleCompleteMarker)); err != nil {
@@ -411,7 +444,7 @@ func TestBuiltinBundleInstallerFailsClosedWhenQuarantineRenameFails(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := filepath.Join(bundle, "system", "demo", "SKILL.md")
+	tampered := filepath.Join(bundle, "core", "demo", "SKILL.md")
 	if err := os.WriteFile(tampered, []byte("tampered"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +468,7 @@ func TestBuiltinBundleInstallerConcurrentRepairersAreVerified(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initial InstallBuiltinBundle: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(bundle, "system", "demo", "SKILL.md"), []byte("tampered"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(bundle, "core", "demo", "SKILL.md"), []byte("tampered"), 0o644); err != nil {
 		t.Fatalf("tamper bundle: %v", err)
 	}
 	const installers = 12
@@ -596,13 +629,15 @@ func TestVerifiedPublishedBundleFailsClosed(t *testing.T) {
 func testBuiltinRegistry(t *testing.T) *Registry {
 	t.Helper()
 	source := t.TempDir()
-	writeTestBuiltin(t, source, "skills/system/demo/SKILL.md", "---\nname: demo\ndescription: Demo\n---\nbody\n", 0o644)
-	writeTestBuiltin(t, source, "skills/system/demo/scripts/run.sh", "#!/bin/sh\necho demo\n", 0o755)
-	manifest, err := GenerateBuiltinManifest(filepath.Join(source, "skills"))
+	writeTestBuiltin(t, source, "plugins/agent/demo/skills/demo/SKILL.md", "---\nname: demo\ndescription: Demo\n---\nbody\n", 0o644)
+	writeTestBuiltin(t, source, "plugins/agent/demo/skills/demo/scripts/run.sh", "#!/bin/sh\necho demo\n", 0o755)
+	manifest, err := GenerateBuiltinManifestFromAssets(source, testBuiltinSources("demo"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, err := LoadBuiltin(os.DirFS(source), manifest)
+	registry, err := loadBuiltin(os.DirFS(source), manifest, func(skill BuiltinSkillDescriptor, file string) ([]byte, error) {
+		return os.ReadFile(filepath.Join(source, "plugins", filepath.FromSlash(skill.SourceRoot), filepath.FromSlash(file)))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,4 +676,13 @@ func ExampleRegistry_BundleRevision() {
 	}
 	fmt.Println(len(registry.BundleRevision()))
 	// Output: 64
+}
+
+// Fixtures use the same explicit source contract as the release generator.
+func testBuiltinSources(names ...string) []BuiltinSkillSource {
+	assets := make([]BuiltinSkillSource, 0, len(names))
+	for _, name := range names {
+		assets = append(assets, BuiltinSkillSource{Name: name, SourceRoot: "agent/" + name + "/skills/" + name, LogicalRoot: "core/" + name, OwnerPluginID: name})
+	}
+	return assets
 }

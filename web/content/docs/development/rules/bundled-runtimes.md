@@ -15,11 +15,10 @@ below before adding one.
 
 Climb this list and stop at the first option that works:
 
-| Option              | Use when                                                                  | Where it lives                       |
-| ------------------- | ------------------------------------------------------------------------- | ------------------------------------ |
-| **mise shim**       | The default. Any tool an agent runs in a sandbox (`gh`, `fd`, `rg`, ...). | `$STELLA_HOME/.mise-tools/shims`     |
-| **Plugin binary**   | The tool belongs to one plugin and not to the platform.                   | Installed by the plugin's reconciler |
-| **Bundled runtime** | `stellad` itself calls it, or it must exist before mise does.             | `$STELLA_HOME/bin`                   |
+| Option                   | Use when                                                      | Where it lives                                  |
+| ------------------------ | ------------------------------------------------------------- | ----------------------------------------------- |
+| **Agent package binary** | The default for tools an agent runs (`gh`, `fd`, `rg`, ...).  | Exact session selection, installed through mise |
+| **Bundled runtime**      | `stellad` itself calls it, or it must exist before mise does. | `$STELLA_HOME/bin`                              |
 
 Bundling costs binary size on every platform and pins the version to the Stella
 release. Only bundle when the daemon's own code paths depend on the tool being
@@ -39,8 +38,7 @@ proposal has to say which one it is making.
    tools _is_ the tool. `mise` qualifies, and only `mise` can.
 
 Note what argument 2 is **not**. Bundling `mise` does not buy offline operation —
-`runScopeInstall` in `internal/plugin/manifest/mise_config.go` shells `mise
-install`, which downloads over the network. It buys a deterministic, pinned
+`internal/platform/toolinstall` runs `mise install`, which downloads over the network. It buys a deterministic, pinned
 bootstrap with no chicken-and-egg. Anyone proposing "just fetch mise on first
 run" is answering an argument nobody made; the real objection is that first run
 would then depend on an unpinned fetch of the most privileged binary in the

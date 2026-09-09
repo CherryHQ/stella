@@ -3,6 +3,7 @@ package none
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,11 +120,113 @@ func TestAdjustPolicySnapshotsRunnerPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("adjustPolicy: %v", err)
 	}
-	if got, want := adjusted.Env["PATH"], sandboxpkg.HostEnvBuildPath(stellaHome, ""); got != want {
+	if got, want := adjusted.Env["PATH"], sandboxpkg.HostEnvBuildPath(stellaHome, "", ""); got != want {
 		t.Fatalf("PATH = %q, want %q", got, want)
 	}
 	if got, want := adjusted.Env[sandboxpkg.EnvRunnerPath], adjusted.Env["PATH"]; got != want {
 		t.Fatalf("%s = %q, want final PATH %q", sandboxpkg.EnvRunnerPath, got, want)
+	}
+}
+
+func TestAdjustPolicyUsesSelectionLocalShims(t *testing.T) {
+	stellaHome := t.TempDir()
+	selectionShims := filepath.Join(stellaHome, ".mise-tools", "contexts", "system-a", "shims")
+	adjusted, err := (&Factory{cfg: Config{StellaHome: stellaHome}}).adjustPolicy(
+		sandboxpkg.Policy{Env: map[string]string{"MISE_SHIMS_DIR": selectionShims}},
+		t.TempDir(), "", t.TempDir(),
+	)
+	if err != nil {
+		t.Fatalf("adjustPolicy: %v", err)
+	}
+	if !strings.HasPrefix(adjusted.Env["PATH"], selectionShims+string(filepath.ListSeparator)) {
+		t.Fatalf("selection-local shims must lead PATH, got %q", adjusted.Env["PATH"])
+	}
+	if strings.Contains(adjusted.Env["PATH"], filepath.Join(stellaHome, "bin")) || strings.Contains(adjusted.Env["PATH"], filepath.Join(stellaHome, ".mise-tools", "shims")) {
+		t.Fatalf("PATH leaked shared Stella paths: %q", adjusted.Env["PATH"])
+	}
+}
+
+func TestAdjustPolicyPreservesCoreAndOptionalSelectionMarkers(t *testing.T) {
+	stellaHome := t.TempDir()
+	optional := filepath.Join(stellaHome, ".mise-tools", "public", "optional")
+	core := filepath.Join(stellaHome, "core-runtime")
+	base := map[string]string{
+		"PATH":                           "/usr/bin",
+		"MISE_DATA_DIR":                  filepath.Join(stellaHome, ".mise-tools"),
+		"MISE_CONFIG_DIR":                filepath.Join(stellaHome, ".mise-tools", "config"),
+		"MISE_YES":                       "1",
+		"MISE_NOT_FOUND_AUTO_INSTALL":    "false",
+		sandboxpkg.EnvNativeSelectionDir: optional,
+		sandboxpkg.EnvCoreRuntimeDir:     core,
+	}
+	adjusted, err := (&Factory{cfg: Config{StellaHome: stellaHome}}).adjustPolicy(
+		sandboxpkg.Policy{Env: base}, t.TempDir(), "", t.TempDir(),
+	)
+	if err != nil {
+		t.Fatalf("adjustPolicy: %v", err)
+	}
+	if adjusted.Env[sandboxpkg.EnvNativeSelectionDir] != optional {
+		t.Fatalf("optional selection marker = %q, want %q", adjusted.Env[sandboxpkg.EnvNativeSelectionDir], optional)
+	}
+	if adjusted.Env[sandboxpkg.EnvCoreRuntimeDir] != core {
+		t.Fatalf("core selection marker = %q, want %q", adjusted.Env[sandboxpkg.EnvCoreRuntimeDir], core)
+	}
+	if adjusted.Env["MISE_DATA_DIR"] != filepath.Join(stellaHome, ".mise-tools") {
+		t.Fatalf("MISE_DATA_DIR was not preserved: %q", adjusted.Env["MISE_DATA_DIR"])
+	}
+	if adjusted.Env["MISE_CONFIG_DIR"] != filepath.Join(stellaHome, ".mise-tools", "config") || adjusted.Env["MISE_YES"] != "1" {
+		t.Fatalf("MISE_* overlay was not preserved: config=%q yes=%q", adjusted.Env["MISE_CONFIG_DIR"], adjusted.Env["MISE_YES"])
+	}
+	path := adjusted.Env["PATH"]
+	if !strings.HasPrefix(path, optional+string(filepath.ListSeparator)) || !strings.Contains(path, core) {
+		t.Fatalf("PATH lost optional/core selections: %q", path)
+	}
+}
+
+func TestAdjustPolicyPreservesEveryPackageSelection(t *testing.T) {
+	stellaHome := t.TempDir()
+	system := []string{filepath.Join(stellaHome, "public", "system-a"), filepath.Join(stellaHome, "public", "system-b")}
+	user := []string{filepath.Join(stellaHome, "public", "user-a"), filepath.Join(stellaHome, "public", "user-b")}
+	adjusted, err := (&Factory{cfg: Config{StellaHome: stellaHome}}).adjustPolicy(
+		sandboxpkg.Policy{Env: map[string]string{
+			sandboxpkg.EnvNativeSelectionDir:     strings.Join(system, string(filepath.ListSeparator)),
+			sandboxpkg.EnvUserNativeSelectionDir: strings.Join(user, string(filepath.ListSeparator)),
+		}}, t.TempDir(), "", t.TempDir(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join(append(user, system...), string(filepath.ListSeparator)) + string(filepath.ListSeparator)
+	if !strings.HasPrefix(adjusted.Env["PATH"], want) {
+		t.Fatalf("backend dropped or reordered package selections: PATH = %q, want prefix %q", adjusted.Env["PATH"], want)
+	}
+}
+
+func TestNativeSelectionPathRunsSelectedCommand(t *testing.T) {
+	stellaHome := t.TempDir()
+	selection := filepath.Join(stellaHome, ".mise-tools", "public", "selection")
+	if err := os.MkdirAll(selection, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := filepath.Join(selection, "selected-tool")
+	if err := os.WriteFile(command, []byte("#!/bin/sh\nprintf 'selected\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	policy := sandboxpkg.Policy{
+		Env: map[string]string{
+			sandboxpkg.EnvNativeSelectionDir: selection,
+			"PATH":                           "/usr/bin",
+		},
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: t.TempDir()},
+	}
+	sess, err := (&Factory{cfg: Config{StellaHome: stellaHome}}).CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	defer sess.Close() //nolint:errcheck
+	result, err := sess.Exec(context.Background(), "selected-tool", sandboxpkg.ExecOptions{})
+	if err != nil || result.ExitCode != 0 || result.Stdout != "selected\n" {
+		t.Fatalf("selected command result = %+v, err=%v", result, err)
 	}
 }
 
@@ -246,6 +349,20 @@ func TestNoneSession_doneChanClosed(t *testing.T) {
 	case <-done:
 	default:
 		t.Error("done channel should be closed after Close()")
+	}
+}
+
+func TestNoneSession_closeRetainsTempWithNativePending(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "owned")
+	if err := os.Mkdir(tmp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := &noneSession{done: make(chan struct{}), nativePending: true, ownedTempDir: tmp}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tmp); err != nil {
+		t.Fatalf("native-pending temp removed: %v", err)
 	}
 }
 
@@ -424,6 +541,90 @@ func TestStartProcess_success(t *testing.T) {
 	}
 	if result.ExitCode != 0 {
 		t.Errorf("expected exit code 0, got %d", result.ExitCode)
+	}
+}
+
+func TestNoneSessionRenderEnvRebuildsFilesystemAndBaselinePath(t *testing.T) {
+	s := newTestSession(t)
+	env, err := s.RenderEnv(context.Background(), map[string]string{"STALE": "removed"})
+	if err != nil {
+		t.Fatalf("RenderEnv: %v", err)
+	}
+	if env[sandboxpkg.EnvHome] != s.WorkingDir() {
+		t.Fatalf("HOME = %q, want %q", env[sandboxpkg.EnvHome], s.WorkingDir())
+	}
+	if env[sandboxpkg.EnvTempDir] == "" || env["PATH"] == "" {
+		t.Fatalf("rendered filesystem/path env = %#v, want temp dir and baseline PATH", env)
+	}
+	if env["STALE"] != "removed" {
+		t.Fatal("renderer unexpectedly filters unrelated current-turn variables")
+	}
+}
+
+func TestNoneSessionRenderEnvResolvesNativeShellCommand(t *testing.T) {
+	s := newTestSession(t)
+	env, err := s.RenderEnv(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("RenderEnv: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "tee-output")
+	proc, err := s.StartProcess(context.Background(), sandboxpkg.ProcessRequest{
+		Path:    "tee",
+		Args:    []string{target},
+		Env:     env,
+		EnvMode: sandboxpkg.EnvReplace,
+	})
+	if err != nil {
+		t.Fatalf("StartProcess tee: %v", err)
+	}
+	if _, err := proc.Stdin().Write([]byte("native-shell\n")); err != nil {
+		t.Fatalf("write tee stdin: %v", err)
+	}
+	if err := proc.Stdin().Close(); err != nil {
+		t.Fatalf("close tee stdin: %v", err)
+	}
+	result, err := proc.Wait(context.Background())
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("tee result = %+v, err=%v", result, err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "native-shell\n" {
+		t.Fatalf("tee output = %q, err=%v", data, err)
+	}
+}
+
+func TestStartProcessEnvReplaceUsesCurrentPath(t *testing.T) {
+	s := newTestSession(t)
+	bin := t.TempDir()
+	name := "stella-turn-tool"
+	tool := filepath.Join(bin, name)
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\nprintf 'current\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	proc, err := s.StartProcess(context.Background(), sandboxpkg.ProcessRequest{
+		Path:    name,
+		Env:     map[string]string{"PATH": bin},
+		EnvMode: sandboxpkg.EnvReplace,
+	})
+	if err != nil {
+		t.Fatalf("StartProcess current selection: %v", err)
+	}
+	out, err := io.ReadAll(proc.Stdout())
+	if err != nil {
+		t.Fatalf("read current selection: %v", err)
+	}
+	result, err := proc.Wait(context.Background())
+	if err != nil || result.ExitCode != 0 || string(out) != "current\n" {
+		t.Fatalf("current selection result = %+v, output=%q, err=%v", result, out, err)
+	}
+
+	_, err = s.StartProcess(context.Background(), sandboxpkg.ProcessRequest{
+		Path:    name,
+		Env:     map[string]string{"PATH": t.TempDir()},
+		EnvMode: sandboxpkg.EnvReplace,
+	})
+	if err == nil {
+		t.Fatal("StartProcess resolved a removed selection from the host PATH")
 	}
 }
 

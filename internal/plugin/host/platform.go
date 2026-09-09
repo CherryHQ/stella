@@ -120,10 +120,6 @@ func (s scopedConfigStore) Get(ctx context.Context) (pkgplugins.PluginState, err
 	return s.service.Get(ctx, s.pluginID)
 }
 
-func (s scopedConfigStore) Set(ctx context.Context, config map[string]any) error {
-	return s.service.Set(ctx, s.pluginID, config)
-}
-
 type scopedStateStore struct {
 	store    StateStoreBackend
 	pluginID string

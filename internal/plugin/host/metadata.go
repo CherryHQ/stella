@@ -8,75 +8,10 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-func (h *Host) ListRegisteredPlugins() []pkgplugins.PluginInfo {
-	h.mu.RLock()
-	metas := make([]pkgplugins.PluginInfo, 0, len(h.metadataRegs))
-	for _, meta := range h.metadataRegs {
-		metas = append(metas, meta.Clone())
-	}
-	h.mu.RUnlock()
-	sort.Slice(metas, func(i, j int) bool {
-		if metas[i].Kind != metas[j].Kind {
-			return metas[i].Kind < metas[j].Kind
-		}
-		if metas[i].Name != metas[j].Name {
-			return metas[i].Name < metas[j].Name
-		}
-		return metas[i].ID < metas[j].ID
-	})
-	return metas
-}
-
 func (h *Host) ValidateRegistrations() error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	envOwners := map[string]string{}
-	skillOwners := map[string]string{}
-	for pluginID, specs := range h.sessionEnvRegs {
-		for _, spec := range specs {
-			if spec.EnvVar == "" {
-				return fmt.Errorf("pluginhost: session env registration for %q missing env var", pluginID)
-			}
-			switch {
-			case spec.Source == pkgplugins.SessionEnvSourceStatic:
-			case strings.HasPrefix(string(spec.Source), "oauth."):
-			default:
-				return fmt.Errorf("pluginhost: session env %q for %q has unknown source %q", spec.EnvVar, pluginID, spec.Source)
-			}
-			if prev, ok := envOwners[spec.EnvVar]; ok && prev != pluginID {
-				return fmt.Errorf("pluginhost: session env %q registered by both %q and %q", spec.EnvVar, prev, pluginID)
-			}
-			envOwners[spec.EnvVar] = pluginID
-		}
-	}
-	for pluginID, specs := range h.bundledSkillRegs {
-		for _, spec := range specs {
-			if spec.Name == "" {
-				return fmt.Errorf("pluginhost: bundled skill registration for %q missing name", pluginID)
-			}
-			if spec.Sync == nil {
-				return fmt.Errorf("pluginhost: bundled skill %q for %q missing sync function", spec.Name, pluginID)
-			}
-			if prev, ok := skillOwners[spec.Name]; ok && prev != pluginID {
-				return fmt.Errorf("pluginhost: bundled skill %q registered by both %q and %q", spec.Name, prev, pluginID)
-			}
-			skillOwners[spec.Name] = pluginID
-		}
-	}
 	for _, meta := range h.metadataRegs {
-		if meta.Managed && !hasRuntimeLocked(h.runtimeRegs, meta.ID) {
-			return fmt.Errorf("pluginhost: metadata for %q declares managed runtime but no runtime is registered", meta.ID)
-		}
-		if meta.HasConfig {
-			if _, ok := h.configRegs[meta.ID]; !ok {
-				return fmt.Errorf("pluginhost: metadata for %q declares config but no config is registered", meta.ID)
-			}
-		}
-		if meta.HasStatus {
-			if _, ok := h.statusRegs[meta.ID]; !ok {
-				return fmt.Errorf("pluginhost: metadata for %q declares status but no status is registered", meta.ID)
-			}
-		}
 		for _, capability := range meta.Capabilities {
 			switch capability {
 			case pkgplugins.CapabilityChannel:
@@ -104,7 +39,7 @@ func (h *Host) ValidateRegistrations() error {
 					return fmt.Errorf("pluginhost: metadata for %q declares tool capability but no tool is registered", meta.ID)
 				}
 			case pkgplugins.CapabilityPrompt:
-				if !hasPromptLocked(h.promptRegs, h.systemPromptRegs, h.beforeRunRegs, h.manifestPrompts, meta.ID) {
+				if !hasPromptLocked(h.promptRegs, h.systemPromptRegs, h.beforeRunRegs, meta.ID) {
 					return fmt.Errorf("pluginhost: metadata for %q declares prompt capability but no prompt contribution is registered", meta.ID)
 				}
 			case pkgplugins.CapabilityHook:
@@ -293,7 +228,7 @@ func hasLifecycleLocked(beforeRunRegs map[string]pkgplugins.BeforeRunSpec, befor
 	return hasBeforeRunLocked(beforeRunRegs, pluginID) || hasBeforeToolLocked(beforeToolRegs, pluginID) || hasAfterToolLocked(afterToolRegs, pluginID)
 }
 
-func hasPromptLocked(promptRegs map[string]pkgplugins.PromptInventorySpec, systemRegs map[string]pkgplugins.SystemPromptSpec, beforeRunRegs map[string]pkgplugins.BeforeRunSpec, manifestPrompts map[string]pkgplugins.SystemPromptSection, pluginID string) bool {
+func hasPromptLocked(promptRegs map[string]pkgplugins.PromptInventorySpec, systemRegs map[string]pkgplugins.SystemPromptSpec, beforeRunRegs map[string]pkgplugins.BeforeRunSpec, pluginID string) bool {
 	for _, reg := range promptRegs {
 		if reg.PluginID == pluginID {
 			return true
@@ -308,9 +243,6 @@ func hasPromptLocked(promptRegs map[string]pkgplugins.PromptInventorySpec, syste
 		if reg.PluginID == pluginID {
 			return true
 		}
-	}
-	if _, ok := manifestPrompts[pluginID]; ok {
-		return true
 	}
 	return false
 }

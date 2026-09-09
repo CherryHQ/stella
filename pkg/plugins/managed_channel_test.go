@@ -17,20 +17,12 @@ func (s runtimeLookupStub) Get(_ context.Context, pluginID string, runtimeName s
 	return s.handle, true
 }
 
-func (s runtimeLookupStub) Lookup(ctx context.Context, pluginID string, runtimeName string) (RuntimeHandle, bool) {
-	return s.Get(ctx, pluginID, runtimeName)
-}
-
 type runtimeHandleStub struct {
 	snapshot RuntimeStatus
 }
 
 func (s runtimeHandleStub) Snapshot(context.Context) (RuntimeStatus, error) {
 	return s.snapshot, nil
-}
-
-func (s runtimeHandleStub) Status(ctx context.Context) (RuntimeStatus, error) {
-	return s.Snapshot(ctx)
 }
 
 func TestManagedRuntimeStatus(t *testing.T) {

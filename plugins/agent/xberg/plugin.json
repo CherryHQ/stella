@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "xberg",
+  "version": "1.0.0",
+  "description": "Release-bundled document extraction CLI and its usage guide.",
+  "extensions": { "com.cherryhq.stella": { "version": "1", "display_name": "Xberg" } }
+}

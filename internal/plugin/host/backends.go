@@ -9,8 +9,6 @@ import (
 // ConfigBackend is the host-owned unscoped plugin config backend.
 type ConfigBackend interface {
 	Get(ctx context.Context, pluginID string) (pkgplugins.PluginState, error)
-	Set(ctx context.Context, pluginID string, config map[string]any) error
-	SetEnabled(ctx context.Context, pluginID string, enabled bool) error
 }
 
 // StateStoreBackend is the host-owned unscoped plugin state backend.

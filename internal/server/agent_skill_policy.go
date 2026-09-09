@@ -27,7 +27,7 @@ func (s *Server) UpdateAgentSkillActivation(w http.ResponseWriter, r *http.Reque
 		writeError(w, code, msg)
 		return
 	}
-	if err := policy.ValidateRef(skillRef); err != nil {
+	if err := policy.ValidateMutationRef(skillRef); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid skill ref")
 		return
 	}
@@ -110,10 +110,6 @@ func (s *Server) policyRefExists(ctx context.Context, agentID, ref string) (bool
 				return false, authErr
 			}
 			revision, loadErr := s.skills.LoadCurrentRevision(ctx, rows[i])
-			if skill.IsCurrentSelectorMissing(loadErr) {
-				s.warnMissingSkillSelector(rows[i], loadErr)
-				continue
-			}
 			if loadErr != nil {
 				return false, loadErr
 			}

@@ -7,13 +7,9 @@ import type {
   ComponentsChannel,
   ComponentsIdentity,
   ComponentsJob,
-  ComponentsManifestPlugin,
-  ComponentsManifestPluginDefinition,
-  ComponentsManifestPluginDefinitionField,
   ComponentsOAuthFlowStatus,
   ComponentsOAuthProviderConfig,
   ComponentsOAuthProviderStatus,
-  ComponentsPluginView,
   ComponentsProvider,
   ComponentsProviderModelItem,
   ComponentsProviderType,
@@ -23,11 +19,9 @@ import type {
   ComponentsUserMemory,
   ComponentsVaultEntry,
   JobRun,
-  ManifestBinary as SdkManifestBinary,
-  ManifestOAuthProvider as SdkManifestOAuthProvider,
-  ManifestSessionEnv as SdkManifestSessionEnv,
   Project as SdkProject,
   SessionWorkspace,
+  SessionExecutionSummary,
 } from "@/lib/api-client/types.gen";
 
 // ── SDK re-exports ────────────────────────────────────────────────────────────
@@ -90,17 +84,6 @@ export type User = ComponentsAuthUser & {
 
 export type OAuthProvider = ComponentsOAuthProviderStatus & {
   icon?: string;
-};
-
-export type Plugin = ComponentsPluginView & {
-  id: string;
-  kind: string;
-  name: string;
-  enabled: boolean;
-  capabilities: Array<string>;
-  has_config: boolean;
-  has_status: boolean;
-  supports_notifications?: boolean;
 };
 
 // ── Local types (no SDK equivalent) ───────────────────────────────────────────
@@ -177,6 +160,8 @@ export interface Message {
   actor_type?: "human" | "agent" | "system";
   actor_id?: string;
   source_session_id?: string;
+  /** Admission snapshot recorded on the user anchor for this turn. */
+  execution?: SessionExecutionSummary;
 }
 
 export interface AgentSandbox {
@@ -203,32 +188,4 @@ export interface Personalisation {
   profile: string;
   profileDraft: string;
   loaded: boolean;
-}
-
-export type ManifestBinary = SdkManifestBinary;
-export type ManifestSessionEnv = SdkManifestSessionEnv;
-export type ManifestPluginDefinition = ComponentsManifestPluginDefinition;
-export type ManifestPluginDefinitionField = ComponentsManifestPluginDefinitionField;
-export type ManifestPlugin = ComponentsManifestPlugin;
-export type ManifestOAuthProvider = SdkManifestOAuthProvider;
-
-export interface PluginSchema {
-  properties?: Record<string, PluginSchemaProperty>;
-}
-
-export interface PluginSchemaProperty {
-  type?: string | string[];
-  description?: string;
-  default?: JsonValue;
-  enum?: JsonValue[];
-}
-
-export interface PluginSchemaField {
-  name: string;
-  schema: PluginSchemaProperty;
-}
-
-export interface PluginWithMeta extends Plugin {
-  _manifest: boolean;
-  _manifestPlugin?: ManifestPlugin | null;
 }

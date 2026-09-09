@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -97,11 +98,12 @@ type blockingStopAPI struct {
 	stopErr     error
 	stops       atomic.Int32
 	removes     atomic.Int32
+	startOnce   sync.Once
 }
 
 func (f *blockingStopAPI) ContainerStop(ctx context.Context, _ string, _ mobyclient.ContainerStopOptions) (mobyclient.ContainerStopResult, error) {
 	f.stops.Add(1)
-	close(f.stopStarted)
+	f.startOnce.Do(func() { close(f.stopStarted) })
 	select {
 	case <-f.releaseStop:
 		return mobyclient.ContainerStopResult{}, f.stopErr
@@ -115,7 +117,7 @@ func (f *blockingStopAPI) ContainerRemove(context.Context, string, mobyclient.Co
 	return mobyclient.ContainerRemoveResult{}, nil
 }
 
-func TestCleanupStaleSessionTempDirsKeepsLiveSession(t *testing.T) {
+func TestCleanupStaleSessionTempDirsRetainsUnprovenOwnership(t *testing.T) {
 	stellaHome := t.TempDir()
 	root := filepath.Join(stellaHome, "cache", "sandbox-tmp")
 	live := filepath.Join(root, "sandbox-live")
@@ -124,7 +126,7 @@ func TestCleanupStaleSessionTempDirsKeepsLiveSession(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		old := time.Now().Add(-2 * staleSessionTempMinimumAge)
+		old := time.Now().Add(-2 * time.Hour)
 		if err := os.Chtimes(dir, old, old); err != nil {
 			t.Fatal(err)
 		}
@@ -134,8 +136,8 @@ func TestCleanupStaleSessionTempDirsKeepsLiveSession(t *testing.T) {
 	if _, err := os.Stat(live); err != nil {
 		t.Fatalf("live session temp was removed: %v", err)
 	}
-	if _, err := os.Stat(stale); !os.IsNotExist(err) {
-		t.Fatalf("stale session temp remains: %v", err)
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("unreferenced session temp was removed without durable ownership proof: %v", err)
 	}
 }
 
@@ -155,7 +157,7 @@ func TestCleanupStaleSessionTempDirsKeepsYoungDirectoryAndFailsClosed(t *testing
 	if err := os.MkdirAll(old, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	stale := time.Now().Add(-2 * staleSessionTempMinimumAge)
+	stale := time.Now().Add(-2 * time.Hour)
 	if err := os.Chtimes(old, stale, stale); err != nil {
 		t.Fatal(err)
 	}

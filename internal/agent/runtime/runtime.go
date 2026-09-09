@@ -2,18 +2,14 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
-
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/core/agenterr"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
@@ -31,19 +27,26 @@ type SessionImages interface {
 	Enrich(context.Context, sessionmedia.Owner, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
 }
 
+// SkillTurnCapture resolves the immutable Skill view for one admitted turn
+// and returns a context carrying it. Implementations must retain the view for
+// the whole turn, including prompt overrides and delegated calls.
+type SkillTurnCapture func(context.Context, session.Info, PluginContext) (context.Context, error)
+
 type Runtime struct {
-	cache          *runnerCache
-	mem            memory.Provider
-	log            *slog.Logger
-	compact        CompactionConfig
-	promptMu       sync.RWMutex
-	beforeRun      BeforeRunFunc
-	snapshotPrompt SnapshotPromptFunc
-	sessionImages  SessionImages
-	active         sync.Map // session ID → *activeTurn, tracks in-flight turns
-	turns          turnTracker
-	hub            *SessionHub
-	closed         atomic.Bool
+	cache                *runnerCache
+	pluginContextBuilder PluginContextBuilder
+	mem                  memory.Provider
+	log                  *slog.Logger
+	compact              CompactionConfig
+	promptMu             sync.RWMutex
+	beforeRun            BeforeRunFunc
+	snapshotPrompt       SnapshotPromptFunc
+	sessionImages        SessionImages
+	skillTurnCapture     SkillTurnCapture
+	active               sync.Map // session ID → *activeTurn, tracks in-flight turns
+	turns                turnTracker
+	hub                  *SessionHub
+	closed               atomic.Bool
 }
 
 // managedSessionRunner is intentionally optional: Runtime supports test and
@@ -138,17 +141,19 @@ func (c CompactionConfig) WithDefaults() CompactionConfig {
 
 // Config holds all dependencies for a Runtime instance.
 type Config struct {
-	NewRunner       NewRunnerFunc
-	Memory          memory.Provider
-	IdleTimeout     time.Duration
-	Compaction      CompactionConfig
-	DefaultModel    string
-	DefaultThinking ai.ThinkingLevel
-	FastModel       string
-	HooksFn         func() []hooks.HookPlugin
-	BeforeRun       BeforeRunFunc
-	SnapshotPrompt  SnapshotPromptFunc
-	SessionImages   SessionImages
+	NewRunner            NewRunnerFunc
+	PluginContextBuilder PluginContextBuilder
+	Memory               memory.Provider
+	IdleTimeout          time.Duration
+	Compaction           CompactionConfig
+	DefaultModel         string
+	DefaultThinking      ai.ThinkingLevel
+	FastModel            string
+	HooksFn              func() []hooks.HookPlugin
+	BeforeRun            BeforeRunFunc
+	SnapshotPrompt       SnapshotPromptFunc
+	SessionImages        SessionImages
+	SkillTurnCapture     SkillTurnCapture
 }
 
 // New creates a Runtime from the given config.
@@ -169,14 +174,16 @@ func New(cfg Config) (*Runtime, error) {
 	cache.defaultThinking = cfg.DefaultThinking
 	cache.hooksFn = cfg.HooksFn
 	return &Runtime{
-		cache:          cache,
-		mem:            cfg.Memory,
-		log:            log,
-		compact:        cfg.Compaction.WithDefaults(),
-		beforeRun:      cfg.BeforeRun,
-		snapshotPrompt: cfg.SnapshotPrompt,
-		sessionImages:  cfg.SessionImages,
-		hub:            NewSessionHub(),
+		cache:                cache,
+		pluginContextBuilder: cfg.PluginContextBuilder,
+		mem:                  cfg.Memory,
+		log:                  log,
+		compact:              cfg.Compaction.WithDefaults(),
+		beforeRun:            cfg.BeforeRun,
+		snapshotPrompt:       cfg.SnapshotPrompt,
+		sessionImages:        cfg.SessionImages,
+		skillTurnCapture:     cfg.SkillTurnCapture,
+		hub:                  NewSessionHub(),
 	}, nil
 }
 
@@ -218,6 +225,7 @@ func (rt *Runtime) RunManagedSession(ctx context.Context, sourceSessionID string
 func (rt *Runtime) SetNewRunner(f NewRunnerFunc) {
 	rt.cache.mu.Lock()
 	rt.cache.newRunner = f
+	rt.cache.factoryGeneration++
 	rt.cache.mu.Unlock()
 }
 
@@ -272,6 +280,17 @@ func (rt *Runtime) Close() error {
 	return rt.cache.closeAll()
 }
 
+// DetachClose marks this runtime closed and returns slow runner cleanup. The
+// returned operation must run after lifecycle/admission locks are released.
+func (rt *Runtime) DetachClose() func() error {
+	if rt == nil || rt.cache == nil {
+		return func() error { return nil }
+	}
+	rt.closed.Store(true)
+	rt.cancelAllActive()
+	return rt.cache.detachCloseAll()
+}
+
 // StartReaper begins the idle-runner eviction loop. Call in a goroutine.
 func (rt *Runtime) StartReaper(ctx context.Context) {
 	rt.cache.StartReaper(ctx)
@@ -282,16 +301,92 @@ func (rt *Runtime) ResetRunners() error {
 	return rt.cache.reset()
 }
 
+// DetachRunnersForMutation performs the synchronous part of a committed
+// configuration mutation. The returned close function must be called after
+// releasing the lifecycle barrier so runner teardown cannot hold that barrier.
+func (rt *Runtime) DetachRunnersForMutation() func() error {
+	return rt.cache.detachReset()
+}
+
 // ResetRunnersForUser closes live runners for a specific user.
 func (rt *Runtime) ResetRunnersForUser(userID string) error {
 	return rt.cache.resetWhere(func(cs *cachedSession) bool { return cs.info.UserID == userID })
+}
+
+// DetachStaleRunnersForUser marks matching busy runners stale and detaches
+// matching idle runners. The returned cleanup must run outside lifecycle and
+// admission locks; an admitted turn keeps its immutable snapshot to completion.
+func (rt *Runtime) DetachStaleRunnersForUser(userID string) func() error {
+	return rt.cache.detachResetWhere(func(cs *cachedSession) bool { return cs.info.UserID == userID })
+}
+
+// DetachStaleRunners detaches idle runners globally while allowing admitted
+// turns to finish with their captured context.
+func (rt *Runtime) DetachStaleRunners() func() error {
+	return rt.cache.detachReset()
 }
 
 // TerminalCloseWhere immediately detaches matching runners, including busy and
 // reserved ones. It is solely for destructive owner deletion after admission is
 // blocked by the caller.
 func (rt *Runtime) TerminalCloseWhere(include func(session.Info) bool) error {
-	return rt.cache.closeWhere(func(cs *cachedSession) bool { return include(cs.info) })
+	return rt.DetachRunnersWhere(include)()
+}
+
+// DetachRunnersWhere removes matching runners synchronously and returns a
+// cleanup operation. Detaching is the lifecycle-critical part; callers must
+// run the returned operation after releasing global lifecycle and admission
+// locks because runner close may block on a process or container.
+func (rt *Runtime) DetachRunnersWhere(include func(session.Info) bool) func() error {
+	if rt == nil || rt.cache == nil {
+		return func() error { return nil }
+	}
+	ids, closeDetached := rt.cache.detachWhereWithIDs(func(cs *cachedSession) bool {
+		return include == nil || include(cs.info)
+	})
+	// The cache may not contain a session yet while PrepareChatAdmission is
+	// doing slow plugin/OAuth work. Match the active admission directly as well
+	// as the detached cache IDs, so terminal revocation closes that pre-cache
+	// window without introducing a second ownership registry.
+	rt.cancelActiveWhere(include, ids)
+	return closeDetached
+}
+
+func (rt *Runtime) cancelActiveWhere(include func(session.Info) bool, ids []string) {
+	known := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		known[id] = struct{}{}
+	}
+	rt.active.Range(func(key, value any) bool {
+		turn, ok := value.(*activeTurn)
+		if !ok {
+			return true
+		}
+		id, _ := key.(string)
+		_, detached := known[id]
+		if detached || include == nil || include(turn.info) {
+			turn.cancel()
+		}
+		return true
+	})
+}
+
+func (rt *Runtime) cancelAllActive() {
+	rt.active.Range(func(_, value any) bool {
+		if turn, ok := value.(*activeTurn); ok {
+			turn.cancel()
+		}
+		return true
+	})
+}
+
+// RetryCleanup retries closing every detached runner whose cleanup is still
+// pending. Failed entries remain owned and enumerable until a later retry.
+func (rt *Runtime) RetryCleanup() error {
+	if rt == nil || rt.cache == nil {
+		return nil
+	}
+	return rt.cache.closeRetiredBatch()
 }
 
 // NewRunnerFunc returns the current runner builder. Used by the task system to
@@ -331,6 +426,14 @@ func safeClose(ch chan Event) {
 type activeTurn struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	// info is captured at admission so terminal detachment can cancel a turn
+	// while it is still preparing a runner and therefore not yet represented in
+	// runnerCache.sessions.
+	info session.Info
+	// ctx retains the prepared immutable turn view while this turn is visible
+	// in Runtime.active. Reapers and policy cleanup therefore share the same
+	// owner boundary as admission, with no capture-to-register gap.
+	ctx context.Context
 }
 
 func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg MessageContent, opts ...Option) (<-chan Event, error) {
@@ -341,155 +444,21 @@ func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg Mess
 // fence runs after the busy guard is acquired but before transcript/runtime
 // side effects, allowing a synchronous queue to reject a caller that timed out
 // at the admission boundary without replay or ambiguous execution.
-func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info, msg MessageContent, beforeStart func() error, opts ...Option) (stream <-chan Event, admissionErr error) {
-	activityScope, err := info.MemoryScope()
+func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info, msg MessageContent, beforeStart func() error, opts ...Option) (<-chan Event, error) {
+	admission, err := rt.BeginChatAdmission(ctx, info, msg, beforeStart, opts...)
 	if err != nil {
 		return nil, err
 	}
-	var (
-		selection      runnerSelection
-		selectionReady bool
-		turn           *activeTurn
-	)
-	defer func() {
-		if recover() == nil {
-			return
-		}
-		// This is only the narrow synchronous admission envelope. Deep cache
-		// construction owns its own cleanup; this protects options/UUID/hub setup
-		// and any post-selection panic before the goroutine's async recovery.
-		// Do not log recovered values: provider panics may contain secrets.
-		rt.log.Error("chat admission panicked", "session_id", info.ID)
-		if selectionReady {
-			rt.cache.abortReservedAdmission(selection.session)
-		}
-		if turn != nil {
-			turn.cancel()
-			if rt.active.CompareAndDelete(info.ID, turn) {
-				close(turn.done)
-			}
-		}
-		stream = nil
-		admissionErr = errors.New("chat admission failed")
-	}()
-	if rt.closed.Load() {
-		return nil, errors.New("runtime is closed")
-	}
-	turnCtx, cancel := context.WithCancel(ctx)
-	turn = &activeTurn{cancel: cancel, done: make(chan struct{})}
-	if _, loaded := rt.active.LoadOrStore(info.ID, turn); loaded {
-		cancel()
-		return nil, fmt.Errorf("%w: session %s", ErrSessionBusy, info.ID)
-	}
-	if err := turnCtx.Err(); err != nil {
-		rt.active.CompareAndDelete(info.ID, turn)
-		cancel()
+	if err := rt.PrepareChatAdmission(admission); err != nil {
+		rt.AbortChatAdmission(admission)
 		return nil, err
 	}
-	if beforeStart != nil {
-		if err := beforeStart(); err != nil {
-			rt.active.CompareAndDelete(info.ID, turn)
-			cancel()
-			return nil, err
-		}
-	}
-	out := make(chan Event, 100)
-
-	var co chatOptions
-	for _, o := range opts {
-		o(&co)
-	}
-	ctx = memory.WithSessionID(turnCtx, info.ID)
-	// One identifier per turn. Tools that must know whether a second, real user
-	// message arrived since something happened compare turn ids; the runtime
-	// admits one turn per session at a time, so "different id" means "different
-	// user message" for every turn a user drives.
-	ctx = agentctx.WithTurnID(ctx, uuid.Must(uuid.NewV7()).String())
-	ctx = withSessionIdentity(ctx, info)
-	// Select and reserve the runner before returning admission. Service holds its
-	// per-Agent policy barrier around this call, so a policy commit cannot swap
-	// factories or stale an idle old runner between active registration and
-	// runner selection. The reservation protects the gap before Runner.Chat
-	// marks itself busy in the goroutine below.
-	selection, err = rt.getOrCreateReservedRunner(ctx, info, co.model, co.extraTools)
+	stream, err := rt.PublishChatAdmission(admission)
 	if err != nil {
-		cancel()
-		if rt.active.CompareAndDelete(info.ID, turn) {
-			close(turn.done)
-		}
-		return nil, fmt.Errorf("get runner: %w", err)
+		rt.AbortChatAdmission(admission)
+		return nil, err
 	}
-	selectionReady = true
-	rt.capturePromptBuilders(&selection)
-	rt.markSessionTurnStarted(ctx, activityScope)
-
-	// Tee: chat writes to inner; the forwarder fans every event out to the hub
-	// (read-only subscribers — SSE watchers of scheduler/task/delegate turns, or
-	// another tab) as well as to the caller's channel.
-	//
-	// A server-driven turn (scheduler/task) runs under its own context, so
-	// watchers can attach and detach without affecting it. A user-initiated turn
-	// runs under the caller's request context and ends when that caller
-	// disconnects; the ctx.Done branch below only flushes already-buffered
-	// events rather than blocking on a reader that is gone.
-	inner := make(chan Event, 100)
-	producerResult := make(chan memory.SessionTurnResult, 1)
-	rt.hub.begin(info.ID)
-	rt.turns.begin()
-	go func() {
-		result := memory.SessionTurnSuccess
-		defer rt.turns.end()
-		defer func() {
-			if p := recover(); p != nil {
-				// rt.chat panicked. Close inner so the forwarder drains and
-				// rt.hub.end runs; otherwise the session wedges — stuck busy
-				// and permanently "live" to SSE watchers. The panic may have
-				// unwound through a defer in rt.chat/streamEvents that already
-				// closed inner, so tolerate an already-closed channel.
-				rt.log.Error("chat turn panicked", "session_id", info.ID, "panic", p)
-				result = memory.SessionTurnError
-				safeClose(inner)
-			}
-			if result != memory.SessionTurnError && ctx.Err() != nil {
-				result = memory.SessionTurnCanceled
-			}
-			producerResult <- result
-		}()
-		rt.chatWithRunner(ctx, inner, info, msg, co, selection)
-	}()
-	go func() {
-		defer close(out)
-		defer close(turn.done)
-		defer cancel()
-		defer rt.active.CompareAndDelete(info.ID, turn)
-		defer rt.hub.end(info.ID)
-		result := memory.SessionTurnSuccess
-		deliver := true
-		for ev := range inner {
-			rt.hub.publish(info.ID, ev)
-			if ev.Err != nil {
-				result = memory.SessionTurnError
-			}
-			if !deliver {
-				continue
-			}
-			select {
-			case out <- ev:
-			case <-ctx.Done():
-				// Caller gone: keep draining inner so the turn finishes cleanly and
-				// hub subscribers still receive, but stop writing to out.
-				deliver = false
-			}
-		}
-		producerOutcome := <-producerResult
-		if result != memory.SessionTurnError {
-			result = producerOutcome
-		}
-		// Completion is durable before hub/out observers see EOF and mark the
-		// session viewed.
-		rt.markSessionTurnCompleted(ctx, activityScope, result)
-	}()
-	return out, nil
+	return stream, nil
 }
 
 func (rt *Runtime) markSessionTurnStarted(ctx context.Context, session memory.Session) {

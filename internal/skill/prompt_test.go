@@ -9,6 +9,7 @@ import (
 	"testing/fstest"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/resources"
 )
 
 func promptRevision(identity Skill, digest, content string) ManagedRevision {
@@ -51,6 +52,31 @@ func TestBuildAuthorizedPromptSectionUsesExactManagedAuthority(t *testing.T) {
 	}
 }
 
+func TestBuildAuthorizedPromptSectionUsesCapturedFilesystemMetadata(t *testing.T) {
+	digest := strings.Repeat("d", 64)
+	identity := Skill{ID: "managed-file", Scope: "system", Name: "captured", Description: "old description", Status: SkillStatusActive}
+	old := promptRevision(identity, digest, "# old")
+	reader := &capturedSkillReader{
+		projectionReader: &projectionReader{revisions: map[string]ManagedRevision{identity.ID: old}},
+		visible:          []ManagedRevision{old},
+	}
+	view, err := CaptureSkillTurnView(t.Context(), reader, allowAllSkillReads{}, nil, nil, ViewContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.revisions[identity.ID] = promptRevision(identity, digest, "# changed")
+	section, err := BuildAuthorizedPromptSection(WithSkillTurnView(t.Context(), view), pkgplugins.SystemPromptContext{}, nil, reader, allowAllSkillReads{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(section.Content, "<name>captured</name>") || !strings.Contains(section.Content, "old description") || strings.Contains(section.Content, "changed") {
+		t.Fatalf("captured prompt = %s", section.Content)
+	}
+	if reader.loads != 0 {
+		t.Fatalf("captured prompt reopened mutable revision = %d times", reader.loads)
+	}
+}
+
 func TestBuildAuthorizedPromptSectionFailsClosedWithoutAuthority(t *testing.T) {
 	reader := &projectionReader{}
 	for name, call := range map[string]func() error{
@@ -82,7 +108,7 @@ func TestBuildAuthorizedPromptSectionPropagatesManagedCorruption(t *testing.T) {
 type unavailableManagedReader struct{ *projectionReader }
 
 func (unavailableManagedReader) ListIdentityVisible(context.Context, ViewContext) ([]Skill, error) {
-	return nil, errors.Join(ErrManagedSkillsUnavailable, ErrManagedSkillsPending)
+	return nil, ErrManagedSkillsUnavailable
 }
 
 func TestBuildAuthorizedPromptSectionKeepsProjectSkillsWhenManagedUnavailable(t *testing.T) {
@@ -102,7 +128,7 @@ func TestBuildAuthorizedPromptSectionKeepsProjectSkillsWhenManagedUnavailable(t 
 func TestBuildAuthorizedPromptSectionFiltersRegistryPluginSkill(t *testing.T) {
 	reader := &projectionReader{}
 	disabled, err := BuildAuthorizedPromptSection(context.Background(), pkgplugins.SystemPromptContext{
-		RegisteredPluginIDs: []string{"tool/lark-cli"},
+		RegisteredPluginIDs: []string{"lark-cli"},
 	}, nil, reader, allowAllSkillReads{})
 	if err != nil {
 		t.Fatal(err)
@@ -112,13 +138,50 @@ func TestBuildAuthorizedPromptSectionFiltersRegistryPluginSkill(t *testing.T) {
 	}
 
 	enabled, err := BuildAuthorizedPromptSection(context.Background(), pkgplugins.SystemPromptContext{
-		RegisteredPluginIDs: []string{"tool/lark-cli"},
-		EnabledPluginIDs:    []string{"tool/lark-cli"},
+		RegisteredPluginIDs: []string{"lark-cli"},
+		EnabledPluginIDs:    []string{"lark-cli"},
 	}, nil, reader, allowAllSkillReads{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(enabled.Content, "<name>lark-cli</name>") {
 		t.Fatalf("enabled plugin-owned builtin missing from prompt: %s", enabled.Content)
+	}
+}
+
+func TestSkillVisibilityIgnoresMutableOwnerMetadata(t *testing.T) {
+	visible := filterVisibleResolvedSkills([]ResolvedSkill{{
+		Skill: Skill{
+			Scope:    "system",
+			Name:     "spoofed",
+			Metadata: []byte(`{"owner_plugin":"tool/lark-cli"}`),
+		},
+	}}, pkgplugins.SystemPromptContext{})
+	if len(visible) != 1 || visible[0].Name != "spoofed" {
+		t.Fatalf("mutable owner metadata changed visibility: %#v", visible)
+	}
+}
+
+func TestSkillVisibilityRequiresTrustedBuiltinOwner(t *testing.T) {
+	web := ResolvedSkill{
+		Skill: Skill{Scope: "system", Name: "web"},
+		builtin: &resources.BuiltinSkillDescriptor{
+			Name:          "web",
+			OwnerPluginID: "tool/bun",
+		},
+	}
+	withoutBun := filterVisibleResolvedSkills([]ResolvedSkill{web}, pkgplugins.SystemPromptContext{
+		RegisteredPluginIDs: []string{"tool/bun"},
+		EnabledPluginIDs:    []string{},
+	})
+	if len(withoutBun) != 0 {
+		t.Fatalf("web skill visible with missing dependency: %#v", withoutBun)
+	}
+	withBun := filterVisibleResolvedSkills([]ResolvedSkill{web}, pkgplugins.SystemPromptContext{
+		RegisteredPluginIDs: []string{"tool/bun"},
+		EnabledPluginIDs:    []string{"tool/bun"},
+	})
+	if len(withBun) != 1 || withBun[0].Name != "web" {
+		t.Fatalf("web skill hidden with dependency enabled: %#v", withBun)
 	}
 }

@@ -1,27 +1,36 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  createScopedMcpServer,
-  startMcpoAuth,
-  updateScopedMcpServer,
+  createMcpServer,
+  probeMcpServer,
+  startMcpServerOAuth,
+  updateMcpServerCredentials,
 } from "@/lib/api-client/sdk.gen";
-import type { McpRegistryServer, McpServer } from "@/lib/api-client/types.gen";
+import type {
+  CreateMcpServerRequest,
+  McpRegistryServer,
+  McpServer,
+} from "@/lib/api-client/types.gen";
 import type { InstallRequest, WritableScope } from "@/features/marketplace/InstallScopeStep";
 import { apiErrorMessage } from "@/lib/api-error";
+import type { useI18n } from "@/lib/i18n";
+import { ensureMcpBearerCredentialRef } from "./mcp-credential";
 
-// One marketplace install: create the registration with registry provenance
-// (and the bearer secret when the entry's header template asks for one), then
-// report how the automatic probe landed so the UI can offer Connect.
 export type InstallArgs = {
   server: McpRegistryServer;
   scope: WritableScope;
   agentId?: string;
   bearerSecret?: string;
 };
-
-// The notify/t callbacks come from the host sheet; call sites only pass
-// MessageKey literals, so the translator type is imported rather than re-derived.
-import type { useI18n } from "@/lib/i18n";
+export function registryPluginID(id: string): string {
+  const value = id
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!value) throw new Error("registry server id cannot produce a valid name");
+  return value;
+}
 
 export function useMcpMarketInstall(
   notify: (message: string, kind?: "success" | "error") => void,
@@ -29,76 +38,74 @@ export function useMcpMarketInstall(
 ) {
   const queryClient = useQueryClient();
   const [created, setCreated] = useState<McpServer | null>(null);
-
   const mutation = useMutation({
     mutationFn: async ({ server, scope, agentId, bearerSecret }: InstallArgs) => {
-      const { data } = await createScopedMcpServer({
-        body: {
-          scope,
-          agent_id: agentId,
-          name: server.name,
-          url: server.url,
-          transport: "streamable_http",
-          auth_type: server.auth === "bearer" ? "bearer" : "none",
-          token: server.auth === "bearer" ? bearerSecret : undefined,
-          source: "official",
-          source_id: server.id,
-          source_version: server.version ?? undefined,
-        },
+      const declaration: CreateMcpServerRequest["declaration"] = {
+        url: server.url,
+        transport: server.transport,
+        auth_type: server.auth === "bearer" ? "bearer" : "none",
+        credential_mode: scope === "system" || scope === "system_agent" ? "shared" : "per_user",
+      };
+      if (server.auth === "bearer") declaration.credential_ref = ensureMcpBearerCredentialRef();
+      const body: CreateMcpServerRequest = {
+        name: registryPluginID(server.id),
+        scope,
+        declaration,
+      };
+      if (agentId) body.agent_id = agentId;
+      const { data } = await createMcpServer({
+        body,
         throwOnError: true,
       });
-      return data;
+      if (!data) throw new Error("MCP server was not returned");
+      let current = data;
+      if (server.auth === "bearer" && bearerSecret?.trim()) {
+        const result = await updateMcpServerCredentials({
+          path: { id: data.id },
+          body: {
+            expected_digest: data.content_digest,
+            bearer_token: bearerSecret.trim(),
+          },
+          throwOnError: true,
+        });
+        current = result.data ?? current;
+      }
+      await probeMcpServer({ path: { id: current.id }, throwOnError: true });
+      return current;
     },
     onSuccess: (data) => {
-      setCreated(data);
-      void queryClient.invalidateQueries({ queryKey: ["agent-mcp-servers"] });
+      setCreated(data ?? null);
       void queryClient.invalidateQueries({ queryKey: ["mcp-servers"] });
+      void queryClient.invalidateQueries({ queryKey: ["agent-mcp-servers"] });
     },
-    onError: (e) => notify(apiErrorMessage(e, t("mcp.saveFailed")), "error"),
+    onError: (error) => notify(apiErrorMessage(error, t("mcp.saveFailed")), "error"),
   });
-
-  // Connect: an OAuth-protected install lands as needs_auth with auth_type
-  // none; switch it to oauth and jump straight into the authorization flow.
   const connect = useMutation({
-    mutationFn: async (server: McpServer) => {
-      await updateScopedMcpServer({
-        path: { id: server.id },
-        query: {
-          scope: server.scope,
-          agent_id:
-            server.scope === "user_agent" || server.scope === "system_agent"
-              ? server.agent_id
-              : undefined,
-        },
-        body: { auth_type: "oauth" },
-        throwOnError: true,
-      });
-      const { data } = await startMcpoAuth({
-        path: { id: server.id },
-        query: {
-          scope: server.scope,
-          agent_id:
-            server.scope === "user_agent" || server.scope === "system_agent"
-              ? server.agent_id
-              : undefined,
-        },
-        throwOnError: true,
-      });
-      return data?.authorization_url ?? "";
-    },
+    mutationFn: async (server: McpServer) =>
+      (
+        await startMcpServerOAuth({
+          path: { id: server.id },
+          body: { expected_digest: server.content_digest },
+          throwOnError: true,
+        })
+      ).data?.authorization_url ?? "",
     onSuccess: (url) => {
       if (url) window.location.href = url;
     },
-    onError: (e) => notify(apiErrorMessage(e, t("mcp.connectFailed")), "error"),
+    onError: (error) => notify(apiErrorMessage(error, t("mcp.connectFailed")), "error"),
   });
-
-  return { mutation, created, setCreated, connect, connectPending: connect.isPending };
+  return {
+    mutation,
+    created,
+    setCreated,
+    connect,
+    connectPending: connect.isPending,
+  };
 }
 
-/** Builds the deferred install request handed to the shared scope step. */
 export function buildInstallRequest(
   server: McpRegistryServer,
-  run: (args: InstallArgs) => Promise<unknown>,
+  run: (args: InstallArgs) => Promise<McpServer>,
   confirmLabel: string,
   agentId?: string,
   bearerSecret?: string,
@@ -107,7 +114,6 @@ export function buildInstallRequest(
     name: server.name,
     confirmLabel,
     run: async (scope) => {
-      // The mutation reports its own failure; a rejected run keeps the step open.
       try {
         await run({ server, scope, agentId, bearerSecret });
         return true;

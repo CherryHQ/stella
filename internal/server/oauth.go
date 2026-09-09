@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/connections"
-	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
+	"github.com/CherryHQ/stella/internal/plugin"
 )
 
 // credAccess derives the trusted Authority for the authenticated caller and
@@ -69,52 +69,61 @@ func (s *Server) ListOAuthProviders(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	requiredBy := s.oauthProviderRequiredBy()
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if s.pluginFiles == nil {
+		writePluginError(w, errPluginFilesUnavailable)
+		return
+	}
+	resources, err := s.pluginFiles.Capture(r.Context(), authority, "")
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
+	requiredBy := oauthProviderRequiredBy(resources)
 	for i := range providers {
 		providers[i].RequiredBy = requiredBy[providers[i].Provider]
 	}
 	writeData(w, http.StatusOK, map[string]any{"providers": providers})
 }
 
-// oauthProviderRequiredBy maps each tool OAuth provider to the display names of
-// enabled tools that depend on it, derived from the plugin manifest's
-// session-env specs. The credentials page uses this to tell users which tool a
-// connection unlocks, since login no longer carries tool scopes — a user must
-// connect each tool provider explicitly.
-func (s *Server) oauthProviderRequiredBy() map[string][]string {
-	return oauthProviderRequiredBy(s.pluginHost)
-}
-
-func oauthProviderRequiredBy(host *pluginhost.Host) map[string][]string {
-	if host == nil {
-		return nil
-	}
-	displayByID := make(map[string]string)
-	for _, p := range host.ListRegisteredPlugins() {
-		name := p.DisplayName
-		if name == "" {
-			name = p.Name
-		}
-		displayByID[p.ID] = name
-	}
+// oauthProviderRequiredBy uses the caller's effective packages, including custom
+// user configurations, without exposing their payload or credential bindings.
+func oauthProviderRequiredBy(resources []plugin.FileResource) map[string][]string {
 	out := make(map[string][]string)
 	seen := make(map[string]map[string]struct{})
-	for _, spec := range host.AllSessionEnvSpecs() {
-		if spec.OAuthProviderID == "" {
+	for _, resource := range resources {
+		if resource.Disabled || resource.Forbidden || resource.Package == nil || resource.Package.Extension == nil {
 			continue
 		}
-		name := displayByID[spec.PluginID]
-		if name == "" {
+		displayName := resource.Package.Manifest.Name
+		if resource.Package.Extension.DisplayName != "" {
+			displayName = resource.Package.Extension.DisplayName
+		}
+		if displayName == "" {
 			continue
 		}
-		if seen[spec.OAuthProviderID] == nil {
-			seen[spec.OAuthProviderID] = make(map[string]struct{})
+		for _, requirement := range resource.Package.Extension.OAuth {
+			if requirement.Provider == "" {
+				continue
+			}
+			if seen[requirement.Provider] == nil {
+				seen[requirement.Provider] = make(map[string]struct{})
+			}
+			if _, ok := seen[requirement.Provider][displayName]; ok {
+				continue
+			}
+			seen[requirement.Provider][displayName] = struct{}{}
+			out[requirement.Provider] = append(out[requirement.Provider], displayName)
 		}
-		if _, dup := seen[spec.OAuthProviderID][name]; dup {
-			continue
-		}
-		seen[spec.OAuthProviderID][name] = struct{}{}
-		out[spec.OAuthProviderID] = append(out[spec.OAuthProviderID], name)
 	}
 	return out
 }

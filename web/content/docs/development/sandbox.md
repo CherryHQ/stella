@@ -29,7 +29,7 @@ Backend identity stays inside the runner and runner-facing sandbox packages. Plu
 | `Alive() bool`                                             | Reports whether the session is still active                      |
 | `Done() <-chan struct{}`                                   | Channel closed when the session terminates                       |
 
-`FileAccess` supports the bounded operations needed by prompt construction and the core `view_image` tool, plus exact-at-publication, no-replace, disposable file projection for managed Skills. A path is relative to `WorkingDir` or absolute in the process view. The public `Policy`, `Session`, and `FileAccess` contracts contain no host-side mount source, path resolver, or path translation result.
+`FileAccess` supports the bounded operations needed by prompt construction and the core `view_image` tool, plus exact-at-publication, no-replace, disposable projection of the selected resource files. A path is relative to `WorkingDir` or absolute in the process view. The public `Policy`, `Session`, and `FileAccess` contracts contain no host-side mount source, path resolver, or path translation result.
 
 Each backend binds the public process roots to a provider-private physical mount plan. File operations use directory capabilities pinned when the Session is created, enforce read-only roots, and fail closed on escapes or cross-mount symlinks. Provider process setup may inspect its private mapping, but no upper layer can obtain a physical path and then bypass the capability with `os.*`.
 
@@ -61,18 +61,19 @@ All local execution paths that must obey sandbox policy are mediated through the
 
 - the core `bash` tool uses `Session.Exec` through the runner-owned session
 - the core `view_image` tool and active prompt context reads use `Session.Files`
-- managed Skill revisions are copied into an exact, no-replace Session projection through `FileAccess.ProjectFiles`; a conflicting existing tree fails closed
+- selected Skill and package files are copied into an exact, no-replace Session projection through `FileAccess.ProjectFiles`; a conflicting existing tree fails closed
 - plugin tools receive `ToolContext.Runtime`, a `pkg/plugins.ToolRuntime` adapter over the active session
 - skills and agent preset loading use `ToolRuntime` when running inside an agent session
-- MCP stdio process spawning uses `Session.StartProcess`
 
 A core tool that reads files selects one `FileView` per invocation. Its policy environment, working directory, and `FileAccess` come from the same resilient generation, so path expansion cannot silently switch backing trees midway. Provider errors that cross this boundary identify logical process mounts without exposing physical source paths.
 
-A managed Skill projection is atomically published and verified on every load, but it is not a separate isolation boundary from commands running as the same user. Such a command can race verification or modify the disposable tree afterward. A load that observes a mismatch fails closed instead of replacing the path. Session close removes its temporary backing; Docker startup cleanup also removes stale temporary directories left by interrupted sessions.
+The resource projection is atomically published and verified on every load, but it is not a separate isolation boundary from commands running as the same user. Such a command can race verification or modify the disposable tree afterward. A load that observes a mismatch fails closed instead of replacing the path. Session close removes its temporary backing; Docker startup cleanup also removes stale temporary directories left by interrupted sessions.
 
-### stdio-MCP benefit
+### Long-lived processes
 
-`Session.StartProcess` is supported by both built-in backends. Docker gives stdio MCP servers a dedicated container process namespace; the local backend starts them directly on the host OS.
+`Session.StartProcess` is available to backend-owned long-lived processes. MCP
+plugin connections remain remote HTTP transports; this interface does not add a
+second local MCP execution path.
 
 ### Non-runner filesystem access
 
@@ -84,7 +85,6 @@ Project prompt context and project-scoped Skill reads outside a runner resolve t
 
 Remote MCP HTTP/SSE/StreamableHTTP transport is currently treated as a separate trust boundary.
 
-- local stdio transport is runtime-mediated through the active runner session via `Session.StartProcess`
 - remote transport dialing is **not** currently mediated by `ToolRuntime`
 - this exception is tracked explicitly as `EX-009` and logged as `runtime.exception_path`
 
@@ -115,23 +115,45 @@ The in-container Go server serves its baked-in embedded SPA at `localhost:25688`
 
 Stop everything with `docker compose down`.
 
-The sandbox image bakes its mise toolchain at `/opt/stella` via `stellad mise reconcile-builtins` (the same `resources/tools.yaml` reconcile the host runs), so docker and the Linux `local` backend present identical mise paths. Runtime uses mise's native system < global < workspace configuration order: the release-owned `_builtin.toml` is the system file, principal-global configuration lives under the shared XDG config root, and project `mise.toml` remains most specific. Per-principal installs stay in the `STELLA_HOME` frame so their relative links to system installs survive backend remapping. A read-only shell environment beside the managed mise binary restores principal, Stella, and system shim paths through `BASH_ENV` when nested non-interactive Bash login profiles replace `PATH`; Docker also sources it from `/etc/profile.d` for POSIX login shells.
+The versioned sandbox image contains the release-owned mise toolchain and
+builtin CLI artifacts. Runtime resolves complete package files from the four
+`system`, `system_agent`, `user`, and `user_agent` scopes, then materializes only
+the chosen entries. Docker preparation is keyed by one resolved image ID plus
+the complete selection identity. User and user-agent installs stay in their own
+sandbox trees and win in `PATH`. No host `_builtin.toml`, manifest permission
+surface, or host-platform install is used as a Docker fallback.
 
-## Builtin Skill bundle and projection
+## Filesystem resources in a sandbox
 
-`resources.Registry` is the sole authority for release-owned builtins. It produces the immutable content-addressed bundle installed at `$STELLA_HOME/bundles/<revision>` for native `local` and `none` execution. Isolating execution projects that exact bundle read-only at `/opt/stella/skills/builtin`; `/opt` is an execution coordinate, not another authority, and bundle executable helper modes must survive the projection.
+The runtime captures file resources before it creates the process environment.
+The four scopes are `system`, `system_agent`, `user`, and `user_agent`; project
+Skills are read from the project tree. The selected complete package determines
+its Skills, CLI entries, environment bindings, and MCP declarations. A copied
+package is independent and does not receive later source edits.
 
-Project Skills remain ordinary files in durable Agent/project working trees and are read through bounded read-only Home snapshots outside active execution. Mutable `system`, `system_agent`, `user`, and `user_agent` identities remain cataloged in PostgreSQL, while their selected revision manifests and bytes are authoritative in durable Home storage. An active Session receives only a disposable, digest-pinned exact projection; revision history never becomes part of the Agent workspace search tree.
+The process sees only the selected entries and the session coordinates needed to
+run them. A Skill or package file is not a second sandbox boundary. Deleting a
+file removes future selection, while OAuth Disconnect separately revokes the
+matching locally stored grant, closes its connection, and blocks late refreshes;
+remote provider revocation is not guaranteed. Runtime catalogs are observations
+that later turns may reuse or refresh, while MCP connections close with their
+session.
 
-The Docker sandbox image bakes and labels the exact revision. It has no host-builtin fallback. Docker provider preflight rejects a binary/image revision mismatch, preventing the runner session from starting. Use `stellad system-bundle --help` for operator command syntax. Rebuild the development image with `mise run sandbox:docker:build`; rebuild every custom sandbox image from the matching Stella revision.
+The release-owned builtin Skill bundle remains immutable and is projected at
+its execution coordinate for local and isolating backends. The bundle is a
+release artifact, not a mutable resource root. Use `stellad system-bundle
+--help` for operator command syntax. Rebuild a custom Docker image from the
+matching Stella release when its bundled tools change.
 
-Before upgrading, operators must use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. They must back up, verify, and remove other residual paths. Startup reports every blocking path and exits without mutation. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup.
+## Resource cleanup and process boundary
 
-## Agent Skill policy
-
-The stored scope vocabulary is `system`, `system_agent`, `user`, `user_agent`, and `project`, plus contextual `builtin`. Release `builtin:<name>` is immutable. Administrator-installed `system:<name>` and Agent-bound `system_agent:<name>` are distinct mutable identities.
-
-Resolution selects one winner before policy: `project > user_agent > user > system_agent > system > builtin`. Disabling that winner never exposes a lower same-name Skill. Policy defaults to enabled, is shared per Agent, and is independent of content-edit authorization and `disable_model_invocation`. An admitted turn keeps its snapshot; the next turn sees a successful commit. Dangling disabled references have no execution effect and need explicit cleanup.
+The local backend enforces its configured filesystem and network policy, but a
+leader close does not prove that detached descendants have stopped. The `none`
+backend provides no reliable process isolation. A normal turn close therefore
+does not prove that resource bytes or derived caches can be removed. Stella does
+not clear resource data by TTL or by guessing a process ID. Docker cleans the
+session resources it creates; package and MCP retention is independent of that
+session lifecycle.
 
 ## Adding a New Backend
 

@@ -57,7 +57,6 @@ type Resolver struct {
 	mounts     []Mount
 	mu         sync.RWMutex
 	closed     bool
-	closeOnce  sync.Once
 	closeErr   error
 }
 
@@ -216,22 +215,34 @@ func (r *Resolver) ValidateBackingPaths() error {
 	return nil
 }
 
-// Close releases the pinned directory capabilities. Provider Sessions call it
-// exactly once when their filesystem view closes.
+// Close releases the pinned directory capabilities. A failed close leaves the
+// failed roots attached so a later lifecycle retry can release them. Provider
+// sessions use that property when backend teardown is interrupted.
 func (r *Resolver) Close() error {
 	if r == nil {
 		return nil
 	}
-	r.closeOnce.Do(func() {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		r.closed = true
-		for _, mount := range r.mounts {
-			if mount.root != nil {
-				r.closeErr = errors.Join(r.closeErr, mount.root.Close())
-			}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return r.closeErr
+	}
+
+	r.closeErr = nil
+	for i := range r.mounts {
+		root := r.mounts[i].root
+		if root == nil {
+			continue
 		}
-	})
+		if err := root.Close(); err != nil {
+			r.closeErr = errors.Join(r.closeErr, err)
+			continue
+		}
+		r.mounts[i].root = nil
+	}
+	if r.closeErr == nil {
+		r.closed = true
+	}
 	return r.closeErr
 }
 

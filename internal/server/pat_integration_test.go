@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/platform/config"
 )
 
@@ -48,6 +49,7 @@ func mintPAT(t *testing.T, env *testEnv, bearer, name string) (plaintext, id str
 // authority while the handler/domain boundary keeps non-admin users constrained.
 func TestPATAuthority(t *testing.T) {
 	env := setupAdmin(t)
+	wireFileMCPServices(t, env, mcp.EndpointPolicy{})
 	adminPAT, _ := mintPAT(t, env, env.bearerToken, "admin_control_plane")
 
 	cases := []struct {

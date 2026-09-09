@@ -1,223 +1,183 @@
-// PR #1233: persisted tool catalog, probe status, shared session per server,
-// vault-backed bearer credentials, and If-Match optimistic concurrency.
-import { createChatSession, ensureAgent, invokedToolNames, sendTurn, sessionMessages } from "./lib/agent.ts";
+// MCP file resources: declaration, probe, credentials, listing, and CAS.
+import { createChatSession, ensureAgent, sendTurn } from "./lib/agent.ts";
 import { expectStatus } from "./lib/api.ts";
 import { expect, test } from "./lib/fixtures.ts";
-import { type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
+import { createMcpPlugin, deleteMcpServer, type McpFixture, startMcpFixture } from "./lib/mcp-fixture.ts";
 import { ensureProvider } from "./lib/provider.ts";
-import { AgentTool, McpServer } from "./lib/types.ts";
+import type { AgentTool, McpServer } from "./lib/types.ts";
 
 test.describe.configure({ mode: "serial" });
-
 let open: McpFixture;
 let guarded: McpFixture;
-const created: string[] = [];
+const created: McpServer[] = [];
 
 test.beforeAll(async () => {
   open = await startMcpFixture();
   guarded = await startMcpFixture({ bearer: "s3cret-token" });
 });
-
 test.afterAll(async ({ admin }) => {
-  for (const id of created) await admin.delete(`/api/mcp/servers/${id}`);
+  for (const server of created) await deleteMcpServer(admin, server);
   await open.close();
   await guarded.close();
 });
 
-test("create probes the server and persists its catalog", async ({ admin, db }) => {
-  const body = expectStatus(
-    await admin.post<McpServer>("/api/mcp/servers", {
-      scope: "user",
-      name: "e2e",
-      url: open.url,
-      transport: "streamable_http",
-      auth_type: "none",
-    }),
-    201,
-    "create server",
+test("create stores a file resource and probe publishes its catalog", async ({ admin }) => {
+  const server = await createMcpPlugin(admin, open, { name: "e2e" });
+  created.push(server);
+  expect(server.resource_id).toBeTruthy();
+  expect(server.is_standalone).toBe(true);
+  expect(server.declaration).toMatchObject({
+    url: open.url,
+    auth_type: "none",
+  });
+  const probed = expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
+    200,
+    "probe created MCP server",
   );
-  created.push(body.id);
-  expect(body.status).toBe("ok");
-  expect(body.probed_at).not.toBeNull();
-  expect(body.version).toBeTruthy();
-  expect((body.tools ?? []).map((t) => t.name).sort()).toEqual(["add", "echo"]);
+  expect(probed.status).toBe("ready");
+  expect(probed.tools.map((tool) => tool.name).sort()).toEqual(["add", "echo"]);
   expect(open.methods.get("initialize")).toBeGreaterThanOrEqual(1);
   expect(open.methods.get("tools/list")).toBeGreaterThanOrEqual(1);
-
-  const rows = await db`select status, status_error, probed_at, tools, credential_mode from mcp_server where id = ${body.id}`;
-  expect(rows).toHaveLength(1);
-  expect(rows[0].status).toBe("ok");
-  expect(rows[0].status_error).toBe("");
-  expect(rows[0].probed_at).not.toBeNull();
-  expect(rows[0].credential_mode).toBe("shared");
-  expect((rows[0].tools as { name: string; }[]).map((t) => t.name).sort()).toEqual(["add", "echo"]);
-
-  const fetched = expectStatus(await admin.get<McpServer>(`/api/mcp/servers/${body.id}`), 200, "get server");
-  expect(fetched.tools?.length).toBe(2);
-  const list = expectStatus(await admin.get<{ servers: McpServer[]; }>("/api/mcp/servers"), 200, "list servers");
-  expect(list.servers.some((s) => s.id === body.id && s.status === "ok")).toBe(true);
-});
-
-test("probe endpoint re-lists tools and refreshes probed_at", async ({ admin, db }) => {
-  const id = created[0];
-  const before = (await db`select probed_at from mcp_server where id = ${id}`)[0].probed_at as Date;
-  const lists = open.methods.get("tools/list") ?? 0;
-  await new Promise((r) => setTimeout(r, 20));
-  const body = expectStatus(await admin.post<McpServer>(`/api/mcp/servers/${id}/probe`), 200, "probe");
-  expect(body.status).toBe("ok");
-  expect(open.methods.get("tools/list")).toBe(lists + 1);
-  const after = (await db`select probed_at from mcp_server where id = ${id}`)[0].probed_at as Date;
-  expect(after.getTime()).toBeGreaterThan(before.getTime());
-});
-
-test("unreachable endpoint records an error and an empty catalog", async ({ admin, db }) => {
-  const body = expectStatus(
-    await admin.post<McpServer>("/api/mcp/servers", {
-      scope: "user",
-      name: "e2e-dead",
-      url: "http://127.0.0.1:9/mcp",
-      transport: "streamable_http",
-    }),
-    201,
-    "create dead server",
+  const listed = expectStatus(
+    await admin.get<{ servers: McpServer[]; }>("/api/mcp/servers?scope=user"),
+    200,
+    "list MCP servers",
   );
-  created.push(body.id);
-  expect(body.status).toBe("error");
-  expect(body.probed_at).not.toBeNull();
-  // The reason names the registration, not the transport-level cause.
-  expect(body.status_error).toContain('"e2e-dead"');
-  expect(body.status_error).not.toMatch(/connection refused|dial tcp/);
-  expect(body.tools ?? []).toHaveLength(0);
-  const row = (await db`select status, status_error, tools from mcp_server where id = ${body.id}`)[0];
-  expect(row.status).toBe("error");
-  expect(String(row.status_error)).toBe(body.status_error);
-  expect(row.tools).toEqual([]);
+  expect(listed.servers.some((item) => item.id === server.id)).toBe(true);
 });
 
-test("bearer token lives in the vault and a 401 flips the server to needs_auth", async ({ admin, db }) => {
-  const body = expectStatus(
-    await admin.post<McpServer>("/api/mcp/servers", {
-      scope: "user",
-      name: "e2e-guarded",
-      url: guarded.url,
-      transport: "streamable_http",
-      auth_type: "bearer",
-      token: "wrong-token",
-    }),
-    201,
-    "create guarded server",
+test("unreachable endpoint records an error after an explicit probe", async ({ admin }) => {
+  const server = await createMcpPlugin(admin, open, {
+    name: "e2e-dead",
+    url: "http://127.0.0.1:9/mcp",
+  });
+  created.push(server);
+  const probed = expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
+    200,
+    "probe dead MCP server",
   );
-  created.push(body.id);
-  expect(body.status).toBe("needs_auth");
-  expect(JSON.stringify(body)).not.toContain("wrong-token");
+  expect(probed.status).toBe("error");
+  expect(probed.status_error).toBeTruthy();
+  expect(probed.status_error).not.toMatch(
+    /127\.0\.0\.1|connection refused|dial tcp/,
+  );
+  expect(probed.tools).toEqual([]);
+});
 
-  const row = (await db`select credential_ref, row_to_json(mcp_server)::text as raw from mcp_server where id = ${body.id}`)[0];
-  expect(row.credential_ref).toBeTruthy();
-  expect(String(row.raw)).not.toContain("wrong-token");
-  const vault = await db`select count(*)::int as n from vault_entry where name = ${row.credential_ref as string}`;
-  expect(vault[0].n).toBe(1);
-
+test("bearer credentials are redacted and CAS-protected", async ({ admin }) => {
+  const server = await createMcpPlugin(admin, guarded, {
+    name: "e2e-guarded",
+    authType: "bearer",
+    credentialMode: "per_user",
+    credentialRef: "E2E_BEARER_TOKEN",
+    token: "wrong-token",
+  });
+  created.push(server);
+  expect(JSON.stringify(server)).not.toContain("wrong-token");
+  const needsAuth = expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
+    200,
+    "probe guarded MCP server",
+  );
+  expect(needsAuth.status).toBe("needs_auth");
   const fixed = expectStatus(
-    await admin.patch<McpServer>(
-      `/api/mcp/servers/${body.id}`,
-      { auth_type: "bearer", token: "s3cret-token" },
-      { "If-Match": body.version },
-    ),
+    await admin.patch<McpServer>(`/api/mcp/servers/${server.id}/credentials`, {
+      expected_digest: needsAuth.content_digest,
+      bearer_token: "s3cret-token",
+    }),
     200,
-    "patch token",
+    "replace bearer credential",
   );
-  expect(fixed.status).toBe("ok");
-  expect((fixed.tools ?? []).map((t) => t.name)).toContain("add");
+  const ready = expectStatus(
+    await admin.post<McpServer>(`/api/mcp/servers/${server.id}/probe`),
+    200,
+    "probe fixed token",
+  );
+  expect(ready.status).toBe("ready");
+  expect(JSON.stringify(fixed)).not.toContain("s3cret-token");
 });
 
-test("If-Match enforces optimistic concurrency on PATCH and DELETE", async ({ admin }) => {
-  const id = created[0];
-  const current = expectStatus(await admin.get<McpServer>(`/api/mcp/servers/${id}`), 200, "get");
-  const stale = await admin.patch(`/api/mcp/servers/${id}`, { enabled: true }, { "If-Match": "stale-version" });
-  expect(stale.status).toBe(409);
-  const ok = expectStatus(
-    await admin.patch<McpServer>(`/api/mcp/servers/${id}`, { enabled: true }, { "If-Match": current.version }),
+test("declaration updates and deletion reject stale content digests", async ({ admin }) => {
+  const server = created[0];
+  const changed = expectStatus(
+    await admin.patch<McpServer>(`/api/mcp/servers/${server.id}`, {
+      declaration: { ...server.declaration!, description: "edited" },
+      expected_digest: server.content_digest,
+    }),
     200,
-    "patch with current version",
+    "update MCP declaration",
   );
-  expect(ok.version).toBeTruthy();
-
-  const victim = expectStatus(
-    await admin.post<McpServer>("/api/mcp/servers", { scope: "user", name: "e2e-victim", url: open.url.replace("/mcp", "/victim") }),
-    201,
-    "create victim",
-  );
-  const staleDelete = await admin.delete(`/api/mcp/servers/${victim.id}`, { "If-Match": "stale-version" });
-  expect(staleDelete.status).toBe(409);
-  const del = await admin.delete(`/api/mcp/servers/${victim.id}`, { "If-Match": victim.version });
-  expect(del.status).toBe(204);
+  expect(changed.declaration?.description).toBe("edited");
+  expect(
+    (
+      await admin.patch(`/api/mcp/servers/${server.id}`, {
+        declaration: { ...changed.declaration!, description: "stale" },
+        expected_digest: server.content_digest,
+      })
+    ).status,
+  ).toBe(409);
+  expect(
+    (
+      await admin.delete(
+        `/api/mcp/servers/${server.id}?expected_digest=${server.content_digest}`,
+      )
+    ).status,
+  ).toBe(409);
+  expect(
+    (
+      await admin.delete(
+        `/api/mcp/servers/${server.id}?expected_digest=${changed.content_digest}`,
+      )
+    ).status,
+  ).toBe(204);
+  created.splice(0, 1);
 });
 
-test("an agent calls the remote tool through one shared session @model", async ({ admin, db }) => {
+test("an agent calls the remote tool through one shared session @model", async ({ admin }) => {
   test.setTimeout(300_000);
-  if (created.length === 0) {
-    const setup = expectStatus(
-      await admin.post<McpServer>("/api/mcp/servers", {
-        scope: "user",
-        name: "e2e",
-        url: open.url,
-        transport: "streamable_http",
-        auth_type: "none",
-      }),
-      201,
-      "create model server",
-    );
-    created.push(setup.id);
-  }
+  const server = created.find((item) => item.name === "e2e")
+    ?? (await createMcpPlugin(admin, open, { name: "e2e" }));
+  if (!created.includes(server)) created.push(server);
   const { modelRef } = await ensureProvider(admin);
-  const agentId = await ensureAgent(admin, modelRef);
-  // Wait until the freshly registered server's proxy is listed, so the model
-  // turn tests tool use, not catalog-publish timing.
-  await expect.poll(async () => {
-    const listed = expectStatus(await admin.get<{ tools: AgentTool[]; }>(`/api/agents/${agentId}/tools`), 200, "list agent tools").tools;
-    return listed.some((t) => t.name === "mcp__e2e__add");
-  }, { timeout: 30_000 }).toBe(true);
-  const sessionId = await createChatSession(admin, agentId);
-  const initBefore = open.methods.get("initialize") ?? 0;
-  const callsBefore = open.calls.length;
-
+  const agentId = await ensureAgent(admin, modelRef, "e2e-mcp-agent");
+  await expect
+    .poll(
+      async () => {
+        const tools = expectStatus(
+          await admin.get<{ tools: AgentTool[]; }>(
+            `/api/agents/${agentId}/tools`,
+          ),
+          200,
+          "list agent tools",
+        ).tools;
+        return tools.some((tool) => tool.name.includes("_main_add_"));
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+  const toolName = expectStatus(
+    await admin.get<{ tools: AgentTool[]; }>(`/api/agents/${agentId}/tools`),
+    200,
+    "list agent tools",
+  ).tools.find((tool) => tool.name.includes("_main_add_"))?.name;
+  if (!toolName) throw new Error("file-backed add tool missing");
+  const sessionID = await createChatSession(admin, agentId);
+  const before = open.calls.length;
   const turn = await sendTurn(
     admin,
     agentId,
-    sessionId,
-    "Use the tool mcp__e2e__add twice: first with a=17 and b=25, then with a=3 and b=4. Reply with only the two results separated by a space.",
+    sessionID,
+    `Use ${toolName} with a=17 and b=25. Reply with only the result.`,
   );
   expect(turn.errors, JSON.stringify(turn.events.slice(-5))).toEqual([]);
-  const addCalls = turn.toolCalls.filter((c) => c.toolName === "mcp__e2e__add");
-  expect(addCalls.length).toBeGreaterThanOrEqual(2);
-  const seen = open.calls.slice(callsBefore).filter((c) => c.tool === "add").map((c) => `${c.args.a}+${c.args.b}`);
-  expect(seen).toContain("17+25");
-  expect(seen).toContain("3+4");
   expect(turn.text).toContain("42");
-  // Both proxies share one lazily opened session: at most one initialize per turn.
-  expect((open.methods.get("initialize") ?? 0) - initBefore).toBeLessThanOrEqual(1);
-
-  const rows = await db`
-    select m.role, m.event_type, m.content from ctx_message m
-    join ctx_conversation c on c.id = m.conversation_id
-    where c.session_id = ${sessionId} order by m.seq`;
-  // Under Code Mode the model may issue both calls from one `code` block, which
-  // persists as a single tool_call row, so the row count is not the call count.
-  // The transcript audit below counts the actual invocations.
-  const persistedCalls = rows.filter((r) => r.event_type === "tool_call" && String(r.content).includes("mcp__e2e__add"));
-  expect(persistedCalls.length, JSON.stringify(rows.map((r) => [r.role, r.event_type, String(r.content).slice(0, 80)])))
-    .toBeGreaterThanOrEqual(1);
-
-  // The transcript API shows the call either as a direct tool_call block or,
-  // under Code Mode, in the child-call audit of the outer `code` result.
-  const messages = await sessionMessages(admin, agentId, sessionId);
-  const invoked = invokedToolNames(messages).filter((n) => n === "mcp__e2e__add");
-  expect(invoked.length, JSON.stringify(messages).slice(0, 3000)).toBeGreaterThanOrEqual(2);
-});
-
-test("settings page lists servers and can register one", async ({ page, admin, loginAsAdmin }) => {
-  await loginAsAdmin();
-  await page.goto("/settings/mcp");
-  await expect(page.getByText("e2e", { exact: true })).toBeVisible();
-  await expect(page.getByText(open.url).first()).toBeVisible();
+  expect(
+    open.calls
+      .slice(before)
+      .some(
+        (call) => call.tool === "add" && call.args.a === 17 && call.args.b === 25,
+      ),
+  ).toBe(true);
 });

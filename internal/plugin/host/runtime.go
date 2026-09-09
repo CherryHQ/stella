@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -38,10 +39,17 @@ type RuntimeHost struct {
 	// per-entry mutex serializes Build/Apply with drain-time Quiesce.
 	applyMu  sync.Mutex
 	quiesced bool
+
+	// channelLocks serialize the durable read and runtime apply for one
+	// channel ID. Keeping this boundary per instance lets unrelated channels
+	// reconcile concurrently while preventing an old apply from racing a CRUD
+	// follow-up for the same row.
+	channelLocksMu sync.Mutex
+	channelLocks   map[string]*sync.Mutex
 }
 
 func NewRuntimeHost(host *Host) *RuntimeHost {
-	return &RuntimeHost{host: host, rt: map[runtimeKey]*runtimeEntry{}}
+	return &RuntimeHost{host: host, rt: map[runtimeKey]*runtimeEntry{}, channelLocks: map[string]*sync.Mutex{}}
 }
 
 func configMapFromJSON(raw string) map[string]any {
@@ -55,28 +63,16 @@ func configMapFromJSON(raw string) map[string]any {
 	return out
 }
 
-// Get resolves a managed runtime.
+// Get resolves a managed runtime by its exact runtime identity. For channel
+// runtimes, runtimeID is the persisted channel instance ID, never the platform
+// plugin ID, because multiple instances may share one platform.
 func (h *RuntimeHost) Get(_ context.Context, runtimeID string, runtimeName string) (pkgplugins.RuntimeHandle, bool) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	if entry := h.rt[runtimeKey{RuntimeID: runtimeID, RuntimeName: runtimeName}]; entry != nil && entry.managed != nil {
 		return runtimeHandle{entry: entry}, true
 	}
-	// channel plugin lookups: caller passed "channel/<type>"; runtime was registered
-	// under the channel instance ID. Fall back to matching reg.PluginID + reg.Name.
-	if _, ok := strings.CutPrefix(runtimeID, config.PluginKindChannel+"/"); ok {
-		for _, entry := range h.rt {
-			if entry.reg.PluginID == runtimeID && entry.reg.Name == runtimeName && entry.managed != nil {
-				return runtimeHandle{entry: entry}, true
-			}
-		}
-	}
 	return nil, false
-}
-
-// Lookup is an alias for Get to match the pkgplugins.RuntimeLookup interface.
-func (h *RuntimeHost) Lookup(ctx context.Context, runtimeID string, runtimeName string) (pkgplugins.RuntimeHandle, bool) {
-	return h.Get(ctx, runtimeID, runtimeName)
 }
 
 // ListChannelChats reads the optional joined-chat capability from a running
@@ -107,21 +103,17 @@ func (h *RuntimeHost) ApplyPlugin(ctx context.Context, pluginID string) error {
 	}
 	if channelType, ok := strings.CutPrefix(pluginID, config.PluginKindChannel+"/"); ok {
 		channels, err := h.host.store.ListChannelsByType(ctx, channelType)
-		if err == nil && len(channels) > 0 {
-			off, offErr := h.channelPlatformDisabled(ctx, channelType)
-			if offErr != nil {
-				return offErr
-			}
-			for _, channel := range channels {
-				if off {
-					channel.Enabled = false
-				}
-				if err := h.ApplyChannel(ctx, channel); err != nil {
-					return err
-				}
-			}
-			return nil
+		if err != nil {
+			return fmt.Errorf("list channel instances for %s: %w", channelType, err)
 		}
+		for _, channel := range channels {
+			if err := h.ReconcileChannel(ctx, channel.ID); err != nil {
+				return err
+			}
+		}
+		// A channel plugin has no platform-wide runtime. An empty inventory is a
+		// valid no-op and must never fabricate a hidden instance.
+		return nil
 	}
 	regs := h.registrations(pluginID)
 	for _, reg := range regs {
@@ -153,7 +145,43 @@ func (h *RuntimeHost) channelPlatformDisabled(ctx context.Context, channelType s
 	return false, nil
 }
 
-func (h *RuntimeHost) ApplyChannel(ctx context.Context, channel config.Channel) error {
+// ReconcileChannel reads the committed channel row by its exact ID and then
+// applies that fresh value while holding the instance reconcile lock. A
+// missing row is a committed deletion, so every runtime for that ID is
+// stopped instead of applying a caller's stale struct.
+func (h *RuntimeHost) ReconcileChannel(ctx context.Context, channelID string) error {
+	if channelID == "" {
+		return errors.New("channel ID is required")
+	}
+	lock := h.channelLock(channelID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	channel, err := h.host.store.GetChannel(ctx, channelID)
+	if err != nil {
+		if errors.Is(err, config.ErrChannelNotFound) {
+			return h.stopChannel(ctx, channelID)
+		}
+		return fmt.Errorf("get channel %q for reconciliation: %w", channelID, err)
+	}
+	if channel.ID == "" {
+		return fmt.Errorf("get channel %q for reconciliation: empty channel ID", channelID)
+	}
+	return h.applyChannel(ctx, channel)
+}
+
+func (h *RuntimeHost) channelLock(channelID string) *sync.Mutex {
+	h.channelLocksMu.Lock()
+	defer h.channelLocksMu.Unlock()
+	lock := h.channelLocks[channelID]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		h.channelLocks[channelID] = lock
+	}
+	return lock
+}
+
+func (h *RuntimeHost) applyChannel(ctx context.Context, channel config.Channel) error {
 	if channel.Type == "" {
 		channel.Type = channel.ID
 	}
@@ -163,6 +191,15 @@ func (h *RuntimeHost) ApplyChannel(ctx context.Context, channel config.Channel) 
 		return err
 	}
 	if off {
+		channel.Enabled = false
+	}
+	allowed, err := h.host.listenerAllowed(ctx, pluginID, channel.AgentID)
+	if err != nil {
+		// The gate is checked before touching the managed runtime. This preserves
+		// an already-running shared listener when policy storage is unavailable.
+		return err
+	}
+	if !allowed {
 		channel.Enabled = false
 	}
 	regs := h.registrations(pluginID)
@@ -177,6 +214,36 @@ func (h *RuntimeHost) ApplyChannel(ctx context.Context, channel config.Channel) 
 		}
 	}
 	return nil
+}
+
+// stopChannel evicts and stops every runtime belonging to one durable channel
+// ID. Runtime apply code may observe the eviction and perform its own cleanup;
+// Stop is therefore deliberately idempotent at this boundary.
+func (h *RuntimeHost) stopChannel(ctx context.Context, channelID string) error {
+	h.applyMu.Lock()
+	h.mu.Lock()
+	entries := make([]*runtimeEntry, 0)
+	for key, entry := range h.rt {
+		if key.RuntimeID == channelID {
+			delete(h.rt, key)
+			entries = append(entries, entry)
+		}
+	}
+	h.mu.Unlock()
+	h.applyMu.Unlock()
+
+	var failures []error
+	for _, entry := range entries {
+		entry.applyMu.Lock()
+		managed := entry.managed
+		if managed != nil {
+			if err := managed.Stop(ctx); err != nil {
+				failures = append(failures, err)
+			}
+		}
+		entry.applyMu.Unlock()
+	}
+	return errors.Join(failures...)
 }
 
 func (h *RuntimeHost) registrations(pluginID string) []pkgplugins.RuntimeSpec {
@@ -354,14 +421,6 @@ func (h *RuntimeHost) Stop(ctx context.Context) error {
 	return lastErr
 }
 
-func (h *RuntimeHost) Snapshot(ctx context.Context, runtimeID string, runtimeName string) (pkgplugins.RuntimeStatus, error) {
-	handle, ok := h.Get(ctx, runtimeID, runtimeName)
-	if !ok {
-		return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateStopped, UpdatedAt: time.Now().UTC()}, nil
-	}
-	return handle.Snapshot(ctx)
-}
-
 type runtimeHandle struct{ entry *runtimeEntry }
 
 func (h runtimeHandle) Snapshot(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
@@ -369,8 +428,4 @@ func (h runtimeHandle) Snapshot(ctx context.Context) (pkgplugins.RuntimeStatus, 
 		return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateStopped, UpdatedAt: time.Now().UTC()}, nil
 	}
 	return h.entry.managed.Snapshot(ctx)
-}
-
-func (h runtimeHandle) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
-	return h.Snapshot(ctx)
 }

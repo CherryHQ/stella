@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"path"
 	"strings"
 	"sync"
@@ -12,12 +13,16 @@ import (
 
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/core/agenterr"
+	internalmcp "github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/observability"
+	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	skillstool "github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
@@ -29,6 +34,56 @@ import (
 	"github.com/CherryHQ/stella/pkg/toolmeta"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
+
+// turnEnvSession keeps the retained session's lifecycle and filesystem
+// identity, while projecting the immutable per-turn environment onto every
+// process request. Tools receive this wrapper at construction time, so plugin
+// Runtime calls and core tools share the same EnvReplace boundary.
+type turnEnvSession struct{ pkgsandbox.Session }
+
+func (s turnEnvSession) SelectFileView(ctx context.Context) (pkgsandbox.FileView, error) {
+	return pkgsandbox.SelectFileView(ctx, s.Session)
+}
+
+func (s turnEnvSession) Exec(ctx context.Context, command string, opts pkgsandbox.ExecOptions) (pkgsandbox.ExecResult, error) {
+	if env, ok := sandbox.TurnEnv(ctx); ok {
+		raw, err := pkgsandbox.SelectSession(ctx, s.Session)
+		if err != nil {
+			return pkgsandbox.ExecResult{}, err
+		}
+		env, err = pkgsandbox.RenderEnv(ctx, raw, env)
+		if err != nil {
+			return pkgsandbox.ExecResult{}, err
+		}
+		opts.Env = turnProcessEnv(env, opts.Env)
+		opts.EnvMode = pkgsandbox.EnvReplace
+		return raw.Exec(ctx, command, opts)
+	}
+	return s.Session.Exec(ctx, command, opts)
+}
+
+func (s turnEnvSession) StartProcess(ctx context.Context, req pkgsandbox.ProcessRequest) (pkgsandbox.ProcessHandle, error) {
+	if env, ok := sandbox.TurnEnv(ctx); ok {
+		raw, err := pkgsandbox.SelectSession(ctx, s.Session)
+		if err != nil {
+			return nil, err
+		}
+		env, err = pkgsandbox.RenderEnv(ctx, raw, env)
+		if err != nil {
+			return nil, err
+		}
+		req.Env = turnProcessEnv(env, req.Env)
+		req.EnvMode = pkgsandbox.EnvReplace
+		return raw.StartProcess(ctx, req)
+	}
+	return s.Session.StartProcess(ctx, req)
+}
+
+func turnProcessEnv(turn, explicit map[string]string) map[string]string {
+	env := maps.Clone(turn)
+	maps.Copy(env, explicit)
+	return env
+}
 
 // providerConfig groups LLM provider settings.
 type providerConfig struct {
@@ -45,10 +100,15 @@ type providerConfig struct {
 
 // runnerConfig configures the runner implementation.
 type runnerConfig struct {
-	NoCapabilities       bool // guest mode: empty tool registry, no hooks or media
-	Provider             providerConfig
-	Thinking             ai.ThinkingLevel
-	Sandbox              sandbox.Config
+	NoCapabilities bool // guest mode: empty tool registry, no hooks or media
+	Provider       providerConfig
+	Thinking       ai.ThinkingLevel
+	Sandbox        sandbox.Config
+	// PreparedSession is created by the outer builder after package-level
+	// preparation has settled. Keeping it on the config prevents prompt and
+	// Skill construction from racing a later CLI failure and avoids creating
+	// the sandbox twice.
+	PreparedSession      pkgsandbox.Session
 	System               string // optional system prompt override (bypasses default prompt building)
 	Sections             []pkgplugins.SystemPromptSection
 	BuiltinTools         []BuiltinTool
@@ -56,22 +116,34 @@ type runnerConfig struct {
 	DisabledSkillRefs    []string
 	PerRunTools          []tools.Tool
 	SkillRevisionReader  skillstool.RuntimeReader
+	SkillPackageReader   skillstool.PackageSkillReader
 	ProjectSkillSnapshot *skillstool.ProjectSnapshot
 	SkillReadAuthorizer  skillstool.SkillReadAuthorizer
-	PluginView           pkgplugins.SessionPluginView
+	PluginContext        PluginContext
 	MCPToolProvider      MCPToolProvider
-	ToolOverrideFetcher  ToolOverrideFetcher
-	ToolMetaRegistry     *toolmeta.Registry
-	PluginTools          func(context.Context, pkgplugins.ToolBuildContext) []tools.Tool
-	HookPlugins          []hooks.HookPlugin // hook plugins for the engine loop
-	ToolLifecycle        *coreagent.ToolLifecycle
-	DelegateRunner       delegatetool.SessionRunner
-	DelegateTimeout      time.Duration // default wall-clock timeout per delegate (0 = 15m)
-	ChatTimeout          time.Duration // explicit turn cap; 0 uses the sandbox task deadline, otherwise 30m
-	CanonicalImages      *coreagent.CanonicalImageConfig
-	Vision               *vision.Service // auxiliary vision service for view_image text routing
-	Cleanup              func() error
-	CodeToolSurface      coreagent.CodeToolSurface
+	MCPFileSession       *internalmcp.FileSession
+	// MCPTools is populated by newRunner together with the observation-backed
+	// PluginContext projection. Keeping the result on the config prevents the
+	// registry build from querying a second, potentially different directory.
+	MCPTools            []tools.Tool
+	MCPPrepared         bool
+	ToolOverrideFetcher ToolOverrideFetcher
+	ToolMetaRegistry    *toolmeta.Registry
+	NativePolicy        *plugin.NativePolicy
+	PluginTools         func(context.Context, pkgplugins.ToolBuildContext) ([]tools.Tool, error)
+	HookPlugins         []hooks.HookPlugin // hook plugins for the engine loop
+	PluginHookPlugins   []hooks.HookPlugin // runner-owned plugin hooks, closed with this runner
+	ToolLifecycle       *coreagent.ToolLifecycle
+	// Partial is created by newRunnerFunc before slow workspace/package work so
+	// the cache owns the same runner throughout construction and teardown.
+	Partial         *runner
+	DelegateRunner  delegatetool.SessionRunner
+	DelegateTimeout time.Duration // default wall-clock timeout per delegate (0 = 15m)
+	ChatTimeout     time.Duration // explicit turn cap; 0 uses the sandbox task deadline, otherwise 30m
+	CanonicalImages *coreagent.CanonicalImageConfig
+	Vision          *vision.Service // auxiliary vision service for view_image text routing
+	Cleanup         func() error
+	CodeToolSurface coreagent.CodeToolSurface
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
@@ -86,22 +158,77 @@ type runner struct {
 	codeToolSurface coreagent.CodeToolSurface
 	system          string
 	hookSet         *hooks.HookSet
+	pluginHooks     []hooks.HookPlugin
 	toolLifecycle   *coreagent.ToolLifecycle
 	canonicalImages *coreagent.CanonicalImageConfig
 	chatTimeout     time.Duration
 	session         pkgsandbox.Session // runner-owned sandbox session lifecycle
 	noCapabilities  bool               // guest runner intentionally has no sandbox session
-	sandboxCfg      sandbox.Config     // retained to refresh OAuth-derived env on long-lived runners
+	pluginContext   PluginContext
+	mcpToolProvider MCPToolProvider
+	fileMCPSession  *internalmcp.FileSession
+	sandboxCfg      sandbox.Config // retained to refresh OAuth-derived env on long-lived runners
 	cleanup         func() error
 
-	mu           sync.Mutex
-	lastActivity time.Time
-	activeCalls  int
-	log          *slog.Logger
+	mu            sync.Mutex
+	closeMu       sync.Mutex
+	toolsClosed   bool
+	pendingTools  []tools.Tool
+	sessionClosed bool
+	cleanupClosed bool
+	hooksClosed   bool
+	lastActivity  time.Time
+	activeCalls   int
+	log           *slog.Logger
 }
 
 // newRunner creates a runner with built-in providers.
 func newRunner(ctx context.Context, cfg runnerConfig) (built *runner, err error) {
+	var session pkgsandbox.Session
+	var toolReg *tools.Registry
+	partialProvided := cfg.Partial != nil
+	built = cfg.Partial
+	if built == nil {
+		built = &runner{}
+	}
+	built.cleanup = cfg.Cleanup
+	built.pluginHooks = cfg.PluginHookPlugins
+	built.noCapabilities = cfg.NoCapabilities
+	if cfg.PluginContext.IsFileBased() {
+		cfg.PluginContext = cfg.PluginContext.InfrastructureContext()
+	}
+	built.pluginContext = cfg.PluginContext
+	built.mcpToolProvider = cfg.MCPToolProvider
+	if cfg.PluginContext.IsFileBased() && cfg.MCPFileSession == nil {
+		if factory, ok := cfg.MCPToolProvider.(FileMCPSessionFactory); ok {
+			cfg.MCPFileSession = factory.NewFileSession()
+		}
+	}
+	built.fileMCPSession = cfg.MCPFileSession
+	built.lastActivity = time.Now()
+	partial := built
+	cfg.Partial = built
+	if cfg.BuiltinParams.BuildOwner != nil && !partialProvided {
+		if err := cfg.BuiltinParams.BuildOwner.AdoptRunner(partial); err != nil {
+			return nil, fmt.Errorf("runner: adopt partial build owner: %w", err)
+		}
+	}
+	defer func() {
+		panicValue := recover()
+		if panicValue != nil {
+			// Provider and tool implementations are outside this package's trust
+			// boundary. Keep the cleanup object, but never expose a recovered value
+			// that may contain credentials or prompt data.
+			err = errors.New("runner initialization panicked")
+		}
+		if err == nil {
+			return
+		}
+		// A failed build can still own a live sandbox, subprocess-backed tool, or
+		// scratch directory. Return the partial runner so the cache or direct
+		// caller can retry Close after a failed termination.
+		built = partial
+	}()
 	stream, err := buildStreamFunc(cfg)
 	if err != nil {
 		return nil, err
@@ -115,40 +242,37 @@ func newRunner(ctx context.Context, cfg runnerConfig) (built *runner, err error)
 	}
 	model := ai.Model{ID: cfg.Provider.Model, API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: providerID, BaseURL: cfg.Provider.BaseURL, Input: cfg.Provider.Input, Cost: cfg.Provider.Cost, MaxTokens: cfg.Provider.MaxTokens}
 
-	var session pkgsandbox.Session
 	if !cfg.NoCapabilities {
 		// Propagate the turn budget into the sandbox config so both initial OAuth env
 		// injection and per-turn refresh size their min-validity to the actual chat
 		// timeout (#722). cfg is a value copy, so this stays local to this runner.
 		cfg.Sandbox.ChatTimeout = cfg.ChatTimeout
 
-		session, err = sandbox.ResolveSession(ctx, cfg.Sandbox)
-		if err != nil {
-			return nil, fmt.Errorf("runner: %w", err)
+		session = cfg.PreparedSession
+		if session == nil {
+			session, err = sandbox.ResolveSession(ctx, cfg.Sandbox)
+			if err != nil {
+				return nil, fmt.Errorf("runner: %w", err)
+			}
+		}
+		built.session = session
+		if cfg.Sandbox.PluginPreparationResult != nil {
+			prepared := *cfg.Sandbox.PluginPreparationResult
+			cfg.PluginContext = cfg.PluginContext.WithPreparationResult(prepared)
 		}
 	}
-
-	var toolReg *tools.Registry
-	defer func() {
-		if recover() != nil {
-			err = errors.New("runner initialization panicked")
-		}
-		if err == nil {
-			return
-		}
-		// Transfer failed cleanup to the cache instead of losing execution that
-		// may still hold writable roots. The object supports Close only.
-		built = &runner{session: session, tools: toolReg, cleanup: cfg.Cleanup}
-	}()
 
 	if systemPrompt == "" {
 		systemPrompt = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{Sections: cfg.Sections, Session: session})
 	}
 
-	toolReg, hookSet, delegateTool, err := buildToolRegistry(ctx, cfg, session, stream, model, systemPrompt)
+	toolReg, hookSet, delegateTool, err := buildToolRegistry(ctx, cfg, turnEnvSession{Session: session}, stream, model, systemPrompt)
 	if err != nil {
 		return nil, err
 	}
+	built.tools = toolReg
+	built.hookSet = hookSet
+	built.delegateTool = delegateTool
 
 	streamOptions := ai.StreamOptions{Reasoning: cfg.Thinking}
 	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, cfg.CanonicalImages, cfg.CodeToolSurface)
@@ -156,27 +280,26 @@ func newRunner(ctx context.Context, cfg runnerConfig) (built *runner, err error)
 		return nil, fmt.Errorf("runner: %w", err)
 	}
 
-	return &runner{
-		runner:          coreRunner,
-		stream:          stream,
-		tools:           toolReg,
-		toolMeta:        cfg.ToolMetaRegistry,
-		delegateTool:    delegateTool,
-		model:           model,
-		streamOptions:   streamOptions,
-		codeToolSurface: cfg.CodeToolSurface,
-		system:          systemPrompt,
-		hookSet:         hookSet,
-		toolLifecycle:   cfg.ToolLifecycle,
-		canonicalImages: cfg.CanonicalImages,
-		cleanup:         cfg.Cleanup,
-		chatTimeout:     cfg.ChatTimeout,
-		session:         session,
-		noCapabilities:  cfg.NoCapabilities,
-		sandboxCfg:      cfg.Sandbox,
-		lastActivity:    time.Now(),
-		log:             slog.With("component", "go_runner"),
-	}, nil
+	built.runner = coreRunner
+	built.stream = stream
+	built.tools = toolReg
+	built.toolMeta = cfg.ToolMetaRegistry
+	built.delegateTool = delegateTool
+	built.model = model
+	built.streamOptions = streamOptions
+	built.codeToolSurface = cfg.CodeToolSurface
+	built.system = systemPrompt
+	built.hookSet = hookSet
+	built.toolLifecycle = cfg.ToolLifecycle
+	built.canonicalImages = cfg.CanonicalImages
+	built.chatTimeout = cfg.ChatTimeout
+	built.session = session
+	built.noCapabilities = cfg.NoCapabilities
+	built.pluginContext = cfg.PluginContext
+	built.sandboxCfg = cfg.Sandbox
+	built.lastActivity = time.Now()
+	built.log = slog.With("component", "go_runner")
+	return built, nil
 }
 
 func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, codeToolSurface coreagent.CodeToolSurface) (*coreagent.Runner, error) {
@@ -202,6 +325,22 @@ func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, stream
 		Tools:           toolSet,
 		ToolDefinitions: toolDefs,
 	}, opts...)
+}
+
+type preparedTurnKey struct{}
+
+type preparedTurn struct {
+	pluginContext PluginContext
+	mcpTools      []tools.Tool
+}
+
+func withPreparedTurn(ctx context.Context, turn preparedTurn) context.Context {
+	return context.WithValue(ctx, preparedTurnKey{}, turn)
+}
+
+func preparedTurnFromContext(ctx context.Context) (preparedTurn, bool) {
+	turn, ok := ctx.Value(preparedTurnKey{}).(preparedTurn)
+	return turn, ok
 }
 
 // buildStreamFunc creates the stream function for the configured API.
@@ -235,18 +374,77 @@ const (
 	toolSourcePlugin  = "plugin"
 )
 
+// MCPToolIdentityProvider carries the durable package/server/local identity of
+// one MCP proxy. An exported name is never parsed back into ownership.
+type MCPToolIdentityProvider interface {
+	PluginToolIdentity() (pluginID, serverKey, localToolName string, ok bool)
+}
+
 // toolCandidate is a non-core tool awaiting the override filter, carrying where
 // it came from so a duplicate name can be attributed.
 type toolCandidate struct {
-	tool   tools.Tool
-	source string
+	tool       tools.Tool
+	source     string
+	identity   ToolIdentity
+	nativeID   string
+	ownedIndex int
 }
 
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
-func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session, stream providers.StreamFunc, model ai.Model, systemPrompt string) (*tools.Registry, *hooks.HookSet, *delegatetool.DelegateTool, error) {
-	toolReg := tools.NewRegistry()
+func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session, stream providers.StreamFunc, model ai.Model, systemPrompt string) (toolReg *tools.Registry, hookSet *hooks.HookSet, delegateTool *delegatetool.DelegateTool, err error) {
+	registry := tools.NewRegistry()
+	partial := cfg.Partial
+	if partial != nil {
+		partial.tools = registry
+		partial.toolsClosed = false
+	}
+	// Tools returned by per-run builders are owned by this function until they
+	// are registered. Once registered, Registry.Close owns them. Keeping the
+	// transfer bit here prevents leaked MCP/plugin proxies on any later error.
+	type ownedTool struct {
+		tool        tools.Tool
+		transferred bool
+	}
+	var owned []ownedTool
+	closeAndRetain := func(tool tools.Tool) {
+		if tool == nil {
+			return
+		}
+		if closeErr := closeToolErr(tool); closeErr != nil && partial != nil {
+			partial.pendingTools = append(partial.pendingTools, tool)
+		}
+	}
+	own := func(tool tools.Tool) int {
+		owned = append(owned, ownedTool{tool: tool})
+		return len(owned) - 1
+	}
+	transfer := func(index int) { owned[index].transferred = true }
+	defer func() {
+		panicValue := recover()
+		if err == nil && panicValue == nil {
+			return
+		}
+		// A partial runner owns the registry immediately after construction. Keep
+		// it attached for retryable cleanup instead of discarding a failed Close.
+		if partial == nil {
+			_ = registry.Close()
+		}
+		for _, entry := range owned {
+			if entry.transferred || entry.tool == nil {
+				continue
+			}
+			if partial != nil {
+				partial.pendingTools = append(partial.pendingTools, entry.tool)
+				continue
+			}
+			closeAndRetain(entry.tool)
+		}
+		if panicValue != nil {
+			panic(panicValue)
+		}
+	}()
 	if cfg.NoCapabilities {
-		return toolReg, nil, nil, nil
+		return registry, nil, nil, nil
 	}
 
 	// Core tools are provided by the active sandbox session.
@@ -254,6 +452,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	// Runtime capabilities are injected from the active runner session.
 	bc := pkgplugins.ToolBuildContext{
 		Runtime: session,
+		AgentID: cfg.BuiltinParams.AgentID,
 	}
 
 	coreTools := buildSandboxCoreTools(session, cfg.Sandbox.SessionSecretValues, cfg.Vision)
@@ -264,15 +463,34 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	// Sandbox core tools route through the active session and must win over any
 	// process-local tool of the same name, which would bypass sandbox policy.
 	sourceByName := make(map[string]string, len(coreTools))
-	for _, t := range coreTools {
-		if err := toolReg.Register(t); err != nil {
+	coreOwned := make([]int, len(coreTools))
+	for i, t := range coreTools {
+		coreOwned[i] = own(t)
+	}
+	for i, t := range coreTools {
+		if err := registry.Register(t); err != nil {
 			return nil, nil, nil, fmt.Errorf("runner: register core tool: %w", err)
 		}
+		transfer(coreOwned[i])
 		sourceByName[t.Definition().Name] = toolSourceCore
 	}
 
+	pluginView := cfg.PluginContext.SessionPluginView()
+	exposedPlugins := make(map[string]struct{}, len(pluginView.ExposedPluginIDs))
+	for _, id := range pluginView.ExposedPluginIDs {
+		exposedPlugins[id] = struct{}{}
+	}
+
 	var nonCoreCandidates []toolCandidate
-	registerNonCore := func(source string, t tools.Tool) {
+	registerNonCore := func(source string, t tools.Tool, identity ToolIdentity, ownedIndex int) error {
+		index := ownedIndex
+		if index < 0 {
+			index = own(t)
+		}
+		if t == nil {
+			owned[index].transferred = true
+			return fmt.Errorf("runner: %s tool is nil", source)
+		}
 		name := t.Definition().Name
 		// Check the complete reservation set, not only core tools registered in
 		// this runner. Legacy core names remain reserved even when no runtime tool
@@ -280,9 +498,26 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		if IsCoreToolName(name) {
 			slog.Debug("skipping non-core tool with reserved core name",
 				"component", "go_runner", "tool", name, "reason", "reserved core tool name")
-			return
+			closeAndRetain(t)
+			owned[index].transferred = true
+			return nil
 		}
-		nonCoreCandidates = append(nonCoreCandidates, toolCandidate{tool: t, source: source})
+		nativeID := ""
+		if spec, ok := cfg.ToolMetaRegistry.Lookup(name); ok && spec.PluginID != "" {
+			nativeID = spec.PluginID
+		}
+		if err := identity.Validate(); err != nil {
+			return fmt.Errorf("runner: tool %q has invalid identity: %w", name, err)
+		}
+		if identity.PluginID != "" {
+			if _, exposed := exposedPlugins[identity.PluginID]; !exposed {
+				closeAndRetain(t)
+				owned[index].transferred = true
+				return nil
+			}
+		}
+		nonCoreCandidates = append(nonCoreCandidates, toolCandidate{tool: t, source: source, identity: identity, nativeID: nativeID, ownedIndex: index})
+		return nil
 	}
 
 	// Names of every builtin the deployment ships, available or not. Overrides
@@ -292,6 +527,36 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	for _, entry := range cfg.BuiltinTools {
 		if definition, ok := entry.Definition(); ok {
 			knownBuiltinNames[definition.Name] = struct{}{}
+		}
+	}
+	// Host registrations are trusted static names even when native admission
+	// hides their implementation for this Agent. Keep them reserved so an MCP
+	// proxy cannot claim the name during that gap.
+	knownHostToolNames := make(map[string]struct{})
+	if cfg.ToolMetaRegistry != nil {
+		for _, spec := range cfg.ToolMetaRegistry.Tools() {
+			if spec.PluginID == "" {
+				continue
+			}
+			// Generated Native tools also carry a PluginID. Their names are
+			// already reserved as builtins, so only reserve the remaining
+			// trusted Host metadata here.
+			if _, builtin := knownBuiltinNames[spec.Name]; !builtin {
+				knownHostToolNames[spec.Name] = struct{}{}
+			}
+		}
+	}
+	knownIdentities := make(map[ToolIdentity]struct{}, len(knownBuiltinNames))
+	for name := range knownBuiltinNames {
+		identity, err := runnerToolIdentity(cfg.ToolMetaRegistry, cfg.NativePolicy, name)
+		if err == nil {
+			knownIdentities[identity] = struct{}{}
+		}
+	}
+	for name := range knownHostToolNames {
+		identity, err := runnerToolIdentity(cfg.ToolMetaRegistry, cfg.NativePolicy, name)
+		if err == nil {
+			knownIdentities[identity] = struct{}{}
 		}
 	}
 
@@ -319,23 +584,49 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 			return nil, nil, nil, fmt.Errorf("runner: runtime-built builtin tool requires a static definition")
 		}
 		tool := entry.Tool
+		ownedIndex := -1
 		if entry.Build != nil {
 			var err error
 			tool, err = entry.Build(bc)
+			if tool != nil {
+				ownedIndex = own(tool)
+			}
 			if err != nil {
+				closeAndRetain(tool)
+				if ownedIndex >= 0 {
+					owned[ownedIndex].transferred = true
+				}
 				return nil, nil, nil, fmt.Errorf("runner: build builtin tool: %w", err)
 			}
 			if tool == nil {
 				return nil, nil, nil, fmt.Errorf("runner: built builtin tool is nil")
 			}
 			if definition := tool.Definition(); definition.Name != entry.Spec.Name {
+				closeAndRetain(tool)
+				owned[ownedIndex].transferred = true
 				return nil, nil, nil, fmt.Errorf("runner: built builtin tool name %q does not match static definition %q", definition.Name, entry.Spec.Name)
 			}
 		}
-		registerNonCore(toolSourceBuiltin, tool)
+		identity, err := runnerToolIdentity(cfg.ToolMetaRegistry, cfg.NativePolicy, tool.Definition().Name)
+		if err != nil {
+			closeAndRetain(tool)
+			if ownedIndex >= 0 {
+				owned[ownedIndex].transferred = true
+			}
+			return nil, nil, nil, err
+		}
+		if err := registerNonCore(toolSourceBuiltin, tool, identity, ownedIndex); err != nil {
+			return nil, nil, nil, err
+		}
 	}
-	for _, t := range cfg.PerRunTools {
-		registerNonCore(toolSourcePerRun, t)
+	perRunOwned := make([]int, len(cfg.PerRunTools))
+	for i, t := range cfg.PerRunTools {
+		perRunOwned[i] = own(t)
+	}
+	for i, t := range cfg.PerRunTools {
+		if err := registerNonCore(toolSourcePerRun, t, ToolIdentity{CoreToolName: t.Definition().Name}, perRunOwned[i]); err != nil {
+			return nil, nil, nil, err
+		}
 	}
 	skillsTool, err := skillstool.NewTool(cfg.SkillRevisionReader, session, cfg.SkillReadAuthorizer)
 	if err != nil {
@@ -343,21 +634,53 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	}
 	skillsTool = skillsTool.
 		WithProjectSnapshot(cfg.ProjectSkillSnapshot).
-		WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
+		WithPluginVisibility(pluginView.RegisteredPluginIDs, pluginView.ExposedPluginIDs).
 		WithAgentSkillPolicy(cfg.DisabledSkillRefs)
+	if cfg.SkillPackageReader != nil {
+		skillsTool = skillsTool.WithPackageReader(cfg.SkillPackageReader)
+	}
 	// One Tool per Session, one registered tool per action: the actions share
 	// the Session's projection lock and its visibility snapshot.
 	for _, spec := range skillstool.RuntimeActionTools() {
-		registerNonCore(toolSourceBuiltin, skillstool.NewAction(skillsTool, spec))
+		if err := registerNonCore(toolSourceBuiltin, skillstool.NewAction(skillsTool, spec), ToolIdentity{CoreToolName: spec.Name}, -1); err != nil {
+			return nil, nil, nil, err
+		}
 	}
-	if cfg.MCPToolProvider != nil {
-		for _, t := range cfg.MCPToolProvider.ToolsForContext(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID) {
-			registerNonCore(toolSourceMCP, t)
+	if cfg.MCPPrepared {
+		mcpTools := cfg.MCPTools
+		mcpOwned := make([]int, len(mcpTools))
+		for i, t := range mcpTools {
+			mcpOwned[i] = own(t)
+		}
+		for i, t := range mcpTools {
+			identity, err := runnerMCPToolIdentity(t)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			if err := registerNonCore(toolSourceMCP, t, identity, mcpOwned[i]); err != nil {
+				return nil, nil, nil, err
+			}
 		}
 	}
 	if cfg.PluginTools != nil {
-		for _, t := range cfg.PluginTools(ctx, bc) {
-			registerNonCore(toolSourcePlugin, t)
+		pluginTools, err := cfg.PluginTools(ctx, bc)
+		pluginOwned := make([]int, len(pluginTools))
+		for i, t := range pluginTools {
+			pluginOwned[i] = own(t)
+		}
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("runner: build plugin tools: %w", err)
+		}
+		for i, t := range pluginTools {
+			identity, err := runnerToolIdentity(cfg.ToolMetaRegistry, cfg.NativePolicy, t.Definition().Name)
+			if err != nil {
+				owned[pluginOwned[i]].transferred = true
+				closeAndRetain(t)
+				return nil, nil, nil, err
+			}
+			if err := registerNonCore(toolSourcePlugin, t, identity, pluginOwned[i]); err != nil {
+				return nil, nil, nil, err
+			}
 		}
 	}
 
@@ -378,13 +701,17 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 			return nil, nil, nil, fmt.Errorf("runner: %s tool %q collides with the %s tool of the same name (not available for this run)",
 				c.source, name, toolSourceBuiltin)
 		}
+		if _, reserved := knownHostToolNames[name]; reserved && c.source != toolSourcePlugin {
+			return nil, nil, nil, fmt.Errorf("runner: %s tool %q collides with the %s tool of the same name (not available for this run)",
+				c.source, name, toolSourcePlugin)
+		}
 		sourceByName[name] = c.source
 	}
 
-	hookSet := buildHookSet(cfg)
-	delegateTool := delegatetool.NewDelegateTool(delegatetool.DelegateConfig{
+	hookSet = buildHookSet(cfg)
+	delegateTool = delegatetool.NewDelegateTool(delegatetool.DelegateConfig{
 		Stream:         stream,
-		Registry:       toolReg,
+		Registry:       registry,
 		Model:          model,
 		System:         systemPrompt,
 		Presets:        buildDelegatePresets(cfg, session),
@@ -411,19 +738,159 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		overrides = rows
 	}
 	for _, c := range nonCoreCandidates {
-		name := c.tool.Definition().Name
-		if !FilterToolEnabled(true, name, overrides) {
+		if !FilterToolEnabled(true, c.identity, overrides) {
+			closeAndRetain(c.tool)
+			owned[c.ownedIndex].transferred = true
 			continue
 		}
 		// Names were settled above, so this only fires if that pass and the
 		// registry ever disagree.
-		if err := toolReg.Register(c.tool); err != nil {
+		guarded := wrapAuthorizedTool(c.tool, c.identity, c.nativeID, cfg.NativePolicy,
+			cfg.ToolOverrideFetcher, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID)
+		if err := registry.Register(guarded); err != nil {
 			return nil, nil, nil, fmt.Errorf("runner: register %s tool: %w", c.source, err)
 		}
+		// Registration transfers ownership to the registry. If a later
+		// candidate fails, the registry closes this tool exactly once.
+		// (The candidate remains in the slice only for diagnostics.)
+		owned[c.ownedIndex].transferred = true
 	}
-	warnOrphanOverrides(overrides, sourceByName, knownBuiltinNames)
+	warnOrphanOverrides(overrides, sourceByName, knownBuiltinNames, knownIdentities)
 
-	return toolReg, hookSet, delegateTool, nil
+	return registry, hookSet, delegateTool, nil
+}
+
+func closeToolErr(tool tools.Tool) (err error) {
+	defer func() {
+		if panicValue := recover(); panicValue != nil {
+			err = fmt.Errorf("tool close panicked (%T)", panicValue)
+		}
+	}()
+	if closer, ok := tool.(interface{ Close() error }); ok {
+		return closer.Close()
+	}
+	return nil
+}
+
+func (r *runner) PluginContext() PluginContext { return r.pluginContext }
+
+// PrepareTurn refreshes filesystem-backed MCP capabilities after the runner
+// has been reserved for this turn. The FileSession stays runner-owned, while
+// the discovered proxies are borrowed by the temporary loop registry and are
+// closed by FileSession.Close with the runner.
+func (r *runner) PrepareTurn(ctx context.Context, pluginContext PluginContext) (context.Context, PluginContext, error) {
+	if r.session != nil {
+		view := pluginContext.SessionPluginView()
+		turnCfg := r.sandboxCfg
+		deadline, _ := chatTurnDeadline(ctx, r.session, r.chatTimeout, time.Now().UTC())
+		turnCfg.ChatTimeout = time.Until(deadline)
+		// The fresh view is authoritative. Complete EnvReplace removes old
+		// package declarations from the projection; carrying old specs here would
+		// reintroduce revoked variables on a later turn.
+		turnCfg.SessionEnvSpecs = append([]pkgplugins.SessionEnvSpec(nil), view.SessionEnvSpecs...)
+		turnCfg.PluginRequirements = append([]pkgplugins.PluginPackageRequirement(nil), view.PackageRequirements...)
+		turnCfg.BinarySpecs = pluginContext.SelectedPluginBinarySpecs()
+		turnPrep, err := sandbox.PrepareTurnSession(ctx, r.session, turnCfg)
+		if err != nil {
+			return nil, PluginContext{}, err
+		}
+		pluginContext = pluginContext.WithOAuthPreparationResult(turnPrep.OAuth)
+		pluginContext = pluginContext.WithPreparationResult(turnPrep.Preparation)
+		ctx = sandbox.WithTurnEnv(ctx, turnPrep.Env)
+		preparedTurnValue := preparedTurn{pluginContext: pluginContext}
+		if !pluginContext.IsFileBased() {
+			ctx = agentruntime.WithPreparedPluginContext(ctx, pluginContext)
+			return withPreparedTurn(ctx, preparedTurnValue), pluginContext, nil
+		}
+	}
+	if !pluginContext.IsFileBased() {
+		ctx = agentruntime.WithPreparedPluginContext(ctx, pluginContext)
+		return withPreparedTurn(ctx, preparedTurn{pluginContext: pluginContext}), pluginContext, nil
+	}
+	resources := pluginContext.FileResources()
+	preparedView := pluginContext.SessionPluginView()
+	for i := range resources {
+		if resources[i].Key.Kind != plugin.ResourcePlugin {
+			continue
+		}
+		if status := preparedView.PackageResults.Status(resources[i].Key.ID()); len(preparedView.PackageResults.Packages) > 0 && !status.Ready {
+			resources[i].Disabled = true
+		}
+	}
+	provider := r.mcpToolProvider
+	if provider == nil {
+		for _, resource := range resources {
+			enabled := resource.Key.Kind == plugin.ResourceMCP || resource.Key.Kind == plugin.ResourcePlugin && len(resource.MCP) > 0
+			if enabled && !resource.Disabled && !resource.Forbidden {
+				return nil, PluginContext{}, errors.New("runner: file MCP provider is unavailable")
+			}
+		}
+		ctx = agentruntime.WithPreparedPluginContext(ctx, pluginContext)
+		return withPreparedTurn(ctx, preparedTurn{pluginContext: pluginContext}), pluginContext, nil
+	}
+	if r.fileMCPSession == nil {
+		return nil, PluginContext{}, errors.New("runner: file MCP session is unavailable")
+	}
+	snapshot, err := provider.ToolsForFileSession(ctx, r.fileMCPSession, resources, pluginContext.Authority())
+	if err != nil {
+		return nil, PluginContext{}, fmt.Errorf("runner: prepare file MCP tools: %w", err)
+	}
+	prepared := pluginContext.WithMCPToolSnapshot(snapshot)
+	ctx = agentruntime.WithPreparedPluginContext(ctx, prepared)
+	return withPreparedTurn(ctx, preparedTurn{pluginContext: prepared, mcpTools: snapshot.Tools}), prepared, nil
+}
+
+// runnerMCPToolIdentity verifies that a proxy's durable package/server/local
+// identity agrees with its model-facing exported name. Resource selection is
+// already enforced by the file turn projection before this check.
+func runnerMCPToolIdentity(tool tools.Tool) (ToolIdentity, error) {
+	if tool == nil {
+		return ToolIdentity{}, fmt.Errorf("runner: MCP tool is nil")
+	}
+	provider, ok := tool.(MCPToolIdentityProvider)
+	if !ok {
+		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q does not expose a durable plugin identity", tool.Definition().Name)
+	}
+	pluginID, serverKey, localToolName, ok := provider.PluginToolIdentity()
+	if !ok {
+		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q has no durable plugin identity", tool.Definition().Name)
+	}
+	if serverKey == "" {
+		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q has no selected server child", tool.Definition().Name)
+	}
+	exported, err := agentpackage.ExportedToolName(pluginID, serverKey, localToolName)
+	if err != nil {
+		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q has invalid identity: %w", tool.Definition().Name, err)
+	}
+	if exported != tool.Definition().Name {
+		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q identity exports %q", tool.Definition().Name, exported)
+	}
+	identity := ToolIdentity{PluginID: pluginID, ServerKey: serverKey, LocalToolName: localToolName}
+	if err := identity.Validate(); err != nil {
+		return ToolIdentity{}, fmt.Errorf("runner: MCP tool %q has invalid identity: %w", tool.Definition().Name, err)
+	}
+	return identity, nil
+}
+
+// runnerToolIdentity uses static names for Go tools. Native ownership must
+// also exist in the trusted registry; Agent MCP identity is checked separately.
+func runnerToolIdentity(meta *toolmeta.Registry, native *plugin.NativePolicy, name string) (ToolIdentity, error) {
+	if spec, ok := meta.Lookup(name); ok {
+		if spec.PluginID == "" {
+			if spec.LocalName != "" {
+				return ToolIdentity{}, fmt.Errorf("runner: core tool %q has plugin metadata", name)
+			}
+			return ToolIdentity{CoreToolName: name}, nil
+		}
+		if native == nil {
+			return ToolIdentity{}, fmt.Errorf("runner: native tool %q: %w", name, plugin.ErrNativePolicyUnavailable)
+		}
+		if !native.IsRegistered(spec.PluginID) {
+			return ToolIdentity{}, fmt.Errorf("runner: native tool %q: %w", name, plugin.ErrUnknownNativeID)
+		}
+		return ToolIdentity{CoreToolName: name}, nil
+	}
+	return ToolIdentity{CoreToolName: name}, nil
 }
 
 // warnOrphanOverrides reports override rows that name no tool this deployment
@@ -434,19 +901,28 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 // known holds every name this runner could have served (core plus every
 // candidate, whether or not an override kept it out); knownBuiltins covers
 // builtins this deployment ships but this run cannot use.
-func warnOrphanOverrides(overrides []ToolOverride, known map[string]string, knownBuiltins map[string]struct{}) {
+func warnOrphanOverrides(overrides []ToolOverride, known map[string]string, knownBuiltins map[string]struct{}, knownIdentities map[ToolIdentity]struct{}) {
 	for _, row := range overrides {
-		if _, ok := known[row.ToolName]; ok {
+		identity, valid := row.toolIdentity()
+		if !valid {
+			slog.Warn("tool override has invalid identity; ignoring",
+				"component", "go_runner", "scope", row.Scope, "enabled", row.Enabled)
 			continue
 		}
-		if _, ok := knownBuiltins[row.ToolName]; ok {
+		if identity.PluginID != "" {
+			if _, ok := knownIdentities[identity]; ok {
+				continue
+			}
+		} else if _, ok := known[identity.CoreToolName]; ok {
+			continue
+		} else if _, ok := knownBuiltins[identity.CoreToolName]; ok {
 			continue
 		}
-		if IsCoreToolName(row.ToolName) {
+		if IsCoreToolName(identity.CoreToolName) {
 			continue
 		}
 		slog.Warn("tool override names a tool this runner does not know; ignoring",
-			"component", "go_runner", "tool", row.ToolName, "scope", row.Scope, "enabled", row.Enabled)
+			"component", "go_runner", "tool_identity", identity, "scope", row.Scope, "enabled", row.Enabled)
 	}
 }
 
@@ -475,6 +951,103 @@ func filterRunnerTools(reg *tools.Registry, meta *toolmeta.Registry, excluded []
 		allowed = append(allowed, name)
 	}
 	return coreagent.ToolSetFromRegistryFiltered(reg, allowed)
+}
+
+func mergeTurnMCPTools(set coreagent.ToolSet, defs []tools.Definition, mcpTools []tools.Tool, resources []plugin.FileResource) (coreagent.ToolSet, []tools.Definition, error) {
+	if len(mcpTools) == 0 {
+		return set, defs, nil
+	}
+	seen := make(map[string]struct{}, len(defs)+len(mcpTools))
+	seenIdentity := make(map[ToolIdentity]struct{}, len(mcpTools))
+	resourceServers := make(map[string]map[string]struct{})
+	for _, resource := range resources {
+		servers := resourceServers[resource.Key.ID()]
+		if servers == nil {
+			servers = make(map[string]struct{}, len(resource.MCP))
+			resourceServers[resource.Key.ID()] = servers
+		}
+		for serverKey := range resource.MCP {
+			servers[serverKey] = struct{}{}
+		}
+	}
+	for _, def := range defs {
+		seen[def.Name] = struct{}{}
+	}
+	for _, tool := range mcpTools {
+		if tool == nil || tool.Definition().Name == "" {
+			return nil, nil, errors.New("runner: file MCP tool has no definition")
+		}
+		name := tool.Definition().Name
+		if _, exists := seen[name]; exists {
+			return nil, nil, fmt.Errorf("runner: file MCP tool %q collides with an existing tool", name)
+		}
+		identityProvider, ok := tool.(MCPToolIdentityProvider)
+		if !ok {
+			return nil, nil, fmt.Errorf("runner: file MCP tool %q has no durable identity", name)
+		}
+		pluginID, serverKey, localName, ok := identityProvider.PluginToolIdentity()
+		identity := ToolIdentity{PluginID: pluginID, ServerKey: serverKey, LocalToolName: localName}
+		if !ok || identity.Validate() != nil {
+			return nil, nil, fmt.Errorf("runner: file MCP tool %q has invalid durable identity", name)
+		}
+		servers, exists := resourceServers[pluginID]
+		if !exists {
+			return nil, nil, fmt.Errorf("runner: file MCP tool %q references an unselected resource", name)
+		}
+		if _, exists := servers[serverKey]; !exists {
+			return nil, nil, fmt.Errorf("runner: file MCP tool %q references an unselected server", name)
+		}
+		if _, exists := seenIdentity[identity]; exists {
+			return nil, nil, fmt.Errorf("runner: duplicate file MCP tool identity %q/%q/%q", pluginID, serverKey, localName)
+		}
+		seenIdentity[identity] = struct{}{}
+		seen[name] = struct{}{}
+		set[name] = coreagent.WrapTool(tool)
+		defs = append(defs, tool.Definition())
+	}
+	return set, defs, nil
+}
+
+func filterToolSet(meta *toolmeta.Registry, set coreagent.ToolSet, defs []tools.Definition, excluded []string) (coreagent.ToolSet, []tools.Definition) {
+	if len(excluded) == 0 {
+		return set, defs
+	}
+	names := make([]string, 0, len(defs))
+	for _, def := range defs {
+		names = append(names, def.Name)
+	}
+	for _, selector := range excluded {
+		if selector != "" && meta.SelectsNothing(selector, names) {
+			slog.Warn("excluded tool selector matched nothing", "selector", selector)
+		}
+	}
+	filteredSet := make(coreagent.ToolSet, len(set))
+	filteredDefs := make([]tools.Definition, 0, len(defs))
+	for _, def := range defs {
+		if meta.MatchAnyName(excluded, def.Name) {
+			continue
+		}
+		if fn, ok := set[def.Name]; ok {
+			filteredSet[def.Name] = fn
+			filteredDefs = append(filteredDefs, def)
+		}
+	}
+	return filteredSet, filteredDefs
+}
+
+func filterAllowedToolSet(meta *toolmeta.Registry, set coreagent.ToolSet, defs []tools.Definition, allowed []string) (coreagent.ToolSet, []tools.Definition) {
+	filteredSet := make(coreagent.ToolSet, len(set))
+	filteredDefs := make([]tools.Definition, 0, len(defs))
+	for _, def := range defs {
+		if !meta.MatchAnyName(allowed, def.Name) {
+			continue
+		}
+		if fn, ok := set[def.Name]; ok {
+			filteredSet[def.Name] = fn
+			filteredDefs = append(filteredDefs, def)
+		}
+	}
+	return filteredSet, filteredDefs
 }
 
 func buildDelegatePresets(cfg runnerConfig, session pkgsandbox.Session) *delegatetool.PresetRegistry {
@@ -553,18 +1126,35 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 		if override, ok := SystemOverrideFromContext(ctx); ok && override != "" {
 			effectiveSystem = override
 		}
+		turn, hasPreparedTurn := preparedTurnFromContext(ctx)
 		excludedTools := ExcludedToolsFromContext(ctx)
-		if effectiveSystem != r.system || len(excludedTools) > 0 {
+		allowedTools, hasAllowedTools := AllowedToolsFromContext(ctx)
+		if effectiveSystem != r.system || len(excludedTools) > 0 || hasAllowedTools || (hasPreparedTurn && len(turn.mcpTools) > 0) {
 			toolSet := coreagent.ToolSetFromRegistry(r.tools)
 			toolDefs := r.tools.Definitions()
-			if len(excludedTools) > 0 {
-				filteredSet, filteredDefs, err := filterRunnerTools(r.tools, r.toolMeta, excludedTools)
+			if hasPreparedTurn {
+				var err error
+				toolSet, toolDefs, err = mergeTurnMCPTools(toolSet, toolDefs, turn.mcpTools, turn.pluginContext.FileResources())
 				if err != nil {
-					sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
+					sendEvent(ctx, out, Event{Err: err})
 					return
 				}
-				toolSet = filteredSet
-				toolDefs = filteredDefs
+			}
+			if len(excludedTools) > 0 {
+				if hasPreparedTurn {
+					toolSet, toolDefs = filterToolSet(r.toolMeta, toolSet, toolDefs, excludedTools)
+				} else {
+					filteredSet, filteredDefs, err := filterRunnerTools(r.tools, r.toolMeta, excludedTools)
+					if err != nil {
+						sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
+						return
+					}
+					toolSet = filteredSet
+					toolDefs = filteredDefs
+				}
+			}
+			if hasAllowedTools {
+				toolSet, toolDefs = filterAllowedToolSet(r.toolMeta, toolSet, toolDefs, allowedTools)
 			}
 			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.canonicalImages, toolSet, toolDefs, r.codeToolSurface)
 			if err != nil {
@@ -589,15 +1179,6 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			}(),
 		})
 
-		// Reload the OAuth-derived session env before each turn so a long-lived
-		// cached runner (kept warm by frequent scheduler fires) never hands tools
-		// an expired OAuth token. A no-op on a fresh credential, on group
-		// sessions, and on sessions without OAuth-sourced env (#722).
-		if r.session != nil {
-			cfg := r.sandboxCfg
-			cfg.ChatTimeout = time.Until(deadline)
-			sandbox.RefreshSessionEnv(ctx, r.session, cfg)
-		}
 		// Nudge the model toward a summary as the wall-clock budget runs out.
 		// The trigger is elapsed time, not a turn count. Turn milestones fire in
 		// the middle of healthy work on fast turns, and the old turn-50 message
@@ -699,32 +1280,67 @@ func (r *runner) RunManagedSession(ctx context.Context, req delegatetool.Managed
 // Callers must not retain it after the runner is closed.
 func (r *runner) SandboxSession() pkgsandbox.Session { return r.session }
 
-// Close shuts down any subprocess-backed tools and the sandbox session.
-// Scratch cleanup waits for confirmed sandbox termination; failed Close is retryable.
+// Close shuts down runner resources in dependency order. Failed resources stay
+// owned so the cache can retry Close without releasing scratch prematurely.
 func (r *runner) Close() error {
+	r.closeMu.Lock()
+	defer r.closeMu.Unlock()
 	var errs []error
 
-	if r.tools != nil {
+	if !r.toolsClosed && r.tools != nil {
 		if err := r.tools.Close(); err != nil {
 			errs = append(errs, err)
+		} else {
+			r.toolsClosed = true
 		}
+	}
+	if len(r.pendingTools) > 0 {
+		remaining := r.pendingTools[:0]
+		for _, tool := range r.pendingTools {
+			if err := closeToolErr(tool); err != nil {
+				errs = append(errs, err)
+				remaining = append(remaining, tool)
+			}
+		}
+		r.pendingTools = remaining
 	}
 
-	if r.session != nil {
+	if !r.sessionClosed && r.session != nil {
 		if err := r.session.Close(); err != nil {
 			errs = append(errs, err)
-			return errors.Join(errs...)
+		} else {
+			r.sessionClosed = true
 		}
 	}
-	if r.cleanup != nil {
+	if r.fileMCPSession != nil {
+		if err := r.fileMCPSession.Close(); err != nil {
+			errs = append(errs, err)
+		} else {
+			r.fileMCPSession = nil
+		}
+	}
+	// Scratch belongs to the runner until tools and sandbox teardown have both
+	// succeeded. A failed resource must retain the cleanup owner for retry.
+	if (r.tools != nil && !r.toolsClosed) || len(r.pendingTools) > 0 || (r.session != nil && !r.sessionClosed) || r.fileMCPSession != nil {
+		return errors.Join(errs...)
+	}
+	if !r.hooksClosed && len(r.pluginHooks) > 0 {
+		if err := closeHookPlugins(r.pluginHooks); err != nil {
+			// Keep scratch owned by the runner until hook resources are closed too.
+			return errors.Join(append(errs, err)...)
+		}
+		r.hooksClosed = true
+	}
+	if !r.cleanupClosed && r.cleanup != nil {
 		if err := r.cleanup(); err != nil {
 			errs = append(errs, err)
+		} else {
+			r.cleanupClosed = true
 		}
-		r.cleanup = nil
 	}
 
 	if len(errs) > 0 {
-		return errs[0]
+		return errors.Join(errs...)
 	}
 	return nil
 }

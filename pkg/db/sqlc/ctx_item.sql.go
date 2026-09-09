@@ -283,6 +283,7 @@ SELECT
   m.actor_type AS message_actor_type,
   m.actor_id AS message_actor_id,
   m.source_session_id AS message_source_session_id,
+  m.execution_metadata AS message_execution_metadata,
   s.id AS summary_id,
   s.kind AS summary_kind,
   s.depth AS summary_depth,
@@ -324,6 +325,7 @@ type ListContextItemsPageRow struct {
 	MessageActorType                 pgtype.Text        `json:"message_actor_type"`
 	MessageActorID                   pgtype.Text        `json:"message_actor_id"`
 	MessageSourceSessionID           pgtype.Text        `json:"message_source_session_id"`
+	MessageExecutionMetadata         []byte             `json:"message_execution_metadata"`
 	SummaryID                        pgtype.Text        `json:"summary_id"`
 	SummaryKind                      pgtype.Text        `json:"summary_kind"`
 	SummaryDepth                     pgtype.Int8        `json:"summary_depth"`
@@ -362,6 +364,7 @@ func (q *Queries) ListContextItemsPage(ctx context.Context, arg ListContextItems
 			&i.MessageActorType,
 			&i.MessageActorID,
 			&i.MessageSourceSessionID,
+			&i.MessageExecutionMetadata,
 			&i.SummaryID,
 			&i.SummaryKind,
 			&i.SummaryDepth,

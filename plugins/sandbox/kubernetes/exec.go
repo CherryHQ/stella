@@ -78,7 +78,7 @@ func (s *session) frame(req sandbox.ProcessRequest) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	env := s.environment(req.Env)
+	env := s.environment(req.Env, req.EnvMode)
 	if s.policy.NetworkModeOrDefault() == sandbox.NetworkDisabled {
 		delete(env, "STELLA_SERVER_URL")
 	}
@@ -118,7 +118,7 @@ func (s *session) run(ctx context.Context, frame []byte, in io.Reader, out, stde
 }
 
 func (s *session) Exec(ctx context.Context, command string, opts sandbox.ExecOptions) (sandbox.ExecResult, error) {
-	req := sandbox.ProcessRequest{Path: "/bin/bash", Args: []string{"-c", command}, Cwd: opts.Cwd, Env: opts.Env}
+	req := sandbox.ProcessRequest{Path: "/bin/bash", Args: []string{"-c", command}, Cwd: opts.Cwd, Env: opts.Env, EnvMode: opts.EnvMode}
 	frame, err := s.frame(req)
 	if err != nil {
 		return sandbox.ExecResult{}, err
