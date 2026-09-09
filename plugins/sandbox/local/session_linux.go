@@ -31,13 +31,17 @@ func setSysProcAttr(cmd *exec.Cmd) {
 	}
 }
 
-// killProcessGroup sends SIGKILL to the process group of the given command.
-// A negative PID targets the entire process group.
-// No-ops when the process has already been reaped (ProcessState != nil).
+// killProcessGroup cancels the owned process group while its leader is live.
+// Process.Signal checks completion safely against Wait; reading ProcessState races.
+// This best-effort cancellation does not replace resource absence verification.
 func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process != nil && cmd.ProcessState == nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	if cmd.Process == nil {
+		return
 	}
+	if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
+		return
+	}
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 }
 
 // applyRlimits uses prlimit(2) to enforce resource limits on an already-started
