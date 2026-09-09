@@ -683,15 +683,14 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: start: %w", err)
 	}
 
-	// Finding 2: watch ctx cancellation manually so the whole process group dies.
+	// Deregister before returning so an immediate Close observes the reaped
+	// process. Do it after selecting the result: markExited cancels execCtx,
+	// which could otherwise turn a successful command into a cancellation.
 	done := make(chan error, 1)
 	go func() {
-		waitErr := cmd.Wait()
-		done <- waitErr
-		// Publish the natural result before canceling execCtx. Otherwise the
-		// cancellation case can win the select for a successful short command.
-		proc.markExited()
+		done <- cmd.Wait()
 	}()
+	defer proc.markExited()
 
 	select {
 	case <-execCtx.Done():
