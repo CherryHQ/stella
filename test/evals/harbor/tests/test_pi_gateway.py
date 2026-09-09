@@ -134,3 +134,12 @@ def test_model_limits_default_and_are_overridable():
     agent = _Env(_CREDS | _PRICES, context_window=400000, max_tokens=64000)
     model = _model(agent)
     assert model["contextWindow"] == 400000 and model["maxTokens"] == 64000
+
+
+def test_deepseek_uses_literal_max_and_requested_model_limits(tmp_path):
+    model = _model(_Env(_CREDS | _PRICES, context_window=1000000, max_tokens=384000))
+    assert model["contextWindow"] == 1000000
+    assert model["maxTokens"] == 384000
+    assert model["thinkingLevelMap"]["max"] == "max"
+    agent = PiGateway(logs_dir=tmp_path, model_name="gateway/deepseek/deepseek-v4-flash", thinking="max", version="0.85.1")
+    assert agent.build_cli_flags() == "--thinking max --"

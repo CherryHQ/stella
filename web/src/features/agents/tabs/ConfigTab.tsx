@@ -20,7 +20,7 @@ interface Props {
   onSetState: (patch: Partial<AgentsPageState>) => void;
 }
 
-const thinkingLevels = ["", "minimal", "low", "medium", "high", "xhigh"] as const;
+const thinkingLevels = ["", "none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 function ThinkingField({
   label,

@@ -33,7 +33,13 @@ def scoreability_reason(trial: Path) -> str | None:
     result = _json(trial / "result.json")
     adapter_path = trial / "agent" / "stella" / "result.json"
     if not adapter_path.is_file():
-        return "missing_adapter_result"
+        config = _json(trial / "config.json")
+        agent = config.get("agent") or {}
+        name = agent.get("import_path") or agent.get("name") or ""
+        if name not in {"stella_harbor.pi_gateway:PiGateway", "stella_harbor.hermes_gateway:HermesGateway"}:
+            return "missing_adapter_result"
+        rewards = (result.get("verifier_result") or {}).get("rewards") or {}
+        return None if rewards.get("reward") is not None else "missing_reward"
     adapter = _json(adapter_path)
     rewards = (result.get("verifier_result") or {}).get("rewards") or {}
     bridge = (adapter.get("metrics") or {}).get("bridge") or {}
@@ -159,7 +165,8 @@ def ordered_trials(source: Path) -> list[Path]:
     return [
         path.parent
         for path in sorted(source.rglob("result.json"))
-        if (path.parent / "config.json").is_file() and (path.parent / "agent").is_dir()
+        if (path.parent / "config.json").is_file()
+        and _json(path.parent / "config.json").get("trial_name")
     ]
 
 
@@ -242,13 +249,20 @@ def topup_config(state: dict[str, Any], concurrency: int) -> str:
 
 
 def merge(
-    source: Path, output: Path, k: int, expected_tasks: int = EXPECTED_TASKS, concurrency: int = 16
+    source: Path, output: Path, k: int, expected_tasks: int = EXPECTED_TASKS, concurrency: int = 16, preserve_attempts: bool = False
 ) -> dict[str, Any]:
     state = inventory(source, k)
     if state["tasks"] != expected_tasks:
         raise ValueError(f"expected {expected_tasks} tasks, found {state['tasks']}")
-    if state["missing"]:
+    if state["missing"] and not preserve_attempts:
         raise ValueError(f"tasks lack {k} scoreable trials: {json.dumps(state['missing'], sort_keys=True)}")
+    if preserve_attempts:
+        selected: dict[str, list[Path]] = defaultdict(list)
+        for trial in ordered_trials(source):
+            selected[task_name(trial)].append(trial)
+        if any(len(items) != k for items in selected.values()):
+            raise ValueError("exact-attempt mode requires exactly k trials per task")
+        state["selected"] = dict(selected)
     if output.exists():
         shutil.rmtree(output)
     output.mkdir(parents=True)
@@ -279,6 +293,7 @@ def merge(
                 "n_attempts": k,
                 "n_concurrent_trials": concurrency,
                 "selected_trial_count": copied,
+                "preserve_attempts": preserve_attempts,
             },
             indent=2,
         )
@@ -295,6 +310,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("source", type=Path, help="directory of ordered pass/retry job groups")
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--preserve-attempts", action="store_true", help="retain exactly k attempts including invalid evidence")
     parser.add_argument("--expected-tasks", type=int, default=EXPECTED_TASKS)
     parser.add_argument("--concurrency", type=int, default=16)
     parser.add_argument("--topup-config", type=Path, help="write a k=1 missing-task batch config")
@@ -305,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--k, --expected-tasks, and --concurrency must be positive")
     try:
         state = (
-            merge(args.source, args.output, args.k, args.expected_tasks, args.concurrency)
+            merge(args.source, args.output, args.k, args.expected_tasks, args.concurrency, args.preserve_attempts)
             if args.output
             else inventory(args.source, args.k)
         )

@@ -362,11 +362,12 @@ func TestNewRunnerFuncCarriesDeclaredModelInput(t *testing.T) {
 	t.Cleanup(config.ResetStellaHome)
 
 	snap := &config.Snapshot{
-		AgentID:   "test-agent",
-		Provider:  "anthropic",
-		Model:     "anthropic/text-only-model",
-		APIKey:    "test-key",
-		Providers: map[string]config.ProviderCreds{"anthropic": {Type: "anthropic", APIKey: "test-key"}},
+		AgentID:        "test-agent",
+		Provider:       "anthropic",
+		Model:          "anthropic/text-only-model",
+		APIKey:         "test-key",
+		Providers:      map[string]config.ProviderCreds{"anthropic": {Type: "anthropic", APIKey: "test-key"}},
+		ModelMaxTokens: map[config.ModelKey]int{{Provider: "anthropic", Model: "text-only-model"}: 384000},
 		ModelInputs: map[config.ModelKey][]string{
 			{Provider: "anthropic", Model: "text-only-model"}: {"text"},
 		},
@@ -397,6 +398,9 @@ func TestNewRunnerFuncCarriesDeclaredModelInput(t *testing.T) {
 	impl, ok := r.(*runner)
 	if !ok {
 		t.Fatalf("runner type = %T, want *runner", r)
+	}
+	if impl.model.MaxTokens != 384000 {
+		t.Fatalf("model.MaxTokens = %d, want 384000", impl.model.MaxTokens)
 	}
 	if got := impl.model.ImageCapability(); got != ai.ImageUnsupported {
 		t.Fatalf("model.ImageCapability() = %v, want ImageUnsupported (Input=%v)", got, impl.model.Input)
