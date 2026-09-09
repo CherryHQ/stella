@@ -188,6 +188,21 @@ func (c *Client) Security(ctx context.Context) (DaemonSecurity, error) {
 	return security, nil
 }
 
+// DaemonID returns the daemon's stable identity. It is used as the authority
+// component of a durable container identity: a different daemon may legally
+// contain no container with the same ID, but that proves nothing about the
+// original resource.
+func (c *Client) DaemonID(ctx context.Context) (string, error) {
+	res, err := c.api.Info(ctx, mobyclient.InfoOptions{})
+	if err != nil {
+		return "", fmt.Errorf("dockerclient: daemon identity: %w", err)
+	}
+	if res.Info.ID == "" {
+		return "", errors.New("dockerclient: daemon identity is empty")
+	}
+	return res.Info.ID, nil
+}
+
 func securityOptionEnabled(option, name string) bool {
 	return option == name || option == "name="+name || strings.HasPrefix(option, "name="+name+",")
 }

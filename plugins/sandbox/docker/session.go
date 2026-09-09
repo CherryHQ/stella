@@ -94,6 +94,21 @@ func NewFactoryWithMountSources(cfg Config, mountSources map[string]string) (san
 
 func (f *dockerFactory) Name() string { return "docker" }
 
+// ResourceController returns a controller that can reconstruct and fence any
+// Docker session owned by this factory's daemon. It intentionally does not
+// infer ownership from labels or names; callers must provide the persisted
+// daemon authority and full container ID.
+func (f *dockerFactory) ResourceController(ctx context.Context) (sandboxpkg.ResourceController, error) {
+	client, err := f.client()
+	if err != nil {
+		return nil, fmt.Errorf("docker factory: resource controller client: %w", err)
+	}
+	if _, err := client.DaemonID(ctx); err != nil {
+		return nil, err
+	}
+	return client.Controller(), nil
+}
+
 // Available reports whether a docker daemon is reachable. The CLI is not a
 // runtime dependency — the moby SDK talks to the socket directly — so this
 // builds a client and pings ServerVersion with a short timeout.
@@ -258,6 +273,10 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		span.End()
 		return nil, fmt.Errorf("docker session: inspect daemon security: %w", err)
 	}
+	// The daemon authority is resolved lazily by ResourceIdentity for old/unit
+	// test fakes that do not expose an Engine ID. A real daemon always returns a
+	// non-empty ID, which is then retained with the container's immutable ID.
+	daemonID, _ := client.DaemonID(ctx)
 
 	cleanupScope := f.cfg.cleanupScope(f.cfg.StellaHome)
 	opts := dockerclient.CreateOptions{
@@ -506,6 +525,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		id:               sessionID,
 		policy:           policy,
 		client:           client,
+		daemonID:         daemonID,
 		containerID:      containerID,
 		mountTable:       mountTable,
 		envPathMaps:      envMaps,
@@ -575,6 +595,7 @@ type dockerSession struct {
 	id               string
 	policy           sandboxpkg.Policy
 	client           *dockerclient.Client
+	daemonID         string
 	containerID      string
 	mountTable       []dockerclient.Mount
 	envPathMaps      []envPathMap
@@ -601,6 +622,32 @@ type dockerSession struct {
 	serverURL        string
 	creationEnvKeys  []string
 	mu               sync.RWMutex
+}
+
+// ResourceIdentity exposes the exact Docker daemon and container that own this
+// session. The daemon ID is resolved once and retained so a later daemon
+// restart or endpoint switch cannot silently change the meaning of a durable
+// identity.
+func (s *dockerSession) ResourceIdentity(ctx context.Context) (sandboxpkg.ResourceIdentity, error) {
+	if s == nil {
+		return sandboxpkg.ResourceIdentity{}, errors.New("docker: nil session")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.daemonID == "" {
+		if s.client == nil {
+			return sandboxpkg.ResourceIdentity{}, errors.New("docker: session has no client")
+		}
+		daemonID, err := s.client.DaemonID(ctx)
+		if err != nil {
+			return sandboxpkg.ResourceIdentity{}, err
+		}
+		s.daemonID = daemonID
+	}
+	if s.containerID == "" {
+		return sandboxpkg.ResourceIdentity{}, errors.New("docker: session has no container identity")
+	}
+	return sandboxpkg.ResourceIdentity{Backend: "docker", Authority: s.daemonID, Ref: s.containerID}, nil
 }
 
 func (s *dockerSession) Policy() sandboxpkg.Policy {
