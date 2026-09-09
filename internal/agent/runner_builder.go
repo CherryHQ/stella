@@ -275,7 +275,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 	return func(ctx context.Context, params RunnerParams) (built Runner, err error) {
 		var scratchCleanup func() error
 		var pluginHooks []hooks.HookPlugin
-		factoryCalled := false
 		partialOwnerAttached := false
 		partial := &runner{
 			cleanup: func() error {
@@ -302,22 +301,24 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		}
 		defer func() {
 			panicValue := recover()
-			// Before newRunner takes ownership, the partial runner owns every
-			// resource acquired by this builder, including a session created for
-			// prompt/Skill admission. Without a BuildOwner there is no later cache
-			// retry, so close it here. Calling partial.Close also closes hooks and
-			// scratch in dependency order, avoiding a second hook close.
-			if (err != nil || panicValue != nil) && !partialOwnerAttached && !factoryCalled {
-				err = errors.Join(err, partial.Close())
+			var closeErr error
+			if (err != nil || panicValue != nil) && !partialOwnerAttached {
+				closeErr = partial.Close()
+				err = errors.Join(err, closeErr)
 			}
 			if panicValue != nil {
-				panic(panicValue)
+				if closeErr == nil {
+					panic(panicValue)
+				}
+				// Without a cache owner, return failed cleanup to the caller;
+				// propagating a panic would lose the only retry handle.
+				err = errors.New("runner initialization panicked during pending cleanup")
 			}
-			// A failed concrete *runner return must become a nil interface at
-			// this boundary. The BuildOwner retains the partial runner; returning
-			// a typed nil would create a second, uncloseable retired entry.
 			if err != nil {
 				built = nil
+				if closeErr != nil {
+					built = partial
+				}
 			}
 		}()
 		modelRef := params.Model
@@ -341,8 +342,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		}
 
 		if params.GuestID != "" {
-			factoryCalled = true
-			return newRunner(ctx, runnerConfig{
+			built, err = newRunner(ctx, runnerConfig{
 				NoCapabilities: true,
 				Provider: providerConfig{
 					ProviderID: providerID,
@@ -354,9 +354,12 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 					BaseURL:    creds.BaseURL,
 					Builder:    cfg.ProviderStreamBuilder,
 				},
-				Thinking: params.Thinking,
-				System:   prompt.BuildGuestSystemPrompt(cfg.Snap.SystemPrompt),
+				Thinking:      params.Thinking,
+				System:        prompt.BuildGuestSystemPrompt(cfg.Snap.SystemPrompt),
+				BuiltinParams: params,
+				Partial:       partial,
 			})
+			return built, err
 		}
 		if cfg.Home == nil {
 			return nil, fmt.Errorf("runner: Home workspace resolver is required")
@@ -627,10 +630,8 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		canonicalImages := canonicalImageConfig(cfg.SessionImages, params)
 
-		// Ownership transfers to newRunner before the call. It closes the
-		// partial runner on every construction error, including provider setup
-		// failures; this defer handles errors that occur before that handoff.
-		factoryCalled = true
+		// Ownership transfers to newRunner before the call. Failed builds keep the
+		// partial runner available for retryable cleanup.
 		built, err = newRunner(ctx, runnerConfig{
 			Provider: providerConfig{
 				ProviderID: providerID,

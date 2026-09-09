@@ -182,11 +182,9 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 	// via sendFinalResponseInThread with elapsed time appended).
 	elapsed := nowFunc().Sub(startTime)
 
-	response := sb.String()
-	if renderedTimeline := timeline.markdown(false); renderedTimeline != "" {
-		response += "\n\n" + renderedTimeline
-	}
-	return sentMsgID, response, images, files, dedupeReferences(refs), elapsed, streamErr
+	// Progress belongs only to the running card; appending it to the answer
+	// would send the entire timeline as overflow cards after completion.
+	return sentMsgID, sb.String(), images, files, dedupeReferences(refs), elapsed, streamErr
 }
 
 // sendCardReply sends an interactive card reply and returns the new message ID.

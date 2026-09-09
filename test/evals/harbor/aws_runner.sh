@@ -9,12 +9,15 @@ source "$1"
 export RUN_ID COMMIT REGION BUCKET SECRET_ARN MODEL_ID CONCURRENCY PASSES
 export EXPECTED_TASKS RUN_MODE MAX_TOPUP_ROUNDS INSTANCE_TYPE INSTANCE_ID AMI_ID AVAILABILITY_ZONE
 export CONTROLLER_COMMIT REMOTE_RUNNER_SHA256 MERGE_HELPER_SHA256 SMOKE_TASKSET_SHA256
+export WARMUP_MODE WARMUP_CONCURRENCY TOPUP_CONCURRENCY PREPARE_HELPER_SHA256
+export SAMPLE_MINUTES TRIAL_LIMIT
 
 ROOT=/opt/stella-tb21
 REPO=$ROOT/stella
 JOURNAL=$ROOT/remote-journal.ndjson
 STATUS=$ROOT/status.json
 FINAL_PHASE=""
+DATASET_SPEC=terminal-bench/terminal-bench-2-1@sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a
 export HOME=/root
 export AWS_DEFAULT_REGION=$REGION
 export PATH="/root/.local/bin:/usr/local/bin:$PATH"
@@ -60,7 +63,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-mkdir -p "$ROOT" "$ROOT/logs" "$ROOT/jobs"
+mkdir -p "$ROOT" "$ROOT/logs" "$ROOT/jobs" "$ROOT/metrics" "$ROOT/environment-jobs"
 journal preparing-host
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
@@ -98,14 +101,22 @@ aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --query SecretStri
 python3 - "$ROOT/provider.json" "$REPO/.env" <<'PY'
 import json, pathlib, shlex, sys
 values = json.loads(pathlib.Path(sys.argv[1]).read_text())
-required = ("OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL")
+required = (
+    "OPENAI_BASE_URL",
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+    "EVAL_COST_INPUT",
+    "EVAL_COST_OUTPUT",
+    "EVAL_COST_CACHE_READ",
+    "EVAL_COST_CACHE_WRITE",
+)
 missing = [name for name in required if not values.get(name)]
 if missing:
     raise SystemExit("provider secret lacks: " + ", ".join(missing))
 pathlib.Path(sys.argv[2]).write_text("".join(f"{name}={shlex.quote(values[name])}\n" for name in required))
 PY
 chmod 600 "$REPO/.env"
-chown -R stella-eval:stella-eval "$REPO" "$ROOT/logs" "$ROOT/jobs"
+chown -R stella-eval:stella-eval "$REPO" "$ROOT/logs" "$ROOT/jobs" "$ROOT/metrics" "$ROOT/environment-jobs"
 
 as_eval() {
   # shellcheck disable=SC2016 # expanded by the child bash after positional args are installed
@@ -146,10 +157,10 @@ until docker info >/dev/null 2>&1; do sleep 1; done
 [ "$(df --output=avail -B1 / | tail -1)" -ge 107374182400 ] || { echo "less than 100 GiB free before evaluation" >&2; exit 1; }
 
 journal remote-preflight
-if [ "$RUN_MODE" = smoke ]; then
+if [ "$RUN_MODE" = smoke ] || [ "$RUN_MODE" = pilot ]; then
   as_eval mise run eval:loop -- --plan -c "$ROOT/aws-smoke.yaml" -n "$CONCURRENCY" > "$ROOT/logs/plan.log"
 else
-  as_eval mise run eval:loop -- --plan -d terminal-bench/terminal-bench-2-1 -k 1 -n "$CONCURRENCY" > "$ROOT/logs/plan.log"
+  as_eval mise run eval:loop -- --plan -d "$DATASET_SPEC" -k 1 -n "$CONCURRENCY" > "$ROOT/logs/plan.log"
 fi
 grep -q 'plan only, nothing is executed' "$ROOT/logs/plan.log"
 grep -q 'OPENAI_BASE_URL (set' "$ROOT/logs/plan.log"
@@ -158,7 +169,11 @@ grep -q 'OPENAI_API_KEY (set)' "$ROOT/logs/plan.log"
 safe_testbed_diagnostic() {
   testbed_log=$(find "$REPO/dist/evals/runs" -type f -name testbed.log 2>/dev/null | sort | tail -1)
   [ -n "$testbed_log" ] || return 0
-  python3 - "$testbed_log" <<'PY'
+  testbed_root=$(dirname "$testbed_log")/testbed-root
+  modes=$(stat -c '%a:%U:%G:%n' \
+    "$testbed_root" "$testbed_root/dist" "$testbed_root/dist/bin" \
+    "$testbed_root/dist/bin/stellad" "$testbed_root/dist/bin/testbed" 2>/dev/null | tr '\n' ',' || true)
+  python3 - "$testbed_log" "$modes" <<'PY'
 import pathlib, re, sys
 
 lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
@@ -179,7 +194,7 @@ for line in lines:
     line = url.sub("[URL]", line)
     line = long_value.sub("[REDACTED]", line)
     selected.append(line[:240])
-print(" | ".join(selected[-3:]))
+print(" | ".join(selected[-3:]) + " | modes=" + sys.argv[2])
 PY
 }
 
@@ -203,8 +218,9 @@ print(f"types={','.join(error_types) or 'none'} categories={','.join(categories)
 PY
 }
 
+ACTIVE_CONCURRENCY=$CONCURRENCY
 run_eval() {
-  group=$1
+  local group=$1
   shift
   log=$ROOT/logs/$group.log
   mkdir -p "$(dirname "$log")"
@@ -219,11 +235,27 @@ run_eval() {
   [ -z "$(docker ps -q)" ] || { echo "container from an earlier pass is still running" >&2; exit 1; }
   journal "$group-running"
   before=$(find "$REPO/dist/evals/jobs" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort || true)
+  local measure_args=()
+  if [ "$RUN_MODE" = capacity ]; then
+    measure_args=(--minimum-memory-gib 8 --stop-on-oom)
+  elif [ "$RUN_MODE" = throughput ]; then
+    measure_args=(--minimum-memory-gib 8 --max-seconds "$((SAMPLE_MINUTES * 60))" --trial-root "$REPO/dist/evals/jobs")
+  elif [ "$RUN_MODE" = queued ]; then
+    measure_args=(--minimum-memory-gib 8 --trial-root "$REPO/dist/evals/jobs")
+  fi
   set +e
-  as_eval mise run eval:loop -- "$@" >"$log" 2>&1
+  as_eval python3 "$ROOT/aws_prepare.py" measure \
+    --output "$ROOT/metrics/$group.json" --concurrency "$ACTIVE_CONCURRENCY" \
+    "${measure_args[@]}" \
+    -- mise run eval:loop -- "$@" >"$log" 2>&1
   eval_status=$?
   set -e
   if [ "$eval_status" -ne 0 ]; then
+    if [ "$RUN_MODE" = throughput ] && jq -e '.stop_reason == "sample_time_limit"' "$ROOT/metrics/$group.json" >/dev/null; then
+      journal "$group-sampled"
+      LAST_EVAL_STATUS=$eval_status
+      return 0
+    fi
     # loop.sh promises that its own eval:loop-prefixed errors never contain
     # credential values. Do not upload arbitrary Harbor output: tasks may print
     # synthetic secrets even when the run fails.
@@ -234,6 +266,11 @@ run_eval() {
       [ -z "$testbed_diagnostic" ] || diagnostic="$diagnostic testbed=$testbed_diagnostic"
     fi
     journal "$group-failed" "exit=$eval_status diagnostic=$diagnostic"
+    if [ "$RUN_MODE" = capacity ] || [ "$RUN_MODE" = throughput ] || [ "$RUN_MODE" = queued ]; then
+      # Preserve the failed primary instead of retrying away capacity failures.
+      LAST_EVAL_STATUS=$eval_status
+      return 0
+    fi
     return "$eval_status"
   fi
   [ -z "$(docker ps -q)" ] || { echo "eval left a task container running after $group" >&2; exit 1; }
@@ -241,6 +278,7 @@ run_eval() {
   [ -z "$(pgrep -x postgres || true)" ] || { echo "eval left PostgreSQL running after $group" >&2; exit 1; }
   job=$(sed -n 's/^[[:space:]]*job: //p' "$log" | tail -1)
   [ -n "$job" ] && [ -d "$job" ]
+  python3 "$ROOT/aws_prepare.py" phases --job "$job" --output "$ROOT/metrics/$group.json"
   if [ -n "$before" ] && printf '%s\n' "$before" | grep -Fqx "$job"; then
     echo "eval resolved to a pre-existing job: $job" >&2
     exit 1
@@ -251,32 +289,185 @@ run_eval() {
   journal "$group-complete"
 }
 
-# The full run warms all 89 images and proves scoreable evidence before buying
-# 445 reportable attempts. Smoke mode is itself the preflight and skips this
-# additional full-dataset expense.
-if [ "$RUN_MODE" = full ]; then
-  run_eval warmup -d terminal-bench/terminal-bench-2-1 -k 1 -n "$CONCURRENCY"
-  WARMUP=$(python3 "$ROOT/aws_merge.py" "$ROOT/jobs/warmup" --k 1)
-  python3 - "$WARMUP" <<'PY'
+run_topups() {
+  local source=$1
+  local group=$2
+  local topup_workers=$TOPUP_CONCURRENCY
+  [ "$topup_workers" -le "$ACTIVE_CONCURRENCY" ] || topup_workers=$ACTIVE_CONCURRENCY
+  local ACTIVE_CONCURRENCY=$topup_workers
+  if [ "$topup_workers" -eq 1 ]; then
+    local task count
+    while IFS=$'\t' read -r task count; do
+      [ -n "$task" ] || continue
+      run_eval "$group-$task" -i "terminal-bench/$task" -d "$DATASET_SPEC" -k "$count" -n 1
+    done <<< "$MISSING"
+    return
+  fi
+  python3 "$ROOT/aws_merge.py" "$source" --k 1 --concurrency "$topup_workers" \
+    --topup-config "$ROOT/topup.yaml" >/dev/null
+  # One Harbor queue avoids competing testbeds and unbounded memory growth.
+  run_eval "$group" -c "$ROOT/topup.yaml" -n "$topup_workers"
+}
+
+if [ "$WARMUP_MODE" = environment ]; then
+  journal environment-warmup-running
+  prepare_args=(--expected-tasks 89)
+  if [ "$RUN_MODE" = smoke ]; then
+    prepare_args=(--taskset "$ROOT/aws-smoke.yaml" --expected-tasks 5)
+  fi
+  set +e
+  as_eval mise exec -- uv run --project test/evals/harbor python "$ROOT/aws_prepare.py" prepare \
+    --concurrency "$WARMUP_CONCURRENCY" --output "$ROOT/metrics/environment-warmup.json" \
+    "${prepare_args[@]}" >"$ROOT/logs/environment-warmup.log" 2>&1
+  prepare_status=$?
+  set -e
+  if [ "$prepare_status" -ne 0 ]; then
+    journal environment-warmup-failed "exit=$prepare_status $(safe_process_error "$ROOT/logs/environment-warmup.log")"
+    exit "$prepare_status"
+  fi
+  [ -z "$(docker ps -q)" ] || { echo "environment warm-up left a running container" >&2; exit 1; }
+  journal environment-warmup-complete
+fi
+
+# Keep the historical model warm-up available for reproducing existing runs.
+if [ "$RUN_MODE" = full ] && [ "$WARMUP_MODE" = legacy ]; then
+  run_eval warmup/00-main -d "$DATASET_SPEC" -k 1 -n "$CONCURRENCY"
+  warmup_round=1
+  while :; do
+    WARMUP=$(python3 "$ROOT/aws_merge.py" "$ROOT/jobs/warmup" --k 1)
+    warmup_detail=$(python3 - "$WARMUP" <<'PY'
 import json, sys
 state = json.loads(sys.argv[1])
-if state["tasks"] != 89 or state["missing"]:
-    raise SystemExit(f"warm-up was not complete and scoreable: {state}")
+print(
+    f"tasks={state['tasks']} trials={state['trials']} scoreable={state['scoreable']} "
+    f"invalid={state['invalid']} reasons={json.dumps(state['invalid_reasons'], sort_keys=True)} "
+    f"exceptions={json.dumps(state['exception_types'], sort_keys=True)}"
+)
 PY
+)
+    journal warmup-inventory "$warmup_detail"
+    observed_tasks=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["tasks"])' "$WARMUP")
+    [ "$observed_tasks" -eq 89 ] || {
+      echo "warm-up observed $observed_tasks tasks, expected 89" >&2
+      exit 1
+    }
+    MISSING=$(python3 - "$WARMUP" <<'PY'
+import json, sys
+for task, count in sorted(json.loads(sys.argv[1])["missing"].items()):
+    print(f"{task}\t{count}")
+PY
+)
+    [ -n "$MISSING" ] || break
+    [ "$warmup_round" -le "$MAX_TOPUP_ROUNDS" ] || {
+      echo "warm-up still lacks scoreable evidence after $MAX_TOPUP_ROUNDS top-up rounds" >&2
+      exit 1
+    }
+    journal "warmup-topup-$warmup_round" "missing=$(printf '%s\n' "$MISSING" | wc -l | tr -d ' ')"
+    run_topups "$ROOT/jobs/warmup" "warmup/topup-$(printf '%02d' "$warmup_round")"
+    warmup_round=$((warmup_round + 1))
+  done
   rm -rf "$ROOT/jobs/warmup"
   journal warmup-discarded
 fi
 
-# Each logical pass reaches one scoreable trial per task before the next pass
-# begins. This fixes the evidence order up front: main pass, then its top-ups,
-# then the next pass. Reward values never participate in the decision.
+# Capacity failures stay in the evidence; never repair a stressed pass with top-ups.
+if [ "$RUN_MODE" = capacity ] || [ "$RUN_MODE" = throughput ] || [ "$RUN_MODE" = queued ]; then
+  capacity_workers=(16 32 48 64 16)
+  if [ "$RUN_MODE" = throughput ] || [ "$RUN_MODE" = queued ]; then
+    capacity_workers=("$CONCURRENCY")
+  fi
+  if [ "$RUN_MODE" = queued ]; then
+    as_eval mise exec -- uv run --project test/evals/harbor python "$ROOT/aws_prepare.py" queue \
+      --job "$ROOT/environment-jobs/warmup" --trial-limit "$TRIAL_LIMIT" --concurrency "$CONCURRENCY" \
+      --output "$ROOT/metrics/queue-plan.json" --config "$ROOT/metrics/queue.yaml"
+    journal queue-prepared "trials=$TRIAL_LIMIT concurrency=$CONCURRENCY"
+  fi
+  CAPACITY_CONCURRENCIES="${capacity_workers[*]}"
+  export CAPACITY_CONCURRENCIES
+  capacity_artifacts() {
+    python3 - "$1" <<'PY'
+import datetime, json, os, pathlib, sys
+root = pathlib.Path('/opt/stella-tb21')
+metrics = {str(p.relative_to(root / 'metrics')).removesuffix('.json'): json.loads(p.read_text())
+           for p in sorted((root / 'metrics').rglob('*.json')) if p.name != 'queue-plan.json'}
+artifact = root / 'artifacts'
+artifact.mkdir(exist_ok=True)
+(artifact / 'performance.json').write_text(json.dumps(metrics, indent=2) + '\n')
+summary = {
+    'performance_only': True, 'status': sys.argv[1],
+    'run_id': os.environ['RUN_ID'], 'candidate_commit': os.environ['COMMIT'],
+    'controller_commit': os.environ['CONTROLLER_COMMIT'], 'model': os.environ['MODEL_ID'],
+    'instance_type': os.environ['INSTANCE_TYPE'], 'instance_id': os.environ['INSTANCE_ID'],
+    'region': os.environ['REGION'], 'vcpus': os.cpu_count(),
+    'dataset': os.environ['DATASET_SPEC'],
+    'run_mode': os.environ['RUN_MODE'],
+    'sample_minutes': int(os.environ.get('SAMPLE_MINUTES', '0')),
+    'planned_trials': int(os.environ.get('TRIAL_LIMIT', '0')) if os.environ['RUN_MODE'] == 'queued' else 89 * len(os.environ['CAPACITY_CONCURRENCIES'].split()),
+    'planned_concurrencies': [int(value) for value in os.environ['CAPACITY_CONCURRENCIES'].split()],
+    'remote_runner_sha256': os.environ['REMOTE_RUNNER_SHA256'],
+    'prepare_helper_sha256': os.environ['PREPARE_HELPER_SHA256'],
+    'merge_helper_sha256': os.environ['MERGE_HELPER_SHA256'],
+    'tasks_per_pass': 89, 'topups': 0,
+    'updated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+}
+(artifact / 'capacity-summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+PY
+    cp "$JOURNAL" "$ROOT/artifacts/remote-journal.ndjson"
+    (cd "$ROOT/artifacts" && sha256sum capacity-summary.json performance.json remote-journal.ndjson > SHA256SUMS)
+    if [ "$RUN_MODE" = queued ]; then
+      cp "$ROOT/metrics/queue-plan.json" "$ROOT/artifacts/queue-plan.json"
+      (cd "$ROOT/artifacts" && sha256sum queue-plan.json >> SHA256SUMS)
+    fi
+    aws s3 sync "$ROOT/artifacts" "s3://$BUCKET/artifacts" --only-show-errors
+  }
+  export DATASET_SPEC
+  pass=1
+  capacity_status=running
+  for ACTIVE_CONCURRENCY in "${capacity_workers[@]}"; do
+    pass_name=pass-$(printf '%02d' "$pass")
+    LAST_EVAL_STATUS=0
+    metric_args=()
+    if [ "$RUN_MODE" = queued ]; then
+      run_eval "$pass_name/00-main" -c "$ROOT/metrics/queue.yaml" -n "$ACTIVE_CONCURRENCY"
+      metric_args=(--queue-plan "$ROOT/metrics/queue-plan.json")
+    else
+      run_eval "$pass_name/00-main" -d "$DATASET_SPEC" -k 1 -n "$ACTIVE_CONCURRENCY"
+    fi
+    capacity_job="$ROOT/jobs/$pass_name"
+    [ "$LAST_EVAL_STATUS" -eq 0 ] || capacity_job="$REPO/dist/evals/jobs"
+    as_eval mise exec -- uv run --project test/evals/harbor python "$ROOT/aws_prepare.py" capacity \
+      --job "$capacity_job" --output "$ROOT/metrics/$pass_name/00-main.json" ${metric_args[@]+"${metric_args[@]}"}
+    stop_count=$(jq '.capacity_stop_reasons | length' "$ROOT/metrics/$pass_name/00-main.json")
+    if [ "$stop_count" -gt 0 ]; then
+      capacity_status=stopped
+      journal capacity-stopped "pass=$pass concurrency=$ACTIVE_CONCURRENCY"
+    elif [ "$(jq -r '.incomplete_sample' "$ROOT/metrics/$pass_name/00-main.json")" = true ]; then
+      capacity_status=sampled
+    elif [ "$pass" -eq "$PASSES" ]; then
+      capacity_status=completed
+    fi
+    capacity_artifacts "$capacity_status"
+    [ "$capacity_status" != stopped ] || break
+    pass=$((pass + 1))
+  done
+  FINAL_PHASE=complete
+  journal complete "capacity=$capacity_status; performance-only"
+  exit 0
+fi
+
+# Each logical pass reaches one scoreable trial per task before the next pass.
+# Evidence order is main, its top-ups, then the next pass; never select on reward.
 pass=1
 while [ "$pass" -le "$PASSES" ]; do
   pass_name=pass-$(printf '%02d' "$pass")
-  if [ "$RUN_MODE" = smoke ]; then
-    run_eval "$pass_name/00-main" -c "$ROOT/aws-smoke.yaml" -n "$CONCURRENCY"
+  ACTIVE_CONCURRENCY=$CONCURRENCY
+  if [ "$RUN_MODE" = pilot ] && { [ "$pass" -eq 1 ] || [ "$pass" -eq 4 ]; }; then
+    ACTIVE_CONCURRENCY=1
+  fi
+  if [ "$RUN_MODE" != full ]; then
+    run_eval "$pass_name/00-main" -c "$ROOT/aws-smoke.yaml" -n "$ACTIVE_CONCURRENCY"
   else
-    run_eval "$pass_name/00-main" -d terminal-bench/terminal-bench-2-1 -k 1 -n "$CONCURRENCY"
+    run_eval "$pass_name/00-main" -d "$DATASET_SPEC" -k 1 -n "$CONCURRENCY"
   fi
   round=1
   while :; do
@@ -302,7 +493,7 @@ PY
       echo "$pass_name observed $observed_tasks tasks, expected $EXPECTED_TASKS" >&2
       exit 1
     }
-    if [ "$RUN_MODE" = smoke ]; then
+    if [ "$RUN_MODE" != full ]; then
       systematic_failure=$(python3 - "$INVENTORY" <<'PY'
 import json, sys
 state = json.loads(sys.argv[1])
@@ -334,11 +525,7 @@ PY
       exit 1
     }
     journal "$pass_name-topup-$round" "missing=$(printf '%s\n' "$MISSING" | wc -l | tr -d ' ')"
-    while IFS=$'\t' read -r task count; do
-      [ -n "$task" ] || continue
-      run_eval "$pass_name/topup-$(printf '%02d' "$round")-$task" \
-        -i "terminal-bench/$task" -k "$count" -n "$count"
-    done <<< "$MISSING"
+    run_topups "$ROOT/jobs/$pass_name" "$pass_name/topup-$(printf '%02d' "$round")"
     round=$((round + 1))
   done
   journal "$pass_name-scoreable"
@@ -349,6 +536,18 @@ journal selecting-evidence
 python3 "$ROOT/aws_merge.py" "$ROOT/jobs" --k "$PASSES" \
   --expected-tasks "$EXPECTED_TASKS" --concurrency "$CONCURRENCY" \
   --output "$ROOT/merged" > "$ROOT/selection.json"
+if [ "$RUN_MODE" = pilot ]; then
+  # A performance pilot must not look like a homogeneous k=4 baseline.
+  python3 - "$ROOT/merged/config.json" "$CONCURRENCY" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+config = json.loads(path.read_text())
+config.pop("n_concurrent_trials", None)
+config["performance_pilot"] = True
+config["pass_concurrencies"] = [1, int(sys.argv[2]), int(sys.argv[2]), 1]
+path.write_text(json.dumps(config, indent=2) + "\n")
+PY
+fi
 # copytree preserves restrictive trial modes while root owns the copies.
 # Return the selected evidence to the unprivileged reporter before reading it.
 chown -R stella-eval:stella-eval "$ROOT/merged"
@@ -388,13 +587,19 @@ metadata = {
     "remote_runner_sha256": os.environ["REMOTE_RUNNER_SHA256"],
     "merge_helper_sha256": os.environ["MERGE_HELPER_SHA256"],
     "smoke_taskset_sha256": os.environ["SMOKE_TASKSET_SHA256"],
+    "prepare_helper_sha256": os.environ["PREPARE_HELPER_SHA256"],
     "dataset": "terminal-bench/terminal-bench-2-1",
     "dataset_sha256": "7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
     "model": "gateway/" + os.environ["MODEL_ID"],
     "run_mode": os.environ["RUN_MODE"],
     "tasks": int(os.environ["EXPECTED_TASKS"]),
     "attempts_per_task": int(os.environ["PASSES"]),
-    "concurrency": int(os.environ["CONCURRENCY"]),
+    "concurrency": None if os.environ["RUN_MODE"] == "pilot" else int(os.environ["CONCURRENCY"]),
+    "pass_concurrencies": [1, int(os.environ["CONCURRENCY"]), int(os.environ["CONCURRENCY"]), 1]
+        if os.environ["RUN_MODE"] == "pilot" else [int(os.environ["CONCURRENCY"])] * int(os.environ["PASSES"]),
+    "warmup_mode": os.environ["WARMUP_MODE"],
+    "warmup_concurrency": int(os.environ["WARMUP_CONCURRENCY"]),
+    "topup_concurrency": int(os.environ["TOPUP_CONCURRENCY"]),
     "agent_timeout_multiplier": 1.0,
     "tool_treatment": "Code Mode all registered Stella capabilities; view_image,vllm excluded; bridge-attributable bash execution",
     "otel_tool_io_recording": False,
@@ -412,17 +617,22 @@ metadata = {
     "completed_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
 }
 pathlib.Path("/opt/stella-tb21/run-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+metrics = {
+    str(path.relative_to("/opt/stella-tb21/metrics")).removesuffix(".json"): json.loads(path.read_text())
+    for path in sorted(pathlib.Path("/opt/stella-tb21/metrics").rglob("*.json"))
+}
+pathlib.Path("/opt/stella-tb21/performance.json").write_text(json.dumps(metrics, indent=2) + "\n")
 PY
 journal metadata-complete
 
 mkdir -p "$ROOT/artifacts"
 tar -C "$ROOT/redacted" -czf "$ROOT/artifacts/results-redacted.tgz" .
 cp "$ROOT/report.txt" "$ROOT/report.html" "$ROOT/run-metadata.json" \
-  "$ROOT/selection.json" "$ROOT/archive-summary.txt" "$JOURNAL" "$ROOT/artifacts/"
+  "$ROOT/selection.json" "$ROOT/archive-summary.txt" "$ROOT/performance.json" "$JOURNAL" "$ROOT/artifacts/"
 (
   cd "$ROOT/artifacts"
   sha256sum results-redacted.tgz report.txt report.html run-metadata.json \
-    selection.json archive-summary.txt remote-journal.ndjson > SHA256SUMS
+    selection.json archive-summary.txt remote-journal.ndjson performance.json > SHA256SUMS
 )
 aws s3 sync "$ROOT/artifacts" "s3://$BUCKET/artifacts" --only-show-errors
 journal artifacts-uploaded

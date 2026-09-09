@@ -23,12 +23,13 @@ type SessionCreator func(ctx context.Context) (Session, error)
 // with one or more file operations use SelectFileView to bind them to one
 // generation; a backend failure then fails that view instead of switching it.
 type ResilientSession struct {
-	create     SessionCreator
-	mu         sync.Mutex
-	inner      Session
-	envUpdates map[string]string
-	closed     bool
-	log        *slog.Logger
+	create        SessionCreator
+	mu            sync.Mutex
+	inner         Session
+	envUpdates    map[string]string
+	closed        bool
+	closeComplete bool
+	log           *slog.Logger
 }
 
 // NewResilientSession wraps an existing session with auto-recreation support.
@@ -139,13 +140,16 @@ func (r *ResilientSession) Done() <-chan struct{} {
 func (r *ResilientSession) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.closed {
+	if r.closeComplete {
 		return nil
 	}
 	r.closed = true
 	if r.inner != nil {
-		return r.inner.Close()
+		if err := r.inner.Close(); err != nil {
+			return err
+		}
 	}
+	r.closeComplete = true
 	return nil
 }
 

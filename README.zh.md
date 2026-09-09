@@ -44,7 +44,7 @@ stellad server
 
 你也可以从 [Releases](https://github.com/CherryHQ/stella/releases) 下载二进制文件，或用 `git clone` 加 `mise run build` 从源码构建。不支持 `go install`：二进制内嵌了生成代码、Web UI 和内置运行时，这些都不在版本控制里。
 
-详见[完整快速开始指南](web/content/docs/getting-started/quickstart.zh.md)。要在 Kubernetes 上运行 Stella，请使用生产级 [Helm chart](web/content/docs/admin/kubernetes.zh.md)。
+详见[完整快速开始指南](web/content/docs/getting-started/quickstart.zh.md)。
 
 ## 连接聊天渠道
 
@@ -99,7 +99,7 @@ Disconnect 与删除文件是两个动作。无法证明相关进程及其后代
 | 指南    | 记忆、定时任务、技能、通知              | [指南](/docs/guides/memory)                  |
 | 渠道    | Telegram、Discord、QQ、飞书、钉钉、微信 | [渠道](/docs/channels/telegram)              |
 | Webhook | 个人 HTTP 调用能力                      | [Webhook](/docs/webhooks/webhook)            |
-| 管理    | Kubernetes / Helm 部署                  | [Kubernetes](/docs/admin/kubernetes)         |
+| 管理    | Kubernetes sandbox（本地开发）          | [Kubernetes](/docs/admin/kubernetes)         |
 | 开发    | 架构、插件、贡献                        | [开发](/docs/development/architecture)       |
 
 ## CLI 参考

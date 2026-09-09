@@ -4,7 +4,9 @@ package system
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +62,25 @@ func (h *harness) testReadiness(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /readyz = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.LogTail(40))
+	}
+
+	if os.Getenv("STELLA_SANDBOX_BACKEND") == "kubernetes" {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, h.baseURL+"/api/status", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := h.client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var status struct {
+			Backend string `json:"sandbox_backend"`
+		}
+		err = json.NewDecoder(response.Body).Decode(&status)
+		_ = response.Body.Close()
+		if err != nil || status.Backend != "kubernetes" {
+			t.Fatalf("active backend %q: %v", status.Backend, err)
+		}
 	}
 
 	// The subprocess, not the harness, must have migrated the database it was

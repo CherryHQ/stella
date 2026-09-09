@@ -393,7 +393,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build provider registry: %w", err)
 	}
-	sandboxBackends, err := setupSandboxBackends()
+	sandboxBackends, err := setupSandboxBackends(parent, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("build sandbox backend registry: %w", err)
 	}

@@ -130,7 +130,7 @@ func TestCloseSessionWithSandboxCallbackOwnsRunnerUntilItReturns(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("sandbox callback did not start")
 	}
-	if err := cache.closeRetiredBatch(nil); err != nil {
+	if err := cache.closeRetiredBatch(); err != nil {
 		t.Fatalf("concurrent retired close: %v", err)
 	}
 	r.mu.Lock()

@@ -52,7 +52,7 @@ Stella supports one replica and one POSIX `STELLA_HOME`. PostgreSQL user, group,
 
 ## Destructive owner deletion
 
-An explicit destructive owner deletion takes the process lifecycle fence, then the local owner gate, then deletes the owner in its existing database transaction. Workspace files and inodes are retained. After commit, owner existence checks reject new workspace views and admission. Removing an assignment, removing a group member, archiving a Session, and uninstalling Helm do not delete workspace bytes.
+An explicit destructive owner deletion takes the process lifecycle fence, then the local owner gate, then deletes the owner in its existing database transaction. Workspace files and inodes are retained. After commit, owner existence checks reject new workspace views and admission. Removing an assignment, removing a group member, and archiving a Session do not delete workspace bytes.
 
 Immutable session media is the exception: the owner's `session-media` prefix is purged, and only **after** the deletion commits. Purging first would destroy a live owner's images whenever that transaction then rolled back; purging after can only leave unreferenced objects behind. A purge failure is logged and does not fail the deletion.
 

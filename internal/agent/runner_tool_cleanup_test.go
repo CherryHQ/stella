@@ -160,8 +160,15 @@ func TestNewRunnerClosesRegistryWhenCoreRunnerBuildFails(t *testing.T) {
 	})
 	cfg.Sandbox.SystemRuntimePlan = fixtureRunnerSystemRuntimePlan(t, cfg.Sandbox.Paths.StellaHome)
 
-	if _, err := newRunner(context.Background(), cfg); err == nil {
-		t.Fatal("expected invalid code tool surface error")
+	r, err := newRunner(context.Background(), cfg)
+	if err == nil || r == nil {
+		t.Fatalf("expected invalid code tool surface error with a partial runner, runner=%v err=%v", r != nil, err)
+	}
+	if got := built.closed.Load(); got != 0 {
+		t.Fatalf("built tool closed before partial runner cleanup = %d, want 0", got)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("close partial runner: %v", err)
 	}
 	if got := built.closed.Load(); got != 1 {
 		t.Fatalf("built tool close count = %d, want 1", got)
@@ -217,8 +224,15 @@ func TestNewRunnerClosesHooksWhenSandboxBuildFails(t *testing.T) {
 		PluginHookPlugins: []hooks.HookPlugin{hook},
 	})
 
-	if _, err := newRunner(context.Background(), cfg); err == nil {
-		t.Fatal("expected missing sandbox backend error")
+	r, err := newRunner(context.Background(), cfg)
+	if err == nil || r == nil {
+		t.Fatalf("expected missing sandbox backend error with a partial runner, runner=%v err=%v", r != nil, err)
+	}
+	if got := hook.closed.Load(); got != 0 {
+		t.Fatalf("plugin hook closed before partial runner cleanup = %d, want 0", got)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("close partial runner: %v", err)
 	}
 	if got := hook.closed.Load(); got != 1 {
 		t.Fatalf("plugin hook close count = %d, want 1", got)

@@ -386,7 +386,7 @@ func (rt *Runtime) RetryCleanup() error {
 	if rt == nil || rt.cache == nil {
 		return nil
 	}
-	return rt.cache.closeRetiredBatch(nil)
+	return rt.cache.closeRetiredBatch()
 }
 
 // NewRunnerFunc returns the current runner builder. Used by the task system to

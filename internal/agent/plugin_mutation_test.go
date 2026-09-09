@@ -163,8 +163,15 @@ func TestPluginMutationCloseFailureKeepsCommittedResult(t *testing.T) {
 	if err := pm.ApplyPluginMutation(t.Context(), func() error { return nil }); err != nil {
 		t.Fatalf("committed mutation reported a close failure: %v", err)
 	}
+	if _, err := svc.admit(t.Context(), info, "blocked"); !errors.Is(err, first.closeErr) {
+		t.Fatalf("admission bypassed failed termination: %v", err)
+	}
+	if builds.Load() != 1 {
+		t.Fatal("replacement started before old execution stopped")
+	}
+	first.closeErr = nil
 	run()
-	if builds.Load() != 2 || first.closed.Load() != 1 {
+	if builds.Load() != 2 || first.closed.Load() != 3 {
 		t.Fatalf("builds=%d, retired=%d", builds.Load(), first.closed.Load())
 	}
 }

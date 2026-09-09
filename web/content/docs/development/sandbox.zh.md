@@ -53,6 +53,8 @@ runner 为每次运行创建一个 `sandbox.Session` 并持有其生命周期所
 
 runner 会从 `STELLA_SANDBOX_BACKEND` 解析部署时后端，并通过注入的已编译后端 registry 分派。生产部署使用 `docker`、`local` 或 `none`；Harbor 评测 harness 还会接入仅供评测使用的 `bridge` 后端。
 
+`kubernetes` backend 为本地/dev 提供同节点、共享 PVC 的 Pod 执行，见 [Kubernetes](../admin/kubernetes.zh.md)。
+
 ### 执行时中介
 
 所有必须遵守沙箱策略的本地执行路径都通过活动 runner 会话进行中介：

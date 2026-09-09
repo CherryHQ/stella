@@ -109,7 +109,9 @@ type TurnPreparer interface {
 	PrepareTurn(context.Context, PluginContext) (context.Context, PluginContext, error)
 }
 
-// NewRunnerFunc creates a new Runner with the given params.
+// NewRunnerFunc creates a new Runner with the given params. On initialization
+// failure it may return a non-nil Close-only runner so the caller can retry
+// cleanup after a failed sandbox termination.
 type NewRunnerFunc func(ctx context.Context, params RunnerParams) (Runner, error)
 
 // MessageText extracts and joins all text from a MessageContent.

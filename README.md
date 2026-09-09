@@ -44,7 +44,7 @@ stellad server
 
 You can also download binaries from [Releases](https://github.com/CherryHQ/stella/releases), or build from source with `git clone` and `mise run build`. `go install` is not supported: the binary embeds generated code, the Web UI, and the bundled runtimes, none of which are in version control.
 
-See the [full quickstart guide](web/content/docs/getting-started/quickstart.md) for detailed steps. To run Stella on Kubernetes, use the production [Helm chart](web/content/docs/admin/kubernetes.md).
+See the [full quickstart guide](web/content/docs/getting-started/quickstart.md) for detailed steps.
 
 ## Connect your channels
 
@@ -109,7 +109,7 @@ for precedence and editing details.
 | Guides          | Memory, scheduling, skills, notifications       | [Guides](/docs/guides/memory)                   |
 | Channels        | Telegram, Discord, QQ, Feishu, DingTalk, WeChat | [Channels](/docs/channels/telegram)             |
 | Webhooks        | Personal HTTP invocation capabilities           | [Webhooks](/docs/webhooks/webhook)              |
-| Admin           | Kubernetes / Helm deployment                    | [Kubernetes](/docs/admin/kubernetes)            |
+| Admin           | Kubernetes sandbox (local/dev)                  | [Kubernetes](/docs/admin/kubernetes)            |
 | Development     | Architecture, plugins, contributing             | [Development](/docs/development/architecture)   |
 
 ## CLI reference

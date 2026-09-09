@@ -1,0 +1,179 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: stella-testbed
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: stella-sandbox
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: stella-testbed
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [create, get, list, delete, patch]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    resourceNames: [home]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: stella-testbed
+subjects:
+  - kind: ServiceAccount
+    name: stella-testbed
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: stella-testbed
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: home
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 4Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-default-deny
+spec:
+  podSelector:
+    matchExpressions:
+      - key: stella.cherryhq.io/network
+        operator: Exists
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-allowed
+spec:
+  podSelector:
+    matchLabels:
+      stella.cherryhq.io/network: allow_all
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app: stella-testbed
+      ports:
+        - protocol: TCP
+          port: 25777
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [
+              10.0.0.0/8,
+              172.16.0.0/12,
+              192.168.0.0/16,
+              169.254.0.0/16,
+              127.0.0.0/8,
+            ]
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: testbed
+  labels:
+    app: stella-testbed
+spec:
+  hostname: identity-from-token
+  serviceAccountName: stella-testbed
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: testbed
+      image: stella-sandbox:kubernetes-test
+      imagePullPolicy: Never
+      resources:
+        requests:
+          cpu: 200m
+          memory: 256Mi
+        limits:
+          cpu: "4"
+          memory: 4Gi
+      command: [/usr/bin/sleep, infinity]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+      env:
+        - name: TMPDIR
+          value: /data
+        - name: STELLA_KUBERNETES_LIVE
+          value: "1"
+        - name: STELLA_KUBERNETES_IMAGE
+          value: stella-sandbox:kubernetes-test
+      volumeMounts:
+        - name: home
+          mountPath: /data
+  volumes:
+    - name: home
+      persistentVolumeClaim:
+        claimName: home
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: sandbox-budget
+spec:
+  hard:
+    pods: "16"
+    persistentvolumeclaims: "1"
+    requests.storage: 4Gi
+    limits.cpu: "32"
+    limits.memory: 32Gi
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: container-defaults
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "4"
+        memory: 4Gi
+      defaultRequest:
+        cpu: 200m
+        memory: 256Mi

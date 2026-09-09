@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#MISE description="Run Kubernetes sandbox contracts in an isolated local testbed namespace"
+set -euo pipefail
+context=""
+suite="all"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --context) context="$2"; shift 2 ;;
+    --suite) suite="$2"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$context" ] || { echo "--context is required" >&2; exit 2; }
+case "$suite" in storage|process|all) ;; *) echo "Unknown suite: $suite" >&2; exit 2 ;; esac
+run_id="stella-local-$(date +%s)-$$"
+kube=(kubectl --context "$context" --namespace "$run_id")
+mkdir -p dist/kubernetes
+arch="$(kubectl --context "$context" get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}')"
+CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go test -c -o dist/kubernetes/contracts.test ./plugins/sandbox/kubernetes
+if [ "$suite" = all ]; then
+  TARGET_GOOS=linux TARGET_GOARCH="$arch" mise run build
+  CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go test -tags system -c -o dist/kubernetes/system.test ./test/system
+fi
+kubectl --context "$context" create namespace "$run_id"
+cleanup() {
+  "${kube[@]}" logs testbed > "dist/kubernetes/$run_id.log" 2>&1 || true
+  "${kube[@]}" delete pods --all --wait=false >/dev/null 2>&1 || true
+  # Keep uncertain executions and their PVC for diagnosis; never bypass fencing.
+  for pod in $("${kube[@]}" get pods -o name); do
+    remaining=30
+    while [ "$remaining" -gt 0 ]; do
+      status="$("${kube[@]}" get "$pod" -o jsonpath='{.status.phase}' --ignore-not-found)"
+      case "$status" in ""|Succeeded|Failed) break ;; esac
+      sleep 1
+      remaining=$((remaining - 1))
+    done
+    if [ "$remaining" -eq 0 ]; then
+      echo "Cleanup unconfirmed; retained namespace $run_id for diagnosis" >&2
+      return
+    fi
+    "${kube[@]}" patch "$pod" --type json -p '[{"op":"test","path":"/metadata/finalizers","value":["stella.cherryhq.io/execution-fence"]},{"op":"remove","path":"/metadata/finalizers"}]' >/dev/null 2>&1 || true
+  done
+  kubectl --context "$context" delete namespace "$run_id" --wait=false >/dev/null
+}
+trap cleanup EXIT
+kubectl --context "$context" label namespace "$run_id" pod-security.kubernetes.io/enforce=restricted
+"${kube[@]}" apply -f test/testbed/kubernetes/fixture.yaml
+"${kube[@]}" wait --for=condition=Ready pod/testbed --timeout=120s
+"${kube[@]}" cp dist/kubernetes/contracts.test testbed:/tmp/contracts.test
+"${kube[@]}" exec testbed -- /tmp/contracts.test -test.v -test.timeout=8m -test.run="TestLive/$suite"
+
+if [ "$suite" = all ]; then
+  "${kube[@]}" exec testbed -- mkdir -p /data/repo/dist/bin
+  "${kube[@]}" cp dist/bin/stellad testbed:/data/repo/dist/bin/stellad
+  "${kube[@]}" cp dist/kubernetes/system.test testbed:/tmp/system.test
+  "${kube[@]}" exec testbed -- /data/repo/dist/bin/stellad postgres download
+  "${kube[@]}" exec testbed -- env STELLA_SANDBOX_BACKEND=kubernetes STELLA_TEST_REPO_ROOT=/data/repo /tmp/system.test -test.v -test.timeout=15m '-test.run=TestSystem/(readiness|startup_and_auth|chat_sse|tool_smoke_canary|image_history|view_image_tool_history|agent_provider_credentials|group_concurrent_counting|scheduler_one_time_job_survives_forced_restart)$'
+  "${kube[@]}" exec testbed -- env STELLA_KUBERNETES_RECOVERY=prepare /tmp/contracts.test -test.v -test.timeout=3m -test.run=TestOwnerRecovery
+  "${kube[@]}" delete pod testbed --wait=true --timeout=60s
+  "${kube[@]}" apply -f test/testbed/kubernetes/fixture.yaml
+  "${kube[@]}" wait --for=condition=Ready pod/testbed --timeout=120s
+  "${kube[@]}" cp dist/kubernetes/contracts.test testbed:/tmp/contracts.test
+  "${kube[@]}" exec testbed -- env STELLA_KUBERNETES_RECOVERY=recover /tmp/contracts.test -test.v -test.timeout=3m -test.run=TestOwnerRecovery
+
+fi

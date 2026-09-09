@@ -27,8 +27,8 @@ func TestSandboxDockerImage(t *testing.T) {
 			original := version.Version
 			t.Cleanup(func() { version.Version = original })
 			version.Version = tt.version
-			if got := sandboxDockerImage(); got != tt.want {
-				t.Fatalf("sandboxDockerImage() = %q, want %q", got, tt.want)
+			if got := sandboxImage(); got != tt.want {
+				t.Fatalf("sandboxImage() = %q, want %q", got, tt.want)
 			}
 		})
 	}

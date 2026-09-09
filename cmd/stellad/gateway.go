@@ -226,6 +226,7 @@ func serverAction(c *ucli.Context) error {
 		}
 	}()
 
+	cfg.KubernetesSandbox.ServerPort = adminPort
 	s, err := setup(ctx, cfg, baseURL)
 	if err != nil {
 		cancel()
@@ -717,8 +718,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	// Group-dispatch acceptance loop.
 	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })
-	// Helm enforces one replica with a Recreate rollout, so managed channel
-	// pollers start unconditionally after their dependencies are wired. Drain-time
+	// Only one server replica is supported, so managed channel pollers start
+	// unconditionally after their dependencies are wired. Drain-time
 	// Quiesce stops new polling; the final Stop remains after River drains.
 	if _, err := applyManagedChannelPlugins(ingressCtx, s.pluginHost); err != nil {
 		_ = ln.Close()

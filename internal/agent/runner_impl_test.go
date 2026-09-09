@@ -3,12 +3,15 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
@@ -552,5 +555,55 @@ func TestProgressNudgeSkipsTheCheckpointWhenItIsAlreadyTooLate(t *testing.T) {
 	}
 	if msg := nudge(2, 9*time.Minute+40*time.Second); msg != nil {
 		t.Fatalf("checkpoint fired after the wrap-up: %q", *msg)
+	}
+}
+
+type retryCloseSession struct {
+	*fakeSession
+	closeErr error
+}
+
+func (s *retryCloseSession) Close() error { return s.closeErr }
+
+func TestInitializationFailureRetainsUnterminatedSandbox(t *testing.T) {
+	for _, panicBuild := range []bool{false, true} {
+		t.Run(fmt.Sprint("panic=", panicBuild), func(t *testing.T) {
+			raw := &retryCloseSession{fakeSession: &fakeSession{alive: true}, closeErr: errors.New("termination unconfirmed")}
+			backends, err := sandbox.NewBackendRegistry(sandbox.BackendDefinition{
+				Name:   "local",
+				Create: func(context.Context, sandbox.BackendRequest) (pkgsandbox.Session, error) { return raw, nil },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cleaned := false
+			cfg := withTestRunnerPaths(t, runnerConfig{
+				Provider: providerConfig{API: "anthropic", Model: "test", APIKey: "test-key", Builder: testProviderStreamBuilder},
+				System:   "test",
+				BuiltinTools: []BuiltinTool{{Available: func(context.Context, RunnerParams) (bool, error) {
+					if panicBuild {
+						panic("private panic value")
+					}
+					return false, errors.New("tool initialization failed")
+				}}},
+				Cleanup: func() error { cleaned = true; return nil },
+			})
+			cfg.Sandbox.Backends = backends
+			cfg.Sandbox.SystemRuntimePlan = fixtureRunnerSystemRuntimePlan(t, cfg.Sandbox.Paths.StellaHome)
+			r, err := newRunner(t.Context(), cfg)
+			if err == nil || r == nil || cleaned {
+				t.Fatalf("lost pending cleanup: runner=%v err=%v cleaned=%v", r != nil, err, cleaned)
+			}
+			if strings.Contains(err.Error(), "private panic value") {
+				t.Fatal("recovered panic leaked its value")
+			}
+			if err := r.Close(); err == nil || cleaned {
+				t.Fatal("failed termination released scratch")
+			}
+			raw.closeErr = nil
+			if err := r.Close(); err != nil || !cleaned {
+				t.Fatalf("cleanup retry: %v cleaned=%v", err, cleaned)
+			}
+		})
 	}
 }

@@ -124,6 +124,7 @@ func TestPoolManagerCloseKeepsLiveRuntimeVisibleAndRejectsStartState(t *testing.
 		lease, _ := pm.AcquireHomeOwnerFence(context.Background(), home.OwnerUser, "user")
 		fenced <- lease
 	}()
+	var fence home.OwnerFenceLease
 	select {
 	case lease := <-fenced:
 		// Close releases the lifecycle gate before slow runner teardown. The
@@ -132,11 +133,16 @@ func TestPoolManagerCloseKeepsLiveRuntimeVisibleAndRejectsStartState(t *testing.
 		if pm.GetService(svc.AgentID) != svc {
 			t.Fatal("owner fence raced service removal before close completed")
 		}
-		lease.Release()
+		fence = lease
 	case <-time.After(30 * time.Millisecond):
 		t.Fatal("owner fence remained blocked during slow Close")
 	}
+	// Releasing the fence joins the same in-flight termination after releasing
+	// lifecycle exclusion. It cannot finish until the runner confirms Close.
+	fenceReleased := make(chan struct{})
+	go func() { fence.Release(); close(fenceReleased) }()
 	close(runner.releaseClose)
+	<-fenceReleased
 	if err := <-closed; err != nil {
 		t.Fatal(err)
 	}

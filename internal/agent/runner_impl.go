@@ -186,7 +186,6 @@ func newRunner(ctx context.Context, cfg runnerConfig) (built *runner, err error)
 	var session pkgsandbox.Session
 	var toolReg *tools.Registry
 	partialProvided := cfg.Partial != nil
-	ownerAttached := partialProvided && cfg.BuiltinParams.BuildOwner != nil
 	built = cfg.Partial
 	if built == nil {
 		built = &runner{}
@@ -212,23 +211,22 @@ func newRunner(ctx context.Context, cfg runnerConfig) (built *runner, err error)
 		if err := cfg.BuiltinParams.BuildOwner.AdoptRunner(partial); err != nil {
 			return nil, fmt.Errorf("runner: adopt partial build owner: %w", err)
 		}
-		ownerAttached = true
 	}
 	defer func() {
 		panicValue := recover()
-		if panicValue == nil {
-			if err != nil && !ownerAttached {
-				_ = partial.Close()
-			}
+		if panicValue != nil {
+			// Provider and tool implementations are outside this package's trust
+			// boundary. Keep the cleanup object, but never expose a recovered value
+			// that may contain credentials or prompt data.
+			err = errors.New("runner initialization panicked")
+		}
+		if err == nil {
 			return
 		}
-		// A provider or tool builder may panic after allocating a sandbox or
-		// registry. Keep those resources on the partial runner so the cache can
-		// retry cleanup after its terminal owner is published.
-		if !ownerAttached {
-			_ = partial.Close()
-		}
-		panic(panicValue)
+		// A failed build can still own a live sandbox, subprocess-backed tool, or
+		// scratch directory. Return the partial runner so the cache or direct
+		// caller can retry Close after a failed termination.
+		built = partial
 	}()
 	stream, err := buildStreamFunc(cfg)
 	if err != nil {

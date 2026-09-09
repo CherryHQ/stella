@@ -24,10 +24,12 @@ type cachedSession struct {
 	model    string
 	thinking ai.ThinkingLevel
 	stale    bool
-	// failedAdmission marks a stale runner left behind by a recovered synchronous
-	// lookup panic. It must be retired without invoking it again: Alive/Busy may
-	// be the operation that panicked.
-	failedAdmission bool
+	// closing blocks new admissions while terminal Close is in flight.
+	closing   bool
+	operation chan struct{}
+	// unusable quarantines a runner after an admission panic or failed Close.
+	// Such runners may only be retried through Close; Alive and Busy are unsafe.
+	unusable bool
 	// reserved is set synchronously during turn admission, before the chat
 	// goroutine invokes Runner.Chat. Policy invalidation treats it like Busy so
 	// an admitted turn keeps its immutable runner snapshot through that gap.
@@ -90,15 +92,28 @@ const maxConcurrentRunnerCloses = 8
 type retiredRunner struct {
 	runner     Runner
 	owner      *RunnerBuildOwner
+	session    *cachedSession
 	incomplete bool
 	closing    bool
+	done       chan struct{}
 }
 
 // retireLocked publishes ownership before the cache lock is released. The
 // entry remains visible while Close runs and is removed only after success.
 func (c *runnerCache) retireLocked(r Runner) *retiredRunner {
 	if r != nil {
+		for _, entry := range c.retired {
+			if entry.runner == r {
+				return entry
+			}
+		}
 		entry := &retiredRunner{runner: r}
+		for _, cs := range c.sessions {
+			if cs.r == r {
+				entry.session = cs
+				break
+			}
+		}
 		c.retired = append(c.retired, entry)
 		return entry
 	}
@@ -109,7 +124,18 @@ func (c *runnerCache) retireBuildLocked(owner *RunnerBuildOwner) *retiredRunner 
 	if owner == nil {
 		return nil
 	}
+	for _, entry := range c.retired {
+		if entry.owner == owner {
+			return entry
+		}
+	}
 	entry := &retiredRunner{owner: owner, incomplete: true}
+	for _, cs := range c.sessions {
+		if cs.building == owner {
+			entry.session = cs
+			break
+		}
+	}
 	c.retired = append(c.retired, entry)
 	return entry
 }
@@ -118,7 +144,7 @@ func (c *runnerCache) retireBuildLocked(owner *RunnerBuildOwner) *retiredRunner 
 // retired owner whether teardown started before construction returned or the
 // factory result was discarded by a concurrent publication. A failed factory
 // still needs this entry because its partial runner owns sandbox/tools/hooks.
-func (c *runnerCache) retireCompletedBuildLocked(owner *RunnerBuildOwner, runner Runner) {
+func (c *runnerCache) retireCompletedBuildLocked(owner *RunnerBuildOwner, runner Runner, cs *cachedSession) {
 	if owner == nil {
 		return
 	}
@@ -127,11 +153,13 @@ func (c *runnerCache) retireCompletedBuildLocked(owner *RunnerBuildOwner, runner
 			continue
 		}
 		entry.runner = runner
+		entry.session = cs
 		entry.incomplete = false
 		return
 	}
 	entry := c.retireBuildLocked(owner)
 	entry.runner = runner
+	entry.session = cs
 	entry.incomplete = false
 }
 
@@ -173,10 +201,90 @@ func (c *runnerCache) getOrCreateReserved(ctx context.Context, info session.Info
 // factory generation observed before its slow build. A mismatch is returned to
 // the admission layer so it can refresh the context before retrying.
 func (c *runnerCache) getOrCreateReservedAtGeneration(ctx context.Context, info session.Info, model string, thinking ai.ThinkingLevel, generation uint64, extraTools ...tools.Tool) (runnerSelection, error) {
-	return c.getOrCreateWithReservationAttempt(ctx, info, model, thinking, true, extraTools, &generation)
+	return c.withOperation(ctx, info, func() (runnerSelection, error) {
+		return c.getOrCreateWithReservationAttempt(ctx, info, model, thinking, true, extraTools, &generation)
+	})
 }
 
 func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info session.Info, model string, thinking ai.ThinkingLevel, reserve bool, extraTools ...tools.Tool) (selection runnerSelection, err error) {
+	return c.withOperation(ctx, info, func() (runnerSelection, error) {
+		return c.getOrCreateWithReservationUnserialized(ctx, info, model, thinking, reserve, extraTools...)
+	})
+}
+
+func (c *runnerCache) withOperation(ctx context.Context, info session.Info, fn func() (runnerSelection, error)) (selection runnerSelection, err error) {
+	if _, err := info.MemoryScope(); err != nil {
+		return runnerSelection{}, fmt.Errorf("session scope: %w", err)
+	}
+	cs, err := c.acquire(ctx, info)
+	if err != nil {
+		return runnerSelection{}, err
+	}
+	defer func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if cs.closing && err == nil {
+			cs.reserved = false
+			selection = runnerSelection{}
+			err = errors.New("runner termination is pending")
+		}
+		if err != nil && !cs.closing && cs.r == nil && cs.building == nil && !c.hasRetiredSessionLocked(cs) && c.sessions[info.ID] == cs {
+			delete(c.sessions, info.ID)
+		}
+		close(cs.operation)
+		cs.operation = nil
+	}()
+	return fn()
+}
+
+func (c *runnerCache) acquire(ctx context.Context, info session.Info) (*cachedSession, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		c.mu.Lock()
+		cs := c.sessions[info.ID]
+		if cs == nil {
+			cs = &cachedSession{info: info}
+			c.sessions[info.ID] = cs
+		}
+		if cs.closing {
+			c.mu.Unlock()
+			return nil, errors.New("runner termination is pending")
+		}
+		pending := cs.operation
+		if pending == nil {
+			for _, entry := range c.retired {
+				if entry.session == cs && entry.closing {
+					pending = entry.done
+					break
+				}
+			}
+		}
+		if pending == nil {
+			cs.operation = make(chan struct{})
+			c.mu.Unlock()
+			return cs, nil
+		}
+		c.mu.Unlock()
+		select {
+		case <-pending:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+func (c *runnerCache) finishOperation(cs *cachedSession) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if cs != nil && cs.operation != nil {
+		close(cs.operation)
+		cs.operation = nil
+	}
+}
+
+func (c *runnerCache) getOrCreateWithReservationUnserialized(ctx context.Context, info session.Info, model string, thinking ai.ThinkingLevel, reserve bool, extraTools ...tools.Tool) (selection runnerSelection, err error) {
 	for retries := 0; ; retries++ {
 		selection, err = c.getOrCreateWithReservationAttempt(ctx, info, model, thinking, reserve, extraTools, nil)
 		if !errors.Is(err, ErrRunnerFactoryChanged) {
@@ -245,23 +353,37 @@ func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, inf
 		if buildOwner != nil {
 			buildOwner.Complete()
 			c.mu.Lock()
-			if cs != nil && c.sessions[info.ID] == cs && cs.r == builtRunner {
+			if builtRunner != nil && cs != nil && c.sessions[info.ID] == cs && cs.r == builtRunner {
 				// The runner was already published before a later bootstrap or
 				// metadata callback panicked. It remains cache-reachable under the
 				// failed-admission fence, so its build owner is no longer retired.
 				cs.building = nil
 			} else {
-				c.retireCompletedBuildLocked(buildOwner, builtRunner)
+				c.retireCompletedBuildLocked(buildOwner, builtRunner, cs)
 				if cs != nil && c.sessions[info.ID] == cs {
 					cs.building = nil
 				}
 			}
 			c.mu.Unlock()
-			_ = c.closeRetiredBatch(nil)
+			_ = c.closeRetiredBatch()
 		}
 		selection = runnerSelection{}
 		err = errors.New("runner construction failed")
 	}()
+	c.mu.Lock()
+	cs = c.sessions[info.ID]
+	c.mu.Unlock()
+	// Failed partial builds can own execution without publishing a Runner.
+	// Every generation retry must finish that retirement before rebuilding.
+	if err := c.closeRetiredBatchFiltered(func(entry *retiredRunner) bool { return entry.session == cs }); err != nil {
+		return runnerSelection{}, err
+	}
+	c.mu.Lock()
+	pendingRetirement := c.hasRetiredSessionLocked(cs)
+	c.mu.Unlock()
+	if pendingRetirement {
+		return runnerSelection{}, errors.New("runner termination is pending")
+	}
 	// Validate the session and derive its memory scope before any cache lookup or
 	// runner creation. An invalid session (missing owner, malformed group id) must
 	// fail closed here so a runner is never installed over an unusable scope.
@@ -297,19 +419,23 @@ func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, inf
 			c.sessions[info.ID] = cs
 			created = true
 		}
+		if cs.closing {
+			err = errors.New("runner termination is pending")
+			return
+		}
 		wasReserved := cs.reserved
 		reservationOwned = reserve && !wasReserved
-		if cs.failedAdmission && cs.r == nil && !wasReserved {
+		if cs.unusable && cs.r == nil && !wasReserved {
 			// The bad runner was already detached by another lifecycle path.
 			// Nothing cache-reachable remains to quarantine.
-			cs.failedAdmission = false
+			cs.unusable = false
 			cs.stale = false
 		}
 
 		// A failed admission is a stronger state than ordinary stale: its
 		// Alive/Busy method may be the panic source, so branch before invoking
 		// either method. A defensive reservation remains owned by its turn.
-		if cs.r != nil && cs.failedAdmission {
+		if cs.r != nil && cs.unusable {
 			if wasReserved {
 				cs.stale = true
 				if reserve {
@@ -323,7 +449,7 @@ func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, inf
 			c.retireLocked(cs.r)
 			cs.r = nil
 			cs.stale = false
-			cs.failedAdmission = false
+			cs.unusable = false
 		}
 		// Reservation is authoritative. Do not inspect a runner owned by an
 		// admitted turn; only cache/request metadata may make its successor stale.
@@ -337,7 +463,7 @@ func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, inf
 			return
 		}
 		// A prior ordinary stale runner may still have a valid Busy method.
-		if cs.r != nil && cs.stale {
+		if cs.r != nil && cs.stale && !cs.unusable {
 			if cs.r.Busy() {
 				if reserve {
 					cs.reserved = true
@@ -350,7 +476,7 @@ func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, inf
 			c.retireLocked(cs.r)
 			cs.r = nil
 			cs.stale = false
-			cs.failedAdmission = false
+			cs.unusable = false
 		}
 		if cs.r != nil {
 			replace := cs.stale || len(extraTools) > 0 || !cs.r.Alive() ||
@@ -373,7 +499,7 @@ func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, inf
 				c.retireLocked(cs.r)
 				cs.r = nil
 				cs.stale = false
-				cs.failedAdmission = false
+				cs.unusable = false
 			case len(extraTools) > 0:
 				stale = cs.r
 				c.retireLocked(cs.r)
@@ -426,7 +552,24 @@ func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, inf
 	}
 
 	if stale != nil {
-		_ = c.closeRetiredBatch(nil)
+		closeErr := c.closeRetiredBatch()
+		c.mu.Lock()
+		if c.hasRetiredSessionLocked(cs) {
+			closeErr = errors.Join(closeErr, errors.New("runner termination is pending"))
+		}
+		c.mu.Unlock()
+		if closeErr != nil {
+			c.mu.Lock()
+			if c.sessions[info.ID] == cs && cs.building == buildOwner {
+				cs.building = nil
+			}
+			c.mu.Unlock()
+			buildOwner.Complete()
+			if reservationOwned {
+				c.abortReservedAdmission(cs)
+			}
+			return runnerSelection{}, closeErr
+		}
 	}
 
 	effectiveModel := model
@@ -469,16 +612,17 @@ func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, inf
 	buildOwner.Complete()
 	if err != nil {
 		c.mu.Lock()
-		if current := c.sessions[info.ID]; current == cs {
-			cs.building = nil
-			if cs.r == nil {
-				delete(c.sessions, info.ID)
-			}
-		}
-		c.retireCompletedBuildLocked(buildOwner, r)
+		c.retireCompletedBuildLocked(buildOwner, r, cs)
+		cs.building = nil
+		cs.unusable = true
+		cs.stale = true
+		cs.model, cs.thinking = "", ""
 		c.mu.Unlock()
-		_ = c.closeRetiredBatch(nil)
-		return runnerSelection{}, err
+		closeErr := c.closeRetiredBatch()
+		if reservationOwned {
+			c.abortReservedAdmission(cs)
+		}
+		return runnerSelection{}, errors.Join(err, closeErr)
 	}
 
 	c.mu.Lock()
@@ -489,15 +633,15 @@ func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, inf
 		// A terminal close detached the cache record while the factory ran.
 		// Publish the completed partial runner directly into its retired owner;
 		// never resurrect the detached session in the active map.
-		c.retireCompletedBuildLocked(buildOwner, r)
+		c.retireCompletedBuildLocked(buildOwner, r, cs)
 		c.mu.Unlock()
-		_ = c.closeRetiredBatch(nil)
+		_ = c.closeRetiredBatch()
 		return runnerSelection{}, ErrRunnerFactoryChanged
 	}
 	if generation != c.factoryGeneration {
-		c.retireCompletedBuildLocked(buildOwner, r)
+		c.retireCompletedBuildLocked(buildOwner, r, cs)
 		c.mu.Unlock()
-		_ = c.closeRetiredBatch(nil)
+		_ = c.closeRetiredBatch()
 		// Configuration changed while the factory was doing slow work. Do not
 		// install the old result. The outer loop owns the reservation retry.
 		if reserve {
@@ -505,12 +649,20 @@ func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, inf
 		}
 		return runnerSelection{}, ErrRunnerFactoryChanged
 	}
+	if cs.closing {
+		c.retireCompletedBuildLocked(buildOwner, r, cs)
+		c.mu.Unlock()
+		if closeErr := c.closeRetiredBatch(); closeErr != nil {
+			return runnerSelection{}, closeErr
+		}
+		return runnerSelection{}, errors.New("runner termination is pending")
+	}
 	if cs.r != nil {
 		// Another goroutine installed a runner; discard ours.
 		selection := runnerSelectionFor(cs, c.factoryGeneration)
-		c.retireCompletedBuildLocked(buildOwner, r)
+		c.retireCompletedBuildLocked(buildOwner, r, cs)
 		c.mu.Unlock()
-		_ = c.closeRetiredBatch(nil)
+		_ = c.closeRetiredBatch()
 		return selection, nil
 	}
 	cs.r = r
@@ -520,7 +672,7 @@ func (c *runnerCache) getOrCreateWithReservationAttempt(ctx context.Context, inf
 	if !cs.stale {
 		cs.model = effectiveModel
 		cs.thinking = effectiveThinking
-		cs.failedAdmission = false
+		cs.unusable = false
 	}
 	c.mu.Unlock()
 
@@ -576,7 +728,7 @@ func (c *runnerCache) releaseReservation(cs *cachedSession) {
 			c.retireLocked(cs.r)
 			cs.r = nil
 			cs.stale = false
-			cs.failedAdmission = false
+			cs.unusable = false
 			cs.model = ""
 			cs.thinking = ""
 			retire = true
@@ -586,7 +738,7 @@ func (c *runnerCache) releaseReservation(cs *cachedSession) {
 	if retire {
 		// A stale runner has reached the end of its admitted turn. Retire it in
 		// this hand-off so the next turn never carries the old capability set.
-		_ = c.closeRetiredBatch(nil)
+		_ = c.closeRetiredBatch()
 	}
 }
 
@@ -603,12 +755,12 @@ func (c *runnerCache) abortReservedAdmission(cs *cachedSession) {
 		return
 	}
 	cs.reserved = false
-	if cs.r == nil {
+	if cs.r == nil && cs.building == nil && cs.operation == nil && !cs.closing && !c.hasRetiredSessionLocked(cs) {
 		delete(c.sessions, cs.info.ID)
 		return
 	}
 	cs.stale = true
-	cs.failedAdmission = true
+	cs.unusable = true
 	cs.model = ""
 	cs.thinking = ""
 }
@@ -626,17 +778,24 @@ func (c *runnerCache) closeRetired(r Runner) (err error) {
 	return r.Close()
 }
 
-type closeResult struct {
-	entry *retiredRunner
-	err   error
-}
-
 func (c *runnerCache) removeRetired(entry *retiredRunner, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	entry.closing = false
+	if entry.done != nil {
+		defer close(entry.done)
+		entry.done = nil
+	}
 	if err != nil {
-		entry.closing = false
+		if entry.session != nil && c.sessions[entry.session.info.ID] == entry.session && entry.session.r == nil {
+			entry.session.r = entry.runner
+			entry.session.stale = true
+			entry.session.unusable = true
+		}
 		return
+	}
+	if entry.session != nil && entry.session.r == entry.runner {
+		entry.session.r = nil
 	}
 	for i, current := range c.retired {
 		if current == entry {
@@ -668,23 +827,27 @@ func (c *runnerCache) closeBuildOwner(owner *RunnerBuildOwner) (err error) {
 
 // closeRetiredBatch waits for every detached runner while bounding Docker and
 // filesystem cleanup pressure from a large invalidation burst.
-func (c *runnerCache) closeRetiredBatch(runners []Runner) error {
+func (c *runnerCache) closeRetiredBatch() error {
+	return c.closeRetiredBatchFiltered(func(*retiredRunner) bool { return true })
+}
+
+func (c *runnerCache) closeRetiredBatchNonTerminal() error {
+	return c.closeRetiredBatchFiltered(func(entry *retiredRunner) bool { return entry.session == nil || !entry.session.closing })
+}
+
+func (c *runnerCache) closeRetiredBatchFiltered(include func(*retiredRunner) bool) error {
 	c.mu.Lock()
-	entries := make([]*retiredRunner, 0, len(runners)+len(c.retired))
-	for _, r := range runners {
-		if r == nil {
+	entries := make([]*retiredRunner, 0, len(c.retired))
+	for _, entry := range c.retired {
+		if !include(entry) {
 			continue
 		}
-		entry := &retiredRunner{runner: r, closing: true}
-		c.retired = append(c.retired, entry)
-		entries = append(entries, entry)
-	}
-	for _, entry := range c.retired {
 		if entry.incomplete {
 			continue
 		}
 		if !entry.closing {
 			entry.closing = true
+			entry.done = make(chan struct{})
 			entries = append(entries, entry)
 		}
 	}
@@ -694,12 +857,12 @@ func (c *runnerCache) closeRetiredBatch(runners []Runner) error {
 	}
 	workers := min(maxConcurrentRunnerCloses, len(entries))
 	jobs := make(chan *retiredRunner)
-	results := make(chan closeResult, len(entries))
+	results := make(chan error, len(entries))
 	var wg sync.WaitGroup
 	for range workers {
 		wg.Go(func() {
 			for entry := range jobs {
-				results <- closeResult{entry: entry, err: c.closeRetiredEntry(entry)}
+				results <- c.closeRetiredEntry(entry)
 			}
 		})
 	}
@@ -710,11 +873,8 @@ func (c *runnerCache) closeRetiredBatch(runners []Runner) error {
 	wg.Wait()
 	close(results)
 	var joinedErr error
-	for result := range results {
-		c.removeRetired(result.entry, result.err)
-		if result.err != nil {
-			joinedErr = errors.Join(joinedErr, result.err)
-		}
+	for err := range results {
+		joinedErr = errors.Join(joinedErr, err)
 	}
 	return joinedErr
 }
@@ -728,42 +888,77 @@ func (c *runnerCache) close(sessionID string) error {
 // immediately before closing the runner. Close still runs if cb fails.
 func (c *runnerCache) closeWithSandbox(sessionID string, cb SandboxSessionCallback) error {
 	c.mu.Lock()
-	cs, ok := c.sessions[sessionID]
-	var owner *retiredRunner
-	if ok {
-		delete(c.sessions, sessionID)
-		owner = c.retireLocked(cs.r)
-		// The callback receives a live sandbox. Keep this owner ineligible for
-		// every concurrent close worker until the callback has returned.
-		if owner != nil {
-			owner.closing = true
-		}
+	cs := c.sessions[sessionID]
+	if cs != nil {
+		cs.closing = true
 	}
 	c.mu.Unlock()
-	if !ok || cs.r == nil {
+	if cs == nil {
 		return nil
 	}
+	return c.terminalCloseSession(cs, cb)
+}
 
-	var cbErr error
-	if cb != nil {
-		if sr, ok := cs.r.(interface{ SandboxSession() pkgsandbox.Session }); ok {
-			if sess := sr.SandboxSession(); sess != nil {
-				func() {
-					defer func() {
-						if recover() != nil {
-							cbErr = errors.New("sandbox close callback failed")
-						}
-					}()
-					cbErr = cb(sess)
-				}()
+// terminalCloseSession joins construction and earlier Close attempts before
+// acquiring the slot. Failed resources remain reachable and block admission.
+func (c *runnerCache) terminalCloseSession(cs *cachedSession, cb SandboxSessionCallback) error {
+	c.mu.Lock()
+	for {
+		if c.sessions[cs.info.ID] != cs {
+			c.mu.Unlock()
+			return nil
+		}
+		pending := cs.operation
+		if pending == nil {
+			for _, entry := range c.retired {
+				if entry.session == cs && entry.closing {
+					pending = entry.done
+					break
+				}
 			}
 		}
+		if pending == nil {
+			break
+		}
+		c.mu.Unlock()
+		<-pending
+		c.mu.Lock()
 	}
-	if owner == nil {
-		return cbErr
+	cs.operation = make(chan struct{})
+	owner := c.retireLocked(cs.r)
+	if owner != nil {
+		owner.closing = true
+		owner.done = make(chan struct{})
 	}
-	err := c.closeRetiredEntry(owner)
-	return errors.Join(cbErr, err)
+	cs.unusable = true
+	c.mu.Unlock()
+	defer c.finishOperation(cs)
+	var cbErr error
+	if owner != nil {
+		if cb != nil {
+			func() {
+				defer func() {
+					if recover() != nil {
+						cbErr = errors.New("sandbox close callback failed")
+					}
+				}()
+				if sr, ok := owner.runner.(interface{ SandboxSession() pkgsandbox.Session }); ok {
+					if sess := sr.SandboxSession(); sess != nil {
+						cbErr = cb(sess)
+					}
+				}
+			}()
+		}
+		cbErr = errors.Join(cbErr, c.closeRetiredEntry(owner))
+	}
+	err := errors.Join(cbErr, c.closeRetiredBatchFiltered(func(entry *retiredRunner) bool { return entry.session == cs && entry != owner }))
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.hasRetiredSessionLocked(cs) || cs.building != nil {
+		return errors.Join(err, errors.New("runner termination is pending"))
+	}
+	delete(c.sessions, cs.info.ID)
+	return err
 }
 
 func (c *runnerCache) reset() error {
@@ -779,17 +974,24 @@ func (c *runnerCache) detachReset() func() error {
 	defer c.mu.Unlock()
 	c.factoryGeneration++
 	for _, cs := range c.sessions {
-		switch {
-		case cs.failedAdmission && cs.reserved:
+		if cs.closing {
+			continue
+		}
+		if cs.operation != nil {
 			cs.stale = true
-		case cs.failedAdmission && cs.r != nil:
+			continue
+		}
+		switch {
+		case cs.unusable && cs.reserved:
+			cs.stale = true
+		case cs.unusable && cs.r != nil:
 			c.retireLocked(cs.r)
 			cs.r = nil
 			cs.stale = false
-			cs.failedAdmission = false
-		case cs.failedAdmission:
+			cs.unusable = false
+		case cs.unusable:
 			cs.stale = false
-			cs.failedAdmission = false
+			cs.unusable = false
 		case cs.reserved:
 			cs.stale = true
 		case cs.r != nil && cs.r.Busy():
@@ -798,12 +1000,12 @@ func (c *runnerCache) detachReset() func() error {
 			c.retireLocked(cs.r)
 			cs.r = nil
 			cs.stale = false
-			cs.failedAdmission = false
+			cs.unusable = false
 		}
 		cs.model = ""
 		cs.thinking = ""
 	}
-	return func() error { return c.closeRetiredBatch(nil) }
+	return func() error { return c.closeRetiredBatchNonTerminal() }
 }
 
 // resetWhere retires only idle, unreserved runners selected by include. Every
@@ -826,17 +1028,24 @@ func (c *runnerCache) detachResetWhere(include func(*cachedSession) bool) func()
 		if !include(cs) {
 			continue
 		}
-		switch {
-		case cs.failedAdmission && cs.reserved:
+		if cs.closing {
+			continue
+		}
+		if cs.operation != nil {
 			cs.stale = true
-		case cs.failedAdmission && cs.r != nil:
+			continue
+		}
+		switch {
+		case cs.unusable && cs.reserved:
+			cs.stale = true
+		case cs.unusable && cs.r != nil:
 			c.retireLocked(cs.r)
 			cs.r = nil
 			cs.stale = false
-			cs.failedAdmission = false
-		case cs.failedAdmission:
+			cs.unusable = false
+		case cs.unusable:
 			cs.stale = false
-			cs.failedAdmission = false
+			cs.unusable = false
 		case cs.reserved:
 			cs.stale = true
 		case cs.r != nil && cs.r.Busy():
@@ -845,13 +1054,13 @@ func (c *runnerCache) detachResetWhere(include func(*cachedSession) bool) func()
 			c.retireLocked(cs.r)
 			cs.r = nil
 			cs.stale = false
-			cs.failedAdmission = false
+			cs.unusable = false
 		}
 		cs.model = ""
 		cs.thinking = ""
 	}
 	c.mu.Unlock()
-	return func() error { return c.closeRetiredBatch(nil) }
+	return func() error { return c.closeRetiredBatchNonTerminal() }
 }
 
 // invalidateSkillPolicy retires idle runners immediately and marks busy runners
@@ -862,22 +1071,29 @@ func (c *runnerCache) invalidateSkillPolicy() error {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		for _, cs := range c.sessions {
-			// Defensive ordering: a reservation is authoritative even if another
-			// cache path has temporarily cleared r. The next lookup must rebuild.
-			if cs.failedAdmission && cs.reserved {
+			if cs.closing {
+				continue
+			}
+			if cs.operation != nil {
 				cs.stale = true
 				continue
 			}
-			if cs.failedAdmission && cs.r != nil {
+			// Defensive ordering: a reservation is authoritative even if another
+			// cache path has temporarily cleared r. The next lookup must rebuild.
+			if cs.unusable && cs.reserved {
+				cs.stale = true
+				continue
+			}
+			if cs.unusable && cs.r != nil {
 				c.retireLocked(cs.r)
 				cs.r = nil
 				cs.stale = false
-				cs.failedAdmission = false
+				cs.unusable = false
 				continue
 			}
-			if cs.failedAdmission {
+			if cs.unusable {
 				cs.stale = false
-				cs.failedAdmission = false
+				cs.unusable = false
 				continue
 			}
 			if cs.reserved {
@@ -894,10 +1110,10 @@ func (c *runnerCache) invalidateSkillPolicy() error {
 			c.retireLocked(cs.r)
 			cs.r = nil
 			cs.stale = false
-			cs.failedAdmission = false
+			cs.unusable = false
 		}
 	}()
-	return c.closeRetiredBatch(nil)
+	return c.closeRetiredBatchNonTerminal()
 }
 
 // closeAll shuts down all runners.
@@ -908,30 +1124,16 @@ func (c *runnerCache) closeAll() error {
 // detachCloseAll marks all sessions detached and returns slow cleanup for
 // execution after lifecycle/admission locks are released.
 func (c *runnerCache) detachCloseAll() func() error {
-	c.mu.Lock()
-	sessions := c.sessions
-	c.sessions = make(map[string]*cachedSession)
-	for _, cs := range sessions {
-		if cs.building != nil {
-			c.retireBuildLocked(cs.building)
-		}
-		if cs.r != nil {
-			c.retireLocked(cs.r)
-		}
-	}
-	c.mu.Unlock()
-	return func() error { return c.closeRetiredBatch(nil) }
+	return c.detachWhere(func(*cachedSession) bool { return true })
 }
 
-// closeWhere is terminal: unlike resetWhere it removes every matching cache
-// entry and closes busy or reserved runners too. Owner deletion is allowed to
-// interrupt work; ordinary policy invalidation must never use this path.
+// closeWhere is terminal and may interrupt busy or reserved runners.
 func (c *runnerCache) closeWhere(include func(*cachedSession) bool) error {
 	return c.detachWhere(include)()
 }
 
-// detachWhere removes matching sessions and returns a close operation. The
-// returned operation must run after lifecycle/admission locks are released.
+// The synchronous part blocks admission. Slow cleanup runs after the caller
+// releases lifecycle and admission locks, including on owner deletion.
 func (c *runnerCache) detachWhere(include func(*cachedSession) bool) func() error {
 	_, closeDetached := c.detachWhereWithIDs(include)
 	return closeDetached
@@ -939,22 +1141,34 @@ func (c *runnerCache) detachWhere(include func(*cachedSession) bool) func() erro
 
 func (c *runnerCache) detachWhereWithIDs(include func(*cachedSession) bool) ([]string, func() error) {
 	c.mu.Lock()
-	ids := make([]string, 0)
+	var ids []string
+	var sessions []*cachedSession
 	for id, cs := range c.sessions {
-		if !include(cs) {
+		if include != nil && !include(cs) {
 			continue
 		}
+		cs.closing = true
 		ids = append(ids, id)
-		delete(c.sessions, id)
-		if cs.building != nil {
-			c.retireBuildLocked(cs.building)
-		}
-		if cs.r != nil {
-			c.retireLocked(cs.r)
-		}
+		sessions = append(sessions, cs)
 	}
 	c.mu.Unlock()
-	return ids, func() error { return c.closeRetiredBatch(nil) }
+	return ids, func() error {
+		var errs []error
+		for _, cs := range sessions {
+			errs = append(errs, c.terminalCloseSession(cs, nil))
+		}
+		// Older detached failures remain owned even if their cache slot is gone.
+		return errors.Join(append(errs, c.closeRetiredBatchNonTerminal())...)
+	}
+}
+
+func (c *runnerCache) hasRetiredSessionLocked(cs *cachedSession) bool {
+	for _, entry := range c.retired {
+		if entry.session == cs {
+			return true
+		}
+	}
+	return false
 }
 
 // reap closes runners that are idle or dead.
@@ -964,20 +1178,23 @@ func (c *runnerCache) reap() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		for id, cs := range c.sessions {
-			if cs.failedAdmission && cs.reserved {
+			if cs.closing || cs.operation != nil {
+				continue
+			}
+			if cs.unusable && cs.reserved {
 				cs.stale = true
 				continue
 			}
-			if cs.failedAdmission && cs.r != nil {
+			if cs.unusable && cs.r != nil {
 				c.retireLocked(cs.r)
 				cs.r = nil
 				cs.stale = false
-				cs.failedAdmission = false
+				cs.unusable = false
 				continue
 			}
-			if cs.failedAdmission {
+			if cs.unusable {
 				cs.stale = false
-				cs.failedAdmission = false
+				cs.unusable = false
 				continue
 			}
 			if cs.reserved {
@@ -1003,7 +1220,7 @@ func (c *runnerCache) reap() {
 		}
 	}()
 
-	_ = c.closeRetiredBatch(nil)
+	_ = c.closeRetiredBatchNonTerminal()
 }
 
 // StartReaper runs a background goroutine that periodically reaps runners.

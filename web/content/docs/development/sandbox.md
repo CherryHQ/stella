@@ -53,6 +53,8 @@ The runner creates a `sandbox.Session` for each run and keeps ownership of its l
 
 The runner resolves the deploy-time backend from `STELLA_SANDBOX_BACKEND` and dispatches through an injected registry of compiled backends. Production deployments use `docker`, `local`, or `none`; the Harbor evaluation harness additionally wires the evaluation-only `bridge` backend.
 
+The `kubernetes` backend adds same-node, shared-PVC Pod execution for local/dev; see [Kubernetes](../admin/kubernetes.md).
+
 ### Execution-time mediation
 
 All local execution paths that must obey sandbox policy are mediated through the active runner session:

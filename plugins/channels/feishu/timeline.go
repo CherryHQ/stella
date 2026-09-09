@@ -91,11 +91,6 @@ func (t *streamTimeline) handleTool(event *channel.ToolUseEvent) {
 	})
 }
 
-func (t *streamTimeline) markdown(expanded bool) string {
-	panels := t.panels(expanded)
-	return strings.Join(panels, "\n\n")
-}
-
 func (t *streamTimeline) latestMarkdown() string {
 	panels := t.panels(true)
 	if len(panels) == 0 {

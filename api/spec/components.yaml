@@ -6103,7 +6103,7 @@ components:
         sandbox_backend:
           type: string
           readOnly: true
-          description: Active deploy-time sandbox backend. local, docker, and none are built in; bridge is reserved for the eval sandbox adapter.
+          description: Active deploy-time sandbox backend. local, docker, kubernetes, and none are built in; bridge is reserved for the eval sandbox adapter.
         commit:
           type: string
           example: abc1234

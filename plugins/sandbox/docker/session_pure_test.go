@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/containerenv"
+
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
@@ -191,7 +193,7 @@ func TestInjectToolPaths_UsesDefaultPathWhenPATHAbsent(t *testing.T) {
 		t.Errorf("PATH does not start with user tool bin: %q", got["PATH"])
 	}
 	if len(got["PATH"]) <= len("/opt/stella/user-tools/bin:") {
-		t.Error("PATH should include containerDefaultPATH after user tool bin")
+		t.Error("PATH should include containerenv.DefaultPATH after user tool bin")
 	}
 }
 
@@ -268,8 +270,8 @@ func TestDockerExecEnvironmentFiltersAndTranslatesPerCallOverrides(t *testing.T)
 			t.Errorf("%s = %q, want %q", key, got[key], want)
 		}
 	}
-	if got["PATH"] != containerDefaultPATH {
-		t.Fatalf("PATH = %q, want container default %q", got["PATH"], containerDefaultPATH)
+	if got["PATH"] != containerenv.DefaultPATH {
+		t.Fatalf("PATH = %q, want container default %q", got["PATH"], containerenv.DefaultPATH)
 	}
 	if got[sandboxpkg.EnvRunnerPath] != got["PATH"] {
 		t.Fatalf("%s = %q, want final PATH %q", sandboxpkg.EnvRunnerPath, got[sandboxpkg.EnvRunnerPath], got["PATH"])
@@ -780,7 +782,7 @@ func TestDockerFilesystemEnvCreateAndExecCoordinatesMatch(t *testing.T) {
 	if got := execEnv["REQUEST_VALUE"]; got != "exec" {
 		t.Errorf("exec REQUEST_VALUE = %q, want exec", got)
 	}
-	if got, want := execEnv["PATH"], "/tools/request/bin:"+containerDefaultPATH; got != want {
+	if got, want := execEnv["PATH"], "/tools/request/bin:"+containerenv.DefaultPATH; got != want {
 		t.Errorf("exec PATH = %q, want %q", got, want)
 	}
 	if _, ok := createEnv["PATH"]; ok {
