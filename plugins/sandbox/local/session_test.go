@@ -3,6 +3,7 @@ package local
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -302,6 +303,94 @@ func TestLocalSessionCloseCancelsExec(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		cancel()
 		t.Fatal("Close did not cancel a running Exec")
+	}
+}
+
+func TestLocalSessionExecReturnsAfterDeregistration(t *testing.T) {
+	s := newExecTestSession(t)
+	gate := filepath.Join(s.realRoot, "gate")
+	resultCh := make(chan error, 1)
+	go func() {
+		result, err := s.Exec(t.Context(), `until [ -e gate ]; do sleep 0.01; done; printf ok`, sandboxpkg.ExecOptions{})
+		if err == nil && (result.ExitCode != 0 || result.Stdout != "ok") {
+			err = fmt.Errorf("unexpected command result: %+v", result)
+		}
+		resultCh <- err
+	}()
+
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	var proc *localProcess
+	for {
+		s.mu.RLock()
+		if len(s.procs) != 0 {
+			proc = s.procs[0]
+		}
+		s.mu.RUnlock()
+		if proc != nil {
+			break
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("Exec did not register its process")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	// exitCh proves the command was reaped. Keep deregistration blocked so
+	// returning early cannot be hidden by a slower command or a later Close.
+	s.mu.Lock()
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		s.mu.Unlock()
+		t.Fatalf("write gate: %v", err)
+	}
+	select {
+	case <-proc.exitCh:
+	case <-time.After(2 * time.Second):
+		s.mu.Unlock()
+		t.Fatal("command was not reaped after opening its gate")
+	}
+	returnedBeforeDeregistration := false
+	select {
+	case <-resultCh:
+		returnedBeforeDeregistration = true
+	case <-time.After(100 * time.Millisecond):
+	}
+	s.mu.Unlock()
+
+	if returnedBeforeDeregistration {
+		t.Fatal("Exec returned while its deregistration was still blocked on session.mu")
+	}
+	select {
+	case err := <-resultCh:
+		if err != nil {
+			t.Fatalf("successful command returned an error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Exec did not return after the gate was released")
+	}
+	s.mu.RLock()
+	deregistered := len(s.procs) == 0
+	s.mu.RUnlock()
+	if !deregistered {
+		t.Fatal("Exec returned with its process still registered")
+	}
+	if runtime.GOOS != "linux" {
+		return
+	}
+	s.mu.RLock()
+	provedAbsent := !s.everNativeStarted
+	s.mu.RUnlock()
+	if !provedAbsent {
+		t.Fatal("Linux complete process proof did not clear everNativeStarted")
+	}
+	tmp := s.tmpMounts[0].realPath
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close after proved-absent exec: %v", err)
+	}
+	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
+		t.Errorf("Linux bwrap TMPDIR survives a complete process proof: %v", err)
 	}
 }
 
