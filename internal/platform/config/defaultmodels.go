@@ -193,7 +193,7 @@ func ValidModelRef(ref string) bool {
 // an agent tier, the model's own default for a deployment tier.
 func ValidThinkingLevel(level string) bool {
 	switch strings.TrimSpace(level) {
-	case "", "minimal", "low", "medium", "high", "xhigh":
+	case "", "none", "minimal", "low", "medium", "high", "xhigh", "max":
 		return true
 	default:
 		return false

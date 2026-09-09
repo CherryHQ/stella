@@ -52,7 +52,7 @@ const MODEL_KEYS: (keyof DefaultModels)[] = [
   "model_embedding",
 ];
 
-const THINKING_LEVELS = ["", "minimal", "low", "medium", "high", "xhigh"];
+const THINKING_LEVELS = ["", "none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 type ModelGroup = {
   id: string;

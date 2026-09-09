@@ -10,6 +10,18 @@ from stella_harbor.archive import build_archive
 NONCE = "0123456789abcdef0123456789abcdef"
 
 
+def test_archive_keeps_installation_failure_stages_without_transcripts(tmp_path):
+    job = tmp_path / "job"
+    stage_file = job / "failed-trial" / "agent" / "install-stages.json"
+    stage_file.parent.mkdir(parents=True)
+    stages = [{"stage": "python-deps", "status": "failed", "elapsed_sec": 1200}]
+    stage_file.write_text(json.dumps(stages))
+    output = tmp_path / "archive"
+    build_archive(job, output)
+    assert json.loads((output / stage_file.relative_to(job)).read_text()) == stages
+    assert "install-stages.json" in (output / "SHA256SUMS").read_text()
+
+
 def _write_trial(job: Path, name: str, *, reward, valid=True, trajectory=None, pi_stream=None):
     trial = job / "2026-08-20__00-00-00" / f"{name}__abc"
     (trial / "agent" / "stella").mkdir(parents=True)

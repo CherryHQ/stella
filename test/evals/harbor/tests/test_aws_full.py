@@ -419,3 +419,67 @@ def test_pilot_preserves_legacy_defaults_and_is_explicit():
     assert '"pass_concurrencies"' in source
     assert '"performance_pilot"' in source
     assert '"$ROOT/performance.json"' in source
+
+
+def test_exact_attempt_merge_keeps_invalid_evidence(tmp_path):
+    source = tmp_path / "jobs"
+    trial(source, "pass-01", "one", "bad", valid=False, reward=None)
+    trial(source, "pass-01", "two", "fail", valid=True, reward=0)
+    output = tmp_path / "merged"
+    state = merge(source, output, 1, expected_tasks=2, preserve_attempts=True)
+    assert state["copied"] == 2
+    assert state["invalid"] == 1
+    assert state["missing"] == {"one": 1}
+    trial(source, "pass-02", "one", "extra", valid=True, reward=1)
+    with pytest.raises(ValueError, match="exactly k"):
+        merge(source, output, 1, expected_tasks=2, preserve_attempts=True)
+
+
+def test_flexible_run_arguments():
+    args = _aws_full.parse_args(["--agent", "pi", "--model", "deepseek/deepseek-v4-flash", "--thinking-level", "max", "--k", "1", "--concurrency", "16", "--warmup", "none", "--max-topup-rounds", "0", "--agent-version", "0.85.1", "--max-tokens", "393216"])
+    assert (args.agent, args.passes, args.warmup, args.max_tokens) == ("pi", 1, "none", 393216)
+
+
+def test_release_requires_matching_ready_worker(tmp_path, monkeypatch):
+    state = {"defer_start": True, "region": "test-region", "bucket": "owned-bucket", "run_id": "owned-run", "commit": "candidate"}
+    (tmp_path / "state.json").write_text(json.dumps(state))
+    status = {"phase": "harness-contract-running", "run_id": "owned-run", "commit": "candidate"}
+    calls = []
+
+    class FakeAws:
+        def __init__(self, *_args):
+            pass
+
+        def run(self, *args, **kwargs):
+            calls.append(args)
+            return dict(status) if kwargs.get("json_output") else ""
+
+    monkeypatch.setattr(_aws_full, "Aws", FakeAws)
+    with pytest.raises(RuntimeError, match="has not passed"):
+        _aws_full.release_start(tmp_path)
+    assert len(calls) == 1
+    status["phase"] = "ready-for-start"
+    status["commit"] = "wrong"
+    with pytest.raises(RuntimeError, match="has not passed"):
+        _aws_full.release_start(tmp_path)
+    assert len(calls) == 2
+    status["commit"] = "candidate"
+    _aws_full.release_start(tmp_path)
+    assert json.loads((tmp_path / "start.json").read_text()) == {"run_id": "owned-run", "commit": "candidate"}
+    assert calls[-1][3] == "s3://owned-bucket/control/start.json"
+
+
+def test_external_timeout_with_reward_remains_scoreable(tmp_path):
+    import shutil
+    directory = trial(tmp_path, "pass-01", "task", "timeout", valid=False, reward=0)
+    shutil.rmtree(directory / "agent/stella")
+    config = json.loads((directory / "config.json").read_text())
+    config["agent"] = {"name": "stella_harbor.pi_gateway:PiGateway"}
+    (directory / "config.json").write_text(json.dumps(config))
+    result = json.loads((directory / "result.json").read_text())
+    result["exception_info"] = {"exception_type": "AgentTimeoutError"}
+    (directory / "result.json").write_text(json.dumps(result))
+    state = inventory(tmp_path, 1)
+    assert state["scoreable"] == 1
+    assert state["invalid"] == 0
+    assert state["exception_types"] == {"AgentTimeoutError": 1}

@@ -4,6 +4,8 @@ title: Models
 
 Stella works with multiple AI providers and lets you choose which model powers your conversations. You can switch models on the fly without restarting.
 
+Thinking levels are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. An empty value uses the inherited setting or provider default. For OpenAI Chat Completions and Responses providers, Stella forwards the selected value unchanged; choose a level supported by your model and gateway.
+
 ## Supported providers
 
 Stella supports three types of providers:
@@ -13,6 +15,8 @@ Stella supports three types of providers:
 - **OpenAI-compatible** -- any service that implements the OpenAI API, such as Perplexity, Together.ai, or a local model server
 
 You can configure multiple providers at the same time and mix models from different providers across your agents.
+
+The configured maximum output tokens are forwarded to model requests. Use the selected model’s supported limit; an unknown limit leaves the provider default.
 
 ## Setting up a provider
 

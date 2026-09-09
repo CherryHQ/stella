@@ -86,6 +86,9 @@ type Snapshot struct {
 	// the model has no declared price, not a zero-dollar price.
 	ModelCosts map[ModelKey]ai.ModelCost
 
+	// ModelMaxTokens carries the configured output budget through to provider requests.
+	ModelMaxTokens map[ModelKey]int
+
 	// DisabledSkillRefs is the immutable Agent Skill policy snapshot. A runner
 	// captures it once; an explicit activation commit invalidates future runners.
 	DisabledSkillRefs []string
@@ -127,6 +130,15 @@ func (s *Snapshot) ModelCost(providerID, modelID string) ai.ModelCost {
 		lookupID = id
 	}
 	return s.ModelCosts[ModelKey{Provider: lookupID, Model: modelID}]
+}
+
+// ModelTokenLimit returns the configured output budget; zero leaves the provider default.
+func (s *Snapshot) ModelTokenLimit(providerID, modelID string) int {
+	lookupID := providerID
+	if id, _, ok := s.lookupProvider(providerID); ok {
+		lookupID = id
+	}
+	return s.ModelMaxTokens[ModelKey{Provider: lookupID, Model: modelID}]
 }
 
 // ParseModelRef splits a "provider/model" string into its parts.
@@ -204,13 +216,14 @@ func (s *Snapshot) ResolveModelTier(tier string) ai.Model {
 	}
 
 	return ai.Model{
-		ID:       modelID,
-		Name:     modelID,
-		API:      api,
-		Provider: provID,
-		BaseURL:  baseURL,
-		Input:    s.ModelInput(provID, modelID),
-		Cost:     s.ModelCost(provID, modelID),
+		ID:        modelID,
+		Name:      modelID,
+		API:       api,
+		Provider:  provID,
+		BaseURL:   baseURL,
+		Input:     s.ModelInput(provID, modelID),
+		Cost:      s.ModelCost(provID, modelID),
+		MaxTokens: s.ModelTokenLimit(provID, modelID),
 	}
 }
 
