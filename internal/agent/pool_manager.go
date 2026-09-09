@@ -18,6 +18,7 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -56,6 +57,11 @@ type (
 
 // PoolManagerOption configures a PoolManager.
 type PoolManagerOption func(*PoolManager)
+
+// WithAgentRuns supplies the process-wide execution authority to every Agent.
+func WithAgentRuns(runs *agentrun.Store) PoolManagerOption {
+	return func(pm *PoolManager) { pm.agentRuns = runs }
+}
 
 // WithCodeToolSurface selects the Code Mode provider-visible treatment. The
 // production default remains the established hot-tool surface.
@@ -217,6 +223,7 @@ type PoolManager struct {
 	// Snapshot read is decorated; GetAgent and the rest stay on the base store.
 	snapshots config.SnapshotLoader
 	mem       memory.Provider
+	agentRuns *agentrun.Store
 	// lifecycle serializes process-local service publication/removal and retained
 	// Home owner fences with synchronous runner admission.
 	lifecycle *lifecycleGate
@@ -511,6 +518,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	pm.mu.RUnlock()
 
 	cfg := agentruntime.Config{
+		AgentRuns:            pm.agentRuns,
 		NewRunner:            factory,
 		PluginContextBuilder: pluginContextBuilder,
 		Memory:               pm.mem,

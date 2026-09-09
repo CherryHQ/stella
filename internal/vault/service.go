@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
@@ -46,6 +47,7 @@ type DB interface {
 type Service struct {
 	db              DB
 	queries         *sqlc.Queries
+	pool            *pgxpool.Pool
 	masterIdentity  *age.X25519Identity
 	masterRecipient *age.X25519Recipient
 
@@ -96,6 +98,7 @@ func NewServiceForPool(pool *pgxpool.Pool, masterIdentityStr string, agents *age
 		return nil, err
 	}
 	svc.queries = queries
+	svc.pool = pool
 	return svc, nil
 }
 
@@ -108,14 +111,44 @@ func (s *Service) WithTx(tx pgx.Tx) *Service {
 	}
 	queries := s.queries.WithTx(tx)
 	return &Service{
-		db:                    queries,
-		queries:               queries,
+		db:      queries,
+		queries: queries,
+		// The caller owns tx. A guarded mutation must therefore be composed by
+		// the outer transaction rather than opening a nested pool transaction.
+		pool:                  nil,
 		masterIdentity:        s.masterIdentity,
 		masterRecipient:       s.masterRecipient,
 		agents:                s.agents,
 		systemManagedNames:    s.systemManagedNames,
 		systemManagedPrefixes: s.systemManagedPrefixes,
 	}
+}
+
+// mutate commits one vault source-domain mutation. A normal caller keeps the
+// historical DB-interface path. AgentRun callers must use a pool-backed
+// Service so ownership validation and the vault write share one transaction.
+func (s *Service) mutate(ctx context.Context, write func(DB) error) error {
+	if _, guarded := agentrun.GuardFromContext(ctx); !guarded {
+		return write(s.db)
+	}
+	if s == nil || s.pool == nil || s.queries == nil {
+		return errors.New("vault: guarded mutation requires a pool-backed service")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("vault: begin guarded mutation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
+	if err := write(s.queries.WithTx(tx)); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("vault: commit guarded mutation: %w", err)
+	}
+	return nil
 }
 
 // MasterRecipient returns the master public key recipient.
@@ -269,14 +302,17 @@ func (s *Service) set(ctx context.Context, scope string, userID string, agentID 
 	if opts.Description != nil {
 		description = pgnull.Text(*opts.Description)
 	}
-	_, err = s.db.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
-		ID:          uuid.Must(uuid.NewV7()).String(),
-		Scope:       scope,
-		UserID:      pgnull.Text(userID),
-		AgentID:     pgnull.Text(agentID),
-		Name:        name,
-		Ciphertext:  ciphertext,
-		Description: description,
+	err = s.mutate(ctx, func(db DB) error {
+		_, err := db.UpsertVaultEntryByScope(ctx, sqlc.UpsertVaultEntryByScopeParams{
+			ID:          uuid.Must(uuid.NewV7()).String(),
+			Scope:       scope,
+			UserID:      pgnull.Text(userID),
+			AgentID:     pgnull.Text(agentID),
+			Name:        name,
+			Ciphertext:  ciphertext,
+			Description: description,
+		})
+		return err
 	})
 	if err != nil {
 		return fmt.Errorf("vault: set %q: upsert: %w", name, err)
@@ -333,11 +369,13 @@ func (s *Service) deleteScoped(ctx context.Context, scope string, userID string,
 	if err := validateScope(scope, userID, agentID); err != nil {
 		return err
 	}
-	if err := s.db.DeleteVaultEntryByScope(ctx, sqlc.DeleteVaultEntryByScopeParams{
-		Scope:   scope,
-		UserID:  pgnull.Text(userID),
-		AgentID: pgnull.Text(agentID),
-		Name:    name,
+	if err := s.mutate(ctx, func(db DB) error {
+		return db.DeleteVaultEntryByScope(ctx, sqlc.DeleteVaultEntryByScopeParams{
+			Scope:   scope,
+			UserID:  pgnull.Text(userID),
+			AgentID: pgnull.Text(agentID),
+			Name:    name,
+		})
 	}); err != nil {
 		return fmt.Errorf("vault: delete %q: %w", name, err)
 	}

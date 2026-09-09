@@ -30,6 +30,23 @@ func (b *Bot) sendText(ctx context.Context, channelID, text, replyTo string) err
 	return b.sendTextOptions(ctx, channelID, text, replyTo, false)
 }
 
+func (b *Bot) sendTextChecked(ctx context.Context, stream *channel.ChatStream, channelID, text, replyTo string) error {
+	chunks := channel.SplitMarkdown(text, maxMessageLength)
+	for i, chunk := range chunks {
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
+		msg := &discordgo.MessageSend{Content: chunk, AllowedMentions: noMentions()}
+		if i == 0 {
+			msg.Reference = softReference(channelID, replyTo)
+		}
+		if _, err := b.rest.ChannelMessageSendComplex(channelID, msg, discordgo.WithContext(ctx)); err != nil {
+			return fmt.Errorf("send discord message chunk %d/%d: %w", i+1, len(chunks), err)
+		}
+	}
+	return nil
+}
+
 func (b *Bot) sendTextOptions(ctx context.Context, channelID, text, replyTo string, silent bool) error {
 	chunks := channel.SplitMarkdown(text, maxMessageLength)
 	for i, chunk := range chunks {
@@ -69,6 +86,13 @@ func (b *Bot) sendImage(ctx context.Context, channelID string, image channel.Ima
 	return err
 }
 
+func (b *Bot) sendImageChecked(ctx context.Context, stream *channel.ChatStream, channelID string, image channel.ImageEvent) error {
+	if err := stream.CheckOperation(ctx); err != nil {
+		return err
+	}
+	return b.sendImage(ctx, channelID, image)
+}
+
 func (b *Bot) sendFile(ctx context.Context, channelID string, file channel.FileEvent) error {
 	f, err := os.Open(file.Path)
 	if err != nil {
@@ -84,4 +108,11 @@ func (b *Bot) sendFile(ctx context.Context, channelID string, file channel.FileE
 	}
 	_, err = b.rest.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{AllowedMentions: noMentions(), Files: []*discordgo.File{{Name: name, Reader: f}}}, discordgo.WithContext(ctx))
 	return err
+}
+
+func (b *Bot) sendFileChecked(ctx context.Context, stream *channel.ChatStream, channelID string, file channel.FileEvent) error {
+	if err := stream.CheckOperation(ctx); err != nil {
+		return err
+	}
+	return b.sendFile(ctx, channelID, file)
 }

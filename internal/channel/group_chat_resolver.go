@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
@@ -59,20 +60,32 @@ func (r *groupChatResolver) chatDispatch(ctx context.Context, row sqlc.CtxGroupD
 	}
 	out := make(chan pkgchannel.Event, 100)
 	go func() {
-		defer close(doneC)
-		defer close(out)
 		for evt := range stream.Events {
 			select {
 			case out <- evt:
 			case <-ctx.Done():
-				out <- pkgchannel.Event{Err: ctx.Err()}
+				select {
+				case out <- pkgchannel.Event{Err: ctx.Err()}:
+				default:
+				}
 				for range stream.Events {
 				}
-				return
 			}
 		}
+		// Publish EOF before waiting for adapter settlement. Waiting first would
+		// deadlock because the adapter only Ack's after it sees EOF.
+		close(out)
+		// A model EOF is not an egress outcome. Keep the group session slot
+		// occupied until the publisher explicitly acknowledges delivery, failure,
+		// discard, or uncertainty.
+		<-stream.CompletionDone()
+		close(doneC)
 	}()
-	return &pkgchannel.ChatStream{Events: out, SessionID: stream.SessionID}, nil
+	return &pkgchannel.ChatStream{
+		Events:     out,
+		SessionID:  stream.SessionID,
+		Completion: stream.Completion,
+	}, nil
 }
 
 // errGroupTurnSuperseded reports that a dispatch row's trigger message sits at
@@ -338,6 +351,7 @@ func (r *groupChatResolver) chatWeb(ctx context.Context, row sqlc.CtxGroupDispat
 	// The Web group turn does not go through ResolvedChat.Chat, so it attaches
 	// the same durable chat-binding marker here; without it the group turn would
 	// look like a Web send to tools that require a channel-backed chat.
+	completion := agentruntime.NewCompletionBarrier()
 	events := rc.Service.Chat(rc.withChatBinding(ctx), agent.ChatRequest{
 		SessionID:        info.ID,
 		UserID:           row.GroupID,
@@ -352,6 +366,7 @@ func (r *groupChatResolver) chatWeb(ctx context.Context, row sqlc.CtxGroupDispat
 		InputActor:       inputActor,
 		GroupWake:        memory.GroupWakeFromContext(ctx),
 		Authority:        rc.Authority,
+		RuntimeOpts:      []agentruntime.Option{agentruntime.WithCompletionBarrier(completion)},
 	})
 	out := make(chan pkgchannel.Event, 100)
 	go func() {
@@ -367,7 +382,7 @@ func (r *groupChatResolver) chatWeb(ctx context.Context, row sqlc.CtxGroupDispat
 			}
 		}
 	}()
-	return &pkgchannel.ChatStream{Events: out, SessionID: info.ID}, nil
+	return &pkgchannel.ChatStream{Events: out, SessionID: info.ID, Completion: completion}, nil
 }
 
 // webGroupSpeaker derives the per-turn speaker for a Web group dispatch. Web

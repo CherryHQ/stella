@@ -527,6 +527,7 @@ func executeCodeCallWithLimitsAndCallbacks(ctx context.Context, call ai.ToolCall
 		}
 	}
 	execCtx = pkgtools.WithParentImageCapability(execCtx, pkgtools.ParentImageCapabilityFromContext(ctx))
+	execCtx = inheritOperationCheck(execCtx, ctx)
 
 	if call.Name != codeToolName {
 		return post(codeErrorResult(result, "tool not found"))
@@ -551,6 +552,9 @@ func executeCodeCallWithLimitsAndCallbacks(ctx context.Context, call ai.ToolCall
 	executor, err := codemode.NewExecutor(host, limits, newCodeCatalog(definitions)...)
 	if err != nil {
 		return post(codeErrorResult(result, err.Error()))
+	}
+	if err := CheckOperation(ctx); err != nil {
+		return post(codeExecutionError(result, host, err))
 	}
 	execution, err := executor.Run(hooks.WithToolParent(execCtx), source)
 	if err != nil {

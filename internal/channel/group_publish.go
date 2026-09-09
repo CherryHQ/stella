@@ -91,7 +91,8 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 		return row, nil
 	}
 	if job.publisher == nil {
-		return row, errors.New("publish: publisher unavailable")
+		cause := errors.New("publish: publisher unavailable")
+		return row, errors.Join(cause, ackGroupResponse(ctx, job.response, pkgchannel.EgressFailed, cause.Error()))
 	}
 	// A response carrying acceptedMessageID completed its admission before the
 	// publish call. Let that admitted turn finish under its captured decision;
@@ -100,10 +101,11 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 	if p.coord != nil && job.acceptedMessageID == "" {
 		allowed, err := p.coord.channelListenerAllowed(ctx, job.state.Platform, row.ReplyChannelID)
 		if err != nil {
-			return row, fmt.Errorf("publish channel admission: %w", err)
+			cause := fmt.Errorf("publish channel admission: %w", err)
+			return row, errors.Join(cause, ackGroupResponse(ctx, job.response, pkgchannel.EgressFailed, cause.Error()))
 		}
 		if !allowed {
-			return row, errChannelPluginDisabled
+			return row, errors.Join(errChannelPluginDisabled, ackGroupResponse(ctx, job.response, pkgchannel.EgressDiscarded, errChannelPluginDisabled.Error()))
 		}
 	}
 	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
@@ -115,7 +117,8 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 			// a recoverable duplicate over silently dropping the answer.
 			p.log.Warn("republishing an accepted group reply whose delivery outcome is unknown", "dispatch_id", row.ID, "result_message_id", row.ResultMessageID)
 		} else if _, err := p.q.MarkGroupDispatchPublishStarted(ctx, sqlc.MarkGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
-			return row, fmt.Errorf("mark publish started: %w", err)
+			cause := fmt.Errorf("mark publish started: %w", err)
+			return row, errors.Join(cause, ackGroupResponse(ctx, job.response, pkgchannel.EgressFailed, cause.Error()))
 		}
 	}
 	err := job.publisher.Publish(ctx, pkgchannel.GroupPublishRequest{
@@ -302,5 +305,9 @@ func replayGroupResponse(response groupResponse) *pkgchannel.ChatStream {
 		events <- evt
 	}
 	close(events)
-	return &pkgchannel.ChatStream{Events: events, SessionID: response.sessionID}
+	return &pkgchannel.ChatStream{
+		Events:     events,
+		SessionID:  response.sessionID,
+		Completion: response.completion,
+	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -64,7 +65,16 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 	info.UserID = userID
 	info.AgentID = agentIDValue
 
-	_, err = p.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: pgtype.Text{String: info.UserID, Valid: true}, AgentID: pgnull.Text(info.AgentID)})
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin save conversation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
+	qtx := p.q.WithTx(tx)
+	_, err = qtx.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{SessionID: info.ID, UserID: pgtype.Text{String: info.UserID, Valid: true}, AgentID: pgnull.Text(info.AgentID)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		lastActive := info.LastActive
 		if lastActive.IsZero() {
@@ -74,7 +84,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		if kind == "" {
 			kind = "chat"
 		}
-		_, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
+		_, err = qtx.CreateConversation(ctx, sqlc.CreateConversationParams{
 			ID:         uuid.Must(uuid.NewV7()).String(),
 			SessionID:  info.ID,
 			Title:      pgtype.Text{String: info.Title, Valid: info.Title != ""},
@@ -91,13 +101,16 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		if err != nil {
 			return fmt.Errorf("create conversation: %w", err)
 		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit create conversation: %w", err)
+		}
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("get conversation: %w", err)
 	}
 
-	rows, err := p.q.UpdateConversationInfoBySessionID(ctx, sqlc.UpdateConversationInfoBySessionIDParams{
+	rows, err := qtx.UpdateConversationInfoBySessionID(ctx, sqlc.UpdateConversationInfoBySessionIDParams{
 		Title:     pgnull.Text(info.Title),
 		Kind:      pgnull.Text(info.Kind),
 		Channel:   pgnull.Text(info.Channel),
@@ -114,6 +127,9 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 	if rows == 0 {
 		return fmt.Errorf("%w: %s", memory.ErrInactiveSession, info.ID)
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit update conversation: %w", err)
+	}
 	return nil
 }
 
@@ -125,13 +141,24 @@ func (p *Provider) ArchiveInfo(ctx context.Context, info memory.SessionInfo) (bo
 	if err != nil {
 		return false, err
 	}
-	rows, err := p.q.ArchiveConversationBySessionID(ctx, sqlc.ArchiveConversationBySessionIDParams{
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin archive conversation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return false, err
+	}
+	rows, err := p.q.WithTx(tx).ArchiveConversationBySessionID(ctx, sqlc.ArchiveConversationBySessionIDParams{
 		SessionID: info.ID,
 		UserID:    pgtype.Text{String: userID, Valid: true},
 		AgentID:   pgnull.Text(agentID),
 	})
 	if err != nil {
 		return false, fmt.Errorf("archive conversation: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit archive conversation: %w", err)
 	}
 	return rows > 0, nil
 }
@@ -144,7 +171,15 @@ func (p *Provider) TouchActiveInfo(ctx context.Context, info memory.SessionInfo)
 	if err != nil {
 		return false, err
 	}
-	rows, err := p.q.UpdateConversationTurnMetaBySessionID(ctx, sqlc.UpdateConversationTurnMetaBySessionIDParams{
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin touch conversation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return false, err
+	}
+	rows, err := p.q.WithTx(tx).UpdateConversationTurnMetaBySessionID(ctx, sqlc.UpdateConversationTurnMetaBySessionIDParams{
 		Title:     pgnull.Text(info.Title),
 		Channel:   pgnull.Text(info.Channel),
 		GroupID:   pgnull.Text(info.GroupID),
@@ -156,6 +191,9 @@ func (p *Provider) TouchActiveInfo(ctx context.Context, info memory.SessionInfo)
 	if err != nil {
 		return false, fmt.Errorf("touch conversation: %w", err)
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit touch conversation: %w", err)
+	}
 	return rows > 0, nil
 }
 
@@ -165,13 +203,24 @@ func (p *Provider) MarkSessionTurnStarted(ctx context.Context, session memory.Se
 	if err != nil {
 		return false, err
 	}
-	rows, err := p.q.MarkConversationTurnStarted(ctx, sqlc.MarkConversationTurnStartedParams{
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin session turn start: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return false, err
+	}
+	rows, err := p.q.WithTx(tx).MarkConversationTurnStarted(ctx, sqlc.MarkConversationTurnStartedParams{
 		SessionID: session.ID,
 		UserID:    pgtype.Text{String: session.UserID, Valid: true},
 		AgentID:   pgnull.Text(session.AgentID),
 	})
 	if err != nil {
 		return false, fmt.Errorf("mark session turn started: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit session turn start: %w", err)
 	}
 	return rows > 0, nil
 }
@@ -185,7 +234,15 @@ func (p *Provider) MarkSessionTurnCompleted(ctx context.Context, session memory.
 	if err != nil {
 		return false, err
 	}
-	rows, err := p.q.MarkConversationTurnCompleted(ctx, sqlc.MarkConversationTurnCompletedParams{
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin session turn completion: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return false, err
+	}
+	rows, err := p.q.WithTx(tx).MarkConversationTurnCompleted(ctx, sqlc.MarkConversationTurnCompletedParams{
 		SessionID: session.ID,
 		UserID:    pgtype.Text{String: session.UserID, Valid: true},
 		AgentID:   pgnull.Text(session.AgentID),
@@ -193,6 +250,9 @@ func (p *Provider) MarkSessionTurnCompleted(ctx context.Context, session memory.
 	})
 	if err != nil {
 		return false, fmt.Errorf("mark session turn completed: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit session turn completion: %w", err)
 	}
 	return rows > 0, nil
 }
@@ -243,6 +303,9 @@ func (p *Provider) RotateInfo(ctx context.Context, expectedSessionID string, suc
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := p.q.WithTx(tx)
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
 
 	archived, err := qtx.ArchiveActiveConversationBySessionID(ctx, sqlc.ArchiveActiveConversationBySessionIDParams{
 		SessionID: expectedSessionID,

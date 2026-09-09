@@ -2,13 +2,29 @@ package discord
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 func (b *Bot) Publish(ctx context.Context, req pkgchannel.GroupPublishRequest) error {
+	if req.Stream == nil {
+		return nil
+	}
 	stream, err := pkgchannel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
+		outcome := pkgchannel.EgressOutcomeForError(err)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			outcome = pkgchannel.EgressDiscarded
+		}
+		ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		ackErr := req.Stream.Ack(ackCtx, outcome)
+		cancel()
+		req.Stream.Discard()
+		if ackErr != nil {
+			return errors.Join(err, ackErr)
+		}
 		return err
 	}
 	req.Stream = stream

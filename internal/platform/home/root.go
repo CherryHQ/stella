@@ -575,6 +575,14 @@ func (r *Root) Upload(ctx context.Context, name string, src io.Reader, o WriteOp
 		temporary = filepath.Join(parent, "."+base+".upload-"+hex.EncodeToString(random[:]))
 		file, err = openRootFile(r.root, temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 		if err == nil {
+			// Creation modes are filtered through the process umask. Uploads
+			// preserve authored permissions because they participate in resource
+			// digests and executable skill files must remain executable.
+			if chmodErr := file.Chmod(mode); chmodErr != nil {
+				_ = file.Close()
+				_ = r.root.Remove(temporary)
+				return fmt.Errorf("home: set upload temporary mode: %w", chmodErr)
+			}
 			break
 		}
 		if !errors.Is(err, fs.ErrExist) {

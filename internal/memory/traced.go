@@ -7,9 +7,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
@@ -150,6 +151,16 @@ func (t *tracedProvider) AppendInboxInput(ctx context.Context, session Session, 
 	hctx.Detail = formatMessages("appended inbox input", []ai.Message{msg})
 	t.finish(ctx, start, hctx)
 	return err
+}
+
+// AppendInboxInputTx preserves the transaction-composition capability through
+// tracing. The admission transaction remains owned by the caller.
+func (t *tracedProvider) AppendInboxInputTx(ctx context.Context, tx pgx.Tx, session Session, inboxID string, msg ai.Message) error {
+	appender, ok := t.inner.(InboxAppenderTx)
+	if !ok {
+		return errCapabilityNotSupported("InboxAppenderTx")
+	}
+	return appender.AppendInboxInputTx(ctx, tx, session, inboxID, msg)
 }
 
 func (t *tracedProvider) Assemble(ctx context.Context, session Session, budget, freshTail int) ([]ai.Message, error) {
@@ -525,12 +536,12 @@ func (t *tracedProvider) CommitGroupCursor(ctx context.Context, session Session,
 // CommitGroupTurn preserves the outer-transaction capability through tracing.
 // It intentionally bypasses memory hooks: the dispatcher owns the enclosing
 // acceptance transaction and the individual history rows are not a new turn.
-func (t *tracedProvider) CommitGroupTurn(ctx context.Context, qtx *sqlc.Queries, turn DeferredGroupTurn) error {
+func (t *tracedProvider) CommitGroupTurn(ctx context.Context, tx pgx.Tx, turn DeferredGroupTurn) error {
 	committer, ok := t.inner.(TxGroupCommitter)
 	if !ok {
 		return errCapabilityNotSupported("TxGroupCommitter")
 	}
-	return committer.CommitGroupTurn(ctx, qtx, turn)
+	return committer.CommitGroupTurn(ctx, tx, turn)
 }
 
 // Session activity is durable session metadata rather than memory content, so

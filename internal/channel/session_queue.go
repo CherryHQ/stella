@@ -149,10 +149,14 @@ func (q *sessionQueue) Enqueue(
 		go func() {
 			res := <-resultC
 			if res.stream != nil {
-				go func() {
-					for range res.stream.Events {
-					}
-				}()
+				// The caller no longer owns the admitted turn after its context
+				// expires. Drain model output, then settle the completion as unknown:
+				// cancellation does not prove that a platform effect was absent.
+				for range res.stream.Events {
+				}
+				ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				_ = res.stream.Ack(ackCtx, pkgchannel.EgressUnknown)
+				cancel()
 			}
 			if res.doneC != nil {
 				close(res.doneC)

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -23,6 +24,24 @@ import (
 type Store struct {
 	db *pgxpool.Pool
 	q  *sqlc.Queries
+}
+
+// beginWriteTx makes every recally mutation pass through the AgentRun fence in
+// the same transaction that commits the source-domain write. Contexts without
+// a Guard remain valid for user-facing and background maintenance paths.
+func (s *Store) beginWriteTx(ctx context.Context) (pgx.Tx, *sqlc.Queries, error) {
+	if s == nil || s.db == nil || s.q == nil {
+		return nil, nil, errors.New("recally write database is not configured")
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, nil, err
+	}
+	return tx, s.q.WithTx(tx), nil
 }
 
 // NewStore creates a new Store instance.
@@ -58,10 +77,16 @@ func (s *Store) saveArticle(ctx context.Context, userID string, req SaveRequest,
 		canonicalURL = NormalizeURL(req.URL)
 	}
 
-	existing, err := s.q.GetArticleByCanonicalURL(ctx, sqlc.GetArticleByCanonicalURLParams{UserID: userID, CanonicalUrl: canonicalURL})
+	tx, qtx, err := s.beginWriteTx(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("begin article transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	existing, err := qtx.GetArticleByCanonicalURL(ctx, sqlc.GetArticleByCanonicalURLParams{UserID: userID, CanonicalUrl: canonicalURL})
 	switch {
 	case err == nil:
-		updated, err := s.q.UpdateArticle(ctx, sqlc.UpdateArticleParams{
+		updated, err := qtx.UpdateArticle(ctx, sqlc.UpdateArticleParams{
 			ID:          existing.ID,
 			UserID:      userID,
 			Title:       req.Title,
@@ -81,6 +106,9 @@ func (s *Store) saveArticle(ctx context.Context, userID string, req SaveRequest,
 		var article Article
 		article.FromSQLCArticle(updated)
 		article.IsNew = false
+		if err := tx.Commit(ctx); err != nil {
+			return nil, false, fmt.Errorf("commit article update: %w", err)
+		}
 		return &article, false, nil
 	case !errors.Is(err, pgx.ErrNoRows):
 		return nil, false, fmt.Errorf("lookup article by canonical url: %w", err)
@@ -108,13 +136,6 @@ func (s *Store) saveArticle(ctx context.Context, userID string, req SaveRequest,
 
 	var created sqlc.RecallyArticle
 	if insertContent {
-		tx, err := s.db.Begin(ctx)
-		if err != nil {
-			return nil, false, fmt.Errorf("begin article transaction: %w", err)
-		}
-		defer func() { _ = tx.Rollback(ctx) }()
-
-		qtx := s.q.WithTx(tx)
 		created, err = qtx.CreateArticle(ctx, params)
 		if err != nil {
 			return nil, false, fmt.Errorf("create article: %w", err)
@@ -122,11 +143,8 @@ func (s *Store) saveArticle(ctx context.Context, userID string, req SaveRequest,
 		if err := qtx.UpsertArticleContent(ctx, sqlc.UpsertArticleContentParams{ArticleID: created.ID, Content: content}); err != nil {
 			return nil, false, fmt.Errorf("upsert article content: %w", err)
 		}
-		if err := tx.Commit(ctx); err != nil {
-			return nil, false, fmt.Errorf("commit article transaction: %w", err)
-		}
 	} else {
-		created, err = s.q.CreateArticle(ctx, params)
+		created, err = qtx.CreateArticle(ctx, params)
 		if err != nil {
 			return nil, false, fmt.Errorf("create article: %w", err)
 		}
@@ -135,6 +153,9 @@ func (s *Store) saveArticle(ctx context.Context, userID string, req SaveRequest,
 	var article Article
 	article.FromSQLCArticle(created)
 	article.IsNew = true
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, fmt.Errorf("commit article transaction: %w", err)
+	}
 	return &article, true, nil
 }
 
@@ -168,7 +189,12 @@ func (s *Store) GetArticle(ctx context.Context, userID string, articleID string)
 
 // UpdateArticle updates article metadata.
 func (s *Store) UpdateArticle(ctx context.Context, userID string, articleID string, updates map[string]any) (*Article, error) {
-	current, err := s.q.GetArticle(ctx, sqlc.GetArticleParams{ID: articleID, UserID: userID})
+	tx, qtx, err := s.beginWriteTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin article update transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	current, err := qtx.GetArticle(ctx, sqlc.GetArticleParams{ID: articleID, UserID: userID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("article not found: %s", articleID)
@@ -221,7 +247,7 @@ func (s *Store) UpdateArticle(ctx context.Context, userID string, articleID stri
 		publishedAt = toNullTime(v)
 	}
 
-	updated, err := s.q.UpdateArticle(ctx, sqlc.UpdateArticleParams{
+	updated, err := qtx.UpdateArticle(ctx, sqlc.UpdateArticleParams{
 		ID:          articleID,
 		UserID:      userID,
 		Title:       title,
@@ -241,13 +267,24 @@ func (s *Store) UpdateArticle(ctx context.Context, userID string, articleID stri
 
 	var article Article
 	article.FromSQLCArticle(updated)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit article update: %w", err)
+	}
 	return &article, nil
 }
 
 // DeleteArticle removes an article from the database.
 func (s *Store) DeleteArticle(ctx context.Context, userID string, articleID string) error {
-	if err := s.q.DeleteArticle(ctx, sqlc.DeleteArticleParams{ID: articleID, UserID: userID}); err != nil {
+	tx, qtx, err := s.beginWriteTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin article delete transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := qtx.DeleteArticle(ctx, sqlc.DeleteArticleParams{ID: articleID, UserID: userID}); err != nil {
 		return fmt.Errorf("delete article: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit article delete: %w", err)
 	}
 	return nil
 }
@@ -343,7 +380,12 @@ func (s *Store) CreateFeed(ctx context.Context, userID string, feedURL string, k
 	if kind == "" {
 		kind = FeedKindRSS
 	}
-	row, err := s.q.CreateFeed(ctx, sqlc.CreateFeedParams{
+	tx, qtx, err := s.beginWriteTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin feed transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	row, err := qtx.CreateFeed(ctx, sqlc.CreateFeedParams{
 		ID:            generateID(),
 		UserID:        userID,
 		AgentID:       toNullString(agentID),
@@ -363,6 +405,9 @@ func (s *Store) CreateFeed(ctx context.Context, userID string, feedURL string, k
 	}
 	var feed Feed
 	feed.FromSQLCFeed(row)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit feed transaction: %w", err)
+	}
 	return &feed, nil
 }
 
@@ -418,7 +463,12 @@ func (s *Store) ListFeeds(ctx context.Context, userID string, limit, offset int)
 
 // UpdateFeed updates feed metadata.
 func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, updates map[string]any) (*Feed, error) {
-	current, err := s.q.GetFeed(ctx, sqlc.GetFeedParams{ID: feedID, UserID: userID})
+	tx, qtx, err := s.beginWriteTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin feed update transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	current, err := qtx.GetFeed(ctx, sqlc.GetFeedParams{ID: feedID, UserID: userID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("feed not found: %s", feedID)
@@ -460,7 +510,7 @@ func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, up
 		enabled = v
 	}
 
-	updated, err := s.q.UpdateFeed(ctx, sqlc.UpdateFeedParams{
+	updated, err := qtx.UpdateFeed(ctx, sqlc.UpdateFeedParams{
 		ID:            feedID,
 		UserID:        userID,
 		Title:         title,
@@ -478,13 +528,24 @@ func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, up
 
 	var feed Feed
 	feed.FromSQLCFeed(updated)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit feed update: %w", err)
+	}
 	return &feed, nil
 }
 
 // DeleteFeed removes a feed and all its entries.
 func (s *Store) DeleteFeed(ctx context.Context, userID string, feedID string) error {
-	if err := s.q.DeleteFeed(ctx, sqlc.DeleteFeedParams{ID: feedID, UserID: userID}); err != nil {
+	tx, qtx, err := s.beginWriteTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin feed delete transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := qtx.DeleteFeed(ctx, sqlc.DeleteFeedParams{ID: feedID, UserID: userID}); err != nil {
 		return fmt.Errorf("delete feed: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit feed delete: %w", err)
 	}
 	return nil
 }
@@ -492,7 +553,12 @@ func (s *Store) DeleteFeed(ctx context.Context, userID string, feedID string) er
 // CreateFeedEntry creates a new feed entry. Returns nil, nil when the entry
 // already exists (ON CONFLICT DO NOTHING).
 func (s *Store) CreateFeedEntry(ctx context.Context, feedID, guid, entryURL, title string) (*FeedEntry, error) {
-	row, err := s.q.CreateFeedEntry(ctx, sqlc.CreateFeedEntryParams{
+	tx, qtx, err := s.beginWriteTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin feed entry transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	row, err := qtx.CreateFeedEntry(ctx, sqlc.CreateFeedEntryParams{
 		ID:           generateID(),
 		FeedID:       feedID,
 		Guid:         guid,
@@ -513,6 +579,9 @@ func (s *Store) CreateFeedEntry(ctx context.Context, feedID, guid, entryURL, tit
 	}
 	var entry FeedEntry
 	entry.FromSQLCFeedEntry(row)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit feed entry transaction: %w", err)
+	}
 	return &entry, nil
 }
 
@@ -550,7 +619,12 @@ func (s *Store) GetFeedEntry(ctx context.Context, feedID string, entryID string)
 
 // MarkFeedEntry updates the status of a feed entry after processing.
 func (s *Store) MarkFeedEntry(ctx context.Context, feedID string, entryID string, status RSSEntryStatus, articleID *string, errorMsg string) (*FeedEntry, error) {
-	updated, err := s.q.UpdateFeedEntry(ctx, sqlc.UpdateFeedEntryParams{
+	tx, qtx, err := s.beginWriteTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin feed entry update transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	updated, err := qtx.UpdateFeedEntry(ctx, sqlc.UpdateFeedEntryParams{
 		ID:        entryID,
 		FeedID:    feedID,
 		Status:    string(status),
@@ -562,6 +636,9 @@ func (s *Store) MarkFeedEntry(ctx context.Context, feedID string, entryID string
 	}
 	var entry FeedEntry
 	entry.FromSQLCFeedEntry(updated)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit feed entry update: %w", err)
+	}
 	return &entry, nil
 }
 
@@ -575,15 +652,31 @@ func (s *Store) UpdateArticleFilePath(ctx context.Context, userID, articleID, fi
 }
 
 func (s *Store) UpsertArticleContent(ctx context.Context, articleID, content string) error {
-	if err := s.q.UpsertArticleContent(ctx, sqlc.UpsertArticleContentParams{ArticleID: articleID, Content: content}); err != nil {
+	tx, qtx, err := s.beginWriteTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin article content transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := qtx.UpsertArticleContent(ctx, sqlc.UpsertArticleContentParams{ArticleID: articleID, Content: content}); err != nil {
 		return fmt.Errorf("upsert article content: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit article content: %w", err)
 	}
 	return nil
 }
 
 func (s *Store) InsertArticleContentIfAbsent(ctx context.Context, articleID, content string) error {
-	if err := s.q.InsertArticleContentIfAbsent(ctx, sqlc.InsertArticleContentIfAbsentParams{ArticleID: articleID, Content: content}); err != nil {
+	tx, qtx, err := s.beginWriteTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin article content transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := qtx.InsertArticleContentIfAbsent(ctx, sqlc.InsertArticleContentIfAbsentParams{ArticleID: articleID, Content: content}); err != nil {
 		return fmt.Errorf("insert article content if absent: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit article content: %w", err)
 	}
 	return nil
 }
@@ -746,6 +839,9 @@ func (s *Store) SaveDigest(ctx context.Context, userID string, narrative, date s
 		return nil, fmt.Errorf("begin digest transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return nil, err
+	}
 
 	qtx := s.q.WithTx(tx)
 	row, err := qtx.UpsertDigest(ctx, sqlc.UpsertDigestParams{

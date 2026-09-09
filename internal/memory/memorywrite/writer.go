@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -25,6 +26,12 @@ import (
 // this was implicit (single writer); under PostgreSQL it needs an explicit
 // transaction-scoped advisory lock, released automatically on commit/rollback.
 func lockMemory(ctx context.Context, tx pgx.Tx, userID, agentID string) error {
+	// Validate the immutable AgentRun owner in this same transaction. The
+	// advisory lock below serializes memory writers; it cannot replace the
+	// execution fence because terminal run completion uses the AgentRun row lock.
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
 	return appdb.AdvisoryXactLock(ctx, tx, "mem:"+userID+":"+agentID)
 }
 

@@ -6,9 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 type groupTurnSinkKey struct{}
@@ -70,7 +71,7 @@ func GroupTurnSinkFrom(ctx context.Context) (*GroupTurnSink, bool) {
 
 // TxGroupCommitter commits a deferred turn into the dispatcher's outer tx.
 type TxGroupCommitter interface {
-	CommitGroupTurn(context.Context, *sqlc.Queries, DeferredGroupTurn) error
+	CommitGroupTurn(context.Context, pgx.Tx, DeferredGroupTurn) error
 }
 
 // ScopeUserIDFromContext returns the user_id this turn's conversation rows are

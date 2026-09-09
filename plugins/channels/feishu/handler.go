@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
@@ -562,14 +563,24 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 		return
 	}
 	defer cancel()
+	defer stream.Discard()
+	outcome := channel.EgressDelivered
+	defer func() {
+		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancelAck()
+		if ackErr := stream.Ack(ackCtx, outcome); ackErr != nil {
+			logger().Warn("acknowledge Feishu egress failed", "message_id", messageID, "error", ackErr)
+		}
+	}()
 
 	logger().Debug("message received", "sender_id", senderID, "session", stream.SessionID, "root_id", rootID)
 
-	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, stream.Events, chatID, messageID, rootID, stream.SessionID)
+	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThreadChecked(ctx, stream, chatID, messageID, rootID, stream.SessionID)
 
 	b.removeReaction(messageID, ackReactionID)
 
 	if streamErr != nil {
+		outcome = channel.EgressOutcomeForError(streamErr)
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
 		b.reactToMessage(messageID, reactionError)
 		if response == "" {
@@ -586,24 +597,25 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	// Append elapsed time footer to the final response.
 	finalResponse := response + elapsedFooter(elapsed)
 
-	status := cardStatusCompleted
-	if streamErr != nil {
-		status = cardStatusFailed
-	}
-	if err := b.sendFinalResponseInThreadWithOptions(ctx, chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup, true, status, stream.SessionID); err != nil {
+	if err := b.sendFinalResponseInThreadChecked(ctx, stream, chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup, true); err != nil {
+		outcome = channel.EgressOutcomeForError(err)
 		logger().Error("Feishu response delivery failed", "chat_id", chatID, "root_id", rootID, "message_id", messageID, "error", err)
 		return
 	}
 
 	for _, img := range images {
-		if err := b.sendImageInThread(chatID, messageID, rootID, img); err != nil {
+		if err := b.sendImageInThreadChecked(ctx, stream, chatID, messageID, rootID, img); err != nil {
+			outcome = channel.EgressOutcomeForError(err)
 			logger().Error("send response image failed", "message_id", messageID, "error", err)
+			return
 		}
 	}
 
 	for _, file := range files {
-		if err := b.sendFileInThread(chatID, messageID, rootID, file); err != nil {
+		if err := b.sendFileInThreadChecked(ctx, stream, chatID, messageID, rootID, file); err != nil {
+			outcome = channel.EgressOutcomeForError(err)
 			logger().Error("send response file failed", "message_id", messageID, "error", err)
+			return
 		}
 	}
 

@@ -2,24 +2,45 @@ package qq
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/tencent-connect/botgo/dto"
 
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
-func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) error {
+func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err error) {
+	if req.Stream == nil {
+		return nil
+	}
+	defer req.Stream.Discard()
+	outcome := channel.EgressDelivered
+	defer func() {
+		ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if ackErr := req.Stream.Ack(ackCtx, outcome); ackErr != nil && err == nil {
+			err = ackErr
+		}
+	}()
 	if err := ctx.Err(); err != nil {
+		outcome = channel.EgressDiscarded
 		return err
 	}
 	groupID := strings.TrimPrefix(req.PlatformGroupID, "qq:group:")
 	if groupID == "" {
+		outcome = channel.EgressFailed
 		return fmt.Errorf("qq: empty group id")
 	}
 	stream, err := channel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			outcome = channel.EgressDiscarded
+		} else {
+			outcome = channel.EgressOutcomeForError(err)
+		}
 		return err
 	}
 	if stream == nil {
@@ -33,10 +54,21 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) erro
 		response = "(empty response)"
 	}
 	if b.api == nil {
+		outcome = channel.EgressFailed
 		return fmt.Errorf("qq: group API unavailable")
 	}
+	if err := stream.CheckOperation(ctx); err != nil {
+		outcome = channel.EgressDiscarded
+		return err
+	}
+	sent := false
 	for i, chunk := range channel.SplitMessage(response, qqMaxMessageLen) {
-		if err := ctx.Err(); err != nil {
+		if err := stream.CheckOperation(ctx); err != nil {
+			if sent {
+				outcome = channel.EgressOutcomeForError(err)
+			} else {
+				outcome = channel.EgressDiscarded
+			}
 			return err
 		}
 		if _, err := b.api.PostGroupMessage(ctx, groupID, dto.MessageToCreate{
@@ -45,8 +77,10 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) erro
 			MsgID:   req.ReplyTo,
 			MsgSeq:  uint32(i + 1),
 		}); err != nil {
+			outcome = channel.EgressOutcomeForError(err)
 			return fmt.Errorf("qq: send group response chunk %d: %w", i+1, err)
 		}
+		sent = true
 	}
 	return nil
 }

@@ -500,6 +500,72 @@ func TestDeliverStreamCreatesProgressMessageAndEditsFinal(t *testing.T) {
 	}
 }
 
+type discordCompletionProbe struct {
+	mu      sync.Mutex
+	done    chan struct{}
+	outcome channel.EgressOutcome
+	acked   bool
+}
+
+func newDiscordCompletionProbe() *discordCompletionProbe {
+	return &discordCompletionProbe{done: make(chan struct{})}
+}
+
+func (p *discordCompletionProbe) Check(context.Context) error { return nil }
+
+func (p *discordCompletionProbe) Ack(_ context.Context, outcome channel.EgressOutcome) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.outcome = outcome
+	if !p.acked {
+		p.acked = true
+		close(p.done)
+	}
+	return nil
+}
+
+func (p *discordCompletionProbe) Done() <-chan struct{} { return p.done }
+
+func TestDeliverStreamAcknowledgesOnlyAfterFinalSend(t *testing.T) {
+	b, err := New(Config{Token: "token"}, fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	events := make(chan channel.Event, 1)
+	events <- channel.Event{Text: "final answer"}
+	close(events)
+	probe := newDiscordCompletionProbe()
+	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events, Completion: probe}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if probe.outcome != channel.EgressDelivered {
+		t.Fatalf("completion outcome = %q, want delivered", probe.outcome)
+	}
+	if len(rest.edited) != 1 || rest.edited[0] != "final answer" {
+		t.Fatalf("final edits = %#v, want final answer", rest.edited)
+	}
+}
+
+func TestDeliverStreamAcknowledgesUnknownOnMediaFailure(t *testing.T) {
+	b, err := New(Config{Token: "token"}, fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.rest = newFakeDiscordREST()
+	events := make(chan channel.Event, 1)
+	events <- channel.Event{Image: &channel.ImageEvent{Data: "not-base64"}}
+	close(events)
+	probe := newDiscordCompletionProbe()
+	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events, Completion: probe}, nil); err == nil {
+		t.Fatal("media failure returned nil")
+	}
+	if probe.outcome != channel.EgressUnknown {
+		t.Fatalf("completion outcome = %q, want unknown", probe.outcome)
+	}
+}
+
 func TestDeliverStreamDistinguishesAbortFromDeliveryCancellation(t *testing.T) {
 	b, err := New(Config{Token: "token"}, fakeHandler{})
 	if err != nil {

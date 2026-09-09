@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -276,8 +277,22 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, webhook string) {
 	if stream == nil {
 		return
 	}
+	defer stream.Discard()
+	outcome := channel.EgressDelivered
+	defer func() {
+		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancelAck()
+		if ackErr := stream.Ack(ackCtx, outcome); ackErr != nil {
+			logger().Warn("acknowledge DingTalk egress failed", "conversation_id", msg.ChatID, "error", ackErr)
+		}
+	}()
+	if err := stream.CheckOperation(ctx); err != nil {
+		outcome = channel.EgressDiscarded
+		return
+	}
 	response, streamErr := collectStream(ctx, stream)
 	if streamErr != nil {
+		outcome = channel.EgressOutcomeForError(streamErr)
 		if response != "" {
 			response += "\n\n"
 		}
@@ -286,7 +301,8 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, webhook string) {
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
 	}
-	if err := b.reply(ctx, webhook, response); err != nil {
+	if err := b.replyChecked(ctx, stream, webhook, response); err != nil {
+		outcome = channel.EgressOutcomeForError(err)
 		logger().Error("reply failed", "error", err)
 	}
 }
@@ -313,9 +329,28 @@ func (b *Bot) ensureGroupMember(ctx context.Context, groupID string) error {
 	return nil
 }
 
-func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) error {
+func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err error) {
+	if req.Stream != nil {
+		defer req.Stream.Discard()
+	}
+	outcome := channel.EgressDelivered
+	defer func() {
+		if req.Stream == nil {
+			return
+		}
+		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancelAck()
+		if ackErr := req.Stream.Ack(ackCtx, outcome); ackErr != nil && err == nil {
+			err = ackErr
+		}
+	}()
 	stream, err := channel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			outcome = channel.EgressDiscarded
+		} else {
+			outcome = channel.EgressFailed
+		}
 		return err
 	}
 	if stream == nil {
@@ -323,6 +358,7 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) erro
 	}
 	response, streamErr := collectStream(ctx, stream)
 	if streamErr != nil {
+		outcome = channel.EgressOutcomeForError(streamErr)
 		return fmt.Errorf("dingtalk: render group replay: %w", streamErr)
 	}
 	if strings.TrimSpace(response) == "" {
@@ -330,9 +366,14 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) erro
 	}
 	session, ok := b.groupSessionFor(req.PlatformGroupID)
 	if !ok {
+		outcome = channel.EgressFailed
 		return fmt.Errorf("dingtalk: no active session webhook for group %q", req.PlatformGroupID)
 	}
-	return b.reply(ctx, session.URL, response)
+	err = b.replyChecked(ctx, stream, session.URL, response)
+	if err != nil {
+		outcome = channel.EgressOutcomeForError(err)
+	}
+	return err
 }
 
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
@@ -348,8 +389,17 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 }
 
 func (b *Bot) reply(ctx context.Context, webhook, text string) error {
+	return b.replyChecked(ctx, nil, webhook, text)
+}
+
+func (b *Bot) replyChecked(ctx context.Context, stream *channel.ChatStream, webhook, text string) error {
 	chunks := channel.SplitMessage(text, dingTalkMaxMessageLen)
 	for i, chunk := range chunks {
+		if stream != nil {
+			if err := stream.CheckOperation(ctx); err != nil {
+				return err
+			}
+		}
 		if err := b.replyToWebhook(ctx, webhook, chunk); err != nil {
 			return fmt.Errorf("dingtalk: send reply chunk %d/%d: %w", i+1, len(chunks), err)
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -107,9 +108,15 @@ func (s *FileStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in Ref
 	} else if !errors.Is(currentErr, pgx.ErrNoRows) {
 		return Skill{}, currentErr
 	}
+	if err := agentrun.Check(ctx); err != nil {
+		return Skill{}, err
+	}
 	created, err := s.createFileSkill(ctx, desired, map[string]ManagedSkillFile{MainFile: {Content: []byte(in.MainFileContent), Mode: 0o644}})
 	if err != nil {
 		return Skill{}, err
+	}
+	if err := agentrun.Check(ctx); err != nil {
+		return created.Skill, fmt.Errorf("%w: Reflect create ownership changed: %w", home.ErrOutcomeUnknown, err)
 	}
 	if err := s.recordFileSkillChange(ctx, nil, created.Skill, "create", ReflectSkillCreatedBy, changelog); err != nil {
 		return created.Skill, fmt.Errorf("%w: record Reflect create: %w", home.ErrOutcomeUnknown, err)
@@ -155,9 +162,15 @@ func (s *FileStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in Refl
 	if in.MainFileContent != nil {
 		patch.Files[MainFile] = *in.MainFileContent
 	}
+	if err := agentrun.Check(ctx); err != nil {
+		return Skill{}, err
+	}
 	updatedBefore, updated, err := s.updateFileSkill(ctx, patch)
 	if err != nil {
 		return Skill{}, err
+	}
+	if err := agentrun.Check(ctx); err != nil {
+		return updated.Skill, fmt.Errorf("%w: Reflect patch ownership changed: %w", home.ErrOutcomeUnknown, err)
 	}
 	if err := s.recordFileSkillChange(ctx, &updatedBefore.Skill, updated.Skill, "patch", ReflectSkillCreatedBy, changelog); err != nil {
 		return updated.Skill, fmt.Errorf("%w: record Reflect patch: %w", home.ErrOutcomeUnknown, err)
@@ -200,6 +213,9 @@ func (s *FileStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in Ref
 		return Skill{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return Skill{}, err
+	}
 	q := s.q.WithTx(tx)
 	if err := verifyReflectDeleteUsageQ(ctx, q, in); err != nil {
 		return Skill{}, err
@@ -257,8 +273,15 @@ func (s *FileStore) TouchReflectSkillRuntimeUseDigest(ctx context.Context, id, u
 	if latest.Writer != ReflectSkillCreatedBy || latest.Action == "delete" || latest.UserID != userID || latest.AgentID != agentID || latest.ContentDigest != digest {
 		return nil
 	}
-	_, err = s.q.TouchReflectSkillRuntimeUse(ctx, sqlc.TouchReflectSkillRuntimeUseParams{SkillID: id, UserID: userID, AgentID: agentID, ContentDigest: pgtype.Text{String: digest, Valid: true}})
-	return err
+	tx, qtx, err := s.beginReflectWriteTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := qtx.TouchReflectSkillRuntimeUse(ctx, sqlc.TouchReflectSkillRuntimeUseParams{SkillID: id, UserID: userID, AgentID: agentID, ContentDigest: pgtype.Text{String: digest, Valid: true}}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *FileStore) ListSkillChangelogBySkill(ctx context.Context, skillID string, limit int) ([]SkillChangelog, error) {
@@ -277,16 +300,30 @@ func (s *FileStore) ListSkillChangelogBySkill(ctx context.Context, skillID strin
 }
 
 func (s *FileStore) recordFileSkillChange(ctx context.Context, before *Skill, after Skill, action, writer string, metadata json.RawMessage) error {
-	tx, err := s.db.Begin(ctx)
+	tx, q, err := s.beginReflectWriteTx(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	q := s.q.WithTx(tx)
 	if err := recordFileSkillChangeQ(ctx, q, before, after, action, writer, metadata); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *FileStore) beginReflectWriteTx(ctx context.Context) (pgx.Tx, *sqlc.Queries, error) {
+	if s == nil || s.db == nil || s.q == nil {
+		return nil, nil, ErrManagedSkillsUnavailable
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, nil, err
+	}
+	return tx, s.q.WithTx(tx), nil
 }
 
 func recordFileSkillChangeQ(ctx context.Context, q *sqlc.Queries, before *Skill, after Skill, action, writer string, metadata json.RawMessage) error {

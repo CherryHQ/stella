@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/event"
@@ -273,11 +274,26 @@ func (b *Bot) handleIncoming(authorID, groupID, msgID string, incoming channel.I
 		return
 	}
 
+	defer stream.Discard()
+	outcome := channel.EgressDelivered
+	defer func() {
+		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(b.ctx), 5*time.Second)
+		defer cancelAck()
+		if ackErr := stream.Ack(ackCtx, outcome); ackErr != nil {
+			logger().Warn("acknowledge QQ egress failed", "author", authorID, "error", ackErr)
+		}
+	}()
+
 	logger().Debug("message received", "author", authorID, "session", stream.SessionID)
 
-	response, images, streamErr := b.streamResponse(stream.Events, authorID, groupID, msgID, scope)
+	if err := stream.CheckOperation(b.ctx); err != nil {
+		outcome = channel.EgressDiscarded
+		return
+	}
+	response, images, streamErr := b.streamResponse(b.ctx, stream, authorID, groupID, msgID, scope)
 
 	if streamErr != nil {
+		outcome = channel.EgressOutcomeForError(streamErr)
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
 		if response == "" {
 			response = fmt.Sprintf("Agent error: %v", streamErr)
@@ -290,7 +306,11 @@ func (b *Bot) handleIncoming(authorID, groupID, msgID string, incoming channel.I
 		response = "(empty response)"
 	}
 
-	b.sendFinalResponse(replyTarget, msgID, response, scope)
+	if err := b.sendFinalResponse(b.ctx, stream, replyTarget, msgID, response, scope); err != nil {
+		outcome = channel.EgressOutcomeForError(err)
+		logger().Error("send final response failed", "error", err)
+		return
+	}
 
 	for _, img := range images {
 		b.sendImage(replyTarget, msgID, img, scope)

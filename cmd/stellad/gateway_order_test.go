@@ -56,6 +56,12 @@ func runServerCallLines(t *testing.T) map[string]int {
 					record("riverClient.Start", line)
 				}
 			}
+			// AgentRun maintenance also has Run, but does not admit ingress.
+			if fun.Sel.Name == "Run" {
+				if receiver, ok := fun.X.(*ast.Ident); ok && receiver.Name == "groupDispatcher" {
+					record("groupDispatcher.Run", line)
+				}
+			}
 			record(fun.Sel.Name, line) // SetAuthService, StartDispatchTick, StartBackfill, Run, Serve
 		}
 		return true
@@ -119,7 +125,7 @@ func TestRunServerStartsBackendsBeforeIngress(t *testing.T) {
 	mediaSweep := mustHave("StartOrphanSweep")
 
 	// Ingress sources.
-	groupRun := mustHave("Run")                        // groupDispatcher.Run (first Run in source)
+	groupRun := mustHave("groupDispatcher.Run")        // actual group ingress, not lease maintenance
 	channels := mustHave("applyManagedChannelPlugins") // managed channel startup
 	serve := mustHave("Serve")                         // httpSrv.Serve
 

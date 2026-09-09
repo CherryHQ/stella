@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	modelcatalog "github.com/CherryHQ/stella/internal/model/catalog"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
@@ -64,6 +65,9 @@ func (s *DBStore) SetAgentSkillPolicy(ctx context.Context, agentID, ref string, 
 		return skillpolicy.Policy{}, fmt.Errorf("begin AgentSkillPolicy mutation: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // successful commit makes rollback inert
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return skillpolicy.Policy{}, fmt.Errorf("validate AgentSkillPolicy mutation: %w", err)
+	}
 	qtx := s.q.WithTx(tx)
 	raw, err := qtx.GetAgentSkillPolicyForUpdate(ctx, agentID)
 	if err != nil {
@@ -167,12 +171,14 @@ func (s *DBStore) CreateProvider(ctx context.Context, p config.Provider) error {
 	if err != nil {
 		return fmt.Errorf("create provider %q: marshal config: %w", p.ID, err)
 	}
-	if _, err := s.q.CreateProvider(ctx, sqlc.CreateProviderParams{
-		ID:      p.ID,
-		Type:    providerType(p),
-		Name:    providerName(p),
-		Enabled: p.Enabled,
-		Config:  configJSON,
+	if _, err := agentrun.WriteTxValue(ctx, s.pool, func(q *sqlc.Queries) (sqlc.Provider, error) {
+		return q.CreateProvider(ctx, sqlc.CreateProviderParams{
+			ID:      p.ID,
+			Type:    providerType(p),
+			Name:    providerName(p),
+			Enabled: p.Enabled,
+			Config:  configJSON,
+		})
 	}); err != nil {
 		return fmt.Errorf("create provider %q: %w", p.ID, err)
 	}
@@ -184,12 +190,14 @@ func (s *DBStore) UpdateProvider(ctx context.Context, p config.Provider) error {
 	if err != nil {
 		return fmt.Errorf("update provider %q: marshal config: %w", p.ID, err)
 	}
-	if err := s.q.UpdateProvider(ctx, sqlc.UpdateProviderParams{
-		Type:    providerType(p),
-		Name:    providerName(p),
-		Enabled: p.Enabled,
-		Config:  configJSON,
-		ID:      p.ID,
+	if err := agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error {
+		return q.UpdateProvider(ctx, sqlc.UpdateProviderParams{
+			Type:    providerType(p),
+			Name:    providerName(p),
+			Enabled: p.Enabled,
+			Config:  configJSON,
+			ID:      p.ID,
+		})
 	}); err != nil {
 		return fmt.Errorf("update provider %q: %w", p.ID, err)
 	}
@@ -197,7 +205,7 @@ func (s *DBStore) UpdateProvider(ctx context.Context, p config.Provider) error {
 }
 
 func (s *DBStore) DeleteProvider(ctx context.Context, id string) error {
-	return s.q.DeleteProvider(ctx, id)
+	return agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error { return q.DeleteProvider(ctx, id) })
 }
 
 func (s *DBStore) UpdateProviderIfVersion(ctx context.Context, p config.Provider, version string) (bool, error) {
@@ -209,9 +217,11 @@ func (s *DBStore) UpdateProviderIfVersion(ctx context.Context, p config.Provider
 	if err != nil {
 		return false, fmt.Errorf("update provider %q: marshal config: %w", p.ID, err)
 	}
-	rows, err := s.q.UpdateProviderIfVersion(ctx, sqlc.UpdateProviderIfVersionParams{
-		Type: providerType(p), Name: providerName(p), Enabled: p.Enabled, Config: configJSON,
-		ID: p.ID, ExpectedUpdatedAt: updatedAt,
+	rows, err := agentrun.WriteTxValue(ctx, s.pool, func(q *sqlc.Queries) (int64, error) {
+		return q.UpdateProviderIfVersion(ctx, sqlc.UpdateProviderIfVersionParams{
+			Type: providerType(p), Name: providerName(p), Enabled: p.Enabled, Config: configJSON,
+			ID: p.ID, ExpectedUpdatedAt: updatedAt,
+		})
 	})
 	if err != nil {
 		return false, fmt.Errorf("update provider %q: %w", p.ID, err)
@@ -224,7 +234,9 @@ func (s *DBStore) DeleteProviderIfVersion(ctx context.Context, id, version strin
 	if err != nil {
 		return false, fmt.Errorf("parse provider version: %w", err)
 	}
-	rows, err := s.q.DeleteProviderIfVersion(ctx, sqlc.DeleteProviderIfVersionParams{ID: id, ExpectedUpdatedAt: updatedAt})
+	rows, err := agentrun.WriteTxValue(ctx, s.pool, func(q *sqlc.Queries) (int64, error) {
+		return q.DeleteProviderIfVersion(ctx, sqlc.DeleteProviderIfVersionParams{ID: id, ExpectedUpdatedAt: updatedAt})
+	})
 	if err != nil {
 		return false, fmt.Errorf("delete provider %q: %w", id, err)
 	}
@@ -259,9 +271,11 @@ func (s *DBStore) ReplaceCachedModels(ctx context.Context, providerID string, mo
 	if err != nil {
 		return fmt.Errorf("replace cached models %q: marshal: %w", providerID, err)
 	}
-	if err := s.q.UpsertProviderModelsCache(ctx, sqlc.UpsertProviderModelsCacheParams{
-		ProviderID: providerID,
-		Models:     data,
+	if err := agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error {
+		return q.UpsertProviderModelsCache(ctx, sqlc.UpsertProviderModelsCacheParams{
+			ProviderID: providerID,
+			Models:     data,
+		})
 	}); err != nil {
 		return fmt.Errorf("replace cached models %q: %w", providerID, err)
 	}
@@ -280,8 +294,10 @@ func (s *DBStore) GetModelCatalog(ctx context.Context) (modelcatalog.SnapshotRec
 
 // UpsertModelCatalog stores a synchronized models.dev snapshot.
 func (s *DBStore) UpsertModelCatalog(ctx context.Context, record modelcatalog.SnapshotRecord) error {
-	if err := s.q.UpsertModelCatalog(ctx, sqlc.UpsertModelCatalogParams{
-		Payload: record.Payload, Etag: record.ETag, SyncedAt: record.SyncedAt.UTC(),
+	if err := agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error {
+		return q.UpsertModelCatalog(ctx, sqlc.UpsertModelCatalogParams{
+			Payload: record.Payload, Etag: record.ETag, SyncedAt: record.SyncedAt.UTC(),
+		})
 	}); err != nil {
 		return fmt.Errorf("upsert model catalog: %w", err)
 	}
@@ -369,7 +385,7 @@ func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.q.CreateAgent(ctx, params); err != nil {
+	if _, err := agentrun.WriteTxValue(ctx, s.pool, func(q *sqlc.Queries) (sqlc.Agent, error) { return q.CreateAgent(ctx, params) }); err != nil {
 		return fmt.Errorf("create agent %q: %w", params.ID, err)
 	}
 	return nil
@@ -426,22 +442,24 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 	if err != nil {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
 	}
-	err = s.q.UpdateAgent(ctx, sqlc.UpdateAgentParams{
-		ID:                         a.ID,
-		Name:                       a.Name,
-		Model:                      a.Model,
-		ModelThinking:              a.ModelThinking,
-		ModelStrong:                a.ModelStrong,
-		ModelStrongThinking:        a.ModelStrongThinking,
-		ModelFast:                  a.ModelFast,
-		ModelFastThinking:          a.ModelFastThinking,
-		SystemPrompt:               a.SystemPrompt,
-		Soul:                       a.Soul,
-		Workspace:                  a.Workspace,
-		Sandbox:                    sandboxJSON,
-		Scope:                      scope,
-		Enabled:                    a.Enabled,
-		SystemSettingsToolsEnabled: a.SystemSettingsToolsEnabled,
+	err = agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error {
+		return q.UpdateAgent(ctx, sqlc.UpdateAgentParams{
+			ID:                         a.ID,
+			Name:                       a.Name,
+			Model:                      a.Model,
+			ModelThinking:              a.ModelThinking,
+			ModelStrong:                a.ModelStrong,
+			ModelStrongThinking:        a.ModelStrongThinking,
+			ModelFast:                  a.ModelFast,
+			ModelFastThinking:          a.ModelFastThinking,
+			SystemPrompt:               a.SystemPrompt,
+			Soul:                       a.Soul,
+			Workspace:                  a.Workspace,
+			Sandbox:                    sandboxJSON,
+			Scope:                      scope,
+			Enabled:                    a.Enabled,
+			SystemSettingsToolsEnabled: a.SystemSettingsToolsEnabled,
+		})
 	})
 	if err != nil {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
@@ -456,7 +474,7 @@ func (s *DBStore) UpdateAgentIfVersion(ctx context.Context, a config.Agent, expe
 	if err != nil {
 		return "", err
 	}
-	updated, err := s.q.UpdateAgentIfVersion(ctx, params)
+	updated, err := agentrun.WriteTxValue(ctx, s.pool, func(q *sqlc.Queries) (time.Time, error) { return q.UpdateAgentIfVersion(ctx, params) })
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", config.ErrAgentVersionConflict
 	}
@@ -480,6 +498,9 @@ func (s *DBStore) UpdateAgentIfVersionAndAssignCreator(ctx context.Context, a co
 		return "", fmt.Errorf("begin conditional Agent scope update %q: %w", a.ID, err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // successful commit makes rollback inert
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return "", fmt.Errorf("validate conditional Agent scope update %q: %w", a.ID, err)
+	}
 	if err := txlock.AdvisoryXactLock(ctx, tx, txlock.AgentAssignmentLockKey(creatorID, a.ID)); err != nil {
 		return "", fmt.Errorf("lock creator assignment %q for Agent %q: %w", creatorID, a.ID, err)
 	}
@@ -528,7 +549,7 @@ func conditionalAgentUpdateParams(a config.Agent, expectedVersion string) (sqlc.
 }
 
 func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {
-	err := s.q.DeleteAgent(ctx, id)
+	err := agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error { return q.DeleteAgent(ctx, id) })
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && (pgErr.Code == "23001" || pgErr.Code == "23503") &&
 		(pgErr.ConstraintName == "webhook_agent_id_fkey" || pgErr.ConstraintName == "library_file_agent_id_fkey") {
@@ -579,26 +600,30 @@ func (s *DBStore) CreateChannel(ctx context.Context, ch config.Channel) error {
 		ch.ID = uuid.Must(uuid.NewV7()).String()
 	}
 	channelType := effectiveStoredChannelType(ch)
-	_, err := s.q.CreateChannel(ctx, sqlc.CreateChannelParams{
-		ID:      ch.ID,
-		Name:    ch.Name,
-		Type:    channelType,
-		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
-		Enabled: ch.Enabled,
-		Config:  ch.Config,
+	_, err := agentrun.WriteTxValue(ctx, s.pool, func(q *sqlc.Queries) (sqlc.Channel, error) {
+		return q.CreateChannel(ctx, sqlc.CreateChannelParams{
+			ID:      ch.ID,
+			Name:    ch.Name,
+			Type:    channelType,
+			AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
+			Enabled: ch.Enabled,
+			Config:  ch.Config,
+		})
 	})
 	return s.channelWriteError(ctx, ch, channelType, err)
 }
 
 func (s *DBStore) UpdateChannel(ctx context.Context, ch config.Channel) error {
 	channelType := effectiveStoredChannelType(ch)
-	_, err := s.q.UpdateChannel(ctx, sqlc.UpdateChannelParams{
-		ID:      ch.ID,
-		Name:    ch.Name,
-		Type:    channelType,
-		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
-		Enabled: ch.Enabled,
-		Config:  ch.Config,
+	_, err := agentrun.WriteTxValue(ctx, s.pool, func(q *sqlc.Queries) (sqlc.Channel, error) {
+		return q.UpdateChannel(ctx, sqlc.UpdateChannelParams{
+			ID:      ch.ID,
+			Name:    ch.Name,
+			Type:    channelType,
+			AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
+			Enabled: ch.Enabled,
+			Config:  ch.Config,
+		})
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return config.ErrChannelNotFound
@@ -640,7 +665,7 @@ func isChannelBindingViolation(err error) bool {
 }
 
 func (s *DBStore) DeleteChannel(ctx context.Context, id string) error {
-	return s.q.DeleteChannel(ctx, id)
+	return agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error { return q.DeleteChannel(ctx, id) })
 }
 
 // --- Plugins ---
@@ -694,12 +719,15 @@ func (s *DBStore) UpsertPlugin(ctx context.Context, p config.Plugin) error {
 	if err != nil {
 		return fmt.Errorf("marshal plugin config %q: %w", p.ID, err)
 	}
-	return s.q.UpsertPlugin(ctx, sqlc.UpsertPluginParams{
-		ID:      p.ID,
-		Kind:    p.Kind,
-		Name:    p.Name,
-		Enabled: p.Enabled,
-		Config:  configJSON,
+	return agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error {
+		err := q.UpsertPlugin(ctx, sqlc.UpsertPluginParams{
+			ID:      p.ID,
+			Kind:    p.Kind,
+			Name:    p.Name,
+			Enabled: p.Enabled,
+			Config:  configJSON,
+		})
+		return err
 	})
 }
 
@@ -713,11 +741,14 @@ func (s *DBStore) SetPluginEnabled(ctx context.Context, id string, enabled bool)
 	if err != nil {
 		return fmt.Errorf("set plugin enabled: %w", err)
 	}
-	return s.q.UpsertPluginEnabled(ctx, sqlc.UpsertPluginEnabledParams{
-		ID:      id,
-		Kind:    p.Kind,
-		Name:    p.Name,
-		Enabled: enabled,
+	return agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error {
+		err := q.UpsertPluginEnabled(ctx, sqlc.UpsertPluginEnabledParams{
+			ID:      id,
+			Kind:    p.Kind,
+			Name:    p.Name,
+			Enabled: enabled,
+		})
+		return err
 	})
 }
 
@@ -729,7 +760,10 @@ func (s *DBStore) SetNativePluginEnabled(ctx context.Context, id string, enabled
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return fmt.Errorf("invalid native plugin id %q", id)
 	}
-	err := s.q.UpsertPluginEnabled(ctx, sqlc.UpsertPluginEnabledParams{ID: id, Kind: parts[0], Name: parts[1], Enabled: enabled})
+	err := agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error {
+		err := q.UpsertPluginEnabled(ctx, sqlc.UpsertPluginEnabledParams{ID: id, Kind: parts[0], Name: parts[1], Enabled: enabled})
+		return err
+	})
 	return pluginpkg.ClassifyMutationError(err)
 }
 
@@ -753,7 +787,9 @@ func (s *DBStore) GetNativeAdmission(ctx context.Context, nativeID, agentID stri
 }
 
 func (s *DBStore) SetNativeAgentDeny(ctx context.Context, nativeID, agentID string) error {
-	inserted, err := s.q.SetNativeAgentDeny(ctx, sqlc.SetNativeAgentDenyParams{NativeID: nativeID, AgentID: agentID})
+	inserted, err := agentrun.WriteTxValue(ctx, s.pool, func(q *sqlc.Queries) (bool, error) {
+		return q.SetNativeAgentDeny(ctx, sqlc.SetNativeAgentDenyParams{NativeID: nativeID, AgentID: agentID})
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pluginpkg.ErrNativeAgentDenyExists
@@ -771,7 +807,9 @@ func (s *DBStore) SetNativeAgentDeny(ctx context.Context, nativeID, agentID stri
 }
 
 func (s *DBStore) DeleteNativeAgentDeny(ctx context.Context, nativeID, agentID string) error {
-	deleted, err := s.q.DeleteNativeAgentDeny(ctx, sqlc.DeleteNativeAgentDenyParams{NativeID: nativeID, AgentID: agentID})
+	deleted, err := agentrun.WriteTxValue(ctx, s.pool, func(q *sqlc.Queries) (bool, error) {
+		return q.DeleteNativeAgentDeny(ctx, sqlc.DeleteNativeAgentDenyParams{NativeID: nativeID, AgentID: agentID})
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pluginpkg.ErrNativeAgentNotFound
@@ -801,12 +839,15 @@ func (s *DBStore) SetChannelPluginConfig(ctx context.Context, id, kind, name str
 	if err != nil {
 		return fmt.Errorf("marshal plugin config %q: %w", id, err)
 	}
-	return s.q.UpsertPluginConfig(ctx, sqlc.UpsertPluginConfigParams{
-		ID:      id,
-		Kind:    kind,
-		Name:    name,
-		Enabled: true,
-		Config:  configJSON,
+	return agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error {
+		err := q.UpsertPluginConfig(ctx, sqlc.UpsertPluginConfigParams{
+			ID:      id,
+			Kind:    kind,
+			Name:    name,
+			Enabled: true,
+			Config:  configJSON,
+		})
+		return err
 	})
 }
 
@@ -819,17 +860,20 @@ func (s *DBStore) SetPluginConfig(ctx context.Context, id string, cfg map[string
 	if err != nil {
 		return fmt.Errorf("marshal plugin config %q: %w", id, err)
 	}
-	return s.q.UpsertPluginConfig(ctx, sqlc.UpsertPluginConfigParams{
-		ID:      id,
-		Kind:    p.Kind,
-		Name:    p.Name,
-		Enabled: p.Enabled,
-		Config:  configJSON,
+	return agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error {
+		err := q.UpsertPluginConfig(ctx, sqlc.UpsertPluginConfigParams{
+			ID:      id,
+			Kind:    p.Kind,
+			Name:    p.Name,
+			Enabled: p.Enabled,
+			Config:  configJSON,
+		})
+		return err
 	})
 }
 
 func (s *DBStore) DeletePlugin(ctx context.Context, id string) error {
-	return s.q.DeletePlugin(ctx, id)
+	return agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error { return q.DeletePlugin(ctx, id) })
 }
 
 // mergedPlugins returns builtins merged with DB overrides, optionally filtered.
@@ -904,11 +948,13 @@ func (s *DBStore) SetChatAgent(ctx context.Context, channelID, platform, chatID,
 	if channelID == "" {
 		channelID = platform
 	}
-	return s.q.UpsertChatAgent(ctx, sqlc.UpsertChatAgentParams{
-		ChannelID: channelID,
-		Platform:  platform,
-		ChatID:    chatID,
-		AgentID:   agentID,
+	return agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error {
+		return q.UpsertChatAgent(ctx, sqlc.UpsertChatAgentParams{
+			ChannelID: channelID,
+			Platform:  platform,
+			ChatID:    chatID,
+			AgentID:   agentID,
+		})
 	})
 }
 
@@ -916,10 +962,12 @@ func (s *DBStore) DeleteChatAgent(ctx context.Context, channelID, platform, chat
 	if channelID == "" {
 		channelID = platform
 	}
-	return s.q.DeleteChatAgent(ctx, sqlc.DeleteChatAgentParams{
-		ChannelID: channelID,
-		Platform:  platform,
-		ChatID:    chatID,
+	return agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error {
+		return q.DeleteChatAgent(ctx, sqlc.DeleteChatAgentParams{
+			ChannelID: channelID,
+			Platform:  platform,
+			ChatID:    chatID,
+		})
 	})
 }
 
@@ -937,16 +985,20 @@ func (s *DBStore) GetSetting(ctx context.Context, key string) (string, error) {
 }
 
 func (s *DBStore) SetSetting(ctx context.Context, key, value string) error {
-	return s.q.UpsertSetting(ctx, sqlc.UpsertSettingParams{
-		Key:   key,
-		Value: value,
+	return agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error {
+		return q.UpsertSetting(ctx, sqlc.UpsertSettingParams{
+			Key:   key,
+			Value: value,
+		})
 	})
 }
 
 // SetSettingIfValue is the narrow compare-and-set port for Settings tools.
 // Other transports retain their existing unconditional SetSetting contract.
 func (s *DBStore) SetSettingIfValue(ctx context.Context, key, expectedValue, value string) (bool, error) {
-	rows, err := s.q.UpsertSettingIfValue(ctx, sqlc.UpsertSettingIfValueParams{Key: key, ExpectedValue: expectedValue, Value: value})
+	rows, err := agentrun.WriteTxValue(ctx, s.pool, func(q *sqlc.Queries) (int64, error) {
+		return q.UpsertSettingIfValue(ctx, sqlc.UpsertSettingIfValueParams{Key: key, ExpectedValue: expectedValue, Value: value})
+	})
 	if err != nil {
 		return false, fmt.Errorf("set setting %q if unchanged: %w", key, err)
 	}

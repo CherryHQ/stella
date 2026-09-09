@@ -58,37 +58,69 @@ func (b *Bot) deliverPlainText(ctx context.Context, chatID, replyTo, rootID, tex
 // attempt reports a terminal failure; earlier attempts remain invisible while
 // the outbox retries them.
 func (b *Bot) sendFinalResponseInThread(ctx context.Context, chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup, reportFailure bool) error {
-	return b.sendFinalResponseInThreadWithOptions(ctx, chatID, replyMsgID, rootID, sentMsgID, response, refs, isGroup, reportFailure, cardStatusCompleted, "")
+	return b.sendFinalResponseInThreadWithCheck(ctx, nil, chatID, replyMsgID, rootID, sentMsgID, response, refs, isGroup, reportFailure, cardStatusCompleted, "")
 }
 
-func (b *Bot) sendFinalResponseInThreadWithOptions(ctx context.Context, chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup, reportFailure bool, status cardStatus, deliveryKey string) error {
+func (b *Bot) sendFinalResponseInThreadChecked(ctx context.Context, stream *channel.ChatStream, chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup, reportFailure bool) error {
+	var check func(context.Context) error
+	if stream != nil {
+		check = stream.CheckOperation
+	}
+	return b.sendFinalResponseInThreadWithCheck(ctx, check, chatID, replyMsgID, rootID, sentMsgID, response, refs, isGroup, reportFailure, cardStatusCompleted, "")
+}
+
+func (b *Bot) sendFinalResponseInThreadWithCheck(ctx context.Context, check func(context.Context) error, chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup, reportFailure bool, status cardStatus, deliveryKey string) error {
+	checkBeforeSend := func() error {
+		if check == nil {
+			return nil
+		}
+		return check(ctx)
+	}
 	replyTo := threadReplyTarget(replyMsgID, rootID)
 	response = appendReferenceSection(response, refs, isGroup)
 	chunks := splitCardText(response, status)
 	streamUUID := stableDeliveryUUID(b.Name(), chatID, replyTo, deliveryKey, "stream-card")
 
 	if sentMsgID != "" {
+		if err := checkBeforeSend(); err != nil {
+			return err
+		}
 		if err := b.patchMessageForStatus(ctx, sentMsgID, chunks[0], status); err != nil {
 			if errors.Is(err, errCardContentBuild) {
 				logger().Error("final card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
+				if checkErr := checkBeforeSend(); checkErr != nil {
+					return checkErr
+				}
 				return b.deliverPlainText(ctx, chatID, replyTo, rootID, response)
 			}
 			if reportFailure {
+				if checkErr := checkBeforeSend(); checkErr != nil {
+					return checkErr
+				}
 				b.reportDeliveryFailure(ctx, chatID, rootID, replyTo, sentMsgID, err)
 			}
 			return fmt.Errorf("patch final response: %w", err)
 		}
 		for i, chunk := range chunks[1:] {
+			if err := checkBeforeSend(); err != nil {
+				return err
+			}
 			chunkUUID := stableDeliveryUUID(streamUUID, fmt.Sprintf("overflow-%d", i+1))
 			if _, err := b.deliverCardWithOptions(ctx, chatID, replyTo, chunk, rootID != "", status, chunkUUID); err != nil {
 				if errors.Is(err, errCardContentBuild) {
 					logger().Error("overflow card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
+					if checkErr := checkBeforeSend(); checkErr != nil {
+						return checkErr
+					}
 					if fallbackErr := b.deliverPlainText(ctx, chatID, replyTo, rootID, chunk); fallbackErr != nil {
 						return fmt.Errorf("send overflow plain-text fallback: %w", fallbackErr)
 					}
 					continue
 				}
 				if reportFailure {
+					if checkErr := checkBeforeSend(); checkErr != nil {
+						return checkErr
+					}
 					// The initial card already contains the first chunk. Append the
 					// failure notice instead of overwriting delivered content.
 					b.reportDeliveryFailure(ctx, chatID, rootID, replyTo, "", err)
@@ -100,6 +132,9 @@ func (b *Bot) sendFinalResponseInThreadWithOptions(ctx context.Context, chatID, 
 	}
 
 	for i, chunk := range chunks {
+		if err := checkBeforeSend(); err != nil {
+			return err
+		}
 		chunkUUID := stableDeliveryUUID(streamUUID, fmt.Sprintf("chunk-%d", i))
 		if i == 0 {
 			chunkUUID = streamUUID
@@ -108,12 +143,18 @@ func (b *Bot) sendFinalResponseInThreadWithOptions(ctx context.Context, chatID, 
 		if err != nil {
 			if errors.Is(err, errCardContentBuild) {
 				logger().Error("final card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
+				if checkErr := checkBeforeSend(); checkErr != nil {
+					return checkErr
+				}
 				if fallbackErr := b.deliverPlainText(ctx, chatID, replyTo, rootID, chunk); fallbackErr != nil {
 					return fmt.Errorf("send final plain-text fallback: %w", fallbackErr)
 				}
 				continue
 			}
 			if reportFailure {
+				if checkErr := checkBeforeSend(); checkErr != nil {
+					return checkErr
+				}
 				b.reportDeliveryFailure(ctx, chatID, rootID, replyTo, "", err)
 			}
 			return fmt.Errorf("send final response: %w", err)
@@ -121,6 +162,9 @@ func (b *Bot) sendFinalResponseInThreadWithOptions(ctx context.Context, chatID, 
 		if i == 0 && messageID != "" && deliveryKey != "" {
 			// A retry may have recovered the ID of an earlier Thinking card with
 			// the same UUID. Patch once so its content is terminal either way.
+			if err := checkBeforeSend(); err != nil {
+				return err
+			}
 			if err := b.patchMessageForStatus(ctx, messageID, chunk, status); err != nil {
 				return fmt.Errorf("finalize recovered response: %w", err)
 			}
@@ -143,12 +187,18 @@ func (b *Bot) reportDeliveryFailure(ctx context.Context, chatID, rootID, replyTo
 	logger().Error("Feishu response delivery failed", "chat_id", chatID, "root_id", rootID, "reply_to", replyTo, "error", deliveryErr)
 }
 
-// sendImageInThread sends an image in the correct thread context.
-func (b *Bot) sendImageInThread(chatID, replyMsgID, rootID string, img channel.ImageEvent) error {
-	return b.sendImage(chatID, threadReplyTarget(replyMsgID, rootID), img, rootID != "")
+func (b *Bot) sendImageInThreadChecked(ctx context.Context, stream *channel.ChatStream, chatID, replyMsgID, rootID string, img channel.ImageEvent) error {
+	var check func(context.Context) error
+	if stream != nil {
+		check = stream.CheckOperation
+	}
+	return b.sendImageWithCheck(ctx, check, chatID, threadReplyTarget(replyMsgID, rootID), img, rootID != "")
 }
 
-// sendFileInThread sends a file in the correct thread context.
-func (b *Bot) sendFileInThread(chatID, replyMsgID, rootID string, file channel.FileEvent) error {
-	return b.sendFile(chatID, threadReplyTarget(replyMsgID, rootID), file, rootID != "")
+func (b *Bot) sendFileInThreadChecked(ctx context.Context, stream *channel.ChatStream, chatID, replyMsgID, rootID string, file channel.FileEvent) error {
+	var check func(context.Context) error
+	if stream != nil {
+		check = stream.CheckOperation
+	}
+	return b.sendFileWithCheck(ctx, check, chatID, threadReplyTarget(replyMsgID, rootID), file, rootID != "")
 }

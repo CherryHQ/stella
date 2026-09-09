@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/plugin"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -102,6 +103,10 @@ func (p *ToolProvider) ToolsForFileSession(ctx context.Context, session *FileSes
 		if item.reg.ID == "" {
 			continue
 		}
+		if err := agentrun.Check(discoveryCtx); err != nil {
+			item.status, item.reason = fileMCPStatus(err)
+			continue
+		}
 		conn, err := session.borrow(discoveryCtx, item.reg, authority)
 		if err != nil {
 			item.status, item.reason = fileMCPStatus(err)
@@ -112,9 +117,19 @@ func (p *ToolProvider) ToolsForFileSession(ctx context.Context, session *FileSes
 			item.status, item.reason = fileMCPStatus(err)
 			continue
 		}
+		if err := agentrun.Check(discoveryCtx); err != nil {
+			item.status, item.reason = fileMCPStatus(err)
+			_ = conn.close()
+			continue
+		}
 		remote, err := client.ListTools(discoveryCtx)
 		if err != nil {
 			item.status, item.reason = fileMCPStatus(err)
+			continue
+		}
+		if err := agentrun.Check(discoveryCtx); err != nil {
+			item.status, item.reason = fileMCPStatus(err)
+			_ = conn.close()
 			continue
 		}
 		catalog := make([]CatalogTool, 0, len(remote))

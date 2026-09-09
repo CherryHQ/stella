@@ -94,7 +94,7 @@ Runtime 拥有每一轮执行流程：
 13. 处理 timeout notice 和错误
 14. 执行 post-agent hooks
 
-Runtime 也强制同一个 session 同一时间只能有一个 active turn。第二个并发 chat 会返回 `ErrSessionBusy`，避免 transcript 交错写入。
+Runtime 在准备已受理回合前获取 PostgreSQL `AgentRun`。部分唯一索引保证每个 Session 最多有一个 running Run；第二个并发 admission 返回 `ErrSessionBusy`。进程内 active map 继续用于快速拒绝和本地取消。
 
 ### `memory.Provider`
 
@@ -164,7 +164,7 @@ Session kind 描述 session 为什么存在。Channel 描述 session 从哪里�
 
 Typed resume 必须验证 kind。即使 ID 一样，scheduler run 也不能恢复 delegate session。Channel session 虽然 key 是 trusted，也必须要求 `KindChat`。
 
-所有 kind 都接受人工消息。Web UI 可以像给 `chat` session 发消息一样，给 `delegate`、`task`、`scheduler` session 发消息。人工入口直接竞争 runtime guard。Agent 发起的 `session_create` 和 `session_send` 输入会先写入持久 Session inbox，再经过有界的进程内 FIFO 以保证公平，最后进入同一个 runtime admission guard。在正常的输入追加点，LCM 会在同一事务中认领 inbox 行并写入 transcript 消息。该 guard 仍是一 Session 单活跃回合的正确性边界。
+所有 kind 都接受人工消息。Web UI 可以像给 `chat` Session 发消息一样，给 `delegate`、`task`、`scheduler` Session 发消息。所有入口获取同一套 `AgentRun` 租约。Agent 发起的 Session 输入在持久 inbox 中保留精确来源、目标和 actor；实时受理在同一事务中将 receipt 关联到最多一个目标 Run 并写入输入。有界本地 FIFO 会等待 busy owner；排队超时、无 capacity 和 admission 前取消只留下 failed、未关联的 receipt。
 
 ## ID trust model
 
@@ -215,11 +215,19 @@ Chat timeout 是可恢复停止，不是硬失败。Runtime 会持久化并 stre
 
 ### Concurrency
 
-Runtime 对每个 Session 最多允许一个 active turn。admission 竞争失败时，它会在写入对话记录之前返回 `ErrSessionBusy`。人工入口直接处理该结果。Agent 发起的 Session 发送会在 admission 前增加一层公平机制：进程内 FIFO 的等待深度为 32，admission 等待上限为 30 秒。来源 context 会取消排队中和已 admission 的工作。在 transcript 投递前取消会原子终结 inbox 行；投递后取消则保留历史输入并停止实时 turn。FIFO 会轮询忙碌 guard，但正确性仍由 runtime admission 保证。
+Agent 发起的发送保留进程内 FIFO，最多 32 条待处理输入，admission 等待上限为 30 秒。它轮询 busy admission，不重放已经受理的 Run。来源 deadline 和取消覆盖排队等待及嵌套回合。
 
-Stella 启动时会重新鉴权 pending inbox 行，并按入队顺序把有效输入追加到目标 transcript。恢复过程绝不会启动模型或工具 turn，因此这里保证的是持久消息投递，而不是持久 Agent 执行或回复投递。transcript 已提交后崩溃可能留下一个无人回复的 Agent 输入，但不会重放工具副作用。
+每次进程启动都会生成新的 executor identity。Run 在整个生命周期内属于同一次启动。heartbeat、abort、completion 和 expiry 使用 PostgreSQL 时间与条件更新。过期 Run 进入 interrupted，其他 executor 不能续租、接管或恢复它。
 
-#643 在 #637 下跟踪集群级序列化。该工作会用共享 Session turn lease 替换所有进程内 admission guard。Agent 发送 FIFO 必须保持为该边界前的本地公平优化。
+Run 所属的数据库写入在业务变更的同一事务中校验 Run ID、executor boot、running 状态、abort 状态和租约。在开启事务前检查并不足够，因为另一个 executor 可能在检查与提交之间终结 Run。标记 Session 已读等经过授权的展示状态写入仍独立于执行权。
+
+abort intent 与 completion 在 PostgreSQL 中竞争，获胜的终态转换在同一事务中记录 Run 结果和 Session turn activity。因此正常 Stop 会持久化 `canceled`，旧 executor 也不能覆盖后继回合的 activity。
+
+模型 EOF 允许来源适配器完成收尾。仍需外发或记录来源业务结果的适配器会继续持有租约，在操作完成后明确确认结果。确认丢失或结果无法判断时记为 unknown，AgentRun 恢复不会重新执行该回合。渠道持久发布及其恢复策略仍属于 #1035 跟踪的渠道要求。
+
+已关联 inbox 的恢复只跟随 Run 终态，不调用模型或工具。启动恢复可以重新鉴权并追加 legacy 或未关联 receipt，但不能为它们创建新 Run。崩溃可能留下已受理却没有回复的输入；自动重放会带来重复工具调用或外发副作用。
+
+部署仍限制为单副本。#1035 继续跟踪 compute generation、持久渠道、入口领导权和远程订阅要求；#637 还要求共享存储就绪后才能开放多副本。
 
 ### 实时事件扇出
 
@@ -298,6 +306,7 @@ parent runner executes session_create / session_send
     -> Service.Delegate
     -> Registry 创建生成的 delegate session 或恢复已有 delegate session
     -> per-Session FIFO fairness
+    -> 原子 inbox receipt / AgentRun admission
     -> Runtime.ChatAdmitted
 ```
 

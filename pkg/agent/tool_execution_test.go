@@ -34,6 +34,91 @@ func TestToolExecution(t *testing.T) {
 	}
 }
 
+func TestToolExecutionChecksOwnershipBeforeEachDispatch(t *testing.T) {
+	lost := false
+	ownershipErr := errors.New("ownership lost")
+	ctx := WithOperationCheck(context.Background(), func(context.Context) error {
+		if lost {
+			return ownershipErr
+		}
+		return nil
+	})
+	executed := 0
+	tools := ToolSet{
+		"effect": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			executed++
+			lost = true
+			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+		},
+	}
+	results, err := executeToolCalls(ctx, []ai.ToolCall{
+		{ID: "first", Name: "effect"},
+		{ID: "second", Name: "effect"},
+	}, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
+	if !errors.Is(err, ownershipErr) {
+		t.Fatalf("error = %v, want ownership loss", err)
+	}
+	if executed != 1 {
+		t.Fatalf("tool executions = %d, want 1", executed)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want first result only", len(results))
+	}
+}
+
+func TestToolExecutionRebindsOperationContextAfterHook(t *testing.T) {
+	type guardKey struct{}
+	ownershipErr := errors.New("ownership lost")
+	lost := false
+	preCalls := 0
+	executed := 0
+
+	engineCtx := context.WithValue(context.Background(), guardKey{}, "bound")
+	ctx := WithOperationContext(engineCtx, func(ctx context.Context) error {
+		if lost {
+			return ownershipErr
+		}
+		if got := ctx.Value(guardKey{}); got != "bound" {
+			t.Fatalf("operation check context value = %v, want bound", got)
+		}
+		return nil
+	}, func(ctx context.Context) context.Context {
+		return context.WithValue(ctx, guardKey{}, "bound")
+	})
+	hs := hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
+		pre: func(context.Context, *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+			preCalls++
+			if preCalls == 2 {
+				// The operation expires while the hook is running. The handler must
+				// not receive a chance to create a side effect afterward.
+				lost = true
+			}
+			return hooks.PreToolCallResult{Context: context.Background()}, nil
+		},
+		post: func(context.Context, *hooks.PostToolCallContext) {},
+	}})
+	tools := ToolSet{
+		"effect": func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
+			executed++
+			if got := ctx.Value(guardKey{}); got != "bound" {
+				t.Fatalf("tool context value = %v, want bound", got)
+			}
+			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+		},
+	}
+
+	results, err := executeToolCalls(ctx, []ai.ToolCall{
+		{ID: "first", Name: "effect"},
+		{ID: "second", Name: "effect"},
+	}, tools, toolCallbacks{}, hs, hooks.HookMeta{}, nil, nil)
+	if !errors.Is(err, ownershipErr) {
+		t.Fatalf("error = %v, want ownership loss", err)
+	}
+	if executed != 1 || len(results) != 1 {
+		t.Fatalf("executed=%d results=%d, want one completed tool before the lost fence", executed, len(results))
+	}
+}
+
 func TestToolExecutionToolError(t *testing.T) {
 	calls := []ai.ToolCall{{ID: "1", Name: "fail"}}
 	tools := ToolSet{

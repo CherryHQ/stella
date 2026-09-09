@@ -13,9 +13,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/platform/observability"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/runcontrol"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -127,7 +130,7 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 		if r := recover(); r != nil {
 			w.log.Error("worker executor panicked", "goal_id", goalID, "attempt_id", attemptID, "error.type", fmt.Sprintf("%T", r), "error.class", "executor_panic")
 			observability.ConsoleOnlyLogger().Error("worker executor panic detail", "goal_id", goalID, "attempt_id", attemptID, "panic", r)
-			w.failAttempt(goalID, attemptID, fmt.Sprintf("executor panic: %v", r), FailureClassEnvironment, BlockEnvUnavailable)
+			_ = w.failAttempt(context.WithoutCancel(ctx), goalID, attemptID, fmt.Sprintf("executor panic: %v", r), FailureClassEnvironment, BlockEnvUnavailable)
 			err = fmt.Errorf("executor panic: %v", r)
 		}
 	}()
@@ -148,20 +151,41 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 		if errors.Is(eerr, context.Canceled) || errors.Is(eerr, context.DeadlineExceeded) {
 			return eerr
 		}
-		// The executor encodes outcomes in its Result; a returned error is
-		// unexpected. Record it as a failed attempt so convergence can recover.
 		w.log.Warn("worker: executor returned error", "goal_id", goalID, "attempt_id", attemptID, "error.type", fmt.Sprintf("%T", eerr), "error.class", "worker_executor_error")
-		res = ExecutorResult{Failed: true, FailReason: fmt.Sprintf("executor error: %v", eerr), FailureClass: FailureClassFlaky}
+		failureClass, blockedBy := runnerFailureClass(eerr)
+		res = ExecutorResult{Failed: true, FailReason: fmt.Sprintf("executor error: %v", eerr), FailureClass: failureClass, BlockedBy: blockedBy}
 	}
-	return w.applyResult(ctx, goalID, goal, att, actor, res, checksRan, checkErr)
+	if att.Purpose == PurposeDecomposition {
+		// A decomposition repair acknowledges one AgentRun before admitting the
+		// next planning turn. Keep the repair loop on the unbound worker context;
+		// each individual result binds its own completion fence below. Otherwise a
+		// failed admission for the next repair would leave the loop carrying the
+		// already-terminal first Run's guard and strand the goal attempt.
+		return w.applyDecompositionResult(context.WithoutCancel(ctx), goal, att, res)
+	}
+	applyCtx := context.WithoutCancel(ctx)
+	if res.completion != nil && res.completion.Bound() {
+		var bindErr error
+		applyCtx, bindErr = res.completion.Context(applyCtx)
+		if bindErr != nil {
+			return fmt.Errorf("worker: bind AgentRun completion fence: %w", bindErr)
+		}
+	}
+	applyErr := w.applyResult(applyCtx, goalID, goal, att, actor, res, checksRan, checkErr)
+	if res.completion == nil {
+		return applyErr
+	}
+	ackErr := ackAgentRun(res.completion, applyCtx, completionOutcome(applyErr))
+	if ackErr != nil {
+		return errors.Join(applyErr, fmt.Errorf("ack goal AgentRun completion: %w", ackErr))
+	}
+	return applyErr
 }
 
 // applyResult maps the executor's Result to the SINGLE durable transition. A
 // fresh context is used so the outcome is recorded even if the dispatch context
 // was cancelled (e.g. on shutdown).
 func (w *Worker) applyResult(ctx context.Context, goalID string, goal sqlc.AgentGoal, att sqlc.AgentGoalAttempt, actor Actor, res ExecutorResult, checksRan bool, checkErr error) error {
-	ctx = context.WithoutCancel(ctx)
-
 	switch {
 	case att.Purpose == PurposeDecomposition:
 		// A planner attempt has a different outcome shape (a plan, not an output)
@@ -189,8 +213,7 @@ func (w *Worker) applyResult(ctx context.Context, goalID string, goal sqlc.Agent
 			// goal 'active' on a pending item with no future event source
 			// (issue #543); fail the attempt so convergence retries within budget
 			// and ultimately blocks for a human if it persists.
-			w.failAttempt(goalID, att.ID, "deterministic check could not be evaluated: "+cerr.Error(), FailureClassEnvironment, BlockEnvUnavailable)
-			return nil //nolint:nilerr // failAttempt records the failure transition; applyResult succeeded
+			return w.failAttempt(ctx, goalID, att.ID, "deterministic check could not be evaluated: "+cerr.Error(), FailureClassEnvironment, BlockEnvUnavailable)
 		}
 		err := w.svc.Submit(ctx, att.ID, res.Evidence, res.Output)
 		if errors.Is(err, ErrInvalidEvidence) {
@@ -198,8 +221,7 @@ func (w *Worker) applyResult(ctx context.Context, goalID string, goal sqlc.Agent
 			// a goal failure: finalize this attempt as a retryable failure
 			// so convergence re-mints with the same budget.
 			reason := "submitted without a handoff summary"
-			w.failAttempt(goalID, att.ID, reason, FailureClassModel)
-			return nil
+			return w.failAttempt(ctx, goalID, att.ID, reason, FailureClassModel)
 		}
 		return err
 
@@ -213,16 +235,14 @@ func (w *Worker) applyResult(ctx context.Context, goalID string, goal sqlc.Agent
 		if reason == "" {
 			reason = "unspecified executor failure"
 		}
-		w.failAttempt(goalID, att.ID, reason, failureClassForResult(res), res.BlockedBy)
-		return nil
+		return w.failAttempt(ctx, goalID, att.ID, reason, failureClassForResult(res), res.BlockedBy)
 
 	default:
 		// The executor ran but reported neither submit nor fail (a protocol miss
 		// / silent exit). Treat as a failed attempt so the goal never
 		// strands with a live attempt that produced nothing.
 		w.log.Warn("worker: executor produced no action", "goal_id", goalID, "attempt_id", att.ID)
-		w.failAttempt(goalID, att.ID, "agent exited without submitting or failing", FailureClassModel)
-		return nil
+		return w.failAttempt(ctx, goalID, att.ID, "agent exited without submitting or failing", FailureClassModel)
 	}
 }
 
@@ -234,49 +254,112 @@ func (w *Worker) applyDecompositionResult(ctx context.Context, goal sqlc.AgentGo
 	input := w.attemptInput(att)
 	repairMax := plannerRepairMax(goal)
 	for repairs := 0; ; {
+		runCtx := ctx
+		if res.completion != nil && res.completion.Bound() {
+			var err error
+			runCtx, err = res.completion.Context(ctx)
+			if err != nil {
+				return fmt.Errorf("worker: bind planner completion fence: %w", err)
+			}
+		}
 		if res.Submitted && res.Decomposition != nil {
-			w.recordRepairRounds(ctx, goal.ID, att.ID, repairs)
-			if derr := w.svc.SubmitDecomposition(ctx, att.ID, res.Evidence, *res.Decomposition); derr != nil {
+			if err := w.recordRepairRounds(runCtx, goal.ID, att.ID, repairs); err != nil {
+				return w.ackResult(runCtx, res.completion, err)
+			}
+			if derr := w.svc.SubmitDecomposition(runCtx, att.ID, res.Evidence, *res.Decomposition); derr != nil {
 				errs := decompositionSubmitErrors(goal, input.MaxDepth, *res.Decomposition, derr)
 				if len(errs) > 0 {
 					if repairs < repairMax {
 						repairs++
 						input.PriorErrors = errs
+						if err := w.recordRepairRounds(runCtx, goal.ID, att.ID, repairs); err != nil {
+							return w.ackResult(runCtx, res.completion, err)
+						}
+						if ackErr := ackAgentRun(res.completion, runCtx, runcontrol.OutcomeDelivered); ackErr != nil {
+							return fmt.Errorf("ack decomposition repair completion: %w", ackErr)
+						}
 						next, eerr := w.exec.Execute(ctx, ExecutorRequest{Goal: goal, Attempt: att, Input: input})
 						if eerr != nil {
 							w.log.Warn("worker: planner repair executor returned error", "goal_id", goal.ID, "attempt_id", att.ID, "error.type", fmt.Sprintf("%T", eerr), "error.class", "worker_executor_error")
-							res = ExecutorResult{Failed: true, FailReason: fmt.Sprintf("executor error: %v", eerr), FailureClass: FailureClassFlaky}
+							failureClass, blockedBy := runnerFailureClass(eerr)
+							res = ExecutorResult{Failed: true, FailReason: fmt.Sprintf("executor error: %v", eerr), FailureClass: failureClass, BlockedBy: blockedBy}
 						} else {
 							res = next
 						}
 						continue
 					}
-					w.recordRepairRounds(ctx, goal.ID, att.ID, repairs)
-					w.failAttempt(goal.ID, att.ID, "planning invalid:\n"+RenderErrorsText(errs), FailureClassModel)
-					return nil
+					if err := w.recordRepairRounds(runCtx, goal.ID, att.ID, repairs); err != nil {
+						return w.ackResult(runCtx, res.completion, err)
+					}
+					applyErr := w.failAttempt(runCtx, goal.ID, att.ID, "planning invalid:\n"+RenderErrorsText(errs), FailureClassModel)
+					return w.ackResult(runCtx, res.completion, applyErr)
 				}
-				w.recordRepairRounds(ctx, goal.ID, att.ID, repairs)
-				w.failAttempt(goal.ID, att.ID, "apply decomposition: "+derr.Error(), FailureClassFlaky)
+				if err := w.recordRepairRounds(runCtx, goal.ID, att.ID, repairs); err != nil {
+					return w.ackResult(runCtx, res.completion, err)
+				}
+				applyErr := w.failAttempt(runCtx, goal.ID, att.ID, "apply decomposition: "+derr.Error(), FailureClassFlaky)
+				return w.ackResult(runCtx, res.completion, applyErr)
 			}
-			return nil
+			return w.ackResult(runCtx, res.completion, nil)
 		}
 		reason := res.FailReason
 		if reason == "" {
 			reason = "decomposition produced no plan"
 		}
-		w.recordRepairRounds(ctx, goal.ID, att.ID, repairs)
-		w.failAttempt(goal.ID, att.ID, reason, failureClassForResult(res), res.BlockedBy)
-		return nil
+		if err := w.recordRepairRounds(runCtx, goal.ID, att.ID, repairs); err != nil {
+			return w.ackResult(runCtx, res.completion, err)
+		}
+		applyErr := w.failAttempt(runCtx, goal.ID, att.ID, reason, failureClassForResult(res), res.BlockedBy)
+		return w.ackResult(runCtx, res.completion, applyErr)
 	}
 }
 
-func (w *Worker) recordRepairRounds(ctx context.Context, goalID, attemptID string, repairs int) {
+// ackResult closes one Goal-owned AgentRun after its source-domain transition.
+// A commit error leaves the durable result ambiguous, so the run must become
+// unknown and convergence must not replay the model turn automatically.
+func (w *Worker) ackResult(ctx context.Context, completion *agentruntime.CompletionBarrier, applyErr error) error {
+	if completion == nil {
+		return applyErr
+	}
+	ackErr := ackAgentRun(completion, ctx, completionOutcome(applyErr))
+	if ackErr != nil {
+		return errors.Join(applyErr, fmt.Errorf("ack goal AgentRun completion: %w", ackErr))
+	}
+	return applyErr
+}
+
+func ackAgentRun(completion *agentruntime.CompletionBarrier, ctx context.Context, outcome runcontrol.Outcome) error {
+	if completion == nil || !completion.Bound() {
+		return nil
+	}
+	ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), completionAckTimeout)
+	defer cancel()
+	return completion.Ack(ackCtx, outcome)
+}
+
+func completionOutcome(err error) runcontrol.Outcome {
+	if err == nil {
+		return runcontrol.OutcomeDelivered
+	}
+	if errors.Is(err, errTxCommit) || errors.Is(err, agentrun.ErrLeaseLost) || errors.Is(err, agentrun.ErrOutcomeUnknown) {
+		return runcontrol.OutcomeUnknown
+	}
+	return runcontrol.OutcomeFailed
+}
+
+func (w *Worker) recordRepairRounds(ctx context.Context, goalID, attemptID string, repairs int) error {
 	if repairs < 0 {
 		repairs = 0
 	}
-	if err := w.q.SetAttemptRepairRounds(ctx, sqlc.SetAttemptRepairRoundsParams{ID: attemptID, RepairRounds: int32(repairs)}); err != nil {
+	// Keep this bookkeeping behind GoalService's transaction boundary so a
+	// stale AgentRun cannot update an attempt after terminal ownership moved.
+	err := w.svc.withTx(ctx, func(qtx *sqlc.Queries) error {
+		return qtx.SetAttemptRepairRounds(ctx, sqlc.SetAttemptRepairRoundsParams{ID: attemptID, RepairRounds: int32(repairs)})
+	})
+	if err != nil {
 		w.log.Warn("worker: record repair rounds failed", "goal_id", goalID, "attempt_id", attemptID, "repair_rounds", repairs, "error.type", fmt.Sprintf("%T", err), "error.class", "worker_operation_error")
 	}
+	return err
 }
 
 func plannerRepairMax(goal sqlc.AgentGoal) int {
@@ -312,7 +395,7 @@ func decompositionSubmitErrors(goal sqlc.AgentGoal, maxDepth int, content Decomp
 func (w *Worker) applyReviewResult(ctx context.Context, goalID string, att sqlc.AgentGoalAttempt, res ExecutorResult) error {
 	if res.Submitted && len(res.Verdicts) > 0 {
 		if rerr := w.svc.SubmitReview(ctx, att.ID, res.Evidence, res.Verdicts); rerr != nil {
-			w.failAttempt(goalID, att.ID, "apply review: "+rerr.Error(), FailureClassFlaky)
+			return w.failAttempt(ctx, goalID, att.ID, "apply review: "+rerr.Error(), FailureClassFlaky)
 		}
 		return nil
 	}
@@ -320,8 +403,7 @@ func (w *Worker) applyReviewResult(ctx context.Context, goalID string, att sqlc.
 	if reason == "" {
 		reason = "review produced no verdict"
 	}
-	w.failAttempt(goalID, att.ID, reason, failureClassForResult(res), res.BlockedBy)
-	return nil
+	return w.failAttempt(ctx, goalID, att.ID, reason, failureClassForResult(res), res.BlockedBy)
 }
 
 // runChecks runs every required deterministic contract item through the
@@ -470,11 +552,12 @@ func (w *Worker) attemptInput(att sqlc.AgentGoalAttempt) AttemptInput {
 // goal never strands 'active' with no live attempt (issue #543). Uses a
 // fresh context so a cancelled dispatch still records the outcome. ErrInvalidTransition
 // is benign — the attempt was already reaped/raced and the goal recovered.
-func (w *Worker) failAttempt(goalID, attemptID, reason, failureClass string, blockedBy ...string) {
-	ctx := context.Background()
+func (w *Worker) failAttempt(ctx context.Context, goalID, attemptID, reason, failureClass string, blockedBy ...string) error {
 	if err := w.svc.FailAttempt(ctx, attemptID, reason, failureClass, blockedBy...); err != nil && !errors.Is(err, ErrInvalidTransition) {
 		w.log.Warn("worker: finalize failed attempt failed", "goal_id", goalID, "attempt_id", attemptID, "error.type", fmt.Sprintf("%T", err), "error.class", "worker_operation_error")
+		return err
 	}
+	return nil
 }
 
 func failureClassForResult(res ExecutorResult) string {
@@ -506,9 +589,14 @@ func (w *Worker) heartbeatLoop(ctx context.Context, wg *sync.WaitGroup, attemptI
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			n, err := w.q.HeartbeatAttempt(ctx, sqlc.HeartbeatAttemptParams{
-				LeaseExpiresAt: w.leaseUntil(),
-				ID:             attemptID,
+			var n int64
+			err := w.svc.withTx(ctx, func(qtx *sqlc.Queries) error {
+				var err error
+				n, err = qtx.HeartbeatAttempt(ctx, sqlc.HeartbeatAttemptParams{
+					LeaseExpiresAt: w.leaseUntil(),
+					ID:             attemptID,
+				})
+				return err
 			})
 			if err != nil {
 				// A missed beat (e.g. a transient DB error) silently shortens the lease;

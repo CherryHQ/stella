@@ -118,7 +118,7 @@ func (d *GroupDispatcher) retireModelPass(ctx context.Context, row sqlc.CtxGroup
 	if updated == 0 {
 		return fmt.Errorf("model pass: mark silent: lost dispatch ownership")
 	}
-	if err := d.committer.CommitGroupTurn(ctx, q, turn); err != nil {
+	if err := d.committer.CommitGroupTurn(ctx, tx, turn); err != nil {
 		return fmt.Errorf("model pass: commit read context: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

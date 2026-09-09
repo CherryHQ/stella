@@ -264,7 +264,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		ControlPlane:         controlplane.NewService(store, phost, testProviderRegistry(t), poolMgr, credSvc, slog.With("component", "controlplane-test")),
 		Email:                email.NewService(host.ResolveEmailUser, nil, sqlc.New(db)),
 		EmailConfigValidator: email.ValidateConfigValue,
-		Share:                sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
+		Share:                sharepkg.NewServiceForPool(db, mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
 		Recally:              recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor:  credFrontDoor,
 		OAuthAuthServer:      oauthAuthServer,

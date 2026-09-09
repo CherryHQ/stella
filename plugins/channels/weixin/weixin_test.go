@@ -1287,9 +1287,42 @@ func TestSendViaStreamFallsBackOnInitFailure(t *testing.T) {
 		t.Fatal("sendViaStream should return false when init_stream fails")
 	}
 
-	// Caller (sendFinalResponse) should use sendmessage fallback.
-	bot.sendViaMessages(msg, "hello world")
+	// The legacy wrapper has no durable completion barrier, so it preserves the
+	// historical sendmessage fallback after a failed stream setup.
+	bot.sendFinalResponse(msg, "hello world", nil)
 	if !sendMessageCalled {
 		t.Error("sendmessage should be called in fallback path")
+	}
+}
+
+func TestManagedFinalResponseDoesNotFallbackAfterStreamInitFailure(t *testing.T) {
+	t.Parallel()
+
+	var sendMessageCalled bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/ilink/bot/stream/init_stream":
+			w.WriteHeader(http.StatusServiceUnavailable)
+		case "/ilink/bot/sendmessage":
+			sendMessageCalled = true
+			_, _ = fmt.Fprintf(w, `{"ret":0}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "", "tok", "", "")
+	bot := &Bot{client: client}
+	bot.contextTokens.Store("user1", "ctx-token")
+
+	stream := &channel.ChatStream{}
+	err := bot.sendFinalResponseChecked(context.Background(), stream, WeixinMessage{FromUserID: "user1"}, "hello world", nil, nil)
+	if err == nil {
+		t.Fatal("managed final response unexpectedly succeeded")
+	}
+	if sendMessageCalled {
+		t.Fatal("managed stream failure was transparently retried via sendmessage")
 	}
 }

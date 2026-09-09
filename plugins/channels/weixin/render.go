@@ -1,9 +1,13 @@
 package weixin
 
 import (
+	"context"
 	"crypto/md5" //nolint:gosec // MD5 is required by the WeChat CDN upload protocol
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/CherryHQ/stella/pkg/channel"
@@ -12,22 +16,57 @@ import (
 // sendFinalResponse delivers response text (via streaming when possible, otherwise
 // chunked sendmessage), then sends any collected images.
 func (b *Bot) sendFinalResponse(msg WeixinMessage, response string, images []channel.ImageEvent) {
+	_ = b.sendFinalResponseChecked(context.Background(), nil, msg, response, images, nil)
+}
+
+func (b *Bot) sendFinalResponseChecked(ctx context.Context, stream *channel.ChatStream, msg WeixinMessage, response string, images []channel.ImageEvent, files []channel.FileEvent) error {
 	if err := b.guard.AssertActive(); err != nil {
-		logger().Warn("sendFinalResponse skipped: session paused", "user_id", msg.FromUserID, "error", err)
-		return
+		return err
 	}
 
-	if !b.sendViaStream(msg, response) {
-		b.sendViaMessages(msg, response)
+	if stream != nil {
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
+	}
+	streamed, err := b.sendViaStreamChecked(ctx, stream, msg, response)
+	if err != nil {
+		// A managed turn cannot transparently retry an unknown stream outcome:
+		// InitStream or SyncStream may have reached Weixin. Keep the historical
+		// fallback only for callers without a durable completion barrier.
+		if stream != nil {
+			return err
+		}
+		streamed = false
+	}
+	if !streamed {
+		if err := b.sendViaMessagesChecked(ctx, stream, msg, response); err != nil {
+			return err
+		}
 	}
 
 	for _, img := range images {
-		b.sendImage(msg, img)
+		if err := b.sendImageChecked(ctx, stream, msg, img); err != nil {
+			return err
+		}
 	}
+	for _, file := range files {
+		data, err := os.ReadFile(file.Path)
+		if err != nil {
+			return fmt.Errorf("read response file %q: %w", file.Path, err)
+		}
+		name := file.Name
+		if name == "" {
+			name = filepath.Base(file.Path)
+		}
+		if err := b.sendFileChecked(ctx, stream, msg, name, data); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-// sendViaMessages splits text into 2000-char chunks and sends each via sendmessage.
-func (b *Bot) sendViaMessages(msg WeixinMessage, response string) {
+func (b *Bot) sendViaMessagesChecked(ctx context.Context, stream *channel.ChatStream, msg WeixinMessage, response string) error {
 	chunks := channel.SplitMessage(response, weixinMaxMessageLen)
 
 	contextToken := ""
@@ -36,6 +75,11 @@ func (b *Bot) sendViaMessages(msg WeixinMessage, response string) {
 	}
 
 	for _, chunk := range chunks {
+		if stream != nil {
+			if err := stream.CheckOperation(ctx); err != nil {
+				return err
+			}
+		}
 		reply := WeixinMessage{
 			ToUserID:     msg.FromUserID,
 			ClientID:     RandomClientID("resp"),
@@ -50,37 +94,38 @@ func (b *Bot) sendViaMessages(msg WeixinMessage, response string) {
 			},
 		}
 		if err := b.client.SendMessage(reply); err != nil {
-			logger().Error("send response chunk failed", "user_id", msg.FromUserID, "error", err)
+			return fmt.Errorf("send response chunk: %w", err)
 		}
 	}
+	return nil
 }
 
-// sendImage encrypts and uploads an image to CDN, then sends it as a message.
-func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
+func (b *Bot) sendImageChecked(ctx context.Context, stream *channel.ChatStream, msg WeixinMessage, img channel.ImageEvent) error {
 	if err := b.guard.AssertActive(); err != nil {
-		logger().Warn("sendImage skipped: session paused", "user_id", msg.FromUserID, "error", err)
-		return
+		return err
+	}
+	if stream != nil {
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
 	}
 	data, err := decodeBase64(img.Data)
 	if err != nil {
-		logger().Error("decode image failed", "error", err)
-		return
+		return fmt.Errorf("decode image: %w", err)
 	}
 
 	// Generate random AES key (16 bytes).
 	key, keyHex := RandomFileKey(), ""
 	keyBytes, err := hex.DecodeString(key)
 	if err != nil {
-		logger().Error("decode file key failed", "error", err)
-		return
+		return fmt.Errorf("decode image file key: %w", err)
 	}
 	keyHex = key // 32-char hex string for the aeskey field
 
 	// Encrypt with AES-128-ECB.
 	encrypted, err := EncryptAESECB(data, keyBytes)
 	if err != nil {
-		logger().Error("encrypt image failed", "error", err)
-		return
+		return fmt.Errorf("encrypt image: %w", err)
 	}
 
 	// Calculate MD5 of raw data.
@@ -88,6 +133,11 @@ func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 	fileKey := RandomFileKey()
 
 	// Get upload URL.
+	if stream != nil {
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
+	}
 	uploadResp, err := b.client.GetUploadURL(UploadParams{
 		FileKey:     fileKey,
 		MediaType:   MediaTypeImage,
@@ -99,15 +149,18 @@ func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 		AESKey:      keyHex,
 	})
 	if err != nil {
-		logger().Error("getuploadurl for image failed", "error", err)
-		return
+		return fmt.Errorf("getuploadurl for image: %w", err)
 	}
 
 	// Upload to CDN.
+	if stream != nil {
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
+	}
 	encryptedParam, err := UploadToCDN("", uploadResp.UploadFullURL, uploadResp.UploadParam, fileKey, encrypted)
 	if err != nil {
-		logger().Error("cdn upload image failed", "error", err)
-		return
+		return fmt.Errorf("cdn upload image: %w", err)
 	}
 
 	// Send image message.
@@ -137,36 +190,53 @@ func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 			},
 		},
 	}
-	if err := b.client.SendMessage(reply); err != nil {
-		logger().Error("send image message failed", "user_id", msg.FromUserID, "error", err)
+	if stream != nil {
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
 	}
+	if err := b.client.SendMessage(reply); err != nil {
+		return fmt.Errorf("send image message: %w", err)
+	}
+	return nil
 }
 
 // sendFile encrypts and uploads a file to CDN, then sends it as a message.
 //
 //nolint:unused // kept for future agent media sending
 func (b *Bot) sendFile(msg WeixinMessage, fileName string, data []byte) {
+	_ = b.sendFileChecked(context.Background(), nil, msg, fileName, data)
+}
+
+func (b *Bot) sendFileChecked(ctx context.Context, stream *channel.ChatStream, msg WeixinMessage, fileName string, data []byte) error {
 	if err := b.guard.AssertActive(); err != nil {
-		logger().Warn("sendFile skipped: session paused", "user_id", msg.FromUserID, "error", err)
-		return
+		return err
+	}
+	if stream != nil {
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
 	}
 	key, keyHex := RandomFileKey(), ""
 	keyBytes, err := hex.DecodeString(key)
 	if err != nil {
-		logger().Error("decode file key failed", "error", err)
-		return
+		return fmt.Errorf("decode file key: %w", err)
 	}
 	keyHex = key
 
 	encrypted, err := EncryptAESECB(data, keyBytes)
 	if err != nil {
-		logger().Error("encrypt file failed", "error", err)
-		return
+		return fmt.Errorf("encrypt file: %w", err)
 	}
 
 	rawMD5 := md5Sum(data)
 	fileKey := RandomFileKey()
 
+	if stream != nil {
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
+	}
 	uploadResp, err := b.client.GetUploadURL(UploadParams{
 		FileKey:     fileKey,
 		MediaType:   MediaTypeFile,
@@ -178,14 +248,17 @@ func (b *Bot) sendFile(msg WeixinMessage, fileName string, data []byte) {
 		AESKey:      keyHex,
 	})
 	if err != nil {
-		logger().Error("getuploadurl for file failed", "error", err)
-		return
+		return fmt.Errorf("getuploadurl for file: %w", err)
 	}
 
+	if stream != nil {
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
+	}
 	encryptedParam, err := UploadToCDN("", uploadResp.UploadFullURL, uploadResp.UploadParam, fileKey, encrypted)
 	if err != nil {
-		logger().Error("cdn upload file failed", "error", err)
-		return
+		return fmt.Errorf("cdn upload file: %w", err)
 	}
 
 	contextToken := ""
@@ -214,9 +287,15 @@ func (b *Bot) sendFile(msg WeixinMessage, fileName string, data []byte) {
 			},
 		},
 	}
-	if err := b.client.SendMessage(reply); err != nil {
-		logger().Error("send file message failed", "user_id", msg.FromUserID, "error", err)
+	if stream != nil {
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
 	}
+	if err := b.client.SendMessage(reply); err != nil {
+		return fmt.Errorf("send file message: %w", err)
+	}
+	return nil
 }
 
 // sendVideo encrypts and uploads a video to CDN, then sends it as a message.

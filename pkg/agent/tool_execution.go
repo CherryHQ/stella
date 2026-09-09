@@ -40,6 +40,12 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 	}
 
 	for _, call := range calls {
+		// Check the immutable engine context for every dispatch. A previous tool
+		// may have caused the AgentRun lease to expire while this batch was in
+		// flight; checking only once per batch would let later side effects run.
+		if err := CheckOperation(ctx); err != nil {
+			return results, err
+		}
 		if cb.onStart != nil {
 			cb.onStart(call)
 		}
@@ -151,8 +157,13 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		}
 
 		// Hooks may replace the context to establish span ancestry. Reapply the
-		// engine-owned image policy so observability cannot change tool routing.
+		// engine-owned operation fence and image policy so a hook cannot remove
+		// durable ownership or change tool routing.
+		execCtx = inheritOperationCheck(execCtx, ctx)
 		execCtx = pkgtools.WithParentImageCapability(execCtx, pkgtools.ParentImageCapabilityFromContext(ctx))
+		if err := CheckOperation(execCtx); err != nil {
+			return results, err
+		}
 
 		// Execute tool with (possibly rewritten) args.
 		execCall := call

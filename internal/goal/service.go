@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -71,6 +73,7 @@ type ExecutorResult struct {
 	FailReason    string
 	FailureClass  string
 	BlockedBy     string
+	completion    *agentruntime.CompletionBarrier
 }
 
 // CapabilityProbe reports deployment capabilities that affect contract
@@ -287,6 +290,13 @@ func (s *GoalService) withTxRaw(ctx context.Context, fn func(*sqlc.Queries, pgx.
 		}
 	}()
 	if err = fn(s.q.WithTx(tx), tx); err != nil {
+		return err
+	}
+	// Validate after the complete lifecycle mutation has been assembled. The
+	// ownership row lock serializes this transaction with AgentRun terminal CAS,
+	// so a stale worker cannot commit a partial Goal transition. Management
+	// writes without a Guard remain deliberately unaffected.
+	if err = agentrun.ValidateTx(ctx, tx); err != nil {
 		return err
 	}
 	if cerr := tx.Commit(ctx); cerr != nil {

@@ -19,6 +19,7 @@ import (
 
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
@@ -41,6 +42,7 @@ type Service struct {
 	registry *agentsession.Registry
 	memory   memory.SessionManager
 	searcher memory.Searcher
+	db       sqlc.DBTX
 	q        *sqlc.Queries
 	store    config.Store
 	agents   *agentaccess.Service
@@ -94,7 +96,7 @@ func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assets *a
 	if _, ok := inner.(memory.Searcher); ok {
 		searcher, _ = mem.(memory.Searcher)
 	}
-	svc := &Service{registry: registry, memory: sm, searcher: searcher, q: sqlc.New(db), store: store, agents: agents, assets: assets}
+	svc := &Service{registry: registry, memory: sm, searcher: searcher, db: db, q: sqlc.New(db), store: store, agents: agents, assets: assets}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(svc)
@@ -522,11 +524,35 @@ func (a *Access) UpdateTitle(ctx context.Context, info agentsession.Info, title 
 	if err := agentsession.ValidateTitle(title); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
-	if err := a.svc.q.UpdateConversationTitleBySessionID(ctx, sqlc.UpdateConversationTitleBySessionIDParams{
+	params := sqlc.UpdateConversationTitleBySessionIDParams{
 		Title: pgtype.Text{String: title, Valid: true}, SessionID: info.ID,
 		UserID: pgtype.Text{String: info.UserID, Valid: true}, AgentID: pgtype.Text{String: info.AgentID, Valid: true},
-	}); err != nil {
+	}
+	if _, guarded := agentrun.GuardFromContext(ctx); !guarded {
+		if err := a.svc.q.UpdateConversationTitleBySessionID(ctx, params); err != nil {
+			return fmt.Errorf("%w: update session title: %w", ErrUnavailable, err)
+		}
+		return nil
+	}
+	beginner, ok := a.svc.db.(interface {
+		Begin(context.Context) (pgx.Tx, error)
+	})
+	if !ok {
+		return fmt.Errorf("%w: guarded title update requires a pool-backed database", ErrUnavailable)
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: begin guarded session title update: %w", ErrUnavailable, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return fmt.Errorf("%w: validate guarded session title update: %w", ErrUnavailable, err)
+	}
+	if err := a.svc.q.WithTx(tx).UpdateConversationTitleBySessionID(ctx, params); err != nil {
 		return fmt.Errorf("%w: update session title: %w", ErrUnavailable, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("%w: commit session title update: %w", ErrUnavailable, err)
 	}
 	return nil
 }

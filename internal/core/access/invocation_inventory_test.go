@@ -18,14 +18,14 @@ import (
 // be routed through an existing Agent access-authorized adapter first, then added
 // here with its adapter rationale; deleting an entry is also reviewed.
 var invocationInventory = map[string]map[string]int{
-	"cmd/stellad/commands.go":            {"GetService": 2}, // goal worker + scheduler durable adapters
-	"cmd/stellad/setup_pool.go":          {"GetService": 1}, // lazy composition adapter; no turn
-	"internal/channel/coordinator.go":    {"Chat": 1},
+	"cmd/stellad/commands.go":            {"GetService": 2},             // goal worker + scheduler durable adapters
+	"cmd/stellad/setup_pool.go":          {"GetService": 1},             // lazy composition adapter; no turn
+	"internal/channel/coordinator.go":    {"ChatWithRuntimeOptions": 1}, // same authorized adapter, with completion ownership
 	"internal/channel/group_dispatch.go": {"GetService": 1},
 	// Sole Web-group service selection: resolveWebGroupChat mints and re-checks
 	// the group authority for the Web group turn.
 	"internal/channel/group_chat_resolver.go": {"Chat": 1, "GetService": 1},
-	"internal/channel/resolved_chat.go":       {"GetService": 1, "Chat": 1},
+	"internal/channel/resolved_chat.go":       {"GetService": 1, "Chat": 1, "ChatWithRuntimeOptions": 1},
 	"internal/goal/session.go":                {"GetService": 1}, // session creation; execution is guarded in workerExecutor
 	"internal/reflect/loop.go":                {"GetService": 1}, // session listing only; no turn
 	// Webhook admission completes user→Agent PEP checks before the transport
@@ -78,7 +78,7 @@ func TestAgentInvocationInventoryIsExact(t *testing.T) {
 				return true
 			}
 			switch sel.Sel.Name {
-			case "GetService", "Chat", "Delegate":
+			case "GetService", "Chat", "ChatWithRuntimeOptions", "Delegate":
 				if got[rel] == nil {
 					got[rel] = map[string]int{}
 				}

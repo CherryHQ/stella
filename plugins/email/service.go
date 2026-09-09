@@ -15,11 +15,27 @@ import (
 
 const noEmailConfigMessage = "no email account configured — ask the user to add one under Settings → Email"
 
+const duplicateSuppressedStatus = "prior attempt recorded (delivery outcome may be unknown; duplicate suppressed)"
+
 type Queries interface {
 	DeleteExpiredEmailSendDedup(context.Context) error
 	CreateEmailSendDedup(context.Context, sqlc.CreateEmailSendDedupParams) (sqlc.EmailSendDedup, error)
 	GetEmailSendDedup(context.Context, sqlc.GetEmailSendDedupParams) (sqlc.EmailSendDedup, error)
-	DeleteEmailSendDedup(context.Context, sqlc.DeleteEmailSendDedupParams) error
+}
+
+// Option configures trusted host integration without making the replaceable
+// email plugin depend on internal runtime packages.
+type Option func(*Service)
+
+// WithOwnershipFence installs the host's ownership check and transaction
+// validator. The service keeps the dedup insert and validation in one
+// transaction; an unconfigured service retains its direct query path for
+// ordinary non-agent callers and tests.
+func WithOwnershipFence(check func(context.Context) error, validateTx func(context.Context, pgx.Tx) error) Option {
+	return func(s *Service) {
+		s.ownershipCheck = check
+		s.validateTx = validateTx
+	}
 }
 
 var _ pkgemail.Service = (*Service)(nil)
@@ -31,20 +47,31 @@ var (
 )
 
 type Service struct {
-	resolveUser  ResolveUser
-	configReader ConfigReader
-	q            Queries
-	sendFunc     func(EmailAccount, SendOptions) error
+	resolveUser    ResolveUser
+	configReader   ConfigReader
+	q              Queries
+	db             *pgxpool.Pool
+	sendFunc       func(EmailAccount, SendOptions) error
+	ownershipCheck func(context.Context) error
+	validateTx     func(context.Context, pgx.Tx) error
 }
 
-func NewService(resolveUser ResolveUser, configReader ConfigReader, q Queries) *Service {
-	return &Service{resolveUser: resolveUser, configReader: configReader, q: q, sendFunc: Send}
+func NewService(resolveUser ResolveUser, configReader ConfigReader, q Queries, options ...Option) *Service {
+	service := &Service{resolveUser: resolveUser, configReader: configReader, q: q, sendFunc: Send}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 // NewServiceForPool creates an email service that owns the sqlc query set for
 // the email tables, so callers pass only the pgx pool.
-func NewServiceForPool(resolveUser ResolveUser, configReader ConfigReader, pool *pgxpool.Pool) *Service {
-	return NewService(resolveUser, configReader, sqlc.New(pool))
+func NewServiceForPool(resolveUser ResolveUser, configReader ConfigReader, pool *pgxpool.Pool, options ...Option) *Service {
+	service := NewService(resolveUser, configReader, sqlc.New(pool), options...)
+	service.db = pool
+	return service
 }
 
 func (s *Service) SetSendFunc(fn func(EmailAccount, SendOptions) error) {
@@ -68,19 +95,58 @@ func (s *Service) send(ctx context.Context, userID, account string, opts SendOpt
 	if s.q == nil {
 		return pkgemail.SendResult{}, fmt.Errorf("email idempotency store is unavailable — try again later")
 	}
-	_ = s.q.DeleteExpiredEmailSendDedup(ctx)
-	_, err = s.q.CreateEmailSendDedup(ctx, sqlc.CreateEmailSendDedupParams{UserID: userID, IdempotencyKey: idempotencyKey})
+	createDedup := func(q Queries) error {
+		_ = q.DeleteExpiredEmailSendDedup(ctx)
+		_, createErr := q.CreateEmailSendDedup(ctx, sqlc.CreateEmailSendDedupParams{UserID: userID, IdempotencyKey: idempotencyKey})
+		return createErr
+	}
+	err = s.writeDedup(ctx, createDedup)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return pkgemail.SendResult{Status: "already sent (duplicate suppressed)", Duplicate: true}, nil
+			return pkgemail.SendResult{Status: duplicateSuppressedStatus, Duplicate: true}, nil
 		}
 		return pkgemail.SendResult{}, err
 	}
-	if err := s.sendFunc(acct, opts); err != nil {
-		_ = s.q.DeleteEmailSendDedup(ctx, sqlc.DeleteEmailSendDedupParams{UserID: userID, IdempotencyKey: idempotencyKey})
+	// The durable dedupe row suppresses retries within the existing 24-hour window;
+	// validate ownership immediately before crossing the SMTP boundary.
+	if err := s.checkOwnership(ctx); err != nil {
 		return pkgemail.SendResult{}, err
 	}
+	if err := s.sendFunc(acct, opts); err != nil {
+		// SMTP errors after Send starts are outcome-unknown: the remote server
+		// may already have accepted the message. Keep the durable dedupe row for
+		// its 24-hour lifetime; callers must not infer non-delivery from expiry.
+		return pkgemail.SendResult{}, fmt.Errorf("email delivery outcome is unknown; duplicate retry suppressed: %w", err)
+	}
 	return pkgemail.SendResult{Status: "sent"}, nil
+}
+
+func (s *Service) checkOwnership(ctx context.Context) error {
+	if s == nil || s.ownershipCheck == nil {
+		return nil
+	}
+	return s.ownershipCheck(ctx)
+}
+
+func (s *Service) writeDedup(ctx context.Context, write func(Queries) error) error {
+	if s.validateTx == nil {
+		return write(s.q)
+	}
+	if s.db == nil {
+		return fmt.Errorf("email ownership transaction database is not configured")
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := s.validateTx(ctx, tx); err != nil {
+		return err
+	}
+	if err := write(sqlc.New(tx)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // loadAccount always validates egress: DialPublicTCP re-checks addresses per

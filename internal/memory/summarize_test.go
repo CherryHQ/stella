@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/agentrun"
 )
 
 func TestBuildPrompt_Leaf_Normal(t *testing.T) {
@@ -130,6 +132,24 @@ func TestLLMSummarizer_Success(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("expected 1 Generate call, got %d", calls)
+	}
+}
+
+func TestLLMSummarizerRejectsInvalidGuardBeforeGenerate(t *testing.T) {
+	calls := 0
+	s := &LLMSummarizer{
+		Generate: func(_ context.Context, _ string) (string, error) {
+			calls++
+			return "must not run", nil
+		},
+	}
+	ctx := agentrun.WithGuard(context.Background(), agentrun.Guard{})
+	_, err := s.Summarize(ctx, "text", SummarizeOptions{TargetTokens: 100})
+	if !errors.Is(err, agentrun.ErrInvalidGuard) {
+		t.Fatalf("Summarize error = %v, want ErrInvalidGuard", err)
+	}
+	if calls != 0 {
+		t.Fatalf("Generate calls = %d, want no external generation", calls)
 	}
 }
 

@@ -14,9 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/runcontrol"
 )
 
 // ErrOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp
@@ -694,7 +696,8 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 		defer jobSpan.End()
 	}
 	outputSink := &RunOutputSink{}
-	runCtx := withRunOutputSink(WithRunID(WithRunSessionID(jobCtx, sessionID), runID), outputSink)
+	completion := agentruntime.NewCompletionBarrier()
+	runCtx := withAgentCompletion(withRunOutputSink(WithRunID(WithRunSessionID(jobCtx, sessionID), runID), outputSink), completion)
 
 	// Inject user into job copy so the callback can read job.UserID correctly.
 	jobRun := job
@@ -714,8 +717,17 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	// graceful shutdown cancels ctx mid-dispatch, the run row must still move out
 	// of "running" so it neither stays stuck nor blocks the next fire.
 	bookkeepingCtx := context.WithoutCancel(jobCtx)
-	if err := s.finishJobRun(bookkeepingCtx, runID, job.ID, status, finishedAt, errStr, outputSink.get()); err != nil {
-		s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
+	if completion.Bound() {
+		guardedCtx, err := completion.Context(bookkeepingCtx)
+		if err != nil {
+			s.log.Warn("scheduler AgentRun completion fence unavailable", "run_id", runID, "error", err)
+			return
+		}
+		bookkeepingCtx = guardedCtx
+	}
+	finishErr := s.finishJobRun(bookkeepingCtx, runID, job.ID, status, finishedAt, errStr, outputSink.get())
+	if finishErr != nil {
+		s.log.Warn("failed to finish job run record", "run_id", runID, "error", finishErr)
 	}
 
 	s.mu.Lock()
@@ -731,8 +743,14 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	}
 	s.mu.Unlock()
 
-	if err := s.recordJobRun(bookkeepingCtx, job.ID, finishedAt, runErr); err != nil {
-		s.log.Warn("failed to record scheduler job run", "id", job.ID, "error", err)
+	recordErr := s.recordJobRun(bookkeepingCtx, job.ID, finishedAt, runErr)
+	if recordErr != nil {
+		s.log.Warn("failed to record scheduler job run", "id", job.ID, "error", recordErr)
+	}
+	if completion.Bound() {
+		if err := ackSchedulerCompletion(completion, bookkeepingCtx, schedulerCompletionOutcome(finishErr, recordErr)); err != nil {
+			s.log.Warn("failed to acknowledge scheduler AgentRun", "run_id", runID, "error", err)
+		}
 	}
 
 	if isOneTime {
@@ -787,7 +805,8 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 		jobCtx, jobSpan := startSchedulerJobSpan(svcCtx, job.ID, runID, job.AgentID, job.DispatchKind)
 		defer jobSpan.End()
 		outputSink := &RunOutputSink{}
-		runCtx := withRunOutputSink(WithRunID(WithRunSessionID(jobCtx, sessionID), runID), outputSink)
+		completion := agentruntime.NewCompletionBarrier()
+		runCtx := withAgentCompletion(withRunOutputSink(WithRunID(WithRunSessionID(jobCtx, sessionID), runID), outputSink), completion)
 		runErr := s.dispatchJob(runCtx, job)
 
 		finishedAt := time.Now().UTC()
@@ -799,11 +818,26 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 		}
 
 		bookkeepingCtx := context.WithoutCancel(jobCtx)
-		if err := s.finishJobRun(bookkeepingCtx, runID, jobID, status, finishedAt, errStr, outputSink.get()); err != nil {
-			s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
+		if completion.Bound() {
+			guardedCtx, err := completion.Context(bookkeepingCtx)
+			if err != nil {
+				s.log.Warn("scheduler AgentRun completion fence unavailable", "run_id", runID, "error", err)
+				return
+			}
+			bookkeepingCtx = guardedCtx
 		}
-		if err := s.recordJobRun(bookkeepingCtx, jobID, finishedAt, runErr); err != nil {
-			s.log.Warn("failed to record scheduler job run", "id", jobID, "error", err)
+		finishErr := s.finishJobRun(bookkeepingCtx, runID, jobID, status, finishedAt, errStr, outputSink.get())
+		if finishErr != nil {
+			s.log.Warn("failed to finish job run record", "run_id", runID, "error", finishErr)
+		}
+		recordErr := s.recordJobRun(bookkeepingCtx, jobID, finishedAt, runErr)
+		if recordErr != nil {
+			s.log.Warn("failed to record scheduler job run", "id", jobID, "error", recordErr)
+		}
+		if completion.Bound() {
+			if err := ackSchedulerCompletion(completion, bookkeepingCtx, schedulerCompletionOutcome(finishErr, recordErr)); err != nil {
+				s.log.Warn("failed to acknowledge scheduler AgentRun", "run_id", runID, "error", err)
+			}
 		}
 
 		s.mu.Lock()
@@ -821,6 +855,22 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 	}()
 
 	return runID, nil
+}
+
+func schedulerCompletionOutcome(finishErr, recordErr error) runcontrol.Outcome {
+	if finishErr == nil && recordErr == nil {
+		return runcontrol.OutcomeDelivered
+	}
+	// Job bookkeeping is a source-domain side effect. A failed commit can have
+	// applied on the server, so never let the next scheduler fire replay it as a
+	// known failure.
+	return runcontrol.OutcomeUnknown
+}
+
+func ackSchedulerCompletion(completion *agentruntime.CompletionBarrier, ctx context.Context, outcome runcontrol.Outcome) error {
+	ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return completion.Ack(ackCtx, outcome)
 }
 
 // ListJobRuns returns recent runs for a job.
@@ -980,7 +1030,13 @@ func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner Workf
 		return err
 	}
 	if result.RootGoalID != "" {
-		if err := s.q.SetSchedJobRunRootGoal(ctx, sqlc.SetSchedJobRunRootGoalParams{RootGoalID: pgtype.Text{String: result.RootGoalID, Valid: true}, ID: runID, JobID: job.ID}); err != nil {
+		if err := s.guardedMutation(ctx, func(q *sqlc.Queries) error {
+			return q.SetSchedJobRunRootGoal(ctx, sqlc.SetSchedJobRunRootGoalParams{
+				RootGoalID: pgtype.Text{String: result.RootGoalID, Valid: true},
+				ID:         runID,
+				JobID:      job.ID,
+			})
+		}); err != nil {
 			return fmt.Errorf("set scheduler run root goal: %w", err)
 		}
 	}

@@ -28,6 +28,7 @@ func TestSystem(t *testing.T) {
 	t.Run("group_ping_pong_hard_cap", h.testGroupPingPongHardCap)
 	t.Run("group_model_pass", h.testGroupModelPass)
 	t.Run("chat_disconnect_resume", h.testChatDisconnectResume)
+	t.Run("chat_abort_persists_across_restart", h.testChatAbortPersistsAcrossRestart)
 	t.Run("agent_provider_credentials", h.testAgentProviderCredentials)
 	t.Run("provider_catalog_cas", h.testProviderCatalogCAS)
 	t.Run("image_history", h.testImageHistory)

@@ -46,6 +46,7 @@ type OwnerDeletion struct {
 	fencer         OwnerFenceAcquirer
 	media          MediaPurger
 	commitTx       func(context.Context, pgx.Tx) error
+	validateTx     func(context.Context, pgx.Tx) error
 	reconcileOwner func(context.Context, OwnerKind, string) error
 }
 
@@ -54,6 +55,13 @@ type OwnerDeletionOption func(*OwnerDeletion)
 // WithMediaPurger attaches blob cleanup to owner deletion.
 func WithMediaPurger(media MediaPurger) OwnerDeletionOption {
 	return func(d *OwnerDeletion) { d.media = media }
+}
+
+// WithTransactionValidator installs the host ownership validator. It runs
+// after the deletion transaction begins, before the owner row lock or delete,
+// so a stale Agent run cannot commit a destructive lifecycle mutation.
+func WithTransactionValidator(validate func(context.Context, pgx.Tx) error) OwnerDeletionOption {
+	return func(d *OwnerDeletion) { d.validateTx = validate }
 }
 
 func NewOwnerDeletion(db *pgxpool.Pool, manager *WorkspaceManager, fencer OwnerFenceAcquirer, opts ...OwnerDeletionOption) (*OwnerDeletion, error) {
@@ -142,6 +150,11 @@ func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor st
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := sqlc.New(tx)
+	if d.validateTx != nil {
+		if err = d.validateTx(ctx, tx); err != nil {
+			return fmt.Errorf("home: validate owner deletion: %w", err)
+		}
+	}
 	if err = d.exists(ctx, q, kind, id, true); err != nil {
 		return err
 	}

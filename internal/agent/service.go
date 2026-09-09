@@ -536,7 +536,11 @@ type SchedulerChatRequest struct {
 	AgentID   string
 	Message   MessageContent
 	Model     string
-	Authority authz.Authority
+	// RuntimeOpts carries the scheduler-owned AgentRun completion barrier into
+	// the admitted runtime turn. The scheduler owns the outer run bookkeeping;
+	// Runtime owns admission and terminalization.
+	RuntimeOpts []agentruntime.Option
+	Authority   authz.Authority
 	// BeforeStart is the final scheduler capability fence. It runs while the
 	// service holds its lifecycle and per-Agent admission locks, after Runtime
 	// registers the active turn but before any turn side effects.
@@ -567,7 +571,7 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 	}
 
 	ctx = agentctx.WithChannel(ctx, "scheduler")
-	var opts []agentruntime.Option
+	opts := append([]agentruntime.Option(nil), req.RuntimeOpts...)
 	opts = append(opts, agentruntime.WithTelemetryChannel("scheduler", ""))
 	if req.Model != "" {
 		opts = append(opts, agentruntime.WithModel(req.Model))
@@ -593,7 +597,11 @@ type TaskChatRequest struct {
 	ExtraTools       []tools.Tool // per-run tools (e.g. task_control)
 	ExcludedTools    []string
 	OnSandboxSession func(sandbox.Session) error
-	Authority        authz.Authority
+	// RuntimeOpts carries the goal worker's completion barrier into the runtime.
+	// The worker applies the guarded lifecycle transition after EOF, then releases
+	// the barrier so runtime can terminalize the AgentRun.
+	RuntimeOpts []agentruntime.Option
+	Authority   authz.Authority
 }
 
 // ChatForTask runs one persisted chat turn on a task session. Exact-ID
@@ -653,6 +661,7 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 		agentruntime.WithExtraTools(req.ExtraTools...),
 		agentruntime.WithTelemetryChannel("goal", ""),
 	}
+	opts = append(opts, req.RuntimeOpts...)
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}

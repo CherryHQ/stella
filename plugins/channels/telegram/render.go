@@ -2,9 +2,12 @@ package telegram
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 
 	"github.com/yuin/goldmark/parser"
@@ -19,32 +22,39 @@ type goldmarkMD interface {
 	Convert(source []byte, w io.Writer, opts ...parser.ParseOption) error
 }
 
-// sendFinalResponse sends the completed response with markdown rendering,
-// splitting into chunks if necessary. It also sends any collected images.
-func (b *Bot) sendFinalResponse(c tele.Context, response string, images []channel.ImageEvent) {
-	if err := b.sendChunkedMarkdown(c.Chat(), response, false, nil); err != nil {
-		logger().Error("sendFinalResponse failed", "chat_id", c.Chat().ID, "error", err)
+func (b *Bot) sendFinalResponseChecked(ctx context.Context, stream *channel.ChatStream, c tele.Context, response string, images []channel.ImageEvent) error {
+	if err := b.sendChunkedMarkdownChecked(ctx, stream, c.Chat(), response, false, nil); err != nil {
+		return err
 	}
 	for _, img := range images {
-		b.sendImage(c, img)
+		if err := b.sendImageChecked(ctx, stream, c, img); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-// sendImage decodes a base64 image and sends it as a photo to the chat.
-func (b *Bot) sendImage(c tele.Context, img channel.ImageEvent) {
-	b.sendImageTo(c.Chat(), img)
+func (b *Bot) sendImageChecked(ctx context.Context, stream *channel.ChatStream, c tele.Context, img channel.ImageEvent) error {
+	return b.sendImageTo(ctx, stream, c.Chat(), img)
 }
 
-func (b *Bot) sendImageTo(chat tele.Recipient, img channel.ImageEvent) {
+func (b *Bot) sendImageTo(ctx context.Context, stream *channel.ChatStream, chat tele.Recipient, img channel.ImageEvent) error {
 	data, err := base64.StdEncoding.DecodeString(img.Data)
 	if err != nil {
 		logger().Error("decode image failed", "error", err)
-		return
+		return err
 	}
 	photo := &tele.Photo{File: tele.FromReader(bytes.NewReader(data))}
+	if stream != nil {
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
+	}
 	if _, err := b.bot.Send(chat, photo); err != nil {
 		logger().Error("send image failed", "error", err)
+		return err
 	}
+	return nil
 }
 
 // sendChunkedMarkdown splits text into chunks, renders each as Telegram
@@ -52,21 +62,58 @@ func (b *Bot) sendImageTo(chat tele.Recipient, img channel.ImageEvent) {
 // it is used for the markdown send attempt. Returns the first send error
 // that could not be recovered via plain-text fallback.
 func (b *Bot) sendChunkedMarkdown(chat tele.Recipient, text string, silent bool, sendOpts *tele.SendOptions) error {
+	return b.sendChunkedMarkdownChecked(context.Background(), nil, chat, text, silent, sendOpts)
+}
+
+func (b *Bot) sendChunkedMarkdownChecked(ctx context.Context, stream *channel.ChatStream, chat tele.Recipient, text string, silent bool, sendOpts *tele.SendOptions) error {
 	if sendOpts == nil {
 		sendOpts = &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}
 	}
 	chunks := channel.SplitMessage(text, telegramMaxMessageLen)
 	for _, chunk := range chunks {
 		rendered := renderMarkdown(b.md, chunk)
+		if stream != nil {
+			if err := stream.CheckOperation(ctx); err != nil {
+				return err
+			}
+		}
 		if _, err := b.bot.Send(chat, rendered, sendOpts); err != nil {
+			// Telegram rejects malformed MarkdownV2 before creating a message. The
+			// SDK exposes that case as a typed 400 or its canonical formatted error,
+			// so a plain-text retry is safe.
+			// Every other managed error remains unknown: a second request could
+			// duplicate a message accepted before the error reached us.
+			if stream != nil && !isTelegramMarkdownRejected(err) {
+				return fmt.Errorf("send markdown message: %w", err)
+			}
 			logger().Warn("markdown send failed, falling back to plain text", "error", err)
 			plainOpts := &tele.SendOptions{DisableNotification: silent}
+			if stream != nil {
+				if err := stream.CheckOperation(ctx); err != nil {
+					return err
+				}
+			}
 			if _, err := b.bot.Send(chat, chunk, plainOpts); err != nil {
 				return fmt.Errorf("send message: %w", err)
 			}
 		}
 	}
 	return nil
+}
+
+func isTelegramMarkdownRejected(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *tele.Error
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == http.StatusBadRequest && strings.Contains(strings.ToLower(apiErr.Description), "can't parse entities")
+	}
+	// telebot returns unknown Bot API descriptions as a formatted error rather
+	// than *tele.Error. Keep the match exact enough to cover that canonical
+	// 400 rejection without treating arbitrary transport text as recoverable.
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.HasPrefix(message, "telegram: bad request: can't parse entities:") && strings.HasSuffix(message, "(400)")
 }
 
 // renderMarkdown converts standard markdown to Telegram MarkdownV2 format.

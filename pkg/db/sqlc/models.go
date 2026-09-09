@@ -175,6 +175,28 @@ type AgentProviderCredential struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+type AgentRun struct {
+	ID                string             `json:"id"`
+	SessionID         string             `json:"session_id"`
+	ExecutorBootID    string             `json:"executor_boot_id"`
+	Source            string             `json:"source"`
+	Status            string             `json:"status"`
+	CompletionState   string             `json:"completion_state"`
+	CompletionOutcome string             `json:"completion_outcome"`
+	CompletionStatus  string             `json:"completion_status"`
+	CompletionReason  string             `json:"completion_reason"`
+	CompletionReadyAt pgtype.Timestamptz `json:"completion_ready_at"`
+	CompletionAckedAt pgtype.Timestamptz `json:"completion_acked_at"`
+	LeaseExpiresAt    time.Time          `json:"lease_expires_at"`
+	HeartbeatAt       time.Time          `json:"heartbeat_at"`
+	AbortRequestedAt  pgtype.Timestamptz `json:"abort_requested_at"`
+	AbortReason       string             `json:"abort_reason"`
+	TerminalReason    string             `json:"terminal_reason"`
+	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+}
+
 type AgentWorkflow struct {
 	ID                 string          `json:"id"`
 	OwnerKind          string          `json:"owner_kind"`
@@ -583,6 +605,7 @@ type CtxSessionInbox struct {
 	ErrorCode       string             `json:"error_code"`
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
+	RunID           pgtype.Text        `json:"run_id"`
 }
 
 type CtxSummary struct {
@@ -1042,6 +1065,15 @@ type RecallyFeedEntry struct {
 	ErrorMsg     string             `json:"error_msg"`
 	DiscoveredAt time.Time          `json:"discovered_at"`
 	ProcessedAt  pgtype.Timestamptz `json:"processed_at"`
+}
+
+type RuntimeExecutorBoot struct {
+	ID          string             `json:"id"`
+	Status      string             `json:"status"`
+	HeartbeatAt time.Time          `json:"heartbeat_at"`
+	DrainedAt   pgtype.Timestamptz `json:"drained_at"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
 }
 
 type SchedJob struct {

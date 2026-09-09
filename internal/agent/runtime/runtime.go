@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/core/agenterr"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
@@ -34,6 +36,7 @@ type SkillTurnCapture func(context.Context, session.Info, PluginContext) (contex
 
 type Runtime struct {
 	cache                *runnerCache
+	runs                 *agentrun.Store
 	pluginContextBuilder PluginContextBuilder
 	mem                  memory.Provider
 	log                  *slog.Logger
@@ -141,7 +144,10 @@ func (c CompactionConfig) WithDefaults() CompactionConfig {
 
 // Config holds all dependencies for a Runtime instance.
 type Config struct {
-	NewRunner            NewRunnerFunc
+	NewRunner NewRunnerFunc
+	// AgentRuns is the process-wide durable execution authority. Standalone
+	// tests may leave it nil; production composition must provide it.
+	AgentRuns            *agentrun.Store
 	PluginContextBuilder PluginContextBuilder
 	Memory               memory.Provider
 	IdleTimeout          time.Duration
@@ -175,6 +181,7 @@ func New(cfg Config) (*Runtime, error) {
 	cache.hooksFn = cfg.HooksFn
 	return &Runtime{
 		cache:                cache,
+		runs:                 cfg.AgentRuns,
 		pluginContextBuilder: cfg.PluginContextBuilder,
 		mem:                  cfg.Memory,
 		log:                  log,
@@ -424,8 +431,10 @@ func safeClose(ch chan Event) {
 // is delivered on the returned stream. ErrSessionBusy means no turn was started,
 // so the caller can decide before any run/session/tool side effect is visible.
 type activeTurn struct {
-	cancel context.CancelFunc
-	done   chan struct{}
+	cancel               context.CancelFunc
+	done                 chan struct{}
+	lease                *agentrun.Lease
+	stopLeasePropagation func() bool
 	// info is captured at admission so terminal detachment can cancel a turn
 	// while it is still preparing a runner and therefore not yet represented in
 	// runnerCache.sessions.
@@ -481,6 +490,83 @@ func (rt *Runtime) markSessionTurnCompleted(ctx context.Context, session memory.
 	}
 }
 
+// completeChatTurn is the single runtime terminalization point. A source
+// adapter owns the final egress acknowledgement, so runtime only prepares its
+// durable result before publishing EOF. Calls without an external adapter use
+// the lease's activity-coupled terminal transition directly.
+func (rt *Runtime) completeChatTurn(admission *ChatAdmission, result memory.SessionTurnResult, reason string) {
+	if admission == nil {
+		return
+	}
+	status := agentrun.StatusFailed
+	switch result {
+	case memory.SessionTurnSuccess:
+		status = agentrun.StatusCompleted
+		if reason == "" {
+			reason = "turn completed"
+		}
+	case memory.SessionTurnCanceled:
+		status = agentrun.StatusCanceled
+		if reason == "" {
+			reason = "turn canceled"
+		}
+	default:
+		if reason == "" {
+			reason = "turn failed"
+		}
+	}
+
+	if admission.lease != nil {
+		// A caller's HTTP/channel context may already be canceled by the time
+		// the stream reaches EOF. Terminal writes use a bounded, cancellation
+		// independent context while the Lease still supplies the ownership fence.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(admission.ctx), 5*time.Second)
+		defer cancel()
+		if result == memory.SessionTurnCanceled || admission.ctx.Err() != nil {
+			// StopSession records abort_requested_at before canceling the model.
+			// transaction; a canceled turn without a durable stop request falls
+			// through to the ordinary canceled completion below.
+			if err := admission.lease.Abort(ctx); err == nil {
+				return
+			} else if completionSettled(admission.completion) || errors.Is(err, agentrun.ErrOutcomeUnknown) {
+				return
+			} else if !errors.Is(err, agentrun.ErrLeaseLost) {
+				rt.log.Warn("abort AgentRun completion failed", "session_id", admission.info.ID, "error", err)
+			}
+		}
+		if admission.completionExternal {
+			if completionSettled(admission.completion) {
+				return
+			}
+			if err := admission.lease.PrepareCompletion(ctx, status, reason); err != nil && !errors.Is(err, agentrun.ErrOutcomeUnknown) && !completionSettled(admission.completion) {
+				rt.log.Warn("prepare AgentRun completion failed", "session_id", admission.info.ID, "error", err)
+			}
+			return
+		}
+		if err := admission.lease.Finish(ctx, status, reason); err != nil && !errors.Is(err, agentrun.ErrOutcomeUnknown) {
+			rt.log.Warn("finish AgentRun completion failed", "session_id", admission.info.ID, "error", err)
+		}
+		return
+	}
+
+	// Standalone runtimes have no durable AgentRun. Preserve their historical
+	// activity behavior, including tests and local embedders that do not wire a
+	// Store into Config.
+	rt.markSessionTurnCompleted(admission.ctx, admission.activity, result)
+}
+
+func completionSettled(completion *CompletionBarrier) bool {
+	if completion == nil {
+		return false
+	}
+	select {
+	case <-completion.Done():
+		return true
+	default:
+		return false
+	}
+}
+
 // stopWaitCeiling keeps a broken provider from pinning the stop HTTP request.
 // Cooperative providers finish immediately; increase only if a real backend
 // needs a longer cancellation unwind.
@@ -490,6 +576,9 @@ const stopWaitCeiling = 5 * time.Second
 // session has no in-flight turn. Disconnecting an observer never calls this;
 // cancellation is an explicit, authorized action at the Session boundary.
 func (rt *Runtime) StopSession(ctx context.Context, sessionID string) bool {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	value, ok := rt.active.Load(sessionID)
 	if !ok {
 		return false
@@ -497,6 +586,16 @@ func (rt *Runtime) StopSession(ctx context.Context, sessionID string) bool {
 	turn, ok := value.(*activeTurn)
 	if !ok {
 		return false
+	}
+	// Record the stop before canceling model work. The forwarder then calls the
+	// lease's guarded Abort path, which atomically updates AgentRun plus Session
+	// activity; a late model write fails the same ownership fence.
+	if rt.runs != nil {
+		abortCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopWaitCeiling)
+		if _, err := rt.runs.RequestAbort(abortCtx, sessionID, "user_stop"); err != nil {
+			rt.log.Warn("request AgentRun abort failed", "session_id", sessionID, "error", err)
+		}
+		cancel()
 	}
 	turn.cancel()
 	timer := time.NewTimer(stopWaitCeiling)

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -254,7 +255,37 @@ func (p *Provider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID str
 		currentVersion = row.Version
 	}
 
-	created, err := p.q.CreateMemorySnapshot(ctx, sqlc.CreateMemorySnapshotParams{
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return memory.SessionSnapshot{}, fmt.Errorf("begin snapshot transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return memory.SessionSnapshot{}, err
+	}
+	qtx := p.q.WithTx(tx)
+	// Another caller may have created the snapshot after the initial read. Re-read
+	// under the guarded transaction before attempting the insert.
+	if current, readErr := qtx.GetMemorySnapshot(ctx, sqlc.GetMemorySnapshotParams{
+		SessionID: sessionID,
+		UserID:    userID,
+		AgentID:   agentID,
+	}); readErr == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return memory.SessionSnapshot{}, fmt.Errorf("commit existing snapshot read: %w", err)
+		}
+		return memory.SessionSnapshot{
+			SessionID: current.SessionID,
+			UserID:    current.UserID,
+			AgentID:   current.AgentID,
+			Version:   current.Version,
+			UpdatedAt: current.UpdatedAt.UTC(),
+		}, nil
+	} else if !errors.Is(readErr, pgx.ErrNoRows) {
+		return memory.SessionSnapshot{}, fmt.Errorf("re-read snapshot: %w", readErr)
+	}
+
+	created, err := qtx.CreateMemorySnapshot(ctx, sqlc.CreateMemorySnapshotParams{
 		SessionID: sessionID,
 		UserID:    userID,
 		AgentID:   agentID,
@@ -262,6 +293,9 @@ func (p *Provider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID str
 	})
 	if err != nil {
 		return memory.SessionSnapshot{}, fmt.Errorf("create snapshot: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return memory.SessionSnapshot{}, fmt.Errorf("commit snapshot: %w", err)
 	}
 	return memory.SessionSnapshot{
 		SessionID: created.SessionID,
@@ -281,17 +315,45 @@ func (p *Provider) AdvanceSessionSnapshot(ctx context.Context, sessionID string,
 	if row == nil {
 		return nil
 	}
-	return p.q.AdvanceMemorySnapshot(ctx, sqlc.AdvanceMemorySnapshotParams{
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin snapshot advance transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
+	if err := p.q.WithTx(tx).AdvanceMemorySnapshot(ctx, sqlc.AdvanceMemorySnapshotParams{
 		Version:   row.Version,
 		SessionID: sessionID,
 		UserID:    userID,
 		AgentID:   agentID,
-	})
+	}); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit snapshot advance: %w", err)
+	}
+	return nil
 }
 
 // WriteChangelog implements memory.ChangelogWriter.
 func (p *Provider) WriteChangelog(ctx context.Context, entry memory.ChangeEntry) error {
-	return p.q.InsertMemoryChangelog(ctx, changeEntryToParams(entry))
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin changelog transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
+	if err := p.q.WithTx(tx).InsertMemoryChangelog(ctx, changeEntryToParams(entry)); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit changelog: %w", err)
+	}
+	return nil
 }
 
 // ReadChangelog implements memory.ChangelogReader.

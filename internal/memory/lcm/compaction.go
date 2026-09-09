@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -395,6 +396,9 @@ func (c *compactionEngine) writeMessageRunSummary(ctx context.Context, convID st
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
 	qtx := c.q.WithTx(tx)
 
 	// Serialize this writeback against concurrent Appends/compactions on the same
@@ -688,6 +692,9 @@ func (c *compactionEngine) writeCondensedRunSummary(ctx context.Context, convID 
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
 	qtx := c.q.WithTx(tx)
 
 	// Serialize this writeback against concurrent Appends/compactions on the same

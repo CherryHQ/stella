@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -70,6 +71,11 @@ func (t *notifyTool) Execute(ctx context.Context, args map[string]any) (string, 
 		AgentID: pkgchannel.NotificationAgentIDFromContext(ctx),
 		Text:    message,
 		Silent:  silent,
+	}
+	// Notification delivery is an external side effect. Check the durable Run
+	// owner immediately before the one permitted publish attempt.
+	if err := agentrun.Check(ctx); err != nil {
+		return "", err
 	}
 
 	var err error

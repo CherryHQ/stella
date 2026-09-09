@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -178,6 +179,14 @@ func (rc *ResolvedChat) AuthorizeUse(ctx context.Context, access *agentaccess.Se
 }
 
 func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) (<-chan agent.Event, string, error) {
+	return rc.ChatWithRuntimeOptions(ctx, message)
+}
+
+// ChatWithRuntimeOptions keeps the channel boundary able to pass one durable
+// completion/ownership handle into the admitted runtime turn. The options are
+// deliberately opaque here: the runtime owns their interpretation, while the
+// channel package owns only egress settlement.
+func (rc *ResolvedChat) ChatWithRuntimeOptions(ctx context.Context, message agent.MessageContent, opts ...agentruntime.Option) (<-chan agent.Event, string, error) {
 	ctx = agentctx.WithChannel(ctx, rc.ChatCtx.Platform)
 	if rc.User.ID == "" && rc.GroupID == "" && rc.GuestID == "" {
 		return nil, "", fmt.Errorf("missing user context")
@@ -204,6 +213,7 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 		InputActor:       rc.InputActor,
 		GroupWake:        rc.GroupWake,
 		Authority:        rc.Authority,
+		RuntimeOpts:      opts,
 	})
 	return stream, info.ID, nil
 }

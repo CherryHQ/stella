@@ -11,21 +11,24 @@ import (
 type Option func(*chatOptions)
 
 type chatOptions struct {
-	model           string
-	systemOverride  string
-	excludedTools   []string
-	allowedTools    []string
-	hasAllowedTools bool
-	extraTools      []tools.Tool
-	currentSpeaker  memory.CurrentSpeaker
-	hasSpeaker      bool
-	inputActor      eventlog.MessageActor
-	inboxID         string
-	groupWake       memory.GroupWake
-	channel         string
-	bindingID       string
-	turnAuthority   authz.Authority
-	hasAuthority    bool
+	model               string
+	systemOverride      string
+	excludedTools       []string
+	allowedTools        []string
+	hasAllowedTools     bool
+	extraTools          []tools.Tool
+	currentSpeaker      memory.CurrentSpeaker
+	hasSpeaker          bool
+	inputActor          eventlog.MessageActor
+	inboxID             string
+	groupWake           memory.GroupWake
+	channel             string
+	bindingID           string
+	turnAuthority       authz.Authority
+	hasAuthority        bool
+	completion          *CompletionBarrier
+	completionExternal  bool
+	inboxInputPersisted bool
 }
 
 // WithInputActor attaches runtime-derived provenance to the input message.

@@ -31,30 +31,26 @@ func newToolTracker() channel.ToolTracker {
 	return channel.ToolTracker{MinDisplayDuration: minToolDisplayDuration}
 }
 
-// streamEvents consumes the agent event stream, displaying progress in real time.
-// For private chats it uses Telegram's sendMessageDraft API (Bot API 9.3+)
-// for smooth animated streaming. For groups (where drafts aren't supported)
-// it falls back to the edit-in-place approach.
-func (b *Bot) streamEvents(c tele.Context, events <-chan channel.Event) (string, *channel.ToolTracker, []channel.ImageEvent, error) {
+func (b *Bot) streamEventsChecked(c tele.Context, stream *channel.ChatStream) (string, *channel.ToolTracker, []channel.ImageEvent, error) {
+	return b.streamEventsWithCheck(c, stream, stream.CheckOperation)
+}
+
+func (b *Bot) streamEventsWithCheck(c tele.Context, stream *channel.ChatStream, check func(context.Context) error) (string, *channel.ToolTracker, []channel.ImageEvent, error) {
 	if !isGroup(c) {
-		text, tracker, images, fallback, err := b.streamDraft(c, events)
+		text, tracker, images, fallback, err := b.streamDraftWithCheck(c, stream, check)
 		if fallback {
 			// Draft failed on first attempt — the event channel is still
 			// open. Continue with edit-based streaming, preserving any
 			// text and tool state already buffered from consumed events.
 			logger().Info("sendMessageDraft not supported, falling back to edit mode")
-			return b.streamEditEvents(c, events, text, tracker, images)
+			return b.streamEditEventsWithCheck(c, stream, text, tracker, images, check)
 		}
 		return text, tracker, images, err
 	}
-	return b.streamEditEvents(c, events, "", nil, nil)
+	return b.streamEditEventsWithCheck(c, stream, "", nil, nil, check)
 }
 
-// streamDraft uses Telegram's sendMessageDraft API for smooth streaming
-// in private chats. If the first draft call fails, it returns fallback=true
-// so the caller can switch to edit mode. The buffered text is returned so
-// no consumed events are lost.
-func (b *Bot) streamDraft(c tele.Context, events <-chan channel.Event) (text string, tracker *channel.ToolTracker, images []channel.ImageEvent, fallback bool, err error) {
+func (b *Bot) streamDraftWithCheck(c tele.Context, stream *channel.ChatStream, check func(context.Context) error) (text string, tracker *channel.ToolTracker, images []channel.ImageEvent, fallback bool, err error) {
 	var sb strings.Builder
 	var streamErr error
 	tt := newToolTracker()
@@ -64,7 +60,7 @@ func (b *Bot) streamDraft(c tele.Context, events <-chan channel.Event) (text str
 	draftID := rand.IntN(1<<31-1) + 1
 	firstDraft := true
 
-	for evt := range events {
+	for evt := range stream.Events {
 		if evt.Err != nil {
 			streamErr = evt.Err
 			break
@@ -94,6 +90,11 @@ func (b *Bot) streamDraft(c tele.Context, events <-chan channel.Event) (text str
 
 		display := buildStreamDisplay(current, tt.Render(), tt.IsDisplaying())
 
+		if check != nil {
+			if err := check(b.ctx); err != nil {
+				return sb.String(), &tt, imgs, false, err
+			}
+		}
 		if err := b.bot.SendDraft(c.Chat(), draftID, display); err != nil {
 			if firstDraft {
 				return sb.String(), &tt, imgs, true, nil
@@ -107,11 +108,7 @@ func (b *Bot) streamDraft(c tele.Context, events <-chan channel.Event) (text str
 	return sb.String(), &tt, imgs, false, streamErr
 }
 
-// streamEditEvents uses the traditional edit-in-place approach for streaming,
-// consuming from an existing event channel. Required for group chats where
-// sendMessageDraft is not available. Any already-buffered text from a prior
-// draft attempt is preserved via the initial parameter.
-func (b *Bot) streamEditEvents(c tele.Context, events <-chan channel.Event, initial string, existing *channel.ToolTracker, existingImages []channel.ImageEvent) (string, *channel.ToolTracker, []channel.ImageEvent, error) {
+func (b *Bot) streamEditEventsWithCheck(c tele.Context, stream *channel.ChatStream, initial string, existing *channel.ToolTracker, existingImages []channel.ImageEvent, check func(context.Context) error) (string, *channel.ToolTracker, []channel.ImageEvent, error) {
 	var sb strings.Builder
 	sb.WriteString(initial)
 	var sentMsg *tele.Message
@@ -124,7 +121,7 @@ func (b *Bot) streamEditEvents(c tele.Context, events <-chan channel.Event, init
 	imgs = append(imgs, existingImages...)
 	lastEdit := time.Time{}
 
-	for evt := range events {
+	for evt := range stream.Events {
 		if evt.Err != nil {
 			streamErr = evt.Err
 			break
@@ -155,6 +152,11 @@ func (b *Bot) streamEditEvents(c tele.Context, events <-chan channel.Event, init
 		display := buildStreamDisplay(current, tt.Render(), tt.IsDisplaying())
 
 		if sentMsg == nil {
+			if check != nil {
+				if err := check(b.ctx); err != nil {
+					return sb.String(), &tt, imgs, err
+				}
+			}
 			msg, err := b.bot.Send(c.Chat(), display)
 			if err != nil {
 				logger().Warn("stream send failed", "error", err)
@@ -162,6 +164,11 @@ func (b *Bot) streamEditEvents(c tele.Context, events <-chan channel.Event, init
 				sentMsg = msg
 			}
 		} else {
+			if check != nil {
+				if err := check(b.ctx); err != nil {
+					return sb.String(), &tt, imgs, err
+				}
+			}
 			if _, err := b.bot.Edit(sentMsg, display); err != nil {
 				logger().Warn("stream edit failed", "error", err)
 			}
@@ -171,6 +178,11 @@ func (b *Bot) streamEditEvents(c tele.Context, events <-chan channel.Event, init
 
 	// Clean up the streaming message so the caller can send the final version.
 	if sentMsg != nil {
+		if check != nil {
+			if err := check(b.ctx); err != nil {
+				return sb.String(), &tt, imgs, err
+			}
+		}
 		if err := b.bot.Delete(sentMsg); err != nil {
 			logger().Warn("delete streaming message failed", "error", err)
 		}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -154,5 +155,43 @@ func TestRootRejectsSpecialFilesWithoutBlocking(t *testing.T) {
 	}
 	if info, err := os.Lstat(fifo); err != nil || info.Mode()&os.ModeNamedPipe == 0 {
 		t.Fatalf("FIFO changed: %v, %v", info, err)
+	}
+}
+
+func TestRootUploadRestoresRequestedModeUnderUmask(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestRootUploadRestoresRequestedModeUnderUmaskChild$")
+	cmd.Env = append(os.Environ(), "STELLA_ROOT_UPLOAD_UMASK_CHILD=1")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("restrictive-umask upload child failed: %v\n%s", err, output)
+	}
+}
+
+func TestRootUploadRestoresRequestedModeUnderUmaskChild(t *testing.T) {
+	if os.Getenv("STELLA_ROOT_UPLOAD_UMASK_CHILD") != "1" {
+		return
+	}
+	_ = unix.Umask(0o077)
+	r := testSkillOperationsRoot(t, RootReadWrite)
+	for _, tc := range []struct {
+		name string
+		mode fs.FileMode
+	}{
+		{name: "executable", mode: 0o755},
+		{name: "private", mode: 0o600},
+	} {
+		if err := r.Upload(t.Context(), tc.name, strings.NewReader("content"), WriteOptions{
+			Mode:     tc.mode,
+			MaxBytes: 8,
+			Sync:     true,
+		}); err != nil {
+			t.Fatalf("upload %s: %v", tc.name, err)
+		}
+		info, err := r.Stat(t.Context(), tc.name)
+		if err != nil {
+			t.Fatalf("stat %s: %v", tc.name, err)
+		}
+		if got := info.Mode().Perm(); got != tc.mode.Perm() {
+			t.Fatalf("upload %s mode = %04o, want %04o", tc.name, got, tc.mode.Perm())
+		}
 	}
 }

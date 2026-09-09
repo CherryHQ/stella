@@ -94,7 +94,7 @@ Runtime owns per-turn execution:
 13. handle timeout notices and errors
 14. run post-agent hooks
 
-Runtime also enforces one active turn per session. A second concurrent chat for the same session returns `ErrSessionBusy` instead of interleaving transcript writes.
+Runtime acquires a PostgreSQL `AgentRun` before preparing an admitted turn. A partial unique index permits at most one running Run per Session. A second concurrent admission returns `ErrSessionBusy`; the process-local active map remains a fast rejection and cancellation mechanism.
 
 ### `memory.Provider`
 
@@ -164,7 +164,7 @@ Session kind describes why the session exists. Channel describes where it origin
 
 Typed resume must validate kind. A scheduler run must not resume a delegate session even if the ID matches. A channel session must require `KindChat` even though channel keys are trusted.
 
-Human messages are accepted on every kind. The web UI may send a message to a `delegate`, `task`, or `scheduler` session just like a `chat` session. Human ingress contends for the runtime guard directly. Agent-originated `session_create` and `session_send` inputs are first recorded in the durable Session inbox, then use a bounded process-local FIFO for fairness before entering the same runtime admission guard. At the normal input-append point, LCM claims the inbox row and writes the transcript message in one transaction. The guard remains the one-active-turn correctness boundary.
+Human messages are accepted on every kind. The Web UI may send a message to a `delegate`, `task`, or `scheduler` Session just like a `chat` Session. Every entry path acquires the same `AgentRun` lease. Agent-originated Session input keeps its exact source, target, and actor in the durable inbox; live admission links the receipt to at most one target Run and projects the input atomically. A bounded local FIFO waits for a busy owner; a queue timeout, no capacity, or cancellation before admission leaves a failed, unlinked receipt.
 
 ## ID trust model
 
@@ -215,11 +215,19 @@ This matters for delegate and scheduler callers because they treat any stream er
 
 ### Concurrency
 
-Runtime allows at most one active turn per session and returns `ErrSessionBusy` before transcript side effects when admission loses. Human ingress handles that result directly. Agent-originated Session sends add a fairness layer in front of admission: a process-local FIFO with a pending depth of 32 and a 30-second admission hold limit. The source context cancels queued and admitted work. Cancellation before transcript delivery atomically terminalizes the inbox row; cancellation after delivery leaves the input in history and stops the live turn. The FIFO polls a busy guard holder and still relies on runtime admission for correctness.
+Agent-originated sends retain the process-local FIFO with at most 32 pending inputs and a 30-second admission hold limit. It polls busy admission without replaying an admitted Run. The source deadline and cancellation cover both queue hold and nested turns.
 
-On startup, Stella reauthorizes pending inbox rows and appends valid inputs to their target transcripts in enqueue order. Recovery never starts a model or tool turn, so this is durable message delivery—not durable Agent execution or reply delivery. A crash after transcript commit can therefore leave an unanswered Agent input, but it cannot replay tool side effects.
+Each process boot receives a fresh executor identity. A Run belongs to that boot for its entire lifetime. PostgreSQL time and guarded updates govern heartbeat, abort, completion, and expiry. An expired Run becomes interrupted; another executor cannot renew, take over, or resume it.
 
-Cluster-wide serialization is tracked in #643 under #637. That work will replace all process-local admission guards with one shared Session turn lease. The agent-send FIFO must remain a local fairness optimization in front of that seam.
+Run-owned database writes validate the Run ID, executor boot, running status, abort state, and lease in the same transaction as the mutation. Checking before opening a transaction is insufficient: another executor could terminalize the Run between the check and the commit. Authorized presentation-only writes, such as marking a Session viewed, remain independent of execution ownership.
+
+Abort intent and completion compete in PostgreSQL. The winning terminal transition records both the Run result and Session turn activity in one transaction. Normal Stop therefore persists `canceled`, and an old executor cannot overwrite a successor's activity.
+
+Model EOF allows a source adapter to finish its work. Adapters that still have outbound delivery or source bookkeeping retain the lease and explicitly acknowledge the outcome after those operations. A lost or ambiguous acknowledgement becomes unknown; AgentRun recovery never reruns that execution. Durable channel publication and its recovery policy remain part of the channel requirements tracked in #1035.
+
+Inbox recovery follows the linked Run's terminal state without invoking a model or tool. Startup may reauthorize and append legacy or unassociated receipts, but cannot create a new Run for them. A crash can leave accepted input without a reply; automatic replay would risk repeating tool or outbound effects.
+
+Deployment remains single-replica. #1035 tracks the remaining compute-generation, durable-channel, leadership, and remote-attachment requirements, and #637 also requires shared-storage readiness before multi-replica activation.
 
 ### Live event fan-out
 
@@ -298,6 +306,7 @@ parent runner executes session_create / session_send
     -> Service.Delegate
     -> Registry creates generated delegate session or resumes existing delegate session
     -> per-Session FIFO fairness
+    -> atomic inbox receipt / AgentRun admission
     -> Runtime.ChatAdmitted
 ```
 

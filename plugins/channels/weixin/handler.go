@@ -382,6 +382,18 @@ func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage
 		b.sendReply(msg, resp)
 		return
 	}
+	if stream == nil {
+		return
+	}
+	defer stream.Discard()
+	outcome := channel.EgressDelivered
+	defer func() {
+		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(b.ctx), 5*time.Second)
+		defer cancelAck()
+		if ackErr := stream.Ack(ackCtx, outcome); ackErr != nil {
+			logger().Warn("acknowledge Weixin egress failed", "user_id", msg.FromUserID, "error", ackErr)
+		}
+	}()
 
 	logger().Debug("message received", "user_id", msg.FromUserID, "session", stream.SessionID)
 
@@ -389,11 +401,12 @@ func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage
 	typingCtx, stopTyping := context.WithCancel(b.ctx)
 	go b.keepTyping(typingCtx, msg)
 
-	response, tracker, images, streamErr := b.streamEvents(msg, stream.Events)
+	response, tracker, images, files, streamErr := b.streamEventsChecked(stream)
 
 	stopTyping()
 
 	if streamErr != nil {
+		outcome = channel.EgressOutcomeForError(streamErr)
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
 		if response == "" {
 			response = fmt.Sprintf("Agent error: %v", streamErr)
@@ -410,7 +423,15 @@ func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage
 		response += tracker.RenderFinal()
 	}
 
-	b.sendFinalResponse(msg, response, images)
+	if err := stream.CheckOperation(b.ctx); err != nil {
+		outcome = channel.EgressDiscarded
+		return
+	}
+	if err := b.sendFinalResponseChecked(b.ctx, stream, msg, response, images, files); err != nil {
+		outcome = channel.EgressOutcomeForError(err)
+		logger().Error("send final response failed", "user_id", msg.FromUserID, "error", err)
+		return
+	}
 	logger().Debug("response sent", "user_id", msg.FromUserID, "response_len", len(response))
 }
 

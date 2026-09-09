@@ -247,6 +247,21 @@ func TestRenderMarkdownFlattensDetails(t *testing.T) {
 	}
 }
 
+func TestIsTelegramMarkdownRejected(t *testing.T) {
+	if !isTelegramMarkdownRejected(tele.NewError(400, "Bad Request: can't parse entities: Character '_' is reserved")) {
+		t.Fatal("typed MarkdownV2 parse rejection was not classified as recoverable")
+	}
+	if !isTelegramMarkdownRejected(errors.New("telegram: Bad Request: can't parse entities: Character '_' is reserved (400)")) {
+		t.Fatal("telebot's formatted MarkdownV2 parse rejection was not classified as recoverable")
+	}
+	if isTelegramMarkdownRejected(tele.NewError(400, "Bad Request: chat not found")) {
+		t.Fatal("unrelated 400 was classified as recoverable")
+	}
+	if isTelegramMarkdownRejected(errors.New("timeout while sending telegram message")) {
+		t.Fatal("transport error was classified as recoverable")
+	}
+}
+
 func TestRenderMarkdownLeavesCodeFenceAlone(t *testing.T) {
 	md := tgmd.TGMD()
 	input := "```html\n<details>\n<summary>x</summary>\n</details>\n```"

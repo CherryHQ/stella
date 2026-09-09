@@ -24,18 +24,39 @@ const (
 // It deliberately has no session or agent logic: a failed platform request is
 // returned so the existing at-least-once group dispatcher owns the retry.
 func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err error) {
+	if req.Stream != nil {
+		defer req.Stream.Discard()
+	}
+	outcome := channel.EgressDelivered
+	defer func() {
+		if req.Stream == nil {
+			return
+		}
+		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancelAck()
+		if ackErr := req.Stream.Ack(ackCtx, outcome); ackErr != nil && err == nil {
+			err = ackErr
+		}
+	}()
 	stream, err := channel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			outcome = channel.EgressDiscarded
+		} else {
+			outcome = channel.EgressFailed
+		}
 		return err
 	}
 	req.Stream = stream
 	chatID, err := strconv.ParseInt(req.PlatformGroupID, 10, 64)
 	if err != nil {
+		outcome = channel.EgressFailed
 		return fmt.Errorf("telegram: invalid group id %q: %w", req.PlatformGroupID, err)
 	}
 	chat := &tele.Chat{ID: chatID}
 	opts, threadID, err := telegramGroupSendOptions(req, chatID)
 	if err != nil {
+		outcome = channel.EgressFailed
 		return err
 	}
 
@@ -45,6 +66,10 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err
 
 	// A rejected replay never reaches this point. Egress failure clears the
 	// acknowledgement; the dispatcher owns retries and terminal delivery state.
+	if err := req.Stream.CheckOperation(ctx); err != nil {
+		outcome = channel.EgressDiscarded
+		return err
+	}
 	b.react(req.PlatformGroupID, req.ReplyTo, reactionReceived)
 	defer func() { b.finishReaction(req.PlatformGroupID, req.ReplyTo, err == nil) }()
 
@@ -53,20 +78,51 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err
 		response = "(empty response)"
 	}
 
+	sent := false
 	for _, chunk := range channel.SplitMessage(response, telegramMaxMessageLen) {
+		if err := req.Stream.CheckOperation(ctx); err != nil {
+			if sent {
+				outcome = channel.EgressOutcomeForError(err)
+			} else {
+				outcome = channel.EgressDiscarded
+			}
+			return err
+		}
 		if _, err := b.sendTelegramMarkdown(ctx, chat, chunk, opts); err != nil {
+			outcome = channel.EgressOutcomeForError(err)
 			return fmt.Errorf("telegram: send response: %w", err)
 		}
+		sent = true
 	}
 	for _, img := range images {
+		if err := req.Stream.CheckOperation(ctx); err != nil {
+			if sent {
+				outcome = channel.EgressOutcomeForError(err)
+			} else {
+				outcome = channel.EgressDiscarded
+			}
+			return err
+		}
 		if err := b.sendGroupImage(ctx, chat, img, opts); err != nil {
+			outcome = channel.EgressOutcomeForError(err)
 			return fmt.Errorf("telegram: send response image: %w", err)
 		}
+		sent = true
 	}
 	for _, file := range files {
+		if err := req.Stream.CheckOperation(ctx); err != nil {
+			if sent {
+				outcome = channel.EgressOutcomeForError(err)
+			} else {
+				outcome = channel.EgressDiscarded
+			}
+			return err
+		}
 		if err := b.sendGroupFile(ctx, chat, file, opts); err != nil {
+			outcome = channel.EgressOutcomeForError(err)
 			return fmt.Errorf("telegram: send response file: %w", err)
 		}
+		sent = true
 	}
 	return nil
 }

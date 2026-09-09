@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	tele "gopkg.in/telebot.v4"
 
@@ -301,7 +302,19 @@ func (b *Bot) documentAttachment(c tele.Context, doc *tele.Document, fileName st
 }
 
 // handleStream renders a ChatStream to the Telegram chat.
-func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) error {
+func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) (err error) {
+	if stream == nil {
+		return nil
+	}
+	defer stream.Discard()
+	outcome := channel.EgressDelivered
+	defer func() {
+		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(b.ctx), 5*time.Second)
+		defer cancelAck()
+		if ackErr := stream.Ack(ackCtx, outcome); ackErr != nil && err == nil {
+			err = ackErr
+		}
+	}()
 	chatID := c.Chat().ID
 	logger().Debug("message received", "chat_id", chatID)
 
@@ -309,16 +322,21 @@ func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) error {
 	// what guarantees a terminal reaction follows. Group turns are served by
 	// Publish instead and carry their own lifecycle.
 	reactChat, reactMsg := reactionTarget(c)
+	if err := stream.CheckOperation(b.ctx); err != nil {
+		outcome = channel.EgressDiscarded
+		return err
+	}
 	b.react(reactChat, reactMsg, reactionReceived)
 
 	typingCtx, stopTyping := context.WithCancel(b.ctx)
 	go keepTyping(typingCtx, c)
 
-	response, tracker, images, streamErr := b.streamEvents(c, stream.Events)
+	response, tracker, images, streamErr := b.streamEventsChecked(c, stream)
 
 	stopTyping()
 
 	if streamErr != nil {
+		outcome = channel.EgressOutcomeForError(streamErr)
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
 		if response == "" {
 			response = fmt.Sprintf("Agent error: %v", streamErr)
@@ -335,7 +353,10 @@ func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) error {
 		response += tracker.RenderFinal()
 	}
 
-	b.sendFinalResponse(c, response, images)
+	if err = b.sendFinalResponseChecked(b.ctx, stream, c, response, images); err != nil {
+		outcome = channel.EgressOutcomeForError(err)
+		return err
+	}
 	b.finishReaction(reactChat, reactMsg, streamErr == nil)
 	logger().Debug("response sent", "chat_id", chatID, "response_len", len(response))
 	return nil

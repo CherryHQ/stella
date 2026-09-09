@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/core/providercred"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -53,10 +54,12 @@ func (s *DBStore) GetAgentProviderCredential(ctx context.Context, agentID, provi
 
 // UpsertAgentProviderCredential writes or atomically rotates one credential.
 func (s *DBStore) UpsertAgentProviderCredential(ctx context.Context, agentID string, cred providercred.Encrypted) (providercred.Metadata, error) {
-	row, err := s.q.UpsertAgentProviderCredential(ctx, sqlc.UpsertAgentProviderCredentialParams{
-		AgentID:    agentID,
-		ProviderID: cred.ProviderID,
-		ApiKeyEnc:  cred.APIKeyEnc,
+	row, err := agentrun.WriteTxValue(ctx, s.pool, func(q *sqlc.Queries) (sqlc.AgentProviderCredential, error) {
+		return q.UpsertAgentProviderCredential(ctx, sqlc.UpsertAgentProviderCredentialParams{
+			AgentID:    agentID,
+			ProviderID: cred.ProviderID,
+			ApiKeyEnc:  cred.APIKeyEnc,
+		})
 	})
 	if err != nil {
 		return providercred.Metadata{}, fmt.Errorf("upsert agent %q provider credential %q: %w", agentID, cred.ProviderID, err)
@@ -67,9 +70,11 @@ func (s *DBStore) UpsertAgentProviderCredential(ctx context.Context, agentID str
 // DeleteAgentProviderCredential removes one credential. It is idempotent: a
 // DELETE affecting zero rows is not an error.
 func (s *DBStore) DeleteAgentProviderCredential(ctx context.Context, agentID, providerID string) error {
-	if err := s.q.DeleteAgentProviderCredential(ctx, sqlc.DeleteAgentProviderCredentialParams{
-		AgentID:    agentID,
-		ProviderID: providerID,
+	if err := agentrun.WriteTx(ctx, s.pool, func(q *sqlc.Queries) error {
+		return q.DeleteAgentProviderCredential(ctx, sqlc.DeleteAgentProviderCredentialParams{
+			AgentID:    agentID,
+			ProviderID: providerID,
+		})
 	}); err != nil {
 		return fmt.Errorf("delete agent %q provider credential %q: %w", agentID, providerID, err)
 	}
@@ -91,6 +96,9 @@ func (s *DBStore) CreateAgentWithCredentials(ctx context.Context, a config.Agent
 		return fmt.Errorf("create agent %q: begin tx: %w", params.ID, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return fmt.Errorf("create agent %q: validate AgentRun ownership: %w", params.ID, err)
+	}
 
 	qtx := s.q.WithTx(tx)
 	if _, err := qtx.CreateAgent(ctx, params); err != nil {

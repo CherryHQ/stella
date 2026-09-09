@@ -112,7 +112,7 @@ func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxG
 	}
 	// The session memory of this turn and the decision to publish it commit
 	// together; a split would let an agent remember a reply nobody received.
-	if err := d.committer.CommitGroupTurn(ctx, q, turn); err != nil {
+	if err := d.committer.CommitGroupTurn(ctx, tx, turn); err != nil {
 		return groupAcceptOutcome{}, fmt.Errorf("commit deferred group turn: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -210,7 +210,7 @@ func (d *GroupDispatcher) stopGroupTurn(ctx context.Context, tx pgx.Tx, q *sqlc.
 		return groupAcceptOutcome{}, fmt.Errorf("mark dispatch %s (%s): lost dispatch ownership", verdict.status, verdict.reason)
 	}
 	turn.OwnRows = stripTrailingTextOnlyAssistant(turn.OwnRows)
-	if err := d.committer.CommitGroupTurn(ctx, q, turn); err != nil {
+	if err := d.committer.CommitGroupTurn(ctx, tx, turn); err != nil {
 		return groupAcceptOutcome{}, fmt.Errorf("commit stopped deferred group turn: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

@@ -11,6 +11,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -139,6 +140,9 @@ func (t *toolProxy) Execute(ctx context.Context, args map[string]any) (string, e
 }
 
 func (t *toolProxy) call(ctx context.Context, args map[string]any) (*mcpsdk.CallToolResult, error) {
+	if err := agentrun.Check(ctx); err != nil {
+		return nil, err
+	}
 	if t.fileConn != nil {
 		authority, ok := authz.AuthorityFromContext(ctx)
 		if !ok {
@@ -156,8 +160,16 @@ func (t *toolProxy) call(ctx context.Context, args map[string]any) (*mcpsdk.Call
 	if err != nil {
 		return nil, err
 	}
+	// Lazy connection can perform network I/O. Revalidate after it and directly
+	// before the remote tool effect; never retry an outcome-unknown call.
+	if err := agentrun.Check(ctx); err != nil {
+		return nil, err
+	}
 	callCtx, cancel := context.WithTimeout(ctx, callTimeout(t.reg))
 	defer cancel()
+	if err := agentrun.Check(callCtx); err != nil {
+		return nil, err
+	}
 	res, err := client.CallTool(callCtx, t.remoteName, args)
 	if err != nil {
 		// A plain timeout is the model's problem to retry; only a credential

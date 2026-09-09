@@ -106,7 +106,7 @@ func TestGroupWindowRendersOwnPublishedReplyWhenPrivateTrajectoryIsLarge(t *test
 			ai.ToolResultMessage{ToolCallID: "call-1", ToolName: "read", Content: []ai.ContentBlock{ai.TextContent{Text: strings.Repeat("private-only ", 10_000)}}},
 		},
 	}
-	if err := p.CommitGroupTurn(groupCtx(anchor.Seq), sqlc.New(tx), turn); err != nil {
+	if err := p.CommitGroupTurn(groupCtx(anchor.Seq), tx, turn); err != nil {
 		_ = tx.Rollback(context.Background())
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestGroupWindowShowsSilentToolNoteUntilAcceptedTurn(t *testing.T) {
 			ai.ToolResultMessage{ToolCallID: "call-1", ToolName: "read_file", Content: []ai.ContentBlock{ai.TextContent{Text: "private result"}}},
 		},
 	}
-	if err := p.CommitGroupTurn(groupCtx(anchor.Seq), sqlc.New(tx), turn); err != nil {
+	if err := p.CommitGroupTurn(groupCtx(anchor.Seq), tx, turn); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
 	}

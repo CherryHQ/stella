@@ -10,8 +10,30 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+// guardedMutation keeps scheduler-owned durable writes behind the AgentRun
+// transaction fence when a turn carries one. Management/background writes that
+// have no Guard continue through the same path as before.
+func (s *Service) guardedMutation(ctx context.Context, mutate func(*sqlc.Queries) error) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := mutate(s.q.WithTx(tx)); err != nil {
+		return err
+	}
+	// Validate after the full source-domain mutation is prepared. This obtains
+	// the ownership row lock in the same transaction that commits the write,
+	// serializing it against terminal AgentRun CAS.
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
 
 // loadJobs reads all persisted jobs from the database.
 func (s *Service) loadJobs(ctx context.Context) ([]Job, error) {
@@ -28,13 +50,17 @@ func (s *Service) loadJobs(ctx context.Context) ([]Job, error) {
 
 // insertJob persists a new job to the database.
 func (s *Service) insertJob(ctx context.Context, job Job) error {
-	_, err := s.q.CreateSchedulerJob(ctx, createSchedulerJobParams(job))
-	return err
+	return s.guardedMutation(ctx, func(q *sqlc.Queries) error {
+		_, err := q.CreateSchedulerJob(ctx, createSchedulerJobParams(job))
+		return err
+	})
 }
 
 // updateJob persists an existing job to the database.
 func (s *Service) updateJob(ctx context.Context, job Job) error {
-	return s.q.UpdateSchedulerJob(ctx, updateSchedulerJobParams(job))
+	return s.guardedMutation(ctx, func(q *sqlc.Queries) error {
+		return q.UpdateSchedulerJob(ctx, updateSchedulerJobParams(job))
+	})
 }
 
 // recordJobRun persists execution metadata for a job.
@@ -43,17 +69,21 @@ func (s *Service) recordJobRun(ctx context.Context, id string, ranAt time.Time, 
 	if runErr != nil {
 		lastError = runErr.Error()
 	}
-	return s.q.RecordSchedulerJobRun(ctx, sqlc.RecordSchedulerJobRunParams{
-		LastRunAt: pgtype.Timestamptz{Time: ranAt.UTC(), Valid: true},
-		LastError: lastError,
-		UpdatedAt: ranAt.UTC(),
-		ID:        id,
+	return s.guardedMutation(ctx, func(q *sqlc.Queries) error {
+		return q.RecordSchedulerJobRun(ctx, sqlc.RecordSchedulerJobRunParams{
+			LastRunAt: pgtype.Timestamptz{Time: ranAt.UTC(), Valid: true},
+			LastError: lastError,
+			UpdatedAt: ranAt.UTC(),
+			ID:        id,
+		})
 	})
 }
 
 // deleteJob removes a job from the database.
 func (s *Service) deleteJob(ctx context.Context, id string) error {
-	return s.q.DeleteSchedulerJob(ctx, id)
+	return s.guardedMutation(ctx, func(q *sqlc.Queries) error {
+		return q.DeleteSchedulerJob(ctx, id)
+	})
 }
 
 func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
@@ -303,6 +333,9 @@ func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID strin
 	}); err != nil {
 		return err
 	}
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 
@@ -322,13 +355,15 @@ func truncateRunes(s string, max int) string {
 }
 
 func (s *Service) finishJobRun(ctx context.Context, id, jobID, status string, finishedAt time.Time, errStr, output string) error {
-	return s.q.UpdateSchedJobRun(ctx, sqlc.UpdateSchedJobRunParams{
-		Status:     status,
-		FinishedAt: pgtype.Timestamptz{Time: finishedAt.UTC(), Valid: true},
-		Error:      errStr,
-		Output:     truncateRunes(output, maxRunOutputLen),
-		ID:         id,
-		JobID:      jobID,
+	return s.guardedMutation(ctx, func(q *sqlc.Queries) error {
+		return q.UpdateSchedJobRun(ctx, sqlc.UpdateSchedJobRunParams{
+			Status:     status,
+			FinishedAt: pgtype.Timestamptz{Time: finishedAt.UTC(), Valid: true},
+			Error:      errStr,
+			Output:     truncateRunes(output, maxRunOutputLen),
+			ID:         id,
+			JobID:      jobID,
+		})
 	})
 }
 

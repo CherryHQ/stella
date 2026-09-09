@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -96,8 +97,27 @@ func (s *WeixinStreamSender) sendPieces(newPieces []SyncStreamPiece, isEnd bool)
 // Returns true on success; returns false (caller should fall back to sendmessage) if
 // InitStream fails or all SyncStream retries are exhausted.
 func (b *Bot) sendViaStream(msg WeixinMessage, text string) bool {
+	ok, _ := b.sendViaStreamChecked(context.Background(), nil, msg, text)
+	return ok
+}
+
+// sendViaStreamChecked sends the text while fencing every external request.
+// An InitStream error is returned to managed callers rather than silently
+// falling back: a timeout cannot prove that Weixin did not accept the stream
+// request. The legacy wrapper may still choose its historical fallback because
+// it has no durable completion to settle.
+func (b *Bot) sendViaStreamChecked(ctx context.Context, stream *channel.ChatStream, msg WeixinMessage, text string) (bool, error) {
 	if b.guard.IsPaused() {
-		return false
+		return false, b.guard.AssertActive()
+	}
+	check := func() error {
+		if stream == nil {
+			return nil
+		}
+		return stream.CheckOperation(ctx)
+	}
+	if err := check(); err != nil {
+		return false, err
 	}
 
 	deviceID := b.cfg.BotID
@@ -108,9 +128,9 @@ func (b *Bot) sendViaStream(msg WeixinMessage, text string) bool {
 
 	initResp, err := b.client.InitStream(deviceID, clientStreamID)
 	if err != nil {
-		logger().Debug("init_stream failed, falling back to sendmessage",
+		logger().Debug("init_stream failed",
 			"user_id", msg.FromUserID, "error", err)
-		return false
+		return false, fmt.Errorf("init stream: %w", err)
 	}
 
 	sender := newWeixinStreamSender(b, deviceID, clientStreamID, initResp.StreamTicket)
@@ -123,16 +143,19 @@ func (b *Bot) sendViaStream(msg WeixinMessage, text string) bool {
 
 	var lastErr error
 	for range streamMaxRetries {
+		if err := check(); err != nil {
+			return false, err
+		}
 		lastErr = sender.sendPieces(pieces, true)
 		if lastErr == nil {
-			return true
+			return true, nil
 		}
 		pieces = nil // pending pieces are already saved; drain on next iteration
 	}
 
 	logger().Warn("sync_stream failed after retries, falling back to sendmessage",
 		"user_id", msg.FromUserID, "retries", streamMaxRetries, "error", lastErr)
-	return false
+	return false, lastErr
 }
 
 const (
@@ -151,13 +174,19 @@ func newToolTracker() channel.ToolTracker {
 	return channel.ToolTracker{MinDisplayDuration: minToolDisplayDuration}
 }
 
-// streamEvents consumes the agent event stream, accumulates text, and tracks tools.
-// Returns the final response text, tool tracker, collected images, and any stream error.
-func (b *Bot) streamEvents(msg WeixinMessage, events <-chan channel.Event) (string, *channel.ToolTracker, []channel.ImageEvent, error) {
+func (b *Bot) streamEventsChecked(stream *channel.ChatStream) (string, *channel.ToolTracker, []channel.ImageEvent, []channel.FileEvent, error) {
+	if stream == nil {
+		return "", nil, nil, nil, nil
+	}
+	return b.streamEventsWithMedia(stream.Events)
+}
+
+func (b *Bot) streamEventsWithMedia(events <-chan channel.Event) (string, *channel.ToolTracker, []channel.ImageEvent, []channel.FileEvent, error) {
 	var sb strings.Builder
 	var streamErr error
 	tt := newToolTracker()
 	var images []channel.ImageEvent
+	var files []channel.FileEvent
 
 	for evt := range events {
 		if evt.Err != nil {
@@ -169,6 +198,10 @@ func (b *Bot) streamEvents(msg WeixinMessage, events <-chan channel.Event) (stri
 			images = append(images, *evt.Image)
 			continue
 		}
+		if evt.File != nil {
+			files = append(files, *evt.File)
+			continue
+		}
 
 		if evt.ToolUse != nil {
 			tt.Handle(evt.ToolUse)
@@ -177,7 +210,7 @@ func (b *Bot) streamEvents(msg WeixinMessage, events <-chan channel.Event) (stri
 		sb.WriteString(evt.Text)
 	}
 
-	return sb.String(), &tt, images, streamErr
+	return sb.String(), &tt, images, files, streamErr
 }
 
 // keepTyping sends typing indicators every 5 seconds until the context is cancelled.

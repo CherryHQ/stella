@@ -3,7 +3,6 @@ package discord
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -21,6 +20,7 @@ type discordDraft struct {
 	messageID   string
 	last        string
 	cancelToken string
+	stream      *channel.ChatStream
 }
 
 // cancelButtonComponents attaches a single Danger "Cancel" button, or nil if
@@ -40,8 +40,13 @@ func (b *Bot) cancelButtonComponents(cancel *cancelControl) (string, []discordgo
 }
 
 func (b *Bot) beginDraft(ctx context.Context, channelID, replyTo string, cancel *cancelControl) *discordDraft {
+	draft, _ := b.beginDraftChecked(ctx, channelID, replyTo, cancel, nil)
+	return draft
+}
+
+func (b *Bot) beginDraftChecked(ctx context.Context, channelID, replyTo string, cancel *cancelControl, stream *channel.ChatStream) (*discordDraft, error) {
 	if b.rest == nil {
-		return nil
+		return nil, nil
 	}
 	token, components := b.cancelButtonComponents(cancel)
 	message, err := b.rest.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
@@ -51,15 +56,14 @@ func (b *Bot) beginDraft(ctx context.Context, channelID, replyTo string, cancel 
 		Components:      components,
 	}, discordgo.WithContext(ctx))
 	if err != nil {
-		logger().Debug("create Discord progress message failed", "channel_id", channelID, "error", err)
 		b.unregisterCancel(token)
-		return nil
+		return nil, err
 	}
 	if message == nil || message.ID == "" {
 		b.unregisterCancel(token)
-		return nil
+		return nil, nil
 	}
-	return &discordDraft{bot: b, channelID: channelID, messageID: message.ID, last: workingMessage, cancelToken: token}
+	return &discordDraft{bot: b, channelID: channelID, messageID: message.ID, last: workingMessage, cancelToken: token, stream: stream}, nil
 }
 
 // edit updates the draft's visible progress text. It never touches
@@ -72,6 +76,11 @@ func (d *discordDraft) edit(ctx context.Context, content string) error {
 	}
 	edit := discordgo.NewMessageEdit(d.channelID, d.messageID).SetContent(content)
 	edit.AllowedMentions = noMentions()
+	if d.stream != nil {
+		if err := d.stream.CheckOperation(ctx); err != nil {
+			return err
+		}
+	}
 	if _, err := d.bot.rest.ChannelMessageEditComplex(edit, discordgo.WithContext(ctx)); err != nil {
 		return err
 	}
@@ -91,6 +100,11 @@ func (d *discordDraft) finalize(ctx context.Context, content string) error {
 	edit := discordgo.NewMessageEdit(d.channelID, d.messageID).SetContent(content)
 	edit.AllowedMentions = noMentions()
 	edit.Components = &empty
+	if d.stream != nil {
+		if err := d.stream.CheckOperation(ctx); err != nil {
+			return err
+		}
+	}
 	_, err := d.bot.rest.ChannelMessageEditComplex(edit, discordgo.WithContext(ctx))
 	d.bot.unregisterCancel(d.cancelToken)
 	d.cancelToken = ""
@@ -100,49 +114,79 @@ func (d *discordDraft) finalize(ctx context.Context, content string) error {
 	return err
 }
 
-func (d *discordDraft) delete(ctx context.Context) {
+func (d *discordDraft) delete(ctx context.Context) error {
 	if d == nil {
-		return
+		return nil
+	}
+	if d.stream != nil {
+		if err := d.stream.CheckOperation(ctx); err != nil {
+			return err
+		}
 	}
 	if err := d.bot.rest.ChannelMessageDelete(d.channelID, d.messageID, discordgo.WithContext(ctx)); err != nil {
-		logger().Debug("delete Discord progress message failed", "channel_id", d.channelID, "message_id", d.messageID, "error", err)
+		return err
 	}
 	d.bot.unregisterCancel(d.cancelToken)
 	d.cancelToken = ""
+	return nil
 }
 
-func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl) error {
-	return b.deliverReplay(ctx, channelID, replyTo, stream, cancel, true)
-}
-
-func (b *Bot) deliverGroupReplay(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl) error {
-	return b.deliverReplay(ctx, channelID, replyTo, stream, cancel, false)
-}
-
-func (b *Bot) deliverReplay(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl, reportFailure bool) error {
-	draft := b.beginDraft(ctx, channelID, replyTo, cancel)
+func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl) (err error) {
+	if stream == nil {
+		return nil
+	}
+	defer stream.Discard()
+	outcome := channel.EgressDelivered
+	defer func() {
+		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancelAck()
+		if ackErr := stream.Ack(ackCtx, outcome); ackErr != nil {
+			logger().Warn("acknowledge Discord egress failed", "channel_id", channelID, "error", ackErr)
+			if err == nil {
+				err = ackErr
+			}
+		}
+	}()
+	// This is the only pre-send discard path. Once the working draft request
+	// starts, any returned error is unknown because Discord may have accepted it.
+	if err := stream.CheckOperation(ctx); err != nil {
+		outcome = channel.EgressDiscarded
+		return err
+	}
+	draft, err := b.beginDraftChecked(ctx, channelID, replyTo, cancel, stream)
+	if err != nil {
+		outcome = channel.EgressOutcomeForError(err)
+		return err
+	}
+	var progressErr error
 	text, images, files, streamErr := collectResponse(ctx, stream, func(text string, tools *channel.ToolTracker) {
-		if draft == nil {
+		if draft == nil || progressErr != nil {
 			return
 		}
-		if err := draft.edit(ctx, buildDraftDisplay(text, tools)); err != nil {
-			logger().Debug("edit Discord progress message failed", "channel_id", channelID, "message_id", draft.messageID, "error", err)
+		if editErr := draft.edit(ctx, buildDraftDisplay(text, tools)); editErr != nil {
+			progressErr = editErr
 		}
 	})
-	if errors.Is(streamErr, context.Canceled) {
-		draft.delete(context.WithoutCancel(ctx))
-		if err := ctx.Err(); err != nil {
-			// Publisher lease loss and shutdown must remain retryable. A DM /abort
-			// reports cancellation only on the stream while deliveryCtx stays live.
-			return err
+	if progressErr != nil {
+		outcome = channel.EgressOutcomeForError(progressErr)
+		return progressErr
+	}
+	if errors.Is(streamErr, context.Canceled) || errors.Is(streamErr, context.DeadlineExceeded) {
+		if deleteErr := draft.delete(context.WithoutCancel(ctx)); deleteErr != nil {
+			outcome = channel.EgressOutcomeForError(deleteErr)
+			return deleteErr
 		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// The working draft was already sent, so cancellation cannot prove that
+			// Discord did not receive it.
+			outcome = channel.EgressOutcomeForError(ctxErr)
+			return ctxErr
+		}
+		outcome = channel.EgressOutcomeForError(streamErr)
 		return nil
 	}
 	if streamErr != nil {
-		if !reportFailure {
-			draft.delete(context.WithoutCancel(ctx))
-			return fmt.Errorf("discord group replay: %w", streamErr)
-		}
+		outcome = channel.EgressOutcomeForError(streamErr)
 		logger().Warn("Discord agent stream failed", "channel_id", channelID, "error", streamErr)
 		if text != "" {
 			text += "\n\n"
@@ -154,42 +198,41 @@ func (b *Bot) deliverReplay(ctx context.Context, channelID, replyTo string, stre
 	}
 
 	if draft != nil && utf8.RuneCountInString(text) <= maxMessageLength && len(images) == 0 && len(files) == 0 {
-		if err := draft.finalize(ctx, text); err == nil {
-			return nil
+		err = draft.finalize(ctx, text)
+		if err != nil {
+			outcome = channel.EgressOutcomeForError(err)
 		}
+		return err
 	}
 	if text != "" {
-		if err := b.sendText(ctx, channelID, text, replyTo); err != nil {
-			if reportFailure {
-				_ = draft.finalize(ctx, "⚠️ Discord delivery failed; Stella will retry.")
-			} else {
-				draft.delete(context.WithoutCancel(ctx))
-			}
+		if err = b.sendTextChecked(ctx, stream, channelID, text, replyTo); err != nil {
+			outcome = channel.EgressOutcomeForError(err)
 			return err
 		}
 	}
 	for _, image := range images {
-		if err := b.sendImage(ctx, channelID, image); err != nil {
-			if reportFailure {
-				_ = draft.finalize(ctx, "⚠️ Discord delivery failed; Stella will retry.")
-			} else {
-				draft.delete(context.WithoutCancel(ctx))
-			}
+		if err = b.sendImageChecked(ctx, stream, channelID, image); err != nil {
+			outcome = channel.EgressOutcomeForError(err)
 			return err
 		}
 	}
 	for _, file := range files {
-		if err := b.sendFile(ctx, channelID, file); err != nil {
-			if reportFailure {
-				_ = draft.finalize(ctx, "⚠️ Discord delivery failed; Stella will retry.")
-			} else {
-				draft.delete(context.WithoutCancel(ctx))
-			}
+		if err = b.sendFileChecked(ctx, stream, channelID, file); err != nil {
+			outcome = channel.EgressOutcomeForError(err)
 			return err
 		}
 	}
-	draft.delete(ctx)
-	return nil
+	err = draft.delete(ctx)
+	if err != nil {
+		outcome = channel.EgressOutcomeForError(err)
+	}
+	return err
+}
+
+// deliverGroupReplay is kept as a compatibility wrapper for the group
+// publisher. Both direct and deferred deliveries share the fenced egress path.
+func (b *Bot) deliverGroupReplay(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl) error {
+	return b.deliverStream(ctx, channelID, replyTo, stream, cancel)
 }
 
 func collectResponse(ctx context.Context, stream *channel.ChatStream, onProgress func(string, *channel.ToolTracker)) (string, []channel.ImageEvent, []channel.FileEvent, error) {
@@ -212,9 +255,6 @@ func collectResponse(ctx context.Context, stream *channel.ChatStream, onProgress
 			}
 		case evt, ok := <-stream.Events:
 			if !ok {
-				if tools.HasHistory() {
-					text.WriteString(tools.RenderFinal())
-				}
 				return text.String(), images, files, streamErr
 			}
 			if evt.Err != nil {

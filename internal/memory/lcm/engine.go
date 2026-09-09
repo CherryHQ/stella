@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -71,7 +72,22 @@ func sessionLockStripe(sessionID string) uint32 {
 
 // getOrCreateConversation retrieves or creates a scoped conversation for the session.
 func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.Session) (string, error) {
-	return p.getOrCreateConversationWithQueries(ctx, p.q, session)
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("begin conversation transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return "", err
+	}
+	convID, err := p.getOrCreateConversationWithQueries(ctx, p.q.WithTx(tx), session)
+	if err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("commit conversation transaction: %w", err)
+	}
+	return convID, nil
 }
 
 func (p *Provider) getOrCreateConversationWithQueries(ctx context.Context, q *sqlc.Queries, session memory.Session) (string, error) {

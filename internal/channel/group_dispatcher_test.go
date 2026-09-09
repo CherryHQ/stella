@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -44,10 +45,10 @@ func (p *eventRecordingGroupPublisher) Publish(_ context.Context, req pkgchannel
 	return nil
 }
 
-type groupTurnCommitterFunc func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error
+type groupTurnCommitterFunc func(context.Context, pgx.Tx, memory.DeferredGroupTurn) error
 
-func (f groupTurnCommitterFunc) CommitGroupTurn(ctx context.Context, q *sqlc.Queries, turn memory.DeferredGroupTurn) error {
-	return f(ctx, q, turn)
+func (f groupTurnCommitterFunc) CommitGroupTurn(ctx context.Context, tx pgx.Tx, turn memory.DeferredGroupTurn) error {
+	return f(ctx, tx, turn)
 }
 
 type blockingGroupPublisher struct {
@@ -156,7 +157,7 @@ func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFix
 	coord := &Coordinator{store: cfgstore.NewDBStore(db)}
 	d := NewGroupDispatcher(db, coord, NewPublisherRegistry())
 	d.leaseDuration = 0
-	d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error { return nil }))
+	d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, pgx.Tx, memory.DeferredGroupTurn) error { return nil }))
 	d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
 			sink.Deliver(memory.DeferredGroupTurn{Complete: true})
@@ -785,7 +786,7 @@ func TestStopGroupTurnRejectsLostDispatchOwnership(t *testing.T) {
 			fx := newDispatcherFixture(t, "web", "{}")
 			ctx := context.Background()
 			committed := false
-			fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error {
+			fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, pgx.Tx, memory.DeferredGroupTurn) error {
 				committed = true
 				return nil
 			}))
@@ -968,7 +969,7 @@ func TestHoldCommitsDeferredTurnWithoutFinalReply(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	ctx := context.Background()
 	var committed memory.DeferredGroupTurn
-	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(_ context.Context, _ *sqlc.Queries, turn memory.DeferredGroupTurn) error {
+	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(_ context.Context, _ pgx.Tx, turn memory.DeferredGroupTurn) error {
 		committed = turn
 		return nil
 	}))
@@ -1442,7 +1443,7 @@ func TestRepublishAfterRestartUsesCanonicalTextOnly(t *testing.T) {
 	// A fresh dispatcher has no retained event envelope. It must re-publish the
 	// committed canonical row without starting another model turn.
 	restarted := NewGroupDispatcher(fx.db, fx.d.coord, NewPublisherRegistry())
-	restarted.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error {
+	restarted.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, pgx.Tx, memory.DeferredGroupTurn) error {
 		t.Fatal("restart replay must not commit another group turn")
 		return nil
 	}))
@@ -1563,7 +1564,7 @@ func TestAcceptTxRollbackAnnouncesNoMessage(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	hub := NewGroupEventHub()
 	fx.d.SetGroupEventHub(hub)
-	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error {
+	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, pgx.Tx, memory.DeferredGroupTurn) error {
 		return errors.New("injected memory failure")
 	}))
 	follow, cancel := hub.Subscribe(fx.groupID)
@@ -1990,7 +1991,7 @@ func TestModelPassCommitsReadContextWithoutOwnRows(t *testing.T) {
 	ctx := context.Background()
 	var committed memory.DeferredGroupTurn
 	var commits int
-	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(_ context.Context, _ *sqlc.Queries, turn memory.DeferredGroupTurn) error {
+	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(_ context.Context, _ pgx.Tx, turn memory.DeferredGroupTurn) error {
 		committed, commits = turn, commits+1
 		return nil
 	}))
@@ -2042,7 +2043,7 @@ func TestModelPassKeepsToolRowsAndDropsOnlyThePassReply(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	ctx := context.Background()
 	var committed memory.DeferredGroupTurn
-	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(_ context.Context, _ *sqlc.Queries, turn memory.DeferredGroupTurn) error {
+	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(_ context.Context, _ pgx.Tx, turn memory.DeferredGroupTurn) error {
 		committed = turn
 		return nil
 	}))
@@ -2339,7 +2340,7 @@ func TestStoppedTurnsCommitHistoryToolTraceAndCursor(t *testing.T) {
 			fx := newDispatcherFixture(t, "web", "{}")
 			ctx := context.Background()
 			var committed memory.DeferredGroupTurn
-			fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(_ context.Context, _ *sqlc.Queries, turn memory.DeferredGroupTurn) error {
+			fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(_ context.Context, _ pgx.Tx, turn memory.DeferredGroupTurn) error {
 				committed = turn
 				return nil
 			}))
@@ -2553,7 +2554,7 @@ func TestRetireModelPassRejectsLostDispatchOwnership(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	ctx := context.Background()
 	committed := false
-	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error {
+	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, pgx.Tx, memory.DeferredGroupTurn) error {
 		committed = true
 		return nil
 	}))

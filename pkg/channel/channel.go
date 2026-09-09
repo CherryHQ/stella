@@ -11,6 +11,7 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
+	"github.com/CherryHQ/stella/pkg/runcontrol"
 )
 
 // ErrJoinedChatListingUnavailable means the running channel cannot currently
@@ -122,6 +123,95 @@ type Mention struct {
 type ChatStream struct {
 	Events    <-chan Event
 	SessionID string
+
+	// Completion fences every model-derived outbound effect and stays open until
+	// the adapter records the terminal egress outcome. EOF only closes Events;
+	// queue owners wait on Completion.Done before admitting the next turn.
+	Completion runcontrol.Completion
+}
+
+// EgressOutcome is the terminal result of a channel-side outbound operation.
+// Unknown means the platform may have accepted the bytes and must never be
+// transparently retried by the dispatcher.
+type EgressOutcome = runcontrol.Outcome
+
+const (
+	EgressDelivered = runcontrol.OutcomeDelivered
+	EgressFailed    = runcontrol.OutcomeFailed
+	EgressDiscarded = runcontrol.OutcomeDiscarded
+	EgressUnknown   = runcontrol.OutcomeUnknown
+)
+
+// EgressOutcomeForError classifies a send-path error after an external request
+// may have started. Every non-nil error is unknown: a context timeout or
+// cancellation does not prove that the platform failed to receive the bytes.
+// Callers may use EgressDiscarded only when CheckOperation failed before the
+// corresponding external request was started.
+func EgressOutcomeForError(err error) EgressOutcome {
+	if err == nil {
+		return EgressDelivered
+	}
+	return EgressUnknown
+}
+
+// StreamCompletion is the runtime-to-channel bridge for an admitted turn.
+// Check is called immediately before each external send. Ack is called exactly
+// once after the adapter has finished all text, image, and file sends.
+type StreamCompletion = runcontrol.Completion
+
+var alreadyComplete = func() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()
+
+// CheckOperation rejects a model-derived outbound effect after its AgentRun
+// loses ownership. Streams created outside a durable Run retain the historical
+// no-op behavior.
+func (s *ChatStream) CheckOperation(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	if s.Completion != nil {
+		return s.Completion.Check(ctx)
+	}
+	return nil
+}
+
+// Ack records the terminal egress outcome. A stream without a completion
+// handle is intentionally a no-op, which keeps existing plugin tests and
+// non-durable Web responses source-compatible.
+func (s *ChatStream) Ack(ctx context.Context, outcome EgressOutcome) error {
+	if s == nil || s.Completion == nil {
+		return nil
+	}
+	return s.Completion.Ack(ctx, outcome)
+}
+
+// CompletionDone is the release barrier used by local FIFO wrappers. A stream
+// without a handle is already complete because it has no durable owner to
+// retain.
+func (s *ChatStream) CompletionDone() <-chan struct{} {
+	if s == nil {
+		return alreadyComplete
+	}
+	if s.Completion == nil {
+		return alreadyComplete
+	}
+	return s.Completion.Done()
+}
+
+// Discard drains a stream asynchronously after a channel stops publishing it.
+// Model execution must never remain blocked on a full event buffer merely
+// because an outbound effect was rejected or its outcome became unknown.
+func (s *ChatStream) Discard() {
+	if s == nil || s.Events == nil {
+		return
+	}
+	go func() {
+		for range s.Events {
+		}
+	}()
 }
 
 // Event is a stream event from the agent, consumed by channel plugins

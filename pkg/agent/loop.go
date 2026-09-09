@@ -98,6 +98,9 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 				streamCtx = hookResult.Context
 			}
 		}
+		// A hook may return a fresh context. Restore the engine-owned operation
+		// fence and durable guard before provider projection and dispatch.
+		streamCtx = inheritOperationCheck(streamCtx, ctx)
 
 		// Build a per-turn config with hook mutations applied.
 		// NOTE: shallow copy — safe because loopConfig fields are value types
@@ -127,6 +130,9 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 
 		// Scope the call so the HTTP transport can count provider attempts
 		// (SDK retries are invisible from here) and span each one.
+		if err := CheckOperation(streamCtx); err != nil {
+			return history, err
+		}
 		streamCtx, modelReq := ai.WithModelRequest(streamCtx, effectiveModel.Name)
 
 		start := time.Now()
@@ -195,6 +201,9 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		// values from PreLLMCall must not leak into child tool handlers.
 		toolCtx := trace.ContextWithSpanContext(ctx, trace.SpanContextFromContext(streamCtx))
 		toolExecCtx := tools.WithParentImageCapability(toolCtx, turnCfg.Model.ImageCapability())
+		if err := CheckOperation(toolExecCtx); err != nil {
+			return history, err
+		}
 		var canonicalizer ToolImageCanonicalizer
 		if cfg.CanonicalImages != nil {
 			canonicalizer = cfg.CanonicalImages.CanonicalizeToolResult

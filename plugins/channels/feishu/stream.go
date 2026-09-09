@@ -50,6 +50,17 @@ var nowFunc = time.Now
 //  2. Generating: updates card with streaming content + cursor
 //  3. Complete: final content with elapsed time footer
 func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.Event, chatID, replyMsgID, rootID, deliveryKey string) (string, string, []channel.ImageEvent, []channel.FileEvent, []renderrefs.Reference, time.Duration, error) {
+	return b.streamResponseInThreadWithCheck(ctx, events, nil, chatID, replyMsgID, rootID, deliveryKey)
+}
+
+func (b *Bot) streamResponseInThreadChecked(ctx context.Context, stream *channel.ChatStream, chatID, replyMsgID, rootID, deliveryKey string) (string, string, []channel.ImageEvent, []channel.FileEvent, []renderrefs.Reference, time.Duration, error) {
+	if stream == nil {
+		return "", "", nil, nil, nil, 0, nil
+	}
+	return b.streamResponseInThreadWithCheck(ctx, stream.Events, stream.CheckOperation, chatID, replyMsgID, rootID, deliveryKey)
+}
+
+func (b *Bot) streamResponseInThreadWithCheck(ctx context.Context, events <-chan channel.Event, check func(context.Context) error, chatID, replyMsgID, rootID, deliveryKey string) (string, string, []channel.ImageEvent, []channel.FileEvent, []renderrefs.Reference, time.Duration, error) {
 	startTime := nowFunc()
 
 	var sb strings.Builder
@@ -63,6 +74,11 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 	deliveryUUID := stableDeliveryUUID(b.Name(), chatID, threadReplyTarget(replyMsgID, rootID), deliveryKey, "stream-card")
 
 	// Phase 1: Send "Thinking..." card immediately.
+	if check != nil {
+		if err := check(ctx); err != nil {
+			return "", "", nil, nil, nil, 0, err
+		}
+	}
 	msgID, err := b.sendCardReplyInThreadWithOptions(ctx, rootID, replyMsgID, thinkingContent(), cardStatusRunning, deliveryUUID)
 	switch {
 	case err != nil:
@@ -88,6 +104,12 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 		dirty = false
 		patchInFlight = true
 		go func() {
+			if check != nil {
+				if err := check(ctx); err != nil {
+					patchDone <- err
+					return
+				}
+			}
 			patchDone <- b.patchMessageForStatus(ctx, sentMsgID, display, cardStatusRunning)
 		}()
 	}
@@ -165,16 +187,29 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 		}
 	}
 	if dirty && streamErr == nil {
+		elapsed := nowFunc().Sub(startTime)
 		display := buildStreamDisplay(sb.String(), timeline.latestMarkdown())
 		if sentMsgID == "" {
+			if check != nil {
+				if err := check(ctx); err != nil {
+					return sentMsgID, sb.String(), images, files, dedupeReferences(refs), elapsed, err
+				}
+			}
 			msgID, err := b.sendCardReplyInThreadWithOptions(ctx, rootID, replyMsgID, display, cardStatusRunning, deliveryUUID)
 			if err != nil {
 				logger().Warn("stream reply failed", "error", err)
 			} else {
 				sentMsgID = msgID
 			}
-		} else if err := b.patchMessageForStatus(ctx, sentMsgID, display, cardStatusRunning); err != nil {
-			logger().Warn("stream update failed", "error", err)
+		} else {
+			if check != nil {
+				if err := check(ctx); err != nil {
+					return sentMsgID, sb.String(), images, files, dedupeReferences(refs), elapsed, err
+				}
+			}
+			if err := b.patchMessageForStatus(ctx, sentMsgID, display, cardStatusRunning); err != nil {
+				logger().Warn("stream update failed", "error", err)
+			}
 		}
 	}
 

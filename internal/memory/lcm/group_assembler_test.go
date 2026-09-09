@@ -716,14 +716,13 @@ func TestTxGroupCommitterUsesOuterTxAndSessionLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin outer tx: %v", err)
 	}
-	qtx := sqlc.New(tx)
 	turn := memory.DeferredGroupTurn{
 		Session:    sess,
 		OwnRows:    []ai.Message{ai.UserMessage{Content: "trigger"}, ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "answer"}}}},
 		TriggerSeq: 5,
 		Complete:   true,
 	}
-	if err := p.CommitGroupTurn(ctx, qtx, turn); err != nil {
+	if err := p.CommitGroupTurn(ctx, tx, turn); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("commit through outer tx: %v", err)
 	}
@@ -740,7 +739,7 @@ func TestTxGroupCommitterUsesOuterTxAndSessionLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin committed outer tx: %v", err)
 	}
-	if err := p.CommitGroupTurn(ctx, sqlc.New(tx), turn); err != nil {
+	if err := p.CommitGroupTurn(ctx, tx, turn); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("commit through outer tx: %v", err)
 	}

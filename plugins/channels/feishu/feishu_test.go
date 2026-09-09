@@ -306,7 +306,7 @@ func TestSendImageInvalidBase64(t *testing.T) {
 	ctx := t.Context()
 	bot := &Bot{ctx: ctx}
 	// Invalid base64 should log error but not panic.
-	_ = bot.sendImage("target", "msg", channel.ImageEvent{Data: "not-valid-base64!!!"}, false)
+	_ = bot.sendImageWithCheck(ctx, nil, "target", "msg", channel.ImageEvent{Data: "not-valid-base64!!!"}, false)
 }
 
 // --- Stop ---

@@ -7,11 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/pkg/ai"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
@@ -68,7 +69,7 @@ type groupTurnCommitProvider struct {
 	turn memory.DeferredGroupTurn
 }
 
-func (p *groupTurnCommitProvider) CommitGroupTurn(_ context.Context, _ *sqlc.Queries, turn memory.DeferredGroupTurn) error {
+func (p *groupTurnCommitProvider) CommitGroupTurn(_ context.Context, _ pgx.Tx, turn memory.DeferredGroupTurn) error {
 	p.turn = turn
 	return nil
 }

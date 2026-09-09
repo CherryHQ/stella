@@ -23,6 +23,7 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
@@ -129,6 +130,7 @@ type setupResult struct {
 	providerRegistry       *providers.Registry
 	channelRuntimeServices *pluginhost.ChannelPlatform
 	poolManager            *agent.PoolManager
+	agentRuns              *agentrun.Store
 	schedulerSvc           *scheduler.Service
 	goalSvc                *goal.Service
 	vaultSvc               *vault.Service
@@ -632,6 +634,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 				ExtraTools:       p.ExtraTools,
 				ExcludedTools:    p.ExcludedTools,
 				OnSandboxSession: p.OnSandboxSession,
+				RuntimeOpts:      p.RuntimeOpts,
 				Authority:        p.Authority,
 			}
 			// Decomposition runs on the goal's KindDelegate planning session;
@@ -655,7 +658,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// root passes only the pool. These same instances back both the agent tools
 	// (below) and the HTTP endpoints (via server.Deps).
 	credSvc := connections.NewServiceForPool(vaultSvc, db, oauth.NewFlowStore(), baseURL)
-	emailSvc := email.NewServiceForPool(pluginhost.ResolveEmailUser, emailConfigReader(vaultSvc), db)
+	emailSvc := email.NewServiceForPool(pluginhost.ResolveEmailUser, emailConfigReader(vaultSvc), db, email.WithOwnershipFence(agentrun.Check, agentrun.ValidateTx))
 	if ps.oauthRegistry != nil {
 		credSvc.SetRegistry(ps.oauthRegistry)
 		if vaultSvc != nil {
@@ -734,7 +737,22 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	registeredToolMeta = toolmeta.NewRegistry(registeredSpecs...)
 
+	agentRuns := agentrun.NewStoreWithContext(parent, db, agentrun.NewBootID())
+	if err := agentRuns.RegisterBoot(parent); err != nil {
+		agentRuns.Close()
+		return nil, err
+	}
+	agentRunsOwned := true
+	defer func() {
+		if agentRunsOwned {
+			agentRuns.Close()
+			drainCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
+			defer cancel()
+			_ = agentRuns.DrainBoot(drainCtx)
+		}
+	}()
 	poolMgr = agent.NewPoolManager(store, memProvider,
+		agent.WithAgentRuns(agentRuns),
 		agent.WithSnapshotLoader(snapshotLoader),
 		agent.WithCodeToolSurface(cfg.Agent.CodeToolSurface),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
@@ -820,7 +838,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
-	homeDeletion, err := home.NewOwnerDeletion(db, homeRegistry, poolMgr, home.WithMediaPurger(sessionImages))
+	homeDeletion, err := home.NewOwnerDeletion(db, homeRegistry, poolMgr,
+		home.WithMediaPurger(sessionImages),
+		home.WithTransactionValidator(agentrun.ValidateTx),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("build Home deletion lifecycle: %w", err)
 	}
@@ -885,6 +906,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		providerRegistry:       providerRegistry,
 		channelRuntimeServices: ps.channelRuntimeServices,
 		poolManager:            poolMgr,
+		agentRuns:              agentRuns,
 		schedulerSvc:           schedulerSvc,
 		goalSvc:                goalSvc,
 		vaultSvc:               vaultSvc,
@@ -917,6 +939,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Ownership of the embedded server moves to result; clear the local so the
 	// cleanup defer above becomes a no-op on this success path.
 	workspaceManagerOwned = false
+	agentRunsOwned = false
 	embedded = nil
 	return result, nil
 }
@@ -1137,6 +1160,7 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 			UserID:      job.UserID,
 			AgentID:     agentID,
 			Message:     schedulerJobMessage(job),
+			RuntimeOpts: scheduler.AgentRuntimeOptionsFromContext(ctx),
 			Authority:   authority,
 			BeforeStart: func() error { return svc.AuthorizeAgentStart(ctx, job, authority, agentID) },
 		})

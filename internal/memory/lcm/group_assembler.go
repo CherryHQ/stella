@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/grouptranscript"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -288,7 +289,21 @@ func quantizeGroupWindow(window []groupWindowEvent, maxTokens int) []groupWindow
 }
 
 func (p *Provider) CommitGroupCursor(ctx context.Context, session memory.Session, triggerSeq int64) error {
-	return p.commitGroupCursorWithQueries(ctx, p.q, session, triggerSeq)
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin group cursor transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
+	if err := p.commitGroupCursorWithQueries(ctx, p.q.WithTx(tx), session, triggerSeq); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit group cursor transaction: %w", err)
+	}
+	return nil
 }
 
 func (p *Provider) commitGroupCursorWithQueries(ctx context.Context, q *sqlc.Queries, session memory.Session, triggerSeq int64) error {

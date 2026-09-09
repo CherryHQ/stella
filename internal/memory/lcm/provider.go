@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
@@ -140,38 +141,82 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 // its text input. The inbox facts are runtime-authored, so every immutable fact
 // is rechecked at the write boundary before the model can observe success.
 func (p *Provider) AppendInboxInput(ctx context.Context, session memory.Session, inboxID string, msg ai.Message) error {
+	rows, claim, err := prepareInboxInput(ctx, session, inboxID, msg)
+	if err != nil {
+		return err
+	}
+	return p.appendRows(ctx, session, rows, claim)
+}
+
+// AppendInboxInputTx projects one pending inbox receipt and its canonical
+// transcript input through a caller-owned transaction. AgentRun admission uses
+// this seam to link the receipt, create the Run, and persist the user input as
+// one decision. The caller owns validation and commit of tx.
+func (p *Provider) AppendInboxInputTx(ctx context.Context, tx pgx.Tx, session memory.Session, inboxID string, msg ai.Message) error {
+	if tx == nil {
+		return errors.New("append inbox input: nil transaction")
+	}
+	rows, claim, err := prepareInboxInput(ctx, session, inboxID, msg)
+	if err != nil {
+		return err
+	}
+	return p.withSessionLock(session.ID, func() error {
+		session, err := requireMemorySessionScope(ctx, session)
+		if err != nil {
+			return err
+		}
+		qtx := p.q.WithTx(tx)
+		convID, err := p.getOrCreateConversationWithQueries(ctx, qtx, session)
+		if err != nil {
+			return err
+		}
+		if err := p.appendRowsWithQueries(ctx, qtx, session, convID, rows, claim); err != nil {
+			return err
+		}
+		if err := qtx.UpdateConversationLastActive(ctx, sqlc.UpdateConversationLastActiveParams{
+			SessionID: session.ID,
+			UserID:    pgtype.Text{String: session.UserID, Valid: session.UserID != ""},
+			AgentID:   pgtype.Text{String: session.AgentID, Valid: session.AgentID != ""},
+		}); err != nil {
+			return fmt.Errorf("touch inbox conversation: %w", err)
+		}
+		return nil
+	})
+}
+
+func prepareInboxInput(ctx context.Context, session memory.Session, inboxID string, msg ai.Message) ([]storageRow, *inboxClaim, error) {
 	if inboxID == "" {
-		return errors.New("append inbox input: empty inbox ID")
+		return nil, nil, errors.New("append inbox input: empty inbox ID")
 	}
 	if session.GroupID != "" {
-		return errors.New("append inbox input: group sessions are not supported")
+		return nil, nil, errors.New("append inbox input: group sessions are not supported")
 	}
 	userMsg, ok := msg.(ai.UserMessage)
 	if !ok {
-		return fmt.Errorf("append inbox input: got %T, want ai.UserMessage", msg)
+		return nil, nil, fmt.Errorf("append inbox input: got %T, want ai.UserMessage", msg)
 	}
 	content, ok := userMsg.Content.(string)
 	if !ok {
-		return errors.New("append inbox input: content must be text")
+		return nil, nil, errors.New("append inbox input: content must be text")
 	}
 	actor, ok := eventlog.MessageActorFromContext(ctx)
 	if !ok || actor.Type != eventlog.ActorAgent || actor.SourceSessionID == "" {
-		return errors.New("append inbox input: trusted agent provenance is required")
+		return nil, nil, errors.New("append inbox input: trusted agent provenance is required")
 	}
 	rows, err := canonicalMessageToRows(msg)
 	if err != nil {
-		return fmt.Errorf("canonical inbox message: %w", err)
+		return nil, nil, fmt.Errorf("canonical inbox message: %w", err)
 	}
 	if len(rows) != 1 || rows[0].role != roleUser {
-		return errors.New("append inbox input: expected one canonical user row")
+		return nil, nil, errors.New("append inbox input: expected one canonical user row")
 	}
-	return p.appendRows(ctx, session, rows, &inboxClaim{
+	return rows, &inboxClaim{
 		id:              inboxID,
 		sourceSessionID: actor.SourceSessionID,
 		targetSessionID: session.ID,
 		actorID:         actor.ID,
 		content:         content,
-	})
+	}, nil
 }
 
 var errCanonicalMediaUnavailable = errors.New("canonical media unavailable")
@@ -280,6 +325,9 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 			return fmt.Errorf("begin tx: %w", err)
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
+		if err := agentrun.ValidateTx(ctx, tx); err != nil {
+			return err
+		}
 
 		qtx := p.q.WithTx(tx)
 		if err := p.appendRowsWithQueries(ctx, qtx, session, convID, rows, claim); err != nil {
@@ -305,16 +353,20 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 	})
 }
 
-// CommitGroupTurn appends the fully assembled group turn through qtx, which is
+// CommitGroupTurn appends the fully assembled group turn through tx, which is
 // owned and committed by the dispatcher. Do not open a nested transaction here:
 // the group reply, history, and ingest cursor must share one commit boundary.
-func (p *Provider) CommitGroupTurn(ctx context.Context, qtx *sqlc.Queries, turn memory.DeferredGroupTurn) error {
-	if qtx == nil {
-		return errors.New("commit group turn: nil transaction queries")
+func (p *Provider) CommitGroupTurn(ctx context.Context, tx pgx.Tx, turn memory.DeferredGroupTurn) error {
+	if tx == nil {
+		return errors.New("commit group turn: nil transaction")
 	}
 	if turn.Session.GroupID == "" {
 		return errors.New("commit group turn: not a group session")
 	}
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
+	qtx := p.q.WithTx(tx)
 	return p.withSessionLock(turn.Session.ID, func() error {
 		session, err := requireMemorySessionScope(ctx, turn.Session)
 		if err != nil {
@@ -377,12 +429,29 @@ func (p *Provider) appendRowsWithQueries(ctx context.Context, qtx *sqlc.Queries,
 		return fmt.Errorf("lock conversation: %w", err)
 	}
 	if claim != nil {
-		_, err := qtx.ClaimSessionInboxDelivery(ctx, sqlc.ClaimSessionInboxDeliveryParams{
+		// Read the run link in this transaction so both the legacy unlinked
+		// delivery path and the AgentRun admission path compare the exact
+		// immutable receipt state. A NULL link is represented as an empty,
+		// valid text value because ClaimSessionInboxDelivery compares against
+		// COALESCE(run_id::text, '').
+		inbox, err := qtx.GetSessionInbox(ctx, claim.id)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return memory.ErrInboxNotPending
+			}
+			return fmt.Errorf("read session inbox before claim: %w", err)
+		}
+		runID := inbox.RunID
+		if !runID.Valid {
+			runID = pgtype.Text{String: "", Valid: true}
+		}
+		_, err = qtx.ClaimSessionInboxDelivery(ctx, sqlc.ClaimSessionInboxDeliveryParams{
 			ID:              claim.id,
 			SourceSessionID: claim.sourceSessionID,
 			TargetSessionID: claim.targetSessionID,
 			ActorID:         claim.actorID,
 			Content:         claim.content,
+			RunID:           runID,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return memory.ErrInboxNotPending

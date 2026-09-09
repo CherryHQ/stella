@@ -312,7 +312,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 			modelMsg = userMsg
 			modelMsg.Content = eventlog.RenderInput(modelMsg.Content, inputActor)
 		}
-		if co.inboxID != "" {
+		if co.inboxID != "" && !co.inboxInputPersisted {
 			appender, ok := rt.mem.(memory.InboxAppender)
 			if !ok {
 				out <- Event{Err: errors.New("memory provider does not support durable Session inbox")}

@@ -10,6 +10,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 )
 
@@ -56,6 +57,9 @@ func (s *Service) tombstoneManagedFile(ctx context.Context, id string, expectedU
 		return fmt.Errorf("begin library tombstone: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return fmt.Errorf("validate library tombstone owner: %w", err)
+	}
 	file, err := queries.LockLibraryFileLifecycle(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && file.DeletedAt.Valid {
 		return ErrNotFound

@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -322,6 +323,9 @@ func (s *Service) commitSnapshot(
 		return LibraryFile{}, false, fmt.Errorf("begin library snapshot commit: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return LibraryFile{}, false, fmt.Errorf("validate library snapshot owner: %w", err)
+	}
 
 	if err := queries.LockLibraryQuotaPool(ctx, quotaLockKey(owner)); err != nil {
 		return LibraryFile{}, false, fmt.Errorf("lock library quota: %w", err)

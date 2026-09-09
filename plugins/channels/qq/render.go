@@ -1,6 +1,8 @@
 package qq
 
 import (
+	"context"
+
 	"github.com/tencent-connect/botgo/dto"
 
 	"github.com/CherryHQ/stella/pkg/channel"
@@ -8,7 +10,7 @@ import (
 
 // sendFinalResponse sends the completed response, splitting into chunks
 // if necessary.
-func (b *Bot) sendFinalResponse(targetID, msgID, response string, scope messageScope) {
+func (b *Bot) sendFinalResponse(ctx context.Context, stream *channel.ChatStream, targetID, msgID, response string, scope messageScope) error {
 	chunks := channel.SplitMessage(response, qqMaxMessageLen)
 	for i, chunk := range chunks {
 		// MsgSeq starts at 100 to avoid collisions with stream chunk
@@ -21,6 +23,9 @@ func (b *Bot) sendFinalResponse(targetID, msgID, response string, scope messageS
 		}
 
 		var err error
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
 		switch scope {
 		case scopeC2C:
 			_, err = b.api.PostC2CMessage(b.ctx, targetID, msg)
@@ -29,9 +34,10 @@ func (b *Bot) sendFinalResponse(targetID, msgID, response string, scope messageS
 		}
 
 		if err != nil {
-			logger().Error("send final response failed", "error", err, "chunk", i)
+			return err
 		}
 	}
+	return nil
 }
 
 // sendImage is a no-op: QQ's rich media API requires an HTTP/HTTPS URL and

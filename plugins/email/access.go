@@ -41,7 +41,7 @@ func (a *userAccess) Folders(ctx context.Context, account string) ([]string, err
 	if err != nil {
 		return nil, err
 	}
-	return Folders(acct)
+	return Folders(withOwnershipCheck(ctx, a.svc.ownershipCheck), acct)
 }
 
 func (a *userAccess) List(ctx context.Context, account string, opts ListOptions) ([]Envelope, error) {
@@ -49,7 +49,7 @@ func (a *userAccess) List(ctx context.Context, account string, opts ListOptions)
 	if err != nil {
 		return nil, err
 	}
-	return List(acct, opts)
+	return List(withOwnershipCheck(ctx, a.svc.ownershipCheck), acct, opts)
 }
 
 func (a *userAccess) Read(ctx context.Context, account, folder string, uid uint32) (*Message, error) {
@@ -57,7 +57,7 @@ func (a *userAccess) Read(ctx context.Context, account, folder string, uid uint3
 	if err != nil {
 		return nil, err
 	}
-	return Read(acct, folder, uid)
+	return Read(withOwnershipCheck(ctx, a.svc.ownershipCheck), acct, folder, uid)
 }
 
 func (a *userAccess) MarkSeen(ctx context.Context, account, folder string, uid uint32, seen bool) error {
@@ -65,7 +65,7 @@ func (a *userAccess) MarkSeen(ctx context.Context, account, folder string, uid u
 	if err != nil {
 		return err
 	}
-	return MarkSeen(acct, folder, uid, seen)
+	return MarkSeen(withOwnershipCheck(ctx, a.svc.ownershipCheck), acct, folder, uid, seen)
 }
 
 func (a *userAccess) Send(ctx context.Context, account string, opts SendOptions, idempotencyKey string) (SendResult, error) {

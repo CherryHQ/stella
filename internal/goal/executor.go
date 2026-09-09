@@ -4,15 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/runcontrol"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -57,10 +62,11 @@ type Result struct {
 	Decomposition *DecompositionContent // purpose=decomposition only
 	Verdicts      []ReviewVerdict       // purpose=review only
 	Failure       *Failure
+	completion    *agentruntime.CompletionBarrier
 	// RepairAttempted is set when a text-only first turn triggered one bounded
-	// repair turn that still produced no terminal action. It only carries meaning
-	// for terminalNone and lets the worker distinguish a silent miss from a
-	// failed repair.
+	// repair turn that still produced no terminal action. It only carries
+	// meaning for terminalNone and lets the worker distinguish a silent miss
+	// from a failed repair.
 	RepairAttempted bool
 }
 
@@ -69,8 +75,9 @@ type Result struct {
 // them; it does not re-declare them.
 
 type executorTurn struct {
-	events <-chan agent.Event
-	cancel context.CancelFunc
+	events     <-chan agent.Event
+	cancel     context.CancelFunc
+	completion *agentruntime.CompletionBarrier
 }
 
 // terminalRecorder captures the first terminal action declared during an attempt.
@@ -208,28 +215,30 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 
 	turn := func(prompt string) executorTurn {
 		turnCtx, cancel := context.WithCancel(ctx)
+		completion := agentruntime.NewCompletionBarrier()
 		return executorTurn{
 			events: e.chat(turnCtx, TaskChatParams{
-				AgentID:          agentID,
-				UserID:           req.Attempt.UserID,
-				SessionID:        req.Attempt.SessionID,
-				ProjectID:        projectID,
-				Prompt:           prompt,
-				Decompose:        decompose,
-				ExtraTools:       []tools.Tool{ctTool},
-				ExcludedTools:    append([]string(nil), e.excludedTools...),
-				OnSandboxSession: terminalSubmitSandboxCallback(rec, req.OnSandboxSession),
-				Authority:        authority,
+				AgentID:           agentID,
+				UserID:            req.Attempt.UserID,
+				SessionID:         req.Attempt.SessionID,
+				ProjectID:         projectID,
+				Prompt:            prompt,
+				RuntimeOpts:       []agentruntime.Option{agentruntime.WithCompletionBarrier(completion)},
+				CompletionBarrier: completion,
+				Decompose:         decompose,
+				ExtraTools:        []tools.Tool{ctTool},
+				ExcludedTools:     append([]string(nil), e.excludedTools...),
+				OnSandboxSession:  terminalSubmitSandboxCallback(rec, req.OnSandboxSession),
+				Authority:         authority,
 			}),
-			cancel: cancel,
+			cancel:     cancel,
+			completion: completion,
 		}
 	}
 
 	firstPrompt := buildAttemptPrompt(req, decompose)
-	repairPrompt := func(text string) string { return buildRepairPrompt(text, decompose) }
 	if review {
 		firstPrompt = buildReviewPrompt(req)
-		repairPrompt = buildReviewRepairPrompt
 	}
 
 	// First turn against the frozen input context.
@@ -244,14 +253,30 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 		return res, nil
 	}
 
-	// The turn ended without a terminal action. A silent exit (no assistant text)
-	// is an unrecoverable protocol miss; a text-only answer gets exactly one
-	// bounded repair turn that re-states the protocol with the prior text as
-	// context. There is no auto-submit of free text.
+	// A silent exit is an unrecoverable protocol miss. A text-only answer gets
+	// exactly one bounded repair turn that restates the protocol with the prior
+	// text as context. This is a protocol correction, not a replay of an
+	// outcome-unknown stream failure. Acknowledge the first turn before
+	// admitting the repair turn on the same session.
 	if strings.TrimSpace(text) == "" {
-		return Result{Action: terminalNone}, nil
+		return Result{Action: terminalNone, completion: res.completion}, nil
 	}
-
+	if res.completion != nil && res.completion.Bound() {
+		// A text-only answer is a known protocol miss, not an uncertain replay.
+		// Close the first AgentRun explicitly before admitting the bounded repair
+		// turn on the same session. There is no Goal transition to fence here;
+		// the final repair result carries the source-domain completion barrier.
+		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), completionAckTimeout)
+		err := res.completion.Ack(ackCtx, runcontrol.OutcomeDelivered)
+		cancelAck()
+		if err != nil {
+			return Result{}, fmt.Errorf("ack text-only goal turn: %w", err)
+		}
+	}
+	repairPrompt := func(text string) string { return buildRepairPrompt(text, decompose) }
+	if review {
+		repairPrompt = buildReviewRepairPrompt
+	}
 	_, res, done, fail, err = e.runTurn(ctx, turn(repairPrompt(text)), rec)
 	if err != nil {
 		return Result{}, err
@@ -262,7 +287,7 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 	if done {
 		return res, nil
 	}
-	return Result{Action: terminalNone, RepairAttempted: true}, nil
+	return Result{Action: terminalNone, RepairAttempted: true, completion: res.completion}, nil
 }
 
 // runTurn pumps one chat turn until the event channel closes. Once a terminal
@@ -283,11 +308,15 @@ func (e *workerExecutor) runTurn(ctx context.Context, turn executorTurn, rec *te
 		if ev.Err != nil {
 			if done {
 				e.log.Warn("goal executor cleanup error", "err", ev.Err)
-				f := failResult(fmt.Sprintf("runner cleanup error: %v", ev.Err), FailureClassFlaky, "")
+				failureClass, blockedBy := runnerFailureClass(ev.Err)
+				f := failResult(fmt.Sprintf("runner cleanup error: %v", ev.Err), failureClass, blockedBy)
+				f.completion = turn.completion
 				return buf.String(), Result{}, false, &f, nil
 			}
 			e.log.Warn("goal executor stream error", "err", ev.Err)
-			f := failResult(fmt.Sprintf("runner error: %v", ev.Err), FailureClassFlaky, "")
+			failureClass, blockedBy := runnerFailureClass(ev.Err)
+			f := failResult(fmt.Sprintf("runner error: %v", ev.Err), failureClass, blockedBy)
+			f.completion = turn.completion
 			return buf.String(), Result{}, false, &f, nil
 		}
 		if ev.Text != "" {
@@ -300,12 +329,26 @@ func (e *workerExecutor) runTurn(ctx context.Context, turn executorTurn, rec *te
 		}
 	}
 	if done {
+		res.completion = turn.completion
 		return buf.String(), res, true, nil, nil
 	}
 	if err := ctx.Err(); err != nil {
-		return buf.String(), Result{}, false, nil, err
+		res.completion = turn.completion
+		// The caller canceled before a terminal action. No source-domain result
+		// can prove whether the turn's model/tool effects were observed, so make
+		// the durable completion explicitly unknown before returning the cancel.
+		if turn.completion.Bound() {
+			ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), completionAckTimeout)
+			ackErr := turn.completion.Ack(ackCtx, runcontrol.OutcomeUnknown)
+			cancelAck()
+			if ackErr != nil {
+				return buf.String(), Result{}, false, nil, errors.Join(err, fmt.Errorf("ack canceled goal turn: %w", ackErr))
+			}
+		}
+		return buf.String(), res, false, nil, err
 	}
-	return buf.String(), Result{}, false, nil, nil
+	res.completion = turn.completion
+	return buf.String(), res, false, nil, nil
 }
 
 // foldResult maps the rich internal Result onto the frozen ExecutorResult the
@@ -314,9 +357,10 @@ func foldResult(res Result, req ExecutorRequest) ExecutorResult {
 	switch res.Action {
 	case terminalSubmit:
 		return ExecutorResult{
-			Submitted: true,
-			Evidence:  res.Evidence,
-			Output:    res.Output,
+			Submitted:  true,
+			Evidence:   res.Evidence,
+			Output:     res.Output,
+			completion: res.completion,
 		}
 	case terminalDecompose:
 		return ExecutorResult{
@@ -324,12 +368,14 @@ func foldResult(res Result, req ExecutorRequest) ExecutorResult {
 			Evidence:      res.Evidence,
 			Output:        res.Output,
 			Decomposition: res.Decomposition,
+			completion:    res.completion,
 		}
 	case terminalVerdict:
 		return ExecutorResult{
-			Submitted: true,
-			Evidence:  res.Evidence,
-			Verdicts:  res.Verdicts,
+			Submitted:  true,
+			Evidence:   res.Evidence,
+			Verdicts:   res.Verdicts,
+			completion: res.completion,
 		}
 	case terminalFail:
 		f := res.Failure
@@ -337,14 +383,23 @@ func foldResult(res Result, req ExecutorRequest) ExecutorResult {
 			f = &Failure{Reason: "agent reported failure"}
 		}
 		failureClass, blockedBy := failureResponsibility(f.FailureClass, f.BlockedBy)
-		return ExecutorResult{Failed: true, FailReason: f.Reason, FailureClass: failureClass, BlockedBy: blockedBy}
-	default: // terminalNone — silent or failed-repair protocol miss
+		return ExecutorResult{Failed: true, FailReason: f.Reason, FailureClass: failureClass, BlockedBy: blockedBy, completion: res.completion}
+	default: // terminalNone — protocol miss
 		reason := "agent ended without a goal_control terminal action"
 		if res.RepairAttempted {
 			reason = "agent failed to call goal_control after one repair turn"
 		}
-		return ExecutorResult{Failed: true, FailReason: reason, FailureClass: FailureClassModel}
+		return ExecutorResult{Failed: true, FailReason: reason, FailureClass: FailureClassModel, completion: res.completion}
 	}
+}
+
+const completionAckTimeout = 5 * time.Second
+
+func runnerFailureClass(err error) (string, string) {
+	if errors.Is(err, agentrun.ErrLeaseLost) || errors.Is(err, agentrun.ErrOutcomeUnknown) {
+		return FailureClassEnvironment, BlockEnvUnavailable
+	}
+	return FailureClassFlaky, ""
 }
 
 func failureResponsibility(failureClass, blockedBy string) (string, string) {
@@ -542,9 +597,9 @@ func renderTimelineContext(b *strings.Builder, in AttemptInput) {
 }
 
 // buildRepairPrompt is the single bounded correction turn for a worker that
-// answered in plain text without calling goal_control. It echoes the
-// prior answer as context and demands exactly one terminal action — it never
-// submits the text automatically.
+// answered in plain text without calling goal_control. It echoes the prior
+// answer as context and demands exactly one terminal action. It never submits
+// the text automatically.
 func buildRepairPrompt(priorText string, decompose bool) string {
 	action := `  - action="submit" with evidence + output if the work is complete.
   - action="fail" with reason and optional blocked_by="env_unavailable" or "contract_conflict" if the work cannot be completed.`

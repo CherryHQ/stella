@@ -217,7 +217,7 @@ type Tool interface {
 
 runtime 保留 `DelegateTool` 和 delegate Session kind，作为 preset 和已有 ID 的内部兼容机制。模型工具注册表不再注册 `delegate`。
 
-Agent 发送会先持久化一行输入，再进入进程内按 Session 划分的 FIFO，最后经过标准 runtime admission guard。队列限制等待深度和 admission 等待时间，传播来源 context，但不取代 runtime 正确性 guard。LCM 会在追加 transcript 消息的同一事务中认领该行。启动恢复会重新鉴权 pending 行并只追加消息；它绝不会启动模型或工具 turn。嵌套调用在 context 中携带深度和祖先链，拒绝循环，继承根 deadline，并在同一根回合的同级与嵌套调用间共享 16 次调用预算。Agent 输入会持久化 actor 和来源 Session；prompt 渲染把它标记为信息，而不是用户权威。同步 Session 回合不会隐式发布到外部渠道，inbox 持久化也不会让回复或执行本身变得持久。
+Agent 发送在同一事务中将持久输入 receipt 关联到一个目标 `AgentRun` 并写入 transcript 输入。原有本地 FIFO 会等待 busy owner；排队超时、无 capacity 和 admission 前取消只留下 failed、未关联的 receipt。已关联输入的恢复只跟随 Run 状态，不重放模型或工具；legacy 和未关联 receipt 可以只追加恢复到 transcript。PostgreSQL 决定执行受理，进程内 guard 提供快速拒绝和取消。嵌套调用在 context 中携带深度和祖先链，拒绝循环，继承根 deadline，并在同一根回合的同级与嵌套调用间共享 16 次调用预算。Agent 输入会持久化 actor 和来源 Session；prompt 渲染把它标记为信息，而不是用户权威。同步 Session 回合不会隐式发布到外部渠道，inbox 持久化也不保证崩溃后能收到回复。租约与终态时序见 [运行权与完成](/docs/development/agent-architecture#concurrency)。
 
 ### 内置共享工具
 

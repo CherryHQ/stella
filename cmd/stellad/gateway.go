@@ -243,6 +243,14 @@ func serverAction(c *ucli.Context) error {
 		cancel()
 		s.waitBackgroundTasks()
 		_ = s.poolManager.Close()
+		if s.agentRuns != nil {
+			s.agentRuns.Close()
+			drainCtx, drainCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := s.agentRuns.DrainBoot(drainCtx); err != nil {
+				slog.Warn("executor drain state could not be recorded", "error", err)
+			}
+			drainCancel()
+		}
 		_ = s.workspaceManager.Close()
 		// Stop the managed PostgreSQL last, once every DB user is done: close the
 		// pool first so the server shuts down without active connections. Only set
@@ -303,6 +311,9 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	workCtx, workCancel := context.WithCancel(ctx)
 	defer workCancel()
 	g, gctx := errgroup.WithContext(workCtx)
+	if s.agentRuns != nil {
+		g.Go(func() error { return normalizeRunErr(s.agentRuns.Run(gctx)) })
+	}
 
 	warnDeploymentBaseURL(baseURL, s.cfg.OIDC.IssuerURL, len(loginConfig.OAuth) > 0)
 

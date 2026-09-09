@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/auth"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -609,10 +610,20 @@ func (c *Coordinator) handleAbort(rc *ResolvedChat) string {
 // fully drain (or abandon) Events before the queue will dispatch the next
 // request for the same session.
 func (c *Coordinator) queuedChat(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
+	return c.queuedChatWithOptions(ctx, rc, content)
+}
+
+func (c *Coordinator) queuedChatWithOptions(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock, opts ...agentruntime.Option) (*pkgchannel.ChatStream, error) {
 	markIngressQueued(ctx)
+	completion := agentruntime.NewCompletionBarrier()
+	opts = append(opts, agentruntime.WithCompletionBarrier(completion))
 	stream, doneC, err := c.queue.Enqueue(ctx, rc.queueKey(), func(qctx context.Context) (*pkgchannel.ChatStream, error) {
 		defer finishIngress(qctx)
-		return c.chatWithRC(qctx, rc, content)
+		stream, err := c.chatWithRCOptions(qctx, rc, content, opts...)
+		if stream != nil {
+			stream.Completion = completion
+		}
+		return stream, err
 	})
 	if err != nil {
 		return nil, err
@@ -622,8 +633,6 @@ func (c *Coordinator) queuedChat(ctx context.Context, rc *ResolvedChat, content 
 	// all events have been forwarded. This releases the queue slot.
 	out := make(chan pkgchannel.Event, 100)
 	go func() {
-		defer close(doneC)
-		defer close(out)
 		for evt := range stream.Events {
 			select {
 			case out <- evt:
@@ -631,16 +640,34 @@ func (c *Coordinator) queuedChat(ctx context.Context, rc *ResolvedChat, content 
 				// Caller stopped reading, just drain the stream to not block the model
 			}
 		}
+		// EOF only says that model events are exhausted. Close the adapter-facing
+		// stream before waiting so the adapter can perform its final sends and Ack.
+		close(out)
+		// EOF only says that model events are exhausted. The platform may still
+		// be sending the final text, images, or files. Keep the per-session FIFO
+		// occupied until the adapter explicitly settles the egress outcome.
+		<-stream.CompletionDone()
+		close(doneC)
 	}()
 
 	return &pkgchannel.ChatStream{
-		Events:    out,
-		SessionID: stream.SessionID,
+		Events:     out,
+		SessionID:  stream.SessionID,
+		Completion: completion,
 	}, nil
 }
 
 // chatWithRC streams a chat response using a pre-resolved chat.
 func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
+	completion := agentruntime.NewCompletionBarrier()
+	stream, err := c.chatWithRCOptions(ctx, rc, content, agentruntime.WithCompletionBarrier(completion))
+	if stream != nil {
+		stream.Completion = completion
+	}
+	return stream, err
+}
+
+func (c *Coordinator) chatWithRCOptions(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock, opts ...agentruntime.Option) (*pkgchannel.ChatStream, error) {
 	allowed, err := c.channelPluginAllowed(ctx, rc)
 	if err != nil {
 		return nil, err
@@ -653,7 +680,7 @@ func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content 
 	if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
 		return nil, fmt.Errorf("agent execution denied: %w", err)
 	}
-	events, sessionID, err := rc.Chat(ctx, content)
+	events, sessionID, err := rc.ChatWithRuntimeOptions(ctx, content, opts...)
 	if err != nil {
 		return nil, err
 	}

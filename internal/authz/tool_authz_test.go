@@ -296,7 +296,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "report.html"), []byte("<p>ok</p>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(toolAuthzWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))))
+	shareSvc := sharepkg.NewServiceForPool(db, mem, recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(toolAuthzWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))))
 	ownerShare, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: "owner-share-hash", UserID: ownerUser, Title: "owner share", MediaType: "text/html", Content: []byte("owner secret")})
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)

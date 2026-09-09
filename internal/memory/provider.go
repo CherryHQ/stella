@@ -10,6 +10,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -44,6 +46,13 @@ var ErrGroupRecallNotFound = errors.New("group recall ref not found")
 // the unwrapped provider supports this capability before relying on a wrapper.
 type InboxAppender interface {
 	AppendInboxInput(ctx context.Context, session Session, inboxID string, msg ai.Message) error
+}
+
+// InboxAppenderTx is the transaction-composition form used by AgentRun
+// admission. The caller owns validation and commit of tx, so linking the
+// receipt and projecting its canonical input can share one boundary.
+type InboxAppenderTx interface {
+	AppendInboxInputTx(ctx context.Context, tx pgx.Tx, session Session, inboxID string, msg ai.Message) error
 }
 
 // Provider is the memory plugin contract.

@@ -9,11 +9,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/agent"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -403,6 +405,85 @@ func TestSendRejectsArchivedSessionDistinguishably(t *testing.T) {
 	}
 	if rt.chatCalls != 0 {
 		t.Fatalf("chat=%d, want no turn started on an archived session", rt.chatCalls)
+	}
+}
+
+func TestUpdateTitleAllowsUnguardedUserWrite(t *testing.T) {
+	svc, _, _, authority := newRuntimeTestService(t)
+	ctx := t.Context()
+	access, err := svc.Begin(ctx, authority)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	info, err := access.Write(ctx, "a1", "s1")
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := access.UpdateTitle(ctx, info, "user title"); err != nil {
+		t.Fatalf("UpdateTitle: %v", err)
+	}
+
+	conversation, err := sqlc.New(svc.db).GetConversationForSessionAccess(ctx, "s1")
+	if err != nil {
+		t.Fatalf("GetConversationForSessionAccess: %v", err)
+	}
+	if !conversation.Title.Valid || conversation.Title.String != "user title" {
+		t.Fatalf("title = %#v, want user title", conversation.Title)
+	}
+}
+
+func TestUpdateTitleRejectsStaleGuardWithoutChangingTitle(t *testing.T) {
+	svc, _, _, authority := newRuntimeTestService(t)
+	ctx := t.Context()
+	access, err := svc.Begin(ctx, authority)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	info, err := access.Write(ctx, "a1", "s1")
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := access.UpdateTitle(ctx, info, "current title"); err != nil {
+		t.Fatalf("initial UpdateTitle: %v", err)
+	}
+
+	db, ok := svc.db.(*pgxpool.Pool)
+	if !ok {
+		t.Fatalf("session access database has type %T, want *pgxpool.Pool", svc.db)
+	}
+	oldStore := agentrun.NewStoreWithContext(ctx, db, uuid.NewString())
+	t.Cleanup(oldStore.Close)
+	if err := oldStore.RegisterBoot(ctx); err != nil {
+		t.Fatalf("register old boot: %v", err)
+	}
+	oldLease, err := oldStore.Acquire(ctx, info.ID, "title-test")
+	if err != nil {
+		t.Fatalf("acquire old lease: %v", err)
+	}
+
+	newStore := agentrun.NewStoreWithContext(ctx, db, uuid.NewString())
+	t.Cleanup(newStore.Close)
+	if err := newStore.RegisterBoot(ctx); err != nil {
+		t.Fatalf("register new boot: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE agent_run SET lease_expires_at = clock_timestamp() - interval '1 second' WHERE id = $1`, oldLease.Guard.RunID); err != nil {
+		t.Fatalf("expire old lease: %v", err)
+	}
+	if _, err := newStore.Acquire(ctx, info.ID, "title-test"); err != nil {
+		t.Fatalf("acquire successor lease: %v", err)
+	}
+
+	err = access.UpdateTitle(oldLease.Context(), info, "stale title")
+	if !errors.Is(err, agentrun.ErrLeaseLost) {
+		t.Fatalf("stale UpdateTitle = %v, want ErrLeaseLost", err)
+	}
+
+	conversation, err := sqlc.New(db).GetConversationForSessionAccess(ctx, "s1")
+	if err != nil {
+		t.Fatalf("GetConversationForSessionAccess: %v", err)
+	}
+	if !conversation.Title.Valid || conversation.Title.String != "current title" {
+		t.Fatalf("title after stale update = %#v, want current title", conversation.Title)
 	}
 }
 

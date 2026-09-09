@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -45,11 +46,12 @@ type Message struct {
 
 // Store owns durable inbox state transitions, not Agent execution.
 type Store struct {
-	q *sqlc.Queries
+	db *pgxpool.Pool
+	q  *sqlc.Queries
 }
 
 func New(db *pgxpool.Pool) *Store {
-	return &Store{q: sqlc.New(db)}
+	return &Store{db: db, q: sqlc.New(db)}
 }
 
 // Enqueue persists one runtime-authored Agent input before it enters the
@@ -65,7 +67,26 @@ func (s *Store) Enqueue(ctx context.Context, input Input) (Message, error) {
 		return Message{}, errors.New("session inbox requires trusted source Agent provenance")
 	}
 	id := uuid.Must(uuid.NewV7()).String()
-	row, err := s.q.EnqueueSessionInbox(ctx, sqlc.EnqueueSessionInboxParams{
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return Message{ID: id}, fmt.Errorf("begin enqueue session inbox: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	// A source AgentRun, when present, is the immutable authority for enqueue.
+	// The guard check shares this transaction with the receipt insert, so a
+	// remote abort cannot leave a pending row that never had a valid source.
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return Message{ID: id}, fmt.Errorf("validate source AgentRun: %w", err)
+	}
+	qtx := s.q.WithTx(tx)
+	source, err := qtx.GetConversationForSessionAccess(ctx, input.SourceSessionID)
+	if err != nil {
+		return Message{ID: id}, fmt.Errorf("validate source session inbox owner: %w", err)
+	}
+	if !source.AgentID.Valid || source.AgentID.String != input.Actor.ID {
+		return Message{ID: id}, errors.New("session inbox source Agent provenance does not match session owner")
+	}
+	row, err := qtx.EnqueueSessionInbox(ctx, sqlc.EnqueueSessionInboxParams{
 		ID:              id,
 		SourceSessionID: input.SourceSessionID,
 		TargetSessionID: input.TargetSessionID,
@@ -80,6 +101,9 @@ func (s *Store) Enqueue(ctx context.Context, input Input) (Message, error) {
 	}
 	if !row.EnqueueSeq.Valid {
 		return Message{}, errors.New("enqueue session inbox: database returned no sequence")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Message{ID: id}, fmt.Errorf("commit enqueue session inbox: %w", err)
 	}
 	return Message{ID: row.ID, EnqueueSeq: row.EnqueueSeq.Int64}, nil
 }

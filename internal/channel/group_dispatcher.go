@@ -661,20 +661,28 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		if cause == nil {
 			cause = errors.New("group turn ended without a complete deferred result")
 		}
-		return d.failDispatch(ctx, claimed, cause)
+		failErr := d.failDispatch(ctx, claimed, cause)
+		ackErr := ackGroupResponse(ownedCtx, response, pkgchannel.EgressFailed, cause.Error())
+		return joinDispatchErrors(failErr, ackErr)
 	}
 	// The model's own decision to stay quiet, checked before the accept gates:
 	// nothing was written, so there is nothing for them to judge.
 	if isModelPass(response.text) {
-		return d.retireModelPass(ownedCtx, claimed, turn)
+		retireErr := d.retireModelPass(ownedCtx, claimed, turn)
+		if retireErr != nil {
+			return retireErr
+		}
+		return ackGroupResponse(ownedCtx, response, pkgchannel.EgressDiscarded, "model pass")
 	}
 	outcome, err := d.acceptGroupResponse(ownedCtx, claimed, response, turn)
 	if err != nil {
-		return d.failDispatch(ctx, claimed, err)
+		failErr := d.failDispatch(ctx, claimed, err)
+		ackErr := ackGroupResponse(ownedCtx, response, pkgchannel.EgressFailed, err.Error())
+		return joinDispatchErrors(failErr, ackErr)
 	}
 	if outcome.Status != groupTurnAccepted {
 		d.announceTurn(claimed, string(outcome.Status), outcome.Reason)
-		return nil
+		return ackGroupResponse(ownedCtx, response, pkgchannel.EgressDiscarded, outcome.Reason)
 	}
 	return d.publishAccepted(ownedCtx, publishJob{
 		row: claimed, trigger: message, state: state, publisher: publisher,
@@ -884,15 +892,49 @@ type groupResponse struct {
 	reasoning string
 	sessionID string
 	events    []pkgchannel.Event
-	complete  bool
-	err       error
+	// completion survives the in-memory buffer and replay. The dispatcher must
+	// not let the group session queue release at model EOF; the publisher (or
+	// the canonical web commit) settles it after the final business effect.
+	completion pkgchannel.StreamCompletion
+	complete   bool
+	err        error
+}
+
+// ackGroupResponse settles a model turn after the dispatcher has committed the
+// corresponding durable decision. A rejected/held/pass turn has no external
+// egress, so it must still Ack discarded or the per-group FIFO would remain
+// occupied after model EOF.
+func ackGroupResponse(ctx context.Context, response groupResponse, outcome pkgchannel.EgressOutcome, reason string) error {
+	if response.completion == nil {
+		return nil
+	}
+	ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := response.completion.Ack(ackCtx, outcome); err != nil {
+		return fmt.Errorf("ack group response (%s): %w", reason, err)
+	}
+	return nil
+}
+
+func joinDispatchErrors(primary, secondary error) error {
+	if primary == nil {
+		return secondary
+	}
+	if secondary == nil {
+		return primary
+	}
+	return errors.Join(primary, secondary)
 }
 
 // bufferGroupResponse drains the runtime completely before any platform side
 // effect. The ceiling is an intentional in-memory limit: use BlobStore spooling
 // when a deployment needs responses larger than this.
 func (d *GroupDispatcher) bufferGroupResponse(ctx context.Context, stream *pkgchannel.ChatStream) groupResponse {
-	response := groupResponse{sessionID: stream.SessionID, complete: true}
+	response := groupResponse{
+		sessionID:  stream.SessionID,
+		completion: stream.Completion,
+		complete:   true,
+	}
 	limit := defaultGroupReplyBufferBytes
 	var used int
 	for evt := range stream.Events {
