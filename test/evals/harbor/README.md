@@ -11,6 +11,21 @@ verdict tiers), read [`PROTOCOL.md`](PROTOCOL.md); the default task set is
 
 Set `STELLA_EVAL_THINKING_LEVEL=max` to request `max` reasoning through the testbed deployment defaults. The loop saves the API response beside the job as `<job>.thinking.json` and records `thinking_level` in the manifest. The provider and model must support the selected level.
 
+## Human approval before execution
+
+Do not start a live eval automatically after a code or behavior change. Before
+execution, obtain the user's explicit approval for the task/tier, model, trial
+budget (including reference runs and warm-ups), and local or cloud execution.
+State expected time and cost when known. General permission to implement, test,
+review, create a PR, or release does not authorize an eval.
+
+Approval covers only the agreed scope. Additional tiers, warm-ups, confirmation
+pairs, and reruns need approval covering them. Reading existing artifacts or
+using `--plan` does not launch an eval. An unrequested eval is not a commit, PR,
+or release gate; use the required format/build/test workflows and focused tests.
+The commands below are procedures for an approved evaluation, not instructions
+to run every tier.
+
 ## The loop in one command
 
 ```bash
@@ -178,7 +193,9 @@ that started without it.
 
 ## Evaluating a change
 
-The loop's mechanics are above; this is the order to use them in.
+The loop's mechanics are above. After explicit human approval, use only the
+steps and task budgets included in that approval. These steps are not an
+automatic development or PR checklist.
 
 **Every comparison needs its own matched reference.** The comparator judges a
 task only when both sides hold exactly k scoreable trials for it, and refuses a
@@ -194,8 +211,8 @@ a 6-task reference. Three questions, three matched A/B pairs:
 
 A reference always runs the **pre-change build**, on the same machine, model,
 and gateway. _When_ in wall-clock time you run it differs by tier: quick and
-full references are cheap to take up front and cost a base-commit checkout to
-reconstruct afterwards, so take them first. The k=5 confirmation reference is
+full references come first when those paired tiers are approved. Their time
+and live-model cost count toward the approved budget. The k=5 confirmation reference is
 the exception, and [`PROTOCOL.md`](PROTOCOL.md) fixes its order: candidate
 first, then reference, so gateway drift is not free to flatter the change.
 
@@ -215,8 +232,8 @@ mise run eval:loop -- -i terminal-bench/<task> -k 1    # one task's image
 Warm only the tiers the pair will use. On a machine that has run those tasks
 recently the images are already warm and this is a no-op you can skip.
 
-**1. Take the quick and full references**, from the commit your PR branches
-off.
+**1. Take the approved reference tiers**, from the commit your PR branches
+off. Run only the tiers the user approved.
 
 ```bash
 set -a; . ./.env; set +a
@@ -232,14 +249,15 @@ Every run on both sides must come from a clean tree. The manifest records a
 `dirty` flag, and a dirty run is not evidence: nobody, including you next
 week, can say what code produced it. Commit before you measure.
 
-**2. Iterate on quick.** Fast enough to run on every meaningful edit. Compare
-quick against quick and read it as a break detector, not as evidence.
+**2. Run the approved quick candidate.** Compare quick against quick and read
+it as a break detector, not as confirmation evidence. Do not automatically
+rerun it after edits; each run must fit the approved scope.
 
 ```bash
 mise run eval:loop -- --tier quick --against dist/evals/jobs/<quick reference>
 ```
 
-**3. Confirm the fix at single-task k=5 — candidate first, then reference.**
+**3. If approved, confirm the fix at single-task k=5 — candidate first, then reference.**
 The reference here is taken _now_, by checking out the base commit and running
 the same command again. That ordering is the protocol's, not a convenience.
 
@@ -267,10 +285,9 @@ or more resolved apart either way, anything weaker is `DISMISSED`. A rise at
 loop k that never takes this step is a `SIGNAL`, and calling it an improvement
 in a PR is a claim the evidence does not support.
 
-**4. Run the full tier on both sides before opening the PR**, so the guards get
-their k=3. If you skipped the full reference in step 1, take it now from the
-base commit; that is a checkout and a rerun, not an excuse to skip it. Then,
-with both sides in hand:
+**4. If a full comparison was approved, run both sides**, so the guards get
+their k=3. Take a missing reference from the base commit within the approved
+budget. Opening a PR does not require this evaluation. With both sides in hand:
 
 ```bash
 mise run eval:loop -- --tier full --against dist/evals/jobs/<full reference>

@@ -63,12 +63,13 @@ Test at the lowest sufficient layer: keep deterministic behavior in package Go t
 
 ## Measuring a change
 
-Agent-behavior changes (tools, prompts, the runner loop) are measured against Terminal-Bench through the Harbor eval loop, not argued from first principles.
+Eval runs require explicit human approval. Changes to tools, prompts, the runner loop, or sandbox behavior do not automatically trigger an eval, and an unrequested eval must not block a commit, PR, or release.
 
-- **Read `test/evals/harbor/README.md`** before running or citing an eval; its "Evaluating a change" section is the procedure and `PROTOCOL.md` is the authority on what a comparison may conclude.
-- Take the quick and full references **before** you change anything, on the same machine and model, from the commit you branched off. Iterate on `--tier quick` (~5 min), then confirm at single-task `k=5` with `--confirm` — that pair runs candidate first, reference second, per `PROTOCOL.md`. Run the full tier on both sides before opening the PR.
-- A rise at loop k is a `SIGNAL`, not an improvement. Only a `--confirm` verdict backs an improvement claim in a PR.
-- Put the evidence in the PR as a table naming both jobs, commits, tier, k, host, and model. If a change touches a surface no task exercises (images, documents, CRLF, binaries, non-UTF-8), say so rather than letting the score imply coverage.
+- Before starting a live eval, ask the user to approve the task/tier, model, trial budget (including reference runs and warm-ups), and local or cloud execution. State expected time and cost when known. A request to implement, test, review, or create a PR is not eval authorization.
+- Run only the approved scope. Do not add tiers, warm-ups, confirmations, or reruns without approval covering them. Reading existing results and preparing a dry-run plan do not launch an eval.
+- **Read `test/evals/harbor/README.md`** before an approved run or when citing eval evidence. `PROTOCOL.md` governs what a comparison may conclude; it does not authorize execution.
+- When approved eval evidence is included in a PR, record both jobs, commits, tier, k, host, and model. A rise at loop k is a `SIGNAL`, not an improvement; only a valid `--confirm` verdict supports an improvement claim. Name surfaces the task set does not cover.
+- If no eval was requested, say so. Use the required format/build/test workflows and focused tests to verify the change.
 - Never set `OTEL_STELLA_RECORD_TOOL_IO` for an eval run: Terminal-Bench ships synthetic-secret tasks.
 
 ## Timestamps and timezones

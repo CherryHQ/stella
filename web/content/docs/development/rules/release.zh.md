@@ -171,22 +171,22 @@ Release 工作流只响应 `v*.*.*` tag push。PR 运行[测试规则](./testing
 
 ## Agent 性能门禁
 
-Terminal-Bench 2.1 是按风险决定的手动发布门禁，不是每个 RC 或 Stable patch
-都必须跑的检查。当发布决策需要 Agent 行为证据时运行它，尤其是改动了工具、prompt、
-runner loop、面向模型的能力或沙箱行为之后，或者 release owner 明确要求时。
-`mise run release:validate` 仍是必须执行的本地 pre-cut gate，并且有意不承担在线
-模型与一次性 AWS 的成本。
+运行 Terminal-Bench 2.1 前必须获得用户明确确认。工具、prompt、runner loop、
+能力或沙箱行为变更不会自动要求评测。先确认任务集、模型、试验次数以及本地或云端
+执行方式，已知时说明预计耗时和费用。只有 release owner 明确将评测设为门禁时，
+它才阻塞发布。`mise run release:validate` 仍是必须执行的本地 pre-cut gate，
+不承担在线模型与一次性 AWS 的成本。
 
 ```bash
 CANDIDATE=$(git rev-parse HEAD)
 mise run eval:tb21:aws -- --commit "$CANDIDATE"
 ```
 
-一旦决定运行评估，只有 89 道题都选满 5 个 scoreable trial、脱敏 archive 与
+只有明确将评测设为发布门禁时，才要求 89 道题都选满 5 个 scoreable trial、脱敏 archive 与
 checksum 验证通过、云资源清理完成，才可以打 tag 或发布。将结果归档到
 `test/evals/harbor/results/terminal-bench-2.1/`，metadata 必须记录被测 commit。
-若之后再改动影响 agent 的代码，必须针对新 candidate 重跑。release PR 必须记录
-评估证据，或说明为何不需要评估。
+若之后再改动影响 agent 的代码，已有证据不再验证新 candidate；重跑前必须取得确认。
+release PR 记录评测证据，或注明未请求评测。
 
 每次发布记录首先对照**上一个 Stella release**，用于观察版本间变化。只有 model、
 gateway、dataset、host、timeout、harness 与 capability treatment 一致时，才可作为
