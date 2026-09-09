@@ -109,8 +109,10 @@ func TestApplyUserRevocationCutsOffMatchingTurnsBeforeSlowClose(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() { done <- pm.ApplyUserRevocation(t.Context(), "user", "", func() error { return nil }) }()
+	// Cache iteration does not define which runner begins slow cleanup first.
 	select {
 	case <-runners[0].closeStarted:
+	case <-runners[1].closeStarted:
 	case <-time.After(time.Second):
 		t.Fatal("revocation did not begin slow runner close")
 	}
