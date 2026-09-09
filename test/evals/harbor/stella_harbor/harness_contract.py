@@ -25,6 +25,7 @@ from harbor.models.trial.paths import TrialPaths
 from stella_harbor.hermes_gateway import HermesGateway
 from stella_harbor.pi_gateway import PiGateway
 from stella_harbor.archive import _replace_known
+from stella_harbor.install import SETUP_TIMEOUT_SEC
 
 
 def response_events(model: str) -> list[dict]:
@@ -142,15 +143,20 @@ async def verify(args: argparse.Namespace) -> None:
     environment_dir.mkdir(parents=True, exist_ok=True)
     env = DockerEnvironment(environment_dir=environment_dir, environment_name="harness-contract",
                             session_id="contract-" + uuid.uuid4().hex[:12], trial_paths=paths,
-                            task_env_config=EnvironmentConfig(docker_image="ubuntu:24.04", cpus=2, memory_mb=4096))
+                            task_env_config=EnvironmentConfig(docker_image=args.image, cpus=2, memory_mb=4096))
     adapter = PiGateway if args.agent == "pi" else HermesGateway
     agent = adapter(logs_dir=paths.agent_dir, model_name="gateway/" + args.model, version=args.version,
                     thinking=args.thinking, max_tokens=args.max_tokens, context_window=args.context_window)
     error: str | None = None
+    setup_elapsed: float | None = None
     try:
         await asyncio.wait_for(env.start(force_build=False), timeout=180)
         await env.exec("mkdir -p /logs/agent /logs/verifier")
-        await asyncio.wait_for(agent.setup(env), timeout=600)
+        started = time.monotonic()
+        try:
+            await asyncio.wait_for(agent.setup(env), timeout=SETUP_TIMEOUT_SEC)
+        finally:
+            setup_elapsed = round(time.monotonic() - started, 3)
         instruction = "Use a shell tool to print contract-ok, then reply with only OK." if args.live else "Reply with only OK. Do not call tools."
         if args.agent == "pi":
             instruction = "- " + instruction
@@ -169,6 +175,10 @@ async def verify(args: argparse.Namespace) -> None:
         await env.stop(delete=True)
         (args.output / "contract.json").write_text(json.dumps({"agent": args.agent, "version": args.version,
             "release_archive_sha256": archive_sha256,
+            "image": args.image, "setup_timeout_sec": SETUP_TIMEOUT_SEC,
+            "setup_elapsed_sec": setup_elapsed,
+            "install_stages": json.loads((paths.agent_dir / "install-stages.json").read_text())
+                if (paths.agent_dir / "install-stages.json").exists() else [],
             "context_window": args.context_window, "expected": expected, "requests": requests,
             "live_gateway": args.live, "returned_models": sorted(returned_models), "gateway_errors": gateway_errors,
             "passed": error is None, "error": error}, indent=2) + "\n")
@@ -184,10 +194,47 @@ def main() -> None:
     parser.add_argument("--max-tokens", type=int, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--live", action="store_true", help="validate a short non-benchmark tool round trip through the real gateway")
+    parser.add_argument("--image", default="debian:13", help="non-benchmark installation image")
+    parser.add_argument("--concurrency", type=int, default=1, help="independent simultaneous native installations")
     args = parser.parse_args()
+    if args.concurrency < 1:
+        parser.error("concurrency must be positive")
     args.output = args.output.resolve()
-    asyncio.run(verify(args))
+    if args.concurrency == 1:
+        asyncio.run(verify(args))
+    else:
+        asyncio.run(verify_concurrent(args))
     print("native harness request contract: PASS")
+
+
+async def verify_concurrent(args: argparse.Namespace) -> None:
+    # Each child owns its gateway proxy and environment; credentials must not
+    # race through os.environ between concurrent verifications.
+    async def child(index: int) -> dict:
+        output = args.output / f"worker-{index}"
+        output.mkdir(parents=True, exist_ok=True)
+        command = [sys.executable, "-m", "stella_harbor.harness_contract"]
+        for flag in ("agent", "version", "model", "thinking", "context_window", "max_tokens", "image"):
+            command += ["--" + flag.replace("_", "-"), str(getattr(args, flag))]
+        command += ["--output", str(output)]
+        if args.live:
+            command.append("--live")
+        with (output / "contract.log").open("wb") as log:
+            process = await asyncio.create_subprocess_exec(*command, stdout=log, stderr=log)
+            status = await process.wait()
+        contract = output / "contract.json"
+        evidence = json.loads(contract.read_text()) if contract.exists() else None
+        return {"worker": index, "passed": status == 0 and bool(evidence and evidence.get("passed")), "exit_code": status,
+                "contract": evidence}
+
+    results = await asyncio.gather(*(child(index) for index in range(args.concurrency)))
+    passed = all(result["passed"] for result in results)
+    (args.output / "contract.json").write_text(json.dumps({
+        "agent": args.agent, "concurrency": args.concurrency, "image": args.image,
+        "setup_timeout_sec": SETUP_TIMEOUT_SEC, "passed": passed, "workers": results,
+    }, indent=2) + "\n")
+    if not passed:
+        raise RuntimeError("concurrent native installation contract failed; see worker logs")
 
 
 if __name__ == "__main__":

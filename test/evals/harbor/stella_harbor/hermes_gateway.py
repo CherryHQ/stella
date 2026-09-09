@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 import shlex
 import os
+import json
+import time
 from pathlib import Path
 from typing import Any, override
 
@@ -48,11 +50,33 @@ class HermesGateway(Hermes):
             "set -euo pipefail; "
             'install_dir="$HOME/.local/share/hermes-agent"; mkdir -p "$install_dir"; '
             f'{download}tar -xzf /tmp/hermes-release.tar.gz -C "$install_dir" --strip-components=1; '
-            'for stage in prerequisites venv python-deps node-deps path config; do '
-            'bash "$install_dir/scripts/install.sh" --dir "$install_dir" '
-            '--skip-setup --non-interactive --stage "$stage"; done; '
-            'export PATH="$HOME/.local/bin:$PATH"; hermes --version'
+            'export PATH="$HOME/.local/bin:$PATH"'
         ))
+        # Separate calls preserve completed stages and identify the stalled one.
+        # The installer otherwise buffers all output until the entire setup ends.
+        stages = []
+        try:
+            for stage in ("prerequisites", "venv", "python-deps", "node-deps", "path", "config"):
+                started = time.monotonic()
+                record = {"stage": stage, "status": "running"}
+                stages.append(record)
+                (self.logs_dir / "install-stages.json").write_text(json.dumps(stages, indent=2))
+                try:
+                    await self.exec_as_agent(environment, command=(
+                        'set -euo pipefail; export PATH="$HOME/.local/bin:$PATH"; '
+                        'bash "$HOME/.local/share/hermes-agent/scripts/install.sh" '
+                        '--dir "$HOME/.local/share/hermes-agent" '
+                        f'--skip-setup --non-interactive --stage {stage} '
+                        f'2>&1 | tee /logs/agent/install-{stage}.log'
+                    ))
+                    record["status"] = "completed"
+                except BaseException:
+                    record["status"] = "failed"
+                    raise
+                finally:
+                    record["elapsed_sec"] = round(time.monotonic() - started, 3)
+        finally:
+            (self.logs_dir / "install-stages.json").write_text(json.dumps(stages, indent=2))
 
     def gateway_config(self, model: str, base_url: str) -> dict[str, Any]:
         config = yaml.safe_load(super()._build_config_yaml(model))

@@ -58,6 +58,10 @@ the agent's working budget.
 
 External workers first run a short shell-tool round trip through a local proxy that checks the actual model, reasoning effort, and output cap before forwarding to the gateway. This calls the model but runs no benchmark tasks or task images. The contract must pass before any dataset attempt is consumed. Use the `stella_harbor.harness_contract` module without `--live` for a fake-API-only check.
 
+The native contract uses independent Debian 13 containers at the requested run concurrency. Both this gate and the external Harbor run allow 1200 seconds for agent installation; the task execution timeout remains unchanged. Each worker records setup duration and Hermes installation stages, including the stage interrupted by a timeout. For a smaller local check use `--concurrency 2`; this does not certify a 16-worker host. Use `--image` to check another non-benchmark base image.
+
+Official task definitions, image references, APT sources, and verification settings are not rewritten. In particular, the frozen Debian 11 QEMU tasks can still fail installation because their security repository expired after Bullseye LTS ended on 2026-08-31. A Debian 13 native contract does not certify those task images; retain such failures as infrastructure-invalid evidence pending an upstream case update. Do not disable APT expiry or signature checks to obtain a score.
+
 Hermes downloads its pinned release archive once per host and installs it in each container using the release's official installer stages. Automatic session titles are disabled because their auxiliary requests do not inherit the declared model controls. Failed native checks retain a redacted `diagnostics/harness-contract.json` in the local run directory before cloud cleanup.
 
 Set `HERMES_RELEASE_ARCHIVE` to a local copy of the selected release archive to reuse verified bytes on AWS. The controller uploads it to the private run bucket and the worker verifies its SHA-256 before installation.

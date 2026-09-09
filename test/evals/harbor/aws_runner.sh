@@ -189,17 +189,21 @@ if [ "$HARNESS" != stella ]; then
   journal harness-contract-running
   if ! as_eval mise exec -- uv run --frozen --project test/evals/harbor python -m stella_harbor.harness_contract \
     --agent "$HARNESS" --version "$HARNESS_VERSION" --model "$MODEL_ID" --thinking "$THINKING_LEVEL" \
-    --context-window "$CONTEXT_WINDOW" --max-tokens "$MAX_TOKENS" --output "$ROOT/contracts" --live \
+    --context-window "$CONTEXT_WINDOW" --max-tokens "$MAX_TOKENS" --output "$ROOT/contracts" --live --concurrency "$CONCURRENCY" \
     > "$ROOT/logs/harness-contract.log" 2>&1; then
     # The contract contains only request controls and a redacted error, never
     # benchmark output. Save it before the worker's termination cleanup.
     if [ -f "$ROOT/contracts/contract.json" ]; then
       aws s3 cp "$ROOT/contracts/contract.json" "s3://$BUCKET/diagnostics/harness-contract.json" --only-show-errors
     fi
+    aws s3 cp "$ROOT/contracts/" "s3://$BUCKET/diagnostics/contracts/" --recursive \
+      --exclude '*' --include 'contract.json' --include 'install-stages.json' --only-show-errors
     journal harness-contract-failed
     exit 1
   fi
   cp "$ROOT/contracts/contract.json" "$ROOT/metrics/harness-contract.json"
+  aws s3 cp "$ROOT/contracts/" "s3://$BUCKET/diagnostics/contracts/" --recursive \
+    --exclude '*' --include 'contract.json' --include 'install-stages.json' --only-show-errors
   journal harness-contract-complete
 fi
 

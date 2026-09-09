@@ -333,7 +333,7 @@ def _payload_files(job: Path) -> list[Path]:
     return [
         source
         for source in sorted(job.rglob("*"))
-        if not source.is_symlink() and source.is_file() and source.name in {"result.json", "config.json"}
+        if not source.is_symlink() and source.is_file() and source.name in {"result.json", "config.json", "install-stages.json"}
     ]
 
 
@@ -509,7 +509,7 @@ def build_archive(
         "redaction_placeholder": REDACTION_PLACEHOLDER,
         "include_trajectories": include_trajectories,
         "policy": {
-            "include": ["result.json", "config.json"],
+            "include": ["result.json", "config.json", "install-stages.json"],
             # Every trial, not only the failures: a passing run is the evidence
             # for how it passed, and reading one is the usual way a regression
             # gets explained. Redaction is content-based, so the verdict never

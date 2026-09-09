@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from stella_harbor.install import SETUP_TIMEOUT_SEC, HARBOR_SETUP_TIMEOUT_SEC
 
 
 def main() -> int:
@@ -24,6 +25,7 @@ def main() -> int:
                "-a", f"stella_harbor.{args.agent}_gateway:{adapter}",
                "-m", "gateway/" + os.environ["OPENAI_MODEL"],
                "--max-retries", "0", "-o", str(args.output),
+               "--agent-setup-timeout-multiplier", str(SETUP_TIMEOUT_SEC / HARBOR_SETUP_TIMEOUT_SEC),
                "--ak", f"version={args.version}"]
     if args.thinking:
         thinking = "off" if args.agent == "pi" and args.thinking == "none" else args.thinking
