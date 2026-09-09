@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -107,7 +108,7 @@ func TestRunRequiresProviderEvidenceFile(t *testing.T) {
 	dir := t.TempDir()
 	template := filepath.Join(dir, "binding.json")
 	instruction := filepath.Join(dir, "instruction.txt")
-	if err := os.WriteFile(template, []byte(`{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app"}`), 0o600); err != nil {
+	if err := os.WriteFile(template, fmt.Appendf(nil, `{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app","deadline":%q}`, time.Now().UTC().Add(25*time.Second).Format(time.RFC3339Nano)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(instruction, []byte("do the task"), 0o600); err != nil {
@@ -164,7 +165,7 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 
 	dir := t.TempDir()
 	template := filepath.Join(dir, "binding.json")
-	if err := os.WriteFile(template, []byte(`{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app"}`), 0o600); err != nil {
+	if err := os.WriteFile(template, fmt.Appendf(nil, `{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app","deadline":%q}`, time.Now().UTC().Add(25*time.Second).Format(time.RFC3339Nano)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	instruction := filepath.Join(dir, "instruction.txt")
@@ -362,7 +363,7 @@ func TestRunRefusesAServerThatIsNotOnTheBridgeBackend(t *testing.T) {
 
 	dir := t.TempDir()
 	template := filepath.Join(dir, "binding.json")
-	if err := os.WriteFile(template, []byte(`{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app"}`), 0o600); err != nil {
+	if err := os.WriteFile(template, fmt.Appendf(nil, `{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app","deadline":%q}`, time.Now().UTC().Add(25*time.Second).Format(time.RFC3339Nano)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	instruction := filepath.Join(dir, "instruction.txt")
@@ -407,7 +408,7 @@ func TestRunRefusesAServerThatDoesNotReportItsBackend(t *testing.T) {
 
 	dir := t.TempDir()
 	template := filepath.Join(dir, "binding.json")
-	if err := os.WriteFile(template, []byte(`{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app"}`), 0o600); err != nil {
+	if err := os.WriteFile(template, fmt.Appendf(nil, `{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app","deadline":%q}`, time.Now().UTC().Add(25*time.Second).Format(time.RFC3339Nano)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	instruction := filepath.Join(dir, "instruction.txt")
@@ -453,5 +454,19 @@ func TestFinishTimedOutExportsEvidenceEvenWhenStopIsNotConfirmed(t *testing.T) {
 	}
 	if _, err := os.Stat(trajectory); err != nil {
 		t.Fatalf("trajectory was not exported: %v", err)
+	}
+}
+
+func TestBindingDeadlineDoesNotRestartTaskBudget(t *testing.T) {
+	now := time.Now().UTC()
+	original := now.Add(3500 * time.Second)
+	got, err := bindingDeadline(binding{Deadline: original}, 3525*time.Second, now)
+	if err != nil || !got.Equal(original) {
+		t.Fatalf("deadline=%v error=%v, want original %v", got, err, original)
+	}
+	for _, deadline := range []time.Time{{}, now.Add(-time.Second), now.Add(time.Hour)} {
+		if _, err := bindingDeadline(binding{Deadline: deadline}, 3525*time.Second, now); err == nil {
+			t.Errorf("accepted invalid deadline %v", deadline)
+		}
 	}
 }

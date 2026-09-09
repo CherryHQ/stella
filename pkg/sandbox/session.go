@@ -88,6 +88,13 @@ type EnvRefresher interface {
 	RefreshEnv(updates map[string]string)
 }
 
+// TurnDeadlineProvider exposes a budget owned by an external task runner.
+// It applies to model work as well as tools, and must not be renewed when a
+// cached session starts another turn. Sessions without one use normal limits.
+type TurnDeadlineProvider interface {
+	TurnDeadline() (time.Time, bool)
+}
+
 // EnvRenderer renders a fresh logical turn environment into the backend's
 // fixed process coordinate system. It must not read a retained Policy.Env:
 // callers use it to apply current-turn revocations without resurrecting stale

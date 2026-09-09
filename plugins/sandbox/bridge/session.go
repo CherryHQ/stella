@@ -95,6 +95,7 @@ func (f *Factory) CreateSession(ctx context.Context, policy sandboxpkg.Policy) (
 		tempDir:        tempDir,
 		filesystemView: sandboxpkg.FilesystemView{Home: home, TempDir: tempDir},
 		runnerPath:     binding.Path,
+		deadline:       binding.Deadline,
 		done:           make(chan struct{}),
 	}
 	s.files = &fileAccess{s: s}
@@ -110,6 +111,7 @@ type session struct {
 	runnerPath     string
 	done           chan struct{}
 	files          *fileAccess
+	deadline       time.Time
 
 	mu     sync.RWMutex
 	policy sandboxpkg.Policy
@@ -150,6 +152,10 @@ func (s *session) Policy() sandboxpkg.Policy {
 func (s *session) WorkingDir() string           { return s.Policy().Filesystem.WorkingDir }
 func (s *session) Files() sandboxpkg.FileAccess { return s.files }
 func (s *session) Done() <-chan struct{}        { return s.done }
+
+func (s *session) TurnDeadline() (time.Time, bool) {
+	return s.deadline, !s.deadline.IsZero()
+}
 
 func (s *session) Alive() bool {
 	s.mu.RLock()

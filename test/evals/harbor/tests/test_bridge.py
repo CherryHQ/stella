@@ -310,3 +310,26 @@ def test_close_cancels_an_inflight_handler(tmp_path):
         assert task.cancelled()
 
     asyncio.run(close_it())
+
+
+def test_binding_deadline_starts_before_discovery(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+    import time
+
+    async def exercise():
+        async def discover(_self):
+            await asyncio.sleep(0.03)
+            return "/root", "/usr/bin", "/tmp"
+
+        monkeypatch.setattr(BridgeServer, "_discover", discover)
+        server = _ready_server(_FakeEnv(), tmp_path, budget_sec=825)
+        before = datetime.now(UTC).timestamp()
+        binding = await server.start()
+        try:
+            absolute = datetime.fromisoformat(binding.deadline).timestamp()
+            assert before + 825 <= absolute < datetime.now(UTC).timestamp() + 825
+            assert abs((absolute - datetime.now(UTC).timestamp()) - (server._deadline - time.monotonic())) < 0.1
+        finally:
+            await server.close()
+
+    asyncio.run(exercise())

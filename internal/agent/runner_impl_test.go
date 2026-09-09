@@ -511,7 +511,7 @@ func TestConvertLoopEventStripsRenderableReferences(t *testing.T) {
 // the model to report progress, it answered without a tool call, and a turn with
 // no tool call ends the loop. Turn count must not trigger a nudge at all.
 func TestProgressNudgeIgnoresTurnCount(t *testing.T) {
-	nudge := progressNudge(30 * time.Minute)
+	nudge := progressNudge(30*time.Minute, false)
 	for turn := 1; turn <= 200; turn++ {
 		if msg := nudge(turn, time.Minute); msg != nil {
 			t.Fatalf("turn %d nudged with a fresh budget: %q", turn, *msg)
@@ -521,7 +521,7 @@ func TestProgressNudgeIgnoresTurnCount(t *testing.T) {
 
 func TestProgressNudgeFiresOncePerThresholdAsTheBudgetRunsOut(t *testing.T) {
 	budget := 40 * time.Minute
-	nudge := progressNudge(budget)
+	nudge := progressNudge(budget, false)
 
 	checkpoint := nudge(3, 30*time.Minute) // 75%
 	if checkpoint == nil {
@@ -549,7 +549,7 @@ func TestProgressNudgeFiresOncePerThresholdAsTheBudgetRunsOut(t *testing.T) {
 // A chat that blows straight past both thresholds (a single very slow turn)
 // must not emit two nudges back to back.
 func TestProgressNudgeSkipsTheCheckpointWhenItIsAlreadyTooLate(t *testing.T) {
-	nudge := progressNudge(10 * time.Minute)
+	nudge := progressNudge(10*time.Minute, false)
 	if msg := nudge(1, 9*time.Minute+30*time.Second); msg == nil || !strings.Contains(*msg, "summarize") {
 		t.Fatalf("expected the wrap-up, got %v", msg)
 	}
@@ -605,5 +605,79 @@ func TestInitializationFailureRetainsUnterminatedSandbox(t *testing.T) {
 				t.Fatalf("cleanup retry: %v cleaned=%v", err, cleaned)
 			}
 		})
+	}
+}
+
+type externallyTimedSession struct {
+	pkgsandbox.Session
+	deadline time.Time
+}
+
+func (s externallyTimedSession) TurnDeadline() (time.Time, bool) { return s.deadline, true }
+
+func TestChatTurnDeadlineUsesTaskBudgetWithoutChangingOrdinaryChat(t *testing.T) {
+	now := time.Now().UTC()
+	for _, tc := range []struct {
+		name                               string
+		external, configured, parent, want time.Duration
+	}{
+		{name: "ordinary", want: 30 * time.Minute},
+		{name: "ordinary long parent", parent: time.Hour, want: 30 * time.Minute},
+		{name: "hour task", external: 3525 * time.Second, want: 3525 * time.Second},
+		{name: "short task", external: 825 * time.Second, want: 825 * time.Second},
+		{name: "explicit cap", external: 3525 * time.Second, configured: 20 * time.Minute, want: 20 * time.Minute},
+		{name: "parent cap", external: 3525 * time.Second, parent: 10 * time.Minute, want: 10 * time.Minute},
+		{name: "expired task", external: -time.Second, want: -time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			if tc.parent > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithDeadline(ctx, now.Add(tc.parent))
+				defer cancel()
+			}
+			var session pkgsandbox.Session
+			if tc.external != 0 {
+				session = externallyTimedSession{Session: pkgsandbox.NopSession(), deadline: now.Add(tc.external)}
+			}
+			deadline, timed := chatTurnDeadline(ctx, session, tc.configured, now)
+			if !deadline.Equal(now.Add(tc.want)) || timed != (tc.external != 0) {
+				t.Fatalf("deadline=%v timed=%v", deadline, timed)
+			}
+		})
+	}
+}
+
+func TestChatPassesExternalDeadlineAndInitialBudgetToProvider(t *testing.T) {
+	deadline := time.Now().UTC().Add(3525 * time.Second)
+	called := false
+	stream := func(ctx context.Context, _ ai.Model, input ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		called = true
+		got, ok := ctx.Deadline()
+		if !ok || !got.Equal(deadline) {
+			t.Errorf("provider deadline=%v, want %v", got, deadline)
+		}
+		last := input.Messages[len(input.Messages)-1].(ai.UserMessage)
+		if !strings.Contains(fmt.Sprint(last.Content), "58m45s") {
+			t.Errorf("missing actual initial budget: %v", last.Content)
+		}
+		out := providers.NewChannelEventStream(2)
+		out.Emit(ai.EventTextDelta{Text: "done"})
+		out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+		out.Finish(nil)
+		return out, nil
+	}
+	loop, err := coreagent.NewRunner(coreagent.RunnerConfig{Stream: stream, Model: ai.Model{Name: "fake"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &runner{runner: loop, session: externallyTimedSession{Session: pkgsandbox.NopSession(), deadline: deadline}}
+	for e := range r.Chat(t.Context(), nil, "do the work") {
+		if e.Err != nil {
+			t.Error(e.Err)
+		}
+	}
+	if !called {
+		t.Fatal("provider was not called")
 	}
 }

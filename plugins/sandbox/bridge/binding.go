@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // BindingDirEnv names the directory where the harness publishes one binding
@@ -38,6 +39,9 @@ type Binding struct {
 	// Path is the container PATH the harness discovered, already prefixed with
 	// the Stella helper tool bundle. Empty leaves PATH untouched.
 	Path string `json:"path,omitempty"`
+	// Deadline is published by the harness before bridge discovery. All consumers use
+	// this absolute UTC instant; starting a model turn must not reset its clock.
+	Deadline time.Time `json:"deadline,omitzero"`
 }
 
 // ErrNoBinding reports that the principal has no published bridge binding.
