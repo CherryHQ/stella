@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"sync"
 	"time"
 
@@ -19,18 +20,63 @@ func isNotStarted(err error) bool {
 	return errors.As(err, &marker)
 }
 
-// generationSession is the retained runner-facing session. Its resilient
-// inner may recreate a raw backend, but every recreation first obtains a new
-// durable generation through GenerationStore and returns a guarded wrapper.
+// uncertainFence is the fail-closed fence shared by generation and auxiliary
+// preparation capabilities: the first uncertain outcome wins and is never
+// cleared.
+type uncertainFence struct {
+	mu  sync.RWMutex
+	err error
+}
+
+func (f *uncertainFence) markUncertain(err error) {
+	if err == nil {
+		return
+	}
+	f.mu.Lock()
+	if f.err == nil {
+		f.err = err
+	}
+	f.mu.Unlock()
+}
+
+func (f *uncertainFence) uncertain() error {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.err
+}
+
+// mergeEnvOverlay overlays incremental credential updates onto a base
+// environment without mutating either input.
+func mergeEnvOverlay(base, updates map[string]string) map[string]string {
+	if len(updates) == 0 {
+		return base
+	}
+	merged := maps.Clone(base)
+	if merged == nil {
+		merged = make(map[string]string, len(updates))
+	}
+	maps.Copy(merged, updates)
+	return merged
+}
+
+// generationSession is the retained runner-facing session. Every recreation
+// obtains a new durable generation through GenerationStore and returns a
+// guarded wrapper.
 type generationSession struct {
 	store *GenerationStore
 	spec  GenerationSpec
 
-	mu        sync.Mutex
-	inner     *pkgsandbox.ResilientSession
-	current   *generationRawSession
-	borrow    generationKey
-	hasBorrow bool
+	// recreateMu serializes recreation with itself and with RefreshEnv and
+	// ReleaseBorrow: concurrent borrowers join the new generation instead of
+	// racing duplicate creates, a racing refresh lands after its overlay
+	// reset, and the final borrow is the one released.
+	recreateMu sync.Mutex
+	mu         sync.Mutex
+	current    *generationRawSession
+	envUpdates map[string]string
+	// borrow is the runner's lease on the current generation. The zero key
+	// expresses an absent borrow; a real key always has a nonempty SessionID.
+	borrow generationKey
 	// blocked is a per-borrow diagnostic. The authoritative fence is on the
 	// shared generationRawSession, so every borrower observes the same error.
 	blocked   error
@@ -39,20 +85,31 @@ type generationSession struct {
 	ownerErr  error
 }
 
-func (s *generationSession) create(ctx context.Context) (pkgsandbox.Session, error) {
+// recreate replaces a locally dead current generation with a fresh one
+// through the durable store.
+func (s *generationSession) recreate(ctx context.Context) (*generationRawSession, error) {
+	s.recreateMu.Lock()
+	defer s.recreateMu.Unlock()
+	// Another borrower may have completed the recreation while this one waited.
 	s.mu.Lock()
-	current := s.current
-	if s.closed {
-		s.mu.Unlock()
+	current, closed := s.current, s.closed
+	s.mu.Unlock()
+	if closed {
 		return nil, errors.New("sandbox: session is permanently closed")
 	}
-	s.mu.Unlock()
 	if current != nil {
 		if err := current.uncertain(); err != nil {
 			return nil, s.blockedError(err)
 		}
+		if current.Alive() {
+			return current, nil
+		}
 	}
-	return s.store.openRaw(ctx, s.spec, s)
+	raw, err := s.store.openRaw(ctx, s.spec, s)
+	if err != nil {
+		return nil, err
+	}
+	return raw, nil
 }
 
 func (s *generationSession) blockedError(err error) error {
@@ -68,30 +125,26 @@ func (s *generationSession) blockedError(err error) error {
 	return fmt.Errorf("sandbox: generation is blocked after an uncertain operation: %w: %v", ErrGenerationUnknown, blocked)
 }
 
-func (s *generationSession) setCurrent(raw *generationRawSession) {
+// bind performs the one ownership transition: it installs a generation as the
+// current owner capability together with its borrow, and resets the credential
+// overlay (a freshly allocated owner has none to reset). Releasing a replaced
+// distinct borrow happens after unlocking, outside store.mu.
+func (s *generationSession) bind(raw *generationRawSession, key generationKey) {
 	s.mu.Lock()
+	previous := s.borrow
 	s.current = raw
-	s.mu.Unlock()
-}
-
-func (s *generationSession) setBorrowKey(key generationKey) {
-	s.mu.Lock()
 	s.borrow = key
-	s.hasBorrow = true
+	s.envUpdates = nil
 	s.mu.Unlock()
-}
-
-func (s *generationSession) replaceBorrowKey(key generationKey) (generationKey, bool) {
-	s.mu.Lock()
-	old, had := s.borrow, s.hasBorrow
-	s.borrow = key
-	s.hasBorrow = true
-	s.mu.Unlock()
-	return old, had
+	if previous != (generationKey{}) && previous != key {
+		s.store.release(previous)
+	}
 }
 
 // ReleaseBorrow drops the runner's lease while retaining the owner-held raw
 // generation. Runtime idle reaping uses this path; it must never fence compute.
+// It serializes with recreation so a borrow installed by an in-flight
+// recreation is the one released instead of leaking a retention slot.
 func (s *generationSession) ReleaseBorrow() error {
 	s.mu.Lock()
 	if s.closed {
@@ -99,109 +152,87 @@ func (s *generationSession) ReleaseBorrow() error {
 		return nil
 	}
 	s.closed = true
-	key, ok := s.borrow, s.hasBorrow
 	s.mu.Unlock()
-	if ok {
-		s.store.release(key)
-	}
+	s.recreateMu.Lock()
+	defer s.recreateMu.Unlock()
+	s.mu.Lock()
+	key := s.borrow
+	s.mu.Unlock()
+	s.store.release(key)
 	return nil
 }
 
+// selected returns the guarded current generation, recreating it through the
+// durable store when the previous one is locally dead. Stale or uncertain
+// operations fail here, before any effect.
 func (s *generationSession) selected(ctx context.Context) (*generationRawSession, error) {
 	s.mu.Lock()
-	inner := s.inner
-	closed := s.closed
-	current := s.current
+	current, closed := s.current, s.closed
 	s.mu.Unlock()
 	if closed {
 		return nil, errors.New("sandbox: session is permanently closed")
 	}
-	if current != nil {
-		if err := current.uncertain(); err != nil {
-			return nil, s.blockedError(err)
-		}
+	if current == nil {
+		return nil, ErrGenerationNotFound
 	}
-	if inner == nil {
-		if current == nil {
-			return nil, ErrGenerationNotFound
-		}
+	if err := current.uncertain(); err != nil {
+		return nil, s.blockedError(err)
+	}
+	if current.Alive() {
 		if err := current.guard(ctx); err != nil {
 			return nil, err
 		}
 		return current, nil
 	}
-	selected, err := pkgsandbox.SelectSession(ctx, inner)
+	raw, err := s.recreate(ctx)
 	if err != nil {
 		return nil, err
 	}
-	guarded, ok := selected.(*generationRawSession)
-	if !ok {
-		return nil, errors.New("sandbox: resilient session returned an unguarded generation")
-	}
-	if err := guarded.guard(ctx); err != nil {
+	if err := raw.guard(ctx); err != nil {
 		return nil, err
 	}
-	return guarded, nil
+	return raw, nil
 }
 
 func (s *generationSession) Policy() pkgsandbox.Policy {
 	s.mu.Lock()
-	inner := s.inner
-	current := s.current
-	closed := s.closed
+	current, closed, updates := s.current, s.closed, maps.Clone(s.envUpdates)
 	s.mu.Unlock()
-	if closed {
+	if closed || current == nil {
 		return pkgsandbox.Policy{}
 	}
-	if inner != nil {
-		return inner.Policy()
-	}
-	if current != nil {
-		return current.Policy()
-	}
-	return pkgsandbox.Policy{}
+	policy := current.Policy()
+	policy.Env = mergeEnvOverlay(policy.Env, updates)
+	return policy
 }
 
 func (s *generationSession) WorkingDir() string {
 	s.mu.Lock()
-	inner := s.inner
-	current := s.current
-	closed := s.closed
+	current, closed := s.current, s.closed
 	s.mu.Unlock()
-	if closed {
+	if closed || current == nil {
 		return ""
 	}
-	if inner != nil {
-		return inner.WorkingDir()
-	}
-	if current != nil {
-		return current.WorkingDir()
-	}
-	return ""
+	return current.WorkingDir()
 }
 
 func (s *generationSession) Alive() bool {
 	s.mu.Lock()
-	inner := s.inner
-	closed := s.closed
+	current, closed := s.current, s.closed
 	s.mu.Unlock()
-	return !closed && inner != nil && inner.Alive()
+	return !closed && current != nil && current.Alive()
 }
 
 func (s *generationSession) Done() <-chan struct{} {
 	s.mu.Lock()
-	inner := s.inner
 	current := s.current
 	s.mu.Unlock()
-	if inner != nil {
-		return inner.Done()
+	if current == nil {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
 	}
-	if current != nil {
-		return current.Done()
-	}
-	ch := make(chan struct{})
-	close(ch)
-	return ch
+	return current.Done()
 }
 
 func (s *generationSession) Close() error {
@@ -219,24 +250,18 @@ func (s *generationSession) CloseOwner() error {
 		return err
 	}
 	s.closed = true
-	inner := s.inner
+	s.mu.Unlock()
+	// Serialization keeps a concurrent recreation from returning a fresh
+	// generation after the owner has already closed.
+	s.recreateMu.Lock()
+	defer s.recreateMu.Unlock()
+	s.mu.Lock()
 	current := s.current
 	s.mu.Unlock()
-	if inner == nil {
-		if current != nil {
-			err := current.Close()
-			s.mu.Lock()
-			s.ownerErr = err
-			s.ownerDone = err == nil
-			s.mu.Unlock()
-			return err
-		}
-		s.mu.Lock()
-		s.ownerDone = true
-		s.mu.Unlock()
-		return nil
+	var err error
+	if current != nil {
+		err = current.Close()
 	}
-	err := inner.Close()
 	s.mu.Lock()
 	s.ownerErr = err
 	s.ownerDone = err == nil
@@ -269,8 +294,8 @@ func (s *generationSession) Files() pkgsandbox.FileAccess {
 }
 
 // SelectFileView binds Policy, WorkingDir and FileAccess to one generation.
-// It deliberately avoids ResilientSession.Files(), whose dynamic accessor is
-// allowed to select a replacement on each operation.
+// It selects once here instead of exposing a dynamic Files accessor that
+// could pick a different generation per file operation.
 func (s *generationSession) SelectFileView(ctx context.Context) (pkgsandbox.FileView, error) {
 	raw, err := s.selected(ctx)
 	if err != nil {
@@ -279,23 +304,28 @@ func (s *generationSession) SelectFileView(ctx context.Context) (pkgsandbox.File
 	return raw.fileView(ctx)
 }
 
+// RefreshEnv overlays credential rotations for subsequent Policy reads. It
+// serializes with recreation so a refresh racing a recreate lands after the
+// new generation's overlay reset instead of being discarded by it.
 func (s *generationSession) RefreshEnv(updates map[string]string) {
-	s.mu.Lock()
-	inner := s.inner
-	s.mu.Unlock()
-	if inner != nil {
-		inner.RefreshEnv(updates)
+	if len(updates) == 0 {
+		return
 	}
+	s.recreateMu.Lock()
+	defer s.recreateMu.Unlock()
+	s.mu.Lock()
+	s.envUpdates = mergeEnvOverlay(s.envUpdates, updates)
+	s.mu.Unlock()
 }
 
 func (s *generationSession) TurnDeadline() (time.Time, bool) {
 	s.mu.Lock()
-	inner := s.inner
+	current := s.current
 	s.mu.Unlock()
-	if inner == nil {
+	if current == nil {
 		return time.Time{}, false
 	}
-	return inner.TurnDeadline()
+	return current.TurnDeadline()
 }
 
 func (s *generationSession) Sync() error {
@@ -339,7 +369,8 @@ func (s *generationSession) ResourceIdentity(ctx context.Context) (pkgsandbox.Re
 }
 
 // generationRawSession guards the complete raw provider capability surface.
-// It is what SelectSession returns, so type assertions cannot bypass fencing.
+// It is the only capability handed out by selected(), so callers cannot reach
+// a raw backend without passing this fence.
 type generationRawSession struct {
 	store        *GenerationStore
 	key          generationKey
@@ -351,8 +382,7 @@ type generationRawSession struct {
 	closeErr     error
 	resourceGone bool
 	cleanupDone  bool
-	uncertainMu  sync.RWMutex
-	uncertainErr error
+	uncertainFence
 }
 
 func (s *generationRawSession) localAlive() bool {
@@ -373,24 +403,6 @@ func (s *generationRawSession) guard(ctx context.Context) error {
 		return err
 	}
 	_, err := s.store.guard(ctx, s.key, s.raw)
-	return err
-}
-
-func (s *generationRawSession) markUncertain(err error) {
-	if err == nil {
-		return
-	}
-	s.uncertainMu.Lock()
-	if s.uncertainErr == nil {
-		s.uncertainErr = err
-	}
-	s.uncertainMu.Unlock()
-}
-
-func (s *generationRawSession) uncertain() error {
-	s.uncertainMu.RLock()
-	err := s.uncertainErr
-	s.uncertainMu.RUnlock()
 	return err
 }
 

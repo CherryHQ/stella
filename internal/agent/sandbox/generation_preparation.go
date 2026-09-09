@@ -645,8 +645,7 @@ type preparationRawSession struct {
 	closed   bool
 	closeErr error
 
-	uncertainMu  sync.RWMutex
-	uncertainErr error
+	uncertainFence
 }
 
 func (s *preparationRawSession) setCreationResult(raw pkgsandbox.Session, err error) {
@@ -689,24 +688,6 @@ func (s *preparationRawSession) setRecord(row AuxiliaryRecord) {
 	s.metaMu.Lock()
 	s.row = row
 	s.metaMu.Unlock()
-}
-
-func (s *preparationRawSession) markUncertain(err error) {
-	if err == nil {
-		return
-	}
-	s.uncertainMu.Lock()
-	if s.uncertainErr == nil {
-		s.uncertainErr = err
-	}
-	s.uncertainMu.Unlock()
-}
-
-func (s *preparationRawSession) uncertain() error {
-	s.uncertainMu.RLock()
-	err := s.uncertainErr
-	s.uncertainMu.RUnlock()
-	return err
 }
 
 func (s *preparationRawSession) parentRecord(ctx context.Context) GenerationRecord {

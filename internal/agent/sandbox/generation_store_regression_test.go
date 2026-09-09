@@ -3,8 +3,13 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -230,4 +235,306 @@ func TestGenerationUncertainStateIsSharedAndNewGenerationIsClean(t *testing.T) {
 	_ = first.Close()
 	_ = second.Close()
 	_ = next.Close()
+}
+
+// recreationTestBackend registers a controller-backed backend named
+// "recreation-test" whose controller records termination proofs.
+func recreationTestBackend(t *testing.T) (*BackendRegistry, *acceptanceController) {
+	t.Helper()
+	controller := &acceptanceController{}
+	registry, err := NewBackendRegistry(BackendDefinition{
+		Name: "recreation-test",
+		Create: func(context.Context, BackendRequest) (pkgsandbox.Session, error) {
+			return nil, errors.New("recreation-test backend is only driven through GenerationSpec.Create")
+		},
+		ControllerFactory: func(context.Context) (pkgsandbox.ResourceController, error) {
+			return controller, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registry, controller
+}
+
+func TestGenerationSessionRecreatesDeadGenerationThroughDurableProof(t *testing.T) {
+	db, sessionID, owner, _ := acceptanceGenerationDB(t)
+	var created []*acceptanceResource
+	registry, controller := recreationTestBackend(t)
+	store := NewGenerationStore(db, owner, registry)
+	spec := GenerationSpec{
+		SessionID:    sessionID,
+		Backend:      "recreation-test",
+		ConfigDigest: "same-policy",
+		Create: func(_ context.Context, generation int64, _ string) (pkgsandbox.Session, error) {
+			resource := &acceptanceResource{
+				Session:  pkgsandbox.NopSession(),
+				identity: pkgsandbox.ResourceIdentity{Backend: "recreation-test", Authority: "authority", Ref: fmt.Sprintf("gen-%d", generation)},
+			}
+			created = append(created, resource)
+			return resource, nil
+		},
+	}
+	managed, err := store.Open(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = managed.Close() })
+	first := managed.(*generationSession).current
+
+	// A locally dead backend (crash or exited process) must not be silently
+	// reused. The next operation recreates through the durable store, which
+	// fences the old generation and proves absence through the controller.
+	if err := first.raw.Close(); err != nil {
+		t.Fatalf("kill raw backend: %v", err)
+	}
+	if _, err := managed.Exec(t.Context(), "fresh", pkgsandbox.ExecOptions{}); err != nil {
+		t.Fatalf("exec after recreation: %v", err)
+	}
+	second := managed.(*generationSession).current
+	if second == nil || second == first {
+		t.Fatal("next operation did not bind a recreated generation")
+	}
+	row, err := store.Inspect(t.Context(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Generation != 2 || row.State != GenerationActive {
+		t.Fatalf("recreated generation = %+v, want generation 2 active", row)
+	}
+	if got := controller.terminations.Load(); got != 1 {
+		t.Fatalf("controller terminations = %d, want exactly one absence proof", got)
+	}
+	if got := len(created); got != 2 {
+		t.Fatalf("backend creates = %d, want 2", got)
+	}
+}
+
+func TestGenerationSessionEnvRefreshSurvivesPolicyAndDiesWithRecreation(t *testing.T) {
+	db, sessionID, owner, _ := acceptanceGenerationDB(t)
+	var created []*acceptanceResource
+	registry, _ := recreationTestBackend(t)
+	store := NewGenerationStore(db, owner, registry)
+	spec := GenerationSpec{
+		SessionID:    sessionID,
+		Backend:      "recreation-test",
+		ConfigDigest: "same-policy",
+		Create: func(_ context.Context, generation int64, _ string) (pkgsandbox.Session, error) {
+			resource := &acceptanceResource{
+				Session:  pkgsandbox.NopSession(),
+				identity: pkgsandbox.ResourceIdentity{Backend: "recreation-test", Authority: "authority", Ref: fmt.Sprintf("gen-%d", generation)},
+			}
+			created = append(created, resource)
+			return resource, nil
+		},
+	}
+	managed, err := store.Open(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = managed.Close() })
+	refresher, ok := managed.(pkgsandbox.EnvRefresher)
+	if !ok {
+		t.Fatal("managed session lost the EnvRefresher capability")
+	}
+	refresher.RefreshEnv(map[string]string{"OAUTH_TOKEN": "rotated-1"})
+	if policy := managed.Policy(); policy.Env["OAUTH_TOKEN"] != "rotated-1" {
+		t.Fatalf("refreshed credential missing from Policy: %v", policy.Env)
+	}
+
+	// Recreation rebuilds the generation from current credential state and
+	// must discard the incremental overlay instead of resurrecting it.
+	current := managed.(*generationSession).current
+	if err := current.raw.Close(); err != nil {
+		t.Fatalf("kill raw backend: %v", err)
+	}
+	if _, err := managed.Exec(t.Context(), "fresh", pkgsandbox.ExecOptions{}); err != nil {
+		t.Fatalf("exec after recreation: %v", err)
+	}
+	if managed.(*generationSession).current == current {
+		t.Fatal("generation was not recreated")
+	}
+	if policy := managed.Policy(); policy.Env["OAUTH_TOKEN"] != "" {
+		t.Fatalf("recreated generation resurrected a rotated-away credential: %v", policy.Env)
+	}
+}
+
+// TestGenerationRefreshDuringRecreationSurvives pins the previous
+// ResilientSession ordering: a credential refresh that races a recreation is
+// applied after the new generation resets its overlay, so the rotation is not
+// lost.
+func TestGenerationRefreshDuringRecreationSurvives(t *testing.T) {
+	db, sessionID, owner, _ := acceptanceGenerationDB(t)
+	registry, _, _ := acceptanceProofBackend(t)
+	store := NewGenerationStore(db, owner, registry)
+	entered, release := make(chan struct{}), make(chan struct{})
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+	defer releaseOnce()
+	spec := GenerationSpec{
+		SessionID:    sessionID,
+		Backend:      "proof-test",
+		ConfigDigest: "same-policy",
+		Create: func(ctx context.Context, generation int64, _ string) (pkgsandbox.Session, error) {
+			if generation == 2 {
+				close(entered)
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+			return &acceptanceResource{
+				Session:  pkgsandbox.NopSession(),
+				identity: pkgsandbox.ResourceIdentity{Backend: "proof-test", Authority: "control-domain", Ref: fmt.Sprintf("gen-%d", generation)},
+			}, nil
+		},
+	}
+	managed, err := store.Open(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = managed.Close() })
+	current := managed.(*generationSession).current
+	if err := current.raw.Close(); err != nil {
+		t.Fatalf("kill raw backend: %v", err)
+	}
+	executed := make(chan error, 1)
+	go func() {
+		_, err := managed.Exec(t.Context(), "noop", pkgsandbox.ExecOptions{})
+		executed <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("recreation did not start")
+	}
+	refreshed := make(chan struct{})
+	go func() {
+		managed.(pkgsandbox.EnvRefresher).RefreshEnv(map[string]string{"AUDIT_TOKEN": "latest"})
+		close(refreshed)
+	}()
+	// Give an unserialized refresh a chance to return early; a correct
+	// implementation keeps it blocked until recreation finishes.
+	select {
+	case <-refreshed:
+	case <-time.After(100 * time.Millisecond):
+	}
+	releaseOnce()
+	select {
+	case err := <-executed:
+		if err != nil {
+			t.Fatalf("exec after recreation: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("recreation did not finish")
+	}
+	select {
+	case <-refreshed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("refresh did not finish")
+	}
+	if got := managed.Policy().Env["AUDIT_TOKEN"]; got != "latest" {
+		t.Fatalf("credential refresh during recreation was lost: got %q, want latest", got)
+	}
+}
+
+// TestGenerationReleasedRecreationDoesNotConsumeCapacity pins that a borrow
+// installed by an in-flight recreation is released when the runner's Close
+// races that recreation; otherwise the destroyed generation holds a retention
+// slot forever.
+func TestGenerationReleasedRecreationDoesNotConsumeCapacity(t *testing.T) {
+	db, sessionID, owner, _ := acceptanceGenerationDB(t)
+	registry, _, _ := acceptanceProofBackend(t)
+	store := NewGenerationStore(db, owner, registry)
+	store.maxRetained = 2
+	entered, release := make(chan struct{}), make(chan struct{})
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+	defer releaseOnce()
+	spec := GenerationSpec{
+		SessionID:    sessionID,
+		Backend:      "proof-test",
+		ConfigDigest: "same-policy",
+		Create: func(ctx context.Context, generation int64, _ string) (pkgsandbox.Session, error) {
+			if generation == 2 {
+				close(entered)
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+			return &acceptanceResource{
+				Session:  pkgsandbox.NopSession(),
+				identity: pkgsandbox.ResourceIdentity{Backend: "proof-test", Authority: "control-domain", Ref: uuid.NewString()},
+			}, nil
+		},
+	}
+	managed, err := store.Open(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := managed.(*generationSession).current
+	if err := current.raw.Close(); err != nil {
+		t.Fatalf("kill raw backend: %v", err)
+	}
+	executed := make(chan error, 1)
+	go func() {
+		_, err := managed.Exec(t.Context(), "noop", pkgsandbox.ExecOptions{})
+		executed <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("recreation did not begin")
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- managed.Close() }()
+	closeDone := false
+	select {
+	case err := <-closed:
+		closeDone = true
+		if err != nil {
+			t.Fatalf("runner retirement: %v", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+	}
+	releaseOnce()
+	select {
+	case err := <-executed:
+		if err != nil {
+			t.Fatalf("exec after recreation: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("recreation did not end")
+	}
+	if !closeDone {
+		select {
+		case err := <-closed:
+			if err != nil {
+				t.Fatalf("runner retirement: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("borrow release did not end")
+		}
+	}
+	if err := store.CloseSessionOwner(t.Context(), sessionID); err != nil {
+		t.Fatalf("owner cleanup: %v", err)
+	}
+	row, err := store.Inspect(t.Context(), sessionID)
+	if err != nil || row.State != GenerationDestroyed {
+		t.Fatalf("original resource not destroyed: %+v %v", row, err)
+	}
+	for i := range 2 {
+		id := uuid.NewString()
+		if _, err := db.Exec(t.Context(), `INSERT INTO ctx_conversation(session_id) VALUES ($1)`, id); err != nil {
+			t.Fatal(err)
+		}
+		next := spec
+		next.SessionID = id
+		borrowed, err := store.Open(t.Context(), next)
+		if err != nil {
+			t.Fatalf("destroyed, released generation still consumes capacity: new session %d failed: %v", i+1, err)
+		}
+		t.Cleanup(func() { _ = borrowed.Close() })
+	}
 }

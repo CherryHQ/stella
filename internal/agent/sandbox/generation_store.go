@@ -214,7 +214,7 @@ type GenerationSpec struct {
 	Create       func(context.Context, int64, string) (pkgsandbox.Session, error)
 }
 
-// Open creates a retained, guarded resilient Session. If the current durable
+// Open creates a retained, guarded managed Session. If the current durable
 // generation is still present or unknown, Open refuses to create a successor;
 // the caller must reconcile or explicitly acknowledge absence first.
 func (s *GenerationStore) Open(ctx context.Context, spec GenerationSpec) (pkgsandbox.Session, error) {
@@ -228,17 +228,14 @@ func (s *GenerationStore) Open(ctx context.Context, spec GenerationSpec) (pkgsan
 		return nil, errors.New("sandbox: generation owner boot is required")
 	}
 	managed := &generationSession{store: s, spec: spec}
-	if existing, ok, err := s.openExisting(ctx, spec, managed); err != nil {
+	if ok, err := s.openExisting(ctx, spec, managed); err != nil {
 		return nil, err
 	} else if ok {
-		managed.inner = pkgsandbox.NewResilientSession(existing, managed.create)
 		return managed, nil
 	}
-	raw, err := managed.create(ctx)
-	if err != nil {
+	if _, err := managed.recreate(ctx); err != nil {
 		return nil, err
 	}
-	managed.inner = pkgsandbox.NewResilientSession(raw, managed.create)
 	return managed, nil
 }
 
@@ -246,52 +243,51 @@ func (s *GenerationStore) Open(ctx context.Context, spec GenerationSpec) (pkgsan
 // runner eviction releases only this borrow, so a later runner for the same
 // Session can reopen the exact generation without creating a second resource.
 // A durable row from another boot is never attachable to this process.
-func (s *GenerationStore) openExisting(ctx context.Context, spec GenerationSpec, owner *generationSession) (pkgsandbox.Session, bool, error) {
+func (s *GenerationStore) openExisting(ctx context.Context, spec GenerationSpec, owner *generationSession) (bool, error) {
 	row, err := s.q.GetCurrentSandboxGeneration(ctx, spec.SessionID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, false, nil
+		return false, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("inspect sandbox generation: %w", err)
+		return false, fmt.Errorf("inspect sandbox generation: %w", err)
 	}
 	if GenerationState(row.State) != GenerationActive || row.OwnerBootID != s.ownerBootID || row.Backend != spec.Backend || row.ConfigDigest != spec.ConfigDigest {
-		return nil, false, nil
+		return false, nil
 	}
 	key := generationKey{sessionID: row.SessionID, generation: row.Generation}
 	s.mu.Lock()
 	entry := s.entries[key]
 	if entry == nil || entry.raw == nil || entry.row.State != GenerationActive {
 		s.mu.Unlock()
-		return nil, false, nil
+		return false, nil
 	}
 	entry.refs++
 	raw := entry.raw
 	s.mu.Unlock()
 	if !raw.localAlive() {
 		s.release(key)
-		return nil, false, nil
+		return false, nil
 	}
 	if err := raw.uncertain(); err != nil {
 		s.release(key)
 		if errors.Is(err, ErrGenerationBusy) {
 			// A busy marker is an ownership conflict, not a dead raw that this
 			// store may reconcile into a successor.
-			return nil, false, err
+			return false, err
 		}
 		// The local fence is shared by all borrowers, but the durable row may
 		// still be active when the uncertain operation could not update the DB.
 		// Let begin() observe entryAlive=false and perform the normal durable
 		// fence/controller proof before allocating a successor. Existing
 		// borrowers continue to fail closed through selected().
-		return nil, false, nil
+		return false, nil
 	}
 	if err := raw.guard(ctx); err != nil {
 		s.release(key)
-		return nil, false, err
+		return false, err
 	}
-	owner.setCurrent(raw)
-	owner.setBorrowKey(key)
-	return raw, true, nil
+	owner.bind(raw, key)
+	return true, nil
 }
 
 func (s *GenerationStore) begin(ctx context.Context, spec GenerationSpec) (GenerationRecord, error) {
@@ -345,7 +341,7 @@ func (s *GenerationStore) ownerRecoverable(ctx context.Context, bootID string) (
 	return state.HeartbeatAt.UTC().Before(time.Now().UTC().Add(-30 * time.Second)), nil
 }
 
-func (s *GenerationStore) openRaw(ctx context.Context, spec GenerationSpec, owner *generationSession) (pkgsandbox.Session, error) {
+func (s *GenerationStore) openRaw(ctx context.Context, spec GenerationSpec, owner *generationSession) (*generationRawSession, error) {
 	releaseReservation, err := s.reserveCapacity(ctx)
 	if err != nil {
 		return nil, err
@@ -412,11 +408,7 @@ func (s *GenerationStore) openRaw(ctx context.Context, spec GenerationSpec, owne
 	entry.refs++
 	s.mu.Unlock()
 	if owner != nil {
-		owner.setCurrent(guarded)
-		oldKey, hadOld := owner.replaceBorrowKey(key)
-		if hadOld && oldKey != key {
-			s.release(oldKey)
-		}
+		owner.bind(guarded, key)
 	}
 	return guarded, nil
 }
@@ -477,7 +469,8 @@ func (s *GenerationStore) createLocked(ctx context.Context, spec GenerationSpec)
 // reserveCapacity reserves one process-local retention slot for a generation
 // creation. The reservation is made before begin inserts its entry, so
 // concurrent Sessions cannot each observe the same last free slot. It also
-// covers resilient recreation, which enters through openRaw rather than Open.
+// covers recreation of a dead current generation, which enters through openRaw
+// rather than Open.
 // Ceiling: creation is globally serialized only at the retention boundary;
 // raise maxRetained or add per-backend quotas if creation throughput matters.
 func (s *GenerationStore) reserveCapacity(ctx context.Context) (func(), error) {

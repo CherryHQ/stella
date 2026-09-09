@@ -137,7 +137,7 @@ func TestGenerationCapabilityUnknownExecNoReplayAllowsControllerRecovery(t *test
 	}
 
 	// The second operation must stop at the local unknown fence. It must not
-	// ask ResilientSession to create a replacement or replay the command.
+	// create a replacement generation or replay the command.
 	_, err = managed.Exec(t.Context(), "must-not-replay", pkgsandbox.ExecOptions{})
 	if err == nil || !errors.Is(err, ErrGenerationUnknown) {
 		t.Fatalf("second Exec after unknown = %v, want ErrGenerationUnknown", err)
