@@ -68,7 +68,7 @@ title: 配置
 | Provider          | `settings_provider_list`、`settings_provider_get`、`settings_provider_create`、`settings_provider_update`、`settings_provider_delete`           | 仅管理员，结果会脱敏。                                                      |
 | 默认模型          | `settings_default_model_get`、`settings_default_model_update`                                                                                   | 仅管理员。                                                                  |
 | Embedding 设置    | `settings_embedding_setting_get`、`settings_embedding_setting_update`                                                                           | 仅管理员。                                                                  |
-| 插件              | `settings_plugin_list`、`settings_plugin_enable`、`settings_plugin_disable`                                                                     | 仅管理员。插件使用 `kind` 和 `name`，不支持任意配置。                       |
+| 插件              | `settings_plugin_list`、`settings_plugin_enable`、`settings_plugin_disable`                                                                     | 仅管理员。使用列表返回的完整 `plugin_id`，不支持任意配置写入。              |
 | MCP 注册          | `settings_mcp_server_list`、`settings_mcp_server_get`、`settings_mcp_server_create`、`settings_mcp_server_update`、`settings_mcp_server_delete` | 与 Library 和 Skill 相同的已授权范围。                                      |
 
 对于已有资源，Stella 会先读取其当前 `version`；更新和删除必须使用该不透明版本。资源发生变化时，Stella 必须重新读取后再决定下一步。新建 Agent、上传 Library、创建托管 Skill、Provider 或 MCP 注册都会返回服务端选定的 ID 和当前版本。

@@ -29,6 +29,7 @@ type Service struct {
 	flowStore   *oauth.FlowStore
 	registry    *oauth.ProviderRegistry
 	invalidator RunnerInvalidator // optional; nil = no invalidation
+	revoker     UserRevocationCoordinator
 	corsOrigin  string
 	log         *slog.Logger
 }
@@ -74,6 +75,14 @@ func (s *Service) SetVaultService(svc *vault.Service) {
 // SetInvalidator wires the runner invalidator (usually *agent.PoolManager).
 func (s *Service) SetInvalidator(inv RunnerInvalidator) {
 	s.invalidator = inv
+}
+
+// SetRevocationCoordinator wires the short runtime cutoff used by explicit
+// OAuth disconnects. It is separate from the legacy invalidator because a
+// disconnect must order the vault delete and cutoff as one mutation, while a
+// token refresh keeps existing execution ownership intact.
+func (s *Service) SetRevocationCoordinator(revoker UserRevocationCoordinator) {
+	s.revoker = revoker
 }
 
 // InvalidateUser closes all live runners for userID across all pools.
@@ -715,7 +724,6 @@ func (s *Service) persistDeviceToken(flowID string, tok *oauth2.Token) error {
 	if err := s.saveToken(context.Background(), string(flow.Provider), flow.UserID, tok, flow.DesiredScopes); err != nil {
 		return fmt.Errorf("save %s token: %w", flow.Provider, err)
 	}
-	_ = s.InvalidateUser(flow.UserID)
 	return nil
 }
 
@@ -756,11 +764,6 @@ func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, 
 	// Match device-flow ordering: persistence is complete before observers can
 	// see an authorized flow and delete its state.
 	s.flowStore.Update(flowID, oauth.FlowStateAuthorized, nil)
-	// Invalidate live runners so the next session picks up the new token.
-	// OAuth tokens are baked into the sandbox env at session-creation time and
-	// cannot be injected into a running process; closing the runner forces a
-	// clean restart with fresh credentials on the next chat turn.
-	_ = s.InvalidateUser(flow.UserID)
 	return nil
 }
 
@@ -772,11 +775,12 @@ func (s *Service) Disconnect(ctx context.Context, userID string, provider string
 	if s.registry == nil {
 		return fmt.Errorf("provider registry not set")
 	}
-	if err := s.registry.DeleteBundle(ctx, s.vaultSvc, provider, userID); err != nil {
-		return err
+	if s.revoker != nil {
+		return s.registry.DeleteBundleWithMutation(ctx, s.vaultSvc, provider, userID, func(mutate func() error) error {
+			return s.revoker.ApplyUserRevocation(ctx, userID, "", mutate)
+		})
 	}
-	_ = s.InvalidateUser(userID)
-	return nil
+	return s.registry.DeleteBundle(ctx, s.vaultSvc, provider, userID)
 }
 
 // GetFlowForCallback returns the stored flow (for callback handlers that need userID).

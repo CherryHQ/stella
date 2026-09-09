@@ -27,7 +27,7 @@ package main
 //     attempt), and the mcp__ prefix (internal/mcp's SSRF guard rejects every
 //     address a hermetic test can bind). Each carries the tests that cover it.
 //  2. Seven tools assert only their canonical error, because their success
-//     precondition cannot be produced here: email_message_list/_read (no IMAP
+//     precondition cannot be produced here: email__message_list/_read (no IMAP
 //     seam), workflow_save/_get/_run (need an accepted composite Goal), and
 //     oauth_connect/_flow_status (need a live third-party flow). Each names the
 //     test that covers its success path, or says there is none.
@@ -43,16 +43,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/agent"
@@ -64,11 +65,12 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
+	"github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-	"github.com/CherryHQ/stella/pkg/toolmeta"
+	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/plugins/email"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
 
 // smokeState carries values one case discovers into the cases that need them,
@@ -116,6 +118,11 @@ type smokeCase struct {
 	// the case's `code` call and before the reply that ends the turn, which is
 	// the order the system makes them in.
 	extraReplies []string
+	// revokesTurn marks a terminal mutation that cancels the turn which invoked
+	// it. Such a turn is proved by a runner hook before dispatch and a sibling
+	// confirmation after the mutation, because its child result and the model's
+	// closing text may be absent.
+	revokesTurn bool
 	// assertsErrorShapeOnly names the canonical error a tool must return when its
 	// success precondition cannot be produced in a test deployment. The pattern
 	// is matched against the error text. These cases prove the error contract,
@@ -195,7 +202,7 @@ func coreSmokeCases() []smokeCase {
 }
 
 func agentManagementSmokeCases() []smokeCase {
-	const overrideTool = "scheduler_job_list"
+	const overrideTool = "scheduler__job_list"
 	return []smokeCase{
 		{tool: "settings_agent_list", args: noArgs},
 		{
@@ -246,7 +253,7 @@ func agentManagementSmokeCases() []smokeCase {
 			confirm: &smokeConfirm{tool: "settings_agent_tool_list", args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"target_agent_id": s.need(t, "managed_agent_id")}
 			}, check: func(t *testing.T, _ *smokeState, result string) {
-				if !strings.Contains(result, `"tool_name":"scheduler_job_list"`) || !strings.Contains(result, `"version":"absent"`) {
+				if !strings.Contains(result, `"tool_name":"scheduler__job_list"`) || !strings.Contains(result, `"version":"absent"`) {
 					t.Fatalf("settings_agent_tool_list after delete = %s, want the absent sentinel", result)
 				}
 			}},
@@ -325,7 +332,7 @@ func schedulerSmokeCases() []smokeCase {
 	const jobName = "tool-smoke-job"
 	return []smokeCase{
 		{
-			tool: "scheduler_job_create",
+			tool: "scheduler__job_create",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{
 					"name":            jobName + "-" + s.values["runID"],
@@ -335,60 +342,60 @@ func schedulerSmokeCases() []smokeCase {
 					"idempotency_key": "tool-smoke-" + s.values["runID"],
 				}
 			},
-			check: captureID("scheduler_job_create", "scheduler_job_id"),
+			check: captureID("scheduler__job_create", "scheduler_job_id"),
 		},
 		{
-			tool:  "scheduler_job_get",
+			tool:  "scheduler__job_get",
 			args:  byID("scheduler_job_id"),
-			check: expectSameID("scheduler_job_get", "scheduler_job_id"),
+			check: expectSameID("scheduler__job_get", "scheduler_job_id"),
 		},
 		{
-			tool:  "scheduler_job_list",
+			tool:  "scheduler__job_list",
 			args:  noArgs,
-			check: expectMentions("scheduler_job_list", "scheduler_job_id"),
+			check: expectMentions("scheduler__job_list", "scheduler_job_id"),
 		},
 		{
-			tool:  "scheduler_job_pause",
+			tool:  "scheduler__job_pause",
 			args:  byID("scheduler_job_id"),
-			check: expectSameID("scheduler_job_pause", "scheduler_job_id"),
+			check: expectSameID("scheduler__job_pause", "scheduler_job_id"),
 			// A pause that only reports enabled=false in its own reply has proved
 			// nothing; the job row is what the scheduler reads.
 			confirm: &smokeConfirm{
-				tool:  "scheduler_job_get",
+				tool:  "scheduler__job_get",
 				args:  byID("scheduler_job_id"),
-				check: expectJSONField("scheduler_job_get", "enabled", false),
+				check: expectJSONField("scheduler__job_get", "enabled", false),
 			},
 		},
 		{
-			tool:  "scheduler_job_resume",
+			tool:  "scheduler__job_resume",
 			args:  byID("scheduler_job_id"),
-			check: expectSameID("scheduler_job_resume", "scheduler_job_id"),
+			check: expectSameID("scheduler__job_resume", "scheduler_job_id"),
 			confirm: &smokeConfirm{
-				tool:  "scheduler_job_get",
+				tool:  "scheduler__job_get",
 				args:  byID("scheduler_job_id"),
-				check: expectJSONField("scheduler_job_get", "enabled", true),
+				check: expectJSONField("scheduler__job_get", "enabled", true),
 			},
 		},
 		{
 			// The update changes the name rather than the message because the name
 			// is what a read-back can see: the job projection omits the message.
-			tool: "scheduler_job_update",
+			tool: "scheduler__job_update",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				s.set("scheduler_job_name", jobName+"-renamed-"+s.values["runID"])
 				return map[string]any{"id": s.need(t, "scheduler_job_id"), "name": s.values["scheduler_job_name"]}
 			},
-			check: expectSameID("scheduler_job_update", "scheduler_job_id"),
+			check: expectSameID("scheduler__job_update", "scheduler_job_id"),
 			confirm: &smokeConfirm{
-				tool:  "scheduler_job_get",
+				tool:  "scheduler__job_get",
 				args:  byID("scheduler_job_id"),
-				check: present("scheduler_job_get", "scheduler_job_name"),
+				check: present("scheduler__job_get", "scheduler_job_name"),
 			},
 		},
 		{
-			tool: "scheduler_job_delete",
+			tool: "scheduler__job_delete",
 			args: byID("scheduler_job_id"),
 			confirm: &smokeConfirm{
-				tool:       "scheduler_job_get",
+				tool:       "scheduler__job_get",
 				args:       byID("scheduler_job_id"),
 				wantsError: `(?i)(not found|no rows)`,
 			},
@@ -419,7 +426,8 @@ func vaultSmokeCases() []smokeCase {
 			check: expectMentions("vault_secret_list", "vault_secret_name"),
 		},
 		{
-			tool: "vault_secret_delete",
+			tool:        "vault_secret_delete",
+			revokesTurn: true,
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"name": s.need(t, "vault_secret_name"), "scope": "user"}
 			},
@@ -799,11 +807,11 @@ func oauthSmokeCases() []smokeCase {
 		{
 			// Disconnect is local, so it runs its success path against the seeded
 			// connection and is judged by what oauth_list reports afterwards.
-			tool: "oauth_disconnect",
+			tool:        "oauth_disconnect",
+			revokesTurn: true,
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"provider": smokeOAuthProvider}
 			},
-			check: expectJSONObject("oauth_disconnect"),
 			confirm: &smokeConfirm{
 				tool: "oauth_list",
 				args: noArgs,
@@ -861,7 +869,7 @@ func smokeOAuthConnected(t *testing.T, result, provider string) bool {
 func recallySmokeCases() []smokeCase {
 	return []smokeCase{
 		{
-			tool: "recally_article_save",
+			tool: "recally__article_save",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"articles": []map[string]any{{
 					"url":         "https://tool-smoke.invalid/article/" + s.values["runID"],
@@ -871,70 +879,70 @@ func recallySmokeCases() []smokeCase {
 				}}}
 			},
 			check: func(t *testing.T, s *smokeState, results map[string]string) {
-				s.set("recally_article_id", firstSavedArticleID(t, results["recally_article_save"]))
+				s.set("recally_article_id", firstSavedArticleID(t, results["recally__article_save"]))
 			},
 		},
 		{
-			tool:  "recally_article_get",
+			tool:  "recally__article_get",
 			args:  byID("recally_article_id"),
-			check: expectMentions("recally_article_get", "recally_article_id"),
+			check: expectMentions("recally__article_get", "recally_article_id"),
 		},
 		{
-			tool:  "recally_article_list",
+			tool:  "recally__article_list",
 			args:  noArgs,
-			check: expectMentions("recally_article_list", "recally_article_id"),
+			check: expectMentions("recally__article_list", "recally_article_id"),
 		},
 		{
-			tool: "recally_digest_save",
+			tool: "recally__digest_save",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"narrative": "tool smoke digest " + s.values["runID"]}
 			},
 		},
 		{
-			tool:  "recally_digest_get",
+			tool:  "recally__digest_get",
 			args:  noArgs,
-			check: expectJSONObject("recally_digest_get"),
+			check: expectJSONObject("recally__digest_get"),
 		},
 		{
-			tool: "recally_feed_add",
+			tool: "recally__feed_add",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"url": s.need(t, "rss_url"), "kind": "rss"}
 			},
-			check: captureID("recally_feed_add", "recally_feed_id"),
+			check: captureID("recally__feed_add", "recally_feed_id"),
 		},
 		{
-			tool:  "recally_feed_list",
+			tool:  "recally__feed_list",
 			args:  noArgs,
-			check: expectMentions("recally_feed_list", "recally_feed_id"),
+			check: expectMentions("recally__feed_list", "recally_feed_id"),
 		},
 		{
 			// The poll fetches and parses the loopback feed for real. Its own result
 			// is only shape-checked here; what it actually ingested is asserted by
-			// the recally_entry_list case below.
-			tool:  "recally_feed_poll",
+			// the recally__entry_list case below.
+			tool:  "recally__feed_poll",
 			args:  byID("recally_feed_id"),
-			check: expectJSONObject("recally_feed_poll"),
+			check: expectJSONObject("recally__feed_poll"),
 		},
 		{
-			// The entries under test are the ones recally_feed_poll fetched and
+			// The entries under test are the ones recally__feed_poll fetched and
 			// parsed out of the loopback feed, so this is where the poll's real
 			// side effect is judged: an empty list would mean the poll reported
 			// success without ingesting anything.
-			tool: "recally_entry_list",
+			tool: "recally__entry_list",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"feed_id": s.need(t, "recally_feed_id")}
 			},
 			check: func(t *testing.T, s *smokeState, results map[string]string) {
 				for _, want := range []string{smokeFeedItemTitle, smokeFeedItemURL} {
-					if !strings.Contains(results["recally_entry_list"], want) {
-						t.Errorf("recally_entry_list does not contain the fixture feed's %q: %s",
-							want, truncate(results["recally_entry_list"], 800))
+					if !strings.Contains(results["recally__entry_list"], want) {
+						t.Errorf("recally__entry_list does not contain the fixture feed's %q: %s",
+							want, truncate(results["recally__entry_list"], 800))
 					}
 				}
 			},
 		},
 		{
-			tool: "recally_entry_add",
+			tool: "recally__entry_add",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{
 					"feed_id": s.need(t, "recally_feed_id"),
@@ -949,14 +957,14 @@ func recallySmokeCases() []smokeCase {
 						ID string `json:"id"`
 					} `json:"entry"`
 				}
-				if err := json.Unmarshal([]byte(results["recally_entry_add"]), &added); err != nil || added.Entry.ID == "" {
-					t.Fatalf("recally_entry_add returned no entry id: %s", truncate(results["recally_entry_add"], 800))
+				if err := json.Unmarshal([]byte(results["recally__entry_add"]), &added); err != nil || added.Entry.ID == "" {
+					t.Fatalf("recally__entry_add returned no entry id: %s", truncate(results["recally__entry_add"], 800))
 				}
 				s.set("recally_entry_id", added.Entry.ID)
 			},
 		},
 		{
-			tool: "recally_entry_update",
+			tool: "recally__entry_update",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{
 					"feed_id": s.need(t, "recally_feed_id"),
@@ -966,12 +974,12 @@ func recallySmokeCases() []smokeCase {
 			},
 		},
 		{
-			tool: "recally_feed_remove",
+			tool: "recally__feed_remove",
 			args: byID("recally_feed_id"),
 			confirm: &smokeConfirm{
-				tool:  "recally_feed_list",
+				tool:  "recally__feed_list",
 				args:  noArgs,
-				check: absent("recally_feed_list", "recally_feed_id"),
+				check: absent("recally__feed_list", "recally_feed_id"),
 			},
 		},
 	}
@@ -987,11 +995,11 @@ func firstSavedArticleID(t *testing.T, output string) string {
 		} `json:"results"`
 	}
 	if err := json.Unmarshal([]byte(output), &batch); err != nil {
-		t.Fatalf("recally_article_save result is not JSON: %v\n%s", err, truncate(output, 800))
+		t.Fatalf("recally__article_save result is not JSON: %v\n%s", err, truncate(output, 800))
 	}
 	saved := batch.Results
 	if len(saved) == 0 || saved[0].ID == "" {
-		t.Fatalf("recally_article_save returned no article id: %s", truncate(output, 800))
+		t.Fatalf("recally__article_save returned no article id: %s", truncate(output, 800))
 	}
 	return saved[0].ID
 }
@@ -1201,12 +1209,12 @@ func truncate(s string, n int) string {
 func emailSmokeCases(mail *smokeMailbox) []smokeCase {
 	return []smokeCase{
 		{
-			tool:  "email_account_list",
+			tool:  "email__account_list",
 			args:  noArgs,
-			check: expectMentions("email_account_list", "email_account"),
+			check: expectMentions("email__account_list", "email_account"),
 		},
 		{
-			tool: "email_message_send",
+			tool: "email__message_send",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{
 					"account":         s.need(t, "email_account"),
@@ -1221,7 +1229,7 @@ func emailSmokeCases(mail *smokeMailbox) []smokeCase {
 			// delivery: one call, on the account the arguments named, carrying the
 			// recipient, subject, and body the model asked for.
 			check: func(t *testing.T, s *smokeState, results map[string]string) {
-				expectJSONObject("email_message_send")(t, s, results)
+				expectJSONObject("email__message_send")(t, s, results)
 				sent := mail.delivered()
 				if len(sent) != 1 {
 					t.Fatalf("the delivery seam was called %d times, want exactly 1: %+v", len(sent), sent)
@@ -1243,14 +1251,14 @@ func emailSmokeCases(mail *smokeMailbox) []smokeCase {
 			},
 		},
 		{
-			tool: "email_message_list",
+			tool: "email__message_list",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"account": s.need(t, "email_unreachable_account"), "limit": 1}
 			},
 			assertsErrorShapeOnly: `imap_host .* resolves to disallowed address`,
 		},
 		{
-			tool: "email_message_read",
+			tool: "email__message_read",
 			args: func(t *testing.T, s *smokeState) map[string]any {
 				return map[string]any{"account": s.need(t, "email_unreachable_account"), "folder": "INBOX", "uid": 1}
 			},
@@ -1282,26 +1290,26 @@ func deploymentAndMCPSmokeCases() []smokeCase {
 		{tool: "settings_embedding_setting_update", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"expected_version": s.need(t, "embedding_setting_version"), "enabled": false, "dim": 1536, "normalize": false}
 		}, check: captureVersion("settings_embedding_setting_update", "embedding_setting_version")},
-		{tool: "settings_plugin_list", args: noArgs},
-		{tool: "settings_plugin_disable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"kind": "channel", "name": "telegram"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("telegram", false)}},
-		{tool: "settings_plugin_enable", args: func(t *testing.T, _ *smokeState) map[string]any {
-			return map[string]any{"kind": "channel", "name": "telegram"}
-		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("telegram", true)}},
+		{tool: "settings_plugin_list", args: noArgs, check: captureFilePluginID},
+		{tool: "settings_plugin_disable", args: func(t *testing.T, s *smokeState) map[string]any {
+			return map[string]any{"plugin_id": s.need(t, "deployment_plugin_id")}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("deployment_plugin_id", false)}},
+		{tool: "settings_plugin_enable", args: func(t *testing.T, s *smokeState) map[string]any {
+			return map[string]any{"plugin_id": s.need(t, "deployment_plugin_id")}
+		}, confirm: &smokeConfirm{tool: "settings_plugin_list", args: noArgs, check: pluginListedEnabled("deployment_plugin_id", true)}},
 		{tool: "settings_mcp_server_list", args: noArgs},
 		{tool: "settings_mcp_server_create", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"scope": "user", "name": "tool-smoke-mcp-" + s.values["runID"], "url": "https://mcp.example.test"}
-		}, check: captureIDAndVersion("settings_mcp_server_create", "mcp_server_id", "mcp_server_version")},
-		{tool: "settings_mcp_server_get", args: byID("mcp_server_id"), check: captureVersion("settings_mcp_server_get", "mcp_server_version")},
+		}, check: captureIDAndDigest("settings_mcp_server_create", "mcp_server_id", "mcp_server_digest")},
+		{tool: "settings_mcp_server_get", args: byID("mcp_server_id"), check: captureDigest("settings_mcp_server_get", "mcp_server_digest")},
 		{tool: "settings_mcp_server_update", args: func(t *testing.T, s *smokeState) map[string]any {
-			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_version": s.need(t, "mcp_server_version"), "name": "tool-smoke-mcp-updated-" + s.values["runID"]}
-		}, check: captureVersion("settings_mcp_server_update", "mcp_server_version")},
+			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_digest": s.need(t, "mcp_server_digest"), "url": "https://mcp-updated.example.test"}
+		}, check: captureDigest("settings_mcp_server_update", "mcp_server_digest")},
 		{tool: "settings_mcp_server_probe", args: func(t *testing.T, s *smokeState) map[string]any {
 			return map[string]any{"id": s.need(t, "mcp_server_id")}
 		}, check: mcpProbeStatusIsError},
 		{tool: "settings_mcp_server_delete", args: func(t *testing.T, s *smokeState) map[string]any {
-			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_version": s.need(t, "mcp_server_version")}
+			return map[string]any{"id": s.need(t, "mcp_server_id"), "expected_digest": s.need(t, "mcp_server_digest")}
 		}, confirm: &smokeConfirm{tool: "settings_mcp_server_get", args: byID("mcp_server_id"), wantsError: `(?i)(not found|no rows)`}},
 	}
 }
@@ -1350,26 +1358,71 @@ func captureVersion(tool, key string) func(*testing.T, *smokeState, map[string]s
 	}
 }
 
-func pluginListedEnabled(name string, enabled bool) func(*testing.T, *smokeState, string) {
-	return func(t *testing.T, _ *smokeState, result string) {
+func captureIDAndDigest(tool, idKey, digestKey string) func(*testing.T, *smokeState, map[string]string) {
+	return func(t *testing.T, s *smokeState, results map[string]string) {
+		var value struct {
+			ID     string `json:"id"`
+			Digest string `json:"content_digest"`
+		}
+		if err := json.Unmarshal([]byte(results[tool]), &value); err != nil || value.ID == "" || value.Digest == "" {
+			t.Fatalf("%s result = %q, want id and content digest: %v", tool, results[tool], err)
+		}
+		s.set(idKey, value.ID)
+		s.set(digestKey, value.Digest)
+	}
+}
+
+func captureDigest(tool, key string) func(*testing.T, *smokeState, map[string]string) {
+	return func(t *testing.T, s *smokeState, results map[string]string) {
+		var value struct {
+			Digest string `json:"content_digest"`
+		}
+		if err := json.Unmarshal([]byte(results[tool]), &value); err != nil || value.Digest == "" {
+			t.Fatalf("%s result = %q, want content digest: %v", tool, results[tool], err)
+		}
+		s.set(key, value.Digest)
+	}
+}
+
+func captureFilePluginID(t *testing.T, s *smokeState, results map[string]string) {
+	var value struct {
+		Plugins []struct {
+			PluginID string `json:"plugin_id"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal([]byte(results["settings_plugin_list"]), &value); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range value.Plugins {
+		if strings.HasPrefix(item.PluginID, "file:") {
+			s.set("deployment_plugin_id", item.PluginID)
+			return
+		}
+	}
+	t.Fatalf("settings_plugin_list returned no file-scoped plugin ID: %s", results["settings_plugin_list"])
+}
+
+func pluginListedEnabled(idKey string, enabled bool) func(*testing.T, *smokeState, string) {
+	return func(t *testing.T, s *smokeState, result string) {
 		var value struct {
 			Plugins []struct {
-				Name    string `json:"name"`
-				Enabled bool   `json:"enabled"`
+				PluginID string `json:"plugin_id"`
+				Enabled  bool   `json:"enabled"`
 			} `json:"plugins"`
 		}
 		if err := json.Unmarshal([]byte(result), &value); err != nil {
 			t.Fatal(err)
 		}
+		pluginID := s.need(t, idKey)
 		for _, plugin := range value.Plugins {
-			if plugin.Name == name {
+			if plugin.PluginID == pluginID {
 				if plugin.Enabled != enabled {
-					t.Fatalf("plugin %q enabled = %t, want %t", name, plugin.Enabled, enabled)
+					t.Fatalf("plugin %q enabled = %t, want %t", pluginID, plugin.Enabled, enabled)
 				}
 				return
 			}
 		}
-		t.Fatalf("settings_plugin_list did not return %q: %s", name, result)
+		t.Fatalf("settings_plugin_list did not return %q: %s", pluginID, result)
 	}
 }
 
@@ -1418,9 +1471,9 @@ const smokeModel = "claude-sonnet-4-6"
 // smokeHarness is one fully wired deployment: the production composition root
 // (setup) against a live database, a scripted provider, and the fixtures the
 // external-dependency tools need. Every fixture is either a loopback server or
-// an unrouted documentation address nothing dials, and the manifest reconcile
-// (the one part of setup that shells out and downloads) is replaced, so a run
-// reaches nothing outside this host.
+// an unrouted documentation address nothing dials. The cutover setup performs
+// no startup manifest installation, so this harness reaches nothing outside
+// the host.
 type smokeHarness struct {
 	setup     *setupResult
 	fake      *smokeProvider
@@ -1473,14 +1526,17 @@ func TestToolSmoke(t *testing.T) {
 // planning turns concurrently and consume a case's scripted response.
 func newSmokeHarness(t *testing.T) *smokeHarness {
 	t.Helper()
-	db := dbtest.New(t)
+	db := dbtest.NewAtMigration(t, toolSmokeImportMigration41)
+	prepareToolSmokeCutover(t, db)
 	runID := strings.ToLower(uuid.Must(uuid.NewV7()).String()[24:])
 
 	vaultKey, err := vault.GenerateMasterIdentity()
 	if err != nil {
 		t.Fatalf("tool smoke: generate vault key: %v", err)
 	}
-	t.Setenv("STELLA_HOME", t.TempDir())
+	stellaHome := t.TempDir()
+	prepareToolSmokeCoreCache(t, stellaHome)
+	t.Setenv("STELLA_HOME", stellaHome)
 	t.Setenv("STELLA_DATABASE_URL", db.Config().ConnString())
 	t.Setenv("STELLA_VAULT_KEY", vaultKey)
 	config.ResetStellaHome()
@@ -1528,22 +1584,12 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 	if err := ensureEmbeddedAssets(); err != nil {
 		t.Fatalf("tool smoke: install embedded assets: %v", err)
 	}
-	// The production reconcile shells out to `mise install`, which downloads from
-	// GitHub and forks a process per binary — it would break the gate's "nothing
-	// leaves the host" property and dominate its runtime. Counting the stub is
-	// how the gate proves the real one never ran: setup calls exactly one of the
-	// two, and the real one is the only path to mise.
-	var manifestReconciles atomic.Int64
-	stubReconcile := func(context.Context, *sync.WaitGroup, *manifest.Manifest, string) {
-		manifestReconciles.Add(1)
-	}
-	result, err := setup(ctx, cfg, "http://127.0.0.1:0", withManifestReconciler(stubReconcile))
+	// The cutover setup has no manifest installation hook. This smoke harness
+	// supplies embedded assets and loopback services, so it never downloads or
+	// installs a CLI while exercising the production composition root.
+	result, err := setup(ctx, cfg, "http://127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("tool smoke: setup: %v", err)
-	}
-	if got := manifestReconciles.Load(); got != 1 {
-		t.Fatalf("the manifest reconcile ran %d times through the stub, want exactly 1; "+
-			"setup either skipped the manifest entirely or routed it to the real mise installer", got)
 	}
 	t.Cleanup(func() {
 		cancel()
@@ -1552,7 +1598,7 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 		_ = result.workspaceManager.Close()
 	})
 
-	// River and the scheduler run because scheduler_job_create registers a River
+	// River and the scheduler run because scheduler__job_create registers a River
 	// periodic job and panics without a started client. The Goal dispatch tick is
 	// deliberately NOT started: it would begin planning turns of its own against
 	// a provider whose every turn is scripted, and steal a case's response. The
@@ -1582,10 +1628,86 @@ func newSmokeHarness(t *testing.T) *smokeHarness {
 	if err != nil {
 		t.Fatalf("tool smoke: build authority: %v", err)
 	}
+	if err := disableSmokeCLIPlugins(ctx, result.pluginFiles, authority); err != nil {
+		t.Fatalf("tool smoke: disable optional CLI plugins: %v", err)
+	}
 
 	return &smokeHarness{
 		setup: result, fake: fake, userID: user.ID, agentID: agentID,
 		authority: authority, runID: runID, ctx: ctx,
+	}
+}
+
+// disableSmokeCLIPlugins closes optional CLI definitions through the common
+// plugin mutation boundary before the first runner is built. The smoke suite
+// exercises Go and core tools, while CLI installation is a separate production
+// path that would require network access and a host-managed toolchain.
+func disableSmokeCLIPlugins(ctx context.Context, service *plugin.FileService, authority authz.Authority) error {
+	access, err := service.Begin(authority)
+	if err != nil {
+		return err
+	}
+	resources, err := access.List(ctx, plugin.ResourcePlugin, nil, "")
+	if err != nil {
+		return err
+	}
+	for _, resource := range resources {
+		if resource.Package == nil || resource.Package.Extension == nil || len(resource.Package.Extension.Binaries) == 0 {
+			continue
+		}
+		// The list projection is a snapshot. Re-read the resource immediately
+		// before the CAS so a concurrent settings write cannot make this fixture
+		// fail with a stale digest.
+		fresh, err := access.Get(ctx, resource.Key.ID())
+		if err != nil {
+			return fmt.Errorf("get %s: %w", resource.Key.ID(), err)
+		}
+		if _, err := access.SetEnabled(ctx, fresh.Key.ID(), fresh.SettingsDigest, false); err != nil {
+			return fmt.Errorf("disable %s: %w", fresh.Key.ID(), err)
+		}
+	}
+	return nil
+}
+
+const toolSmokeImportMigration41 = int64(90000000000041)
+
+// prepareToolSmokeCutover exercises the supported startup ordering in a
+// hermetic fixture: import at the migration-41 boundary, then advance the
+// database to the current schema before setup opens it. This keeps startup's
+// import call from incorrectly treating migration 42 as the import boundary.
+func prepareToolSmokeCutover(t *testing.T, db *pgxpool.Pool) {
+	t.Helper()
+	ctx := t.Context()
+	if err := plugin.ImportLegacyState(ctx, db, plugin.NewCatalog(), nil, nil); err != nil {
+		t.Fatalf("tool smoke: import migration-41 fixture: %v", err)
+	}
+	upgraded, err := appdb.OpenDB(db.Config().ConnString())
+	if err != nil {
+		t.Fatalf("tool smoke: advance fixture after import: %v", err)
+	}
+	upgraded.Close()
+}
+
+// prepareToolSmokeCoreCache seeds the exact content-addressed selection that
+// systemplugins.Prepare accepts as complete. The smoke suite exercises plugin/tool
+// wiring, so fixed network-backed fd/rg installation is outside its boundary.
+func prepareToolSmokeCoreCache(t *testing.T, stellaHome string) {
+	t.Helper()
+	identity, err := systemplugins.RuntimeIdentity()
+	if err != nil {
+		t.Fatalf("tool smoke: resolve core runtime identity: %v", err)
+	}
+	publicDir := filepath.Join(stellaHome, ".mise-tools", "public", identity)
+	if err := os.MkdirAll(publicDir, 0o755); err != nil {
+		t.Fatalf("tool smoke: create core runtime cache: %v", err)
+	}
+	for _, resource := range systemplugins.RuntimeResources() {
+		if err := os.WriteFile(filepath.Join(publicDir, resource.Name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatalf("tool smoke: seed core runtime %s: %v", resource.Name, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(publicDir, ".stella-shell-env"), nil, 0o644); err != nil {
+		t.Fatalf("tool smoke: seed core shell environment: %v", err)
 	}
 }
 
@@ -1642,7 +1764,7 @@ func (h *smokeHarness) seedFixtures(t *testing.T) *smokeState {
 
 	return &smokeState{values: map[string]string{
 		"runID": h.runID,
-		// The feed lives on loopback so recally_feed_poll runs its real fetch and
+		// The feed lives on loopback so recally__feed_poll runs its real fetch and
 		// parse path without leaving the host.
 		"rss_url":                   newFakeRSSServer(t, h.runID),
 		"email_account":             "smoke",
@@ -1655,6 +1777,13 @@ func (h *smokeHarness) seedFixtures(t *testing.T) *smokeState {
 // stream, keyed by the tool that produced it.
 func (h *smokeHarness) runSmokeCase(t *testing.T, smoke smokeCase, state *smokeState) {
 	t.Helper()
+	if smoke.revokesTurn {
+		h.runRevokingSmokeCase(t, smoke, state)
+		if smoke.confirm != nil {
+			h.runSmokeConfirm(t, smoke, state)
+		}
+		return
+	}
 	h.fake.enqueueTool("toolu_smoke_"+smoke.tool, "code", h.smokeCodeArgs(t, smoke, state))
 	for _, reply := range smoke.extraReplies {
 		h.fake.enqueueText(reply)
@@ -1697,6 +1826,102 @@ func (h *smokeHarness) runSmokeCase(t *testing.T, smoke smokeCase, state *smokeS
 	}
 	if smoke.confirm != nil {
 		h.runSmokeConfirm(t, smoke, state)
+	}
+}
+
+// smokeToolStartProbe observes the runner's own pre-dispatch hook. The hook is
+// attached only to a fresh runner for one terminal case, so a matching pair of
+// call IDs proves the model reached Code Mode and Code Mode reached the target
+// tool before the target revoked the turn.
+type smokeToolStartProbe struct {
+	sessionID     string
+	codeCallID    string
+	subjectTool   string
+	subjectCallID string
+
+	mu      sync.Mutex
+	sawCode bool
+	sawTool bool
+}
+
+func (p *smokeToolStartProbe) Name() string { return "tool-smoke-start-probe" }
+
+func (p *smokeToolStartProbe) Priority() int { return 1 }
+
+func (p *smokeToolStartProbe) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+	if hctx.SessionID != p.sessionID {
+		return hooks.PreToolCallResult{}, nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	switch {
+	case hctx.ToolName == "code" && hctx.ToolCallID == p.codeCallID:
+		p.sawCode = true
+	case hctx.ToolName == p.subjectTool && hctx.ToolCallID == p.subjectCallID:
+		p.sawTool = true
+	}
+	return hooks.PreToolCallResult{}, nil
+}
+
+func (p *smokeToolStartProbe) observed() (code, subject bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.sawCode, p.sawTool
+}
+
+// runRevokingSmokeCase proves a terminal tool reached its real handler before
+// it revoked the caller's active turn. The revocation deliberately cancels the
+// caller-facing stream before Code Mode can emit a child result or a model
+// closing text. The hook is runner-local evidence, independent of the stream
+// delivery context that the terminal mutation cuts off.
+func (h *smokeHarness) runRevokingSmokeCase(t *testing.T, smoke smokeCase, state *smokeState) {
+	t.Helper()
+
+	svc := h.setup.poolManager.GetService(h.agentID)
+	if svc == nil {
+		t.Fatalf("tool smoke: no agent service for %s", h.agentID)
+	}
+	ctx, cancel := context.WithTimeout(h.ctx, 3*time.Minute)
+	defer cancel()
+	access, err := svc.SessionAccess.Begin(ctx, h.authority)
+	if err != nil {
+		t.Fatalf("terminal %s: begin session access: %v", smoke.tool, err)
+	}
+	info, err := access.Create(ctx, h.userID, h.agentID, "", session.KindChat, session.ChannelWeb)
+	if err != nil {
+		t.Fatalf("terminal %s: create session: %v", smoke.tool, err)
+	}
+	codeCallID := "toolu_smoke_" + smoke.tool
+	probe := &smokeToolStartProbe{
+		sessionID:     info.ID,
+		codeCallID:    codeCallID,
+		subjectTool:   smoke.tool,
+		subjectCallID: codeCallID + ":1",
+	}
+	baseHooks := h.setup.poolManager.HookPlugins
+	svc.Runtime.SetHooks(func() []hooks.HookPlugin {
+		return append(slices.Clone(baseHooks()), probe)
+	})
+	defer svc.Runtime.SetHooks(baseHooks)
+
+	h.fake.enqueueTool(codeCallID, "code", h.smokeCodeArgs(t, smoke, state))
+
+	chat := svc.Chat(ctx, agent.ChatRequest{
+		SessionID: info.ID,
+		UserID:    h.userID, AgentID: h.agentID, Authority: h.authority,
+		Channel: session.ChannelWeb, Kind: session.KindChat, Message: "smoke " + smoke.tool,
+	})
+	for range chat {
+		// The caller-facing stream is intentionally drained, but its post-cancel
+		// delivery is not the evidence. The runner hook above observes dispatch
+		// before the target mutation cancels this stream.
+	}
+	if err := svc.Runtime.CloseSession(context.WithoutCancel(ctx), info.ID); err != nil {
+		t.Fatalf("terminal %s: close session: %v", smoke.tool, err)
+	}
+	sawCode, sawSubject := probe.observed()
+	if !sawCode || !sawSubject {
+		t.Fatalf("terminal %s did not reach model->code->tool start (code=%t subject=%t)", smoke.tool, sawCode, sawSubject)
 	}
 }
 
@@ -1857,16 +2082,14 @@ func (h *smokeHarness) readCodeCatalog(t *testing.T) []string {
 
 // smokeToolUniverse is every tool this build can put in front of a model:
 // the production builtin surface (defaultToolNames, itself pinned to
-// newBuiltinTools by TestDefaultToolNamesMatchGolden), plus the three names that
-// are registered at runtime rather than by the builtin constructor. toolmeta
-// must agree that those three are hand-written exceptions — if one of them ever
-// becomes a generated family, this list is wrong and the assertion says so.
+// newBuiltinTools by TestDefaultToolNamesMatchGolden), plus the three protocol
+// names that are covered by protocolExceptions rather than a generated case.
 func smokeToolUniverse(t *testing.T) []string {
 	t.Helper()
 	runtimeRegistered := []string{"code", "goal_control", smokeMCPPrefixTool}
 	for _, name := range runtimeRegistered {
-		if !toolmeta.HandWritten(name) {
-			t.Errorf("tool smoke: %q is listed as runtime-registered, but toolmeta says it is generated", name)
+		if _, ok := protocolExceptions[name]; !ok {
+			t.Errorf("tool smoke: %q is listed as runtime-registered, but has no protocol exception", name)
 		}
 	}
 	return append(defaultToolNames(t), runtimeRegistered...)
@@ -2144,7 +2367,7 @@ func mustJSON(t *testing.T, v any) string {
 // newFakeRSSServer serves one static feed over loopback and returns its URL. It
 // exists so the recally feed family exercises fetch, parse, and dedup for real
 // while the suite's no-external-network rule holds.
-// The first item's title and link are what recally_entry_list asserts, so the
+// The first item's title and link are what recally__entry_list asserts, so the
 // poll cannot pass by ingesting nothing.
 const (
 	smokeFeedItemTitle = "tool smoke item one"

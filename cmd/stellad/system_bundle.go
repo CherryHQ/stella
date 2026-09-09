@@ -1,13 +1,19 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	ucli "github.com/urfave/cli/v2"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/platform/toolinstall"
+	"github.com/CherryHQ/stella/internal/plugin"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 	"github.com/CherryHQ/stella/resources"
-	"github.com/CherryHQ/stella/resources/binaries"
 )
 
 func systemBundleCommand() *ucli.Command {
@@ -44,12 +50,24 @@ func systemBundleInstallCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "install",
 		Usage: "Install the verified builtin skill bundle into $STELLA_HOME",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "core-path", Usage: "publish the prepared core runtime selection at this image-local path"},
+			&ucli.BoolFlag{Name: "prepare-builtin-artifacts", Usage: "prepare shipped plugin binaries for image-local reuse"},
+		},
 		Action: func(c *ucli.Context) error {
-			if err := binaries.EnsureTools(config.StellaHome()); err != nil {
-				return fmt.Errorf("install embedded runtimes: %w", err)
+			plan, err := systemplugins.Prepare(c.Context, config.StellaHome())
+			if err != nil {
+				return fmt.Errorf("prepare core runtimes: %w", err)
 			}
-			if err := binaries.VerifyTools(config.StellaHome()); err != nil {
-				return err
+			if target := c.String("core-path"); target != "" {
+				if err := publishCoreRuntimePath(plan, target); err != nil {
+					return fmt.Errorf("publish core runtimes: %w", err)
+				}
+			}
+			if c.Bool("prepare-builtin-artifacts") {
+				if err := prepareBuiltinArtifacts(c.Context, config.StellaHome()); err != nil {
+					return fmt.Errorf("prepare builtin artifacts: %w", err)
+				}
 			}
 			registry, err := resources.Default()
 			if err != nil {
@@ -65,6 +83,87 @@ func systemBundleInstallCommand() *ucli.Command {
 			return nil
 		},
 	}
+}
+
+func prepareBuiltinArtifacts(ctx context.Context, stellaHome string) error {
+	if stellaHome == "" {
+		return fmt.Errorf("stella home is required")
+	}
+	definitions, err := plugin.BuiltinDefinitions()
+	if err != nil {
+		return fmt.Errorf("load builtin plugin catalog: %w", err)
+	}
+	artifactRoot := filepath.Join(stellaHome, ".mise-tools", "builtin-artifacts")
+	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
+		return fmt.Errorf("create builtin artifact directory: %w", err)
+	}
+	for _, definition := range definitions {
+		payload, err := plugin.DecodeResourcePayload(definition.Spec, "builtin plugin "+definition.ID)
+		if err != nil {
+			return fmt.Errorf("decode builtin plugin %q: %w", definition.ID, err)
+		}
+		for _, binary := range payload.Binaries {
+			spec := pkgplugins.PluginBinarySpec{
+				Name: binary.Name, Tool: binary.Tool, Version: binary.Version, Options: binary.Options,
+			}
+			fingerprint, err := pkgplugins.BinaryArtifactIdentity(spec)
+			if err != nil {
+				return fmt.Errorf("identity for builtin binary %q: %w", binary.Name, err)
+			}
+			artifactDir := filepath.Join(artifactRoot, fingerprint)
+			if _, err := toolinstall.InstallSelection(ctx, stellaHome, toolinstall.Selection{
+				DataDir:   filepath.Join(stellaHome, ".mise-tools"),
+				PublicDir: artifactDir, PublicBinDir: artifactDir,
+			}, []toolinstall.Tool{{
+				Key: binary.Tool, Version: binary.Version, Options: binary.Options,
+				Lookup: toolinstall.LookupName(binary.Name, binary.Options), PublicName: binary.Name,
+			}}); err != nil {
+				return fmt.Errorf("install builtin binary %q: %w", binary.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func publishCoreRuntimePath(plan systemplugins.RuntimePlan, target string) error {
+	if !filepath.IsAbs(target) {
+		return fmt.Errorf("path %q must be absolute", target)
+	}
+	target = filepath.Clean(target)
+	if target == string(filepath.Separator) {
+		return fmt.Errorf("path %q is not a publication target", target)
+	}
+	if existing, err := os.Readlink(target); err == nil {
+		if filepath.Clean(existing) == filepath.Clean(plan.PublicDir) {
+			return nil
+		}
+		return fmt.Errorf("path %q already points to %q", target, existing)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect %q: %w", target, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("create publication parent: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".core-runtime-*")
+	if err != nil {
+		return fmt.Errorf("stage publication: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("close publication stage: %w", err)
+	}
+	if err := os.Remove(tmpPath); err != nil {
+		return fmt.Errorf("remove publication stage: %w", err)
+	}
+	if err := os.Symlink(plan.PublicDir, tmpPath); err != nil {
+		return fmt.Errorf("create publication symlink: %w", err)
+	}
+	if err := os.Rename(tmpPath, target); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("publish core runtime symlink: %w", err)
+	}
+	return nil
 }
 
 func systemBundleVerifyCommand() *ucli.Command {

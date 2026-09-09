@@ -76,6 +76,11 @@ type Service struct {
 	// admissionMu linearizes runner selection with committed Agent Skill policy
 	// replacement for this agent. Admitted turns keep their selected snapshot.
 	admissionMu contextMutex
+	// ownerBlocked is checked while lifecycle/admission ownership is held. Home
+	// deletion installs this short-lived block before releasing the lifecycle
+	// gate, so a new channel or foreground reference cannot slip between
+	// runner detachment and the owner transaction.
+	ownerBlocked func(session.Info) bool
 }
 
 func (s *Service) sessionTurnQueue() *turnqueue.Queue {
@@ -122,15 +127,17 @@ type ChatRequest struct {
 type DelegateRequest struct {
 	// SessionID, when non-empty, resumes an existing delegate session.
 	// When empty, a new delegate session is created.
-	SessionID     string
-	UserID        string
-	AgentID       string
-	ProjectID     string
-	Task          string
-	System        string
-	Model         string
-	ExcludedTools []string
-	Authority     authz.Authority
+	SessionID       string
+	UserID          string
+	AgentID         string
+	ProjectID       string
+	Task            string
+	System          string
+	Model           string
+	ExcludedTools   []string
+	AllowedTools    []string
+	HasAllowedTools bool
+	Authority       authz.Authority
 }
 
 // DelegateResult is the output of a delegate turn.
@@ -403,36 +410,56 @@ func directForegroundAuthority(authority authz.Authority, info session.Info) boo
 // turn admission point. Every Service turn path uses it so policy commits cannot
 // leave a post-return gap where an old runner is handed to a new turn.
 func (s *Service) admit(ctx context.Context, info session.Info, message MessageContent, opts ...agentruntime.Option) (<-chan Event, error) {
+	return s.admitPhased(ctx, info, message, nil, opts...)
+}
+
+// admitPhased keeps only active-turn registration and final publication under
+// the lifecycle/admission locks. Runner construction, plugin snapshot capture,
+// and filesystem/MCP preparation happen between those two short lock holds.
+func (s *Service) admitPhased(ctx context.Context, info session.Info, message MessageContent, beforeStart func() error, opts ...agentruntime.Option) (<-chan Event, error) {
+	var admission *agentruntime.ChatAdmission
+	if err := s.withAdmissionLock(ctx, func() error {
+		if s.ownerBlocked != nil && s.ownerBlocked(info) {
+			return errors.New("agent: session owner is being removed")
+		}
+		var err error
+		admission, err = s.Runtime.BeginChatAdmission(ctx, info, message, beforeStart, opts...)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	if err := s.Runtime.PrepareChatAdmission(admission); err != nil {
+		s.Runtime.AbortChatAdmission(admission)
+		return nil, err
+	}
+	var stream <-chan Event
+	if err := s.withAdmissionLock(ctx, func() error {
+		var err error
+		stream, err = s.Runtime.PublishChatAdmission(admission)
+		return err
+	}); err != nil {
+		s.Runtime.AbortChatAdmission(admission)
+		return nil, err
+	}
+	return stream, nil
+}
+
+func (s *Service) withAdmissionLock(ctx context.Context, fn func() error) error {
 	if s.lifecycle != nil {
 		if err := s.lifecycle.lockShared(ctx); err != nil {
-			return nil, err
+			return err
 		}
 		defer s.lifecycle.unlockShared()
 	}
 	if err := s.admissionMu.Lock(ctx); err != nil {
-		return nil, err
+		return err
 	}
 	defer s.admissionMu.Unlock()
-	return s.admitLocked(ctx, info, message, opts...)
-}
-
-// admitLocked is the actual Runtime admission point. Caller owns admissionMu.
-func (s *Service) admitLocked(ctx context.Context, info session.Info, message MessageContent, opts ...agentruntime.Option) (<-chan Event, error) {
-	return s.Runtime.ChatAdmitted(ctx, info, message, opts...)
+	return fn()
 }
 
 func (s *Service) admitControlled(ctx context.Context, info session.Info, message MessageContent, beforeStart func() error, opts ...agentruntime.Option) (<-chan Event, error) {
-	if s.lifecycle != nil {
-		if err := s.lifecycle.lockShared(ctx); err != nil {
-			return nil, err
-		}
-		defer s.lifecycle.unlockShared()
-	}
-	if err := s.admissionMu.Lock(ctx); err != nil {
-		return nil, err
-	}
-	defer s.admissionMu.Unlock()
-	return s.Runtime.ChatAdmittedControlled(ctx, info, message, beforeStart, opts...)
+	return s.admitPhased(ctx, info, message, beforeStart, opts...)
 }
 
 // withAdmissionBarrier runs a configuration mutation under lifecycle shared
@@ -510,6 +537,10 @@ type SchedulerChatRequest struct {
 	Message   MessageContent
 	Model     string
 	Authority authz.Authority
+	// BeforeStart is the final scheduler capability fence. It runs while the
+	// service holds its lifecycle and per-Agent admission locks, after Runtime
+	// registers the active turn but before any turn side effects.
+	BeforeStart func() error
 }
 
 // ChatForScheduler resolves or creates a scheduler session using a trusted
@@ -545,7 +576,7 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 		agentruntime.WithExcludedTools(settingspolicy.ToolNames()...),
 		agentruntime.WithInputActor(messageActor(req.Authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))),
 	)
-	stream, err := s.admit(ctx, info, req.Message, opts...)
+	stream, err := s.admitControlled(ctx, info, req.Message, req.BeforeStart, opts...)
 	if err != nil {
 		return errorEvents(err)
 	}
@@ -843,6 +874,9 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
+	if req.HasAllowedTools {
+		opts = append(opts, agentruntime.WithAllowedTools(req.AllowedTools...))
+	}
 	actor := messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))
 	opts = append(opts, agentruntime.WithInputActor(actor))
 
@@ -888,15 +922,17 @@ func (s *Service) RunDelegateSession(ctx context.Context, req delegatetool.Sessi
 		return delegatetool.SessionRunResult{SessionID: req.SessionID}, agentaccess.ErrForbidden
 	}
 	res, err := s.Delegate(ctx, DelegateRequest{
-		SessionID:     req.SessionID,
-		UserID:        userID,
-		AgentID:       agentID,
-		ProjectID:     projectID,
-		Task:          req.Task,
-		System:        req.System,
-		Model:         req.Model,
-		ExcludedTools: req.ExcludedTools,
-		Authority:     authority,
+		SessionID:       req.SessionID,
+		UserID:          userID,
+		AgentID:         agentID,
+		ProjectID:       projectID,
+		Task:            req.Task,
+		System:          req.System,
+		Model:           req.Model,
+		ExcludedTools:   req.ExcludedTools,
+		AllowedTools:    req.AllowedTools,
+		HasAllowedTools: req.HasAllowedTools,
+		Authority:       authority,
 	})
 	return delegatetool.SessionRunResult{
 		SessionID:       res.SessionID,

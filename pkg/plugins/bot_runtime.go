@@ -108,15 +108,7 @@ func NewBotManagedRuntime[T any](deps BotRuntimeDeps[T]) *botManagedRuntime[T] {
 	}
 }
 
-func (r *botManagedRuntime[T]) Start(ctx context.Context, desired PluginState) error {
-	return r.Reconcile(ctx, desired)
-}
-
 func (r *botManagedRuntime[T]) Apply(ctx context.Context, desired PluginState) error {
-	return r.Reconcile(ctx, desired)
-}
-
-func (r *botManagedRuntime[T]) Reconcile(ctx context.Context, desired PluginState) error {
 	cfg, err := r.deps.DecodeConfig(desired.Config)
 	if err != nil {
 		return err
@@ -283,12 +275,8 @@ func (r *botManagedRuntime[T]) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (r *botManagedRuntime[T]) Status(ctx context.Context) (RuntimeStatus, error) {
+func (r *botManagedRuntime[T]) Snapshot(ctx context.Context) (RuntimeStatus, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.snapshot.Clone(), nil
-}
-
-func (r *botManagedRuntime[T]) Snapshot(ctx context.Context) (RuntimeStatus, error) {
-	return r.Status(ctx)
 }

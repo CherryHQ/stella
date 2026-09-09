@@ -77,7 +77,7 @@ internal/
     embedding/         Embedding providers, indexing, storage
   skill/               Managed Skill authority, exact revisions, search, and loading
     access/            Who may see or change a skill
-    policy/            Per-agent enabled-builtin-skill policy
+    policy/            Per-agent managed skill policy
   library/             Document library: raw storage, derivation, retrieval
     recally/           Read-later and feed backend over the same storage
   db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries, embedded runtime
@@ -118,7 +118,7 @@ An explicit destructive user, group, or Agent delete fences local cached executi
 1. **Boot config** — `serverAction` parses `config.LoadServerConfig(os.LookupEnv)` and `oidc.LoadLoginConfig(os.LookupEnv, baseURL)` once, at the startup boundary. No other package reads the environment (a test tripwire enforces this, with a small allowlist for `STELLA_HOME`/OTel/runtime passthrough). The final base URL is resolved here and threaded down, so shared services are constructed with it directly — never a `localhost` placeholder mutated later.
 2. **Build** — `setup()` constructs each subsystem once. The shared credentials/email/share/recally/MCP services are built a single time (each domain owns its own query set via a `*ForPool` constructor), so the same instance backs both the agent tools and the HTTP endpoints.
 3. **Bind** — genuine back-edges are closed with one-shot, pre-start binds that reject a nil/duplicate/late bind: the PoolManager's `BindVaultEnvLoader`/`BindMCPToolProvider`/`BindOAuthRegistry` (before `StartAll`), the shared River client's `BindRiverClient` on the scheduler/goal/embedding/session-media services, and `AddBuiltinTool` (duplicate-checked, sealed by `StartAll`). Ordinary dependencies are constructor-injected, not bound.
-4. **Validate / Seal** — `pluginhost.Seal()` validates every static registration and capability binding, then refuses further static registration; the dynamic desired-state surface (`ApplyChannel`/`RegisterManifestPlugins`) stays open. The admin server is built from an immutable, validated `server.Deps` via `server.New(ctx, deps)` which fails fast on a missing required dependency. `server.New` reads no environment, constructs no service, and has no setters.
+4. **Validate / Seal** — `pluginhost.Seal()` validates every static registration and capability binding, then refuses further static registration; the dynamic desired-state surface (`ApplyChannel`/`Stop`) stays open. The admin server is built from an immutable, validated `server.Deps` via `server.New(ctx, deps)` which fails fast on a missing required dependency. `server.New` reads no environment, constructs no service, and has no setters.
 5. **Observability** — global OTel tracing initializes before the serving phase, so no span-emitting component (agent runs via HTTP/channel ingress) starts before the exporter is installed.
 6. **Run** — only now does the composition root start ingress, and only after every backend it depends on is up. First it wires the static callbacks (`notifier.SetAuthService`, the scheduler `OnJob` handler — both mutex-guarded one-time writes) and starts the one shared River client with scheduler, goal, and embedding workers, then starts the scheduler, goal dispatch tick, and embedding backfill; the scheduler handler is wired **before** River starts, since River may run a persisted job the instant it starts. Only then does ingress come up — the group-dispatch loop, the managed channel runtimes, and finally `httpSrv.Serve` (the listener is bound earlier but not served). The root owns one `errgroup`: `httpSrv.Serve` and `groupDispatcher.Run(ingressCtx)` run under it. Expected shutdown errors normalize to `nil` (`http.ErrServerClosed`, `context.Canceled`); any other component error cancels its peers and becomes the root error. Component constructors start no goroutines — background loops are entered by an explicit blocking `Run(ctx)` or a `Start` owned by the root (e.g. the trace hook's idle-session reaper).
 
@@ -219,7 +219,7 @@ The core local-workspace tools run through a Docker sandbox backend. `bash` exec
 
 The sandbox system provides process, filesystem, and network isolation for agent tool execution. All core tools share the same `sandbox.Session` per runner: `bash` uses `Session.Exec`; `view_image` uses `Session.Files`. Public policy contains only process-visible roots; each backend owns the physical mount mapping and rooted file capabilities. Concrete backends live in `plugins/sandbox/`, export public sandbox interfaces, and are adapted into a validated registry by `cmd/stellad`; `internal/agent/sandbox` selects only from that injected registry. Runner startup fails closed when the selected backend is unavailable. See [Sandbox Backend Abstraction](/docs/development/sandbox) for the full Session interface, execution mediation, fail-closed behavior, and exception boundaries.
 
-Sandbox tools (`bash`, `view_image`) live in `internal/agent/sandbox/`; public-web research is a skill, not a tool package: `resources/skills/system/web/` ships the `web` skill (`web.ts` search/fetch plus site scripts) and `cmd/stellad` registers the builtin tools in the catalog. Declarative CLI integrations use the built-in manifest. See [plugin-system](/docs/development/plugin-system) for the extension boundaries.
+Sandbox tools (`bash`, `view_image`) live in `internal/agent/sandbox/`; public-web research is a skill, not a tool package: `plugins/agent/web/skills/web/` ships the `web` skill (`web.ts` search/fetch plus site scripts) and `cmd/stellad` registers the builtin tools in the catalog. Declarative CLI integrations use the built-in manifest. See [plugin-system](/docs/development/plugin-system) for the extension boundaries.
 
 ### Session Tool
 
@@ -236,13 +236,13 @@ Agent sends first persist an input row, then enter a process-local per-Session F
 
 ### Builtin Shared Tools
 
-| Tool              | Condition                         | Description                                                                        |
-| ----------------- | --------------------------------- | ---------------------------------------------------------------------------------- |
-| `memory`          | Always                            | Unified search and read across conversation and durable memory                     |
-| `session_*`       | One-to-one agent sessions         | Session listing, bounded inspection, creation, and synchronous sends               |
-| `skill_*`         | Always                            | Search installed Skills and load one exact selected revision                       |
-| `scheduler_job_*` | Always                            | Schedule tasks: one tool per action (`scheduler_job_create`, `_list`, `_pause`, …) |
-| `notify`          | Gateway mode + channel configured | Send notifications via dispatcher                                                  |
+| Tool               | Condition                         | Description                                                                         |
+| ------------------ | --------------------------------- | ----------------------------------------------------------------------------------- |
+| `memory`           | Always                            | Unified search and read across conversation and durable memory                      |
+| `session_*`        | One-to-one agent sessions         | Session listing, bounded inspection, creation, and synchronous sends                |
+| `skill_*`          | Always                            | Search installed Skills and load one exact selected revision                        |
+| `scheduler__job_*` | Scheduler plugin enabled          | Schedule tasks: one tool per action (`scheduler__job_create`, `_list`, `_pause`, …) |
+| `notify`           | Gateway mode + channel configured | Send notifications via dispatcher                                                   |
 
 Memory is two tools over one shared `memory.Recall`: `memory_search` federates snapshot-visible LCM messages/summaries with durable facts, profile, soul, and constraints; `memory_read` resolves an opaque result ref or a well-known identity/constraint/history ref. Dynamic reads reauthorize through Session access, and summary reads preserve LCM describe/expand through bounded child refs. Transcript statistics, whole-message reads, and durable profile, soul, or constraint management are not tools at all — they belong to the internal, Reflect, or manual surfaces that own their authorization.
 

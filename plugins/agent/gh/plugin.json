@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "gh",
+  "version": "1.0.0",
+  "description": "GitHub CLI integration with OAuth-backed session auth.",
+  "extensions": {
+    "com.cherryhq.stella": {
+      "version": "1",
+      "display_name": "GitHub CLI",
+      "binaries": [{ "name": "gh", "tool": "github:cli/cli" }],
+      "session_env": [{ "env_var": "GH_TOKEN", "source": "oauth.access_token" }],
+      "oauth": [{ "provider": "github", "bindings": [{ "credential": "access_token", "env_var": "GH_TOKEN" }] }]
+    }
+  }
+}

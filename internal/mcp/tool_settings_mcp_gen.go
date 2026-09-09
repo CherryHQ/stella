@@ -22,25 +22,9 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
 		{Name: "settings_mcp_server_create", Family: "settings_mcp", Resource: "server", Action: "create", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
-    "credential_mode": {
-      "default": "shared",
-      "description": "per_user is only valid with auth_type oauth.",
-      "enum": [
-        "shared",
-        "per_user"
-      ],
-      "type": "string"
-    },
     "name": {
+      "minLength": 1,
       "type": "string"
-    },
-    "oauth_client_id": {
-      "type": "string",
-      "writeOnly": true
-    },
-    "oauth_client_secret": {
-      "type": "string",
-      "writeOnly": true
     },
     "scope": {
       "enum": [
@@ -49,22 +33,6 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
         "system",
         "system_agent"
       ],
-      "type": "string"
-    },
-    "source": {
-      "type": "string",
-      "writeOnly": true
-    },
-    "source_id": {
-      "type": "string",
-      "writeOnly": true
-    },
-    "source_version": {
-      "type": "string",
-      "writeOnly": true
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped registration is created.",
       "type": "string"
     },
     "transport": {
@@ -76,6 +44,7 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
       "type": "string"
     },
     "url": {
+      "format": "uri",
       "type": "string"
     }
   },
@@ -89,31 +58,16 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
 		{Name: "settings_mcp_server_delete", Family: "settings_mcp", Resource: "server", Action: "delete", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
-    "expected_version": {
-      "description": "Opaque version returned by settings_mcp_server_get.",
+    "expected_digest": {
       "minLength": 1,
       "type": "string"
     },
     "id": {
       "type": "string"
-    },
-    "scope": {
-      "default": "user",
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
-      "type": "string"
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped registration is deleted.",
-      "type": "string"
     }
   },
   "required": [
-    "expected_version",
+    "expected_digest",
     "id"
   ],
   "type": "object"
@@ -122,20 +76,6 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
   "additionalProperties": false,
   "properties": {
     "id": {
-      "type": "string"
-    },
-    "scope": {
-      "default": "user",
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
-      "type": "string"
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped registration is read.",
       "type": "string"
     }
   },
@@ -147,24 +87,13 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
 		{Name: "settings_mcp_server_list", Family: "settings_mcp", Resource: "server", Action: "list", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
-    "limit": {
+    "page_size": {
       "default": 50,
-      "description": "Maximum registrations to return before truncation.",
       "maximum": 50,
+      "minimum": 1,
       "type": "integer"
     },
-    "scope": {
-      "default": "user",
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
-      "type": "string"
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped registrations are listed.",
+    "page_token": {
       "type": "string"
     }
   },
@@ -174,20 +103,6 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
   "additionalProperties": false,
   "properties": {
     "id": {
-      "type": "string"
-    },
-    "scope": {
-      "default": "user",
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
-      "type": "string"
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped registration is probed.",
       "type": "string"
     }
   },
@@ -199,47 +114,18 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
 		{Name: "settings_mcp_server_update", Family: "settings_mcp", Resource: "server", Action: "update", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
-    "credential_mode": {
-      "enum": [
-        "shared",
-        "per_user"
-      ],
+    "expected_digest": {
+      "minLength": 1,
       "type": "string"
     },
-    "enabled": {
-      "type": "boolean"
-    },
-    "expected_version": {
-      "description": "Opaque version returned by settings_mcp_server_get.",
-      "minLength": 1,
+    "expected_settings_digest": {
       "type": "string"
     },
     "id": {
       "type": "string"
     },
-    "name": {
-      "type": "string"
-    },
-    "oauth_client_id": {
-      "type": "string",
-      "writeOnly": true
-    },
-    "oauth_client_secret": {
-      "type": "string",
-      "writeOnly": true
-    },
-    "scope": {
-      "enum": [
-        "user",
-        "user_agent",
-        "system",
-        "system_agent"
-      ],
-      "type": "string"
-    },
-    "target_agent_id": {
-      "description": "Optional Agent whose scoped registration is updated.",
-      "type": "string"
+    "is_enabled": {
+      "type": "boolean"
     },
     "transport": {
       "enum": [
@@ -249,11 +135,12 @@ func SettingsMcpActionTools() []SettingsMcpActionTool {
       "type": "string"
     },
     "url": {
+      "format": "uri",
       "type": "string"
     }
   },
   "required": [
-    "expected_version",
+    "expected_digest",
     "id"
   ],
   "type": "object"
@@ -280,56 +167,37 @@ type SettingsMcpHandler interface {
 }
 
 type SettingsMcpCreateInput struct {
-	CredentialMode    string `json:"credential_mode,omitempty"`
-	Name              string `json:"name,omitempty"`
-	OauthClientId     string `json:"oauth_client_id,omitempty"`
-	OauthClientSecret string `json:"oauth_client_secret,omitempty"`
-	Scope             string `json:"scope,omitempty"`
-	Source            string `json:"source,omitempty"`
-	SourceId          string `json:"source_id,omitempty"`
-	SourceVersion     string `json:"source_version,omitempty"`
-	TargetAgentId     string `json:"target_agent_id,omitempty"`
-	Transport         string `json:"transport,omitempty"`
-	Url               string `json:"url,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Scope     string `json:"scope,omitempty"`
+	Transport string `json:"transport,omitempty"`
+	Url       string `json:"url,omitempty"`
 }
 
 type SettingsMcpDeleteInput struct {
-	ExpectedVersion string `json:"expected_version,omitempty"`
-	Id              string `json:"id,omitempty"`
-	Scope           string `json:"scope,omitempty"`
-	TargetAgentId   string `json:"target_agent_id,omitempty"`
+	ExpectedDigest string `json:"expected_digest,omitempty"`
+	Id             string `json:"id,omitempty"`
 }
 
 type SettingsMcpGetInput struct {
-	Id            string `json:"id,omitempty"`
-	Scope         string `json:"scope,omitempty"`
-	TargetAgentId string `json:"target_agent_id,omitempty"`
+	Id string `json:"id,omitempty"`
 }
 
 type SettingsMcpListInput struct {
-	Limit         int    `json:"limit,omitempty"`
-	Scope         string `json:"scope,omitempty"`
-	TargetAgentId string `json:"target_agent_id,omitempty"`
+	PageSize  int    `json:"page_size,omitempty"`
+	PageToken string `json:"page_token,omitempty"`
 }
 
 type SettingsMcpProbeInput struct {
-	Id            string `json:"id,omitempty"`
-	Scope         string `json:"scope,omitempty"`
-	TargetAgentId string `json:"target_agent_id,omitempty"`
+	Id string `json:"id,omitempty"`
 }
 
 type SettingsMcpUpdateInput struct {
-	CredentialMode    string `json:"credential_mode,omitempty"`
-	Enabled           *bool  `json:"enabled,omitempty"`
-	ExpectedVersion   string `json:"expected_version,omitempty"`
-	Id                string `json:"id,omitempty"`
-	Name              string `json:"name,omitempty"`
-	OauthClientId     string `json:"oauth_client_id,omitempty"`
-	OauthClientSecret string `json:"oauth_client_secret,omitempty"`
-	Scope             string `json:"scope,omitempty"`
-	TargetAgentId     string `json:"target_agent_id,omitempty"`
-	Transport         string `json:"transport,omitempty"`
-	Url               string `json:"url,omitempty"`
+	ExpectedDigest         string `json:"expected_digest,omitempty"`
+	ExpectedSettingsDigest string `json:"expected_settings_digest,omitempty"`
+	Id                     string `json:"id,omitempty"`
+	IsEnabled              *bool  `json:"is_enabled,omitempty"`
+	Transport              string `json:"transport,omitempty"`
+	Url                    string `json:"url,omitempty"`
 }
 
 func SettingsMcpDispatch(ctx context.Context, h SettingsMcpHandler, action string, args map[string]any) (any, error) {
@@ -342,7 +210,7 @@ func SettingsMcpDispatch(ctx context.Context, h SettingsMcpHandler, action strin
 		return h.Create(ctx, in)
 	case "delete":
 		var in SettingsMcpDeleteInput
-		if err := tools.DecodeInputStrict(args, &in, []string{"expected_version", "id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"expected_digest", "id"}); err != nil {
 			return nil, err
 		}
 		return h.Delete(ctx, in)
@@ -366,7 +234,7 @@ func SettingsMcpDispatch(ctx context.Context, h SettingsMcpHandler, action strin
 		return h.Probe(ctx, in)
 	case "update":
 		var in SettingsMcpUpdateInput
-		if err := tools.DecodeInputStrict(args, &in, []string{"expected_version", "id"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"expected_digest", "id"}); err != nil {
 			return nil, err
 		}
 		return h.Update(ctx, in)

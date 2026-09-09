@@ -35,6 +35,24 @@ type ProjectContext struct {
 	loaded bool
 }
 
+type projectContextKey struct{}
+
+// WithProjectContext carries an already-authorized project instruction
+// snapshot through a turn. Prompt rebuilds must reuse it instead of reopening
+// the mutable project root.
+func WithProjectContext(ctx context.Context, project ProjectContext) context.Context {
+	return context.WithValue(ctx, projectContextKey{}, project)
+}
+
+// ProjectContextFromContext returns the project snapshot captured for a turn.
+func ProjectContextFromContext(ctx context.Context) (ProjectContext, bool) {
+	if ctx == nil {
+		return ProjectContext{}, false
+	}
+	project, ok := ctx.Value(projectContextKey{}).(ProjectContext)
+	return project, ok
+}
+
 //go:embed template/system_prompt.tmpl
 var systemTemplate string
 

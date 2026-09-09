@@ -22,22 +22,26 @@ const (
 // values look like absolute paths; Vault, OAuth, and plugin values must not
 // acquire filesystem semantics from their shape.
 var valueKinds = map[string]valueKind{
-	sandboxpkg.EnvHome:            valueHostPath,
-	sandboxpkg.EnvStellaAssetsDir: valueHostPath,
-	sandboxpkg.EnvTempDir:         valueHostPath,
-	sandboxpkg.EnvXDGConfigHome:   valueHostPath,
-	sandboxpkg.EnvXDGDataHome:     valueHostPath,
-	sandboxpkg.EnvXDGStateHome:    valueHostPath,
-	sandboxpkg.EnvXDGCacheHome:    valueHostPath,
-	"STELLA_HOME":                 valueHostPath,
-	"BASH_ENV":                    valueHostPath,
-	"MISE_DATA_DIR":               valueHostPath,
-	"MISE_CONFIG_DIR":             valueHostPath,
-	"MISE_CACHE_DIR":              valueHostPath,
-	"MISE_STATE_DIR":              valueHostPath,
-	"MISE_SYSTEM_CONFIG_FILE":     valueHostPath,
-	"MISE_GLOBAL_CONFIG_FILE":     valueHostPath,
-	"MISE_TRUSTED_CONFIG_PATHS":   valueHostPathList,
+	sandboxpkg.EnvHome:                   valueHostPath,
+	sandboxpkg.EnvStellaAssetsDir:        valueHostPath,
+	sandboxpkg.EnvTempDir:                valueHostPath,
+	sandboxpkg.EnvXDGConfigHome:          valueHostPath,
+	sandboxpkg.EnvXDGDataHome:            valueHostPath,
+	sandboxpkg.EnvXDGStateHome:           valueHostPath,
+	sandboxpkg.EnvXDGCacheHome:           valueHostPath,
+	"STELLA_HOME":                        valueHostPath,
+	"BASH_ENV":                           valueHostPath,
+	"MISE_DATA_DIR":                      valueHostPath,
+	"MISE_CONFIG_DIR":                    valueHostPath,
+	"MISE_CACHE_DIR":                     valueHostPath,
+	"MISE_STATE_DIR":                     valueHostPath,
+	"MISE_SYSTEM_CONFIG_FILE":            valueHostPath,
+	"MISE_GLOBAL_CONFIG_FILE":            valueHostPath,
+	"MISE_TRUSTED_CONFIG_PATHS":          valueHostPathList,
+	sandboxpkg.EnvCoreRuntimeDir:         valueHostPath,
+	sandboxpkg.EnvNativeSelectionDir:     valueHostPathList,
+	sandboxpkg.EnvUserNativeSelectionDir: valueHostPathList,
+	"MISE_SHIMS_DIR":                     valueDrop,
 	// Host PATH may contain host-platform binaries and must never override the
 	// image PATH. WithToolPaths adds container-native tool directories later.
 	"PATH":                   valueDrop,
@@ -88,17 +92,11 @@ func translateList(value string, translate func(string) (string, bool)) string {
 	return strings.Join(translated, ":")
 }
 
-// DefaultPATH is the image-baked PATH from the Dockerfile ENV directive.
-// It is used as the base when building a container exec PATH that prepends
-// container-native user tool cache paths. Keep in sync with the ENV PATH line
-// in plugins/sandbox/docker/Dockerfile.
-const DefaultPATH = "/opt/stella/bin:/opt/stella/.mise-tools/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+// DefaultPATH matches the image system PATH. Resource commands enter only
+// through selection-local directories, never a shared plugin bin or mise shim.
+const DefaultPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-// WithToolPaths prepends container-native tool directories to PATH (the
-// per-user mise shims so an agent's own installs win, then any manifest tool
-// cache). Built-in tools resolve through the image-baked PATH (the shared
-// /opt/stella mise tree); the host filesystem is never used for container
-// executable resolution because it may contain host-platform binaries.
+// WithToolPaths prepends the selected container-native commands to the image PATH.
 func WithToolPaths(env map[string]string, toolBinPaths []string) map[string]string {
 	base := env["PATH"]
 	if base == "" {

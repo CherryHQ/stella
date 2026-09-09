@@ -165,6 +165,7 @@ func TestEmbeddedPostgresSkillAccessMatrix(t *testing.T) {
 		{"foreign write denied", userAuth(other.ID, false), userSkillID, authz.ActionWrite, ErrNotFound},
 		{"non-admin write system denied", userAuth(other.ID, false), systemSkillID, authz.ActionWrite, ErrForbidden},
 		{"admin writes system skill", userAuth(adminID, true), systemSkillID, authz.ActionWrite, nil},
+		{"admin cannot write foreign user skill", userAuth(adminID, true), userSkillID, authz.ActionWrite, ErrNotFound},
 		{"delegated executor writes own", agentAuth(owner.ID, "sys"), userAgentSkillID, authz.ActionWrite, nil},
 	}
 	for _, tc := range writeCases {

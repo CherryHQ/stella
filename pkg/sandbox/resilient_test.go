@@ -197,6 +197,35 @@ func TestResilientSessionRefreshEnvOverlaysSubsequentProcesses(t *testing.T) {
 	}
 }
 
+func TestResilientSessionEnvReplaceDoesNotRetainOverlay(t *testing.T) {
+	inner := newMockSession()
+	rs := NewResilientSession(inner, nil)
+	rs.RefreshEnv(map[string]string{"STALE": "old", "SHARED": "old"})
+
+	if _, err := rs.Exec(context.Background(), "true", ExecOptions{
+		Env:     map[string]string{"SHARED": "new", "CURRENT": "yes"},
+		EnvMode: EnvReplace,
+	}); err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if _, ok := inner.lastExecEnv["STALE"]; ok {
+		t.Fatal("replace mode retained stale overlay")
+	}
+	if got := inner.lastExecEnv["SHARED"]; got != "new" {
+		t.Fatalf("replace mode SHARED = %q, want new", got)
+	}
+
+	if _, err := rs.StartProcess(context.Background(), ProcessRequest{
+		Env:     map[string]string{"CURRENT": "process"},
+		EnvMode: EnvReplace,
+	}); err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	if _, ok := inner.lastProcessEnv["SHARED"]; ok {
+		t.Fatal("replace mode retained stale process overlay")
+	}
+}
+
 func TestResilientSession_RecreatesAfterClose(t *testing.T) {
 	first := newMockSession()
 	second := newMockSession()

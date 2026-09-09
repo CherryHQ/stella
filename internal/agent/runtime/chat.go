@@ -19,6 +19,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/observability"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
+	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -29,25 +30,13 @@ var ErrChatTimeout = agenterr.ErrChatTimeout
 
 const autoCompactionTimeout = 2 * time.Minute
 
-// BeforeRunFunc is called before each chat turn to inject/override the system prompt.
-type BeforeRunFunc func(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (systemOut string, err error)
+// BeforeRunFunc is called before each chat turn to inject/override the system
+// prompt using the runner's admission-time plugin snapshot.
+type BeforeRunFunc func(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message, pluginContext PluginContext) (systemOut string, err error)
 
-// SnapshotPromptFunc builds a system prompt from the session's snapshot version.
-type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory.SessionSnapshot) (string, error)
-
-// chat is retained for direct internal callers and tests. Runtime.ChatAdmitted
-// uses chatWithRunner after synchronously selecting a runner at admission.
-func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions) {
-	ctx = withSessionIdentity(ctx, info)
-	selection, err := rt.getOrCreateReservedRunner(ctx, info, co.model, co.extraTools)
-	if err != nil {
-		out <- Event{Err: fmt.Errorf("get runner: %w", err)}
-		close(out)
-		return
-	}
-	rt.capturePromptBuilders(&selection)
-	rt.chatWithRunner(ctx, out, info, msg, co, selection)
-}
+// SnapshotPromptFunc builds a system prompt from the session's snapshot version
+// and the plugin context captured with the admitted runner.
+type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory.SessionSnapshot, pluginContext PluginContext) (string, error)
 
 // chatWithRunner is the goroutine body for Runtime.Chat. The runner was selected and
 // reserved synchronously by ChatAdmitted, so a policy invalidation cannot slip
@@ -89,6 +78,9 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	}
 	if co.channel != "" {
 		ctx = withChannel(ctx, co.channel)
+	}
+	if co.systemOverride != "" {
+		ctx = withSystemOverride(ctx, co.systemOverride)
 	}
 
 	memSess, err := info.MemoryScope()
@@ -219,26 +211,28 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	}
 	if baseSystem == "" {
 		baseSystem = selection.runner.SystemPrompt()
-		if !isGuest && info.GroupID == "" && selection.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "" {
-			// DM per-turn snapshot prompt: rebuild system with frozen memory
-			// version. Skipped when systemOverride is set (e.g. delegate custom
-			// system).
-			sss, ok := rt.mem.(memory.SessionSnapshotStore)
-			if ok {
-				snap, err := sss.GetOrCreateSessionSnapshot(ctx, info.ID, info.UserID, info.AgentID)
-				if err != nil {
-					rt.log.Warn("snapshot lookup failed, using base system", "session_id", info.ID, "error", err)
-				} else if rebuilt, err := selection.snapshotPrompt(ctx, info, snap); err != nil {
-					out <- Event{Err: fmt.Errorf("snapshot prompt: %w", err)}
-					return
-				} else {
-					baseSystem = rebuilt
-				}
+	}
+	if !isGuest && selection.snapshotPrompt != nil && info.AgentID != "" {
+		// Resource sections always use this turn's selection. Only personal
+		// turns read the user's memory snapshot; a group ID is never a user ID.
+		var snap memory.SessionSnapshot
+		if sss, ok := rt.mem.(memory.SessionSnapshotStore); ok && info.GroupID == "" && info.UserID != "" {
+			resolved, err := sss.GetOrCreateSessionSnapshot(ctx, info.ID, info.UserID, info.AgentID)
+			if err != nil {
+				rt.log.Warn("snapshot lookup failed, using zero snapshot", "session_id", info.ID, "error", err)
+			} else {
+				snap = resolved
 			}
+		}
+		if rebuilt, err := selection.snapshotPrompt(ctx, info, snap, selection.pluginContext); err != nil {
+			out <- Event{Err: fmt.Errorf("snapshot prompt: %w", err)}
+			return
+		} else {
+			baseSystem = rebuilt
 		}
 	}
 	if !isGuest && selection.beforeRun != nil {
-		systemOut, err := selection.beforeRun(ctx, info, selection.model, msgText, baseSystem, history)
+		systemOut, err := selection.beforeRun(ctx, info, selection.model, msgText, baseSystem, history, selection.pluginContext)
 		if err != nil {
 			out <- Event{Err: fmt.Errorf("before run: %w", err)}
 			return
@@ -255,11 +249,19 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	if len(co.excludedTools) > 0 {
 		ctx = withExcludedTools(ctx, co.excludedTools...)
 	}
+	if co.hasAllowedTools {
+		ctx = agentctx.WithAllowedTools(ctx, co.allowedTools...)
+	}
 
 	// Persist group trigger messages only after the turn succeeds. Otherwise a
 	// failed durable dispatch retry would leave the same trigger in history and
 	// duplicate it on the next attempt.
-	userMsg := ai.UserMessage{Content: msg, Timestamp: time.Now()}
+	var skillView *skill.SkillTurnView
+	if captured, ok := skill.SkillTurnViewFromContext(ctx); ok {
+		skillView = &captured
+	}
+	executionSummary := selection.pluginContext.ExecutionSummaryForTurn(skillView)
+	userMsg := ai.UserMessage{Content: msg, Timestamp: time.Now().UTC(), Execution: executionSummary}
 	modelMsg := userMsg
 	modelMsg.Content = eventlog.RenderInput(modelMsg.Content, inputActor)
 	var storePrefix []ai.Message
@@ -346,7 +348,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	}
 }
 
-func (rt *Runtime) getOrCreateReservedRunner(ctx context.Context, info session.Info, model string, extraTools []tools.Tool) (runnerSelection, error) {
+func (rt *Runtime) getOrCreateReservedRunner(ctx context.Context, info session.Info, model string, extraTools []tools.Tool, generation uint64) (runnerSelection, error) {
 	attrs := []attribute.KeyValue{
 		attribute.String("gen_ai.conversation.id", info.ID),
 		attribute.String("stella.agent_id", info.AgentID),
@@ -372,7 +374,7 @@ func (rt *Runtime) getOrCreateReservedRunner(ctx context.Context, info session.I
 	spanCtx, span := otel.Tracer("stella").Start(ctx, "agent.runner_get_or_create", trace.WithAttributes(attrs...))
 	defer span.End()
 
-	selection, err := rt.cache.getOrCreateReserved(spanCtx, info, model, "", extraTools...)
+	selection, err := rt.cache.getOrCreateReservedAtGeneration(spanCtx, info, model, "", generation, extraTools...)
 	if err != nil {
 		observability.RecordSpanError(span, err, "runner lookup failed")
 		return runnerSelection{}, err

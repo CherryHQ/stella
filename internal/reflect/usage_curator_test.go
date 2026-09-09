@@ -13,6 +13,7 @@ import (
 
 	"github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -26,21 +27,17 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-func newReflectPOSIXSkillStore(t *testing.T, db *pgxpool.Pool) *skills.POSIXStore {
+func newReflectFileSkillStore(t *testing.T, db *pgxpool.Pool) *skills.FileStore {
 	t.Helper()
 	manager, err := home.NewWorkspaceManager(db, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
-	store, err := skills.NewPOSIXStore(db, manager)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return store
+	return skills.NewFileStore(db, manager)
 }
 
-func currentReflectSkill(t *testing.T, store *skills.POSIXStore, id string) *skills.Skill {
+func currentReflectSkill(t *testing.T, store *skills.FileStore, id string) *skills.Skill {
 	t.Helper()
 	identity, err := store.GetIdentity(t.Context(), id)
 	if err != nil || identity == nil {
@@ -197,6 +194,7 @@ func TestMaybeRunUsageCuratorIsolatesPairFailures(t *testing.T) {
 	svc := &Service{
 		stateStore: state, usageCuratorStore: store, log: testLogger(),
 		usageCuratorSettings: UsageCuratorSettings{Mode: UsageCuratorModeShadow, Now: fixedUsageCuratorNow},
+		capabilityGate:       func(context.Context, authz.Authority, string, ...string) error { return nil },
 	}
 
 	svc.maybeRunUsageCurator(ctx)
@@ -212,6 +210,105 @@ func TestMaybeRunUsageCuratorIsolatesPairFailures(t *testing.T) {
 	}
 	if !ok || value["last_success_at"] == "" {
 		t.Fatalf("successful pair state = %#v, want last_success_at", value)
+	}
+}
+
+func TestMaybeRunUsageCuratorGatesArmedPairBeforeWrites(t *testing.T) {
+	ctx := context.Background()
+	store := fakeUsageCuratorStore{
+		pairs: []usageCuratorPair{{UserID: "user-1", AgentID: "agent-1"}},
+		knowledge: []usageCuratorKnowledgeCandidate{{
+			FactID: "fact-1", UserID: "user-1", AgentID: "agent-1",
+		}},
+	}
+
+	for _, tt := range []struct {
+		name       string
+		gateErr    error
+		wantWrites int
+		wantState  bool
+	}{
+		{name: "disabled", gateErr: errors.New("system/reflect disabled")},
+		{name: "enabled", wantWrites: 1, wantState: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			state := newMapStateStore()
+			memoryProvider := &fakeUsageCuratorMemoryProvider{}
+			var gotAuthority authz.Authority
+			var gotPlugins []string
+			svc := &Service{
+				memory:            memoryProvider,
+				stateStore:        state,
+				usageCuratorStore: store,
+				skillStore:        stubStructuredSkillStore{},
+				skillAuthorizer:   &stubSkillAuthorizer{},
+				usageCuratorSettings: UsageCuratorSettings{
+					Mode: UsageCuratorModeArmed,
+					Now:  fixedUsageCuratorNow,
+				},
+				capabilityGate: func(_ context.Context, authority authz.Authority, agentID string, pluginIDs ...string) error {
+					gotAuthority = authority
+					if agentID != "agent-1" {
+						t.Fatalf("agentID = %q, want agent-1", agentID)
+					}
+					gotPlugins = append([]string(nil), pluginIDs...)
+					return tt.gateErr
+				},
+				log: testLogger(),
+			}
+
+			svc.maybeRunUsageCurator(ctx)
+
+			if len(memoryProvider.calls) != tt.wantWrites {
+				t.Fatalf("fact writes = %d, want %d", len(memoryProvider.calls), tt.wantWrites)
+			}
+			if len(gotPlugins) != 1 || gotPlugins[0] != PluginID {
+				t.Fatalf("plugin IDs = %v, want [%s]", gotPlugins, PluginID)
+			}
+			if gotAuthority.UserID() != "user-1" || gotAuthority.AgentID() != "agent-1" {
+				t.Fatalf("authority = %#v, want user-1/agent-1", gotAuthority)
+			}
+			_, ok, err := state.Get(ctx, usageCuratorPairScope(store.pairs[0]), usageCuratorPairStateKey("user-1"))
+			if err != nil {
+				t.Fatalf("get pair state: %v", err)
+			}
+			if ok != tt.wantState {
+				t.Fatalf("pair success state present = %v, want %v", ok, tt.wantState)
+			}
+		})
+	}
+}
+
+func TestMaybeRunUsageCuratorSkipsPairWithoutTrustedOwner(t *testing.T) {
+	ctx := context.Background()
+	state := newMapStateStore()
+	memoryProvider := &fakeUsageCuratorMemoryProvider{}
+	svc := &Service{
+		memory:            memoryProvider,
+		stateStore:        state,
+		usageCuratorStore: fakeUsageCuratorStore{pairs: []usageCuratorPair{{AgentID: "agent-1"}}},
+		usageCuratorSettings: UsageCuratorSettings{
+			Mode: UsageCuratorModeArmed,
+			Now:  fixedUsageCuratorNow,
+		},
+		capabilityGate: func(context.Context, authz.Authority, string, ...string) error {
+			t.Fatal("capability gate called for pair without a trusted owner")
+			return nil
+		},
+		log: testLogger(),
+	}
+
+	svc.maybeRunUsageCurator(ctx)
+
+	if len(memoryProvider.calls) != 0 {
+		t.Fatalf("fact writes = %d, want none", len(memoryProvider.calls))
+	}
+	_, ok, err := state.Get(ctx, pkgplugins.StateScope{Kind: pkgplugins.StateScopeAgent, ID: "agent-1"}, usageCuratorPairStateKey(""))
+	if err != nil {
+		t.Fatalf("get pair state: %v", err)
+	}
+	if ok {
+		t.Fatal("pair success state written without a trusted owner")
 	}
 }
 
@@ -497,7 +594,7 @@ func TestUsageCuratorArmedSkipsSkillWhenUsageChangedAfterSelection(t *testing.T)
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-	skillStore := newReflectPOSIXSkillStore(t, db)
+	skillStore := newReflectFileSkillStore(t, db)
 	created, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID:          userID,
 		AgentID:         agentID,
@@ -545,7 +642,7 @@ func TestUsageCuratorArmedSkipsSkillWhenEligibleActivityDisappearsAfterSelection
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-	skillStore := newReflectPOSIXSkillStore(t, db)
+	skillStore := newReflectFileSkillStore(t, db)
 	created, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID: userID, AgentID: agentID, Name: "curator-skill-activity-disappeared",
 		Description: "selected before archive", MainFileContent: "# Selected Before Archive\n",
@@ -635,7 +732,7 @@ func TestSQLUsageCuratorStoreListsOnlyStaleReflectRecordsWithActivity(t *testing
 		t.Fatalf("seed manual knowledge usage: %v", err)
 	}
 
-	skillStore := newReflectPOSIXSkillStore(t, db)
+	skillStore := newReflectFileSkillStore(t, db)
 	staleSkill, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID: userID, AgentID: agentID, Name: "curator-stale-skill", Description: "stale", MainFileContent: "# Stale\n",
 	})

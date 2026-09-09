@@ -60,8 +60,7 @@ func (r *ResilientSession) ensureAliveLocked(ctx context.Context) (Session, erro
 
 	r.inner = session
 	// The creator rebuilds the session from current credential state. Discard
-	// overlays applied to the dead inner session so stale values cannot override
-	// that newly built environment.
+	// incremental overlays applied to the dead inner session.
 	r.envUpdates = nil
 	return session, nil
 }
@@ -99,7 +98,7 @@ func (r *ResilientSession) WorkingDir() string {
 	return s.WorkingDir()
 }
 
-func (r *ResilientSession) selectFileView(ctx context.Context) (FileView, error) {
+func (r *ResilientSession) SelectFileView(ctx context.Context) (FileView, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	s, err := r.ensureAliveLocked(ctx)
@@ -109,6 +108,12 @@ func (r *ResilientSession) selectFileView(ctx context.Context) (FileView, error)
 	view := fileView(s)
 	view.Policy.Env = mergeEnvUpdates(view.Policy.Env, r.envUpdates)
 	return view, nil
+}
+
+func (r *ResilientSession) selectSession(ctx context.Context) (Session, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ensureAliveLocked(ctx)
 }
 
 func (r *ResilientSession) Alive() bool {
@@ -156,7 +161,9 @@ func (r *ResilientSession) Exec(ctx context.Context, command string, opts ExecOp
 	r.mu.Lock()
 	updates := maps.Clone(r.envUpdates)
 	r.mu.Unlock()
-	opts.Env = mergeEnvUpdates(updates, opts.Env)
+	if opts.EnvMode != EnvReplace {
+		opts.Env = mergeEnvUpdates(updates, opts.Env)
+	}
 	return s.Exec(ctx, command, opts)
 }
 
@@ -168,7 +175,9 @@ func (r *ResilientSession) StartProcess(ctx context.Context, req ProcessRequest)
 	r.mu.Lock()
 	updates := maps.Clone(r.envUpdates)
 	r.mu.Unlock()
-	req.Env = mergeEnvUpdates(updates, req.Env)
+	if req.EnvMode != EnvReplace {
+		req.Env = mergeEnvUpdates(updates, req.Env)
+	}
 	return s.StartProcess(ctx, req)
 }
 

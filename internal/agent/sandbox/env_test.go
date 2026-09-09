@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"maps"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -12,6 +13,41 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
+
+func TestRunnerFilesystemPolicyMountsCoreAndSelectedMiseContext(t *testing.T) {
+	stellaHome := t.TempDir()
+	publicRoot := filepath.Join(stellaHome, ".mise-tools", "public", "selected")
+	for _, dir := range []string{publicRoot, filepath.Join(stellaHome, ".mise-tools", "installs"), filepath.Join(stellaHome, ".mise-tools", "contexts", "other")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	corePlan := fixtureSystemRuntimePlan(t, stellaHome)
+	plan := &BinaryInstallPlan{
+		Identity:   "selected",
+		Selections: []BinarySelectionPlan{{PublicDir: publicRoot, PublicBinDir: publicRoot}},
+	}
+	policy, sources := runnerFilesystemPolicy(Paths{StellaHome: stellaHome, WorkspaceRoot: t.TempDir()}, Config{
+		SystemRuntimePlan: corePlan,
+		ContextBinaryPlan: plan,
+	})
+	coreMount := pkgsandbox.MountStellaHome + "/bin"
+	if got := sources[coreMount]; got != corePlan.PublicDir {
+		t.Fatalf("core mount source = %q, want %q", got, corePlan.PublicDir)
+	}
+	optionalMount := pkgsandbox.MountStellaHome + "/.mise-tools/public/selected"
+	if got := sources[optionalMount]; got != publicRoot {
+		t.Fatalf("optional mount source = %q, want %q", got, publicRoot)
+	}
+	for _, mount := range policy.Mounts {
+		if mount.SandboxPath == pkgsandbox.MountStellaHome+"/.mise-tools" || mount.SandboxPath == pkgsandbox.MountStellaHome+"/.mise-tools/contexts" || mount.SandboxPath == pkgsandbox.MountStellaHome+"/.mise-tools/contexts/other" || mount.SandboxPath == pkgsandbox.MountStellaHome+"/.mise-tools/installs" {
+			t.Fatalf("policy exposed broad or foreign mise mount: %#v", policy.Mounts)
+		}
+	}
+	if sources[coreMount] == sources[optionalMount] {
+		t.Fatal("core and optional selection mounts must remain independent")
+	}
+}
 
 type staticVaultEnv struct {
 	env map[string]string
@@ -115,8 +151,8 @@ func TestBuildSandboxEnvLayersMiseSystemGlobalAndWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSandboxEnv: %v", err)
 	}
-	if got, want := env["MISE_SYSTEM_CONFIG_FILE"], filepath.Join(stellaHome, ".mise-tools", "configs", "_builtin.toml"); got != want {
-		t.Fatalf("MISE_SYSTEM_CONFIG_FILE = %q, want %q", got, want)
+	if _, ok := env["MISE_SYSTEM_CONFIG_FILE"]; ok {
+		t.Fatalf("MISE_SYSTEM_CONFIG_FILE must stay unset until a snapshot selection is overlaid, got %q", env["MISE_SYSTEM_CONFIG_FILE"])
 	}
 	if got, want := env["BASH_ENV"], filepath.Join(stellaHome, "bin", ".stella-shell-env"); got != want {
 		t.Fatalf("BASH_ENV = %q, want %q", got, want)
@@ -247,6 +283,7 @@ func TestBuildSandboxEnvVaultSecretOverridesOAuthSessionEnv(t *testing.T) {
 			}
 			secretValues := NewSessionSecretValues()
 			oauthBindings := NewOAuthEnvBindings()
+			rollbacks := make(map[string]pkgplugins.SessionEnvRollback)
 			env, err := buildSandboxEnv(ctx, Config{
 				UserID:              userID,
 				AgentID:             "agent-1",
@@ -254,6 +291,7 @@ func TestBuildSandboxEnvVaultSecretOverridesOAuthSessionEnv(t *testing.T) {
 				SessionSecretValues: secretValues,
 				TokenManager:        tm,
 				OAuthEnvBindings:    oauthBindings,
+				SessionEnvRollbacks: rollbacks,
 				SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
 					{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "github"},
 				},
@@ -270,8 +308,37 @@ func TestBuildSandboxEnvVaultSecretOverridesOAuthSessionEnv(t *testing.T) {
 			if got := oauthBindings.Has("GH_TOKEN"); got != tt.wantOAuthBind {
 				t.Fatalf("OAuth binding recorded = %v, want %v", got, tt.wantOAuthBind)
 			}
+			if tt.vaultSecret {
+				if _, ok := rollbacks["GH_TOKEN"]; ok {
+					t.Fatalf("Vault-overridden OAuth env must have no rollback: %v", rollbacks)
+				}
+			} else {
+				rollback, ok := rollbacks["GH_TOKEN"]
+				if !ok || rollback.PriorPresent || rollback.PriorValue != "" {
+					t.Fatalf("OAuth session env rollback = %+v, want absent prior", rollback)
+				}
+			}
 			requireSessionSecretValues(t, secretValues.Values(), tt.wantRedacted, tt.absentSecrets)
 		})
+	}
+}
+
+func TestBuildSandboxEnvDoesNotRollbackRunnerOwnedSessionEnv(t *testing.T) {
+	rollbacks := make(map[string]pkgplugins.SessionEnvRollback)
+	env, err := buildSandboxEnv(context.Background(), Config{
+		SessionEnvRollbacks: rollbacks,
+		SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
+			{PluginID: "package", EnvVar: "STELLA_HOME", Source: pkgplugins.SessionEnvSourceStatic, Value: "/package-owned-home"},
+		},
+	}, Paths{StellaHome: "/runner/stella-home"})
+	if err != nil {
+		t.Fatalf("buildSandboxEnv: %v", err)
+	}
+	if got := env["STELLA_HOME"]; got != "/runner/stella-home" {
+		t.Fatalf("STELLA_HOME = %q, want runner-owned value", got)
+	}
+	if _, ok := rollbacks["STELLA_HOME"]; ok {
+		t.Fatalf("runner-owned STELLA_HOME must not be rollback eligible: %+v", rollbacks)
 	}
 }
 

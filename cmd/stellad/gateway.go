@@ -350,7 +350,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	var coordOpts []channel.CoordinatorOption
 	var vaultRecipient *age.X25519Recipient
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, agentAccess, linkCodes))
-	coordOpts = append(coordOpts, channel.WithGuestPolicyDecoder(s.pluginHost.GuestPolicyResolver))
+	coordOpts = append(coordOpts, channel.WithGuestPolicyDecoder(s.pluginHost.GuestPolicyResolver), channel.WithListenerCap(nativeAdministrativeCap(s.nativePolicy)))
 	coordOpts = append(coordOpts, channel.WithRootOpener(s.workspaceManager))
 	if s.vaultSvc != nil {
 		vaultRecipient = s.vaultSvc.MasterRecipient()
@@ -434,7 +434,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// longer reaches config.Store / auth.AuthStore / the query layer for them. The
 	// user directory backs assignment views with the account user store (per-id
 	// lookups; the assignment set per agent is small and admin-only).
-	toolOverrides := agent.NewToolOverrideStore(s.db)
+	toolOverrides := agent.NewToolOverrideStore(s.db, s.pluginFiles)
 	agentSkillPolicy, ok := s.store.(server.AgentSkillPolicyStore)
 	if !ok {
 		return fmt.Errorf("agent Skill policy store is unavailable")
@@ -453,6 +453,10 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		as, credFrontDoor,
 		slog.With("component", "account"),
 	)
+	// Account deactivation and assignment removal must publish their runtime
+	// cutoff in the same short mutation boundary as the durable write. The pool
+	// manager owns that coordination; slow runner closes happen after it lets go.
+	accountSvc.SetRevocationCoordinator(s.poolManager)
 	provisioningSvc := provisioning.New(s.db, accountSvc, vaultRecipient, slog.With("component", "provisioning"))
 
 	// The Profile service owns the per-(user, agent) memory boundary. The Provider
@@ -496,9 +500,12 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		SessionAccess:        s.sessionAccess,
 		SkillAccess:          s.skillAccess,
 		Skills:               s.skillStore,
+		SkillManagement:      s.skillManagement,
 		LinkCodes:            linkCodes,
 		PoolManager:          s.poolManager,
 		PluginHost:           s.pluginHost,
+		PluginFiles:          s.pluginFiles,
+		NativePolicy:         s.nativePolicy,
 		WeixinRegistrar:      newWeixinRegistrar(),
 		BuiltinTools:         s.builtinTools,
 		ToolMeta:             s.toolMeta,
@@ -517,8 +524,9 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Vault:                s.vaultSvc,
 		VaultRecipient:       vaultRecipient,
 		MCP:                  s.mcpSvc,
+		MCPFiles:             s.mcpFiles,
+		AgentMCPCatalog:      mcpCatalogFunc(s.mcpFiles),
 		MCPCatalog:           mcp.NewOfficialCatalog(),
-		MCPAccess:            mcp.NewAccess(s.mcpSvc, agentAccess, s.poolManager),
 		Scheduler:            s.schedulerSvc,
 		Goal:                 s.goalSvc,
 		Workflow:             s.workflowSvc,
@@ -713,7 +721,10 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// Only one server replica is supported, so managed channel pollers start
 	// unconditionally after their dependencies are wired. Drain-time
 	// Quiesce stops new polling; the final Stop remains after River drains.
-	applyManagedChannelPlugins(ingressCtx, s.pluginHost)
+	if _, err := applyManagedChannelPlugins(ingressCtx, s.pluginHost); err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("start managed channel runtimes: %w", err)
+	}
 	// HTTP serve — the final ingress source to come up.
 	g.Go(func() error { return normalizeServeErr(httpSrv.Serve(ln)) })
 

@@ -1,7 +1,9 @@
 package skill
 
 import (
+	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 
@@ -14,10 +16,12 @@ const (
 )
 
 type skillFrontmatter struct {
-	Name                   string `yaml:"name"`
-	Description            string `yaml:"description"`
-	CreatedAt              string `yaml:"created-at"`
-	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
+	Name                   string         `yaml:"name"`
+	Description            string         `yaml:"description"`
+	Status                 string         `yaml:"status"`
+	CreatedAt              string         `yaml:"created-at"`
+	DisableModelInvocation bool           `yaml:"disable-model-invocation"`
+	Metadata               map[string]any `yaml:"metadata"`
 }
 
 const maxNameLength = 64
@@ -32,19 +36,47 @@ func parseFrontmatter(content string) (skillFrontmatter, error) {
 		return skillFrontmatter{}, fmt.Errorf("no frontmatter")
 	}
 
-	endIdx := strings.Index(content[3:], "\n---")
-	if endIdx == -1 {
+	lines := strings.Split(content, "\n")
+	if len(lines) < 2 || strings.TrimSpace(lines[0]) != "---" {
+		return skillFrontmatter{}, fmt.Errorf("invalid frontmatter")
+	}
+	end := -1
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
 		return skillFrontmatter{}, fmt.Errorf("no closing frontmatter delimiter")
 	}
-
-	yamlStr := content[4 : 3+endIdx]
+	yamlStr := strings.Join(lines[1:end], "\n")
 
 	var fm skillFrontmatter
 	if err := yaml.Unmarshal([]byte(yamlStr), &fm); err != nil {
 		return skillFrontmatter{}, fmt.Errorf("invalid yaml: %w", err)
 	}
+	if fm.Metadata == nil {
+		fm.Metadata = map[string]any{}
+	}
+	delete(fm.Metadata, "created_by")
+	if fm.Status == "" {
+		fm.Status = SkillStatusActive
+	}
+	if fm.Status != SkillStatusActive && fm.Status != SkillStatusDeprecated {
+		return skillFrontmatter{}, fmt.Errorf("invalid skill status %q", fm.Status)
+	}
 
 	return fm, nil
+}
+
+func skillMetadataJSON(metadata map[string]any) ([]byte, error) {
+	if metadata == nil {
+		return []byte(`{}`), nil
+	}
+	clean := maps.Clone(metadata)
+	delete(clean, "created_by")
+	return json.Marshal(clean)
 }
 
 // ValidateSkillName checks a skill name against the Agent Skills spec.

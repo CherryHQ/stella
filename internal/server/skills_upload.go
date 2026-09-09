@@ -53,21 +53,21 @@ func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentI
 		writeError(w, http.StatusBadRequest, "scope is required")
 		return
 	}
-	userID, code, msg := s.agentSkillWriteScope(r.Context(), agentID, scope)
+	_, code, msg = s.agentSkillWriteScope(r.Context(), agentID, scope)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
 	}
-	sk := skill.Skill{
-		Scope:                  scope,
-		Name:                   up.name,
-		Description:            up.description,
-		Status:                 skill.SkillStatusActive,
-		DisableModelInvocation: up.disableModelInvocation,
-		Metadata:               up.metadata,
+	authority, err := s.skillManagementAuthority(r.Context())
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return
 	}
-	sk.UserID, sk.AgentID = skillScopeOwner(scope, userID, agentID)
-	snapshot, err := s.skills.CreateManagedSkill(r.Context(), sk, up.files)
+	snapshot, err := s.skillManagement.Create(r.Context(), authority, skill.ManagedCreate{
+		Scope: scope, TargetAgentID: agentID, Name: up.name, Description: up.description,
+		DisableModelInvocation: up.disableModelInvocation, Metadata: up.metadata, Files: up.files,
+	})
 	if err != nil {
 		if errors.Is(err, skill.ErrInvalidSkillFilePath) {
 			writeError(w, http.StatusBadRequest, err.Error())

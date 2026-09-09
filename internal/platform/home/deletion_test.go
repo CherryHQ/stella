@@ -20,6 +20,7 @@ type (
 	}
 	testFenceLease struct {
 		committed bool
+		unknown   bool
 		released  bool
 	}
 )
@@ -31,6 +32,10 @@ func (f *testFence) AcquireHomeOwnerFence(context.Context, OwnerKind, string) (O
 }
 func (l *testFenceLease) Commit()  { l.committed = true }
 func (l *testFenceLease) Release() { l.released = true }
+func (l *testFenceLease) CommitUnknown() {
+	l.unknown = true
+	l.released = true
+}
 
 func TestOwnerDeletionFencesBeforeDBAndPreservesWorkspaceBytes(t *testing.T) {
 	ctx, db, base := t.Context(), dbtest.New(t), t.TempDir()
@@ -105,11 +110,12 @@ func TestOwnerDeletionReconcilesUnknownCommitOutcomes(t *testing.T) {
 		reconcileErr  error
 		wantErr       bool
 		wantCommitted bool
+		wantUnknown   bool
 		wantOwner     bool
 	}{
 		{name: "committed acknowledgement lost", commit: true, wantCommitted: true},
 		{name: "transaction remains uncommitted", wantErr: true, wantOwner: true},
-		{name: "reconciliation fails closed", reconcileErr: errors.New("reconcile unavailable"), wantErr: true, wantCommitted: true, wantOwner: true},
+		{name: "reconciliation fails closed", reconcileErr: errors.New("reconcile unavailable"), wantErr: true, wantUnknown: true, wantOwner: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, db := t.Context(), dbtest.New(t)
@@ -142,8 +148,8 @@ func TestOwnerDeletionReconcilesUnknownCommitOutcomes(t *testing.T) {
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("DeleteGroup error = %v, wantErr=%t", err, tc.wantErr)
 			}
-			if fence.lease == nil || fence.lease.committed != tc.wantCommitted || !fence.lease.released {
-				t.Fatalf("fence lease = %#v, want committed=%t and released", fence.lease, tc.wantCommitted)
+			if fence.lease == nil || fence.lease.committed != tc.wantCommitted || fence.lease.unknown != tc.wantUnknown || !fence.lease.released {
+				t.Fatalf("fence lease = %#v, want committed=%t unknown=%t and released", fence.lease, tc.wantCommitted, tc.wantUnknown)
 			}
 			_, ownerErr := sqlc.New(db).GetGroupStateByID(ctx, id)
 			if (ownerErr == nil) != tc.wantOwner {

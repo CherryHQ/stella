@@ -11,6 +11,8 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
@@ -27,16 +29,22 @@ const (
 // server, so a 30-tool server costs one MCP session, not thirty. Close is
 // idempotent because the tool registry closes each proxy on teardown.
 type serverConn struct {
-	mu     sync.Mutex
-	svc    *Service
-	reg    Registration
-	owner  CredentialOwner
-	client RemoteClient
+	mu       sync.Mutex
+	closeMu  sync.Mutex
+	svc      *Service
+	reg      Registration
+	owner    CredentialOwner
+	client   RemoteClient
+	retiring bool
+	closed   bool
 }
 
 func (c *serverConn) get(ctx context.Context) (RemoteClient, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.closed || c.retiring {
+		return nil, fmt.Errorf("mcp: server connection is closed")
+	}
 	if c.client != nil {
 		return c.client, nil
 	}
@@ -49,33 +57,69 @@ func (c *serverConn) get(ctx context.Context) (RemoteClient, error) {
 }
 
 func (c *serverConn) Close() error {
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
 	c.mu.Lock()
-	client := c.client
-	c.client = nil
-	c.mu.Unlock()
-	if client == nil {
+	if c.closed {
+		c.mu.Unlock()
 		return nil
 	}
-	return client.Close()
+	client := c.client
+	c.retiring = true
+	c.mu.Unlock()
+	if client == nil {
+		c.mu.Lock()
+		c.closed = true
+		c.mu.Unlock()
+		return nil
+	}
+	err := client.Close()
+	c.mu.Lock()
+	if err == nil {
+		c.client = nil
+		c.closed = true
+		c.retiring = false
+	}
+	c.mu.Unlock()
+	return err
 }
 
 // toolProxy adapts one remote MCP tool to Stella's Tool interface. The
-// agent-facing name is namespaced by server (mcp__<server>__<tool>); calls are
-// proxied to the tool's original remote name. A persisted catalog can create
+// agent-facing name is derived from the exact package/server/tool tuple; calls
+// are proxied to the tool's original remote name. A persisted catalog can create
 // the proxy without an open session, so Execute lazily connects on first use
 // through the server's shared connection.
 type toolProxy struct {
 	mu sync.Mutex
 
-	svc  *Service
-	reg  Registration
-	conn *serverConn // nil until first use when not injected by the provider
+	svc      *Service
+	reg      Registration
+	conn     *serverConn // nil until first use when not injected by the provider
+	fileConn *fileConnection
 
 	def        pkgtools.Definition
 	remoteName string
 }
 
 func (t *toolProxy) Definition() pkgtools.Definition { return t.def }
+
+// PluginToolIdentity exposes the durable package/server/local identity to the
+// runner. The runner still checks it against its authority-bound snapshot and
+// the proxy's exported definition before registering it.
+func (t *toolProxy) PluginToolIdentity() (pluginID, serverKey, localToolName string, ok bool) {
+	if t == nil || t.reg.PluginID == "" || t.reg.ServerKey == "" {
+		return "", "", "", false
+	}
+	localToolName = t.remoteName
+	packageIdentity := t.reg.PluginID
+	if t.reg.IsFile() {
+		packageIdentity = fileToolPackageIdentity(t.reg)
+	}
+	if _, err := agentpackage.ExportedToolName(packageIdentity, t.reg.ServerKey, localToolName); err != nil {
+		return "", "", "", false
+	}
+	return t.reg.PluginID, t.reg.ServerKey, localToolName, true
+}
 
 // ExecuteContent runs the call and converts MCP content blocks to ai blocks:
 // text stays text, images become ai.ImageContent, anything else is JSON-encoded
@@ -95,6 +139,19 @@ func (t *toolProxy) Execute(ctx context.Context, args map[string]any) (string, e
 }
 
 func (t *toolProxy) call(ctx context.Context, args map[string]any) (*mcpsdk.CallToolResult, error) {
+	if t.fileConn != nil {
+		authority, ok := authz.AuthorityFromContext(ctx)
+		if !ok {
+			return nil, authz.ErrUnauthenticated
+		}
+		owner, err := FileCredentialOwner(t.reg, authority)
+		if err != nil {
+			return nil, err
+		}
+		if fileCredentialKey(t.reg, owner) != t.fileConn.grant {
+			return nil, authz.ErrForbidden
+		}
+	}
 	client, err := t.ensureClient(ctx)
 	if err != nil {
 		return nil, err
@@ -106,7 +163,17 @@ func (t *toolProxy) call(ctx context.Context, args map[string]any) (*mcpsdk.Call
 		// A plain timeout is the model's problem to retry; only a credential
 		// rejection is a durable server state worth persisting.
 		if isCredentialRejection(err) {
-			_ = t.svc.SetStatus(ctx, t.reg.ID, StatusNeedsAuth, credentialRejectedHint)
+			if t.fileConn != nil {
+				t.fileConn.markDirty()
+				// File authorization has no observation row. Disconnect/revoke
+				// is owned by the file grant and its next request rechecks Vault.
+				return nil, fmt.Errorf("mcp: call tool %q: %s", t.remoteName, credentialRejectedHint)
+			}
+			owner := CredentialOwner{}
+			if t.conn != nil {
+				owner = t.conn.owner
+			}
+			_ = t.svc.setStatusForRegistration(ctx, t.reg, owner, StatusNeedsAuth, credentialRejectedHint)
 			return nil, fmt.Errorf("mcp: call tool %q: %s", t.remoteName, credentialRejectedHint)
 		}
 		return nil, err
@@ -120,6 +187,12 @@ func (t *toolProxy) call(ctx context.Context, args map[string]any) (*mcpsdk.Call
 
 func (t *toolProxy) ensureClient(ctx context.Context) (RemoteClient, error) {
 	t.mu.Lock()
+	fileConn := t.fileConn
+	t.mu.Unlock()
+	if fileConn != nil {
+		return fileConn.get()
+	}
+	t.mu.Lock()
 	if t.conn == nil {
 		t.conn = &serverConn{svc: t.svc, reg: t.reg, owner: t.svc.CredentialOwner(t.reg, "")}
 	}
@@ -132,6 +205,12 @@ func (t *toolProxy) ensureClient(ctx context.Context) (RemoteClient, error) {
 // registry may call it once per tool sharing the session.
 func (t *toolProxy) Close() error {
 	t.mu.Lock()
+	if t.fileConn != nil {
+		t.mu.Unlock()
+		// FileSession owns this connection. A turn-level registry must never
+		// close a borrowed handle while another tool in the same turn uses it.
+		return nil
+	}
 	conn := t.conn
 	t.mu.Unlock()
 	if conn == nil {
@@ -140,9 +219,16 @@ func (t *toolProxy) Close() error {
 	return conn.Close()
 }
 
-// callTimeout resolves the per-call timeout from the registration's metadata
-// JSONB. Values outside [1, 300] fall back to the default / cap.
+// callTimeout resolves the per-call timeout from a file declaration's typed
+// field, falling back to legacy registration metadata for database rows.
+// Values outside [1, 300] fall back to the default / cap.
 func callTimeout(reg Registration) time.Duration {
+	if reg.IsFile() {
+		if reg.CallTimeoutSeconds < 1 {
+			return defaultCallTimeout
+		}
+		return time.Duration(min(reg.CallTimeoutSeconds, maxCallTimeoutSeconds)) * time.Second
+	}
 	v, ok := reg.Metadata["call_timeout_seconds"]
 	if !ok {
 		return defaultCallTimeout

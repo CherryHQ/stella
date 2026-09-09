@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "skill-creator",
+  "version": "1.0.0",
+  "description": "Create and refine reusable skills.",
+  "extensions": { "com.cherryhq.stella": { "version": "1", "display_name": "Skill Creator" } }
+}

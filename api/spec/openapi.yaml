@@ -7,7 +7,7 @@ info:
 
     - Agents, Skills, Sessions, Models, Providers
     - Auth, Auth-Users, Profile, OAuth
-    - Channels, Webhooks, Plugins, Manifest-Plugins
+    - Channels, Webhooks, Plugins
     - Recally (reading assistant), Scheduler (job scheduling)
     - Users, Vault, Builtin, Weixin
 
@@ -131,6 +131,8 @@ paths:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills"
   /api/skills/install:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1install"
+  /api/skills/copy-package:
+    $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1copy-package"
   /api/skills/upload:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1upload"
   /api/skills/{id}:
@@ -146,12 +148,16 @@ paths:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers"
   /api/mcp/servers/{id}:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}"
+  /api/mcp/servers/{id}/file:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1file"
+  /api/mcp/servers/{id}/credentials:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1credentials"
   /api/mcp/servers/{id}/probe:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1probe"
-  /api/mcp/servers/{id}/oauth-start:
-    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1oauth-start"
-  /api/mcp/servers/{id}/oauth-disconnect:
-    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1oauth-disconnect"
+  /api/mcp/servers/{id}/oauth/start:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1oauth~1start"
+  /api/mcp/servers/{id}/oauth/disconnect:
+    $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers~1{id}~1oauth~1disconnect"
   /api/mcp/oauth/callback:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1oauth~1callback"
   /api/mcp/registry/servers:
@@ -488,26 +494,24 @@ paths:
   /api/groups/{groupId}/turns/{agentId}/abort:
     $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups~1{groupId}~1turns~1{agentId}~1abort"
   # ── Plugins ────────────────────────────────────────────────────────────────
+  /api/native-plugins:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1native-plugins"
+  /api/native-plugins/{kind}/{name}:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1native-plugins~1{kind}~1{name}"
+  /api/native-plugins/{kind}/{name}/agent-denials:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1native-plugins~1{kind}~1{name}~1agent-denials"
+  /api/native-plugins/{kind}/{name}/agent-denials/{agent_id}:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1native-plugins~1{kind}~1{name}~1agent-denials~1{agent_id}"
   /api/plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"
-  /api/plugins/{kind}/{name}:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}"
-  /api/plugins/{kind}/{name}/status:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}~1status"
-  /api/plugins/{kind}/{name}/config:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}~1config"
-  /api/plugins/{kind}/{name}/config-schema:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{kind}~1{name}~1config-schema"
-  /api/manifest-plugins:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins"
-  /api/manifest-plugins/sync:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1sync"
-  /api/manifest-plugins/{kind}/{name}:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1{kind}~1{name}"
-  /api/manifest-plugins/{kind}/{name}/enabled:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1{kind}~1{name}~1enabled"
-  /api/manifest-plugins/{kind}/{name}/reset:
-    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1{kind}~1{name}~1reset"
+  /api/plugins/import:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1import"
+  /api/plugins/{plugin_id}:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}"
+  /api/plugins/{plugin_id}/copy:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1copy"
+  /api/plugins/{plugin_id}/file:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins~1{plugin_id}~1file"
   /api/cli-tools/registry:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1cli-tools~1registry"
   /api/cli-tools/latest:
@@ -755,36 +759,33 @@ components:
     StatusResponse: {
       $ref: "./components.yaml#/components/schemas/StatusResponse",
     }
-    PluginView: { $ref: "./components.yaml#/components/schemas/PluginView" }
-    TogglePluginRequest: {
-      $ref: "./components.yaml#/components/schemas/TogglePluginRequest",
+    PluginResource: {
+      $ref: "./components.yaml#/components/schemas/PluginResource",
     }
-    UpdatePluginConfigRequest: {
-      $ref: "./components.yaml#/components/schemas/UpdatePluginConfigRequest",
+    PluginDiagnostic: {
+      $ref: "./components.yaml#/components/schemas/PluginDiagnostic",
     }
-    ManifestPlugin: {
-      $ref: "./components.yaml#/components/schemas/ManifestPlugin",
+    ResourceFileInfo: {
+      $ref: "./components.yaml#/components/schemas/ResourceFileInfo",
     }
-    ManifestPluginDefinition: {
-      $ref: "./components.yaml#/components/schemas/ManifestPluginDefinition",
+    ResourceFileContent: {
+      $ref: "./components.yaml#/components/schemas/ResourceFileContent",
     }
-    ManifestPluginInput: {
-      $ref: "./components.yaml#/components/schemas/ManifestPluginInput",
+    PluginList: { $ref: "./components.yaml#/components/schemas/PluginList" }
+    CreatePluginRequest: {
+      $ref: "./components.yaml#/components/schemas/CreatePluginRequest",
     }
-    ManifestPluginDefinitionField: {
-      $ref: "./components.yaml#/components/schemas/ManifestPluginDefinitionField",
+    ImportPluginRequest: {
+      $ref: "./components.yaml#/components/schemas/ImportPluginRequest",
     }
-    SaveBuiltinManifestPluginDefinitionRequest: {
-      $ref: "./components.yaml#/components/schemas/SaveBuiltinManifestPluginDefinitionRequest",
+    CopyPluginRequest: {
+      $ref: "./components.yaml#/components/schemas/CopyPluginRequest",
     }
-    ManifestPluginReplacement: {
-      $ref: "./components.yaml#/components/schemas/ManifestPluginReplacement",
+    UpdatePluginRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdatePluginRequest",
     }
-    ReplaceCustomManifestPluginDefinitionRequest: {
-      $ref: "./components.yaml#/components/schemas/ReplaceCustomManifestPluginDefinitionRequest",
-    }
-    SaveManifestPluginDefinitionRequest: {
-      $ref: "./components.yaml#/components/schemas/SaveManifestPluginDefinitionRequest",
+    UpdatePluginFileRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdatePluginFileRequest",
     }
     Goal: { $ref: "./components.yaml#/components/schemas/Goal" }
     GoalList: {

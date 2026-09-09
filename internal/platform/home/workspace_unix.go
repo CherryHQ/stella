@@ -3,14 +3,25 @@
 package home
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"golang.org/x/sys/unix"
 )
+
+const maintenanceListLimit = 10001
+
+type existingSkillRoot struct {
+	request WorkspaceRequest
+	scope   RootScope
+}
 
 var fsyncWorkspaceFD = unix.Fsync
 
@@ -157,6 +168,179 @@ func (m *WorkspaceManager) openOperationsRoot(parts ...string) (*os.Root, error)
 		return nil, errors.New("home: operation root inode mismatch")
 	}
 	return r, nil
+}
+
+// WalkExistingSkillRoots is intentionally separate from the normal opener:
+// cleanup may need to inspect roots whose database owner was already deleted.
+// It enumerates first, closes the inventory root, and then opens one mutable
+// typed root at a time so the 257-bucket owner locks cannot self-deadlock.
+func (m *WorkspaceManager) WalkExistingSkillRoots(ctx context.Context, visit func(WorkspaceRequest, RootScope, SkillRootOperations) error) error {
+	if err := checkContext(ctx); err != nil {
+		return err
+	}
+	if visit == nil {
+		return errors.New("home: Skill root maintenance callback is required")
+	}
+	inventory, err := m.openOperationsRoot()
+	if err != nil {
+		return err
+	}
+	candidates, scanErr := existingSkillRoots(inventory)
+	closeErr := inventory.Close()
+	if scanErr != nil || closeErr != nil {
+		return errors.Join(scanErr, closeErr)
+	}
+	for _, candidate := range candidates {
+		if err := checkContext(ctx); err != nil {
+			return err
+		}
+		root, err := m.openRoot(ctx, candidate.request, candidate.scope, RootReadWrite, false, false)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		visitErr := visit(candidate.request, candidate.scope, root)
+		closeErr := root.Close()
+		if visitErr != nil || closeErr != nil {
+			return errors.Join(visitErr, closeErr)
+		}
+	}
+	return nil
+}
+
+func existingSkillRoots(root *os.Root) ([]existingSkillRoot, error) {
+	var candidates []existingSkillRoot
+	entriesSeen := 0
+	addCandidate := func(candidate existingSkillRoot) error {
+		if len(candidates) >= maintenanceListLimit {
+			return ErrListLimit
+		}
+		candidates = append(candidates, candidate)
+		return nil
+	}
+	if ok, err := existingDirectory(root, ".agents/db-skills"); err != nil {
+		return nil, err
+	} else if ok {
+		if err := addCandidate(existingSkillRoot{scope: RootSystemSkills}); err != nil {
+			return nil, err
+		}
+	}
+	agents, err := listExistingChildren(root, "agents")
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range agents {
+		entriesSeen++
+		if entriesSeen > maintenanceListLimit {
+			return nil, ErrListLimit
+		}
+		if err := validID(entry.Name()); err != nil {
+			continue
+		}
+		path := filepath.Join("agents", entry.Name(), ".agents", "skills")
+		if ok, err := existingDirectory(root, path); err != nil {
+			return nil, err
+		} else if ok {
+			if err := addCandidate(existingSkillRoot{
+				request: WorkspaceRequest{AgentID: entry.Name()}, scope: RootSystemAgentSkills,
+			}); err != nil {
+				return nil, err
+			}
+		}
+	}
+	users, err := listExistingChildren(root, "users")
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range users {
+		entriesSeen++
+		if entriesSeen > maintenanceListLimit {
+			return nil, ErrListLimit
+		}
+		if err := validID(entry.Name()); err != nil {
+			continue
+		}
+		userID := entry.Name()
+		userSkillPath := filepath.Join("users", userID, ".agents", "skills")
+		if ok, err := existingDirectory(root, userSkillPath); err != nil {
+			return nil, err
+		} else if ok {
+			if err := addCandidate(existingSkillRoot{
+				request: WorkspaceRequest{UserID: userID}, scope: RootUserSkills,
+			}); err != nil {
+				return nil, err
+			}
+		}
+		agentSkillsPath := filepath.Join("users", userID, ".agents", "agent-skills")
+		agentSkills, err := listExistingChildren(root, agentSkillsPath)
+		if err != nil {
+			return nil, err
+		}
+		for _, agent := range agentSkills {
+			entriesSeen++
+			if entriesSeen > maintenanceListLimit {
+				return nil, ErrListLimit
+			}
+			if err := validID(agent.Name()); err != nil {
+				continue
+			}
+			if err := addCandidate(existingSkillRoot{
+				request: WorkspaceRequest{UserID: userID, AgentID: agent.Name()}, scope: RootUserAgentSkills,
+			}); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return candidates, nil
+}
+
+func listExistingChildren(root *os.Root, name string) ([]os.DirEntry, error) {
+	ok, err := existingDirectory(root, name)
+	if errors.Is(err, fs.ErrNotExist) || !ok && err == nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	file, err := root.Open(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	entries, err := file.ReadDir(maintenanceListLimit + 1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	if len(entries) > maintenanceListLimit {
+		return nil, ErrListLimit
+	}
+	return entries, nil
+}
+
+func existingDirectory(root *os.Root, name string) (bool, error) {
+	current := "."
+	for component := range strings.SplitSeq(filepath.ToSlash(name), "/") {
+		if component == "" || component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := root.Lstat(current)
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if !info.IsDir() || info.Mode()&fs.ModeSymlink != 0 {
+			return false, fmt.Errorf("home: maintenance root component %q is not a real directory", current)
+		}
+	}
+	return true, nil
 }
 
 func openRootFile(root *os.Root, name string, flag int, perm os.FileMode) (*os.File, error) {

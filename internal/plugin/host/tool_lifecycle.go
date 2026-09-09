@@ -24,19 +24,12 @@ func (h *Host) BeforeToolCall(ctx context.Context, build pkgplugins.BeforeToolCa
 			continue
 		}
 
-		state := build.State
-		if reg.Required {
-			state = pkgplugins.PluginState{
-				ID:      reg.PluginID,
-				Enabled: true,
-				Config:  h.defaultConfigFor(reg.PluginID),
-			}
-		} else {
-			var err error
-			state, err = h.DesiredState(ctx, reg.PluginID)
-			if err != nil || !state.Enabled {
-				continue
-			}
+		state, enabled, err := h.nativeState(ctx, reg.PluginID, build.AgentID)
+		if err != nil {
+			return pkgplugins.BeforeToolCallResult{}, err
+		}
+		if !enabled {
+			continue
 		}
 
 		result, err := reg.Run(ctx, pkgplugins.BeforeToolCallContext{
@@ -88,19 +81,12 @@ func (h *Host) AfterToolResult(ctx context.Context, build pkgplugins.AfterToolRe
 			continue
 		}
 
-		state := build.State
-		if reg.Required {
-			state = pkgplugins.PluginState{
-				ID:      reg.PluginID,
-				Enabled: true,
-				Config:  h.defaultConfigFor(reg.PluginID),
-			}
-		} else {
-			var err error
-			state, err = h.DesiredState(ctx, reg.PluginID)
-			if err != nil || !state.Enabled {
-				continue
-			}
+		state, enabled, err := h.nativeState(ctx, reg.PluginID, build.AgentID)
+		if err != nil {
+			return pkgplugins.AfterToolResult{}, err
+		}
+		if !enabled {
+			continue
 		}
 
 		mutation, err := reg.Run(ctx, pkgplugins.AfterToolResultContext{

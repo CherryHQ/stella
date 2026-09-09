@@ -13,10 +13,12 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -204,18 +206,21 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		t.Fatalf("home.NewWorkspaceManager: %v", err)
 	}
 	t.Cleanup(func() { _ = homeManager.Close() })
-	skillStore, err := skill.NewPOSIXStore(db, homeManager)
-	if err != nil {
-		t.Fatalf("skill.NewPOSIXStore: %v", err)
-	}
+	skillStore := skill.NewFileStore(db, homeManager)
 	skillAccess := access.NewService(skillStore, agentAccess)
+	skillManagement := skill.NewManagement(skillStore, skillAccess)
 	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		Memory:    mem,
 		Agents:    sessionaccess.ConfigAgentSystemPrompt(store),
 		Projects:  projectStore.Resolve,
 		Workspace: serverTestWorkspace{root: config.StellaHome()},
-		Plugins:   phost,
+		PluginContextBuilder: func(context.Context, authz.Authority, string) (agentruntime.PluginContext, error) {
+			return agentruntime.PluginContext{}, nil
+		},
+		PromptSectionsBuilder: func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
+			return nil, nil
+		},
 		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skill.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
 			return skill.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
 		},
@@ -249,6 +254,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		SessionAccess:        sessionSvc,
 		SkillAccess:          skillAccess,
 		Skills:               skillStore,
+		SkillManagement:      skillManagement,
 		LinkCodes:            auth.NewLinkCodeStore(),
 		PoolManager:          poolMgr,
 		PluginHost:           phost,
@@ -298,16 +304,6 @@ func (d testUserDirectory) LookupUsers(ctx context.Context, ids []string) ([]age
 	return out, nil
 }
 
-// newTestServer builds a Server from testServerDeps.
-func newTestServer(t *testing.T, store config.Store, as *appdb.AuthStore, mem memory.Provider, db *pgxpool.Pool, phost *host.Host) *Server {
-	t.Helper()
-	srv, err := New(context.Background(), testServerDeps(t, store, as, mem, db, phost))
-	if err != nil {
-		t.Fatalf("server.New: %v", err)
-	}
-	return srv
-}
-
 func TestResolvedToDBSkillPreservesExactRevisionIdentity(t *testing.T) {
 	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	resolved := &skill.ResolvedSkill{Skill: skill.Skill{
@@ -328,14 +324,11 @@ func TestManagedSkillAgentFileLoadPreservesExactRevisionDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
-	store, err := skill.NewPOSIXStore(db, manager)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := skill.NewFileStore(db, manager)
 	snapshot, err := store.CreateManagedSkill(t.Context(), skill.Skill{
-		ID: "server-exact-revision", Scope: "system", Name: "server-exact-revision",
+		Scope: "system", Name: "server-exact-revision", Description: "exact revision",
 	}, map[string]string{
-		skill.MainFile: "# Server exact revision",
+		skill.MainFile: "---\nname: server-exact-revision\ndescription: exact revision\n---\n# Server exact revision\n",
 		"reference.md": "exact managed content",
 	})
 	if err != nil {

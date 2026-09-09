@@ -3,13 +3,12 @@ package host
 // Issue #708 Section B: pluginhost seals its static registrations and capability
 // bindings before runtime start. After Seal, LoadCatalog and the Set* capability
 // binders refuse late changes, while the dynamic desired-state surface
-// (RegisterManifestPlugins / Apply*) stays available.
+// (Stop / Apply*) stays available.
 
 import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/platform/config"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 )
 
 func TestSealFreezesStaticRegistrationsButKeepsDynamic(t *testing.T) {
@@ -43,8 +42,8 @@ func TestSealFreezesStaticRegistrationsButKeepsDynamic(t *testing.T) {
 		h.SetNotificationService(nil)
 	}()
 
-	// The dynamic desired-state surface remains available after seal: an empty
-	// manifest re-registration reconciles zero plugins without panicking or
-	// hitting the seal.
-	h.RegisterManifestPlugins(&manifest.Manifest{})
+	// Runtime shutdown remains available after sealing static composition.
+	if err := h.Stop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 }

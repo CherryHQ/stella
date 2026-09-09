@@ -7,11 +7,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
 
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
@@ -19,8 +23,111 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
+
+type closeCountingSession struct {
+	pkgsandbox.Session
+	closes atomic.Int32
+}
+
+func (s *closeCountingSession) Close() error {
+	s.closes.Add(1)
+	return s.Session.Close()
+}
+
+func TestRunnerBuilderClosesPreparedSessionBeforeRunnerFactoryOnError(t *testing.T) {
+	stellaHome := t.TempDir()
+	prepared := &closeCountingSession{Session: pkgsandbox.NopSession()}
+	backends, err := sandbox.NewBackendRegistry(sandbox.BackendDefinition{
+		Name: config.SandboxBackendNone,
+		Create: func(context.Context, sandbox.BackendRequest) (pkgsandbox.Session, error) {
+			return prepared, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap := &config.Snapshot{
+		AgentID: "cleanup-agent", Provider: "anthropic", Model: "test-model",
+		APIKey: "test-key", Workspace: t.TempDir(),
+	}
+	wantErr := errors.New("prompt admission failed")
+	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
+		Snap:              snap,
+		Home:              testWorkspaceViewer{root: stellaHome},
+		SandboxBackends:   backends,
+		SystemRuntimePlan: fixtureRunnerSystemRuntimePlan(t, stellaHome),
+		SandboxBackendFn:  func(context.Context) string { return config.SandboxBackendNone },
+		PluginContextBuilder: func(context.Context, authz.Authority, string) (PluginContext, error) {
+			return PluginContext{}, nil
+		},
+		PromptSectionsBuilder: func(context.Context, plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
+			return nil, wantErr
+		},
+		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
+		},
+	}))
+
+	_, err = build(t.Context(), RunnerParams{UserID: "user-1", AgentID: snap.AgentID})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("build error = %v, want %v", err, wantErr)
+	}
+	if got := prepared.closes.Load(); got != 1 {
+		t.Fatalf("prepared session close count = %d, want 1", got)
+	}
+}
+
+func TestNewRunnerFuncReturnsNilInterfaceOnConstructionError(t *testing.T) {
+	snap := &config.Snapshot{AgentID: "typed-nil-agent", Provider: "anthropic", Model: "test-model"}
+	build := newRunnerFunc(runnerBuilderConfig{
+		Snap: snap,
+		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
+		},
+	})
+	owner := agentruntime.NewRunnerBuildOwner()
+	runner, err := build(t.Context(), RunnerParams{GuestID: "guest", BuildOwner: owner})
+	if err == nil {
+		t.Fatal("construction error = nil, want missing API key")
+	}
+	if runner != nil {
+		t.Fatalf("construction returned typed-nil Runner: %#v", runner)
+	}
+	owner.Complete()
+	if err := owner.Close(); err != nil {
+		t.Fatalf("close partial owner: %v", err)
+	}
+}
+
+func TestRunnerPluginAuthorityUsesOnlyNamedSessionIdentity(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		params RunnerParams
+		kind   authz.ActorKind
+		valid  bool
+	}{
+		{name: "direct worker", params: RunnerParams{UserID: "user", AgentID: "agent"}, kind: authz.ActorAgent, valid: true},
+		{name: "group worker", params: RunnerParams{UserID: "group", GroupID: "group", AgentID: "agent"}, kind: authz.ActorGroupAgent, valid: true},
+		{name: "user without agent", params: RunnerParams{UserID: "user"}, valid: false},
+		{name: "userless", params: RunnerParams{AgentID: "agent"}, valid: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			authority, err := runnerPluginAuthority(tt.params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if authority.Valid() != tt.valid {
+				t.Fatalf("authority valid = %t, want %t", authority.Valid(), tt.valid)
+			}
+			if tt.valid && authority.Kind() != tt.kind {
+				t.Fatalf("authority kind = %s, want %s", authority.Kind(), tt.kind)
+			}
+		})
+	}
+}
 
 type panicSnapshotOpener struct {
 	root string
@@ -116,12 +223,22 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectRoot, "AGENTS.md"), []byte("project instructions from runner builder"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
+	corePlan := fixtureRunnerSystemRuntimePlan(t, stellaHome)
 
 	var promptBuild plugins.SystemPromptContext
 	resolveCalls := 0
+	pluginContextCalls := 0
 	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
-		Snap: snap,
-		Home: testWorkspaceViewer{root: stellaHome},
+		Snap:              snap,
+		Home:              testWorkspaceViewer{root: stellaHome},
+		SystemRuntimePlan: corePlan,
+		PluginContextBuilder: func(_ context.Context, authority authz.Authority, agentID string) (PluginContext, error) {
+			pluginContextCalls++
+			if authority.Kind() != authz.ActorAgent || string(authority.UserID()) != "user-1" || string(authority.AgentID()) != agentID {
+				t.Fatalf("plugin context authority = %#v, agentID = %q", authority, agentID)
+			}
+			return PluginContext{}, nil
+		},
 		PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
 			promptBuild = build
 			return nil, nil
@@ -161,6 +278,9 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	}
 	if resolveCalls != 1 {
 		t.Fatalf("project resolved %d times, want exactly once", resolveCalls)
+	}
+	if pluginContextCalls != 1 {
+		t.Fatalf("plugin context builder called %d times, want exactly once", pluginContextCalls)
 	}
 }
 
@@ -255,10 +375,12 @@ func TestNewRunnerFuncCarriesDeclaredModelInput(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(stellaHome, "users", "user-1", "data"), 0o700); err != nil {
 		t.Fatalf("MkdirAll user data: %v", err)
 	}
+	corePlan := fixtureRunnerSystemRuntimePlan(t, stellaHome)
 
 	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
-		Snap: snap,
-		Home: testWorkspaceViewer{root: stellaHome},
+		Snap:              snap,
+		Home:              testWorkspaceViewer{root: stellaHome},
+		SystemRuntimePlan: corePlan,
 		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
@@ -306,12 +428,14 @@ func TestNewRunnerFuncManagedSessionsPreserveQualifiedModelRef(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(stellaHome, "users", "user-1", "data"), 0o700); err != nil {
 		t.Fatalf("MkdirAll user data: %v", err)
 	}
+	corePlan := fixtureRunnerSystemRuntimePlan(t, stellaHome)
 
 	var adapterBuilds int
 	bridge := &rebuildingDelegateRunner{}
 	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
-		Snap: snap,
-		Home: testWorkspaceViewer{root: stellaHome},
+		Snap:              snap,
+		Home:              testWorkspaceViewer{root: stellaHome},
+		SystemRuntimePlan: corePlan,
 		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			if api != providerAPI {
 				return nil, providers.ErrProviderNotFound

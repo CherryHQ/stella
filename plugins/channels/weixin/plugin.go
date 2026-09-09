@@ -52,13 +52,12 @@ func init() {
 		pkgplugins.RegisterManagedChannelPlugin(host, pkgplugins.ManagedChannelPluginRegistration{
 			PluginID:    PluginID,
 			RuntimeName: RuntimeName,
-			Meta: pkgplugins.PluginInfo{
-				ID:           PluginID,
-				Kind:         "channel",
-				Name:         pkgchannel.PlatformWeixin,
-				DisplayName:  "Weixin",
-				Description:  "Weixin iLink bot integration.",
-				AdminVisible: true,
+			Info: pkgplugins.PluginInfo{
+				ID:          PluginID,
+				Kind:        "channel",
+				Name:        pkgchannel.PlatformWeixin,
+				DisplayName: "Weixin",
+				Description: "Weixin iLink bot integration.",
 				Capabilities: []string{
 					pkgplugins.CapabilityRuntime,
 					pkgplugins.CapabilityConfig,

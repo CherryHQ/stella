@@ -2,101 +2,138 @@
 title: MCP Servers
 ---
 
-## What MCP Servers Do
+## What MCP servers do
 
-Stella can connect to external [Model Context Protocol](https://modelcontextprotocol.io) servers and expose their tools to your agents. Register a server once and its tools appear in the agent's toolbox, namespaced as `mcp__<server>__<tool>` so they never collide with skills or built-in tools.
+Stella connects agents to external [Model Context Protocol](https://modelcontextprotocol.io)
+servers and exposes their tools to the active turn. Declarations are ordinary
+files. A standalone server uses `mcp/<name>.json`; a server inside a package is
+part of that package's complete file tree.
 
-Stella is an MCP **client** over HTTP-based transports only:
+Stella is an MCP client over HTTP transports only:
 
-- `streamable_http` — the streamable HTTP transport (default).
-- `sse` — HTTP + Server-Sent Events.
+- `streamable_http`, the streamable HTTP transport.
+- `sse`, HTTP plus Server-Sent Events.
 
-Local `stdio` servers are intentionally not supported: the multi-user sandbox never spawns local processes.
+Local `stdio` servers are not supported. Stella does not start a local process
+for a model-facing MCP declaration. Endpoints must resolve to public addresses;
+loopback and private URLs require `STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS=1` for
+local development.
 
-Endpoints must resolve to public addresses. Loopback and private-network URLs are refused unless the operator starts `stellad` with `STELLA_MCP_ALLOW_PRIVATE_ENDPOINTS=1`, which is meant for local development servers.
+## Scopes and selection
 
-## Scopes
+MCP files use the same four scopes as Skills:
 
-Registrations use the same four scopes as skills and the vault, so a server can be shared or private:
+| Scope          | Visible to              |
+| -------------- | ----------------------- |
+| `system`       | every user and Agent    |
+| `system_agent` | every user of one Agent |
+| `user`         | one user's Agents       |
+| `user_agent`   | one user and one Agent  |
 
-| Scope          | Visible to                       |
-| -------------- | -------------------------------- |
-| `system`       | every agent, every user          |
-| `system_agent` | one agent, across all users      |
-| `user`         | one user, across their agents    |
-| `user_agent`   | one user with one specific agent |
+For a package, Stella selects the most specific complete package from the four
+typed roots in this order:
 
-When two registrations share a name, the most specific wins: `user_agent` > `user` > `system_agent` > `system`.
+```
+user_agent > user > system_agent > system
+```
+
+The selected package replaces the complete package at broader scopes. Its MCP
+servers, Skills, CLI entries, and environment declarations are resolved
+together. An independent copy has no parent link and does not follow later
+source edits. A standalone MCP file is selected by its name and does not merge
+with a package declaration of the same name.
+
+A `settings.json` entry can disable a server or apply administrator-only
+`forbidden` and `disabled_tools` limits. A disabled winner masks broader
+resources. A personal setting cannot override an administrator prohibition.
+
+Stella captures declarations at turn admission. Editing a file during a turn
+applies on the next turn; the current turn keeps its endpoint, tool catalog, and
+credential references. A catalog refresh observes the current file on a later
+turn and is not a separate registration record.
 
 ## Authentication
 
-A server may need a bearer token. Configure it when creating or editing the registration in the Web UI, or pass a `token` in the request body of `POST /api/mcp/servers`; the token is stored **encrypted in the vault** under the same scope as the registration (see [Secrets and Keys](/docs/guides/secrets-and-keys)) and is never written to the registration table. Servers that need no auth need no credential and work even without the vault configured.
+A declaration stores only a credential reference and public connection fields.
+Bearer tokens, OAuth tokens, refresh tokens, and client secrets are encrypted in
+the credential store. A server with no authentication needs no secret and works
+without credential storage configured.
+
+The credential mode can be `shared` for a system-owned declaration or `per_user`
+for separate user grants. User and user-agent declarations cannot request a
+shared credential. The declaration's scope and credential mode determine which
+Vault tuple is used; another user's grant is never a fallback.
 
 ## OAuth connections
 
-Servers that require OAuth 2.1 (Authorization Code + PKCE) can be connected from the Web UI. Pick **OAuth 2.1** as the authentication type, then press **Connect** on the server card. Stella discovers the authorization server automatically, registers a client when needed, and opens the provider's consent screen; on success it stores the tokens **encrypted in the vault** and probes the server.
+For an OAuth 2.1 server, choose **Connect** for the current file declaration.
+Stella discovers the authorization server, performs Authorization Code with
+PKCE, and stores the resulting grant separately from the file. The redirect URI
+is `<STELLA_BASE_URL>/api/mcp/oauth/callback` and must be reachable by the
+browser.
 
-- **Redirect URI**: `<STELLA_BASE_URL>/api/mcp/oauth/callback`. The base URL must be reachable by your browser — behind an ingress or a published port, not just inside the cluster.
-- **Pre-registered vs dynamic clients**: if the provider requires a fixed client, paste its **client ID** (and secret, if any) into the registration form. Otherwise Stella registers a client dynamically (DCR) the first time you connect and reuses it afterwards.
-- **Credential mode**: a `system` or `system_agent` registration can be `shared` (one connection for everyone) or `per_user` (every user connects their own account; users without a connection see the tools as `needs_auth`). Ordinary users can only connect `per_user` registrations they can see, never shared system credentials.
-- **Refresh and reconnect**: access tokens refresh automatically just before they expire. If the server rejects the credential, the server flips to `needs_auth`; press **Reconnect** to authorize again. **Disconnect** removes the stored authorization and fails subsequent tool calls closed.
+**Disconnect** is an explicit local authorization action. It revokes the
+matching stored grant, rotates its generation, closes the matching connection,
+and blocks late callbacks or refreshes; remote provider revocation is not
+guaranteed. Deleting or editing the MCP file does not perform Disconnect.
+Editing the endpoint or other authentication identity produces a new target and
+never reuses the old grant; ordinary Skill or package content edits keep it.
 
 ## Status and probing
 
-Stella probes each registered server — connects and fetches its tool list — and records the result on the registration:
+Probe reads the current declaration and performs one remote discovery. The
+result is an observation for the current target and credential owner. It is not
+a persisted MCP registration or an installation record. A later turn may probe
+again when the catalog is absent or stale.
 
-| Status       | Meaning                                                          |
-| ------------ | ---------------------------------------------------------------- |
-| `unknown`    | Not probed yet                                                   |
-| `ok`         | The last probe connected and listed tools                        |
-| `error`      | The last probe or tool call failed; the redacted reason is shown |
-| `needs_auth` | The server rejected the stored credential with 401/403           |
+| Status       | Meaning                                                  |
+| ------------ | -------------------------------------------------------- |
+| `unknown`    | no successful discovery is available for this target     |
+| `ok`         | the last discovery listed tools                          |
+| `error`      | the endpoint or discovery failed; the reason is redacted |
+| `needs_auth` | the server rejected the matching credential              |
 
-A probe runs automatically when you create a server, when its URL, transport, or auth changes, and when an agent session needs the tool list and the last snapshot is older than 24 hours. You can also trigger one any time with **Probe** in the Web UI, or with `POST /api/mcp/servers/{id}/probe` from the API. A failed probe never breaks anything — it just updates the status so you can see the problem (and the redacted reason) in the UI.
+A failed probe does not hide sibling servers or Skills in the same package. A
+server's tool catalog is an observation that later turns may reuse or refresh;
+the MCP connection itself belongs to the current session and closes with it.
 
-When a tool call is rejected with 401/403, the server moves to `needs_auth`; update the credential in the Web UI and probe again.
+## Tool permissions
 
-## Per-tool permissions
+Each exported remote tool can be enabled or disabled at the four scopes. An
+administrator prohibition wins over a personal enable. The package enable state
+also controls every MCP declaration and Skill in that package. A tool switch
+cannot enable a disabled package.
 
-Every tool a server exposes can be switched on or off individually, using the same four-scope override model as every other tool:
-
-| Scope          | Who it applies to                               |
-| -------------- | ----------------------------------------------- |
-| `user_agent`   | you, for one specific agent (most specific)     |
-| `user`         | you, across all your agents                     |
-| `system_agent` | the agent, for every user (administrators only) |
-| `system`       | the whole deployment (administrators only)      |
-
-An administrator's **disable** always wins over a user's enable; otherwise the more user-specific layer wins. Switch a tool in **Personal Settings → Agents → Tools** (or the admin console for system scopes), or with `PATCH /api/agents/{id}/tools/{toolName}`.
-
-The server's **enable switch is separate**: it turns the whole registration on or off. While a server is disabled, unreachable, or rejecting credentials, its tools stay listed but their switches have no effect until the server is healthy again — the header shows why.
-
-Because overrides are keyed by tool name (`mcp__<server>__<tool>`), renaming a server migrates its tools' overrides to the new prefix automatically, and deleting a server removes them. Both only happen once no other registration in any scope still uses that name. If two registrations share a name in different scopes, an override applies to whichever registration wins for the context.
+Native tools are separate system capabilities. A package or MCP server with the
+same display name cannot grant a Native capability, and disabling an MCP file
+does not disable a Native route.
 
 ## Marketplace
 
-Instead of typing a URL, browse the **Marketplace** tab: it lists remote servers from the official [MCP Registry](https://registry.modelcontextprotocol.io), filtered to entries with a streamable-HTTP endpoint. Each entry shows how it authenticates:
+The Web UI can browse the official [MCP Registry](https://registry.modelcontextprotocol.io)
+and copy a supported HTTP declaration into a writable scope. Marketplace data
+provides a starting declaration only. You still review its endpoint,
+authentication type, credential reference, and scope before saving. Registry
+metadata does not create a parent registration or an automatic update link.
 
-- **No auth** — install and go.
-- **Bearer** — install, then paste the API key the entry's header template asks for.
-- **Needs manual setup** (`unsupported`) — the entry requires custom headers the marketplace cannot fill in for you; install is still possible from the Manual tab after configuring it out of band.
-- **OAuth** — entries with no declared auth may still require OAuth; after install the first probe detects it and the server shows _needs auth_ with a Connect button.
+## Editing files
 
-Installing writes the registry source, id, and version onto the registration so it can be re-checked later. Installing a URL that already exists in the same scope returns the existing registration instead of creating a twin.
+Use the MCP page or the file API to create, read, edit, copy, or delete a
+standalone declaration. Package MCP servers are edited through the package file
+view. Complete package copies are independent. Content conflicts are reported
+when an edit uses a stale digest; direct shell writes remain nontransactional.
 
-The registry source can be overridden (e.g. for a mirror) with the `STELLA_MCP_REGISTRY_URL` environment variable; the default is the official registry.
-
-## Managing Servers
-
-Manage personal `user` and `user_agent` registrations from **Personal Settings → MCP Servers**. Administrators manage deployment-owned `system` and `system_agent` registrations from **Admin Console → Deployment resources → Global MCP**. Add the server URL, choose whether it applies to every agent or one agent, and provide a bearer token when required. There is no MCP management CLI: management happens in the Web UI, the HTTP API under `/api/mcp/servers`, or through the agent's `settings_mcp_server_*` tools.
+Deleting a declaration removes it from future selection. It does not revoke its
+OAuth grant or erase retained resource bytes immediately. Disconnect the target
+before deleting it when local access must be revoked; remote provider
+revocation is not guaranteed.
 
 ## Troubleshooting
 
-| Symptom                                    | Meaning                                                              | Fix                                                                            |
-| ------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Server shows **needs auth**                | The stored credential (or the OAuth grant) was rejected with 401/403 | Reconnect for OAuth; update the bearer token otherwise, then probe             |
-| Server shows **error**                     | The endpoint was unreachable at the last probe                       | Check the URL is reachable from the server, then probe again                   |
-| Tool switches have no effect               | The server is disabled or unhealthy                                  | Fix the server state first; the header explains why                            |
-| **Needs manual setup** in the marketplace  | The entry requires custom headers                                    | Configure the headers out of band, add the server from the Manual tab          |
-| OAuth callback fails to return             | `STELLA_BASE_URL` is not reachable by your browser                   | Make the base URL reachable (ingress, published port) and reconnect            |
-| Tools missing after a server adds new ones | The persisted catalog predates the change                            | Probe the server — or wait: `tools/list_changed` triggers a background refresh |
+| Symptom                    | Meaning                                  | Fix                                                      |
+| -------------------------- | ---------------------------------------- | -------------------------------------------------------- |
+| `needs_auth`               | the matching grant was rejected          | reconnect OAuth or update the bearer secret, then probe  |
+| `error`                    | the endpoint or discovery failed         | check the endpoint from the server and try the next turn |
+| a server is missing        | a narrower scope disabled or replaced it | inspect the winning scope and `settings.json`            |
+| a tool is missing          | the current catalog does not contain it  | edit the declaration or wait for the next discovery      |
+| local `stdio` does not run | local process transports are unsupported | expose the server over an allowed HTTP transport         |

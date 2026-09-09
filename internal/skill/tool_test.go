@@ -2,6 +2,8 @@ package skill
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -70,6 +72,96 @@ func TestSearchInstalledRanksExactManagedSnapshotsAndHonorsAuthorization(t *test
 	}
 	if out != "No installed skills found." {
 		t.Fatalf("denied managed Skill leaked into search: %s", out)
+	}
+}
+
+func TestPluginSkillVisibilityAppliesToSearchAndLoad(t *testing.T) {
+	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).
+		WithPluginVisibility([]string{"tool/lark-cli"}, nil)
+
+	out, err := skillAction(tool, "search").Execute(t.Context(), map[string]any{"q": "lark cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Core skills may match "cli" independently; only the disabled owner is hidden.
+	if out != noInstalledSkills {
+		var results []installedSkillSearchResult
+		if err := json.Unmarshal([]byte(out), &results); err != nil {
+			t.Fatal(err)
+		}
+		for _, result := range results {
+			if result.Name == "lark-cli" {
+				t.Fatalf("disabled plugin skill leaked into search: %s", out)
+			}
+		}
+	}
+	if out, err := loadSkill(t, tool, "lark-cli"); !errors.Is(err, errSkillNotFound) || out != "" {
+		t.Fatalf("disabled plugin skill load = %q, %v; want hidden", out, err)
+	}
+}
+
+type packageRevisionReader struct{ revision PackageSkillRevision }
+
+func (r packageRevisionReader) LoadPackageSkill(context.Context, PackageSkillRef) (PackageSkillRevision, error) {
+	return r.revision, nil
+}
+
+func TestPackageSkillSearchAndLoadUseTurnDigest(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	ref := PackageSkillRef{PackageID: "demo", PackageDigest: digest, Name: "docs", Path: "skills/docs/SKILL.md", Description: "package documentation"}
+	ref.captured = &PackageSkillRevision{
+		Ref:   ref,
+		Files: map[string][]byte{MainFile: []byte("# Docs"), "references/api.md": []byte("api reference")},
+		Modes: map[string]fs.FileMode{MainFile: 0o644, "references/api.md": 0o644},
+	}
+	ref.captured.Ref.captured = nil
+	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).
+		WithPluginVisibility([]string{"demo"}, []string{"demo"})
+	view, err := NewSkillTurnView(nil, nil, []PackageSkillRef{ref}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := WithSkillTurnView(t.Context(), view)
+	out, err := skillAction(tool, "search").Execute(ctx, map[string]any{"q": "package documentation"})
+	if err != nil || !strings.Contains(out, `"name": "docs"`) {
+		t.Fatalf("package search = %q, %v", out, err)
+	}
+	out, err = skillAction(tool, "load").Execute(ctx, map[string]any{"name": "docs", "path": "references/api.md"})
+	if err != nil || !strings.Contains(out, "api reference") || !strings.Contains(out, "stella-skills/package/demo:docs/") {
+		t.Fatalf("package load = %q, %v", out, err)
+	}
+}
+
+func TestPackageSkillLoadRejectsReaderForAnotherPath(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("b", 64)
+	ref := PackageSkillRef{PackageID: "demo", PackageDigest: digest, Name: "docs", Path: "skills/docs/SKILL.md"}
+	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).
+		WithPackageReader(packageRevisionReader{revision: PackageSkillRevision{
+			Ref:   PackageSkillRef{PackageID: ref.PackageID, PackageDigest: ref.PackageDigest, Name: ref.Name, Path: "skills/other/SKILL.md"},
+			Files: map[string][]byte{MainFile: []byte("# Docs")},
+			Modes: map[string]fs.FileMode{MainFile: 0o644},
+		}}).
+		WithPluginVisibility([]string{"demo"}, []string{"demo"})
+	view, err := NewSkillTurnView(nil, nil, []PackageSkillRef{ref}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = tool.Load(WithSkillTurnView(t.Context(), view), SkillLoadInput{Name: "docs"})
+	if !errors.Is(err, ErrInvalidSkillRevision) {
+		t.Fatalf("load mismatched package path error = %v, want ErrInvalidSkillRevision", err)
+	}
+}
+
+func TestManagedFileSkillProjectionHashesLongLogicalID(t *testing.T) {
+	logicalID := fileSkillID("user_agent", strings.Repeat("u", 180), strings.Repeat("a", 180), "docs")
+	revision := promptRevision(Skill{ID: logicalID, Scope: "user_agent", UserID: strings.Repeat("u", 180), AgentID: strings.Repeat("a", 180), Name: "docs"}, strings.Repeat("e", 64), "# Docs")
+	projection, err := managedSkillProjection(revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := sha256.Sum256([]byte(logicalID))
+	if projection.id != hex.EncodeToString(want[:]) || len(projection.id) > 128 {
+		t.Fatalf("projection id = %q, want sha256 logical id", projection.id)
 	}
 }
 

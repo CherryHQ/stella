@@ -1329,6 +1329,9 @@ func serializeUserRow(agentID, sessionID string, row sessionaccess.Message) apit
 	}
 	setSessionMessageActor(&message, row)
 	setSessionMessagePresentation(&message, agentID, sessionID, row.Content, row.Parts)
+	if execution := decodeExecutionMetadata(row.ExecutionMetadata); execution != nil {
+		message.Execution = serializeExecutionSummary(execution)
+	}
 	return message
 }
 
@@ -1456,6 +1459,73 @@ func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apit
 		message.ChildCalls = &childCalls
 	}
 	return message
+}
+
+func serializeExecutionSummary(summary *ai.ExecutionSummary) *apitypes.SessionExecutionSummary {
+	if summary == nil || (len(summary.Plugins) == 0 && len(summary.Skills) == 0) {
+		return nil
+	}
+	plugins := make([]apitypes.SessionExecutionPlugin, 0, len(summary.Plugins))
+	for _, plugin := range summary.Plugins {
+		item := apitypes.SessionExecutionPlugin{
+			PluginId:      plugin.PluginID,
+			Authorization: apitypes.SessionExecutionPluginAuthorization(plugin.Authorization),
+			Readiness:     apitypes.SessionExecutionPluginReadiness(plugin.Readiness),
+		}
+		item.PackageVersion = textPointer(plugin.PackageVersion)
+		item.PackageDigest = textPointer(plugin.PackageDigest)
+		item.Source = textPointer(plugin.Source)
+		item.ConfigId = textPointer(plugin.ConfigID)
+		item.ConfigScope = textPointer(plugin.ConfigScope)
+		if plugin.ConfigRevision != 0 {
+			revision := plugin.ConfigRevision
+			item.ConfigRevision = &revision
+		}
+		if len(plugin.Failures) > 0 {
+			item.Failures = &plugin.Failures
+		}
+		if len(plugin.Binaries) > 0 {
+			binaries := make([]apitypes.SessionExecutionBinary, 0, len(plugin.Binaries))
+			for _, binary := range plugin.Binaries {
+				binaries = append(binaries, apitypes.SessionExecutionBinary{
+					Name: binary.Name, Tool: textPointer(binary.Tool),
+					RequestedVersion: textPointer(binary.RequestedVersion), ResolvedVersion: textPointer(binary.ResolvedVersion),
+					Backend: textPointer(binary.Backend), SelectionIdentity: textPointer(binary.SelectionIdentity),
+					Source: textPointer(binary.Source),
+				})
+			}
+			item.Binaries = &binaries
+		}
+		plugins = append(plugins, item)
+	}
+	result := &apitypes.SessionExecutionSummary{Plugins: plugins}
+	if len(summary.Skills) > 0 {
+		skills := make([]apitypes.SessionExecutionSkill, 0, len(summary.Skills))
+		for _, skill := range summary.Skills {
+			item := apitypes.SessionExecutionSkill{
+				Name: skill.Name, PluginId: textPointer(skill.PluginID), Version: textPointer(skill.Version),
+				Source: textPointer(skill.Source), Scope: textPointer(skill.Scope), Digest: textPointer(skill.Digest),
+			}
+			if skill.State != "" {
+				state := apitypes.SessionExecutionSkillState(skill.State)
+				item.State = &state
+			}
+			skills = append(skills, item)
+		}
+		result.Skills = &skills
+	}
+	return result
+}
+
+func decodeExecutionMetadata(data []byte) *ai.ExecutionSummary {
+	if len(data) == 0 {
+		return nil
+	}
+	var summary ai.ExecutionSummary
+	if err := json.Unmarshal(data, &summary); err != nil || (len(summary.Plugins) == 0 && len(summary.Skills) == 0) {
+		return nil
+	}
+	return &summary
 }
 
 func setSessionMessageActor(message *apitypes.SessionMessage, row sessionaccess.Message) {

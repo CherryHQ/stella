@@ -373,11 +373,11 @@ func (f *fakeRunnerInvalidator) InvalidateAll() error {
 	return nil
 }
 
-// TestVaultMutationsInvalidateUserRunners verifies that PUT and DELETE on a
-// vault entry both close the user's live runners, so the next session reads
-// the new secret instead of the snapshot baked into the previous sandbox env.
-// Regression guard for stale secrets in scheduled jobs after key rotation.
-func TestVaultMutationsInvalidateUserRunners(t *testing.T) {
+// TestVaultSetInvalidatesUserRunners verifies that writes close the user's live
+// runners, so the next session reads the new secret instead of the snapshot
+// baked into the previous sandbox env. Deletes use the vault Access terminal
+// revocation path and do not call the legacy post-handler invalidator.
+func TestVaultSetInvalidatesUserRunners(t *testing.T) {
 	env, _ := setupVaultEnv(t)
 
 	inv := &fakeRunnerInvalidator{}
@@ -404,16 +404,14 @@ func TestVaultMutationsInvalidateUserRunners(t *testing.T) {
 		t.Fatalf("after overwrite PUT: expected 2 invalidate calls, got %d", len(inv.calls))
 	}
 
-	// DELETE also triggers invalidate.
+	// DELETE is coordinated by vault.Access and does not use the legacy
+	// post-handler invalidator.
 	rr = doRequest(t, env, "DELETE", "/api/vault/MY_TOKEN", nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
-	if len(inv.calls) != 3 {
-		t.Fatalf("after DELETE: expected 3 invalidate calls, got %d", len(inv.calls))
-	}
-	if inv.calls[2] != env.adminUser.ID {
-		t.Errorf("after DELETE: invalidated user = %q, want %q", inv.calls[2], env.adminUser.ID)
+	if len(inv.calls) != 2 {
+		t.Fatalf("after DELETE: expected 2 set invalidations, got %d", len(inv.calls))
 	}
 }
 
@@ -440,8 +438,8 @@ func TestSystemVaultMutationsInvalidateRunners(t *testing.T) {
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("system delete status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
-	if inv.allHits != 2 {
-		t.Fatalf("system mutations: InvalidateAll hits = %d, want 2", inv.allHits)
+	if inv.allHits != 1 {
+		t.Fatalf("system set: InvalidateAll hits = %d, want 1", inv.allHits)
 	}
 
 	// system_agent scope → InvalidateAgent for that agent only.

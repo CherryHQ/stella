@@ -5,74 +5,6 @@ info:
 paths: {}
 components:
   schemas:
-    MCPServer:
-      type: object
-      required: [
-        id,
-        scope,
-        name,
-        url,
-        transport,
-        auth_type,
-        enabled,
-        status,
-        credential_mode,
-      ]
-      properties:
-        id: { type: string }
-        scope:
-          type: string
-          enum: [user, user_agent, system, system_agent]
-        user_id: { type: string }
-        agent_id: { type: string }
-        name: { type: string }
-        url: { type: string }
-        transport:
-          type: string
-          enum: [streamable_http, sse]
-        auth_type:
-          type: string
-          enum: [none, bearer, oauth]
-        enabled: { type: boolean }
-        status:
-          type: string
-          enum: [unknown, ok, error, needs_auth]
-          description: Result of the last probe (or credential rejection).
-        status_error:
-          type: string
-          description: Redacted failure reason when status is error or needs_auth.
-        probed_at:
-          type: string
-          format: date-time
-          nullable: true
-          description: When the server was last probed; null if never.
-        tools:
-          type: array
-          description: Snapshot of the server's tools/list from the last successful probe.
-          items: { $ref: "#/components/schemas/MCPTool" }
-        credential_mode:
-          type: string
-          enum: [shared, per_user]
-        version:
-          type: string
-          description: Opaque version digest; send it as If-Match on PATCH/DELETE.
-        oauth:
-          type: object
-          description: >-
-            OAuth connection state computed for the calling user (per_user) or
-            the registration owner (shared). Never carries token material.
-          required: [connected, needs_reconnect, client_registered]
-          properties:
-            connected: { type: boolean }
-            access_expires_at:
-              type: string
-              format: date-time
-              nullable: true
-            needs_reconnect: { type: boolean }
-            client_registered: { type: boolean }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-
     MCPOAuthStart:
       type: object
       required: [authorization_url, flow_id, expires_at]
@@ -97,76 +29,176 @@ components:
           type: object
           additionalProperties: true
 
+    MCPDeclaration:
+      type: object
+      additionalProperties: false
+      required: [url, transport, auth_type, credential_mode]
+      properties:
+        url: { type: string, format: uri }
+        transport: { type: string, enum: [streamable_http, sse] }
+        description: { type: string }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        call_timeout_seconds:
+          type: integer
+          minimum: 0
+          maximum: 300
+          default: 0
+        auth_type: { type: string, enum: [none, bearer, oauth] }
+        credential_mode: { type: string, enum: [shared, per_user] }
+        credential_ref: { type: string }
+        client_id: { type: string }
+        client_secret_ref: { type: string }
+        token_endpoint_auth_method:
+          type: string
+          enum: [client_secret_basic, client_secret_post, none]
+        scopes:
+          type: array
+          items: { type: string }
+
+    MCPServer:
+      type: object
+      additionalProperties: false
+      required: [
+        id,
+        resource_id,
+        server_key,
+        name,
+        scope,
+        content_digest,
+        settings_digest,
+        is_enabled,
+        is_read_only,
+        is_standalone,
+        is_overridden,
+        diagnostics,
+        declaration,
+        needs_auth,
+        status,
+        tools,
+      ]
+      properties:
+        id:
+          type: string
+          readOnly: true
+          description: Stable opaque address for this file-backed MCP server.
+        resource_id:
+          type: string
+          readOnly: true
+          description: Stable identifier of the source file or package resource.
+        server_key: { type: string, readOnly: true }
+        name: { type: string, readOnly: true }
+        scope:
+          type: string
+          enum: [system, system_agent, user, user_agent]
+        user_id:
+          type: string
+          format: uuid
+          readOnly: true
+        agent_id: { type: string, readOnly: true }
+        content_digest: { type: string, readOnly: true }
+        settings_digest: { type: string, readOnly: true }
+        is_enabled: { type: boolean }
+        is_read_only: { type: boolean, readOnly: true }
+        is_standalone: { type: boolean, readOnly: true }
+        is_overridden: { type: boolean, readOnly: true }
+        diagnostics:
+          type: array
+          readOnly: true
+          items: { $ref: "#/components/schemas/PluginDiagnostic" }
+        declaration:
+          allOf: [{ $ref: "#/components/schemas/MCPDeclaration" }]
+          nullable: true
+        needs_auth: { type: boolean }
+        status: { type: string, enum: [unknown, ready, needs_auth, error] }
+        status_error: { type: string }
+        tools:
+          type: array
+          items: { $ref: "#/components/schemas/MCPTool" }
+
     MCPServerList:
       type: object
-      required: [servers]
+      required: [servers, next_page_token, truncated]
       properties:
         servers:
           type: array
           items: { $ref: "#/components/schemas/MCPServer" }
+        next_page_token: { type: string, nullable: true }
+        truncated:
+          type: boolean
+          readOnly: true
+          description: Whether the result was capped before all visible servers were returned.
 
     CreateMCPServerRequest:
       type: object
-      required: [name, url, scope]
+      additionalProperties: false
+      required: [name, scope, declaration]
       properties:
-        scope:
-          type: string
-          enum: [user, user_agent, system, system_agent]
+        name: { type: string, minLength: 1 }
+        scope: { type: string, enum: [system, system_agent, user, user_agent] }
         agent_id: { type: string }
-        name: { type: string }
-        url: { type: string }
-        transport:
-          type: string
-          enum: [streamable_http, sse]
-          default: streamable_http
-        auth_type:
-          type: string
-          enum: [none, bearer, oauth]
-          default: none
-        # token is the bearer credential; stored encrypted in the vault and never
-        # returned by any response.
-        token: { type: string }
-        # oauth_client_id is the public pre-registered client id; without it the
-        # server's registration endpoint (DCR) is used on the first oauth-start.
-        oauth_client_id: { type: string, writeOnly: true }
-        # oauth_client_secret is stored encrypted in the vault and never returned.
-        oauth_client_secret: { type: string, writeOnly: true }
-        credential_mode:
-          type: string
-          enum: [shared, per_user]
-          default: shared
-          description: per_user is only valid with auth_type oauth.
-        # Marketplace provenance, written into metadata.registry on install.
-        source: { type: string, writeOnly: true }
-        source_id: { type: string, writeOnly: true }
-        source_version: { type: string, writeOnly: true }
+        declaration: { $ref: "#/components/schemas/MCPDeclaration" }
 
     UpdateMCPServerRequest:
+      description: Supply either declaration with expected_digest, or is_enabled with expected_settings_digest. Combining both mutations is rejected.
       type: object
+      additionalProperties: false
       properties:
-        scope:
-          type: string
-          enum: [user, user_agent, system, system_agent]
-        agent_id: { type: string }
-        name: { type: string }
-        url: { type: string }
-        # Same OAuth client fields as create; empty oauth_client_id removes the
-        # stored id, empty oauth_client_secret clears the vault secret.
-        oauth_client_id: { type: string, writeOnly: true }
-        oauth_client_secret: { type: string, writeOnly: true }
-        credential_mode:
-          type: string
-          enum: [shared, per_user]
-        transport:
-          type: string
-          enum: [streamable_http, sse]
-        auth_type:
-          type: string
-          enum: [none, bearer, oauth]
-        enabled: { type: boolean }
-        # Omit token to keep the existing bearer token. Send with auth_type=bearer
-        # to replace it. Send auth_type=none to delete any stored token.
-        token: { type: string }
+        expected_digest: { type: string, minLength: 1 }
+        declaration: { $ref: "#/components/schemas/MCPDeclaration" }
+        is_enabled: { type: boolean }
+        expected_settings_digest: { type: string }
+
+    UpdateMCPServerFileRequest:
+      type: object
+      additionalProperties: false
+      required: [content_base64, expected_digest]
+      properties:
+        content_base64: { type: string, format: byte }
+        expected_digest: { type: string, minLength: 1 }
+
+    UpdateMCPServerCredentialsRequest:
+      description: Supply exactly one of bearer_token or client_secret. Both or neither are rejected.
+      type: object
+      additionalProperties: false
+      required: [expected_digest]
+      properties:
+        expected_digest: { type: string, minLength: 1 }
+        bearer_token: { type: string, writeOnly: true, minLength: 1 }
+        client_secret: { type: string, writeOnly: true, minLength: 1 }
+
+    MCPServerToolCreateInput:
+      type: object
+      additionalProperties: false
+      required: [name, scope, url]
+      properties:
+        name: { type: string, minLength: 1 }
+        scope: { type: string, enum: [user, user_agent, system, system_agent] }
+        url: { type: string, format: uri }
+        transport: {
+          type: string,
+          enum: [streamable_http, sse],
+          default: streamable_http,
+        }
+
+    MCPServerToolUpdateInput:
+      type: object
+      additionalProperties: false
+      required: [expected_digest]
+      properties:
+        expected_digest: { type: string, minLength: 1 }
+        expected_settings_digest: { type: string }
+        url: { type: string, format: uri }
+        transport: { type: string, enum: [streamable_http, sse] }
+        is_enabled: { type: boolean }
+
+    MCPServerToolListInput:
+      type: object
+      additionalProperties: false
+      properties:
+        page_size: { type: integer, minimum: 1, maximum: 50, default: 50 }
+        page_token: { type: string }
 
     MCPRegistryServer:
       type: object

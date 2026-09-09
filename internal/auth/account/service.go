@@ -37,6 +37,15 @@ type PATRevoker interface {
 	RevokeUserPATs(ctx context.Context, userID string) (int64, error)
 }
 
+// UserRevocationCoordinator serializes an account or assignment mutation with
+// the runtime revocation cutoff. The mutation callback runs while the
+// coordinator holds its short admission boundary; the implementation must
+// publish the cutoff before returning and perform slow runner cleanup after the
+// boundary is released.
+type UserRevocationCoordinator interface {
+	ApplyUserRevocation(ctx context.Context, userID, agentID string, mutate func() error) error
+}
+
 // Service owns the account use cases over the composed auth stores.
 type Service struct {
 	users    auth.UserStore
@@ -46,6 +55,7 @@ type Service struct {
 	creds    auth.CredentialStore
 	assign   AssignmentStore
 	pats     PATRevoker
+	revoke   UserRevocationCoordinator
 	log      *slog.Logger
 }
 
@@ -58,6 +68,20 @@ func NewService(users auth.UserStore, channels auth.ChannelIdentityStore, logins
 		log = slog.Default()
 	}
 	return &Service{users: users, channels: channels, logins: logins, sessions: sessions, creds: creds, assign: assign, pats: pats, log: log}
+}
+
+// SetRevocationCoordinator wires the runtime cutoff used by destructive
+// account and assignment mutations. A nil coordinator keeps package tests and
+// standalone callers on the historical durable-only behavior.
+func (s *Service) SetRevocationCoordinator(coordinator UserRevocationCoordinator) {
+	s.revoke = coordinator
+}
+
+func (s *Service) applyUserRevocation(ctx context.Context, userID, agentID string, mutate func() error) error {
+	if s.revoke == nil {
+		return mutate()
+	}
+	return s.revoke.ApplyUserRevocation(ctx, userID, agentID, mutate)
 }
 
 // Typed errors. The transport maps each to its historical HTTP status and body.
@@ -96,6 +120,8 @@ var (
 
 	// ErrPasswordIncorrect reports a failed current-password check (401).
 	ErrPasswordIncorrect = errors.New("current password is incorrect")
+
+	errNoUserRoleDeactivation = errors.New("account role did not permit deactivation")
 )
 
 // AccountView is the domain value backing the auth-user resource: the user plus
@@ -210,7 +236,12 @@ func (s *Service) SetActive(ctx context.Context, authority authz.Authority, targ
 	if _, err := s.users.GetUser(ctx, targetID); err != nil {
 		return AccountView{}, ErrUserNotFound
 	}
-	if err := s.users.UpdateUserActive(ctx, targetID, active); err != nil {
+	mutate := func() error { return s.users.UpdateUserActive(ctx, targetID, active) }
+	if active {
+		if err := mutate(); err != nil {
+			return AccountView{}, fmt.Errorf("%w: update active: %w", ErrUnavailable, err)
+		}
+	} else if err := s.applyUserRevocation(ctx, targetID, "", mutate); err != nil {
 		return AccountView{}, fmt.Errorf("%w: update active: %w", ErrUnavailable, err)
 	}
 	if !active {
@@ -236,19 +267,26 @@ func (s *Service) DeactivateUserIfUserRole(ctx context.Context, authority authz.
 	if !ok {
 		return AccountView{}, fmt.Errorf("%w: conditional deactivation is unsupported", ErrUnavailable)
 	}
-	updated, err := conditional.DeactivateUserIfUserRole(ctx, targetID)
+	var updated bool
+	err := s.applyUserRevocation(ctx, targetID, "", func() error {
+		var err error
+		updated, err = conditional.DeactivateUserIfUserRole(ctx, targetID)
+		if err == nil && !updated {
+			return errNoUserRoleDeactivation
+		}
+		return err
+	})
 	if err != nil {
+		if errors.Is(err, errNoUserRoleDeactivation) {
+			view, viewErr := s.loadView(ctx, targetID)
+			if viewErr != nil {
+				return AccountView{}, viewErr
+			}
+			if view.User.Role != auth.RoleUser {
+				return AccountView{}, ErrForbidden
+			}
+		}
 		return AccountView{}, fmt.Errorf("%w: conditionally deactivate user: %w", ErrUnavailable, err)
-	}
-	if !updated {
-		view, err := s.loadView(ctx, targetID)
-		if err != nil {
-			return AccountView{}, err
-		}
-		if view.User.Role != auth.RoleUser {
-			return AccountView{}, ErrForbidden
-		}
-		return AccountView{}, fmt.Errorf("%w: conditional deactivation did not update user", ErrUnavailable)
 	}
 	if err := s.lockDown(ctx, targetID); err != nil {
 		return AccountView{}, err
@@ -287,7 +325,8 @@ func (s *Service) ListUserAgents(ctx context.Context, authority authz.Authority,
 // SetUserAgents reconciles a user's agent assignments to the desired set and
 // returns the resulting list. Admin-only; the target must exist. Individual
 // add/remove failures are logged and do not abort the reconciliation (matching
-// the historical best-effort diff), and the returned list reflects the durable
+// the historical best-effort diff). Removing an assignment runs through the
+// user/agent revocation coordinator, and the returned list reflects the durable
 // end state.
 func (s *Service) SetUserAgents(ctx context.Context, authority authz.Authority, targetID string, desired []string) ([]string, error) {
 	if err := gateAdmin(authority); err != nil {
@@ -310,7 +349,8 @@ func (s *Service) SetUserAgents(ctx context.Context, authority authz.Authority, 
 	}
 	for _, id := range current {
 		if !desiredSet[id] {
-			if err := s.assign.RemoveAgent(ctx, targetID, id); err != nil {
+			remove := func() error { return s.assign.RemoveAgent(ctx, targetID, id) }
+			if err := s.applyUserRevocation(ctx, targetID, id, remove); err != nil {
 				s.log.Error("remove agent assignment", "user_id", targetID, "agent_id", id, "error", err)
 			}
 		}

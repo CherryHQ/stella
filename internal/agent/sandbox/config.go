@@ -10,6 +10,7 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	systemplugins "github.com/CherryHQ/stella/plugins/system"
 )
 
 // VaultEnvLoader is the vault surface an agent session needs.
@@ -24,16 +25,30 @@ type VaultEnvLoader interface {
 // Config is passed to sandbox operations.
 // It is constructed from the runner config in the parent agent package.
 type Config struct {
-	SandboxConfig       config.SandboxConfig
-	SandboxBackendFn    func(ctx context.Context) string
-	Backends            *BackendRegistry
-	Paths               Paths
-	UserID              string
-	GroupID             string // non-empty for group sessions; vault/env use group principal
-	AgentID             string
-	SessionID           string
-	ProjectID           string
-	SessionEnvSpecs     []pkgplugins.SessionEnvSpec
+	SandboxConfig     config.SandboxConfig
+	SandboxBackendFn  func(ctx context.Context) string
+	Backends          *BackendRegistry
+	Paths             Paths
+	UserID            string
+	GroupID           string // non-empty for group sessions; vault/env use group principal
+	AgentID           string
+	SessionID         string
+	ProjectID         string
+	SessionEnvSpecs   []pkgplugins.SessionEnvSpec
+	BinarySpecs       []pkgplugins.PluginBinarySpec
+	ContextBinaryPlan *BinaryInstallPlan
+	UserBinaryPlan    *BinaryInstallPlan
+	// BinaryInstallResult carries package-scoped CLI readiness to the caller
+	// that projects model-facing resources. It is populated during preparation.
+	BinaryInstallResult *BinaryInstallResult
+	// PluginRequirements and PluginPreparationResult keep OAuth and CLI
+	// readiness in the same package-scoped admission result.
+	PluginRequirements      []pkgplugins.PluginPackageRequirement
+	PluginPreparationResult *pkgplugins.PluginPreparationResult
+	SystemRuntimePlan       *systemplugins.RuntimePlan
+	// ManagedBinaryRoot is used only by the short preparation session. The final
+	// session receives UserBinaryPlan and never mounts this private tree.
+	ManagedBinaryRoot   string
 	VaultEnvLoader      VaultEnvLoader
 	SessionSecretValues *SessionSecretValues
 	TokenManager        *oauth.TokenManager
@@ -43,6 +58,10 @@ type Config struct {
 	// pointer with the retained runner config so RefreshSessionEnv sees what
 	// buildSandboxEnv recorded.
 	OAuthEnvBindings *OAuthEnvBindings
+	// SessionEnvRollbacks records only package env values that survive all
+	// runner-owned overlays. Backends use it to remove failed package inputs
+	// without touching runner-owned variables such as STELLA_HOME.
+	SessionEnvRollbacks map[string]pkgplugins.SessionEnvRollback
 	// ChatTimeout is the wall-clock budget for one chat turn. OAuth-derived env
 	// is refreshed to stay valid for at least this long plus a safety margin so a
 	// token injected at turn start outlives the turn (#722). Zero uses the

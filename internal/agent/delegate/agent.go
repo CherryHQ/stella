@@ -59,13 +59,15 @@ type SessionRunner interface {
 
 // SessionRunRequest describes a single persisted delegate turn.
 type SessionRunRequest struct {
-	SessionID     string
-	Task          string
-	Model         string
-	System        string
-	ExcludedTools []string
-	Timeout       time.Duration
-	ProjectID     string
+	SessionID       string
+	Task            string
+	Model           string
+	System          string
+	ExcludedTools   []string
+	AllowedTools    []string
+	HasAllowedTools bool
+	Timeout         time.Duration
+	ProjectID       string
 }
 
 // SessionRunResult is the output from a persisted delegate session.
@@ -351,12 +353,14 @@ func (t *DelegateTool) runDelegate(parentCtx context.Context, tc delegateTaskCon
 	t.emit(DelegateStarted{TaskID: tc.ID, Preset: tc.Preset})
 
 	sessionResult, err := t.cfg.SessionRunner.RunDelegateSession(ctx, SessionRunRequest{
-		SessionID:     tc.SessionID,
-		Task:          tc.Task,
-		Model:         model,
-		System:        system,
-		ExcludedTools: excludedTools,
-		Timeout:       timeout,
+		SessionID:       tc.SessionID,
+		Task:            tc.Task,
+		Model:           model,
+		System:          system,
+		ExcludedTools:   excludedTools,
+		AllowedTools:    append([]string(nil), tc.Tools...),
+		HasAllowedTools: tc.HasTools,
+		Timeout:         timeout,
 	})
 	duration := time.Since(start)
 

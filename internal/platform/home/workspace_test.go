@@ -56,6 +56,76 @@ func TestWorkspaceManagerMaterializesDeterministicTypedLayout(t *testing.T) {
 	}
 }
 
+func TestWorkspaceManagerWalksExistingSkillRootsWithoutLiveOwners(t *testing.T) {
+	db, ctx, base := dbtest.New(t), t.Context(), t.TempDir()
+	m, err := NewWorkspaceManager(db, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	for _, relative := range []string{
+		".agents/db-skills",
+		"agents/deleted-agent/.agents/skills",
+		"users/deleted-user/.agents/skills",
+		"users/deleted-user/.agents/agent-skills/deleted-agent",
+	} {
+		if err := os.MkdirAll(filepath.Join(base, relative), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seen := make(map[RootScope]WorkspaceRequest)
+	if err := m.WalkExistingSkillRoots(ctx, func(request WorkspaceRequest, scope RootScope, root SkillRootOperations) error {
+		seen[scope] = request
+		_, err := root.Stat(ctx, ".")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 4 {
+		t.Fatalf("walked scopes = %#v", seen)
+	}
+	if seen[RootSystemAgentSkills].AgentID != "deleted-agent" || seen[RootUserSkills].UserID != "deleted-user" || seen[RootUserAgentSkills] != (WorkspaceRequest{UserID: "deleted-user", AgentID: "deleted-agent"}) {
+		t.Fatalf("walked requests = %#v", seen)
+	}
+	if err := m.WalkExistingSkillRoots(ctx, func(_ WorkspaceRequest, _ RootScope, root SkillRootOperations) error {
+		return root.Close()
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkspaceManagerWalksEmptySkillInventory(t *testing.T) {
+	db, ctx, base := dbtest.New(t), t.Context(), t.TempDir()
+	m, err := NewWorkspaceManager(db, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	for _, name := range []string{"agents", "users"} {
+		if err := os.Mkdir(filepath.Join(base, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.WalkExistingSkillRoots(ctx, func(WorkspaceRequest, RootScope, SkillRootOperations) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkspaceManagerRejectsMaintenanceSymlinkAncestor(t *testing.T) {
+	db, ctx, base := dbtest.New(t), t.Context(), t.TempDir()
+	m, err := NewWorkspaceManager(db, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	if err := os.Symlink(t.TempDir(), filepath.Join(base, "users")); err != nil {
+		t.Skip(err)
+	}
+	if err := m.WalkExistingSkillRoots(ctx, func(WorkspaceRequest, RootScope, SkillRootOperations) error { return nil }); err == nil {
+		t.Fatal("maintenance followed symlinked users ancestor")
+	}
+}
+
 func TestWorkspaceManagerRejectsUnsafeTypedRoots(t *testing.T) {
 	db, ctx, base := dbtest.New(t), context.Background(), t.TempDir()
 	user := uuid.NewString()

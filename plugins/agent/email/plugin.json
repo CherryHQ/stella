@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "email",
+  "version": "1.0.0",
+  "description": "Standard IMAP/SMTP email client guidance for Gmail, Outlook, and self-hosted accounts."
+}

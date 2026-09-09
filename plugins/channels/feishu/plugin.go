@@ -54,13 +54,12 @@ func init() {
 		pkgplugins.RegisterManagedChannelPlugin(host, pkgplugins.ManagedChannelPluginRegistration{
 			PluginID:    PluginID,
 			RuntimeName: RuntimeName,
-			Meta: pkgplugins.PluginInfo{
-				ID:           PluginID,
-				Kind:         "channel",
-				Name:         pkgchannel.PlatformFeishu,
-				DisplayName:  "Feishu",
-				Description:  "Feishu bot integration.",
-				AdminVisible: true,
+			Info: pkgplugins.PluginInfo{
+				ID:          PluginID,
+				Kind:        "channel",
+				Name:        pkgchannel.PlatformFeishu,
+				DisplayName: "Feishu",
+				Description: "Feishu bot integration.",
 				Capabilities: []string{
 					pkgplugins.CapabilityRuntime,
 					pkgplugins.CapabilityConfig,

@@ -5,14 +5,18 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strings"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	coretools "github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/mcp"
+	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/toolmeta"
 )
 
 const (
@@ -64,6 +68,12 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	authority, err := info.authority()
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	ctx = authz.WithAuthority(ctx, authority)
 	managedAgent, code, msg := s.requireAgentManage(ctx, id)
 	if code != 0 {
 		writeError(w, code, msg)
@@ -80,7 +90,7 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusBadRequest, "system settings are policy-managed")
 		return
 	}
-	overridable, err := s.agentToolOverrideAllowed(ctx, info.UserID, id, toolName)
+	identity, overridable, err := s.agentToolOverrideAllowed(ctx, info.UserID, id, toolName)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -110,7 +120,7 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 
 	if req.Enabled == nil {
 		if err := s.toolOverrides.Clear(ctx, agent.ToolOverrideKey{
-			ToolName: toolName,
+			Identity: identity,
 			Scope:    scope,
 			UserID:   userID,
 			AgentID:  agentID,
@@ -120,7 +130,7 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 		}
 	} else {
 		if err := s.toolOverrides.Set(ctx, agent.ToolOverrideWrite{
-			ToolName: toolName,
+			Identity: identity,
 			Scope:    scope,
 			UserID:   userID,
 			AgentID:  agentID,
@@ -150,6 +160,11 @@ func (s *Server) agentTools(ctx context.Context, agentID string, includeSettings
 	if info == nil {
 		return nil, nil
 	}
+	authority, err := info.authority()
+	if err != nil {
+		return nil, err
+	}
+	ctx = authz.WithAuthority(ctx, authority)
 	overrides, err := s.toolOverrides.Fetch(ctx, info.UserID, agentID)
 	if err != nil {
 		return nil, err
@@ -193,43 +208,46 @@ func (s *Server) agentTools(ctx context.Context, agentID string, includeSettings
 			))
 			continue
 		}
-		decision := agent.ResolveToolOverride(true, def.Name, overrides)
+		identity, err := s.toolIdentity(def.Name)
+		if err != nil {
+			return nil, err
+		}
+		decision := agent.ResolveToolOverride(true, identity, overrides)
 		items = append(items, overrideAgentTool(def.Name, def.Description, agentToolSourceBuiltin, s.toolFamily(def.Name, agentToolSourceBuiltin), decision, toolInputSchema(def.InputSchema)))
 	}
 
 	if s.pluginHost != nil {
-		for _, spec := range s.pluginHost.EnabledToolSpecs(ctx) {
-			if agent.IsCoreToolName(spec.Name) {
-				continue
-			}
-			decision := agent.ResolveToolOverride(true, spec.Name, overrides)
-			items = append(items, overrideAgentTool(spec.Name, spec.Description, agentToolSourcePlugin, s.toolFamily(spec.Name, agentToolSourcePlugin), decision, nil))
-		}
-	}
-
-	// MCP tools come from the resolved registrations' persisted catalogs, one
-	// row per remote tool, override-controlled like builtins. The server-level
-	// lifecycle stays on the MCP registration; an unhealthy server still lists
-	// its tools with an availability_reason because the override is editable —
-	// it just has no effect until the server is healthy again.
-	if s.mcpSvc != nil {
-		regs, err := s.mcpSvc.ResolveForContextWithShadowed(ctx, info.UserID, agentID)
+		specs, err := s.pluginHost.EnabledToolSpecs(ctx, agentID)
 		if err != nil {
 			return nil, err
 		}
-		for _, resolved := range regs {
-			reg := resolved.Registration
-			reason := mcpAvailabilityReason(reg, s.mcpSvc.HasUserCredential(ctx, reg, info.UserID))
-			for _, tool := range reg.Tools {
-				name := mcp.NamespacedToolName(reg.Name, tool.Name)
-				decision := agent.ResolveToolOverride(true, name, overrides)
-				item := overrideAgentTool(name, tool.Description, agentToolSourceMCP, "mcp:"+reg.Name, decision, toolInputSchema(tool.InputSchema))
-				if reason != "" {
-					availability := types.AgentToolAvailabilityReason(reason)
-					item.AvailabilityReason = &availability
-				}
-				items = append(items, item)
+		for _, spec := range specs {
+			if agent.IsCoreToolName(spec.Name) {
+				continue
 			}
+			identity, ok := nativeToolIdentity(s.toolMeta, s.nativePolicy, spec)
+			if !ok {
+				continue
+			}
+			name := spec.Name
+			decision := agent.ResolveToolOverride(true, identity, overrides)
+			items = append(items, overrideAgentTool(name, spec.Description, agentToolSourcePlugin, s.toolFamily(name, agentToolSourcePlugin), decision, nil))
+		}
+	}
+
+	// File-backed MCP discovery is the single model-facing catalog. Legacy
+	// database registrations are intentionally not a profile policy source.
+	if s.agentMCPCatalog != nil {
+		catalog, err := s.agentMCPCatalog(ctx, authority, agentID)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range catalog {
+			decision := agent.ResolveToolOverride(true, entry.Identity, overrides)
+			item := overrideAgentTool(entry.Name, entry.Description, agentToolSourceMCP, entry.Family, decision, toolInputSchema(entry.InputSchema))
+			serverKey := entry.Identity.ServerKey
+			item.PluginServerKey = &serverKey
+			items = append(items, item)
 		}
 	}
 
@@ -287,47 +305,26 @@ func runtimeUnavailableAgentTool(name, description, family string, availabilityR
 	return item
 }
 
-// mcpAvailabilityReason maps a registration's server-level state to the
-// profile's availability enum. "unknown" (never probed) is reported as an
-// error: the runner has no catalog to serve tools from until a probe runs.
-// hasUserCredential is the per-user view: a per_user registration whose
-// calling user has no bundle is needs_auth for exactly that user, even though
-// the row's status still reflects the shared/owner state.
-func mcpAvailabilityReason(reg mcp.Registration, hasUserCredential bool) string {
-	switch {
-	case !reg.Enabled:
-		return "mcp_server_disabled"
-	case !hasUserCredential:
-		return "mcp_needs_auth"
-	case reg.Status == mcp.StatusNeedsAuth:
-		return "mcp_needs_auth"
-	case reg.Status != mcp.StatusOK:
-		return "mcp_server_error"
-	default:
-		return ""
-	}
-}
-
 // agentToolOverrideAllowed is the mutation-side counterpart of agentTools. It
 // makes the API reject an override when the runner's own availability gate would
 // ignore it, rather than returning a successful but ineffective mutation.
-func (s *Server) agentToolOverrideAllowed(ctx context.Context, userID, agentID, name string) (bool, error) {
-	if strings.HasPrefix(name, "mcp"+mcp.ToolNamespaceSep) {
-		if s.mcpSvc == nil {
-			return false, nil
-		}
-		regs, err := s.mcpSvc.ResolveForContextWithShadowed(ctx, userID, agentID)
-		if err != nil {
-			return false, err
-		}
-		for _, reg := range regs {
-			for _, tool := range reg.Tools {
-				if mcp.NamespacedToolName(reg.Name, tool.Name) == name {
-					return true, nil
+func (s *Server) agentToolOverrideAllowed(ctx context.Context, userID, agentID, name string) (agent.ToolIdentity, bool, error) {
+	if s.agentMCPCatalog != nil {
+		if info := UserFromContext(ctx); info != nil {
+			authority, err := info.authority()
+			if err != nil {
+				return agent.ToolIdentity{}, false, err
+			}
+			catalog, err := s.agentMCPCatalog(ctx, authority, agentID)
+			if err != nil {
+				return agent.ToolIdentity{}, false, err
+			}
+			for _, entry := range catalog {
+				if entry.Name == name {
+					return entry.Identity, entry.Identity.Validate() == nil, nil
 				}
 			}
 		}
-		return false, nil
 	}
 	params := agent.RunnerParams{UserID: userID, AgentID: agentID}
 	for _, entry := range s.builtinTools {
@@ -335,16 +332,88 @@ func (s *Server) agentToolOverrideAllowed(ctx context.Context, userID, agentID, 
 		if !ok || definition.Name != name {
 			continue
 		}
-		return builtinAvailable(ctx, entry, params)
+		available, err := builtinAvailable(ctx, entry, params)
+		if err != nil || !available {
+			return agent.ToolIdentity{}, false, err
+		}
+		identity, err := s.toolIdentity(name)
+		return identity, err == nil, err
 	}
 	if s.pluginHost != nil {
-		for _, spec := range s.pluginHost.EnabledToolSpecs(ctx) {
-			if spec.Name == name {
-				return true, nil
+		info := UserFromContext(ctx)
+		if info == nil {
+			return agent.ToolIdentity{}, false, nil
+		}
+		specs, err := s.pluginHost.EnabledToolSpecs(ctx, agentID)
+		if err != nil {
+			return agent.ToolIdentity{}, false, err
+		}
+		for _, spec := range specs {
+			identity, ok := nativeToolIdentity(s.toolMeta, s.nativePolicy, spec)
+			if ok && spec.Name == name {
+				return identity, ok, nil
 			}
 		}
 	}
-	return false, nil
+	return agent.ToolIdentity{}, false, nil
+}
+
+func (s *Server) toolIdentity(name string) (agent.ToolIdentity, error) {
+	return trustedToolIdentityWithPolicy(s.toolMeta, s.nativePolicy, name)
+}
+
+func trustedToolIdentityWithPolicy(meta *toolmeta.Registry, native *pluginpkg.NativePolicy, name string) (agent.ToolIdentity, error) {
+	if spec, ok := meta.Lookup(name); ok {
+		if spec.PluginID == "" {
+			if spec.LocalName != "" {
+				return agent.ToolIdentity{}, fmt.Errorf("tool %q has core/plugin metadata mismatch", name)
+			}
+			return agent.ToolIdentity{CoreToolName: name}, nil
+		}
+		if native == nil {
+			return agent.ToolIdentity{}, pluginpkg.ErrNativePolicyUnavailable
+		}
+		if !native.IsRegistered(spec.PluginID) {
+			return agent.ToolIdentity{}, pluginpkg.ErrUnknownNativeID
+		}
+		return agent.ToolIdentity{CoreToolName: name}, nil
+	}
+	return agent.ToolIdentity{CoreToolName: name}, nil
+}
+
+func nativeToolIdentity(meta *toolmeta.Registry, native *pluginpkg.NativePolicy, spec pkgplugins.ToolSpec) (agent.ToolIdentity, bool) {
+	if meta == nil {
+		return agent.ToolIdentity{}, false
+	}
+	metadata, ok := meta.Lookup(spec.Name)
+	if !ok || metadata.PluginID != spec.PluginID {
+		return agent.ToolIdentity{}, false
+	}
+	identity, err := trustedToolIdentityWithPolicy(meta, native, spec.Name)
+	return identity, err == nil
+}
+
+func mcpToolName(reg mcp.Registration, tool mcp.CatalogTool) (string, bool) {
+	serverKey := reg.ServerKey
+	if serverKey == "" {
+		// Legacy single-server registrations predate composable child identity.
+		// Keep their stable exported names while all new rows carry ServerKey.
+		serverKey = "main"
+	}
+	name, err := agentpackage.ExportedToolName(reg.PluginID, serverKey, tool.Name)
+	return name, err == nil
+}
+
+func mcpToolIdentity(reg mcp.Registration, tool mcp.CatalogTool) (agent.ToolIdentity, bool) {
+	if reg.PluginID == "" || tool.Name == "" {
+		return agent.ToolIdentity{}, false
+	}
+	serverKey := reg.ServerKey
+	if serverKey == "" {
+		serverKey = "main"
+	}
+	identity := agent.ToolIdentity{PluginID: reg.PluginID, ServerKey: serverKey, LocalToolName: tool.Name}
+	return identity, identity.Validate() == nil
 }
 
 // toolInputSchema adapts a tool definition's JSON input schema to the pointer

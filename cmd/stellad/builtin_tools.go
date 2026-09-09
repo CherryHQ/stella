@@ -6,6 +6,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/controlplane"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
@@ -15,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
+	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skill"
@@ -53,7 +55,9 @@ type builtinToolDeps struct {
 	SettingsAdmin   settingspolicy.AdminLookup
 	SettingsAgents  settingspolicy.AgentLookup
 	ControlPlane    func() *controlplane.Service
-	MCPAccess       func() *mcp.Access
+	PluginFiles     func() *pluginpkg.FileService
+	NativePolicy    *pluginpkg.NativePolicy
+	MCPFiles        func() *mcp.FileService
 	MCPCatalog      agent.MCPCatalogFunc
 }
 
@@ -104,6 +108,21 @@ type builtinToolGroup struct {
 
 func settingsToolAvailable(d builtinToolDeps, adminOnly bool) toolAvailable {
 	return settingspolicy.Available(adminOnly, d.SettingsAdmin, d.SettingsAgents)
+}
+
+func nativeToolAvailable(policy *pluginpkg.NativePolicy, nativeID string, base toolAvailable) toolAvailable {
+	return func(ctx context.Context, params agent.RunnerParams) (bool, error) {
+		if base != nil {
+			available, err := base(ctx, params)
+			if err != nil || !available {
+				return available, err
+			}
+		}
+		if policy == nil {
+			return false, pluginpkg.ErrNativePolicyUnavailable
+		}
+		return policy.Allows(ctx, nativeID, params.AgentID)
+	}
 }
 
 // builtinToolGroups keeps family membership in one list. The runtime
@@ -193,7 +212,7 @@ func builtinToolGroups() []builtinToolGroup {
 			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
 				return splitBuiltins(scheduler.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 					return scheduler.NewTool(d.Scheduler, spec)
-				}, agent.BuiltinToolAvailable)
+				}, nativeToolAvailable(d.NativePolicy, scheduler.SchedulerPluginID, agent.BuiltinToolAvailable))
 			},
 		},
 		{
@@ -217,7 +236,7 @@ func builtinToolGroups() []builtinToolGroup {
 			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
 				builtins := splitBuiltins(email.ActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
 					return email.NewTool(d.Email, spec, d.EmailTool)
-				}, emailToolAvailable(d.Vault))
+				}, nativeToolAvailable(d.NativePolicy, "system/email", emailToolAvailable(d.Vault)))
 				for i := range builtins {
 					// This declaration follows the same EMAIL_CONFIG check as
 					// Available. The Profile only exposes it after that
@@ -242,7 +261,7 @@ func builtinToolGroups() []builtinToolGroup {
 					return recally.NewRuntimeTool(d.Recally, build.Runtime, spec)
 				}, func(spec toolmeta.ActionTool) pkgtools.Tool {
 					return recally.NewTool(d.Recally, spec)
-				}, agent.BuiltinToolAvailable)
+				}, nativeToolAvailable(d.NativePolicy, "system/recally", agent.BuiltinToolAvailable))
 			},
 		},
 		{
@@ -268,7 +287,7 @@ func builtinToolGroups() []builtinToolGroup {
 			metadata: agent.SettingsAgentToolActionTools(),
 			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
 				return splitBuiltins(agent.SettingsAgentToolActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-					return settingspolicy.Wrap(agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta, d.MCPCatalog), d.SettingsAgents, d.SettingsAdmin)
+					return settingspolicy.Wrap(agent.NewToolOverrideManagementTool(spec, d.AgentManagement, d.ToolOverrides, d.ToolMeta, d.MCPCatalog, d.NativePolicy), d.SettingsAgents, d.SettingsAdmin)
 				}, settingsToolAvailable(d, false))
 			},
 		},
@@ -300,7 +319,7 @@ func builtinToolGroups() []builtinToolGroup {
 			metadata: controlplane.SettingsPluginActionTools(),
 			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
 				return splitBuiltins(controlplane.SettingsPluginActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-					return settingspolicy.Wrap(controlplane.NewPluginManagementTool(spec, d.ControlPlane), d.SettingsAgents, d.SettingsAdmin)
+					return settingspolicy.Wrap(controlplane.NewPluginManagementTool(spec, d.PluginFiles), d.SettingsAgents, d.SettingsAdmin)
 				}, settingsToolAvailable(d, true))
 			},
 		},
@@ -308,7 +327,7 @@ func builtinToolGroups() []builtinToolGroup {
 			metadata: mcp.SettingsMcpActionTools(),
 			runtime: func(d builtinToolDeps) []agent.BuiltinTool {
 				return splitBuiltins(mcp.SettingsMcpActionTools(), func(spec toolmeta.ActionTool) pkgtools.Tool {
-					return settingspolicy.Wrap(mcp.NewManagementTool(spec, d.MCPAccess), d.SettingsAgents, d.SettingsAdmin)
+					return settingspolicy.Wrap(mcp.NewFileManagementTool(spec, d.MCPFiles), d.SettingsAgents, d.SettingsAdmin)
 				}, settingsToolAvailable(d, false))
 			},
 		},
@@ -369,25 +388,26 @@ func splitFamilyNames(families ...[]toolmeta.ActionTool) []string {
 	return out
 }
 
-// mcpCatalogFunc adapts the MCP service to the agent package's catalog func:
-// the persisted catalogs of the registrations effective for one (user, agent),
-// keyed by namespaced tool name. tool_override rows are keyed by tool name, so
-// this is the same set the runner's FilterToolEnabled gates.
-func mcpCatalogFunc(svc *mcp.Service) agent.MCPCatalogFunc {
-	if svc == nil {
+// mcpCatalogFunc adapts the file-backed MCP snapshot to the agent management
+// catalog. It deliberately probes only the authority-bound file resources, so
+// a legacy database registration cannot leak into policy management.
+func mcpCatalogFunc(files *mcp.FileService) agent.MCPCatalogFunc {
+	if files == nil {
 		return nil
 	}
-	return func(ctx context.Context, userID, agentID string) map[string]string {
-		regs, err := svc.ResolveForContextWithShadowed(ctx, userID, agentID)
+	return func(ctx context.Context, authority authz.Authority, agentID string) ([]agent.MCPCatalogEntry, error) {
+		entries, err := files.Catalog(ctx, authority, agentID)
 		if err != nil {
-			return nil
+			return nil, err
 		}
-		catalog := make(map[string]string)
-		for _, reg := range regs {
-			for _, tool := range reg.Tools {
-				catalog[mcp.NamespacedToolName(reg.Name, tool.Name)] = "mcp:" + reg.Name
+		catalog := make([]agent.MCPCatalogEntry, 0, len(entries))
+		for _, entry := range entries {
+			identity := agent.ToolIdentity{PluginID: entry.PluginID, ServerKey: entry.ServerKey, LocalToolName: entry.LocalToolName}
+			if err := identity.Validate(); err != nil {
+				return nil, err
 			}
+			catalog = append(catalog, agent.MCPCatalogEntry{Name: entry.Name, Description: entry.Description, InputSchema: entry.InputSchema, Identity: identity, Family: entry.Family})
 		}
-		return catalog
+		return catalog, nil
 	}
 }

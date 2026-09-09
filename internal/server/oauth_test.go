@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	pluginhost "github.com/CherryHQ/stella/internal/plugin/host"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
+	"github.com/CherryHQ/stella/internal/plugin"
+	"github.com/CherryHQ/stella/internal/plugin/agentpackage"
 )
 
 func TestRequestOriginUsesOriginHeader(t *testing.T) {
@@ -38,67 +38,45 @@ func TestRequestOriginUsesForwardedHeaders(t *testing.T) {
 }
 
 // TestOAuthProviderRequiredBy verifies that the credentials-page hint maps each
-// tool OAuth provider to the display names of the enabled tools that need it:
-// multiple session envs of one tool collapse to a single entry, and disabled
-// tools are excluded.
+// provider to the display names of enabled file-backed packages that need it.
 func TestOAuthProviderRequiredBy(t *testing.T) {
-	host := pluginhost.New(nil)
-	host.RegisterManifestPlugins(&manifest.Manifest{
-		Plugins: []manifest.ManifestPlugin{
-			{
-				ID:      "tool/acme-exporter",
-				Kind:    "tool",
-				Enabled: true,
-				ManifestPluginDefinition: manifest.ManifestPluginDefinition{
-					Name:          "acme-exporter",
-					DisplayName:   "Acme Exporter",
-					OAuthProvider: "acme",
-					SessionEnvs: []manifest.ManifestSessionEnv{
-						{EnvVar: "ACME_EXPORTER_TOKEN", Source: "oauth.access_token"},
-						{EnvVar: "ACME_EXPORTER_APP_ID", Source: "oauth.client_id"},
-					},
-				},
-			},
-			{
-				ID:      "tool/gh",
-				Kind:    "tool",
-				Enabled: true,
-				ManifestPluginDefinition: manifest.ManifestPluginDefinition{
-					Name:          "gh",
-					DisplayName:   "GitHub CLI",
-					OAuthProvider: "github",
-					SessionEnvs: []manifest.ManifestSessionEnv{
-						{EnvVar: "GH_TOKEN", Source: "oauth.access_token"},
-					},
-				},
-			},
-			{
-				ID:      "tool/disabled",
-				Kind:    "tool",
-				Enabled: false,
-				ManifestPluginDefinition: manifest.ManifestPluginDefinition{
-					Name:          "disabled",
-					OAuthProvider: "acme",
-					SessionEnvs: []manifest.ManifestSessionEnv{
-						{EnvVar: "X", Source: "oauth.access_token"},
-					},
-				},
-			},
-		},
-	})
+	resources := []plugin.FileResource{
+		fileOAuthResource("acme-exporter", "Acme Exporter", false, false, "acme", "acme", "github"),
+		fileOAuthResource("fallback", "", false, false, "acme"),
+		fileOAuthResource("disabled", "Disabled", true, false, "acme"),
+		fileOAuthResource("forbidden", "Forbidden", false, true, "github"),
+		{Package: nil},
+	}
+	got := oauthProviderRequiredBy(resources)
 
-	got := oauthProviderRequiredBy(host)
-
-	if want := []string{"Acme Exporter"}; !reflect.DeepEqual(got["acme"], want) {
+	if want := []string{"Acme Exporter", "fallback"}; !reflect.DeepEqual(got["acme"], want) {
 		t.Errorf("acme RequiredBy = %v, want %v", got["acme"], want)
 	}
-	if want := []string{"GitHub CLI"}; !reflect.DeepEqual(got["github"], want) {
+	if want := []string{"Acme Exporter"}; !reflect.DeepEqual(got["github"], want) {
 		t.Errorf("github RequiredBy = %v, want %v", got["github"], want)
 	}
 }
 
-func TestOAuthProviderRequiredByNilHost(t *testing.T) {
-	if got := oauthProviderRequiredBy(nil); got != nil {
-		t.Errorf("RequiredBy(nil host) = %v, want nil", got)
+func TestOAuthProviderRequiredByEmptyResources(t *testing.T) {
+	if got := oauthProviderRequiredBy(nil); len(got) != 0 {
+		t.Errorf("RequiredBy(empty resources) = %v, want empty", got)
+	}
+}
+
+func fileOAuthResource(name, displayName string, disabled, forbidden bool, providers ...string) plugin.FileResource {
+	requirements := make([]agentpackage.OAuthRequirement, 0, len(providers))
+	for _, provider := range providers {
+		requirements = append(requirements, agentpackage.OAuthRequirement{Provider: provider})
+	}
+	return plugin.FileResource{
+		Disabled:  disabled,
+		Forbidden: forbidden,
+		Package: &agentpackage.Package{
+			Manifest: agentpackage.Manifest{Name: name},
+			Extension: &agentpackage.StellaExtension{
+				DisplayName: displayName,
+				OAuth:       requirements,
+			},
+		},
 	}
 }

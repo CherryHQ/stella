@@ -12,6 +12,54 @@ import {
 const mediaURL = "/api/agents/agent/sessions/session/media/media-id";
 
 describe("session history conversion", () => {
+  it("keeps execution evidence on its user anchor through the AI SDK cache", () => {
+    const execution: NonNullable<SessionMessage["execution"]> = {
+      plugins: [
+        {
+          plugin_id: "acme/tools",
+          package_version: "1.2.3",
+          package_digest: "digest",
+          config_id: "config-id",
+          config_scope: "user",
+          config_revision: 7,
+          authorization: "not_required",
+          readiness: "ready",
+        },
+      ],
+    };
+    const messages = sessionMessagesToMessages([
+      {
+        id: "anchor",
+        role: "user",
+        actor_type: SESSION_MESSAGE_ACTOR_TYPE.human,
+        timestamp: "2026-09-08T00:00:00Z",
+        token_count: 1,
+        content: "same",
+        execution,
+      },
+      {
+        id: "answer",
+        role: "assistant",
+        actor_type: SESSION_MESSAGE_ACTOR_TYPE.agent,
+        timestamp: "2026-09-08T00:00:01Z",
+        token_count: 1,
+        content: "same",
+      },
+      {
+        id: "old-anchor",
+        role: "user",
+        actor_type: SESSION_MESSAGE_ACTOR_TYPE.human,
+        timestamp: "2026-09-08T00:00:02Z",
+        token_count: 1,
+        content: "same",
+      },
+    ]);
+    const restored = messages.map((message) => uiMessageToMessage(messageToUIMessage(message)));
+    expect(restored[0]).toMatchObject({ id: "anchor", execution });
+    expect(restored[1].execution).toBeUndefined();
+    expect(restored[2].execution).toBeUndefined();
+  });
+
   it("preserves canonical text and image order without turning media into a marker", () => {
     const history: SessionMessage[] = [
       {

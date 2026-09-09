@@ -28,6 +28,7 @@ var deniedResources = map[string]bool{
 	"manifest-plugins":   true,
 	"models":             true,
 	"model-catalog":      true,
+	"native-plugins":     true,
 	"plugins":            true,
 	"provider-types":     true,
 	"providers":          true,

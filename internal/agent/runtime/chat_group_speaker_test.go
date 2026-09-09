@@ -21,9 +21,9 @@ func TestRuntimeChatGroupSpeakerContextNoUserPromotion(t *testing.T) {
 	rt, err := New(Config{
 		Memory: mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
-			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
-		BeforeRun: func(ctx context.Context, _ session.Info, _, _, system string, _ []ai.Message) (string, error) {
+		BeforeRun: func(ctx context.Context, _ session.Info, _, _, system string, _ []ai.Message, _ PluginContext) (string, error) {
 			cs, ok := memory.CurrentSpeakerFromContext(ctx)
 			if !ok {
 				t.Fatal("missing current speaker in group turn context")
@@ -68,7 +68,7 @@ func TestRuntimeChatGroupSpeakerContextInjectedIntoModelMessageOnly(t *testing.T
 	rt, err := New(Config{
 		Memory: mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
-			return chatFakeRunner{events: []Event{{Text: "ok"}}, messages: &modelMessages}, nil
+			return &chatFakeRunner{events: []Event{{Text: "ok"}}, messages: &modelMessages}, nil
 		},
 	})
 	if err != nil {
@@ -122,7 +122,7 @@ func TestRuntimeGroupRunnerBuildContextCarriesConfinedActor(t *testing.T) {
 		Memory: &recordingMemory{},
 		NewRunner: func(ctx context.Context, _ RunnerParams) (Runner, error) {
 			buildCtx = ctx
-			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
 	})
 	if err != nil {
