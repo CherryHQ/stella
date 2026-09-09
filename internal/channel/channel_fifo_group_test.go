@@ -96,7 +96,7 @@ func TestGroupResponderFIFOConsumerCompletesAcceptedPublish(t *testing.T) {
 	if claimed.ID != item.ID {
 		t.Fatalf("claimed item = %s, want %s", claimed.ID, item.ID)
 	}
-	if err := fx.d.HandleFIFO(ctx, claimed); err != nil {
+	if err := fx.d.HandleFIFO(ctx, claimed, nil); err != nil {
 		t.Fatalf("handle group responder FIFO item: %v", err)
 	}
 	ledger, err := fx.q.GetGroupDispatch(ctx, item.ID)

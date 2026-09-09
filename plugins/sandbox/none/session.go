@@ -346,7 +346,7 @@ func (s *noneSession) startProcess(ctx context.Context, cmd *exec.Cmd, cancel co
 		// Close cannot set this state while closeMu is held, but retain the
 		// check so a future lifecycle path cannot register after termination.
 		s.mu.Unlock()
-		_ = cmd.Process.Kill()
+		killProcessGroup(cmd)
 		_ = cmd.Wait()
 		s.closeMu.Unlock()
 		return nil, errors.New("none: session is closed")
@@ -404,6 +404,7 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 	cmd := exec.Command(sh, shFlag, command)
 	cmd.Dir = resolvedCwd.HostPath()
 	cmd.Env = buildEnvMode(policy, opts.Env, opts.EnvMode)
+	setSysProcAttr(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -493,6 +494,7 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 	cmd := exec.Command(processPath, req.Args...)
 	cmd.Dir = resolvedCwd.HostPath()
 	cmd.Env = cmdEnv
+	setSysProcAttr(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -667,8 +669,6 @@ func (p *noneProcess) Close() error {
 	p.closed = true
 	close(p.exitCh)
 	p.cancel()
-	if p.cmd.Process != nil {
-		_ = p.cmd.Process.Kill()
-	}
+	killProcessGroup(p.cmd)
 	return nil
 }

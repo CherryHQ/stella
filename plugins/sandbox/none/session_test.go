@@ -409,6 +409,44 @@ func TestNoneSessionCloseCancelsExec(t *testing.T) {
 	}
 }
 
+func TestNoneSessionCloseCancelsShellDescendant(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sleep command is not available on Windows")
+	}
+	s := newTestSession(t)
+	t.Cleanup(func() { _ = s.Close() })
+	done := make(chan error, 1)
+	go func() {
+		// The child signals readiness before Close, so killing only the parent
+		// cannot pass by preventing the child from starting.
+		_, err := s.Exec(t.Context(), "(printf ready > child-ready; exec sleep 30) & wait", sandboxpkg.ExecOptions{})
+		done <- err
+	}()
+
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for {
+		if _, err := os.Stat(filepath.Join(s.policy.Filesystem.WorkingDir, "child-ready")); err == nil {
+			break
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("shell descendant did not start")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not cancel a shell descendant")
+	}
+}
+
 func TestNoneSessionCloseCancelsStartProcess(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell sleep command is not available on Windows")

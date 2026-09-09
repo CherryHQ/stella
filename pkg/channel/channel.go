@@ -171,8 +171,9 @@ type ChatStream struct {
 	SessionID string
 
 	// Completion fences every model-derived outbound effect and stays open until
-	// the adapter records the terminal egress outcome. EOF only closes Events;
-	// queue owners wait on Completion.Done before admitting the next turn.
+	// the source owner settles the adapter's egress outcome and durable facts.
+	// EOF only closes Events; queue owners wait on Completion.Done before
+	// admitting the next turn.
 	Completion runcontrol.Completion
 }
 
@@ -203,6 +204,7 @@ func EgressOutcomeForError(err error) EgressOutcome {
 // StreamCompletion is the runtime-to-channel bridge for an admitted turn.
 // Check is called immediately before each external send. Ack is called exactly
 // once after the adapter has finished all text, image, and file sends.
+// Ack may only record the outcome; Done is the source's release barrier.
 type StreamCompletion = runcontrol.Completion
 
 var alreadyComplete = func() <-chan struct{} {

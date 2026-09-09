@@ -51,6 +51,8 @@ Phase 1 仅支持一个副本和一个可信 POSIX `STELLA_HOME`。PostgreSQL ow
 
 runner 句柄借用该资源。runner 闲置 10 分钟后的普通回收只释放借用，后续 runner 可以复用同一健康代次和不可变策略；逐轮环境替换仍负责更新凭据。每个进程最多保留 1024 代资源。如果无法安全回收任何闲置资源，新增资源会得到明确的容量错误，不会静默淘汰已有健康原生资源。
 
+`generationSession` 统一管理后端选择、重建和环境更新。重建、凭据刷新和借用释放使用同一个串行化边界，防止新代次丢掉并发凭据更新，或在句柄已关闭后仍占用借用名额。
+
 用户 CLI 的私有 preparation Session 属于同一代次的辅助资源，每次尝试都有独立目录并在执行前登记。每代最多保留 64 个尚无缺失证明的 preparation，达到上限时，新的安装会在创建资源之前被拒绝。安装结果已知时可发布不可变选择；原生终止尚无证明时保留辅助资源和目录。执行结果不明会 fence 整个代次，替换或销毁要求主资源及全部辅助资源都已证明不存在。Docker toolcache helper 仍由独立的共享缓存 owner 管理。
 
 旧代次的操作在进入后端前被拒绝。计算操作结果不确定时封锁该代次，不得在替代资源上重放；能够证明尚未开始执行的失败，不会封锁健康资源。Workspace/API 文件访问保持独立。
@@ -71,7 +73,7 @@ runner 会从 `STELLA_SANDBOX_BACKEND` 解析部署时后端，并通过注入�
 - 插件工具接收 `ToolContext.Runtime`，这是活动会话上的 `pkg/plugins.ToolRuntime` 适配器
 - 技能和代理预设加载在代理会话内运行时使用 `ToolRuntime`
 
-读取文件的核心工具每次调用只选择一个 `FileView`。其中的策略环境、工作目录与 `FileAccess` 来自同一个 resilient generation，因此路径展开不会在中途静默切换 backing tree。跨越该边界的 provider 错误只标识逻辑进程 mount，不暴露物理 source path。
+读取文件的核心工具每次调用只选择一个 `FileView`。其中的策略环境、工作目录与 `FileAccess` 来自同一个已选定的计算代次，因此路径展开不会在中途静默切换 backing tree。跨越该边界的 provider 错误只标识逻辑进程 mount，不暴露物理 source path。
 
 资源投影会原子发布，并在每次 load 时校验，但它不是针对同一用户身份运行命令的独立隔离边界。此类命令可能与校验并发，或在校验后修改 disposable tree。只要 load 观察到不一致，就会 fail closed，而不会替换该路径。只有后端能够确认没有所属执行仍在使用临时文件时，才移除其 backing。Docker 的旧版启动清理会跳过已由 generation store 管理的资源。
 

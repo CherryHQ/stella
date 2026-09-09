@@ -239,6 +239,8 @@ abort intent 与 completion 在 PostgreSQL 中竞争，获胜的终态转换在�
 
 最终发布和来源业务记录完成后，来源才确认 Run 完成。发送结果不确定或缺失确认时会阻塞 binding，交给管理员检查，不重放副作用。拒绝阻塞项会记录审计并释放队列屏障，但不会恢复丢失的回复，也不会重试原执行。操作入口见[渠道故障排除](../channels/telegram#故障排除)。
 
+Publisher 报告外发结果时不等待 Run 完成，后续顺序由 FIFO 消费者负责：先完成队列项和配额收尾，再把结果转交给 Run。群消息发布和私聊恢复发布在这个流程内直接执行。Claim 时长不充当请求时限，较慢的有效回合仍受实际 Run deadline、取消和所有权检查约束。群消息在 Run 受理前遇到可重试错误时，派发表保持非终态，下一次 FIFO 尝试才会真正执行工作。派发表保留已接受和已发布的事实，重试时间只由 FIFO 决定。
+
 每个进程在查询连接池之外持有一条串行使用的 PostgreSQL 控制连接，用于入口领导权和通知；连接丢失时取消并等待入口退出，重连后全量扫描。已知的 transaction 或 statement pooling 配置会被拒绝，因为领导权依赖稳定的数据库会话。Telegram 持久化已确认的 update offset；Discord 持久化可恢复的 gateway cursor，先受理 replay 再推进 cursor。Discord resume 状态失效时会阻塞入口，不会静默建立新会话并丢弃缺口。
 
 ### 实时事件扇出

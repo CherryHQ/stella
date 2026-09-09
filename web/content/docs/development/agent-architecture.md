@@ -239,6 +239,8 @@ Four background workers process binding heads in order. They can recover an expi
 
 Final publication and source bookkeeping finish before the source acknowledges Run completion. An uncertain send or missing acknowledgement blocks the binding for operator inspection, rather than replaying effects. Rejecting a blocked item releases the queue barrier with an audit record; it neither restores a lost reply nor retries the original execution. See the [channel troubleshooting guide](../channels/telegram#troubleshooting) for operator help.
 
+The publisher reports its egress outcome without waiting for Run completion. The FIFO consumer owns the remaining sequence: settle the item and quota, then forward the outcome to the Run. Group and recovered private publication run inline under that owner. Claim duration is not a request deadline; a slow live turn remains subject to its actual Run deadline, cancellation, and ownership checks. A retryable group failure before Run admission leaves its dispatch ledger nonterminal, so the next FIFO attempt performs the work. The ledger preserves accepted and published facts; the FIFO alone schedules retries.
+
 A process owns one serialized PostgreSQL control connection outside the query pool. It carries ingress leadership and notifications; loss cancels and joins ingress before reacquisition, and reconnect performs a full scan. Known transaction- or statement-pooling configurations are rejected because leadership requires a stable database session. Telegram persists its acknowledged update offset; Discord persists its resumable gateway cursor and admits replay before advancing it. Invalid Discord resume state blocks ingress rather than silently starting a fresh session and losing the gap.
 
 ### Live event fan-out

@@ -25,12 +25,6 @@ import (
 
 type durableIngressBypassKey struct{}
 
-// groupFIFOCompletionKey carries the source completion proxy into the group
-// dispatcher. Group turns publish from inside HandleFIFO, but the source
-// AgentRun must remain open until the FIFO item itself has been terminalized
-// and its quota release committed.
-type groupFIFOCompletionKey struct{}
-
 func withDurableIngressBypass(ctx context.Context) context.Context {
 	return context.WithValue(ctx, durableIngressBypassKey{}, true)
 }
@@ -38,15 +32,6 @@ func withDurableIngressBypass(ctx context.Context) context.Context {
 func hasDurableIngressBypass(ctx context.Context) bool {
 	v, _ := ctx.Value(durableIngressBypassKey{}).(bool)
 	return v
-}
-
-func withGroupFIFOCompletion(ctx context.Context, proxy *durableCompletionProxy) context.Context {
-	return context.WithValue(ctx, groupFIFOCompletionKey{}, proxy)
-}
-
-func groupFIFOCompletionFromContext(ctx context.Context) *durableCompletionProxy {
-	proxy, _ := ctx.Value(groupFIFOCompletionKey{}).(*durableCompletionProxy)
-	return proxy
 }
 
 type durableIngressPayload struct {
@@ -96,21 +81,22 @@ type durableIngressWaiter struct {
 	ctx    context.Context
 }
 
-// durableCompletionProxy is the adapter-facing completion fence for a FIFO
-// waiter. The listener receives the proxy before the consumer has admitted an
+// durableCompletionProxy is the adapter-facing completion fence for a source
+// whose durable facts settle after the adapter reports its egress outcome.
+// The listener receives the proxy before the consumer has admitted an
 // AgentRun, so Check blocks until Bind rather than exposing an unbound runtime
-// barrier. Ack is captured first; the consumer forwards it to the runtime
-// completion only after the FIFO item has been terminalized and its quota
-// release committed.
+// barrier. Ack only captures the reported outcome and returns; ForwardAck is
+// the single terminalization point, called by the source owner after the FIFO
+// item and its quota release have settled.
 type durableCompletionProxy struct {
 	mu        sync.Mutex
 	source    pkgchannel.StreamCompletion
 	bound     chan struct{}
-	done      chan struct{}
 	ackReady  chan struct{}
 	boundOnce sync.Once
-	doneOnce  sync.Once
 	ackOnce   sync.Once
+	done      chan struct{}
+	doneOnce  sync.Once
 	ack       pkgchannel.EgressOutcome
 	hasAck    bool
 	forwarded bool
@@ -119,7 +105,7 @@ type durableCompletionProxy struct {
 
 func newDurableCompletionProxy() *durableCompletionProxy {
 	return &durableCompletionProxy{
-		bound: make(chan struct{}), done: make(chan struct{}), ackReady: make(chan struct{}),
+		bound: make(chan struct{}), ackReady: make(chan struct{}), done: make(chan struct{}),
 	}
 }
 
@@ -161,11 +147,12 @@ func (p *durableCompletionProxy) Check(ctx context.Context) error {
 	return source.Check(ctx)
 }
 
-func (p *durableCompletionProxy) Ack(ctx context.Context, outcome pkgchannel.EgressOutcome) error {
-	if err := p.captureAck(outcome); err != nil {
-		return err
-	}
-	return p.waitDone(ctx)
+// Ack captures the adapter's reported egress outcome and returns without
+// touching the underlying completion. The source owner terminalizes through
+// ForwardAck after its durable facts settle. Repeating the same outcome is
+// idempotent; a different outcome is a conflict the caller must surface.
+func (p *durableCompletionProxy) Ack(_ context.Context, outcome pkgchannel.EgressOutcome) error {
+	return p.captureAck(outcome)
 }
 
 func (p *durableCompletionProxy) captureAck(outcome pkgchannel.EgressOutcome) error {
@@ -175,12 +162,18 @@ func (p *durableCompletionProxy) captureAck(outcome pkgchannel.EgressOutcome) er
 	if !outcome.Valid() {
 		return fmt.Errorf("invalid durable egress outcome %q", outcome)
 	}
-	p.ackOnce.Do(func() {
-		p.mu.Lock()
-		p.ack, p.hasAck = outcome, true
+	p.mu.Lock()
+	if p.hasAck {
+		captured := p.ack
 		p.mu.Unlock()
-		close(p.ackReady)
-	})
+		if captured != outcome {
+			return fmt.Errorf("durable egress outcome changed from %q to %q", captured, outcome)
+		}
+		return nil
+	}
+	p.ack, p.hasAck = outcome, true
+	p.mu.Unlock()
+	p.ackOnce.Do(func() { close(p.ackReady) })
 	return nil
 }
 
@@ -216,35 +209,6 @@ func (p *durableCompletionProxy) hasSource() bool {
 	return p.source != nil
 }
 
-// groupFIFOCompletion captures a group's publisher outcome without waiting
-// for the source AgentRun to close. Group publishing runs inside HandleFIFO;
-// waiting here would deadlock the dispatcher before the outer FIFO item can be
-// completed and ForwardAck can release the source.
-type groupFIFOCompletion struct {
-	proxy *durableCompletionProxy
-}
-
-func (c *groupFIFOCompletion) Check(ctx context.Context) error {
-	if c == nil || c.proxy == nil {
-		return nil
-	}
-	return c.proxy.Check(ctx)
-}
-
-func (c *groupFIFOCompletion) Ack(_ context.Context, outcome pkgchannel.EgressOutcome) error {
-	if c == nil || c.proxy == nil {
-		return nil
-	}
-	return c.proxy.captureAck(outcome)
-}
-
-func (c *groupFIFOCompletion) Done() <-chan struct{} {
-	if c == nil || c.proxy == nil {
-		return nil
-	}
-	return c.proxy.Done()
-}
-
 func (p *durableCompletionProxy) Done() <-chan struct{} {
 	if p == nil {
 		return nil
@@ -266,21 +230,6 @@ func (p *durableCompletionProxy) outcome() (pkgchannel.EgressOutcome, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.ack, p.hasAck
-}
-
-func (p *durableCompletionProxy) waitDone(ctx context.Context) error {
-	if p == nil {
-		return nil
-	}
-	select {
-	case <-p.done:
-		p.mu.Lock()
-		err := p.settleErr
-		p.mu.Unlock()
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
 
 func (p *durableCompletionProxy) ForwardAck(ctx context.Context) error {
@@ -1039,75 +988,45 @@ func (d *DurableIngress) completeRecovered(ctx context.Context, itemID, bindingI
 	return tx.Commit(ctx)
 }
 
-// processGroupFIFO runs the group dispatcher asynchronously because platform
-// publishers call Stream.Completion.Ack from inside HandleFIFO. Ack waits for
-// this function to settle the FIFO item, so invoking HandleFIFO inline would
-// deadlock exactly at the successful publish boundary.
+// processGroupFIFO runs the group dispatcher inline. The FIFO-owned completion
+// proxy captures the publisher's outcome without blocking, so HandleFIFO can
+// publish from inside this call; the FIFO item settles first and only then is
+// the outcome forwarded to the source AgentRun.
 func (d *DurableIngress) processGroupFIFO(ctx, dispatchCtx context.Context, item sqlc.ChannelFifoItem) error {
 	proxy := newDurableCompletionProxy()
-	dispatchCtx = withGroupFIFOCompletion(dispatchCtx, proxy)
-	resultCh := make(chan error, 1)
-	go func() { resultCh <- d.coord.groupDispatcher.HandleFIFO(dispatchCtx, item) }()
-
-	timeout := d.lease
-	if timeout <= 0 {
-		timeout = 30 * time.Second
-	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	var handleErr error
-	handleDone := false
-	ackReady := false
-	for !ackReady {
-		select {
-		case handleErr = <-resultCh:
-			handleDone = true
-			if handleErr != nil {
-				if proxy.hasSource() {
-					_ = proxy.forceAck(pkgchannel.EgressUnknown)
-				}
-				retryErr := d.retry(ctx, item, "group_dispatch_failed", handleErr.Error(), proxy.hasSource())
-				forwardErr := d.forwardGroupFIFOProxy(ctx, proxy)
-				return errors.Join(retryErr, forwardErr, handleErr)
-			}
-			if !proxy.hasSource() {
-				return d.complete(ctx, item, "", false)
-			}
-		case <-proxy.AckReceived():
-			ackReady = true
-		case <-ctx.Done():
+	handleErr := d.coord.groupDispatcher.HandleFIFO(dispatchCtx, item, proxy)
+	if handleErr != nil {
+		// A captured delivered outcome is not trustworthy when the dispatcher
+		// returned an error before the FIFO settled; downgrade it to unknown.
+		// A proven failed/discarded outcome is truthful and survives.
+		if outcome, ok := proxy.outcome(); !ok || outcome == pkgchannel.EgressDelivered {
 			_ = proxy.forceAck(pkgchannel.EgressUnknown)
-			ackReady = true
-		case <-timer.C:
-			_ = proxy.forceAck(pkgchannel.EgressUnknown)
-			ackReady = true
 		}
+		retryErr := d.retry(ctx, item, "group_dispatch_failed", handleErr.Error(), proxy.hasSource())
+		forwardErr := d.forwardGroupFIFOProxy(ctx, proxy)
+		return errors.Join(retryErr, forwardErr, handleErr)
 	}
-
-	outcome, _ := proxy.outcome()
-	var settleErr error
-	if outcome == pkgchannel.EgressUnknown {
-		settleErr = d.retry(ctx, item, "egress_unknown", "group publisher outcome was not confirmed", true)
-	} else {
-		settleErr = d.complete(ctx, item, "", false)
-		if settleErr != nil {
-			// The publisher's delivered Ack is still held by the proxy. A
-			// failed FIFO terminalization means the source boundary is unknown,
-			// so never forward delivered while the item remains claimable.
-			settleErr = errors.Join(settleErr, proxy.forceAck(pkgchannel.EgressUnknown))
-		}
+	if !proxy.hasSource() {
+		// No turn ran under this attempt: the mirrored ledger was already
+		// terminal, so its recorded business outcome owns the release.
+		return d.complete(ctx, item, "", false)
+	}
+	outcome, ok := proxy.outcome()
+	if !ok || outcome == pkgchannel.EgressUnknown {
+		_ = proxy.forceAck(pkgchannel.EgressUnknown)
+		settleErr := d.retry(ctx, item, "egress_unknown", "group publisher outcome was not confirmed", true)
+		forwardErr := d.forwardGroupFIFOProxy(ctx, proxy)
+		return errors.Join(settleErr, forwardErr)
+	}
+	settleErr := d.complete(ctx, item, "", false)
+	if settleErr != nil {
+		// The publisher's outcome is still held by the proxy. A failed FIFO
+		// terminalization means the source boundary is unknown, so never
+		// forward delivered while the item remains claimable.
+		settleErr = errors.Join(settleErr, proxy.forceAck(pkgchannel.EgressUnknown))
 	}
 	forwardErr := d.forwardGroupFIFOProxy(ctx, proxy)
-	if !handleDone {
-		waitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		select {
-		case handleErr = <-resultCh:
-		case <-waitCtx.Done():
-			return errors.Join(settleErr, forwardErr, waitCtx.Err())
-		}
-	}
-	return errors.Join(settleErr, forwardErr, handleErr)
+	return errors.Join(settleErr, forwardErr)
 }
 
 func (d *DurableIngress) forwardGroupFIFOProxy(ctx context.Context, proxy *durableCompletionProxy) error {
@@ -1353,18 +1272,23 @@ func conversationPrincipalKey(facts sqlc.CtxConversation) (string, error) {
 // publishWithoutWaiter is the restart/replica path. An accepted FIFO item may
 // outlive the listener that returned its proxy stream, so silently draining it
 // would turn durable admission into message loss. Reconstruct the egress
-// client from the channel row and opaque capability reference instead.
+// client from the channel row and opaque capability reference instead. The
+// publisher reports its outcome through the proxy's capture-only Ack; this
+// function stays the single owner that settles the FIFO item and then
+// terminalizes the source AgentRun.
 func (d *DurableIngress) publishWithoutWaiter(ctx context.Context, item sqlc.ChannelFifoItem, envelope durableIngressPayload, stream *pkgchannel.ChatStream) error {
 	if stream == nil {
 		return d.complete(ctx, item, "", false)
 	}
 	proxy := newDurableCompletionProxy()
 	proxy.Bind(stream.Completion)
+	settle := func(settleErr error) error {
+		return errors.Join(settleErr, d.forwardProxyAck(ctx, proxy))
+	}
 	if d.coord == nil || d.coord.publisherReconstructor == nil || d.coord.store == nil {
 		stream.Discard()
 		_ = proxy.forceAck(pkgchannel.EgressUnknown)
-		retryErr := d.retry(ctx, item, "publisher_unavailable", "durable incoming publisher reconstruction is unavailable", true)
-		return errors.Join(retryErr, d.forwardProxyAck(ctx, proxy))
+		return settle(d.retry(ctx, item, "publisher_unavailable", "durable incoming publisher reconstruction is unavailable", true))
 	}
 	channelID := envelope.Message.ChannelID
 	if channelID == "" {
@@ -1374,8 +1298,7 @@ func (d *DurableIngress) publishWithoutWaiter(ctx context.Context, item sqlc.Cha
 	if err != nil {
 		stream.Discard()
 		_ = proxy.forceAck(pkgchannel.EgressUnknown)
-		retryErr := d.retry(ctx, item, "publisher_config_failed", err.Error(), true)
-		return errors.Join(retryErr, d.forwardProxyAck(ctx, proxy))
+		return settle(d.retry(ctx, item, "publisher_config_failed", err.Error(), true))
 	}
 	publisher, err := d.coord.publisherReconstructor.ReconstructIncomingPublisher(ctx, configured, GroupOutboxEnvelope{
 		LifecycleFeedback:  envelope.Message.LifecycleFeedback,
@@ -1387,84 +1310,41 @@ func (d *DurableIngress) publishWithoutWaiter(ctx context.Context, item sqlc.Cha
 			err = errors.New("durable incoming publisher reconstruction returned nil")
 		}
 		_ = proxy.forceAck(pkgchannel.EgressUnknown)
-		retryErr := d.retry(ctx, item, "publisher_reconstruct_failed", err.Error(), true)
-		return errors.Join(retryErr, d.forwardProxyAck(ctx, proxy))
+		return settle(d.retry(ctx, item, "publisher_reconstruct_failed", err.Error(), true))
 	}
 	publishStream := &pkgchannel.ChatStream{Events: stream.Events, SessionID: stream.SessionID, Completion: proxy}
-	resultCh := make(chan error, 1)
-	go func() {
-		resultCh <- publisher.PublishIncoming(ctx, pkgchannel.DurablePublishRequest{
-			DeliveryID:        item.ID,
-			Platform:          envelope.Message.Platform,
-			ChannelID:         channelID,
-			ChatID:            envelope.Message.ChatID,
-			ThreadID:          envelope.Message.ThreadID,
-			TargetID:          envelope.Message.SenderID,
-			ReplyTo:           envelope.Message.ReplyTo,
-			MessageID:         envelope.Message.MessageID,
-			IsGroup:           envelope.Message.IsGroup,
-			LifecycleFeedback: envelope.Message.LifecycleFeedback,
-			Stream:            publishStream,
-		})
-	}()
-
-	timeout := d.lease
-	if timeout <= 0 {
-		timeout = 30 * time.Second
+	publishErr := publisher.PublishIncoming(ctx, pkgchannel.DurablePublishRequest{
+		DeliveryID:        item.ID,
+		Platform:          envelope.Message.Platform,
+		ChannelID:         channelID,
+		ChatID:            envelope.Message.ChatID,
+		ThreadID:          envelope.Message.ThreadID,
+		TargetID:          envelope.Message.SenderID,
+		ReplyTo:           envelope.Message.ReplyTo,
+		MessageID:         envelope.Message.MessageID,
+		IsGroup:           envelope.Message.IsGroup,
+		LifecycleFeedback: envelope.Message.LifecycleFeedback,
+		Stream:            publishStream,
+	})
+	if publishErr != nil {
+		// A returned error cannot prove whether the platform accepted the
+		// bytes, so the outcome stays unknown regardless of any capture.
+		_ = proxy.forceAck(pkgchannel.EgressUnknown)
+		return settle(errors.Join(d.retry(ctx, item, "publisher_failed", publishErr.Error(), true), publishErr))
 	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	var publishErr error
-	publishDone := false
-	ackReady := false
-	for !ackReady {
-		select {
-		case publishErr = <-resultCh:
-			publishDone = true
-			if publishErr != nil {
-				_ = proxy.forceAck(pkgchannel.EgressUnknown)
-				retryErr := d.retry(ctx, item, "publisher_failed", publishErr.Error(), true)
-				return errors.Join(retryErr, d.forwardProxyAck(ctx, proxy), publishErr)
-			}
-			// A publisher that returned without acknowledging cannot prove the
-			// external outcome. Keep the item blocked for explicit recovery.
-			_ = proxy.forceAck(pkgchannel.EgressUnknown)
-			ackReady = true
-		case <-proxy.AckReceived():
-			ackReady = true
-		case <-ctx.Done():
-			_ = proxy.forceAck(pkgchannel.EgressUnknown)
-			ackReady = true
-		case <-timer.C:
-			_ = proxy.forceAck(pkgchannel.EgressUnknown)
-			ackReady = true
-		}
-	}
+	// A publisher that returned without acknowledging cannot prove the
+	// external outcome. Keep the item blocked for explicit recovery.
 	outcome, ok := proxy.outcome()
-	if !ok {
-		outcome = pkgchannel.EgressUnknown
+	if !ok || outcome == pkgchannel.EgressUnknown {
+		_ = proxy.forceAck(pkgchannel.EgressUnknown)
+		return settle(d.retry(ctx, item, "egress_unknown", "durable incoming publisher outcome was not confirmed", true))
 	}
-	var settleErr error
-	if outcome == pkgchannel.EgressUnknown {
-		settleErr = d.retry(ctx, item, "egress_unknown", "durable incoming publisher outcome was not confirmed", true)
-	} else {
-		settleErr = d.complete(ctx, item, "", false)
-		if settleErr != nil {
-			// A delivered acknowledgement cannot outrun durable FIFO settlement.
-			settleErr = errors.Join(settleErr, proxy.forceAck(pkgchannel.EgressUnknown))
-		}
+	settleErr := d.complete(ctx, item, "", false)
+	if settleErr != nil {
+		// A delivered acknowledgement cannot outrun durable FIFO settlement.
+		settleErr = errors.Join(settleErr, proxy.forceAck(pkgchannel.EgressUnknown))
 	}
-	forwardErr := d.forwardProxyAck(ctx, proxy)
-	if !publishDone {
-		waitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		select {
-		case publishErr = <-resultCh:
-		case <-waitCtx.Done():
-			return errors.Join(settleErr, forwardErr, waitCtx.Err())
-		}
-	}
-	return errors.Join(settleErr, forwardErr, publishErr)
+	return settle(settleErr)
 }
 
 func (d *DurableIngress) forwardProxyAck(ctx context.Context, proxy *durableCompletionProxy) error {
@@ -1493,22 +1373,17 @@ func mergeDurableWaitContexts(parent, waiter context.Context) (context.Context, 
 	}
 }
 
+// Cancellation records unknown only when the adapter has not reported an
+// outcome. An adapter can cancel its context immediately after Ack returns;
+// that must not overwrite the result it already reported.
 func (d *DurableIngress) waitProxyAck(ctx context.Context, proxy *durableCompletionProxy) pkgchannel.EgressOutcome {
 	if proxy == nil {
 		return pkgchannel.EgressDelivered
 	}
-	timeout := d.lease
-	if timeout <= 0 {
-		timeout = 30 * time.Second
-	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
 	select {
 	case <-proxy.AckReceived():
 	case <-ctx.Done():
-		_ = proxy.forceAck(pkgchannel.EgressUnknown)
-	case <-timer.C:
-		_ = proxy.forceAck(pkgchannel.EgressUnknown)
+		_ = proxy.captureAck(pkgchannel.EgressUnknown)
 	}
 	outcome, ok := proxy.outcome()
 	if !ok {
@@ -1524,10 +1399,12 @@ func eventStream(event pkgchannel.Event) <-chan pkgchannel.Event {
 	return ch
 }
 
+// retry returns a claimed item to the FIFO with a fixed short delay, for
+// failure classes where an immediate second attempt is expected to help.
+// RetryChannelFIFOItem re-reads run_id in the UPDATE. The claimed item is a
+// snapshot and may predate the admission transaction that linked its
+// AgentRun, so Go-side RunID checks cannot decide whether replay is safe.
 func (d *DurableIngress) retry(ctx context.Context, item sqlc.ChannelFifoItem, code, detail string, block bool) error {
-	// RetryChannelFIFOItem re-reads run_id in the UPDATE. The claimed item is a
-	// snapshot and may predate the admission transaction that linked its
-	// AgentRun, so Go-side RunID checks cannot decide whether replay is safe.
 	_, err := sqlc.New(d.db).RetryChannelFIFOItem(ctx, sqlc.RetryChannelFIFOItemParams{ID: item.ID, LeaseOwner: d.owner, Block: block, NextAttemptAt: time.Now().UTC().Add(time.Second), ErrorCode: code, ErrorDetail: detail})
 	return err
 }

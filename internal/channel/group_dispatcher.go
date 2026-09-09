@@ -537,14 +537,16 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if !ok {
 		return nil
 	}
-	return d.executeClaimedDispatch(ctx, claimed, false, "")
+	return d.executeClaimedDispatch(ctx, claimed, false, "", nil)
 }
 
 // executeClaimedDispatch runs the common group turn lifecycle after ownership
-// has already been established. FIFO responders pass fifoOwned=true: the FIFO
-// item is their sole execution lease, so this method must not claim or renew a
-// second ctx_group_dispatch lease.
-func (d *GroupDispatcher) executeClaimedDispatch(ctx context.Context, claimed sqlc.CtxGroupDispatch, fifoOwned bool, fifoReason string) error {
+// has already been established. FIFO responders pass fifoOwned=true plus the
+// FIFO-owned completion proxy; the FIFO item is their sole execution lease, so
+// this method must not claim or renew a second ctx_group_dispatch lease. The
+// legacy path passes no proxy and receives a fresh capture proxy whose forward
+// terminalizes the AgentRun after this function's durable decisions settle.
+func (d *GroupDispatcher) executeClaimedDispatch(ctx context.Context, claimed sqlc.CtxGroupDispatch, fifoOwned bool, fifoReason string, completion *durableCompletionProxy) (retErr error) {
 	ownedCtx, cancelOwned := context.WithCancel(ctx)
 	defer cancelOwned()
 	if !fifoOwned {
@@ -588,7 +590,7 @@ func (d *GroupDispatcher) executeClaimedDispatch(ctx context.Context, claimed sq
 	if claimed.ResultMessageID != "" {
 		if claimed.PublishedAt.Valid {
 			return d.publishAccepted(ownedCtx, publishJob{
-				row: claimed, trigger: message, state: state, fifoOwned: fifoOwned,
+				row: claimed, trigger: message, state: state, fifoOwned: fifoOwned, capture: completion,
 			})
 		}
 		accepted, err := d.q.GetGroupMessage(ownedCtx, claimed.ResultMessageID)
@@ -598,7 +600,7 @@ func (d *GroupDispatcher) executeClaimedDispatch(ctx context.Context, claimed sq
 		d.log.Warn("replaying accepted group reply from canonical text after buffer loss", "dispatch_id", claimed.ID, "result_message_id", accepted.ID, "upgrade_trigger", "cross-process rich replay requires BlobStore event spooling")
 		return d.publishAccepted(ownedCtx, publishJob{
 			row: claimed, trigger: message, state: state, fifoOwned: fifoOwned, publisher: publisher,
-			response: groupResponseFromMessage(accepted),
+			response: groupResponseFromMessage(accepted), capture: completion,
 		})
 	}
 	// Nudges pass the gate too: recovery may hand an agent the floor, but it
@@ -635,10 +637,33 @@ func (d *GroupDispatcher) executeClaimedDispatch(ctx context.Context, claimed sq
 	sink := memory.NewGroupTurnSink()
 	chatCtx := memory.WithGroupTurnSink(ownedCtx, sink)
 	stream, err := d.chat(chatCtx, claimed, message, state)
+	// The turn's completion is captured, not released, here: the publisher's
+	// Ack records the egress outcome without touching the source AgentRun. The
+	// owner forwards it only after the durable dispatch facts settle — the FIFO
+	// consumer for fifoOwned turns, this function's exit for legacy rows.
 	if stream != nil {
-		if proxy := groupFIFOCompletionFromContext(ownedCtx); proxy != nil {
-			proxy.Bind(stream.Completion)
-			stream.Completion = &groupFIFOCompletion{proxy: proxy}
+		legacyCapture := completion == nil
+		if legacyCapture {
+			completion = newDurableCompletionProxy()
+		}
+		completion.Bind(stream.Completion)
+		stream.Completion = completion
+		if legacyCapture {
+			defer func() {
+				if _, ok := completion.outcome(); !ok {
+					// Every terminal path below owes an Ack; an exit without one
+					// has proven no egress outcome, so unknown is the safe verdict.
+					_ = completion.forceAck(pkgchannel.EgressUnknown)
+				}
+				ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer cancel()
+				if forwardErr := completion.ForwardAck(ackCtx); forwardErr != nil {
+					// The turn's own result stands, but a source completion the
+					// owner failed to terminalize is a real loss the caller must
+					// see, not a discarded cleanup detail.
+					retErr = errors.Join(retErr, fmt.Errorf("forward legacy group completion: %w", forwardErr))
+				}
+			}()
 		}
 	}
 	if errors.Is(err, errGroupNudgeMoot) {
@@ -704,7 +729,7 @@ func (d *GroupDispatcher) executeClaimedDispatch(ctx context.Context, claimed sq
 	}
 	return d.publishAccepted(ownedCtx, publishJob{
 		row: claimed, trigger: message, state: state, fifoOwned: fifoOwned, publisher: publisher,
-		response: response, envelope: envelope, acceptedMessageID: outcome.Accepted.Message.ID,
+		response: response, envelope: envelope, capture: completion, acceptedMessageID: outcome.Accepted.Message.ID,
 	})
 }
 
@@ -750,8 +775,8 @@ func (d *GroupDispatcher) publishAccepted(ctx context.Context, job publishJob) e
 
 // failOwnedDispatch keeps the two execution authorities separate. Legacy
 // rows are requeued through ctx_group_dispatch; FIFO-owned rows stay on the
-// FIFO item and only terminalize their mirrored ledger, so no second lease or
-// retry queue can execute the same responder.
+// FIFO item and only keep their mirrored ledger re-claimable, so no second
+// lease or retry queue can execute the same responder.
 func (d *GroupDispatcher) failOwnedDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, fifoOwned bool, cause error) error {
 	if !fifoOwned {
 		return d.failDispatch(ctx, row, cause)
@@ -759,6 +784,14 @@ func (d *GroupDispatcher) failOwnedDispatch(ctx context.Context, row sqlc.CtxGro
 	return d.failFIFODispatch(ctx, row, cause)
 }
 
+// failFIFODispatch keeps the FIFO in charge of retry and completion. The
+// mirrored ledger is a projection of the FIFO item, not a second retry queue:
+// a nonterminal row stays re-claimable by the next FIFO attempt, which reruns
+// the work. Durable accepted/published facts survive untouched — an accepted
+// reply that failed egress was already terminalized as unknown by the publish
+// driver, and a published marker is preserved for idempotent finalization.
+// Legacy dispatch queries exclude FIFO-linked rows, so a pending ledger here
+// cannot be claimed by the legacy owner.
 func (d *GroupDispatcher) failFIFODispatch(ctx context.Context, row sqlc.CtxGroupDispatch, cause error) error {
 	if cause == nil {
 		cause = errors.New("group FIFO dispatch failed")
@@ -768,11 +801,16 @@ func (d *GroupDispatcher) failFIFODispatch(ctx context.Context, row sqlc.CtxGrou
 	if row.PublishedAt.Valid || row.Status == "failed" || row.Status == "completed" || row.Status == "silent" || row.Status == "held" {
 		return cause
 	}
-	updated, err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{
-		ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error(),
+	// Retry timing is the FIFO item's business; next_attempt_at is a projection
+	// the FIFO ledger claim ignores, so it is just made immediately reclaimable.
+	updated, err := d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{
+		ID:            row.ID,
+		AttemptCount:  row.AttemptCount,
+		NextAttemptAt: nullTime(time.Now().UTC()),
+		LastError:     cause.Error(),
 	})
 	if err != nil {
-		return fmt.Errorf("mark FIFO dispatch failed: %w", err)
+		return fmt.Errorf("requeue FIFO dispatch: %w", err)
 	}
 	if updated > 0 {
 		d.announceTurn(row, "failed", cause.Error())

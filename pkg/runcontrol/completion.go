@@ -35,6 +35,8 @@ func (o Outcome) Valid() bool {
 // Completion is the adapter-facing half of an AgentRun terminal barrier.
 // Check must be called immediately before an external side effect. Ack must
 // be called once the adapter knows that effect's durable outcome.
+// Ack may return before source bookkeeping finishes; Done marks the end of
+// source settlement and is the barrier for releasing the caller's queue.
 type Completion interface {
 	Check(context.Context) error
 	Ack(context.Context, Outcome) error

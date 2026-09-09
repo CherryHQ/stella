@@ -51,6 +51,8 @@ Explicit destructive user, group, or Agent deletion fences local execution befor
 
 Runner handles borrow that compute. Ordinary runner retirement after 10 idle minutes releases the borrow, so the next runner can reuse the same healthy generation and immutable policy. Per-turn environment replacement still refreshes credentials. A process retains at most 1024 generations. When no idle resource can be safely reclaimed, admission of another resource fails with a capacity error; existing healthy native resources are not silently evicted.
 
+`generationSession` owns backend selection, recreation, and environment updates. Recreation, credential refresh, and borrow release use the same serialization boundary so a replacement cannot erase a concurrent refresh or retain a borrow after its handle closes.
+
 Private user-CLI preparation sessions are auxiliary resources of the same generation. Each attempt has its own backing directory and is recorded before execution. A generation can retain at most 64 preparations without absence proof; another installation fails before creating a resource when that limit is reached. A known installation result may publish its immutable selection while an unproved native termination retains the auxiliary resource and backing. An unknown execution result fences the generation; replacing or destroying it requires absence proof for the main resource and every auxiliary resource. Docker toolcache helpers remain under their separate shared cache owner.
 
 Stale generation operations fail before reaching the backend. A compute operation with an unknown outcome fences the generation and cannot be replayed into a replacement. A failure proven to occur before execution starts does not fence healthy compute. Workspace/API file access remains independent of this execution authority.
@@ -71,7 +73,7 @@ All local execution paths that must obey sandbox policy are mediated through the
 - plugin tools receive `ToolContext.Runtime`, a `pkg/plugins.ToolRuntime` adapter over the active session
 - skills and agent preset loading use `ToolRuntime` when running inside an agent session
 
-A core tool that reads files selects one `FileView` per invocation. Its policy environment, working directory, and `FileAccess` come from the same resilient generation, so path expansion cannot silently switch backing trees midway. Provider errors that cross this boundary identify logical process mounts without exposing physical source paths.
+A core tool that reads files selects one `FileView` per invocation. Its policy environment, working directory, and `FileAccess` come from the same selected generation, so path expansion cannot silently switch backing trees midway. Provider errors that cross this boundary identify logical process mounts without exposing physical source paths.
 
 The resource projection is atomically published and verified on every load, but it is not a separate isolation boundary from commands running as the same user. Such a command can race verification or modify the disposable tree afterward. A load that observes a mismatch fails closed instead of replacing the path. Temporary backing is removed only when the backend can establish that no owned execution still needs it. Docker's legacy startup cleanup skips resources managed by the generation store.
 

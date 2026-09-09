@@ -16,8 +16,10 @@ import (
 // FIFO. The FIFO claim is the only execution lease. ctx_group_dispatch is
 // materialized under the same item ID as an accept/publish ledger, then
 // claimed only to promote that ledger to running without starting a second
-// model execution path.
-func (d *GroupDispatcher) HandleFIFO(ctx context.Context, item sqlc.ChannelFifoItem) error {
+// model execution path. The caller owns completion: it passes the
+// durableCompletionProxy that captures the turn's egress outcome and terminalizes
+// the source AgentRun after the FIFO item settles.
+func (d *GroupDispatcher) HandleFIFO(ctx context.Context, item sqlc.ChannelFifoItem, completion *durableCompletionProxy) error {
 	if d == nil || d.q == nil {
 		return errors.New("group dispatcher is not configured")
 	}
@@ -83,7 +85,7 @@ func (d *GroupDispatcher) HandleFIFO(ctx context.Context, item sqlc.ChannelFifoI
 	if err := validateGroupResponderLedger(claimed, payload); err != nil {
 		return d.failFIFODispatch(ctx, claimed, err)
 	}
-	return d.executeClaimedDispatch(ctx, claimed, true, payload.Reason)
+	return d.executeClaimedDispatch(ctx, claimed, true, payload.Reason, completion)
 }
 
 func validateGroupResponderPayload(payload groupResponderPayload, args string) error {

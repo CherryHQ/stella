@@ -49,38 +49,89 @@ func (p *durableCompletionProbe) Ack(_ context.Context, outcome pkgchannel.Egres
 
 func (p *durableCompletionProbe) Done() <-chan struct{} { return p.done }
 
-func TestDurableCompletionProxyAckWaitsForFIFOSettlement(t *testing.T) {
+// The proxy's Ack only captures the reported outcome and returns; the source
+// owner terminalizes through ForwardAck after its durable facts settle. The
+// underlying completion must not observe anything before that forward.
+func TestDurableCompletionProxyAckCapturesWithoutReleasing(t *testing.T) {
 	proxy := newDurableCompletionProxy()
 	probe := newDurableCompletionProbe()
 	proxy.Bind(probe)
 
-	ackDone := make(chan error, 1)
-	go func() { ackDone <- proxy.Ack(context.Background(), pkgchannel.EgressDelivered) }()
-	select {
-	case err := <-ackDone:
-		t.Fatalf("Ack returned before FIFO settlement: %v", err)
-	case <-proxy.AckReceived():
+	if err := proxy.Ack(context.Background(), pkgchannel.EgressDelivered); err != nil {
+		t.Fatalf("Ack capture: %v", err)
+	}
+	if got, ok := proxy.outcome(); !ok || got != pkgchannel.EgressDelivered {
+		t.Fatalf("captured outcome = %q, %v; want delivered, true", got, ok)
 	}
 	select {
-	case err := <-ackDone:
-		t.Fatalf("Ack returned before ForwardAck: %v", err)
+	case <-probe.Done():
+		t.Fatal("underlying completion released before ForwardAck")
 	default:
 	}
 	if err := proxy.ForwardAck(context.Background()); err != nil {
 		t.Fatalf("ForwardAck: %v", err)
 	}
 	select {
-	case err := <-ackDone:
-		if err != nil {
-			t.Fatalf("Ack after settlement: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("Ack did not wait for settlement")
-	}
-	select {
 	case <-probe.ackCall:
 	case <-time.After(time.Second):
 		t.Fatal("underlying completion was not acknowledged")
+	}
+	select {
+	case <-proxy.Done():
+	case <-time.After(time.Second):
+		t.Fatal("proxy Done did not close after forward")
+	}
+}
+
+// Repeating the same outcome is idempotent; a different outcome is a conflict.
+func TestDurableCompletionProxyAckRejectsConflictingOutcome(t *testing.T) {
+	proxy := newDurableCompletionProxy()
+	if err := proxy.Ack(context.Background(), pkgchannel.EgressDelivered); err != nil {
+		t.Fatalf("first Ack: %v", err)
+	}
+	if err := proxy.Ack(context.Background(), pkgchannel.EgressDelivered); err != nil {
+		t.Fatalf("repeated identical Ack: %v", err)
+	}
+	if err := proxy.Ack(context.Background(), pkgchannel.EgressUnknown); err == nil {
+		t.Fatal("conflicting Ack unexpectedly succeeded")
+	}
+	if got, ok := proxy.outcome(); !ok || got != pkgchannel.EgressDelivered {
+		t.Fatalf("outcome = %q, %v; want delivered, true", got, ok)
+	}
+}
+
+func TestDurableCompletionCapturedOutcomeSurvivesCallerCancellation(t *testing.T) {
+	for _, outcome := range []pkgchannel.EgressOutcome{
+		pkgchannel.EgressDelivered, pkgchannel.EgressFailed, pkgchannel.EgressDiscarded,
+	} {
+		t.Run(string(outcome), func(t *testing.T) {
+			// Both select cases are ready after a normal adapter returns and
+			// cancels its context. Either selection must preserve its report.
+			for range 100 {
+				ctx, cancel := context.WithCancel(t.Context())
+				proxy := newDurableCompletionProxy()
+				if err := proxy.Ack(ctx, outcome); err != nil {
+					cancel()
+					t.Fatal(err)
+				}
+				cancel()
+				if got := (&DurableIngress{}).waitProxyAck(ctx, proxy); got != outcome {
+					t.Fatalf("outcome after adapter cancellation = %q, want %q", got, outcome)
+				}
+			}
+		})
+	}
+}
+
+func TestDurableCompletionCancellationWithoutReportStaysUnknown(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	proxy := newDurableCompletionProxy()
+	if got := (&DurableIngress{}).waitProxyAck(ctx, proxy); got != pkgchannel.EgressUnknown {
+		t.Fatalf("outcome without adapter report = %q, want unknown", got)
+	}
+	if err := proxy.Ack(t.Context(), pkgchannel.EgressDelivered); err == nil {
+		t.Fatal("late acknowledgement overwrote cancellation's unknown outcome")
 	}
 }
 
@@ -100,23 +151,21 @@ func TestDurableCompletionProxyForceAckDowngradesDelivered(t *testing.T) {
 func TestDurableCompletionProxyNilSourceWaitsForForward(t *testing.T) {
 	proxy := newDurableCompletionProxy()
 	proxy.Bind(nil)
-	ackDone := make(chan error, 1)
-	go func() { ackDone <- proxy.Ack(context.Background(), pkgchannel.EgressDelivered) }()
+	if err := proxy.Ack(context.Background(), pkgchannel.EgressDelivered); err != nil {
+		t.Fatalf("Ack capture: %v", err)
+	}
 	select {
-	case err := <-ackDone:
-		t.Fatalf("Ack returned before FIFO settlement: %v", err)
-	case <-proxy.AckReceived():
+	case <-proxy.Done():
+		t.Fatal("Done closed before ForwardAck")
+	default:
 	}
 	if err := proxy.ForwardAck(context.Background()); err != nil {
 		t.Fatalf("ForwardAck: %v", err)
 	}
 	select {
-	case err := <-ackDone:
-		if err != nil {
-			t.Fatalf("Ack after nil-source settlement: %v", err)
-		}
+	case <-proxy.Done():
 	case <-time.After(time.Second):
-		t.Fatal("Ack did not return after ForwardAck")
+		t.Fatal("Done did not close after ForwardAck with a nil source")
 	}
 }
 
@@ -132,9 +181,6 @@ func TestDurableCompletionProxyPersistsForwardError(t *testing.T) {
 	}
 	if err := proxy.ForwardAck(context.Background()); !errors.Is(err, want) {
 		t.Fatalf("repeated ForwardAck error = %v, want %v", err, want)
-	}
-	if err := proxy.waitDone(context.Background()); !errors.Is(err, want) {
-		t.Fatalf("waitDone error = %v, want %v", err, want)
 	}
 }
 

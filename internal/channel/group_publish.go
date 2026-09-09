@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,7 +16,6 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/runcontrol"
 )
 
 // groupPublishDriver owns egress for an accepted group reply: routing it to a
@@ -94,117 +92,33 @@ type publishJob struct {
 	fifoOwned bool
 	response  groupResponse
 	envelope  GroupOutboxEnvelope
+	// capture records the source owner's publication outcome. FIFO recovery
+	// also uses it when the buffered response has no live Run completion.
+	capture *durableCompletionProxy
 	// acceptedMessageID is the canonical row this publish is rendering. It is
 	// empty on the recovery path, where the row already carries the id.
 	acceptedMessageID string
 }
 
-// groupPublishCompletionGate keeps the AgentRun completion open while a
-// publisher's own defer settles the platform outcome. The publisher can only
-// observe the response stream's Check/Ack contract; releasing the underlying
-// lease before the dispatch marker and canonical delivery commit would let the
-// next turn overtake those durable facts.
-//
-// Ack intentionally captures and returns without touching the underlying
-// completion. The driver releases it exactly once after the durable boundary,
-// choosing unknown whenever that boundary is not proven.
-type groupPublishCompletionGate struct {
-	completion pkgchannel.StreamCompletion
-
-	mu       sync.Mutex
-	acked    bool
-	outcome  pkgchannel.EgressOutcome
-	released bool
+func publishCapturedDiscard(capture *durableCompletionProxy) bool {
+	if capture == nil {
+		return false
+	}
+	outcome, captured := capture.outcome()
+	return captured && outcome == pkgchannel.EgressDiscarded
 }
 
-func newGroupPublishCompletionGate(completion pkgchannel.StreamCompletion) *groupPublishCompletionGate {
-	if completion == nil {
+// downgradePublishOutcome forces unknown on the source-owned capture after a
+// boundary whose success was not proven. Only the adapter's explicit pre-send
+// discard survives, because it proves no external request was made.
+func downgradePublishOutcome(capture *durableCompletionProxy) error {
+	if capture == nil {
 		return nil
 	}
-	return &groupPublishCompletionGate{completion: completion}
-}
-
-func (g *groupPublishCompletionGate) Check(ctx context.Context) error {
-	if g == nil || g.completion == nil {
+	if publishCapturedDiscard(capture) {
 		return nil
 	}
-	return g.completion.Check(ctx)
-}
-
-func (g *groupPublishCompletionGate) Ack(_ context.Context, outcome pkgchannel.EgressOutcome) error {
-	if g == nil || g.completion == nil {
-		return nil
-	}
-	if !outcome.Valid() {
-		return runcontrol.ErrInvalidOutcome
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.acked {
-		if g.outcome != outcome {
-			return fmt.Errorf("group publish completion outcome changed from %q to %q", g.outcome, outcome)
-		}
-		return nil
-	}
-	g.acked = true
-	g.outcome = outcome
-	return nil
-}
-
-func (g *groupPublishCompletionGate) Done() <-chan struct{} {
-	if g == nil || g.completion == nil {
-		return nil
-	}
-	return g.completion.Done()
-}
-
-func (g *groupPublishCompletionGate) capturedOutcome() (pkgchannel.EgressOutcome, bool) {
-	if g == nil || g.completion == nil {
-		return "", false
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.outcome, g.acked
-}
-
-// release forwards the final durable outcome to the original completion. It
-// is idempotent for the same terminal outcome, which protects a publisher
-// that calls Ack from a defer while a bookkeeping error is being unwound.
-func (g *groupPublishCompletionGate) release(ctx context.Context, outcome pkgchannel.EgressOutcome) error {
-	if g == nil || g.completion == nil {
-		return nil
-	}
-	if !outcome.Valid() {
-		return runcontrol.ErrInvalidOutcome
-	}
-	g.mu.Lock()
-	if g.released {
-		g.mu.Unlock()
-		return nil
-	}
-	g.released = true
-	g.mu.Unlock()
-	return g.completion.Ack(ctx, outcome)
-}
-
-func ackGroupPublishCompletion(ctx context.Context, gate *groupPublishCompletionGate, outcome pkgchannel.EgressOutcome) error {
-	if gate == nil {
-		return nil
-	}
-	ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	return gate.release(ackCtx, outcome)
-}
-
-// publishErrorCompletionOutcome preserves a pre-send discard when a platform
-// explicitly reported it, but treats every other returned publisher error as
-// unknown. The caller cannot infer whether an external request was accepted
-// merely because Publish returned an error.
-func publishErrorCompletionOutcome(gate *groupPublishCompletionGate) pkgchannel.EgressOutcome {
-	if outcome, ok := gate.capturedOutcome(); ok && outcome == pkgchannel.EgressDiscarded {
-		return outcome
-	}
-	return pkgchannel.EgressUnknown
+	return capture.forceAck(pkgchannel.EgressUnknown)
 }
 
 // run performs one egress attempt and returns the dispatch row it worked on.
@@ -253,58 +167,48 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 			return row, errors.Join(cause, ackGroupResponse(ctx, job.response, pkgchannel.EgressFailed, cause.Error()))
 		}
 	}
-	completionGate := newGroupPublishCompletionGate(job.response.completion)
-	replay := replayGroupResponse(job.response)
-	if completionGate != nil {
-		replay.Completion = completionGate
-	}
+	capture := job.capture
 	err := job.publisher.Publish(ctx, pkgchannel.GroupPublishRequest{
 		Platform:        job.state.Platform,
 		PlatformGroupID: job.state.PlatformGroupID, PlatformThreadID: job.state.PlatformThreadID,
-		ReplyTo: nullStringValue(job.trigger.PlatformMessageID), Stream: replay,
+		ReplyTo: nullStringValue(job.trigger.PlatformMessageID), Stream: replayGroupResponse(job.response),
 		DeliveryID:  row.ID,
 		RequesterID: job.trigger.ActorID, LifecycleFeedback: job.envelope.LifecycleFeedback,
 		Abort: func() bool { return p.abort(sessionKey) },
 	})
 	if err != nil {
-		outcome := publishErrorCompletionOutcome(completionGate)
-		if outcome == pkgchannel.EgressDiscarded {
+		if publishCapturedDiscard(capture) {
 			// Only an adapter's explicit pre-send discard proves that no external
 			// request was made. That proof permits the ordinary retry policy.
 			if _, clearErr := p.q.ClearGroupDispatchPublishStarted(ctx, sqlc.ClearGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); clearErr != nil {
 				p.log.Warn("clear publish start marker failed", "dispatch_id", row.ID, "error", clearErr)
 			}
-			completionErr := ackGroupPublishCompletion(ctx, completionGate, outcome)
-			if completionErr != nil {
-				return row, errors.Join(fmt.Errorf("publish: %w", err), fmt.Errorf("release group response completion: %w", completionErr))
-			}
 			return row, fmt.Errorf("publish: %w", err)
 		}
 		// Once Publish has been entered, a returned error cannot prove whether
-		// the platform accepted the bytes. Keep publish_started and terminalize
-		// the accepted row as unknown before releasing the AgentRun completion;
-		// an ordinary requeue here would transparently duplicate an answer.
+		// the platform accepted the bytes. Keep publish_started and downgrade
+		// the captured outcome to unknown; an ordinary requeue here would
+		// transparently duplicate an answer.
 		if row.ResultMessageID != "" {
 			if unknownErr := p.markAcceptedPublishUnknown(ctx, row); unknownErr != nil {
 				return row, errors.Join(fmt.Errorf("publish: %w", err), unknownErr)
 			}
-			if completionErr := ackGroupPublishCompletion(ctx, completionGate, pkgchannel.EgressUnknown); completionErr != nil {
-				return row, errors.Join(&acceptedPublishBookkeepingError{err: completionErr}, fmt.Errorf("publish: %w", err))
+			if downgradeErr := downgradePublishOutcome(capture); downgradeErr != nil {
+				return row, errors.Join(&acceptedPublishBookkeepingError{err: downgradeErr}, fmt.Errorf("publish: %w", err))
 			}
 			row.Status = "failed"
 			return row, nil
 		}
 		// No accepted message exists on this path, so no publish marker or
 		// delivery state needs terminal compensation.
-		completionErr := ackGroupPublishCompletion(ctx, completionGate, pkgchannel.EgressUnknown)
-		if completionErr != nil {
-			return row, errors.Join(fmt.Errorf("publish: %w", err), fmt.Errorf("release group response completion: %w", completionErr))
+		if downgradeErr := downgradePublishOutcome(capture); downgradeErr != nil {
+			return row, errors.Join(fmt.Errorf("publish: %w", err), downgradeErr)
 		}
 		return row, fmt.Errorf("publish: %w", err)
 	}
 	if err := p.markPublished(ctx, row); err != nil {
-		if completionErr := ackGroupPublishCompletion(ctx, completionGate, pkgchannel.EgressUnknown); completionErr != nil {
-			return row, errors.Join(&acceptedPublishBookkeepingError{err: err}, fmt.Errorf("release group response completion: %w", completionErr))
+		if downgradeErr := downgradePublishOutcome(capture); downgradeErr != nil {
+			return row, errors.Join(&acceptedPublishBookkeepingError{err: downgradeErr}, err)
 		}
 		return row, &acceptedPublishBookkeepingError{err: err}
 	}
@@ -313,13 +217,13 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 	// ordinary publish-failure path merely because a follow-up read failed.
 	row.PublishedAt = nullTime(time.Now().UTC())
 	if err := p.finalizeAcceptedPublished(ctx, row); err != nil {
-		if completionErr := ackGroupPublishCompletion(ctx, completionGate, pkgchannel.EgressUnknown); completionErr != nil {
-			return row, errors.Join(&acceptedPublishBookkeepingError{err: err}, fmt.Errorf("release group response completion: %w", completionErr))
+		if downgradeErr := downgradePublishOutcome(capture); downgradeErr != nil {
+			return row, errors.Join(&acceptedPublishBookkeepingError{err: err}, downgradeErr)
 		}
 		return row, &acceptedPublishBookkeepingError{err: err}
 	}
-	if err := ackGroupPublishCompletion(ctx, completionGate, pkgchannel.EgressDelivered); err != nil {
-		return row, &acceptedPublishBookkeepingError{err: fmt.Errorf("release group response completion: %w", err)}
+	if err := capture.captureAck(pkgchannel.EgressDelivered); err != nil {
+		return row, &acceptedPublishBookkeepingError{err: fmt.Errorf("capture group publish outcome: %w", err)}
 	}
 	return row, nil
 }

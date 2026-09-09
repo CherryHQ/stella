@@ -1073,8 +1073,22 @@ func TestWebAgentReplyTraversesTheSameDeliveryLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("web publisher: %v", err)
 	}
-	if err := fx.d.publishAccepted(ctx, publishJob{row: row, trigger: fx.message, state: state, publisher: publisher, response: groupResponse{text: "peer reply", complete: true}}); err != nil {
+	// The owner path: the publish boundary reports through the source-owned
+	// capture, and only an explicit forward releases the underlying completion.
+	capture := newDurableCompletionProxy()
+	probe := newGroupPublishCompletionProbe()
+	capture.Bind(probe)
+	if err := fx.d.publishAccepted(ctx, publishJob{row: row, trigger: fx.message, state: state, publisher: publisher, response: groupResponse{text: "peer reply", complete: true}, capture: capture}); err != nil {
 		t.Fatalf("publish accepted: %v", err)
+	}
+	if probe.acked != 0 {
+		t.Fatalf("underlying Ack calls = %d, want 0 before forward", probe.acked)
+	}
+	if err := capture.ForwardAck(ctx); err != nil {
+		t.Fatalf("forward capture: %v", err)
+	}
+	if probe.acked != 1 || probe.outcome != pkgchannel.EgressDelivered {
+		t.Fatalf("underlying Ack = %d/%q, want 1/delivered", probe.acked, probe.outcome)
 	}
 	message, err := fx.q.GetGroupMessage(ctx, result.Accepted.Message.ID)
 	if err != nil {
@@ -1519,6 +1533,46 @@ func TestGroupDispatcherPublisherFailureMarksUnknownBeforeAttemptCeiling(t *test
 	}
 	if result.DeliveryState != "unknown" {
 		t.Fatalf("delivery state = %q, want unknown", result.DeliveryState)
+	}
+}
+
+// A legacy turn that succeeds durably but whose source completion cannot be
+// terminalized must surface the forward failure: the caller has to learn that
+// the AgentRun completion was never released, even though the turn itself
+// completed.
+func TestLegacyDispatchPropagatesSourceCompletionForwardFailure(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
+	probe := &durableCompletionErrorProbe{done: make(chan struct{}), err: errors.New("injected completion ack failure")}
+	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
+			sink.Deliver(memory.DeferredGroupTurn{Complete: true})
+		}
+		stream := textStream("reply")
+		stream.Completion = probe
+		return stream, nil
+	}
+	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000096", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
+	dispatch, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000096")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	err = fx.d.ExecuteDispatch(ctx, dispatch)
+	if err == nil {
+		t.Fatal("expected the source completion forward failure to propagate")
+	}
+	if !strings.Contains(err.Error(), "forward legacy group completion") || !strings.Contains(err.Error(), "injected completion ack failure") {
+		t.Fatalf("forward failure = %v, want the wrapped source Ack error", err)
+	}
+	// The durable business outcome still stands even though the forward failed.
+	row, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000096")
+	if err != nil {
+		t.Fatalf("get dispatch after run: %v", err)
+	}
+	if row.Status != "completed" || row.ResultMessageID == "" {
+		t.Fatalf("dispatch after run = %s result %q, want completed with a result", row.Status, row.ResultMessageID)
 	}
 }
 
