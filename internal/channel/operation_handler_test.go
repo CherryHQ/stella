@@ -57,6 +57,14 @@ func (h *fullSurfaceHandler) RemovePlatformGroupMember(context.Context, string, 
 	return nil
 }
 
+func (h *fullSurfaceHandler) LoadIngressCursor(context.Context, string, string, string) (int64, error) {
+	return 0, nil
+}
+
+func (h *fullSurfaceHandler) AdvanceIngressCursor(context.Context, string, string, string, int64) error {
+	return nil
+}
+
 func TestWrapOperationHandlerUsesOperationLifetimeAndCallValues(t *testing.T) {
 	inner := &fullSurfaceHandler{}
 	opCtx, cancelOperation := context.WithCancel(context.WithValue(context.Background(), marker, "operation"))
@@ -122,6 +130,9 @@ func TestWrapOperationHandlerPreservesOptionalInterfaces(t *testing.T) {
 		RemovePlatformGroupMember(context.Context, string, string, string) error
 	}); !ok {
 		t.Error("wrapper dropped group-member provisioner")
+	}
+	if _, ok := wrapped.(pkgchannel.IngressCursorStore); !ok {
+		t.Error("wrapper dropped IngressCursorStore")
 	}
 }
 

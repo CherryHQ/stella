@@ -39,6 +39,12 @@ type RuntimeHost struct {
 	// per-entry mutex serializes Build/Apply with drain-time Quiesce.
 	applyMu  sync.Mutex
 	quiesced bool
+	// channelLeader is the process-local admission fence for channel pollers.
+	// It starts enabled for the existing single-process composition path; the
+	// gateway disables it until the pool-external control session owns the
+	// durable channel leadership lock. Losing that lock stops current runtimes
+	// and leaves future reconciles unable to restart them until reacquisition.
+	channelLeader bool
 
 	// channelLocks serialize the durable read and runtime apply for one
 	// channel ID. Keeping this boundary per instance lets unrelated channels
@@ -49,7 +55,54 @@ type RuntimeHost struct {
 }
 
 func NewRuntimeHost(host *Host) *RuntimeHost {
-	return &RuntimeHost{host: host, rt: map[runtimeKey]*runtimeEntry{}, channelLocks: map[string]*sync.Mutex{}}
+	return &RuntimeHost{host: host, rt: map[runtimeKey]*runtimeEntry{}, channelLocks: map[string]*sync.Mutex{}, channelLeader: true}
+}
+
+// SetChannelLeadership updates the process-local gate used by managed channel
+// runtimes. A terminal quiesce cannot be reopened; a control-session reconnect
+// must happen before the caller starts reconciling channels again.
+func (h *RuntimeHost) SetChannelLeadership(active bool) error {
+	h.applyMu.Lock()
+	defer h.applyMu.Unlock()
+	if active && h.quiesced {
+		return fmt.Errorf("runtime host is quiescing")
+	}
+	h.channelLeader = active
+	return nil
+}
+
+// ReleaseChannelIngress stops the currently materialized channel runtimes
+// while keeping the runtime host reusable for a later control-session epoch.
+// It is intentionally separate from Quiesce and Stop: both are terminal drain
+// operations, whereas a lost PostgreSQL control connection is recoverable.
+func (h *RuntimeHost) ReleaseChannelIngress(ctx context.Context) error {
+	h.applyMu.Lock()
+	h.channelLeader = false
+	if h.quiesced {
+		h.applyMu.Unlock()
+		return nil
+	}
+	h.mu.RLock()
+	entries := make([]*runtimeEntry, 0, len(h.rt))
+	for _, entry := range h.rt {
+		if strings.HasPrefix(entry.reg.PluginID, config.PluginKindChannel+"/") {
+			entries = append(entries, entry)
+		}
+	}
+	h.mu.RUnlock()
+	h.applyMu.Unlock()
+
+	var failures []error
+	for _, entry := range entries {
+		entry.applyMu.Lock()
+		if entry.managed != nil {
+			if err := entry.managed.Stop(ctx); err != nil {
+				failures = append(failures, err)
+			}
+		}
+		entry.applyMu.Unlock()
+	}
+	return errors.Join(failures...)
 }
 
 func configMapFromJSON(raw string) map[string]any {
@@ -270,6 +323,10 @@ func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.Runtim
 		h.applyMu.Unlock()
 		return fmt.Errorf("runtime host is quiescing")
 	}
+	if strings.HasPrefix(reg.PluginID, config.PluginKindChannel+"/") && !h.channelLeader {
+		h.applyMu.Unlock()
+		return ErrChannelLeadershipUnavailable
+	}
 	h.mu.Lock()
 	entry := h.rt[key]
 	if entry == nil {
@@ -375,6 +432,7 @@ func (h *RuntimeHost) Quiesce(ctx context.Context) {
 		return
 	}
 	h.quiesced = true
+	h.channelLeader = false
 
 	h.mu.RLock()
 	entries := make([]*runtimeEntry, 0, len(h.rt))
@@ -403,6 +461,7 @@ func (h *RuntimeHost) Quiesce(ctx context.Context) {
 func (h *RuntimeHost) Stop(ctx context.Context) error {
 	h.applyMu.Lock()
 	h.quiesced = true
+	h.channelLeader = false
 	h.mu.Lock()
 	entries := h.rt
 	h.rt = map[runtimeKey]*runtimeEntry{}

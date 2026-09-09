@@ -217,6 +217,21 @@ func (rt *Runtime) SessionLive(sessionID string) bool {
 	return rt.hub.IsLive(sessionID)
 }
 
+// SessionRun reports the durable run identity owned by this runtime's
+// executor. The events hub is process-local and can briefly outlive or lag a
+// lease transition, so callers must compare this ID with the durable row before
+// attaching a protected stream.
+func (rt *Runtime) SessionRun(ctx context.Context, sessionID string) (string, bool, error) {
+	if rt.runs == nil {
+		return "", false, nil
+	}
+	run, running, err := rt.runs.Running(ctx, sessionID)
+	if err != nil || !running {
+		return "", running, err
+	}
+	return run.ID, true, nil
+}
+
 // RunManagedSession executes a Session-tool request through the currently
 // active source runner. The source runner owns the effective delegate preset,
 // system override, timeout, and excluded-tool set for this turn.

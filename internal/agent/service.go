@@ -529,6 +529,13 @@ func (s *Service) SessionLive(sessionID string) bool {
 	return s.Runtime.SessionLive(sessionID)
 }
 
+// SessionRun exposes the local durable run identity for read-only stream
+// attachment. Session access compares it with the shared AgentRun row before
+// accepting events from this process's hub.
+func (s *Service) SessionRun(ctx context.Context, sessionID string) (string, bool, error) {
+	return s.Runtime.SessionRun(ctx, sessionID)
+}
+
 // SchedulerChatRequest describes a scheduler-initiated chat turn.
 type SchedulerChatRequest struct {
 	SessionID string // scheduler-derived session ID

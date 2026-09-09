@@ -284,12 +284,13 @@ A loopback base URL is never a startup error — it is legitimate when you reach
 
 ### Required environment for a managed deployment
 
-| Variable                     | Value                                                                                    |
-| ---------------------------- | ---------------------------------------------------------------------------------------- |
-| `STELLA_DATABASE_URL`        | External PostgreSQL DSN with `pgvector` + `pg_search`                                    |
-| `STELLA_VAULT_KEY`           | age secret key for the vault (generate with `stellad vault keygen`)                      |
-| `STELLA_BASE_URL`            | Public canonical URL clients use (e.g. `https://stella.example.com`)                     |
-| `STELLA_REQUIRE_EXTERNAL_DB` | `1` — already set by the Docker image; fail fast instead of starting embedded PostgreSQL |
+| Variable                     | Value                                                                                                                                   |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `STELLA_DATABASE_URL`        | External PostgreSQL DSN with `pgvector` + `pg_search`                                                                                   |
+| `STELLA_DATABASE_POOL_MODE`  | Known pooler mode for the channel control connection (`session`, `transaction`, or `statement`); transaction and statement are rejected |
+| `STELLA_VAULT_KEY`           | age secret key for the vault (generate with `stellad vault keygen`)                                                                     |
+| `STELLA_BASE_URL`            | Public canonical URL clients use (e.g. `https://stella.example.com`)                                                                    |
+| `STELLA_REQUIRE_EXTERNAL_DB` | `1` — already set by the Docker image; fail fast instead of starting embedded PostgreSQL                                                |
 
 A full Kubernetes manifest walkthrough is out of scope here.
 
@@ -377,6 +378,7 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 | ------------------------------------ | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `STELLA_HOME`                        | No                        | Stella home directory (default `~/.stella`)                                                                                                                                   |
 | `STELLA_DATABASE_URL`                | Docker: yes; otherwise no | External PostgreSQL connection URL; unset uses the embedded cluster under `STELLA_HOME` outside Docker                                                                        |
+| `STELLA_DATABASE_POOL_MODE`          | No                        | Known pooler mode for the channel control connection; set `session` for a session pooler, while `transaction` and `statement` fail startup                                    |
 | `STELLA_BASE_URL`                    | No¶                       | Public canonical URL for OAuth callbacks and channel deep links; unset derives from the bind host (loopback)                                                                  |
 | `STELLA_REQUIRE_EXTERNAL_DB`         | No                        | Fail startup when `STELLA_DATABASE_URL` is unset instead of starting embedded PostgreSQL; the Docker image sets `1`, override with `0` for embedded PG on a persistent volume |
 | `STELLA_HTTP_SHUTDOWN_TIMEOUT`       | No                        | Graceful-shutdown drain budget for in-flight HTTP requests (Go duration, default `60s`, `> 0`)                                                                                |

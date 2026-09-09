@@ -93,6 +93,7 @@ the server, or use "stellad service" to manage it as a background service.`,
 			upgradeCommand(),
 			postgresCommand(),
 			sandboxCommand(),
+			channelCommand(),
 			vaultCommand(),
 			systemBundleCommand(),
 			serviceCommand(),
@@ -232,6 +233,12 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, err
 	}
 	phost := ps.host
+	// Managed channel pollers start only after the pool-external control session
+	// owns the durable ingress lock. Setup still builds their factories and
+	// registry, but no pre-server reconciliation may open a platform listener.
+	if err := phost.SetChannelLeadership(false); err != nil {
+		return nil, fmt.Errorf("gate channel runtime startup: %w", err)
+	}
 	// Construct the Agent PEP at the composition root before any agent Service is
 	// built. HTTP, channels, and durable workers all share its direct decisions.
 	authStore := appdb.NewAuthStore(db)

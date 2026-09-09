@@ -130,20 +130,21 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 
 仅识别少量环境变量：
 
-| 变量                          | 描述                                                                                     |
-| ----------------------------- | ---------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                 | 覆盖主目录（默认 `~/.stella`）                                                           |
-| `STELLA_DATABASE_URL`         | 使用外部 PostgreSQL 数据库，而不是内嵌集群                                               |
-| `STELLA_BLOB_S3_ENDPOINT`     | 可选的 S3 兼容 endpoint，用于 immutable BlobStore 数据                                   |
-| `STELLA_BLOB_S3_BUCKET`       | immutable BlobStore 数据的 bucket；需与 endpoint/access/secret 同时设置，或全部不设置    |
-| `STELLA_BLOB_S3_ACCESS_KEY`   | immutable BlobStore 数据使用的 access key                                                |
-| `STELLA_BLOB_S3_SECRET_KEY`   | immutable BlobStore 数据使用的 secret key                                                |
-| `STELLA_BLOB_S3_REGION`       | 可选 S3 region                                                                           |
-| `STELLA_BLOB_S3_USE_SSL`      | S3 兼容存储是否使用 HTTPS；默认 `true`                                                   |
-| `STELLA_VAULT_KEY`            | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需 |
-| `STELLA_SANDBOX_BACKEND`      | 沙箱后端：`docker`、`local`（默认）或 `none`                                             |
-| `STELLA_DOCKER_RUNTIME`       | Docker 沙箱使用的可选已注册 OCI runtime，例如 gVisor 的 `runsc`；不可用时预检失败        |
-| `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`armed`（默认值）或不产生写入的紧急停止模式 `shadow`                   |
+| 变量                          | 描述                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `STELLA_HOME`                 | 覆盖主目录（默认 `~/.stella`）                                                                               |
+| `STELLA_DATABASE_URL`         | 使用外部 PostgreSQL 数据库，而不是内嵌集群                                                                   |
+| `STELLA_DATABASE_POOL_MODE`   | 渠道控制连接已知的连接池模式：`session`、`transaction` 或 `statement`；`transaction` 与 `statement` 会被拒绝 |
+| `STELLA_BLOB_S3_ENDPOINT`     | 可选的 S3 兼容 endpoint，用于 immutable BlobStore 数据                                                       |
+| `STELLA_BLOB_S3_BUCKET`       | immutable BlobStore 数据的 bucket；需与 endpoint/access/secret 同时设置，或全部不设置                        |
+| `STELLA_BLOB_S3_ACCESS_KEY`   | immutable BlobStore 数据使用的 access key                                                                    |
+| `STELLA_BLOB_S3_SECRET_KEY`   | immutable BlobStore 数据使用的 secret key                                                                    |
+| `STELLA_BLOB_S3_REGION`       | 可选 S3 region                                                                                               |
+| `STELLA_BLOB_S3_USE_SSL`      | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                       |
+| `STELLA_VAULT_KEY`            | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需                     |
+| `STELLA_SANDBOX_BACKEND`      | 沙箱后端：`docker`、`local`（默认）或 `none`                                                                 |
+| `STELLA_DOCKER_RUNTIME`       | Docker 沙箱使用的可选已注册 OCI runtime，例如 gVisor 的 `runsc`；不可用时预检失败                            |
+| `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`armed`（默认值）或不产生写入的紧急停止模式 `shadow`                                       |
 
 Structured Reflect 是唯一写入器。Curator 模式在服务启动时读取，修改后需要重启 Stella；非法值会阻止启动。运行检查见[部署](/docs/start-here/deployment#structured-reflect-与-curator)，详细机制见[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator)。
 

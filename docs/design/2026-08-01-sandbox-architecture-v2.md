@@ -133,7 +133,7 @@ Compose 和 Kubernetes journey 可以验证 A 与 B，但不能替代任何一�
 - accepted asynchronous channel input 使用 durable per-`ChatBinding` FIFO。payload/schema/size validation、过期平台附件转 immutable content-addressed media、以及 binding/principal/deployment row+byte quota 必须在 ack 前完成。稳定 source identity 才能 deduplicate；没有稳定 identity 时不按内容猜测。
 - FIFO 不得自动跳过或 dead-letter poison head；transient failure 使用 bounded backoff、可观测 blocked state 和显式审计 reject。`/new` 是有序 barrier，receipt 保存 `expected_session_id` 或 binding revision 并 compare-and-rotate；删除旧 receipt authority 前先 backfill 已消费历史 command。
 - `GroupRoute` 是按 group sequence 的、可过期且仅执行分类的 claim；retry 不运行 Agent/tool/Sandbox。winner 在一个 transaction 内写 responder decision 并 materialize 唯一 FIFO items；Web fan-out 对 busy responder 记录明确 rejection，其他 accepted responder 保持本地 SSE。它不复制 AgentRun execution lease。
-- 每个副本只有一条 pool-external、serialized PostgreSQL control session，承担 abort/input/config wakeup、health probe 和全局 pull/WebSocket advisory lock；transaction-pooling proxy 不受支持。control session 丢失立即 cancel listeners；graceful drain 先停 listeners 再释放 leadership；通知只作 wakeup，reconnect/full scan 与 heartbeat 修复漏通知。Webhook 可由任意副本接收。
+- 每个副本只有一条 pool-external、serialized PostgreSQL control session，承担 abort/input/config wakeup、health probe 和全局 pull/WebSocket advisory lock；transaction/statement pooling 必须由已知部署配置拒绝，或为 control session 使用 direct/session-pooled DSN。黑箱 affinity probe 只能验证本次连接，不能证明未知 proxy 永远不会换后端。control session 丢失立即 cancel listeners；graceful drain 先停 listeners 再释放 leadership；通知只作 wakeup，reconnect/full scan 与 heartbeat 修复漏通知。Webhook 可由任意副本接收。
 - Publisher 从 durable config、reply envelope 与加密 capability reference 重建，不依赖 leader-local registry，并且可以由 non-leader executor 发布。
 - outcome-unknown command、filesystem write 或 outbound side effect不透明重试。
 

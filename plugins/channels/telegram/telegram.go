@@ -50,6 +50,7 @@ type Bot struct {
 	bot     *tele.Bot
 	handler channel.Handler
 	md      goldmarkMD
+	poller  *durablePoller
 
 	finalizeOnce      sync.Once
 	provisionMu       sync.RWMutex
@@ -64,12 +65,23 @@ type Bot struct {
 
 // New creates a Telegram bot and registers handlers. Call Start to begin polling.
 func New(cfg Config, handler channel.Handler) (*Bot, error) {
+	var cursorStore channel.IngressCursorStore
+	if store, ok := handler.(channel.IngressCursorStore); ok {
+		cursorStore = store
+	}
+	cursorChannelID := cfg.InstanceID
+	if cursorChannelID == "" {
+		cursorChannelID = channel.PlatformTelegram
+	}
+	poller := newDurablePoller(cursorStore, cursorChannelID, 30*time.Second, 0, tele.AllowedUpdates)
 	bot, err := tele.NewBot(tele.Settings{
-		Token: cfg.Token,
-		Poller: &tele.LongPoller{
-			Timeout:        30 * time.Second,
-			AllowedUpdates: tele.AllowedUpdates,
-		},
+		Token:   cfg.Token,
+		OnError: poller.onError,
+		// ProcessUpdate must not return before HandleIncoming has durably
+		// admitted the update. Stream egress is launched after admission by the
+		// handlers, so this does not hold telebot's poll loop for model latency.
+		Synchronous: true,
+		Poller:      poller,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create bot: %w", err)
@@ -79,6 +91,7 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		bot:               bot,
 		handler:           handler,
 		md:                tgmd.TGMD(),
+		poller:            poller,
 		provisionedGroups: make(map[string]struct{}),
 		provisionWarnings: make(map[string]struct{}),
 		cfg:               cfg,
@@ -99,6 +112,12 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 // Start begins long polling. It blocks until ctx is cancelled.
 func (b *Bot) Start(ctx context.Context) error {
 	b.ctx = ctx
+	if b.poller == nil || b.poller.store == nil {
+		return fmt.Errorf("telegram durable ingress cursor store is not configured")
+	}
+	if err := b.poller.load(ctx); err != nil {
+		return err
+	}
 
 	if err := registerCommands(b.bot); err != nil {
 		logger().Warn("register telegram commands failed", "error", err)

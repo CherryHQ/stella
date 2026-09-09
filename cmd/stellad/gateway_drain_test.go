@@ -71,6 +71,83 @@ func TestDrainSequenceIngressStopsBeforeCancel(t *testing.T) {
 	}
 }
 
+// TestDrainSequenceQuiescePreservesAcceptedSource proves the graceful drain
+// contract for durable ingress: quiescing stops new admissions, but an already
+// accepted source remains live until waitAccepted observes its completion. The
+// hard-stop cancellation path is covered by TestDrainSequenceAbortCollapsesWait.
+func TestDrainSequenceQuiescePreservesAcceptedSource(t *testing.T) {
+	quiesced := make(chan struct{})
+	waitEntered := make(chan struct{})
+	sourceDone := make(chan struct{})
+	cancelled := make(chan struct{})
+	waitErr := make(chan error, 1)
+
+	d := &drainSequence{
+		beginDrain: func() {},
+		stopIngress: func() {
+			close(quiesced)
+		},
+		httpTimeout: time.Second,
+		shutdownHTTP: func(context.Context) error {
+			return nil
+		},
+		forceClose: func() {},
+		waitAccepted: func(ctx context.Context) {
+			select {
+			case <-quiesced:
+			default:
+				waitErr <- errors.New("accepted-work wait started before ingress quiesced")
+				return
+			}
+			close(waitEntered)
+			select {
+			case <-sourceDone:
+				select {
+				case <-cancelled:
+					waitErr <- errors.New("work was cancelled before accepted source completed")
+				default:
+					waitErr <- nil
+				}
+			case <-ctx.Done():
+				waitErr <- ctx.Err()
+			}
+		},
+		cancelWork: func() { close(cancelled) },
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		d.run()
+	}()
+
+	select {
+	case <-waitEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain did not reach accepted-work wait")
+	}
+	select {
+	case <-cancelled:
+		t.Fatal("cancelWork ran before the accepted source completed")
+	default:
+	}
+	close(sourceDone)
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain did not finish after the accepted source completed")
+	}
+	if err := <-waitErr; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-cancelled:
+	default:
+		t.Fatal("drain did not cancel work after accepted source completion")
+	}
+}
+
 // TestDrainSequenceNilWaitAccepted proves the accepted-work wait is optional:
 // a sequence without it still runs the remaining steps in order.
 func TestDrainSequenceNilWaitAccepted(t *testing.T) {

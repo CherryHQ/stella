@@ -134,3 +134,50 @@ func rotateChatSession(ctx context.Context, rc *ResolvedChat, receipt commandCla
 	}
 	return reply
 }
+
+// rotateChatSessionExpected is the consumer half of a durable /new barrier.
+// Admission already claimed and linked the command receipt, so claiming it a
+// second time would turn every recovered item into a false duplicate. The
+// expected session captured at admission is the compare value that makes the
+// rotation itself exactly-once when a worker retries after a crash.
+func rotateChatSessionExpected(ctx context.Context, rc *ResolvedChat, expectedSessionID string, queue *sessionQueue, authorize func(context.Context) error) string {
+	if expectedSessionID == "" {
+		return "Starting a new session failed: durable command has no expected session"
+	}
+	if authorize == nil {
+		return "Starting a new session failed: authorization is required"
+	}
+	run := func(fn func(context.Context) error) (bool, error) { return true, fn(ctx) }
+	if queue != nil {
+		run = func(fn func(context.Context) error) (bool, error) {
+			return queue.EnqueueControl(ctx, rc.queueKey(), fn)
+		}
+	}
+	var reply string
+	started, err := run(func(qctx context.Context) error {
+		if err := authorize(qctx); err != nil {
+			return err
+		}
+		switch _, err := rc.RotateSession(qctx, expectedSessionID); {
+		case err == nil:
+			reply = pkgchannel.NewSessionStartedMessage
+			return nil
+		case errors.Is(err, session.ErrStaleRotation):
+			reply = pkgchannel.SessionAlreadyResetMessage
+			return nil
+		default:
+			return err
+		}
+	})
+	if err == nil {
+		return reply
+	}
+	// Durable retries keep the receipt and the FIFO item together. A context
+	// cancellation after the queue started may have committed the rotate, so
+	// surface an explicit failure and let the item remain retryable rather than
+	// claiming a second compare-and-rotate.
+	if started && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		return pkgchannel.NewSessionOutcomeUnknownMessage
+	}
+	return fmt.Sprintf("Starting a new session failed: %v", err)
+}

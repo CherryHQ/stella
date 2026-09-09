@@ -12,7 +12,11 @@ import (
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
-func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err error) {
+func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) error {
+	return b.publish(ctx, req, scopeGroup)
+}
+
+func (b *Bot) publish(ctx context.Context, req channel.GroupPublishRequest, scope messageScope) (err error) {
 	if req.Stream == nil {
 		return nil
 	}
@@ -30,6 +34,9 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err
 		return err
 	}
 	groupID := strings.TrimPrefix(req.PlatformGroupID, "qq:group:")
+	if scope == scopeC2C {
+		groupID = strings.TrimPrefix(req.PlatformGroupID, "qq:c2c:")
+	}
 	if groupID == "" {
 		outcome = channel.EgressFailed
 		return fmt.Errorf("qq: empty group id")
@@ -71,12 +78,18 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err
 			}
 			return err
 		}
-		if _, err := b.api.PostGroupMessage(ctx, groupID, dto.MessageToCreate{
+		message := dto.MessageToCreate{
 			Content: chunk,
 			MsgType: dto.TextMsg,
 			MsgID:   req.ReplyTo,
 			MsgSeq:  uint32(i + 1),
-		}); err != nil {
+		}
+		if scope == scopeC2C {
+			_, err = b.api.PostC2CMessage(ctx, groupID, message)
+		} else {
+			_, err = b.api.PostGroupMessage(ctx, groupID, message)
+		}
+		if err != nil {
 			outcome = channel.EgressOutcomeForError(err)
 			return fmt.Errorf("qq: send group response chunk %d: %w", i+1, err)
 		}

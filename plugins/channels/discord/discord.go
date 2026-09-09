@@ -57,6 +57,7 @@ type Config struct {
 type Bot struct {
 	session           *discordgo.Session
 	handler           channel.Handler
+	cursor            *gatewayCursor
 	cfg               Config
 	ctx               context.Context
 	mu                sync.RWMutex
@@ -69,6 +70,7 @@ type Bot struct {
 	botID             string
 	rest              discordREST
 	cancels           *cancelRegistry
+	gateway           *discordGateway
 }
 
 func New(cfg Config, handler channel.Handler) (*Bot, error) {
@@ -80,7 +82,20 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		return nil, fmt.Errorf("create discord session: %w", err)
 	}
 	s.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
-	return &Bot{session: s, handler: handler, cfg: cfg, provisionedGroups: make(map[string]struct{}), typing: make(map[string]*typingState), rest: s, cancels: newCancelRegistry()}, nil
+	// Admission is performed synchronously by onMessageCreate, while its
+	// returned egress closure runs in a goroutine. This keeps the gateway event
+	// boundary behind the durable FIFO without making model streaming block the
+	// websocket reader.
+	s.SyncEvents = true
+	var cursorStore channel.IngressCursorStore
+	if store, ok := handler.(channel.IngressCursorStore); ok {
+		cursorStore = store
+	}
+	cursorChannelID := cfg.InstanceID
+	if cursorChannelID == "" {
+		cursorChannelID = channel.PlatformDiscord
+	}
+	return &Bot{session: s, handler: handler, cursor: newGatewayCursor(cursorStore, cursorChannelID), cfg: cfg, provisionedGroups: make(map[string]struct{}), typing: make(map[string]*typingState), rest: s, cancels: newCancelRegistry()}, nil
 }
 
 func (b *Bot) Name() string {
@@ -176,22 +191,39 @@ func (b *Bot) Start(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	b.session.AddHandler(b.onMessageCreate)
-	b.session.AddHandler(b.onInteractionCreate)
-	if err := b.session.Open(); err != nil {
-		return fmt.Errorf("open discord gateway: %w", err)
+	if b.cursor == nil || !b.cursor.enabled() {
+		return fmt.Errorf("discord durable ingress cursor store is not configured")
 	}
-	if err := b.activate(ctx); err != nil {
-		b.Stop()
+	gateway, err := newDiscordGateway(b)
+	if err != nil {
 		return err
+	}
+	b.gateway = gateway
+	if err := gateway.start(ctx); err != nil {
+		gateway.stop()
+		return fmt.Errorf("open Discord gateway: %w", err)
+	}
+	if !gateway.activated {
+		if err := b.activate(ctx); err != nil {
+			b.Stop()
+			return err
+		}
+		gateway.activated = true
+	}
+	if err := gateway.flushPending(ctx); err != nil {
+		b.Stop()
+		return fmt.Errorf("admit Discord gateway replay: %w", err)
 	}
 	// Best-effort: native commands are a convenience UI on top of the text
 	// commands handleMessage already parses, so a registration failure here
 	// must never block startup or fall back to anything but those.
 	b.registerNativeCommands(ctx)
-	<-ctx.Done()
+	err = gateway.run(ctx)
 	b.Stop()
-	return ctx.Err()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
 }
 
 func (b *Bot) activate(ctx context.Context) error {
@@ -244,6 +276,9 @@ func (b *Bot) Finalize() {
 func (b *Bot) Stop() {
 	b.stopTypingHeartbeats()
 	b.closeOnce.Do(func() {
+		if b.gateway != nil {
+			b.gateway.stop()
+		}
 		if err := b.session.Close(); err != nil {
 			slog.Default().Warn("close discord session failed", "error", err)
 		}
@@ -270,19 +305,57 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 func logger() *slog.Logger { return slog.With("component", "discord") }
 
 func (b *Bot) onMessageCreate(_ *discordgo.Session, event *discordgo.MessageCreate) {
+	if b.cursor == nil {
+		b.handleMessageCreate(event, nil)
+		return
+	}
+	process, tracked := b.cursor.begin("MESSAGE_CREATE")
+	if tracked {
+		if !process {
+			return
+		}
+		admitted := false
+		defer func() { b.cursor.finish("MESSAGE_CREATE", admitted) }()
+		b.handleMessageCreate(event, &admitted)
+		return
+	}
+	b.handleMessageCreate(event, nil)
+}
+
+func (b *Bot) handleMessageCreate(event *discordgo.MessageCreate, admitted *bool) {
 	if event == nil || event.Message == nil || event.Author == nil || event.Author.Bot {
+		if admitted != nil {
+			*admitted = true
+		}
 		return
 	}
 	b.mu.RLock()
 	ctx := b.ctx
 	b.mu.RUnlock()
 	if ctx == nil {
+		if admitted != nil {
+			*admitted = true
+		}
 		return
 	}
-	if err := b.handleMessage(ctx, event.Message); err != nil {
+	deliver, err := b.admitMessage(ctx, event.Message)
+	if err != nil {
 		logger().Warn("handle message failed", "error", err, "channel_id", event.ChannelID)
 		_ = b.sendText(context.WithoutCancel(ctx), event.ChannelID, userFacingError(event.Message, err), event.ID)
+		return
 	}
+	if admitted != nil {
+		*admitted = true
+	}
+	if deliver == nil {
+		return
+	}
+	go func() {
+		if err := deliver(); err != nil {
+			logger().Warn("deliver message failed", "error", err, "channel_id", event.ChannelID)
+			_ = b.sendText(context.WithoutCancel(ctx), event.ChannelID, userFacingError(event.Message, err), event.ID)
+		}
+	}()
 }
 
 func userFacingError(message *discordgo.Message, err error) string {

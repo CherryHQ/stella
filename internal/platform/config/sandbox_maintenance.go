@@ -2,16 +2,16 @@ package config
 
 import "time"
 
-// SandboxMaintenanceConfig contains only inputs used by the operator command.
+// MaintenanceConfig contains only inputs used by operator maintenance commands.
 // Invalid model, channel, or server settings must not prevent resource recovery.
-type SandboxMaintenanceConfig struct {
+type MaintenanceConfig struct {
 	Database          DatabaseConfig
 	KubernetesSandbox KubernetesSandboxConfig
 }
 
-func LoadSandboxMaintenanceConfig(lookup func(string) (string, bool), controllers bool) (SandboxMaintenanceConfig, error) {
+func LoadMaintenanceConfig(lookup func(string) (string, bool), controllers bool) (MaintenanceConfig, error) {
 	get := func(name string) string { value, _ := lookup(name); return value }
-	var cfg SandboxMaintenanceConfig
+	var cfg MaintenanceConfig
 	cfg.Database.URL = get(databaseURLEnv)
 	requireExternal, err := parseServerBool(requireExternalDBEnv, get(requireExternalDBEnv))
 	if err != nil {

@@ -46,6 +46,7 @@ type botManagedRuntime[T any] struct {
 	// to Channel.Start. Quiesce cancels it to stop ingress while the operation
 	// context — and any accepted work on it — keeps running.
 	pollCancel  context.CancelFunc
+	startDone   chan struct{}
 	snapshot    RuntimeStatus
 	channelName string
 	channel     pkgchannel.Channel
@@ -131,6 +132,7 @@ func (r *botManagedRuntime[T]) Apply(ctx context.Context, desired PluginState) e
 	r.channel = nil
 	r.opCancel = nil
 	r.pollCancel = nil
+	r.startDone = nil
 	if cancel != nil {
 		cancel()
 	}
@@ -182,12 +184,15 @@ func (r *botManagedRuntime[T]) Apply(ctx context.Context, desired PluginState) e
 	pollCtx, pollCancel := context.WithCancel(opCtx)
 	r.opCancel = opCancel
 	r.pollCancel = pollCancel
+	startDone := make(chan struct{})
+	r.startDone = startDone
 	r.channelName = ch.Name()
 	r.channel = ch
 	r.snapshot = r.deps.Snapshot(r.deps.Now(), RuntimeStateRunning, r.deps.Platform+" running", cfg)
 	r.mu.Unlock()
 
 	go func() {
+		defer close(startDone)
 		err := ch.Start(pollCtx)
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -254,15 +259,14 @@ func (r *botManagedRuntime[T]) Stop(ctx context.Context) error {
 	var zero T
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.generation++
-	if r.opCancel != nil {
-		r.opCancel()
-		r.opCancel = nil
-	}
-	finalizeChannel(r.channel)
+	cancel := r.opCancel
+	startDone := r.startDone
+	channel := r.channel
+	r.opCancel = nil
 	r.channel = nil
 	r.pollCancel = nil
+	r.startDone = nil
 	if r.deps.Notifier != nil {
 		if r.channelName != "" {
 			r.deps.Notifier.Unregister(r.channelName)
@@ -272,6 +276,19 @@ func (r *botManagedRuntime[T]) Stop(ctx context.Context) error {
 	}
 	r.channelName = ""
 	r.snapshot = r.deps.Snapshot(r.deps.Now(), RuntimeStateStopped, r.deps.Platform+" stopped", zero)
+	r.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if startDone != nil {
+		select {
+		case <-startDone:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	finalizeChannel(channel)
 	return nil
 }
 

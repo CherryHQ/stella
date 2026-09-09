@@ -129,6 +129,25 @@ func TestSharedCommandForwardsPayload(t *testing.T) {
 	}
 }
 
+func TestPlainTextLeavesCommandEmptyForDurableAdmission(t *testing.T) {
+	bot, err := tele.NewBot(tele.Settings{Offline: true, Synchronous: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := &capturingHandler{}
+	b := &Bot{bot: bot, handler: handler, ctx: context.Background(), cfg: Config{AllowDM: true}}
+	b.registerHandlers()
+
+	bot.ProcessUpdate(tele.Update{Message: &tele.Message{
+		ID: 42, Text: "hello there", Sender: &tele.User{ID: 7},
+		Chat: &tele.Chat{ID: 7, Type: tele.ChatPrivate},
+	}})
+
+	if handler.calls != 1 || handler.command != "" || handler.args != "" {
+		t.Fatalf("plain text forwarded as command=%q args=%q calls=%d, want empty command and one call", handler.command, handler.args, handler.calls)
+	}
+}
+
 func TestTelegramIngressAdmission(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

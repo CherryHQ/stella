@@ -173,3 +173,7 @@ When both allowlists are empty, `allow_group` keeps its backward-compatible beha
 
 - Configure **Admin -> Models** for image baselines. A model declaring `text, image` receives active-turn pixels. A group image is described once, on the first turn that reads it; without a usable baseline model the history shows the unavailable marker instead.
 - For file uploads, the Xberg skill must be enabled for the active agent.
+
+**Messages stopped after a restart or an uncertain reply?**
+
+Accepted messages wait in order. If Stella cannot determine whether a reply or tool action completed, it stops that conversation queue to avoid repeating effects. An operator can discover blocked items through `stellad channel fifo list --help`, inspect one through `stellad channel fifo inspect --help`, and explicitly reject it through `stellad channel fifo reject --help`. Check the external result before rejecting. Rejection lets later messages proceed; it does not replay the message or recover a missing reply.

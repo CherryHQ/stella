@@ -85,6 +85,10 @@ func (s *stubRuntimeService) SubscribeSession(string) (<-chan agent.Event, func(
 	return s.events, func() {}
 }
 func (s *stubRuntimeService) SessionLive(string) bool { return true }
+func (s *stubRuntimeService) SessionRun(context.Context, string) (string, bool, error) {
+	return "", false, nil
+}
+
 func (s *stubRuntimeService) CompactAuthorizedSession(context.Context, agentsession.Info) (string, error) {
 	return "", nil
 }

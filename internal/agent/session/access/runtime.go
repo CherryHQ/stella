@@ -2,9 +2,12 @@ package access
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
@@ -79,6 +82,7 @@ type RuntimeService interface {
 	StopSession(context.Context, string) bool
 	SubscribeSession(sessionID string) (<-chan agent.Event, func())
 	SessionLive(sessionID string) bool
+	SessionRun(context.Context, string) (string, bool, error)
 	CompactAuthorizedSession(context.Context, agentsession.Info) (string, error)
 }
 
@@ -273,9 +277,13 @@ type AttachInput struct {
 }
 
 type AttachResult struct {
-	Events               <-chan agent.Event
-	Cancel               func()
-	Live                 bool
+	Events <-chan agent.Event
+	Cancel func()
+	Live   bool
+	// RemoteRunID identifies a durable run whose executor is not local to this
+	// process. The transport must retry the read-only SSE endpoint rather than
+	// pretending the session is idle; event delivery remains replica-local.
+	RemoteRunID          string
 	BeforeProtectedEvent func(context.Context) error
 }
 
@@ -292,15 +300,33 @@ func (s *Service) Attach(ctx context.Context, in AttachInput) (AttachResult, err
 	if err != nil {
 		return AttachResult{}, err
 	}
-	runtime, err := s.runtimeFor(info.AgentID)
+	activeRunID, err := s.activeRunID(ctx, info.ID)
 	if err != nil {
 		return AttachResult{}, err
+	}
+	runtime, err := s.runtimeFor(info.AgentID)
+	if err != nil {
+		if activeRunID != "" {
+			return AttachResult{RemoteRunID: activeRunID, Cancel: func() {}}, nil
+		}
+		// A read-only events request has no local work to subscribe to. The
+		// durable lookup above proved there is no active run, so callers may
+		// answer 204 even when this replica has no agent runtime loaded.
+		return AttachResult{Cancel: func() {}}, nil
+	}
+	localRunID, localRunning, err := runtime.SessionRun(ctx, in.SessionID)
+	if err != nil {
+		return AttachResult{}, fmt.Errorf("%w: read local AgentRun: %w", ErrUnavailable, err)
+	}
+	live := runtime.SessionLive(in.SessionID)
+	if activeRunID != "" && (!localRunning || localRunID != activeRunID || !live) {
+		return AttachResult{RemoteRunID: activeRunID, Cancel: func() {}}, nil
 	}
 	ch, cancel := runtime.SubscribeSession(in.SessionID)
 	return AttachResult{
 		Events: ch,
 		Cancel: cancel,
-		Live:   runtime.SessionLive(in.SessionID),
+		Live:   live,
 		BeforeProtectedEvent: func(eventCtx context.Context) error {
 			fresh, err := s.Begin(eventCtx, in.Authority)
 			if err != nil {
@@ -310,6 +336,21 @@ func (s *Service) Attach(ctx context.Context, in AttachInput) (AttachResult, err
 			return err
 		},
 	}, nil
+}
+
+// activeRunID is the durable cross-replica read used by Attach. A row remains
+// active until its status is terminalized by its owner or the reaper; local
+// wall-clock comparisons could disagree with the database clock and create a
+// false idle 204 during recovery.
+func (s *Service) activeRunID(ctx context.Context, sessionID string) (string, error) {
+	run, err := s.q.GetRunningAgentRunBySession(ctx, sessionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("%w: read active AgentRun: %w", ErrUnavailable, err)
+	}
+	return run.ID, nil
 }
 
 func (s *Service) runtimeFor(agentID string) (RuntimeService, error) {

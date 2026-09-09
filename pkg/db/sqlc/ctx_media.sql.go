@@ -68,6 +68,9 @@ WHERE id IN (
           SELECT 1 FROM ctx_group_message g
           WHERE g.content_blocks @> jsonb_build_array(jsonb_build_object('media_id', m.id::text))
       )
+      AND NOT EXISTS (
+          SELECT 1 FROM channel_fifo_media f WHERE f.media_id = m.id
+      )
     ORDER BY m.created_at
     LIMIT $1
 )
@@ -90,6 +93,9 @@ type DeleteOrphanMediaRow struct {
 // rather than a dedicated table. Ceiling: no GIN index on content_blocks, so
 // this is a sequential scan of the group message table. Add one when the table
 // passes ~1M rows or a single sweep round takes more than 30s.
+// Durable channel FIFO references are also reachability roots. Keep every media
+// row named by channel_fifo_media until the FIFO terminalizer removes that
+// link; ctx_media's RESTRICT foreign key makes a stale link fail the sweep.
 func (q *Queries) DeleteOrphanMedia(ctx context.Context, rowLimit int32) ([]DeleteOrphanMediaRow, error) {
 	rows, err := q.db.Query(ctx, deleteOrphanMedia, rowLimit)
 	if err != nil {

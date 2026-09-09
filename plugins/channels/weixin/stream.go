@@ -142,7 +142,13 @@ func (b *Bot) sendViaStreamChecked(ctx context.Context, stream *channel.ChatStre
 	}
 
 	var lastErr error
-	for range streamMaxRetries {
+	attempts := streamMaxRetries
+	if stream != nil {
+		// A failed managed send may already have reached the platform. Source
+		// completion must retain unknown rather than silently replay the pieces.
+		attempts = 1
+	}
+	for range attempts {
 		if err := check(); err != nil {
 			return false, err
 		}
@@ -153,8 +159,8 @@ func (b *Bot) sendViaStreamChecked(ctx context.Context, stream *channel.ChatStre
 		pieces = nil // pending pieces are already saved; drain on next iteration
 	}
 
-	logger().Warn("sync_stream failed after retries, falling back to sendmessage",
-		"user_id", msg.FromUserID, "retries", streamMaxRetries, "error", lastErr)
+	logger().Warn("sync_stream failed",
+		"user_id", msg.FromUserID, "attempts", attempts, "error", lastErr)
 	return false, lastErr
 }
 

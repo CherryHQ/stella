@@ -223,11 +223,23 @@ Run-owned database writes validate the Run ID, executor boot, running status, ab
 
 Abort intent and completion compete in PostgreSQL. The winning terminal transition records both the Run result and Session turn activity in one transaction. Normal Stop therefore persists `canceled`, and an old executor cannot overwrite a successor's activity.
 
-Model EOF allows a source adapter to finish its work. Adapters that still have outbound delivery or source bookkeeping retain the lease and explicitly acknowledge the outcome after those operations. A lost or ambiguous acknowledgement becomes unknown; AgentRun recovery never reruns that execution. Durable channel publication and its recovery policy remain part of the channel requirements tracked in #1035.
+Model EOF allows a source adapter to finish its work. Adapters that still have outbound delivery or source bookkeeping retain the lease and explicitly acknowledge the outcome after those operations. A lost or ambiguous acknowledgement becomes unknown; AgentRun recovery never reruns that execution. Durable channel publication uses the same acknowledgement boundary, as described below.
 
 Inbox recovery follows the linked Run's terminal state without invoking a model or tool. Startup may reauthorize and append legacy or unassociated receipts, but cannot create a new Run for them. A crash can leave accepted input without a reply; automatic replay would risk repeating tool or outbound effects.
 
-Compute has a separate Session generation owned by the same immutable executor boot. Healthy compute survives ordinary runner retirement; unknown execution is fenced until resource termination is proven. See [Sandbox ownership](./sandbox#session-ownership). Deployment remains single-replica. #1035 tracks the remaining durable-channel, leadership, and remote-attachment requirements, and #637 also requires shared-storage readiness before multi-replica activation.
+Compute has a separate Session generation owned by the same immutable executor boot. Healthy compute survives ordinary runner retirement; unknown execution is fenced until resource termination is proven. See [Sandbox ownership](./sandbox#session-ownership). Deployment remains single-replica. These ownership and recovery mechanisms do not establish multi-replica readiness; #637 also requires shared storage and deployment conformance before activation.
+
+### Durable channel admission and recovery
+
+Channel admission commits a canonical source envelope, immutable media, reply capability, deduplication identity, sequence number, and quota reservation before acknowledging the source. Queue budgets apply at three levels: 1,000 rows / 64 MiB per binding, 10,000 rows / 512 MiB per principal, and 100,000 rows / 8 GiB per deployment. Byte accounting covers accepted payload, media, and encrypted reply capability; it is not a bound on total physical database storage. Failed reservations roll back admission and apply backpressure.
+
+Four background workers process binding heads in order. They can recover an expired claim that has no linked Run; once linked, recovery follows that Run without invoking the model or tools again. Admission and Run linkage revalidate the stored principal so an account-link change cannot execute old input under a new owner. Group classification commits its route decision and responder FIFO entries atomically, guarded against stale claimants.
+
+`/new` is a FIFO barrier carrying the target Session observed at admission. Its conditional rotation is idempotent: duplicate source delivery does not rotate again, and distinct concurrent commands targeting the same old Session rotate it only once. Text after the barrier resolves the resulting Session when it reaches the head.
+
+Final publication and source bookkeeping finish before the source acknowledges Run completion. An uncertain send or missing acknowledgement blocks the binding for operator inspection, rather than replaying effects. Rejecting a blocked item releases the queue barrier with an audit record; it neither restores a lost reply nor retries the original execution. See the [channel troubleshooting guide](../channels/telegram#troubleshooting) for operator help.
+
+A process owns one serialized PostgreSQL control connection outside the query pool. It carries ingress leadership and notifications; loss cancels and joins ingress before reacquisition, and reconnect performs a full scan. Known transaction- or statement-pooling configurations are rejected because leadership requires a stable database session. Telegram persists its acknowledged update offset; Discord persists its resumable gateway cursor and admits replay before advancing it. Invalid Discord resume state blocks ingress rather than silently starting a fresh session and losing the gap.
 
 ### Live event fan-out
 
@@ -237,7 +249,7 @@ Every admitted turn is owned by the server lifecycle, not by an HTTP connection.
 - Publishing never blocks the turn. The hub coalesces adjacent text/reasoning deltas and keeps up to 4,096 replay entries or 8 MiB of process-local replay for a newly attached observer; after that ceiling, reconnects receive future events and reconcile from persisted history when the turn ends.
 - When the turn ends, the hub closes its subscriber channels. `POST /api/agents/{agentId}/sessions/{sessionId}/stop` is the separate, explicit cancellation path.
 
-`GET /api/agents/{agentId}/sessions/{sessionId}/events` subscribes a read-only SSE stream that reuses the same AI-SDK UI message encoding as the message-send endpoint, and returns `204` when no turn is in flight. The Web UI calls the AI-SDK `resumeStream()` for every session kind and reloads persisted history after the stream settles. Replay is intentionally process-local; surviving process replacement requires a durable turn event log.
+`GET /api/agents/{agentId}/sessions/{sessionId}/events` subscribes a read-only SSE stream using the same AI-SDK encoding as the message-send endpoint. A local stream must match the durable active Run ID. If that Run belongs to another process, the endpoint returns structured `503`, `Retry-After: 3`, and `error.details.run_id`; the Web UI polls durable history every three seconds. It returns `204` only after the database proves there is no active Run. A lease that has expired but has not yet been terminalized still counts as active for this response. Primary token streaming and replay stay local; there is no cross-process token relay.
 
 ## Caller flows
 
@@ -264,6 +276,8 @@ HTTP POST /api/agents/{agentId}/sessions { kind: main|chat }
 The public create API should not create internal `scheduler`, `task`, or `delegate` sessions.
 
 ### Private channel direct message
+
+Accepted channel input carries a canonical envelope and media references in PostgreSQL. A recovered delivery reconstructs its publisher from channel configuration instead of requiring the original ingress connection. Reply capabilities are encrypted with the deployment vault key; the envelope contains only an opaque reference. DingTalk recovery respects the webhook's supplied expiry. Weixin recovery binds its context token to the original recipient and imposes a local 24-hour reconstruction ceiling. That ceiling does not guarantee provider validity or define physical retention: the provider may expire the token sooner. An ambiguous Weixin send is reported as unknown without an automatic resend or fallback.
 
 ```text
 channel resolves user + agent

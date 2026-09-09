@@ -223,11 +223,23 @@ Run 所属的数据库写入在业务变更的同一事务中校验 Run ID、exe
 
 abort intent 与 completion 在 PostgreSQL 中竞争，获胜的终态转换在同一事务中记录 Run 结果和 Session turn activity。因此正常 Stop 会持久化 `canceled`，旧 executor 也不能覆盖后继回合的 activity。
 
-模型 EOF 允许来源适配器完成收尾。仍需外发或记录来源业务结果的适配器会继续持有租约，在操作完成后明确确认结果。确认丢失或结果无法判断时记为 unknown，AgentRun 恢复不会重新执行该回合。渠道持久发布及其恢复策略仍属于 #1035 跟踪的渠道要求。
+模型 EOF 允许来源适配器完成收尾。仍需外发或记录来源业务结果的适配器会继续持有租约，在操作完成后明确确认结果。确认丢失或结果无法判断时记为 unknown，AgentRun 恢复不会重新执行该回合。渠道持久发布使用同一个确认边界，详见下文。
 
 已关联 inbox 的恢复只跟随 Run 终态，不调用模型或工具。启动恢复可以重新鉴权并追加 legacy 或未关联 receipt，但不能为它们创建新 Run。崩溃可能留下已受理却没有回复的输入；自动重放会带来重复工具调用或外发副作用。
 
-计算资源使用独立的 Session 代次，由同一个不可变 executor boot 持有。普通 runner 回收会保留健康计算资源；执行结果不确定时会封锁资源，直到取得终止证明，详见[沙箱所有权](./sandbox#会话所有权)。部署仍限制为单副本。#1035 继续跟踪持久渠道、入口领导权和远程订阅要求；#637 还要求共享存储就绪后才能开放多副本。
+计算资源使用独立的 Session 代次，由同一个不可变 executor boot 持有。普通 runner 回收会保留健康计算资源；执行结果不确定时会封锁资源，直到取得终止证明，详见[沙箱所有权](./sandbox#会话所有权)。部署仍限制为单副本。这些所有权与恢复机制不能证明多副本已就绪；#637 还要求共享存储和部署一致性验收后才能开放多副本。
+
+### 渠道持久受理与恢复
+
+渠道先提交标准化来源信封、不可变媒体、回复能力、去重标识、序号和配额预留，再确认来源消息。队列预算分为三级：每个 binding 1,000 行 / 64 MiB，每个 principal 10,000 行 / 512 MiB，整个部署 100,000 行 / 8 GiB。字节计费覆盖已受理的 payload、媒体和加密回复能力，不代表数据库物理存储总量的上限。预留失败会回滚受理并施加背压。
+
+四个后台 worker 按序处理各 binding 的队首。尚未关联 Run 的过期 claim 可以恢复；一旦关联 Run，恢复只跟随该 Run 的结果，不再次调用模型或工具。受理和关联 Run 时会重新校验持久化 principal，防止账号关联变化后用新所有者执行旧输入。群消息分类在同一事务提交路由决定与 responder FIFO 项，并拒绝过期 claimant 的提交。
+
+`/new` 是携带受理时目标 Session 的 FIFO 屏障。条件轮换保证幂等：同一来源消息重复投递不会再次轮换，不同命令并发指向同一个旧 Session 时也只轮换一次。屏障之后的文本到达队首时才解析最终 Session。
+
+最终发布和来源业务记录完成后，来源才确认 Run 完成。发送结果不确定或缺失确认时会阻塞 binding，交给管理员检查，不重放副作用。拒绝阻塞项会记录审计并释放队列屏障，但不会恢复丢失的回复，也不会重试原执行。操作入口见[渠道故障排除](../channels/telegram#故障排除)。
+
+每个进程在查询连接池之外持有一条串行使用的 PostgreSQL 控制连接，用于入口领导权和通知；连接丢失时取消并等待入口退出，重连后全量扫描。已知的 transaction 或 statement pooling 配置会被拒绝，因为领导权依赖稳定的数据库会话。Telegram 持久化已确认的 update offset；Discord 持久化可恢复的 gateway cursor，先受理 replay 再推进 cursor。Discord resume 状态失效时会阻塞入口，不会静默建立新会话并丢弃缺口。
 
 ### 实时事件扇出
 
@@ -237,7 +249,7 @@ abort intent 与 completion 在 PostgreSQL 中竞争，获胜的终态转换在�
 - 发布永不阻塞 turn。Hub 会合并相邻的 text/reasoning delta，并为新观察者保留最多 4,096 条 replay entry 或 8 MiB 的进程内 replay；超过上限后，重连只接收后续事件，并在 turn 结束后从持久化历史对齐最终状态。
 - turn 结束时，hub 关闭其订阅 channel。`POST /api/agents/{agentId}/sessions/{sessionId}/stop` 是独立、显式的取消路径。
 
-`GET /api/agents/{agentId}/sessions/{sessionId}/events` 订阅一个只读 SSE 流，复用与发消息端点相同的 AI-SDK UI message 编码；没有进行中的 turn 时返回 `204`。Web UI 对所有 session kind 调用 AI-SDK 的 `resumeStream()`，并在 stream 结束后重新加载持久化历史。Replay 刻意只保存在进程内；若要跨进程替换恢复，需要持久化 turn event log。
+`GET /api/agents/{agentId}/sessions/{sessionId}/events` 订阅只读 SSE 流，复用发消息端点的 AI-SDK 编码。本地流必须匹配数据库中的活跃 Run ID。如果该 Run 属于另一进程，端点返回结构化 `503`、`Retry-After: 3` 和 `error.details.run_id`，Web UI 每三秒轮询持久化历史。只有数据库证明不存在活跃 Run 后才返回 `204`；租约虽已过期但尚未终结的 Run 仍视为活跃。主 token 流和 replay 保留在本地，不做跨进程 token 转发。
 
 ## Caller flows
 
@@ -264,6 +276,8 @@ HTTP POST /api/agents/{agentId}/sessions { kind: main|chat }
 公共 create API 不应该创建内部 `scheduler`、`task` 或 `delegate` sessions。
 
 ### Private channel direct message
+
+已受理的渠道输入在 PostgreSQL 中保存规范化信封与媒体引用。恢复发送时从渠道配置重建 publisher，不依赖原入口连接。回复凭据使用部署 vault 密钥加密，信封只保存不透明引用。钉钉恢复遵守 webhook 自带的过期时间。微信恢复将 context token 绑定到原收件人，并设置本地 24 小时重建上限；该上限不保证平台有效期，也不定义物理保留时间，平台可能更早使 token 失效。微信发送结果不确定时记为 unknown，不自动重发或改用 fallback。
 
 ```text
 channel resolves user + agent

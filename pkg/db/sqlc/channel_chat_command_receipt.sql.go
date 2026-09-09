@@ -59,3 +59,36 @@ func (q *Queries) DeleteChatCommandReceipt(ctx context.Context, arg DeleteChatCo
 	_, err := q.db.Exec(ctx, deleteChatCommandReceipt, arg.ChannelID, arg.ChatKey, arg.MessageID)
 	return err
 }
+
+const getChatCommandReceipt = `-- name: GetChatCommandReceipt :one
+SELECT id, channel_id, chat_key, message_id, command, binding, created_at, updated_at, fifo_item_id, expected_session_id, binding_revision
+FROM channel_chat_command_receipt
+WHERE channel_id = $1
+  AND chat_key = $2
+  AND message_id = $3
+`
+
+type GetChatCommandReceiptParams struct {
+	ChannelID string `json:"channel_id"`
+	ChatKey   string `json:"chat_key"`
+	MessageID string `json:"message_id"`
+}
+
+func (q *Queries) GetChatCommandReceipt(ctx context.Context, arg GetChatCommandReceiptParams) (ChannelChatCommandReceipt, error) {
+	row := q.db.QueryRow(ctx, getChatCommandReceipt, arg.ChannelID, arg.ChatKey, arg.MessageID)
+	var i ChannelChatCommandReceipt
+	err := row.Scan(
+		&i.ID,
+		&i.ChannelID,
+		&i.ChatKey,
+		&i.MessageID,
+		&i.Command,
+		&i.Binding,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FifoItemID,
+		&i.ExpectedSessionID,
+		&i.BindingRevision,
+	)
+	return i, err
+}

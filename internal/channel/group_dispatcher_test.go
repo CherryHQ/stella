@@ -1167,7 +1167,7 @@ func TestGroupDispatcherExistingDispatchSkipsEnvelopeDecode(t *testing.T) {
 	}
 }
 
-func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T) {
+func TestGroupDispatcherPublishFailureMarksAcceptedUnknown(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	boom := errors.New("boom")
 	publisher := &recordingGroupPublisher{err: boom}
@@ -1177,40 +1177,32 @@ func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T)
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
-	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err == nil {
-		t.Fatal("expected publisher error")
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err != nil {
+		t.Fatalf("unknown publisher outcome should be terminalized without retry: %v", err)
 	}
 	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch after failure: %v", err)
 	}
-	if dispatch.Status != "pending" || dispatch.ResultMessageID == "" || dispatch.PublishedAt.Valid {
-		t.Fatalf("dispatch status/result/published = %q/%q/%v, want pending accepted-unpublished result", dispatch.Status, dispatch.ResultMessageID, dispatch.PublishedAt.Valid)
+	if dispatch.Status != "failed" || dispatch.ResultMessageID == "" || dispatch.PublishedAt.Valid || !strings.HasPrefix(dispatch.LastError, acceptedPublishUnknownPrefix) {
+		t.Fatalf("dispatch status/result/published/error = %q/%q/%v/%q, want failed accepted-unknown result", dispatch.Status, dispatch.ResultMessageID, dispatch.PublishedAt.Valid, dispatch.LastError)
 	}
 	if got := countAgentGroupMessages(t, fx.db); got != 1 {
 		t.Fatalf("agent messages = %d, want accepted result", got)
 	}
-
-	publisher.err = nil
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'd15a0000-0000-0000-0000-000000000001'`); err != nil {
-		t.Fatalf("make dispatch due: %v", err)
-	}
-	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
+	result, err := fx.q.GetGroupMessage(context.Background(), dispatch.ResultMessageID)
 	if err != nil {
-		t.Fatalf("get dispatch before retry: %v", err)
+		t.Fatalf("get accepted result: %v", err)
 	}
-	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err != nil {
-		t.Fatalf("retry dispatch: %v", err)
-	}
-	if publisher.calls != 2 {
-		t.Fatalf("publisher calls = %d, want retry to republish", publisher.calls)
+	if result.DeliveryState != "unknown" {
+		t.Fatalf("delivery state = %q, want unknown", result.DeliveryState)
 	}
 }
 
-// Retrying an accepted-but-unpublished row is egress compensation, not a new
-// speaking decision. Triage would count the agent's own committed post and go
-// silent, leaving a reply that peers can read and humans never receive.
-func TestGroupDispatcherRepublishesAcceptedResultDespiteHardCap(t *testing.T) {
+// Once a publisher returns without an explicit pre-send discard, the outcome
+// is unknown. The accepted post stays terminal and must not be transparently
+// resent, even if a later cap change would otherwise allow a fresh triage turn.
+func TestGroupDispatcherPublishFailureDoesNotRetryAcceptedResultAfterHardCap(t *testing.T) {
 	ctx := context.Background()
 	fx := newDispatcherFixture(t, "web", `{}`)
 	boom := errors.New("boom")
@@ -1221,42 +1213,42 @@ func TestGroupDispatcherRepublishesAcceptedResultDespiteHardCap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
-	if err := fx.d.ExecuteDispatch(ctx, dispatch); err == nil {
-		t.Fatal("expected publisher error")
+	if err := fx.d.ExecuteDispatch(ctx, dispatch); err != nil {
+		t.Fatalf("unknown publisher outcome should be terminalized: %v", err)
+	}
+	if publisher.calls != 1 {
+		t.Fatalf("publisher calls = %d, want one initial attempt", publisher.calls)
 	}
 
-	publisher.err = nil
 	// Any triage branch would refuse now; the accepted post itself is what the
-	// cap counts.
+	// cap counts. A failed unknown delivery must remain terminal even if the
+	// group cap changes later, because a retry could duplicate the external send.
 	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_state SET max_replies_per_human_trigger = 0 WHERE id = $1`, fx.groupID); err != nil {
 		t.Fatalf("tighten cap: %v", err)
 	}
-	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'd15a0000-0000-0000-0000-000000000031'`); err != nil {
-		t.Fatalf("make dispatch due: %v", err)
-	}
 	dispatch, err = fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000031")
 	if err != nil {
-		t.Fatalf("get dispatch before retry: %v", err)
+		t.Fatalf("get dispatch after unknown outcome: %v", err)
 	}
 	if err := fx.d.ExecuteDispatch(ctx, dispatch); err != nil {
-		t.Fatalf("retry dispatch: %v", err)
+		t.Fatalf("terminal unknown dispatch should be a no-op: %v", err)
 	}
-	if publisher.calls != 2 {
-		t.Fatalf("publisher calls = %d, want the accepted reply republished", publisher.calls)
+	if publisher.calls != 1 {
+		t.Fatalf("publisher calls = %d, want no duplicate after unknown outcome", publisher.calls)
 	}
 	dispatch, err = fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000031")
 	if err != nil {
 		t.Fatalf("get dispatch after retry: %v", err)
 	}
-	if !dispatch.PublishedAt.Valid {
-		t.Fatalf("dispatch status = %q, published = %v, want published", dispatch.Status, dispatch.PublishedAt.Valid)
+	if dispatch.Status != "failed" || dispatch.PublishedAt.Valid || !strings.HasPrefix(dispatch.LastError, acceptedPublishUnknownPrefix) {
+		t.Fatalf("dispatch status/published/error = %q/%v/%q, want failed/false/accepted-unknown", dispatch.Status, dispatch.PublishedAt.Valid, dispatch.LastError)
 	}
 }
 
-// A publisher that returns an error told us the outcome; a crash does not. The
-// start marker is what separates the two on recovery, so it must be cleared on
-// the first and survive the second.
-func TestPublishStartMarkerClearedOnReturnedError(t *testing.T) {
+// A publisher that returns an error after the request was entered cannot prove
+// the platform rejected it. The start marker therefore survives as an unknown
+// terminal outcome and blocks transparent resend.
+func TestPublishStartMarkerSurvivesReturnedErrorAsUnknown(t *testing.T) {
 	ctx := context.Background()
 	fx := newDispatcherFixture(t, "web", `{}`)
 	publisher := &recordingGroupPublisher{err: errors.New("boom")}
@@ -1266,34 +1258,27 @@ func TestPublishStartMarkerClearedOnReturnedError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fx.d.ExecuteDispatch(ctx, dispatch); err == nil {
-		t.Fatal("expected publisher error")
+	if err := fx.d.ExecuteDispatch(ctx, dispatch); err != nil {
+		t.Fatalf("unknown publisher outcome should be terminalized: %v", err)
 	}
 	dispatch, err = fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000041")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatch.PublishStartedAt.Valid {
-		t.Fatalf("publish_started_at = %v, want cleared after a returned error", dispatch.PublishStartedAt)
+	if !dispatch.PublishStartedAt.Valid || dispatch.Status != "failed" || !strings.HasPrefix(dispatch.LastError, acceptedPublishUnknownPrefix) {
+		t.Fatalf("started/status/error = %v/%q/%q, want marker retained on failed unknown outcome", dispatch.PublishStartedAt, dispatch.Status, dispatch.LastError)
 	}
 
 	publisher.err = nil
-	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = $1`, dispatch.ID); err != nil {
-		t.Fatal(err)
-	}
 	dispatch, err = fx.q.GetGroupDispatch(ctx, dispatch.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := fx.d.ExecuteDispatch(ctx, dispatch); err != nil {
-		t.Fatalf("retry dispatch: %v", err)
+		t.Fatalf("terminal unknown dispatch should be a no-op: %v", err)
 	}
-	dispatch, err = fx.q.GetGroupDispatch(ctx, dispatch.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !dispatch.PublishStartedAt.Valid || !dispatch.PublishedAt.Valid {
-		t.Fatalf("started=%v published=%v, want both recorded after delivery", dispatch.PublishStartedAt.Valid, dispatch.PublishedAt.Valid)
+	if publisher.calls != 1 {
+		t.Fatalf("publisher calls = %d, want no transparent resend", publisher.calls)
 	}
 }
 
@@ -1504,7 +1489,7 @@ func TestGroupDispatcherWebWriteErrorStillRecordsResult(t *testing.T) {
 	}
 }
 
-func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
+func TestGroupDispatcherPublisherFailureMarksUnknownBeforeAttemptCeiling(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	fx.d.maxAttempts = 1
 	boom := errors.New("boom")
@@ -1515,15 +1500,15 @@ func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
 		t.Fatalf("get dispatch: %v", err)
 	}
 
-	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err == nil {
-		t.Fatal("expected publisher error")
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err != nil {
+		t.Fatalf("unknown publisher outcome should be terminalized: %v", err)
 	}
 	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch after failure: %v", err)
 	}
-	if dispatch.Status != "failed" {
-		t.Fatalf("dispatch status = %q, want failed", dispatch.Status)
+	if dispatch.Status != "failed" || !strings.HasPrefix(dispatch.LastError, acceptedPublishUnknownPrefix) {
+		t.Fatalf("dispatch status/error = %q/%q, want failed accepted-unknown", dispatch.Status, dispatch.LastError)
 	}
 	if dispatch.ResultMessageID == "" {
 		t.Fatal("final publish failure must retain the accepted result")
@@ -1532,8 +1517,8 @@ func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get failed result: %v", err)
 	}
-	if result.DeliveryState != "failed" {
-		t.Fatalf("delivery state = %q, want failed", result.DeliveryState)
+	if result.DeliveryState != "unknown" {
+		t.Fatalf("delivery state = %q, want unknown", result.DeliveryState)
 	}
 }
 
@@ -1778,7 +1763,15 @@ func TestGroupDispatcherExtendsDispatchLeaseWhilePublishing(t *testing.T) {
 
 func dispatchAgentsByMessage(t *testing.T, db *pgxpool.Pool, messageID string) []string {
 	t.Helper()
-	rows, err := db.Query(context.Background(), `SELECT agent_id FROM ctx_group_dispatch WHERE group_message_id = $1 ORDER BY agent_id`, messageID)
+	rows, err := db.Query(context.Background(), `
+SELECT agent_id
+FROM ctx_group_dispatch
+WHERE group_message_id = $1
+UNION ALL
+SELECT payload->>'agent_id'
+FROM channel_fifo_item
+WHERE command = 'group_responder' AND payload->>'message_id' = $1::text
+ORDER BY agent_id`, messageID)
 	if err != nil {
 		t.Fatalf("query dispatch agents: %v", err)
 	}
@@ -1795,6 +1788,57 @@ func dispatchAgentsByMessage(t *testing.T, db *pgxpool.Pool, messageID string) [
 		t.Fatalf("iterate dispatch agents: %v", err)
 	}
 	return agents
+}
+
+// groupResponderItemsByMessage reads the route's durable handoff. Legacy
+// dispatch rows remain queryable for tests that deliberately exercise recovery
+// of pre-FIFO state, while newly materialized routes are represented by FIFO
+// payloads until their consumer creates the accept/publish ledger.
+func groupResponderItemsByMessage(t *testing.T, db *pgxpool.Pool, messageID string) []sqlc.ChannelFifoItem {
+	t.Helper()
+	rows, err := db.Query(context.Background(), `
+SELECT id
+FROM channel_fifo_item
+WHERE command = 'group_responder' AND payload->>'message_id' = $1
+ORDER BY seq`, messageID)
+	if err != nil {
+		t.Fatalf("query group responder FIFO items: %v", err)
+	}
+	defer rows.Close()
+	var items []sqlc.ChannelFifoItem
+	q := sqlc.New(db)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan group responder FIFO item id: %v", err)
+		}
+		item, err := q.GetChannelFIFOItem(context.Background(), id)
+		if err != nil {
+			t.Fatalf("get group responder FIFO item %s: %v", id, err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate group responder FIFO items: %v", err)
+	}
+	return items
+}
+
+func decodeGroupResponderPayload(t *testing.T, item sqlc.ChannelFifoItem) groupResponderPayload {
+	t.Helper()
+	var payload groupResponderPayload
+	if err := json.Unmarshal(item.Payload, &payload); err != nil {
+		t.Fatalf("decode group responder FIFO item %s: %v", item.ID, err)
+	}
+	return payload
+}
+
+func groupResponderDispatchFromPayload(payload groupResponderPayload, id string) sqlc.CtxGroupDispatch {
+	return sqlc.CtxGroupDispatch{
+		ID: id, GroupMessageID: payload.MessageID, GroupID: payload.GroupID,
+		AgentID: payload.AgentID, ReplyChannelID: payload.ChannelID,
+		Status: "running", AttemptCount: 1, Kind: payload.Kind, TriggerSeq: payload.Seq,
+	}
 }
 
 func countAgentGroupMessages(t *testing.T, db *pgxpool.Pool) int {

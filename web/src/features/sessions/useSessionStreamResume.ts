@@ -12,6 +12,7 @@ export function useSessionStreamResume(
   enabled: boolean,
   status: ChatStatus,
   resumeStream: () => Promise<void>,
+  isRemoteRunActive: (() => boolean) | undefined,
   recoveringDisconnect: boolean,
   clearError: () => void,
   onInitialCheck: () => void,
@@ -28,7 +29,7 @@ export function useSessionStreamResume(
 
     const tick = () => {
       if (cancelled || resumingRef.current) return;
-      if (statusRef.current === "error" && recoveringDisconnect) {
+      if (statusRef.current === "error" && (recoveringDisconnect || isRemoteRunActive?.())) {
         clearError();
         return;
       }
@@ -41,12 +42,19 @@ export function useSessionStreamResume(
         // status is committed on the next render. Reconcile only from ready,
         // which means either a clean stream finish or no active stream.
         deferredTimer = window.setTimeout(() => {
-          if (
-            !cancelled &&
-            statusRef.current === "ready" &&
-            (checkedSessionRef.current !== sessionId || recoveringDisconnect)
-          ) {
-            checkedSessionRef.current = sessionId;
+          if (!cancelled && statusRef.current === "ready") {
+            const remoteRunActive = isRemoteRunActive?.() === true;
+            if (
+              !remoteRunActive &&
+              checkedSessionRef.current === sessionId &&
+              !recoveringDisconnect
+            ) {
+              return;
+            }
+            // Keep the one-shot check pending while another replica owns the
+            // turn. This makes every 3s tick reconcile the persisted transcript
+            // until the remote run's 503 disappears.
+            checkedSessionRef.current = remoteRunActive ? null : sessionId;
             onInitialCheck();
           }
         }, 0);
@@ -60,5 +68,13 @@ export function useSessionStreamResume(
       window.clearInterval(timer);
       if (deferredTimer !== undefined) window.clearTimeout(deferredTimer);
     };
-  }, [sessionId, enabled, resumeStream, recoveringDisconnect, clearError, onInitialCheck]);
+  }, [
+    sessionId,
+    enabled,
+    resumeStream,
+    isRemoteRunActive,
+    recoveringDisconnect,
+    clearError,
+    onInitialCheck,
+  ]);
 }

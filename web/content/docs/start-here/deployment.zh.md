@@ -272,12 +272,13 @@ loopback base URL 永远不是启动错误——通过 `localhost` 或 `kubectl 
 
 ### 受管部署所需的环境变量
 
-| 变量                         | 值                                                                            |
-| ---------------------------- | ----------------------------------------------------------------------------- |
-| `STELLA_DATABASE_URL`        | 含 `pgvector` + `pg_search` 的外部 PostgreSQL DSN                             |
-| `STELLA_VAULT_KEY`           | 密钥库的 age 私钥（用 `stellad vault keygen` 生成）                           |
-| `STELLA_BASE_URL`            | 客户端使用的公网 canonical URL（如 `https://stella.example.com`）             |
-| `STELLA_REQUIRE_EXTERNAL_DB` | `1` —— Docker 镜像已默认设置；未配外部数据库时快速失败而非启动内嵌 PostgreSQL |
+| 变量                         | 值                                                                                                             |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `STELLA_DATABASE_URL`        | 含 `pgvector` + `pg_search` 的外部 PostgreSQL DSN                                                              |
+| `STELLA_DATABASE_POOL_MODE`  | 渠道控制连接已知的连接池模式（`session`、`transaction` 或 `statement`）；`transaction` 与 `statement` 会被拒绝 |
+| `STELLA_VAULT_KEY`           | 密钥库的 age 私钥（用 `stellad vault keygen` 生成）                                                            |
+| `STELLA_BASE_URL`            | 客户端使用的公网 canonical URL（如 `https://stella.example.com`）                                              |
+| `STELLA_REQUIRE_EXTERNAL_DB` | `1` —— Docker 镜像已默认设置；未配外部数据库时快速失败而非启动内嵌 PostgreSQL                                  |
 
 完整的 Kubernetes manifest 演示不在本页范围内。
 
@@ -365,6 +366,7 @@ terminationGracePeriodSeconds: 200
 | ------------------------------------ | ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `STELLA_HOME`                        | 否                        | Stella 主目录（默认 `~/.stella`）                                                                                      |
 | `STELLA_DATABASE_URL`                | Docker 中必需；其他环境否 | 外部 PostgreSQL 连接 URL；Docker 之外不设置时使用 `STELLA_HOME` 下的内嵌集群                                           |
+| `STELLA_DATABASE_POOL_MODE`          | 否                        | 渠道控制连接已知的连接池模式；使用 session pooler 时设为 `session`，`transaction` 与 `statement` 会在启动时失败        |
 | `STELLA_BASE_URL`                    | 否¶                       | OAuth 回调与频道外链使用的公网 canonical URL；未设置时由绑定地址推导（loopback）                                       |
 | `STELLA_REQUIRE_EXTERNAL_DB`         | 否                        | `STELLA_DATABASE_URL` 未设置时快速失败而非启动内嵌 PostgreSQL；Docker 镜像默认设为 `1`，设 `0` 可在持久卷上运行内嵌 PG |
 | `STELLA_HTTP_SHUTDOWN_TIMEOUT`       | 否                        | 优雅停机时排空进行中 HTTP 请求的预算（Go duration，默认 `60s`，`> 0`）                                                 |

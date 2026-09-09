@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -67,6 +68,27 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 
 // appendGroupMessage writes the incoming message to the event log.
 func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.IncomingMessage) (eventlog.AppendResult, error) {
+	// A group reply may need an expiring platform route (DingTalk's session
+	// webhook is the current example). Encrypt it before the event append and
+	// persist only an opaque reference in the same transaction as the outbox.
+	// This keeps a crash between ingest and dispatch recoverable on another
+	// replica without putting credentials in event-log or outbox JSON.
+	capabilityID := ""
+	capabilityCiphertext := ""
+	if capability := msg.ReplyCapability; capability != nil {
+		if c.vaultSvc == nil {
+			return eventlog.AppendResult{}, errors.New("durable reply capability encryption is unavailable")
+		}
+		if capability.Kind == "" || capability.Secret == "" || !capability.ExpiresAt.After(time.Now().UTC()) {
+			return eventlog.AppendResult{}, errors.New("invalid or expired reply capability")
+		}
+		var err error
+		capabilityCiphertext, err = c.vaultSvc.EncryptSystem(capability.Secret)
+		if err != nil {
+			return eventlog.AppendResult{}, fmt.Errorf("encrypt reply capability: %w", err)
+		}
+		capabilityID = uuid.Must(uuid.NewV7()).String()
+	}
 	// Identity first: the stored text names Stella agents, and the wake fan-out
 	// reads the same resolved mentions out of the outbox envelope.
 	c.resolveMentionAgents(ctx, msg.Platform, msg.Mentions)
@@ -86,7 +108,20 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 		}
 		c.clearNonMemberMentions(msg.Platform, msg.Mentions, groupMembers)
 		msg.Mentions = mergeResolvedMentions(msg.Mentions, parseGroupMentions(ctx, q, ai.FlattenCanonicalText(msg.Content), members))
-		envelope, err := EncodeGroupOutboxEnvelopeWithFeedback(msg.Mentions, msg.LifecycleFeedback)
+		if capabilityID != "" {
+			channelID := msg.ChannelID
+			if channelID == "" {
+				channelID = msg.Platform
+			}
+			if _, err := q.CreateChannelReplyCapability(ctx, sqlc.CreateChannelReplyCapabilityParams{
+				ID: capabilityID, ChannelID: channelID, Kind: msg.ReplyCapability.Kind,
+				Ciphertext: capabilityCiphertext, ExpiresAt: msg.ReplyCapability.ExpiresAt.UTC(),
+				FifoItemID: "",
+			}); err != nil {
+				return fmt.Errorf("persist encrypted reply capability: %w", err)
+			}
+		}
+		envelope, err := EncodeGroupOutboxEnvelopeWithCapability(msg.Mentions, msg.LifecycleFeedback, capabilityID)
 		if err != nil {
 			return fmt.Errorf("encode outbox envelope: %w", err)
 		}

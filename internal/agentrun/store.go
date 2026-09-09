@@ -400,6 +400,11 @@ func (s *Store) acquireWithWriter(ctx context.Context, sessionID, source, inboxI
 			return nil, fmt.Errorf("write Session inbox admission: %w", err)
 		}
 	}
+	if link, _ := admissionCtx.Value(admissionLinkKey{}).(func(context.Context, pgx.Tx, Guard) error); link != nil {
+		if err := link(admissionCtx, tx, Guard{RunID: row.ID, SessionID: row.SessionID, ExecutorBootID: row.ExecutorBootID}); err != nil {
+			return nil, fmt.Errorf("link AgentRun source admission: %w", err)
+		}
+	}
 	if err := tx.Commit(admissionCtx); err != nil {
 		if s.closed.Load() {
 			return nil, ErrStoreClosed
@@ -417,7 +422,7 @@ func (s *Store) acquireWithWriter(ctx context.Context, sessionID, source, inboxI
 	// channel adapter is still delivering that event. Keep this context alive
 	// until the durable terminal transition or Store.Close; callers derive a
 	// separate turn context from Lease.Context when they need cancellation.
-	runCtx, cancel := context.WithCancelCause(leaseContext{values: ctx, lifecycle: s.lifecycleCtx})
+	runCtx, cancel := context.WithCancelCause(leaseContext{values: withoutAdmissionLink(ctx), lifecycle: s.lifecycleCtx})
 	lease := &Lease{
 		Guard: Guard{RunID: row.ID, SessionID: row.SessionID, ExecutorBootID: row.ExecutorBootID},
 		ctx:   runCtx, cancel: cancel, store: s,
@@ -698,7 +703,7 @@ func (c leaseCompletion) Done() <-chan struct{} {
 // cancellation; Lease.Context is the Store-lifetime context for heartbeat
 // ownership, while this method is the normal runtime/admission bridge.
 func (l *Lease) ContextWith(ctx context.Context) context.Context {
-	return withLeaseGuard(ctx, l.Guard, l.store)
+	return withLeaseGuard(withoutAdmissionLink(ctx), l.Guard, l.store)
 }
 
 func (l *Lease) ackWithActivity(ctx context.Context, outcome runcontrol.Outcome) error {

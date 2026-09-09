@@ -25,26 +25,41 @@ type channelContentBlock = ai.ContentBlock
 
 func unwrapContent(v []channelContentBlock) []ai.ContentBlock { return v }
 
-func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultErr error) {
+// handleMessage is the synchronous test and direct-call entry point. Gateway
+// callbacks use admitMessage directly so they can return after durable
+// admission and render the response asynchronously.
+func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
+	deliver, err := b.admitMessage(ctx, m)
+	if err != nil || deliver == nil {
+		return err
+	}
+	return deliver()
+}
+
+// admitMessage performs every operation required before an inbound message is
+// durable, then returns the one egress operation that may run independently.
+// Keeping this boundary explicit is what prevents a gateway callback from
+// acknowledging an event before DurableIngress has committed it.
+func (b *Bot) admitMessage(ctx context.Context, m *discordgo.Message) (func() error, error) {
 	deliveryCtx := context.WithoutCancel(ctx)
 	if m.GuildID == "" && !b.cfg.AllowDM {
 		logger().Debug("ignoring direct message because DMs are disabled", "channel_id", m.ChannelID)
-		return nil
+		return nil, nil
 	}
 	route := messageRoute{chatID: m.ChannelID}
 	if m.GuildID != "" {
 		allowed, resolvedRoute, err := b.groupAccessAllowed(deliveryCtx, m)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !allowed {
 			logger().Debug("ignoring message from unconfigured guild, channel, user, or role", "guild_id", m.GuildID, "channel_id", m.ChannelID)
-			return nil
+			return nil, nil
 		}
 		route = resolvedRoute
 		if b.cfg.RequireMention && !b.addressed(m) {
 			logger().Debug("ignoring guild message without bot mention", "guild_id", m.GuildID, "channel_id", m.ChannelID)
-			return nil
+			return nil, nil
 		}
 	}
 	// The message is now really accepted: best-effort mark it seen. With
@@ -61,23 +76,16 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultEr
 	if reactionEligible {
 		b.reactBestEffort(deliveryCtx, m.ChannelID, m.ID, reactionReceived)
 	}
-	terminal := false
-	success := false
-	defer func() {
-		if !reactionEligible {
-			return
-		}
-		switch {
-		case resultErr != nil:
+	stopTyping := b.startTypingHeartbeat(m.ChannelID)
+	reject := func(err error) (func() error, error) {
+		stopTyping()
+		if reactionEligible {
 			b.finishReaction(deliveryCtx, m.ChannelID, m.ID, false)
-		case terminal:
-			b.finishReaction(deliveryCtx, m.ChannelID, m.ID, success)
 		}
-	}()
+		return nil, err
+	}
 	// Acknowledge immediately; attachment downloads, thread-history reads, and
 	// durable group dispatch can all take longer than Discord's typing TTL.
-	stopTyping := b.startTypingHeartbeat(m.ChannelID)
-	defer stopTyping()
 	text := m.Content
 	if m.GuildID != "" {
 		text = b.stripBotMention(text)
@@ -91,14 +99,14 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultEr
 	if len(m.Attachments) > 0 {
 		resolver, ok := b.handler.(channel.AssetSaveAdmitter)
 		if !ok {
-			return errors.New("attachment storage admission unavailable")
+			return reject(errors.New("attachment storage admission unavailable"))
 		}
 		if err := resolver.AdmitAssetSave(deliveryCtx, probe); err != nil {
 			// Resolve and authorize ownership before fetching untrusted content.
 			if errors.Is(err, channel.ErrAgentAccessForbidden) {
-				return errGuestAttachmentsUnsupported
+				return reject(errGuestAttachmentsUnsupported)
 			}
-			return fmt.Errorf("admit attachment storage: %w", err)
+			return reject(fmt.Errorf("admit attachment storage: %w", err))
 		}
 		assetMsg = probe
 	}
@@ -107,65 +115,79 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultEr
 	}
 	history, err := b.loadThreadHistory(deliveryCtx, m, route)
 	if err != nil {
-		return err
+		return reject(err)
 	}
 	if len(content) == 0 && len(history) > 0 {
 		content = append(content, ai.TextContent{Text: "[Mentioned Stella without additional text.]"})
 	}
 	if len(content) == 0 {
-		return nil
+		stopTyping()
+		return nil, nil
 	}
 	msg := b.incomingMessage(m, content, route.chatID, route.threadID)
 	if msg.IsGroup {
 		if err := b.ensureGroupMember(deliveryCtx, msg.ChatID, msg.ThreadID); err != nil {
-			return err
+			return reject(err)
 		}
 		if len(history) > 0 {
 			importer, ok := b.handler.(channel.GroupHistoryImporter)
 			if !ok {
-				return errors.New("group history import unavailable")
+				return reject(errors.New("group history import unavailable"))
 			}
 			if err := importer.ImportGroupHistory(deliveryCtx, history); err != nil {
-				return fmt.Errorf("import Discord thread history: %w", err)
+				return reject(fmt.Errorf("import Discord thread history: %w", err))
 			}
 		}
 	}
 	cmd, args := channel.ParseSlashCommand(text)
 	resp, handled, stream, err := b.handler.HandleIncoming(deliveryCtx, msg, cmd, args)
 	if err != nil {
-		return err
+		return reject(err)
 	}
 	if handled {
-		terminal = true
-		sendErr := b.sendText(deliveryCtx, m.ChannelID, resp, m.ID)
-		success = sendErr == nil
-		return sendErr
+		return func() error {
+			defer stopTyping()
+			sendErr := b.sendText(deliveryCtx, m.ChannelID, resp, m.ID)
+			if reactionEligible {
+				b.finishReaction(deliveryCtx, m.ChannelID, m.ID, sendErr == nil)
+			}
+			return sendErr
+		}, nil
 	}
 	if stream == nil {
 		// Group turns reply asynchronously through the durable dispatcher;
 		// Publish finishes the 👀 reaction later, keyed by ReplyTo. A message
 		// that produced neither a command reply nor a stream (no real content)
 		// stays 👀 forever, which is fine: nothing happened worth a verdict.
-		return nil
+		stopTyping()
+		return nil, nil
 	}
-	terminal = true
 	// Once accepted, consume the stream to completion. The managed runtime's
 	// wrapped handler owns the operation lifetime; the gateway poll context may
 	// be cancelled earlier during a graceful drain.
-	deliverErr := b.deliverStream(deliveryCtx, m.ChannelID, m.ID, stream, &cancelControl{
-		requesterID: m.Author.ID,
-		// /abort re-resolves the same session through the coordinator's own
-		// command handling (HandleIncoming), so cancellation shares exactly the
-		// business logic a typed /abort uses instead of duplicating it. It is
-		// naturally idempotent: a session with no active turn just reports
-		// nothing to abort.
-		abort: func() bool {
-			_, _, _, _ = b.handler.HandleIncoming(context.WithoutCancel(deliveryCtx), msg, "/abort", "")
-			return true
-		},
-	})
-	success = deliverErr == nil
-	return deliverErr
+	requesterID := ""
+	if m.Author != nil {
+		requesterID = m.Author.ID
+	}
+	return func() error {
+		defer stopTyping()
+		deliverErr := b.deliverStream(deliveryCtx, m.ChannelID, m.ID, stream, &cancelControl{
+			requesterID: requesterID,
+			// /abort re-resolves the same session through the coordinator's own
+			// command handling (HandleIncoming), so cancellation shares exactly the
+			// business logic a typed /abort uses instead of duplicating it. It is
+			// naturally idempotent: a session with no active turn just reports
+			// nothing to abort.
+			abort: func() bool {
+				_, _, _, _ = b.handler.HandleIncoming(context.WithoutCancel(deliveryCtx), msg, "/abort", "")
+				return true
+			},
+		})
+		if reactionEligible {
+			b.finishReaction(deliveryCtx, m.ChannelID, m.ID, deliverErr == nil)
+		}
+		return deliverErr
+	}, nil
 }
 
 func (b *Bot) ensureGroupMember(ctx context.Context, platformGroupID, platformThreadID string) error {

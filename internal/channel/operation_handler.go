@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"errors"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
@@ -27,6 +28,7 @@ type operationHandlerSurface interface {
 	pkgchannel.ThreadGroupMemberProvisioner
 	pkgchannel.GroupHistoryImporter
 	pkgchannel.GroupMemberRemover
+	pkgchannel.IngressCursorStore
 }
 
 // Keep the production wrapper from silently degrading to pass-through if the
@@ -107,6 +109,32 @@ func (h operationContextHandler) ImportGroupHistory(ctx context.Context, message
 
 func (h operationContextHandler) RemovePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error {
 	return h.operationHandlerSurface.RemovePlatformGroupMember(operationCallContext(h.opCtx, ctx), platform, platformGroupID, channelID)
+}
+
+func (h operationContextHandler) LoadIngressCursor(ctx context.Context, platform, channelID, streamKey string) (int64, error) {
+	return h.operationHandlerSurface.LoadIngressCursor(operationCallContext(h.opCtx, ctx), platform, channelID, streamKey)
+}
+
+func (h operationContextHandler) AdvanceIngressCursor(ctx context.Context, platform, channelID, streamKey string, cursor int64) error {
+	return h.operationHandlerSurface.AdvanceIngressCursor(operationCallContext(h.opCtx, ctx), platform, channelID, streamKey, cursor)
+}
+
+// Keep the optional gateway session capability visible through the managed
+// operation wrapper without making lightweight test handlers implement it.
+func (h operationContextHandler) LoadIngressSessionState(ctx context.Context, platform, channelID, streamKey string) (pkgchannel.IngressSessionState, error) {
+	store, ok := h.operationHandlerSurface.(pkgchannel.IngressSessionStateStore)
+	if !ok {
+		return pkgchannel.IngressSessionState{}, errors.New("channel ingress session state store is not configured")
+	}
+	return store.LoadIngressSessionState(operationCallContext(h.opCtx, ctx), platform, channelID, streamKey)
+}
+
+func (h operationContextHandler) SaveIngressSessionState(ctx context.Context, platform, channelID, streamKey string, state pkgchannel.IngressSessionState) error {
+	store, ok := h.operationHandlerSurface.(pkgchannel.IngressSessionStateStore)
+	if !ok {
+		return errors.New("channel ingress session state store is not configured")
+	}
+	return store.SaveIngressSessionState(operationCallContext(h.opCtx, ctx), platform, channelID, streamKey, state)
 }
 
 // WrapOperationHandler returns a Handler whose context-bearing agent-facing

@@ -86,6 +86,9 @@ const (
 	// session access. MaxBytesReader prevents ParseMultipartForm from spilling an
 	// unbounded request to disk.
 	maxWorkspaceUploadRequestBytes = 33 << 20
+	// Keep this aligned with the browser's resume cadence. A remote executor is
+	// deliberately retried through the durable run boundary, never proxied here.
+	sessionEventsRetryAfterSeconds = 3
 )
 
 // lifecycleValueContext takes cancellation and deadlines from the server
@@ -468,6 +471,13 @@ func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 	defer attach.Cancel()
+	if attach.RemoteRunID != "" {
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", sessionEventsRetryAfterSeconds))
+		writeErrorDetails(w, http.StatusServiceUnavailable, "session turn is running on another instance", map[string]any{
+			"run_id": attach.RemoteRunID,
+		})
+		return
+	}
 
 	// No turn in flight: 204 tells the AI-SDK resume client there is nothing to
 	// reconnect to, so it stays on the static transcript instead of holding the

@@ -53,13 +53,37 @@ func (b *Bot) registerNativeCommands(ctx context.Context) {
 }
 
 func (b *Bot) onInteractionCreate(_ *discordgo.Session, event *discordgo.InteractionCreate) {
+	if b.cursor == nil {
+		b.handleInteractionCreate(event, nil)
+		return
+	}
+	process, tracked := b.cursor.begin("INTERACTION_CREATE")
+	if tracked {
+		if !process {
+			return
+		}
+		admitted := false
+		defer func() { b.cursor.finish("INTERACTION_CREATE", admitted) }()
+		b.handleInteractionCreate(event, &admitted)
+		return
+	}
+	b.handleInteractionCreate(event, nil)
+}
+
+func (b *Bot) handleInteractionCreate(event *discordgo.InteractionCreate, admitted *bool) {
 	if event == nil || event.Interaction == nil {
+		if admitted != nil {
+			*admitted = true
+		}
 		return
 	}
 	b.mu.RLock()
 	ctx := b.ctx
 	b.mu.RUnlock()
 	if ctx == nil {
+		if admitted != nil {
+			*admitted = true
+		}
 		return
 	}
 	switch event.Type {
@@ -67,6 +91,9 @@ func (b *Bot) onInteractionCreate(_ *discordgo.Session, event *discordgo.Interac
 		b.handleCommandInteraction(ctx, event.Interaction)
 	case discordgo.InteractionMessageComponent:
 		b.handleComponentInteraction(ctx, event.Interaction)
+	}
+	if admitted != nil {
+		*admitted = true
 	}
 }
 

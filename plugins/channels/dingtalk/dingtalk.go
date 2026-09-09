@@ -229,6 +229,11 @@ func (b *Bot) onMessage(_ context.Context, data *chatbot.BotCallbackDataModel) (
 		Timestamp:  dingTalkEventTime(data.CreateAt),
 		Content:    channel.TextContent(strings.TrimSpace(data.Text.Content)),
 		Mentions:   dingTalkMentions(data.AtUsers),
+		ReplyCapability: &channel.ReplyCapability{
+			Kind:      channel.DingTalkSessionWebhookCapability,
+			Secret:    data.SessionWebhook,
+			ExpiresAt: time.Now().UTC().Add(dingTalkTurnTimeout),
+		},
 	}
 	go b.handleIncoming(msg, data.SessionWebhook)
 	return nil, nil

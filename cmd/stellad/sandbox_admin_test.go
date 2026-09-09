@@ -45,9 +45,9 @@ func TestSandboxMaintenanceRejectsUnsafeArgumentsBeforeOpeningDatabase(t *testin
 	}
 }
 
-func TestSandboxMaintenanceRequiresExistingStoppedEmbeddedDatabase(t *testing.T) {
+func TestMaintenanceRequiresExistingStoppedEmbeddedDatabase(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "postgres")
-	if err := requireStoppedSandboxDatabase(dataDir); err == nil {
+	if err := requireStoppedMaintenanceDatabase(dataDir); err == nil {
 		t.Fatal("missing database was accepted")
 	}
 	if _, err := os.Stat(dataDir); !os.IsNotExist(err) {
@@ -62,13 +62,13 @@ func TestSandboxMaintenanceRequiresExistingStoppedEmbeddedDatabase(t *testing.T)
 	if err := os.WriteFile(filepath.Join(dataDir, "postmaster.pid"), []byte("1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := requireStoppedSandboxDatabase(dataDir); err == nil {
+	if err := requireStoppedMaintenanceDatabase(dataDir); err == nil {
 		t.Fatal("possible active database was accepted")
 	}
 	if err := os.Remove(filepath.Join(dataDir, "postmaster.pid")); err != nil {
 		t.Fatal(err)
 	}
-	if err := requireStoppedSandboxDatabase(dataDir); err != nil {
+	if err := requireStoppedMaintenanceDatabase(dataDir); err != nil {
 		t.Fatalf("stopped existing database: %v", err)
 	}
 }

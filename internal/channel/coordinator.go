@@ -72,14 +72,19 @@ type Coordinator struct {
 	eventLog          *eventlog.Store
 	botRegistry       *BotIdentityRegistry
 	publisherRegistry *PublisherRegistry
-	groupDispatcher   *GroupDispatcher
-	db                *pgxpool.Pool
-	rootOpener        home.RootOpener
-	guests            GuestStore
-	guestPolicy       pkgchannel.GuestPolicyResolver
-	listenerCap       ListenerCap
-	guestLimiter      *guestRateLimiter
-	sessionImages     GroupImagePipeline
+	// publisherReconstructor builds an egress client on demand from durable
+	// channel state, so a replica that never registered a listener can still
+	// deliver an accepted reply.
+	publisherReconstructor DurablePublisherReconstructor
+	groupDispatcher        *GroupDispatcher
+	db                     *pgxpool.Pool
+	rootOpener             home.RootOpener
+	guests                 GuestStore
+	guestPolicy            pkgchannel.GuestPolicyResolver
+	listenerCap            ListenerCap
+	guestLimiter           *guestRateLimiter
+	sessionImages          GroupImagePipeline
+	durableIngress         *DurableIngress
 }
 
 // GroupImagePipeline canonicalizes group images. It is the same pipeline
@@ -96,6 +101,118 @@ type GroupImagePipeline interface {
 // projection instead of becoming canonical references.
 func WithSessionImages(images GroupImagePipeline) CoordinatorOption {
 	return func(c *Coordinator) { c.sessionImages = images }
+}
+
+// WithDurableIngress makes direct channel admission commit to the durable
+// channel FIFO before a model turn is started. Group messages keep their
+// event-log ingress path; /new is admitted as an ordered control barrier.
+func WithDurableIngress(ingress *DurableIngress) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.durableIngress = ingress
+		if ingress != nil {
+			ingress.BindCoordinator(c)
+		}
+	}
+}
+
+// LoadIngressCursor returns the last platform event acknowledged after
+// durable admission. A missing row is created at zero so a fresh listener can
+// start from the platform's first cursor without a separate initialization
+// race.
+func (c *Coordinator) LoadIngressCursor(ctx context.Context, platform, channelID, streamKey string) (int64, error) {
+	if c == nil || c.db == nil {
+		return 0, errors.New("channel ingress cursor store is not configured")
+	}
+	if platform == "" || channelID == "" {
+		return 0, errors.New("channel ingress cursor identity is incomplete")
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return 0, fmt.Errorf("mint channel ingress cursor id: %w", err)
+	}
+	row, err := sqlc.New(c.db).EnsureChannelIngressCursor(ctx, sqlc.EnsureChannelIngressCursorParams{
+		ID: id.String(), ChannelID: channelID, Platform: platform, StreamKey: streamKey, Cursor: 0,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("load channel ingress cursor: %w", err)
+	}
+	return row.Cursor, nil
+}
+
+// AdvanceIngressCursor records an event only after its HandleIncoming call
+// has committed the durable FIFO/event-log admission. The SQL upsert uses a
+// monotonic max, so concurrent retries cannot rewind a recovered listener.
+func (c *Coordinator) AdvanceIngressCursor(ctx context.Context, platform, channelID, streamKey string, cursor int64) error {
+	if c == nil || c.db == nil {
+		return errors.New("channel ingress cursor store is not configured")
+	}
+	if platform == "" || channelID == "" || cursor < 0 {
+		return errors.New("invalid channel ingress cursor")
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return fmt.Errorf("mint channel ingress cursor id: %w", err)
+	}
+	if _, err := sqlc.New(c.db).AdvanceChannelIngressCursor(ctx, sqlc.AdvanceChannelIngressCursorParams{
+		ID: id.String(), ChannelID: channelID, Platform: platform, StreamKey: streamKey, Cursor: cursor,
+	}); err != nil {
+		return fmt.Errorf("advance channel ingress cursor: %w", err)
+	}
+	return nil
+}
+
+// LoadIngressSessionState returns the gateway transport state stored beside a
+// channel cursor. EnsureChannelIngressCursor creates a fresh "new" row for a
+// first boot without changing state already recovered from a prior process.
+func (c *Coordinator) LoadIngressSessionState(ctx context.Context, platform, channelID, streamKey string) (pkgchannel.IngressSessionState, error) {
+	if c == nil || c.db == nil {
+		return pkgchannel.IngressSessionState{}, errors.New("channel ingress cursor store is not configured")
+	}
+	if platform == "" || channelID == "" {
+		return pkgchannel.IngressSessionState{}, errors.New("channel ingress cursor identity is incomplete")
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return pkgchannel.IngressSessionState{}, fmt.Errorf("mint channel ingress cursor id: %w", err)
+	}
+	row, err := sqlc.New(c.db).EnsureChannelIngressCursor(ctx, sqlc.EnsureChannelIngressCursorParams{
+		ID: id.String(), ChannelID: channelID, Platform: platform, StreamKey: streamKey, Cursor: 0,
+	})
+	if err != nil {
+		return pkgchannel.IngressSessionState{}, fmt.Errorf("load channel ingress session state: %w", err)
+	}
+	return pkgchannel.IngressSessionState{
+		SessionID: row.SessionID, ResumeGatewayURL: row.ResumeGatewayUrl,
+		State: row.SessionState, LastError: row.LastError,
+	}, nil
+}
+
+// SaveIngressSessionState records the latest READY session metadata. The
+// cursor upsert is monotonic, so a reconnect cannot rewind progress that a
+// concurrent callback has already durably admitted.
+func (c *Coordinator) SaveIngressSessionState(ctx context.Context, platform, channelID, streamKey string, state pkgchannel.IngressSessionState) error {
+	if c == nil || c.db == nil {
+		return errors.New("channel ingress cursor store is not configured")
+	}
+	if platform == "" || channelID == "" {
+		return errors.New("channel ingress cursor identity is incomplete")
+	}
+	if state.State == "" {
+		return errors.New("channel ingress session state is empty")
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return fmt.Errorf("mint channel ingress cursor id: %w", err)
+	}
+	if _, err := sqlc.New(c.db).SaveChannelIngressSessionState(ctx, sqlc.SaveChannelIngressSessionStateParams{
+		ID: id.String(), ChannelID: channelID, Platform: platform, StreamKey: streamKey,
+		Cursor:    0,
+		SessionID: state.SessionID, ResumeGatewayUrl: state.ResumeGatewayURL,
+		SessionState: state.State, LastError: state.LastError,
+	}); err != nil {
+		return fmt.Errorf("save channel ingress session state: %w", err)
+	}
+	return nil
 }
 
 // WithGuestStore enables durable unlinked channel principals.
@@ -200,6 +317,12 @@ func WithPublisherRegistry(reg *PublisherRegistry) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.publisherRegistry = reg
 	}
+}
+
+// WithDurablePublisherReconstructor configures on-demand channel egress
+// reconstruction for durable/non-leader dispatch execution.
+func WithDurablePublisherReconstructor(reconstructor DurablePublisherReconstructor) CoordinatorOption {
+	return func(c *Coordinator) { c.publisherReconstructor = reconstructor }
 }
 
 func (c *Coordinator) SetGroupDispatcher(dispatcher *GroupDispatcher) {
@@ -422,6 +545,14 @@ func (c *Coordinator) channelListenerAllowed(ctx context.Context, platform, chan
 // command is not handled, streams a chat response. This avoids double
 // resolution when a plugin needs to try commands before messaging.
 func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
+	if c.durableIngress != nil && !msg.IsGroup && !hasDurableIngressBypass(ctx) &&
+		(command == "" || strings.EqualFold(strings.TrimSpace(command), newSessionCommand)) {
+		return c.durableIngress.Admit(ctx, msg, command, args)
+	}
+	return c.handleIncomingDirect(ctx, msg, command, args)
+}
+
+func (c *Coordinator) handleIncomingDirect(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
 	ctx, _ = startIngress(ctx, "channel.ingress",
 		attribute.String("stella.channel.name", observability.ChannelName(msg.Platform)),
 		attribute.String("stella.channel.id", msg.ChannelID),

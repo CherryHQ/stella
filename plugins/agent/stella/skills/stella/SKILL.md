@@ -86,6 +86,7 @@ surface. Normal runner retirement preserves healthy compute for later turns.
 
 - **Multi-agent**: Multiple agents can run simultaneously, each with its own global Provider/model selection, optional API-key override, system prompt, and workspace. Provider endpoints, types, models, and enabled state remain administrator-controlled; per-Agent key overrides are API-only.
 - **Multi-user**: Channel identities resolve users. Verified Feishu tenant members can be auto-provisioned when their channel enables it; each user has per-agent memory that persists across sessions.
+- **Channel recovery**: Accepted channel messages wait in durable order. If delivery or execution is unknown, the conversation can block for operator inspection. Do not repeat the action to repair a missing reply; rejecting a blocked input permits later messages but does not restore its reply.
 - **Single bot per platform**: One Telegram/Discord/QQ/Feishu/DingTalk/WeChat bot can serve an agent selected through channel configuration.
 - **Agent routing**: DMs use the user's default agent. Fallback: first enabled agent. Each group message wakes every eligible member agent, and each member's local deterministic triage decides whether it speaks.
 - **Session scoping**: Sessions are scoped to (agent, platform, user, chat context) so switching agents gives you a fresh conversation.

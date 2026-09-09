@@ -22,6 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // recordingRuntime stands in for the agent pool and reports whether a turn was
@@ -69,6 +70,9 @@ func (r *recordingRuntime) SubscribeSession(string) (<-chan agent.Event, func())
 }
 
 func (r *recordingRuntime) SessionLive(string) bool { return false }
+func (r *recordingRuntime) SessionRun(context.Context, string) (string, bool, error) {
+	return "", false, nil
+}
 
 func (r *recordingRuntime) CompactAuthorizedSession(context.Context, agentsession.Info) (string, error) {
 	return "", nil
@@ -111,6 +115,47 @@ func (m recordingRuntimeManager) Default() sessionaccess.RuntimeService {
 		m.lookups.Add(1)
 	}
 	return m.rt
+}
+
+func TestStreamSessionEventsReturnsRetryableRemoteRun(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := createAgentAsUser(t, env, env.bearerToken, "Remote Events Agent")
+	const sessionID = "remote-events-session"
+	if _, err := env.db.Exec(t.Context(), `
+		INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id, last_active)
+		VALUES ($1, $2, 'web', 'chat', $3, $4, now())
+	`, uuid.NewString(), sessionID, agentID, env.adminUser.ID); err != nil {
+		t.Fatalf("seed conversation: %v", err)
+	}
+	runID := uuid.NewString()
+	bootID := uuid.NewString()
+	if _, err := sqlc.New(env.db).CreateExecutorBoot(t.Context(), bootID); err != nil {
+		t.Fatalf("CreateExecutorBoot: %v", err)
+	}
+	if _, err := sqlc.New(env.db).CreateAgentRun(t.Context(), sqlc.CreateAgentRunParams{
+		ID: runID, SessionID: sessionID, ExecutorBootID: bootID, Source: "scheduler", LeaseSeconds: 30,
+	}); err != nil {
+		t.Fatalf("CreateAgentRun: %v", err)
+	}
+
+	rr := doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID+"/events", nil)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("remote events status = %d, want 503: %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Retry-After"); got != "3" {
+		t.Fatalf("Retry-After = %q, want 3", got)
+	}
+	var body struct {
+		Error struct {
+			Details map[string]any `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if got, _ := body.Error.Details["run_id"].(string); got != runID {
+		t.Fatalf("error details run_id = %q, want %q", got, runID)
+	}
 }
 
 func TestSendSessionMessageAppliesExcludedToolsToOnlyThatRun(t *testing.T) {

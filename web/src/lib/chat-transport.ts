@@ -11,9 +11,28 @@ import type {
   ToolResult,
 } from "./types";
 
-export function createSessionTransport(agentId: string, sessionId: string) {
+export interface SessionTransportResumeState {
+  /** True after the events endpoint reports a live run on another replica. */
+  isRemoteRunActive: () => boolean;
+}
+
+function requestURL(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
+function isSessionEventsRequest(input: RequestInfo | URL): boolean {
+  return requestURL(input).split("?", 1)[0].endsWith("/events");
+}
+
+export function createSessionTransport(
+  agentId: string,
+  sessionId: string,
+): DefaultChatTransport<UIMessage> & SessionTransportResumeState {
   const base = `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}`;
-  return new DefaultChatTransport({
+  let remoteRunID: string | null = null;
+  const transport = new DefaultChatTransport({
     api: `${base}/messages`,
     prepareSendMessagesRequest: ({ messages }) => {
       const last = messages[messages.length - 1];
@@ -34,7 +53,36 @@ export function createSessionTransport(agentId: string, sessionId: string) {
     // endpoint. It answers 204 when no turn is in flight, which the SDK treats
     // as "nothing to resume".
     prepareReconnectToStreamRequest: () => ({ api: `${base}/events` }),
+    // The AI SDK treats every reconnect error as a terminal chat error. A
+    // durable run on another replica is transient, so turn its structured 503
+    // into the same empty-resume result as 204 while exposing state to the
+    // session hook, which keeps polling the transcript until the run settles.
+    fetch: async (input, init) => {
+      const response = await globalThis.fetch(input, init);
+      if (!isSessionEventsRequest(input)) return response;
+      if (response.status !== 503) {
+        remoteRunID = null;
+        return response;
+      }
+
+      let runID: unknown;
+      try {
+        const payload = (await response.clone().json()) as {
+          error?: { details?: { run_id?: unknown } };
+        };
+        runID = payload.error?.details?.run_id;
+      } catch {
+        // Let the SDK surface malformed or unrelated 503 responses normally.
+      }
+      if (typeof runID !== "string" || runID === "") {
+        remoteRunID = null;
+        return response;
+      }
+      remoteRunID = runID;
+      return new Response(null, { status: 204 });
+    },
   });
+  return Object.assign(transport, { isRemoteRunActive: () => remoteRunID !== null });
 }
 
 export function createGroupTransport(groupId: string) {

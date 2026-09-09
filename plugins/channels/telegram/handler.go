@@ -77,7 +77,10 @@ func (b *Bot) handleSharedCommand(c tele.Context, cmd string) error {
 	args := strings.TrimSpace(c.Message().Payload)
 	resp, handled, _, err := b.handler.HandleIncoming(b.ctx, msg, cmd, args)
 	if err != nil {
-		return c.Send(fmt.Sprintf("Error: %v", err))
+		if sendErr := c.Send(fmt.Sprintf("Error: %v", err)); sendErr != nil {
+			return errors.Join(err, sendErr)
+		}
+		return err
 	}
 	if handled {
 		return c.Send(resp)
@@ -94,17 +97,21 @@ func (b *Bot) handleText(c tele.Context) error {
 
 	msg := b.incomingMsg(c, channel.TextContent(text))
 
-	// Parse command if present.
-	var cmd, args string
-	if fields := strings.Fields(text); len(fields) > 0 {
-		cmd = fields[0]
-		args = strings.TrimSpace(strings.TrimPrefix(text, cmd))
+	// Only slash-prefixed text is a command. Passing the first word of an
+	// ordinary sentence as `command` would bypass DurableIngress's direct-chat
+	// admission path and turn every "hello there" into a non-durable dispatch.
+	cmd, args := channel.ParseSlashCommand(text)
+	if base, _, ok := strings.Cut(cmd, "@"); ok && len(base) > 1 {
+		cmd = base
 	}
 
 	// Single resolution: try command, then fall through to chat.
 	resp, handled, stream, err := b.handler.HandleIncoming(b.ctx, msg, cmd, args)
 	if err != nil {
-		return c.Send(fmt.Sprintf("Error: %v", err))
+		if sendErr := c.Send(fmt.Sprintf("Error: %v", err)); sendErr != nil {
+			return errors.Join(err, sendErr)
+		}
+		return err
 	}
 	if handled {
 		return c.Send(resp)
@@ -112,8 +119,8 @@ func (b *Bot) handleText(c tele.Context) error {
 	if stream == nil {
 		return nil
 	}
-
-	return b.handleStream(c, stream)
+	b.deliverStreamAsync(c, stream)
+	return nil
 }
 
 // handlePhoto processes incoming photo messages.
@@ -163,12 +170,16 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	_, _, stream, err := b.handler.HandleIncoming(b.ctx, msg, "", "")
 	if err != nil {
 		logger().Error("chat failed", "chat_id", c.Chat().ID, "error", err)
-		return c.Send(fmt.Sprintf("Session error: %v", err))
+		if sendErr := c.Send(fmt.Sprintf("Session error: %v", err)); sendErr != nil {
+			return errors.Join(err, sendErr)
+		}
+		return err
 	}
 	if stream == nil {
 		return nil
 	}
-	return b.handleStream(c, stream)
+	b.deliverStreamAsync(c, stream)
+	return nil
 }
 
 func (b *Bot) rejectAttachment(c tele.Context, err error) error {
@@ -245,12 +256,27 @@ func (b *Bot) handleDocument(c tele.Context) error {
 	_, _, stream, err := b.handler.HandleIncoming(b.ctx, msg, "", "")
 	if err != nil {
 		logger().Error("chat failed", "chat_id", c.Chat().ID, "error", err)
-		return c.Send(fmt.Sprintf("Session error: %v", err))
+		if sendErr := c.Send(fmt.Sprintf("Session error: %v", err)); sendErr != nil {
+			return errors.Join(err, sendErr)
+		}
+		return err
 	}
 	if stream == nil {
 		return nil
 	}
-	return b.handleStream(c, stream)
+	b.deliverStreamAsync(c, stream)
+	return nil
+}
+
+// deliverStreamAsync separates durable ingress admission from platform egress.
+// The Telegram update handler can return as soon as HandleIncoming has
+// committed the FIFO row; the completion Ack still waits for the final send.
+func (b *Bot) deliverStreamAsync(c tele.Context, stream *channel.ChatStream) {
+	go func() {
+		if err := b.handleStream(c, stream); err != nil {
+			logger().Warn("deliver telegram stream failed", "error", err)
+		}
+	}()
 }
 
 // documentAttachment downloads a Telegram document and returns the content

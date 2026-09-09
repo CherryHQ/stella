@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
-	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -127,66 +125,20 @@ func validateSandboxTarget(c *ucli.Context, generationRequired bool) error {
 }
 
 func withSandboxAdmin(c *ucli.Context, controllers bool, action func(context.Context, *agentsandbox.GenerationAdmin) error) (resultErr error) {
-	ctx, cancel := context.WithTimeout(c.Context, 2*time.Minute)
-	defer cancel()
-	cfg, err := config.LoadSandboxMaintenanceConfig(os.LookupEnv, controllers)
+	cfg, err := config.LoadMaintenanceConfig(os.LookupEnv, controllers)
 	if err != nil {
 		return fmt.Errorf("load sandbox maintenance configuration: %w", err)
 	}
-	dsn := cfg.Database.URL
-	if dsn == "" {
-		if cfg.Database.RequireExternalDB {
-			return errors.New("STELLA_DATABASE_URL is required when STELLA_REQUIRE_EXTERNAL_DB is enabled")
+	return withMaintenanceDatabaseConfig(c, cfg.Database, "stellad-sandbox-maintenance", func(ctx context.Context, pool *pgxpool.Pool) error {
+		var backends *agentsandbox.BackendRegistry
+		if controllers {
+			backends, err = setupSandboxBackends(ctx, config.ServerConfig{KubernetesSandbox: cfg.KubernetesSandbox})
+			if err != nil {
+				return fmt.Errorf("configure sandbox resource controllers: %w", err)
+			}
 		}
-		dataDir := filepath.Join(config.StellaHome(), "postgres")
-		if err := requireStoppedSandboxDatabase(dataDir); err != nil {
-			return err
-		}
-		embedded, err := appdb.StartEmbedded(dataDir, 0)
-		if err != nil {
-			return fmt.Errorf("open stopped embedded database: %w", err)
-		}
-		defer func() { resultErr = errors.Join(resultErr, embedded.Stop()) }()
-		dsn = embedded.DSN()
-	}
-	// OpenDB applies migrations. Maintenance must inspect existing state without
-	// upgrading it or starting the server's execution and recovery services.
-	poolConfig, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		return errors.New("invalid sandbox maintenance database connection configuration")
-	}
-	poolConfig.MaxConns = 2
-	poolConfig.MinConns = 0
-	poolConfig.ConnConfig.ConnectTimeout = 10 * time.Second
-	poolConfig.ConnConfig.RuntimeParams["timezone"] = "UTC"
-	poolConfig.ConnConfig.RuntimeParams["application_name"] = "stellad-sandbox-maintenance"
-	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
-	if err != nil {
-		return fmt.Errorf("open sandbox maintenance database: %w", err)
-	}
-	defer pool.Close()
-	if err := pool.Ping(ctx); err != nil {
-		return fmt.Errorf("connect to sandbox maintenance database: %w", err)
-	}
-	var backends *agentsandbox.BackendRegistry
-	if controllers {
-		backends, err = setupSandboxBackends(ctx, config.ServerConfig{KubernetesSandbox: cfg.KubernetesSandbox})
-		if err != nil {
-			return fmt.Errorf("configure sandbox resource controllers: %w", err)
-		}
-	}
-	return action(ctx, agentsandbox.NewGenerationAdmin(pool, backends))
-}
-
-func requireStoppedSandboxDatabase(dataDir string) error {
-	version, err := os.Stat(filepath.Join(dataDir, "PG_VERSION"))
-	if err != nil || !version.Mode().IsRegular() {
-		return errors.New("no existing embedded database; set STELLA_DATABASE_URL or use the initialized STELLA_HOME")
-	}
-	if _, err := os.Lstat(filepath.Join(dataDir, "postmaster.pid")); !errors.Is(err, os.ErrNotExist) {
-		return errors.New("embedded database may be running; stop stellad before sandbox maintenance")
-	}
-	return nil
+		return action(ctx, agentsandbox.NewGenerationAdmin(pool, backends))
+	})
 }
 
 func writeSandboxRecord(out io.Writer, row agentsandbox.GenerationRecord, asJSON bool) error {

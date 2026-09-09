@@ -36,6 +36,9 @@ func TestLoadServerConfigDefaults(t *testing.T) {
 	if cfg.Database.URL != "" {
 		t.Errorf("Database.URL = %q, want empty", cfg.Database.URL)
 	}
+	if cfg.Database.PoolMode != "" {
+		t.Errorf("Database.PoolMode = %q, want empty", cfg.Database.PoolMode)
+	}
 	if cfg.ServerURL != "http://127.0.0.1:25678" {
 		t.Errorf("ServerURL = %q, want default", cfg.ServerURL)
 	}
@@ -78,6 +81,7 @@ func TestLoadServerConfigHappy(t *testing.T) {
 	cfg, err := LoadServerConfig(lookupFrom(map[string]string{
 		requireExternalDBEnv:    "true",
 		databaseURLEnv:          "postgres://user:pass@db:5432/stella",
+		databasePoolModeEnv:     " session ",
 		httpShutdownTimeoutEnv:  "45s",
 		riverSoftStopTimeoutEnv: "3m",
 		serverURLEnv:            "http://stella.internal:9000",
@@ -90,6 +94,9 @@ func TestLoadServerConfigHappy(t *testing.T) {
 	}
 	if cfg.Database.URL != "postgres://user:pass@db:5432/stella" {
 		t.Errorf("Database.URL = %q", cfg.Database.URL)
+	}
+	if cfg.Database.PoolMode != "session" {
+		t.Errorf("Database.PoolMode = %q, want session", cfg.Database.PoolMode)
 	}
 	if cfg.Lifecycle.HTTPShutdownTimeout != 45*time.Second {
 		t.Errorf("HTTPShutdownTimeout = %v, want 45s", cfg.Lifecycle.HTTPShutdownTimeout)
@@ -204,6 +211,36 @@ func TestLoadServerConfigBoolMessage(t *testing.T) {
 	want := `STELLA_REQUIRE_EXTERNAL_DB="maybe" is not a boolean: set it to 1/true or 0/false`
 	if !strings.Contains(err.Error(), want) {
 		t.Errorf("error %q does not contain %q", err.Error(), want)
+	}
+}
+
+func TestLoadServerConfigPoolMode(t *testing.T) {
+	for _, tc := range []struct {
+		value   string
+		want    string
+		wantErr bool
+	}{
+		{value: "", want: ""},
+		{value: "session", want: "session"},
+		{value: "TRANSACTION", want: "transaction"},
+		{value: " statement ", want: "statement"},
+		{value: "session_pool", wantErr: true},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			cfg, err := LoadServerConfig(lookupFrom(map[string]string{databasePoolModeEnv: tc.value}))
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), databasePoolModeEnv) {
+					t.Fatalf("LoadServerConfig error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Database.PoolMode != tc.want {
+				t.Fatalf("Database.PoolMode = %q, want %q", cfg.Database.PoolMode, tc.want)
+			}
+		})
 	}
 }
 

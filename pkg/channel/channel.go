@@ -27,6 +27,9 @@ const (
 	PlatformDingTalk = "dingtalk"
 	PlatformWeixin   = "weixin"
 	PlatformCLI      = "cli"
+	// DingTalkSessionWebhookCapability identifies the short-lived session route
+	// carried by a group callback and stored only as encrypted vault material.
+	DingTalkSessionWebhookCapability = "dingtalk_session_webhook"
 
 	// MaxInboundAttachmentBytes bounds one attachment before durable publication.
 	MaxInboundAttachmentBytes = 32 << 20
@@ -85,6 +88,36 @@ type Handler interface {
 	MessageHandler
 }
 
+// IngressCursorStore persists the platform cursor only after HandleIncoming
+// has durably admitted an event. Adapters use the returned cursor on restart;
+// implementations must make AdvanceIngressCursor monotonic so a duplicate
+// delivery or retry cannot move a cursor backwards.
+type IngressCursorStore interface {
+	LoadIngressCursor(ctx context.Context, platform, channelID, streamKey string) (int64, error)
+	AdvanceIngressCursor(ctx context.Context, platform, channelID, streamKey string, cursor int64) error
+}
+
+// IngressSessionState is the durable transport state associated with an
+// ingress cursor. Discord needs the gateway session and resume endpoint to
+// continue from the last admitted sequence after a process restart. State is
+// deliberately a small string enum owned by the adapter ("new", "ready", or
+// "invalid"), so an invalid session can stop startup instead of silently
+// falling back to IDENTIFY and replaying an unrelated stream.
+type IngressSessionState struct {
+	SessionID        string
+	ResumeGatewayURL string
+	State            string
+	LastError        string
+}
+
+// IngressSessionStateStore persists gateway transport state alongside the
+// platform cursor. It is optional at the package boundary for lightweight
+// handlers, but a durable Discord listener requires it.
+type IngressSessionStateStore interface {
+	LoadIngressSessionState(ctx context.Context, platform, channelID, streamKey string) (IngressSessionState, error)
+	SaveIngressSessionState(ctx context.Context, platform, channelID, streamKey string, state IngressSessionState) error
+}
+
 // IncomingMessage is the normalised input from any platform.
 type IncomingMessage struct {
 	Platform   string   // "telegram", "qq", etc.
@@ -103,6 +136,19 @@ type IncomingMessage struct {
 	ReplyTo           string    // platform message ID this message replies to, empty if none
 	Mentions          []Mention // @-mentions, normalized; AgentID is resolved later by the dispatcher
 	LifecycleFeedback bool      // platform adapter should show addressed-turn completion feedback
+	// ReplyCapability is transient ingress-only state for platforms whose reply
+	// route is an expiring secret. The channel host encrypts it before durable
+	// persistence; it must never be copied into an outbox envelope in clear.
+	ReplyCapability *ReplyCapability `json:"-"`
+}
+
+// ReplyCapability carries an expiring platform route from ingress to the
+// source-domain append transaction. It is deliberately absent from durable
+// rows; only an opaque encrypted reference is persisted.
+type ReplyCapability struct {
+	Kind      string
+	Secret    string
+	ExpiresAt time.Time
 }
 
 // Mention is a normalized @-mention. Adapters fill Raw and PlatformID; the

@@ -50,13 +50,15 @@ func TestOrphanSweepDeletesOnlyUnreachableMedia(t *testing.T) {
 
 	partReferenced, partDigest := persist(user, "referenced by a message part")
 	groupReferenced, groupDigest := persist(group, "referenced by a group block")
+	fifoReferenced, fifoDigest := persist(user, "referenced by a durable channel FIFO item")
 	orphan, orphanDigest := persist(user, "referenced by nothing")
 	fresh, freshDigest := persist(user, "too young to sweep")
 
 	seedImagePart(t, db, user, partReferenced)
 	seedGroupImageBlock(t, db, group, groupReferenced)
+	seedFIFOImageReference(t, db, user, fifoReferenced)
 	// Everything but `fresh` predates the ingestion window.
-	for _, id := range []string{partReferenced, groupReferenced, orphan} {
+	for _, id := range []string{partReferenced, groupReferenced, fifoReferenced, orphan} {
 		if _, err := db.Exec(ctx, `UPDATE ctx_media SET created_at = now() - interval '48 hours' WHERE id = $1`, id); err != nil {
 			t.Fatalf("age media: %v", err)
 		}
@@ -72,6 +74,7 @@ func TestOrphanSweepDeletesOnlyUnreachableMedia(t *testing.T) {
 
 	assertMediaRow(t, db, partReferenced, true)
 	assertMediaRow(t, db, groupReferenced, true)
+	assertMediaRow(t, db, fifoReferenced, true)
 	assertMediaRow(t, db, fresh, true)
 	assertMediaRow(t, db, orphan, false)
 
@@ -86,6 +89,7 @@ func TestOrphanSweepDeletesOnlyUnreachableMedia(t *testing.T) {
 	}{
 		{user, partDigest, len("referenced by a message part")},
 		{group, groupDigest, len("referenced by a group block")},
+		{user, fifoDigest, len("referenced by a durable channel FIFO item")},
 		{user, freshDigest, len("too young to sweep")},
 	} {
 		if _, err := media.OpenSessionMedia(ctx, kept.owner, kept.digest, int64(kept.size)); err != nil {
@@ -147,6 +151,37 @@ func seedGroupImageBlock(t *testing.T, db *pgxpool.Pool, owner Owner, mediaID st
 		INSERT INTO ctx_group_message (group_id, seq, actor_type, actor_id, content_blocks)
 		VALUES ($1, 1, 'user', 'u-1', $2::jsonb)`, owner.ID.String(), blocks); err != nil {
 		t.Fatalf("seed group message: %v", err)
+	}
+}
+
+func seedFIFOImageReference(t *testing.T, db *pgxpool.Pool, owner Owner, mediaID string) {
+	t.Helper()
+	ctx := context.Background()
+	channelID := "sweep-fifo-channel-" + uuid.NewString()
+	bindingID := uuid.NewString()
+	itemID := uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO channel (id, name, type) VALUES ($1, 'Sweep FIFO', 'test')`, channelID); err != nil {
+		t.Fatalf("seed FIFO channel: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO channel_binding (
+			id, channel_id, platform, chat_key, principal_kind, principal_id
+		) VALUES ($1, $2, 'test', $3, 'user', $4)`,
+		bindingID, channelID, owner.ID.String(), owner.ID.String()); err != nil {
+		t.Fatalf("seed FIFO binding: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO channel_fifo_item (
+			id, binding_id, principal_key, seq, source_key, payload,
+			payload_bytes, media_bytes, byte_cost
+		) VALUES ($1, $2, $3, 1, '', '{}'::jsonb, 2, 1, 3)`,
+		itemID, bindingID, owner.ID.String()); err != nil {
+		t.Fatalf("seed FIFO item: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO channel_fifo_media (item_id, media_id, mime_type, size_bytes)
+		VALUES ($1, $2, 'image/png', 1)`, itemID, mediaID); err != nil {
+		t.Fatalf("seed FIFO media reference: %v", err)
 	}
 }
 

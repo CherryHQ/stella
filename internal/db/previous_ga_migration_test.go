@@ -43,7 +43,7 @@ const (
 	// deny admission, plugin tool identity cutover, and file-backed Skill
 	// evidence migrations.
 	currentMigrationVersion = sequentialAnchor + 40
-	latestMigrationVersion  = sequentialAnchor + 50
+	latestMigrationVersion  = sequentialAnchor + 52
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"

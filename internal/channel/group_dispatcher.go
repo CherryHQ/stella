@@ -417,7 +417,7 @@ func (d *GroupDispatcher) processOutbox(ctx context.Context, outbox sqlc.CtxGrou
 		return d.failOutbox(ctx, claimed, fmt.Errorf("count dispatch rows: %w", err))
 	}
 	if count == 0 {
-		if err := d.materializeDispatchRowsTx(ownedCtx, claimed); err != nil {
+		if err := d.materializeGroupRouteTx(ownedCtx, claimed); err != nil {
 			return d.failOutbox(ctx, claimed, err)
 		}
 	}
@@ -537,23 +537,33 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if !ok {
 		return nil
 	}
+	return d.executeClaimedDispatch(ctx, claimed, false, "")
+}
+
+// executeClaimedDispatch runs the common group turn lifecycle after ownership
+// has already been established. FIFO responders pass fifoOwned=true: the FIFO
+// item is their sole execution lease, so this method must not claim or renew a
+// second ctx_group_dispatch lease.
+func (d *GroupDispatcher) executeClaimedDispatch(ctx context.Context, claimed sqlc.CtxGroupDispatch, fifoOwned bool, fifoReason string) error {
 	ownedCtx, cancelOwned := context.WithCancel(ctx)
 	defer cancelOwned()
-	stopHeartbeat := d.startHeartbeat(ownedCtx, "dispatch", claimed.ID, claimed.LeaseUntil.Time, func(ctx context.Context, until time.Time) (int64, error) {
-		return d.q.ExtendRunningGroupDispatchLease(ctx, sqlc.ExtendRunningGroupDispatchLeaseParams{
-			ID:           claimed.ID,
-			LeaseUntil:   nullTime(until),
-			AttemptCount: claimed.AttemptCount,
-		})
-	}, cancelOwned)
-	defer stopHeartbeat()
+	if !fifoOwned {
+		stopHeartbeat := d.startHeartbeat(ownedCtx, "dispatch", claimed.ID, claimed.LeaseUntil.Time, func(ctx context.Context, until time.Time) (int64, error) {
+			return d.q.ExtendRunningGroupDispatchLease(ctx, sqlc.ExtendRunningGroupDispatchLeaseParams{
+				ID:           claimed.ID,
+				LeaseUntil:   nullTime(until),
+				AttemptCount: claimed.AttemptCount,
+			})
+		}, cancelOwned)
+		defer stopHeartbeat()
+	}
 	message, state, err := d.messageAndState(ownedCtx, d.q, claimed.GroupMessageID)
 	if err != nil {
-		return d.failDispatch(ctx, claimed, err)
+		return d.failOwnedDispatch(ctx, claimed, fifoOwned, err)
 	}
 	outbox, err := d.q.GetGroupOutboxByMessage(ownedCtx, claimed.GroupMessageID)
 	if err != nil {
-		return d.failDispatch(ctx, claimed, fmt.Errorf("get group outbox metadata: %w", err))
+		return d.failOwnedDispatch(ctx, claimed, fifoOwned, fmt.Errorf("get group outbox metadata: %w", err))
 	}
 	envelope, err := DecodeGroupOutboxEnvelope(outbox.Envelope)
 	if err != nil {
@@ -566,9 +576,9 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	// idempotent DB finalization, so a missing publisher must not block it.
 	var publisher pkgchannel.GroupPublisher
 	if claimed.ResultMessageID == "" || !claimed.PublishedAt.Valid {
-		publisher, err = d.publish.publisherFor(state, claimed)
+		publisher, err = d.publish.publisherForDurable(ownedCtx, state, claimed, envelope)
 		if err != nil {
-			return d.failDispatch(ctx, claimed, err)
+			return d.failOwnedDispatch(ctx, claimed, fifoOwned, err)
 		}
 	}
 	// Egress compensation runs before triage on purpose. The reply is already
@@ -578,23 +588,25 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if claimed.ResultMessageID != "" {
 		if claimed.PublishedAt.Valid {
 			return d.publishAccepted(ownedCtx, publishJob{
-				row: claimed, trigger: message, state: state,
+				row: claimed, trigger: message, state: state, fifoOwned: fifoOwned,
 			})
 		}
 		accepted, err := d.q.GetGroupMessage(ownedCtx, claimed.ResultMessageID)
 		if err != nil {
-			return d.failDispatch(ctx, claimed, fmt.Errorf("get accepted group result: %w", err))
+			return d.failOwnedDispatch(ctx, claimed, fifoOwned, fmt.Errorf("get accepted group result: %w", err))
 		}
 		d.log.Warn("replaying accepted group reply from canonical text after buffer loss", "dispatch_id", claimed.ID, "result_message_id", accepted.ID, "upgrade_trigger", "cross-process rich replay requires BlobStore event spooling")
 		return d.publishAccepted(ownedCtx, publishJob{
-			row: claimed, trigger: message, state: state, publisher: publisher,
+			row: claimed, trigger: message, state: state, fifoOwned: fifoOwned, publisher: publisher,
 			response: groupResponseFromMessage(accepted),
 		})
 	}
 	// Nudges pass the gate too: recovery may hand an agent the floor, but it
 	// must not bypass the hard caps that keep a stalled group from flooding.
-	var reason string
-	if claimed.Kind == "wake" || claimed.Kind == "nudge" {
+	reason := fifoReason
+	if fifoOwned {
+		ownedCtx = memory.WithGroupWake(ownedCtx, d.groupWake(ownedCtx, claimed, reason))
+	} else if claimed.Kind == "wake" || claimed.Kind == "nudge" {
 		act, degraded := false, false
 		act, reason, degraded = d.triageWake(ownedCtx, claimed, message, state, envelope)
 		if act {
@@ -604,7 +616,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 			if degraded && claimed.AttemptCount < d.maxAttempts {
 				// Only a DB read failure lands here. Silence is not a verdict we
 				// can trust from a failed read, so requeue without a terminal frame.
-				return d.failDispatch(ctx, claimed, fmt.Errorf("triage unavailable: %s", reason))
+				return d.failOwnedDispatch(ctx, claimed, fifoOwned, fmt.Errorf("triage unavailable: %s", reason))
 			}
 			updated, err := d.markAndAnnounce(ctx, claimed, "silent", reason, "", func(ctx context.Context) (int64, error) {
 				return d.q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount, Reason: reason})
@@ -623,6 +635,12 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	sink := memory.NewGroupTurnSink()
 	chatCtx := memory.WithGroupTurnSink(ownedCtx, sink)
 	stream, err := d.chat(chatCtx, claimed, message, state)
+	if stream != nil {
+		if proxy := groupFIFOCompletionFromContext(ownedCtx); proxy != nil {
+			proxy.Bind(stream.Completion)
+			stream.Completion = &groupFIFOCompletion{proxy: proxy}
+		}
+	}
 	if errors.Is(err, errGroupNudgeMoot) {
 		// The re-check runs after the session queue grants this slot. Do not emit
 		// a running frame for work the wake ahead of it already completed.
@@ -649,7 +667,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		return d.completeDispatch(ctx, claimed)
 	}
 	if err != nil {
-		return d.failDispatch(ctx, claimed, err)
+		return d.failOwnedDispatch(ctx, claimed, fifoOwned, err)
 	}
 	// chat returns only after its per-(group, agent) session queue gives this
 	// turn the slot. This is the first truthful point to project it as running.
@@ -661,7 +679,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		if cause == nil {
 			cause = errors.New("group turn ended without a complete deferred result")
 		}
-		failErr := d.failDispatch(ctx, claimed, cause)
+		failErr := d.failOwnedDispatch(ctx, claimed, fifoOwned, cause)
 		ackErr := ackGroupResponse(ownedCtx, response, pkgchannel.EgressFailed, cause.Error())
 		return joinDispatchErrors(failErr, ackErr)
 	}
@@ -676,7 +694,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	}
 	outcome, err := d.acceptGroupResponse(ownedCtx, claimed, response, turn)
 	if err != nil {
-		failErr := d.failDispatch(ctx, claimed, err)
+		failErr := d.failOwnedDispatch(ctx, claimed, fifoOwned, err)
 		ackErr := ackGroupResponse(ownedCtx, response, pkgchannel.EgressFailed, err.Error())
 		return joinDispatchErrors(failErr, ackErr)
 	}
@@ -685,7 +703,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		return ackGroupResponse(ownedCtx, response, pkgchannel.EgressDiscarded, outcome.Reason)
 	}
 	return d.publishAccepted(ownedCtx, publishJob{
-		row: claimed, trigger: message, state: state, publisher: publisher,
+		row: claimed, trigger: message, state: state, fifoOwned: fifoOwned, publisher: publisher,
 		response: response, envelope: envelope, acceptedMessageID: outcome.Accepted.Message.ID,
 	})
 }
@@ -722,9 +740,44 @@ func (d *GroupDispatcher) markAndAnnounce(ctx context.Context, row sqlc.CtxGroup
 func (d *GroupDispatcher) publishAccepted(ctx context.Context, job publishJob) error {
 	row, err := d.publish.run(ctx, job)
 	if err != nil {
+		if job.fifoOwned {
+			return d.failFIFODispatch(ctx, row, err)
+		}
 		return d.failDispatch(ctx, row, err)
 	}
 	return d.completeDispatch(ctx, row)
+}
+
+// failOwnedDispatch keeps the two execution authorities separate. Legacy
+// rows are requeued through ctx_group_dispatch; FIFO-owned rows stay on the
+// FIFO item and only terminalize their mirrored ledger, so no second lease or
+// retry queue can execute the same responder.
+func (d *GroupDispatcher) failOwnedDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, fifoOwned bool, cause error) error {
+	if !fifoOwned {
+		return d.failDispatch(ctx, row, cause)
+	}
+	return d.failFIFODispatch(ctx, row, cause)
+}
+
+func (d *GroupDispatcher) failFIFODispatch(ctx context.Context, row sqlc.CtxGroupDispatch, cause error) error {
+	if cause == nil {
+		cause = errors.New("group FIFO dispatch failed")
+	}
+	// A published marker is already the external success boundary. Preserve it
+	// for the next FIFO retry, which can run only idempotent finalization.
+	if row.PublishedAt.Valid || row.Status == "failed" || row.Status == "completed" || row.Status == "silent" || row.Status == "held" {
+		return cause
+	}
+	updated, err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{
+		ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error(),
+	})
+	if err != nil {
+		return fmt.Errorf("mark FIFO dispatch failed: %w", err)
+	}
+	if updated > 0 {
+		d.announceTurn(row, "failed", cause.Error())
+	}
+	return cause
 }
 
 // groupWake describes this turn to the agent about to run it: which gate let it

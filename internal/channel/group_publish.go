@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,8 +14,10 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/platform/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/runcontrol"
 )
 
 // groupPublishDriver owns egress for an accepted group reply: routing it to a
@@ -28,6 +31,12 @@ import (
 // acceptedPublishRecoveryPrefix is persisted in last_error solely to preserve
 // the distinct retry class across claim/requeue cycles without a schema change.
 const acceptedPublishRecoveryPrefix = "accepted_publish_recovery:"
+
+// acceptedPublishUnknownPrefix is terminal for automatic recovery. Once the
+// external publisher was entered and no published marker was committed, a
+// restart cannot prove whether the platform accepted the bytes. Retrying here
+// would turn an uncertain answer into a duplicate side effect.
+const acceptedPublishUnknownPrefix = "accepted_publish_unknown:"
 
 type acceptedPublishBookkeepingError struct{ err error }
 
@@ -48,9 +57,14 @@ type groupPublishDriver struct {
 	db         *pgxpool.Pool
 	q          *sqlc.Queries
 	publishers *PublisherRegistry
-	coord      *Coordinator
-	events     *GroupEventHub
-	log        *slog.Logger
+	// reconstructor is the durable source of egress credentials. It takes
+	// precedence over the process-local registry so a replica that never ran a
+	// channel listener can still finish accepted delivery.
+	reconstructor DurablePublisherReconstructor
+	channels      config.Store
+	coord         *Coordinator
+	events        *GroupEventHub
+	log           *slog.Logger
 	// wake re-polls the dispatcher after a successor outbox is committed.
 	wake func()
 	// abort stops the turn still running behind a session key, for publishers
@@ -59,7 +73,12 @@ type groupPublishDriver struct {
 }
 
 func newGroupPublishDriver(db *pgxpool.Pool, q *sqlc.Queries, publishers *PublisherRegistry, coord *Coordinator, log *slog.Logger, wake func(), abort func(string) bool) *groupPublishDriver {
-	return &groupPublishDriver{db: db, q: q, publishers: publishers, coord: coord, log: log, wake: wake, abort: abort}
+	d := &groupPublishDriver{db: db, q: q, publishers: publishers, coord: coord, log: log, wake: wake, abort: abort}
+	if coord != nil {
+		d.reconstructor = coord.publisherReconstructor
+		d.channels = coord.store
+	}
+	return d
 }
 
 // publishJob is one egress attempt: the accepted reply, the trigger it answers,
@@ -69,11 +88,123 @@ type publishJob struct {
 	trigger   sqlc.CtxGroupMessage
 	state     sqlc.CtxGroupState
 	publisher pkgchannel.GroupPublisher
+	// fifoOwned means the channel FIFO item, rather than the legacy group
+	// dispatch lease, owns this attempt. The dispatcher uses it to avoid
+	// requeueing a second execution ledger on publisher failure.
+	fifoOwned bool
 	response  groupResponse
 	envelope  GroupOutboxEnvelope
 	// acceptedMessageID is the canonical row this publish is rendering. It is
 	// empty on the recovery path, where the row already carries the id.
 	acceptedMessageID string
+}
+
+// groupPublishCompletionGate keeps the AgentRun completion open while a
+// publisher's own defer settles the platform outcome. The publisher can only
+// observe the response stream's Check/Ack contract; releasing the underlying
+// lease before the dispatch marker and canonical delivery commit would let the
+// next turn overtake those durable facts.
+//
+// Ack intentionally captures and returns without touching the underlying
+// completion. The driver releases it exactly once after the durable boundary,
+// choosing unknown whenever that boundary is not proven.
+type groupPublishCompletionGate struct {
+	completion pkgchannel.StreamCompletion
+
+	mu       sync.Mutex
+	acked    bool
+	outcome  pkgchannel.EgressOutcome
+	released bool
+}
+
+func newGroupPublishCompletionGate(completion pkgchannel.StreamCompletion) *groupPublishCompletionGate {
+	if completion == nil {
+		return nil
+	}
+	return &groupPublishCompletionGate{completion: completion}
+}
+
+func (g *groupPublishCompletionGate) Check(ctx context.Context) error {
+	if g == nil || g.completion == nil {
+		return nil
+	}
+	return g.completion.Check(ctx)
+}
+
+func (g *groupPublishCompletionGate) Ack(_ context.Context, outcome pkgchannel.EgressOutcome) error {
+	if g == nil || g.completion == nil {
+		return nil
+	}
+	if !outcome.Valid() {
+		return runcontrol.ErrInvalidOutcome
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.acked {
+		if g.outcome != outcome {
+			return fmt.Errorf("group publish completion outcome changed from %q to %q", g.outcome, outcome)
+		}
+		return nil
+	}
+	g.acked = true
+	g.outcome = outcome
+	return nil
+}
+
+func (g *groupPublishCompletionGate) Done() <-chan struct{} {
+	if g == nil || g.completion == nil {
+		return nil
+	}
+	return g.completion.Done()
+}
+
+func (g *groupPublishCompletionGate) capturedOutcome() (pkgchannel.EgressOutcome, bool) {
+	if g == nil || g.completion == nil {
+		return "", false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.outcome, g.acked
+}
+
+// release forwards the final durable outcome to the original completion. It
+// is idempotent for the same terminal outcome, which protects a publisher
+// that calls Ack from a defer while a bookkeeping error is being unwound.
+func (g *groupPublishCompletionGate) release(ctx context.Context, outcome pkgchannel.EgressOutcome) error {
+	if g == nil || g.completion == nil {
+		return nil
+	}
+	if !outcome.Valid() {
+		return runcontrol.ErrInvalidOutcome
+	}
+	g.mu.Lock()
+	if g.released {
+		g.mu.Unlock()
+		return nil
+	}
+	g.released = true
+	g.mu.Unlock()
+	return g.completion.Ack(ctx, outcome)
+}
+
+func ackGroupPublishCompletion(ctx context.Context, gate *groupPublishCompletionGate, outcome pkgchannel.EgressOutcome) error {
+	if gate == nil {
+		return nil
+	}
+	ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return gate.release(ackCtx, outcome)
+}
+
+// publishErrorCompletionOutcome preserves a pre-send discard when a platform
+// explicitly reported it, but treats every other returned publisher error as
+// unknown. The caller cannot infer whether an external request was accepted
+// merely because Publish returned an error.
+func publishErrorCompletionOutcome(gate *groupPublishCompletionGate) pkgchannel.EgressOutcome {
+	if outcome, ok := gate.capturedOutcome(); ok && outcome == pkgchannel.EgressDiscarded {
+		return outcome
+	}
+	return pkgchannel.EgressUnknown
 }
 
 // run performs one egress attempt and returns the dispatch row it worked on.
@@ -88,6 +219,13 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 		if err := p.finalizeAcceptedPublished(ctx, row); err != nil {
 			return row, &acceptedPublishBookkeepingError{err: err}
 		}
+		return row, nil
+	}
+	if row.ResultMessageID != "" && row.PublishStartedAt.Valid {
+		if err := p.markAcceptedPublishUnknown(ctx, row); err != nil {
+			return row, err
+		}
+		row.Status = "failed"
 		return row, nil
 	}
 	if job.publisher == nil {
@@ -110,34 +248,64 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 	}
 	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
 	if row.ResultMessageID != "" {
-		if row.PublishStartedAt.Valid {
-			// The previous attempt reached the platform and never reported back,
-			// so this reply may already be visible. Publishers receive row.ID as a
-			// stable delivery key; channels without native idempotency still prefer
-			// a recoverable duplicate over silently dropping the answer.
-			p.log.Warn("republishing an accepted group reply whose delivery outcome is unknown", "dispatch_id", row.ID, "result_message_id", row.ResultMessageID)
-		} else if _, err := p.q.MarkGroupDispatchPublishStarted(ctx, sqlc.MarkGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
+		if _, err := p.q.MarkGroupDispatchPublishStarted(ctx, sqlc.MarkGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
 			cause := fmt.Errorf("mark publish started: %w", err)
 			return row, errors.Join(cause, ackGroupResponse(ctx, job.response, pkgchannel.EgressFailed, cause.Error()))
 		}
 	}
+	completionGate := newGroupPublishCompletionGate(job.response.completion)
+	replay := replayGroupResponse(job.response)
+	if completionGate != nil {
+		replay.Completion = completionGate
+	}
 	err := job.publisher.Publish(ctx, pkgchannel.GroupPublishRequest{
 		Platform:        job.state.Platform,
 		PlatformGroupID: job.state.PlatformGroupID, PlatformThreadID: job.state.PlatformThreadID,
-		ReplyTo: nullStringValue(job.trigger.PlatformMessageID), Stream: replayGroupResponse(job.response),
+		ReplyTo: nullStringValue(job.trigger.PlatformMessageID), Stream: replay,
 		DeliveryID:  row.ID,
 		RequesterID: job.trigger.ActorID, LifecycleFeedback: job.envelope.LifecycleFeedback,
 		Abort: func() bool { return p.abort(sessionKey) },
 	})
 	if err != nil {
-		// A returned publisher error is a known platform outcome and stays on the
-		// ordinary three-attempt policy. A bookkeeping error after success does not.
-		if _, clearErr := p.q.ClearGroupDispatchPublishStarted(ctx, sqlc.ClearGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); clearErr != nil {
-			p.log.Warn("clear publish start marker failed", "dispatch_id", row.ID, "error", clearErr)
+		outcome := publishErrorCompletionOutcome(completionGate)
+		if outcome == pkgchannel.EgressDiscarded {
+			// Only an adapter's explicit pre-send discard proves that no external
+			// request was made. That proof permits the ordinary retry policy.
+			if _, clearErr := p.q.ClearGroupDispatchPublishStarted(ctx, sqlc.ClearGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); clearErr != nil {
+				p.log.Warn("clear publish start marker failed", "dispatch_id", row.ID, "error", clearErr)
+			}
+			completionErr := ackGroupPublishCompletion(ctx, completionGate, outcome)
+			if completionErr != nil {
+				return row, errors.Join(fmt.Errorf("publish: %w", err), fmt.Errorf("release group response completion: %w", completionErr))
+			}
+			return row, fmt.Errorf("publish: %w", err)
+		}
+		// Once Publish has been entered, a returned error cannot prove whether
+		// the platform accepted the bytes. Keep publish_started and terminalize
+		// the accepted row as unknown before releasing the AgentRun completion;
+		// an ordinary requeue here would transparently duplicate an answer.
+		if row.ResultMessageID != "" {
+			if unknownErr := p.markAcceptedPublishUnknown(ctx, row); unknownErr != nil {
+				return row, errors.Join(fmt.Errorf("publish: %w", err), unknownErr)
+			}
+			if completionErr := ackGroupPublishCompletion(ctx, completionGate, pkgchannel.EgressUnknown); completionErr != nil {
+				return row, errors.Join(&acceptedPublishBookkeepingError{err: completionErr}, fmt.Errorf("publish: %w", err))
+			}
+			row.Status = "failed"
+			return row, nil
+		}
+		// No accepted message exists on this path, so no publish marker or
+		// delivery state needs terminal compensation.
+		completionErr := ackGroupPublishCompletion(ctx, completionGate, pkgchannel.EgressUnknown)
+		if completionErr != nil {
+			return row, errors.Join(fmt.Errorf("publish: %w", err), fmt.Errorf("release group response completion: %w", completionErr))
 		}
 		return row, fmt.Errorf("publish: %w", err)
 	}
 	if err := p.markPublished(ctx, row); err != nil {
+		if completionErr := ackGroupPublishCompletion(ctx, completionGate, pkgchannel.EgressUnknown); completionErr != nil {
+			return row, errors.Join(&acceptedPublishBookkeepingError{err: err}, fmt.Errorf("release group response completion: %w", completionErr))
+		}
 		return row, &acceptedPublishBookkeepingError{err: err}
 	}
 	// MarkGroupDispatchPublished is a committed standalone statement. Carry the
@@ -145,11 +313,60 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 	// ordinary publish-failure path merely because a follow-up read failed.
 	row.PublishedAt = nullTime(time.Now().UTC())
 	if err := p.finalizeAcceptedPublished(ctx, row); err != nil {
+		if completionErr := ackGroupPublishCompletion(ctx, completionGate, pkgchannel.EgressUnknown); completionErr != nil {
+			return row, errors.Join(&acceptedPublishBookkeepingError{err: err}, fmt.Errorf("release group response completion: %w", completionErr))
+		}
 		return row, &acceptedPublishBookkeepingError{err: err}
+	}
+	if err := ackGroupPublishCompletion(ctx, completionGate, pkgchannel.EgressDelivered); err != nil {
+		return row, &acceptedPublishBookkeepingError{err: fmt.Errorf("release group response completion: %w", err)}
 	}
 	return row, nil
 }
 
+func (p *groupPublishDriver) markAcceptedPublishUnknown(ctx context.Context, row sqlc.CtxGroupDispatch) error {
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("mark accepted publish unknown: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := p.q.WithTx(tx)
+	lastError := acceptedPublishUnknownPrefix + "publisher outcome was not confirmed"
+	updated, err := q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{
+		ID: row.ID, AttemptCount: row.AttemptCount, LastError: lastError,
+	})
+	if err != nil {
+		return fmt.Errorf("mark accepted publish unknown: %w", err)
+	}
+	if updated == 0 {
+		return errors.New("mark accepted publish unknown: lost dispatch ownership")
+	}
+	message, err := q.SetGroupMessageDeliveryState(ctx, sqlc.SetGroupMessageDeliveryStateParams{
+		ID: row.ResultMessageID, DeliveryState: "unknown",
+	})
+	if err != nil {
+		return fmt.Errorf("mark group message unknown: %w", err)
+	}
+	if _, err := q.RequeueHeldGroupDispatchesAfterAcceptedPost(ctx, sqlc.RequeueHeldGroupDispatchesAfterAcceptedPostParams{
+		GroupID: row.GroupID, AcceptedSeq: message.Seq,
+	}); err != nil {
+		return fmt.Errorf("requeue peers after unknown publish: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("mark accepted publish unknown: commit: %w", err)
+	}
+	p.log.Error("accepted group reply delivery outcome is unknown; automatic resend disabled", "dispatch_id", row.ID, "result_message_id", row.ResultMessageID)
+	if p.events != nil {
+		p.events.Announce(eventlog.AppendResult{GroupID: row.GroupID, Seq: message.Seq, Message: message})
+		p.events.AnnounceTurn(row.GroupID, row.AgentID, "unknown", lastError)
+	}
+	return nil
+}
+
+// publisherFor is retained as a small registry-only helper for unit tests and
+// legacy headless callers. Production dispatch goes through
+// publisherForDurable, which resolves the channel row before consulting any
+// process-local listener.
 func (p *groupPublishDriver) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch) (pkgchannel.GroupPublisher, error) {
 	if publisher, ok := p.publishers.Get(row.ReplyChannelID); ok {
 		return publisher, nil
@@ -161,6 +378,24 @@ func (p *groupPublishDriver) publisherFor(state sqlc.CtxGroupState, row sqlc.Ctx
 		return NoopGroupPublisher(), nil
 	}
 	return nil, fmt.Errorf("publisher %q not registered", row.ReplyChannelID)
+}
+
+func (p *groupPublishDriver) publisherForDurable(ctx context.Context, state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch, envelope GroupOutboxEnvelope) (pkgchannel.GroupPublisher, error) {
+	if p.reconstructor != nil && p.channels != nil {
+		configured, err := p.channels.GetChannel(ctx, row.ReplyChannelID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve durable publisher config %q: %w", row.ReplyChannelID, err)
+		}
+		publisher, err := p.reconstructor.ReconstructGroupPublisher(ctx, configured, envelope)
+		if err != nil {
+			return nil, fmt.Errorf("reconstruct durable publisher %q: %w", row.ReplyChannelID, err)
+		}
+		if publisher == nil {
+			return nil, fmt.Errorf("reconstruct durable publisher %q: nil publisher", row.ReplyChannelID)
+		}
+		return publisher, nil
+	}
+	return p.publisherFor(state, row)
 }
 
 // markPublished is deliberately one statement after the publisher returns.
@@ -237,6 +472,12 @@ func (p *groupPublishDriver) createAgentReplyOutbox(ctx context.Context, q *sqlc
 	})
 	if err != nil {
 		return fmt.Errorf("create agent reply outbox: %w", err)
+	}
+	if _, err := q.CreateChannelGroupRoute(ctx, sqlc.CreateChannelGroupRouteParams{
+		ID: uuid.Must(uuid.NewV7()).String(), GroupMessageID: message.ID,
+		GroupID: row.GroupID, GroupSeq: message.Seq,
+	}); err != nil {
+		return fmt.Errorf("create agent reply route: %w", err)
 	}
 	return nil
 }

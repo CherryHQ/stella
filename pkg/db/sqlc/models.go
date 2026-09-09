@@ -381,15 +381,105 @@ type ChannelAgent struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type ChannelBinding struct {
+	ID            string      `json:"id"`
+	ChannelID     string      `json:"channel_id"`
+	Platform      string      `json:"platform"`
+	ChatKey       string      `json:"chat_key"`
+	ThreadKey     string      `json:"thread_key"`
+	PrincipalKind string      `json:"principal_kind"`
+	PrincipalID   string      `json:"principal_id"`
+	AgentID       string      `json:"agent_id"`
+	SessionID     pgtype.Text `json:"session_id"`
+	Revision      int64       `json:"revision"`
+	NextSeq       int64       `json:"next_seq"`
+	State         string      `json:"state"`
+	MaxRows       int64       `json:"max_rows"`
+	MaxBytes      int64       `json:"max_bytes"`
+	AcceptedRows  int64       `json:"accepted_rows"`
+	AcceptedBytes int64       `json:"accepted_bytes"`
+	ReleasedRows  int64       `json:"released_rows"`
+	ReleasedBytes int64       `json:"released_bytes"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+}
+
 type ChannelChatCommandReceipt struct {
-	ID        string    `json:"id"`
-	ChannelID string    `json:"channel_id"`
-	ChatKey   string    `json:"chat_key"`
-	MessageID string    `json:"message_id"`
-	Command   string    `json:"command"`
-	Binding   string    `json:"binding"`
+	ID                string      `json:"id"`
+	ChannelID         string      `json:"channel_id"`
+	ChatKey           string      `json:"chat_key"`
+	MessageID         string      `json:"message_id"`
+	Command           string      `json:"command"`
+	Binding           string      `json:"binding"`
+	CreatedAt         time.Time   `json:"created_at"`
+	UpdatedAt         time.Time   `json:"updated_at"`
+	FifoItemID        pgtype.Text `json:"fifo_item_id"`
+	ExpectedSessionID pgtype.Text `json:"expected_session_id"`
+	BindingRevision   pgtype.Int8 `json:"binding_revision"`
+}
+
+type ChannelDeploymentQuotum struct {
+	ChannelID     string    `json:"channel_id"`
+	MaxRows       int64     `json:"max_rows"`
+	MaxBytes      int64     `json:"max_bytes"`
+	AcceptedRows  int64     `json:"accepted_rows"`
+	AcceptedBytes int64     `json:"accepted_bytes"`
+	ReleasedRows  int64     `json:"released_rows"`
+	ReleasedBytes int64     `json:"released_bytes"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type ChannelFifoItem struct {
+	ID                      string             `json:"id"`
+	BindingID               string             `json:"binding_id"`
+	PrincipalKey            string             `json:"principal_key"`
+	Seq                     int64              `json:"seq"`
+	SourceKey               string             `json:"source_key"`
+	SchemaVersion           int32              `json:"schema_version"`
+	Payload                 json.RawMessage    `json:"payload"`
+	PayloadBytes            int64              `json:"payload_bytes"`
+	MediaBytes              int64              `json:"media_bytes"`
+	CapabilityBytes         int64              `json:"capability_bytes"`
+	ByteCost                int64              `json:"byte_cost"`
+	Command                 string             `json:"command"`
+	Args                    string             `json:"args"`
+	State                   string             `json:"state"`
+	Attempt                 int32              `json:"attempt"`
+	LeaseOwner              string             `json:"lease_owner"`
+	LeaseExpiresAt          pgtype.Timestamptz `json:"lease_expires_at"`
+	NextAttemptAt           time.Time          `json:"next_attempt_at"`
+	RunID                   pgtype.Text        `json:"run_id"`
+	ExpectedSessionID       pgtype.Text        `json:"expected_session_id"`
+	ExpectedBindingRevision pgtype.Int8        `json:"expected_binding_revision"`
+	ResultText              string             `json:"result_text"`
+	ResultHandled           bool               `json:"result_handled"`
+	ErrorCode               string             `json:"error_code"`
+	ErrorDetail             string             `json:"error_detail"`
+	RejectedBy              string             `json:"rejected_by"`
+	RejectedReason          string             `json:"rejected_reason"`
+	ReleasedAt              pgtype.Timestamptz `json:"released_at"`
+	CreatedAt               time.Time          `json:"created_at"`
+	UpdatedAt               time.Time          `json:"updated_at"`
+}
+
+type ChannelFifoMedium struct {
+	ItemID    string    `json:"item_id"`
+	MediaID   string    `json:"media_id"`
+	FileName  string    `json:"file_name"`
+	MimeType  string    `json:"mime_type"`
+	SizeBytes int64     `json:"size_bytes"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type ChannelFifoRejection struct {
+	ID         string    `json:"id"`
+	ItemID     string    `json:"item_id"`
+	OperatorID string    `json:"operator_id"`
+	Reason     string    `json:"reason"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type ChannelGroupMember struct {
@@ -398,6 +488,20 @@ type ChannelGroupMember struct {
 	ReplyChannelID string    `json:"reply_channel_id"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type ChannelGroupRoute struct {
+	ID             string             `json:"id"`
+	GroupMessageID string             `json:"group_message_id"`
+	GroupID        string             `json:"group_id"`
+	GroupSeq       int64              `json:"group_seq"`
+	Status         string             `json:"status"`
+	ClaimToken     pgtype.Text        `json:"claim_token"`
+	ClaimExpiresAt pgtype.Timestamptz `json:"claim_expires_at"`
+	Decisions      json.RawMessage    `json:"decisions"`
+	CompletedAt    pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt      time.Time          `json:"created_at"`
+	UpdatedAt      time.Time          `json:"updated_at"`
 }
 
 type ChannelGuest struct {
@@ -417,6 +521,45 @@ type ChannelIdentity struct {
 	Name       string    `json:"name"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type ChannelIngressCursor struct {
+	ID               string    `json:"id"`
+	ChannelID        string    `json:"channel_id"`
+	Platform         string    `json:"platform"`
+	StreamKey        string    `json:"stream_key"`
+	Cursor           int64     `json:"cursor"`
+	SessionID        string    `json:"session_id"`
+	ResumeGatewayUrl string    `json:"resume_gateway_url"`
+	SessionState     string    `json:"session_state"`
+	LastError        string    `json:"last_error"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type ChannelPrincipalQuotum struct {
+	PrincipalKey  string    `json:"principal_key"`
+	PrincipalKind string    `json:"principal_kind"`
+	PrincipalID   string    `json:"principal_id"`
+	MaxRows       int64     `json:"max_rows"`
+	MaxBytes      int64     `json:"max_bytes"`
+	AcceptedRows  int64     `json:"accepted_rows"`
+	AcceptedBytes int64     `json:"accepted_bytes"`
+	ReleasedRows  int64     `json:"released_rows"`
+	ReleasedBytes int64     `json:"released_bytes"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type ChannelReplyCapability struct {
+	ID         string      `json:"id"`
+	ChannelID  string      `json:"channel_id"`
+	Kind       string      `json:"kind"`
+	Ciphertext string      `json:"ciphertext"`
+	ExpiresAt  time.Time   `json:"expires_at"`
+	CreatedAt  time.Time   `json:"created_at"`
+	UpdatedAt  time.Time   `json:"updated_at"`
+	FifoItemID pgtype.Text `json:"fifo_item_id"`
 }
 
 type CtxAgentMemory struct {

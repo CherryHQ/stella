@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "ai";
 import { SESSION_MESSAGE_ACTOR_TYPE, type SessionMessage } from "./types";
 import {
+  createSessionTransport,
   mergeToolResults,
   messageToUIMessage,
   reconcileHistoryUIMessages,
@@ -10,6 +11,36 @@ import {
 } from "./chat-transport";
 
 const mediaURL = "/api/agents/agent/sessions/session/media/media-id";
+
+describe("session stream transport", () => {
+  it("turns a remote-run 503 into an empty resume and keeps retry state", async () => {
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { details: { run_id: "remote-run" } } }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const transport = createSessionTransport("agent", "session");
+      await expect(transport.reconnectToStream({ chatId: "session" })).resolves.toBeNull();
+      expect(transport.isRemoteRunActive()).toBe(true);
+
+      await expect(transport.reconnectToStream({ chatId: "session" })).resolves.toBeNull();
+      expect(transport.isRemoteRunActive()).toBe(false);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/agents/agent/sessions/session/events",
+        expect.objectContaining({ method: "GET" }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
 
 describe("session history conversion", () => {
   it("keeps execution evidence on its user anchor through the AI SDK cache", () => {

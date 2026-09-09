@@ -311,6 +311,19 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	workCtx, workCancel := context.WithCancel(ctx)
 	defer workCancel()
 	g, gctx := errgroup.WithContext(workCtx)
+	controlSession, err := channel.OpenControlSessionWithOptions(gctx, s.db, channel.ControlSessionOptions{
+		PoolMode: s.cfg.Database.PoolMode,
+	})
+	if err != nil {
+		return fmt.Errorf("open channel control session: %w", err)
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := controlSession.Close(closeCtx); err != nil {
+			slog.Warn("close channel control session failed", "error", err)
+		}
+	}()
 	if s.agentRuns != nil {
 		g.Go(func() error { return normalizeRunErr(s.agentRuns.Run(gctx)) })
 	}
@@ -368,6 +381,12 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultRecipient))
 		coordOpts = append(coordOpts, channel.WithVaultService(s.vaultSvc))
 	}
+	// Durable group replies may run on a replica that never owned a channel
+	// listener. Resolve encrypted reply capabilities through the shared DB and
+	// vault, then build a fresh egress-only plugin client at publish time.
+	coordOpts = append(coordOpts, channel.WithDurablePublisherReconstructor(
+		newDurablePublisherReconstructor(channel.NewDurableReplyCapabilityResolver(s.db, s.vaultSvc)),
+	))
 
 	// Login authentication (external OIDC/OAuth providers and local password
 	// auth). The identity stores it produces back the auth handlers.
@@ -400,6 +419,14 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
 	coordOpts = append(coordOpts, channel.WithPublisherRegistry(publisherRegistry))
+	if s.agentRuns == nil {
+		return errors.New("durable channel ingress requires agent-run store")
+	}
+	// Direct channel admission and its consumer share the process boot fence
+	// used by AgentRun, so a recovered FIFO item cannot be mistaken for work
+	// owned by a previous executor.
+	durableIngress := channel.NewDurableIngress(s.db, s.agentRuns.ExecutorBootID())
+	coordOpts = append(coordOpts, channel.WithDurableIngress(durableIngress))
 
 	// The channel domain builds the coordinator and its durable group dispatcher
 	// together and closes the coordinator<->dispatcher cycle; the HTTP server
@@ -709,6 +736,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// gctx -> ingressCtx too, so unexpected-error teardown still holds.
 	ingressCtx, stopGroupDispatch := context.WithCancel(gctx)
 	defer stopGroupDispatch()
+	durableIngressCtx, stopDurableIngress := context.WithCancel(gctx)
+	defer stopDurableIngress()
 
 	// The listener is bound now but not served until every backend is up.
 	listenAddr := adminListenAddress(adminHost, adminPort)
@@ -729,13 +758,41 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	// Group-dispatch acceptance loop.
 	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })
-	// Only one server replica is supported, so managed channel pollers start
-	// unconditionally after their dependencies are wired. Drain-time
-	// Quiesce stops new polling; the final Stop remains after River drains.
-	if _, err := applyManagedChannelPlugins(ingressCtx, s.pluginHost); err != nil {
-		_ = ln.Close()
-		return fmt.Errorf("start managed channel runtimes: %w", err)
-	}
+	// Durable channel admission is independent of the managed-channel leadership
+	// epoch. Replicas consume accepted FIFO work even when they own no listener.
+	g.Go(func() error { return normalizeRunErr(durableIngress.Run(durableIngressCtx)) })
+	// Managed channel pollers are guarded by the pool-external control session.
+	// A reconnect gets a new PostgreSQL backend, stops the old pollers before
+	// releasing the session advisory lock, and reconciles durable channel rows
+	// before starting again. The host's terminal Quiesce path remains reserved
+	// for graceful shutdown; it is never used as connection-loss cleanup.
+	g.Go(func() error {
+		var leaderRunErr error
+		runErr := controlSession.RunLeader(ingressCtx, "channel-ingress", func(leaderCtx context.Context) {
+			if err := s.pluginHost.SetChannelLeadership(true); err != nil {
+				leaderRunErr = err
+				return
+			}
+			defer func() {
+				stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := s.pluginHost.ReleaseChannelIngress(stopCtx); err != nil {
+					slog.Warn("release channel ingress after leadership epoch", "error", err)
+				}
+			}()
+			if _, err := applyManagedChannelPlugins(leaderCtx, s.pluginHost); err != nil {
+				if leaderCtx.Err() == nil {
+					leaderRunErr = fmt.Errorf("start managed channel runtimes: %w", err)
+				}
+				return
+			}
+			<-leaderCtx.Done()
+		})
+		if leaderRunErr != nil && !errors.Is(leaderRunErr, context.Canceled) {
+			return leaderRunErr
+		}
+		return normalizeRunErr(runErr)
+	})
 	// HTTP serve — the final ingress source to come up.
 	g.Go(func() error { return normalizeServeErr(httpSrv.Serve(ln)) })
 
@@ -756,8 +813,9 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		// workers then drain in-flight jobs with outbound deps still alive; no
 		// periodic or new dispatch runs after this point.
 		stopIngress: func() {
-			stopGroupDispatch()         // group-dispatch acceptance
 			quiesceChannelIngress()     // channel / plugin runtimes (polling only)
+			durableIngress.Quiesce()    // stop new FIFO claims; accepted work keeps draining
+			stopGroupDispatch()         // group-dispatch acceptance
 			stopSchedulerDispatch()     // scheduler periodic + one-time dispatch
 			stopGoalDispatch()          // goal tick + dispatcher claims
 			stopEmbeddingBackfill()     // embedding backfill periodic
@@ -771,6 +829,9 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		// runs, scheduler run-now) finish inside the drain budget; expiry is
 		// logged, not fatal — the hard stop below still bounds the process.
 		waitAccepted: func(ctx context.Context) {
+			if err := durableIngress.WaitIdle(ctx); err != nil {
+				slog.Warn("graceful drain: durable channel FIFO work still in flight when the budget expired", "error.type", fmt.Sprintf("%T", err), "error.class", "drain_fifo_wait_failed")
+			}
 			if err := s.poolManager.WaitInFlight(ctx); err != nil {
 				slog.Warn("graceful drain: accepted agent turns still in flight when the budget expired", "error.type", fmt.Sprintf("%T", err), "error.class", "drain_wait_failed")
 			}

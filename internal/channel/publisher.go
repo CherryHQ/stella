@@ -4,8 +4,23 @@ import (
 	"context"
 	"sync"
 
+	"github.com/CherryHQ/stella/internal/platform/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
+
+// DurablePublisherReconstructor is the channel-runtime boundary used by a
+// dispatcher to build an egress client on demand. The channel row supplies
+// durable (and, where applicable, encrypted) credentials; the outbox envelope
+// supplies immutable reply metadata captured at ingress. Implementations must
+// not depend on a managed listener or a process-local PublisherRegistry.
+//
+// The interface lives in internal/channel so only the composition root can
+// bind concrete plugin constructors. This keeps platform credentials and
+// plugin imports out of the durable dispatcher.
+type DurablePublisherReconstructor interface {
+	ReconstructGroupPublisher(context.Context, config.Channel, GroupOutboxEnvelope) (pkgchannel.GroupPublisher, error)
+	ReconstructIncomingPublisher(context.Context, config.Channel, GroupOutboxEnvelope) (pkgchannel.DurablePublisher, error)
+}
 
 // PublisherRegistry is the internal routing table for channel egress.
 type PublisherRegistry struct {
@@ -70,4 +85,12 @@ func (noopGroupPublisher) Publish(ctx context.Context, req pkgchannel.GroupPubli
 			return ctx.Err()
 		}
 	}
+}
+
+// PublishIncoming satisfies the durable incoming-publisher contract for Web.
+// Web group replies are already appended to the canonical event log before
+// this publisher runs, so consuming the replay and acknowledging it is the
+// complete delivery operation. There is no platform request to make.
+func (p noopGroupPublisher) PublishIncoming(ctx context.Context, req pkgchannel.DurablePublishRequest) error {
+	return p.Publish(ctx, pkgchannel.GroupPublishRequest{Stream: req.Stream})
 }

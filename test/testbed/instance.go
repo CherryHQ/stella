@@ -30,6 +30,9 @@ type Options struct {
 	FakeStreamIntervalMS int
 	Bootstrap            bool
 	Managed              bool
+	// DatabaseURL reuses an existing PostgreSQL instance instead of starting
+	// an embedded one. The caller that created the database owns its lifecycle.
+	DatabaseURL string
 	// VaultKey is test-only injection for startup-failure coverage. Empty uses a generated identity.
 	VaultKey     string
 	OmitVaultKey bool
@@ -131,12 +134,16 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 		cleanup()
 		return nil, err
 	}
-	instance.db, err = appdb.StartEmbedded("", 0)
-	if err != nil {
-		cleanup()
-		return nil, fmt.Errorf("start embedded postgres: %w", err)
+	if opts.DatabaseURL != "" {
+		instance.dsn = opts.DatabaseURL
+	} else {
+		instance.db, err = appdb.StartEmbedded("", 0)
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("start embedded postgres: %w", err)
+		}
+		instance.dsn = instance.db.DSN()
 	}
-	instance.dsn = instance.db.DSN()
 	instance.vaultKey = opts.VaultKey
 	if instance.vaultKey == "" {
 		instance.vaultKey, err = vault.GenerateMasterIdentity()

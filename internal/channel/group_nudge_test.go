@@ -150,12 +150,13 @@ func TestNudgeCreatesOneTargetedWake(t *testing.T) {
 	if err := fx.d.processOutbox(context.Background(), outbox); err != nil {
 		t.Fatal(err)
 	}
-	var agentID, kind string
-	if err := fx.db.QueryRow(context.Background(), `SELECT agent_id, kind FROM ctx_group_dispatch WHERE group_message_id = $1`, messageID).Scan(&agentID, &kind); err != nil {
-		t.Fatal(err)
+	items := groupResponderItemsByMessage(t, fx.db, messageID)
+	if len(items) != 1 {
+		t.Fatalf("targeted FIFO items = %d, want 1", len(items))
 	}
-	if agentID != "agent-1" || kind != "nudge" {
-		t.Fatalf("targeted dispatch = %s/%s, want agent-1/nudge", agentID, kind)
+	payload := decodeGroupResponderPayload(t, items[0])
+	if payload.AgentID != "agent-1" || payload.Kind != "nudge" {
+		t.Fatalf("targeted dispatch = %s/%s, want agent-1/nudge", payload.AgentID, payload.Kind)
 	}
 }
 
@@ -183,17 +184,12 @@ func TestNudgeRowReachesThePoolAndTriages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pending, err := fx.q.ListPendingGroupNudges(ctx, sqlc.ListPendingGroupNudgesParams{Now: nullTime(time.Now().UTC()), LimitCount: 10})
-	if err != nil {
-		t.Fatalf("list pending nudges: %v", err)
+	items := groupResponderItemsByMessage(t, fx.db, messageID)
+	if len(items) != 1 {
+		t.Fatalf("pending FIFO nudges = %d, want one", len(items))
 	}
-	if len(pending) != 1 || pending[0].AgentID != "agent-1" {
-		t.Fatalf("pending nudges = %#v, want one for agent-1", pending)
-	}
-	claimed, ok, err := fx.d.claimDispatch(ctx, pending[0])
-	if err != nil || !ok {
-		t.Fatalf("claim nudge: ok=%v, err=%v", ok, err)
-	}
+	payload := decodeGroupResponderPayload(t, items[0])
+	claimed := groupResponderDispatchFromPayload(payload, items[0].ID)
 	message, state, err := fx.d.messageAndState(ctx, fx.d.q, claimed.GroupMessageID)
 	if err != nil {
 		t.Fatal(err)
@@ -386,14 +382,12 @@ func TestNudgeTriageDefersMootCheckUntilSessionSlot(t *testing.T) {
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-1", Content: "report is done"}); err != nil {
 		t.Fatal(err)
 	}
-	pending, err := fx.q.ListPendingGroupNudges(ctx, sqlc.ListPendingGroupNudgesParams{Now: nullTime(time.Now().UTC()), LimitCount: 10})
-	if err != nil || len(pending) != 1 {
-		t.Fatalf("pending nudges = %#v, err=%v", pending, err)
+	items := groupResponderItemsByMessage(t, fx.db, messageID)
+	if len(items) != 1 {
+		t.Fatalf("pending FIFO nudges = %d, want one", len(items))
 	}
-	claimed, ok, err := fx.d.claimDispatch(ctx, pending[0])
-	if err != nil || !ok {
-		t.Fatalf("claim nudge: ok=%v, err=%v", ok, err)
-	}
+	payload := decodeGroupResponderPayload(t, items[0])
+	claimed := groupResponderDispatchFromPayload(payload, items[0].ID)
 	message, state, err := fx.d.messageAndState(ctx, fx.d.q, claimed.GroupMessageID)
 	if err != nil {
 		t.Fatal(err)

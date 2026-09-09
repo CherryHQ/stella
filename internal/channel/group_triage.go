@@ -18,19 +18,27 @@ const maxGroupSequence = int64(1<<63 - 1)
 // addressing fact, so an unclassifiable wake runs rather than being silenced by
 // a model that knows less than the one it is gating.
 func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState, envelope GroupOutboxEnvelope) (act bool, reason string, degraded bool) {
-	lastHuman, err := d.q.LastHumanSeqAtOrBefore(ctx, sqlc.LastHumanSeqAtOrBeforeParams{GroupID: row.GroupID, TriggerSeq: row.TriggerSeq})
+	return d.triageWakeWithQueries(ctx, d.q, row, message, state, envelope)
+}
+
+// triageWakeWithQueries is the classification-only gate used by both the
+// legacy dispatch path and GroupRoute. Keeping the Queries handle explicit is
+// what lets GroupRoute decide every responder and materialize their FIFO rows
+// in one transaction. It never invokes a model, tool or sandbox turn.
+func (d *GroupDispatcher) triageWakeWithQueries(ctx context.Context, q *sqlc.Queries, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState, envelope GroupOutboxEnvelope) (act bool, reason string, degraded bool) {
+	lastHuman, err := q.LastHumanSeqAtOrBefore(ctx, sqlc.LastHumanSeqAtOrBeforeParams{GroupID: row.GroupID, TriggerSeq: row.TriggerSeq})
 	if err != nil {
 		return false, "triage_db_error", true
 	}
-	posts, err := d.q.CountAgentPostsSinceSeq(ctx, sqlc.CountAgentPostsSinceSeqParams{GroupID: row.GroupID, AfterSeq: lastHuman})
+	posts, err := q.CountAgentPostsSinceSeq(ctx, sqlc.CountAgentPostsSinceSeqParams{GroupID: row.GroupID, AfterSeq: lastHuman})
 	if err != nil {
 		return false, "triage_db_error", true
 	}
-	rate, err := d.q.CountAgentPostsInWindow(ctx, sqlc.CountAgentPostsInWindowParams{GroupID: row.GroupID, AgentID: row.AgentID, Since: time.Now().UTC().Add(-time.Minute)})
+	rate, err := q.CountAgentPostsInWindow(ctx, sqlc.CountAgentPostsInWindowParams{GroupID: row.GroupID, AgentID: row.AgentID, Since: time.Now().UTC().Add(-time.Minute)})
 	if err != nil {
 		return false, "triage_db_error", true
 	}
-	chain, err := d.consecutiveAgentMessages(ctx, d.q, row.GroupID, message.Seq)
+	chain, err := d.consecutiveAgentMessages(ctx, q, row.GroupID, message.Seq)
 	if err != nil {
 		return false, "triage_db_error", true
 	}
@@ -46,7 +54,7 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 	// trigger envelope. Coalescing can move a wake past the message that
 	// addressed this agent. A completed model turn, including one stopped by a
 	// post-turn backstop, has incorporated that mention and advances the cursor.
-	if d.mentionedSinceCursor(ctx, row) || mentionsAgent(envelope.Mentions, row.AgentID) {
+	if d.mentionedSinceCursorWithQueries(ctx, q, row) || mentionsAgent(envelope.Mentions, row.AgentID) {
 		return true, "mentioned", false
 	}
 	if row.Kind == "nudge" && envelope.NudgeTarget == row.AgentID {
@@ -61,7 +69,7 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 	// the durable held row is the causal admission fact. Claiming already waits
 	// until this wake covers held_up_to_seq, and this check keeps a peer mention
 	// or lap rule from discarding the required successor turn.
-	heldUpTo, err := d.q.MaxHeldUpToSeqInChain(ctx, sqlc.MaxHeldUpToSeqInChainParams{
+	heldUpTo, err := q.MaxHeldUpToSeqInChain(ctx, sqlc.MaxHeldUpToSeqInChainParams{
 		GroupID: row.GroupID, AgentID: row.AgentID, TriggerSeq: row.TriggerSeq,
 		Pipeline: memory.GroupIngestPipeline(row.AgentID),
 	})
@@ -79,17 +87,14 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 	// already spoken since the last human message, further peer chatter is not
 	// grounds to wake it again. A peer that needs this agent to continue can
 	// @mention it, which is admitted above.
-	if message.ActorType == string(eventlog.ActorAgent) && d.agentRunLapped(ctx, row.GroupID, message.Seq, row.AgentID) {
+	if message.ActorType == string(eventlog.ActorAgent) && d.agentRunLappedWithQueries(ctx, q, row.GroupID, message.Seq, row.AgentID) {
 		return false, "agent_lap", false
 	}
 	return true, "open_floor", false
 }
 
-// mentionedSinceCursor answers whether an unconsumed message addressed this
-// agent. A read failure means "no": the wake still runs on the open floor, so
-// a transient error costs the mention its rule, never the agent its turn.
-func (d *GroupDispatcher) mentionedSinceCursor(ctx context.Context, row sqlc.CtxGroupDispatch) bool {
-	found, err := d.q.AgentMentionedSinceCursor(ctx, sqlc.AgentMentionedSinceCursorParams{
+func (d *GroupDispatcher) mentionedSinceCursorWithQueries(ctx context.Context, q *sqlc.Queries, row sqlc.CtxGroupDispatch) bool {
+	found, err := q.AgentMentionedSinceCursor(ctx, sqlc.AgentMentionedSinceCursorParams{
 		GroupID:    row.GroupID,
 		AgentID:    row.AgentID,
 		Pipeline:   memory.GroupIngestPipeline(row.AgentID),
@@ -99,7 +104,11 @@ func (d *GroupDispatcher) mentionedSinceCursor(ctx context.Context, row sqlc.Ctx
 }
 
 func (d *GroupDispatcher) agentRunLapped(ctx context.Context, groupID string, beforeSeq int64, agentID string) bool {
-	rows, err := d.q.ListRecentGroupMessagesBeforeSeq(ctx, sqlc.ListRecentGroupMessagesBeforeSeqParams{GroupID: groupID, BeforeSeq: beforeSeq, MaxCount: 64})
+	return d.agentRunLappedWithQueries(ctx, d.q, groupID, beforeSeq, agentID)
+}
+
+func (d *GroupDispatcher) agentRunLappedWithQueries(ctx context.Context, q *sqlc.Queries, groupID string, beforeSeq int64, agentID string) bool {
+	rows, err := q.ListRecentGroupMessagesBeforeSeq(ctx, sqlc.ListRecentGroupMessagesBeforeSeqParams{GroupID: groupID, BeforeSeq: beforeSeq, MaxCount: 64})
 	if err != nil {
 		return false
 	}

@@ -90,13 +90,14 @@ func (b *Bot) dispatchMessage(msg WeixinMessage) {
 // incomingMsg builds a channel.IncomingMessage from a weixin message context.
 func (b *Bot) incomingMsg(msg WeixinMessage, content []ai.ContentBlock) channel.IncomingMessage {
 	im := channel.IncomingMessage{
-		Platform:   channel.PlatformWeixin,
-		ChannelID:  b.Name(),
-		SenderID:   msg.FromUserID,
-		SenderName: "", // no display name available from iLink
-		ChatID:     msg.FromUserID,
-		IsGroup:    false, // DM only for v1
-		Content:    content,
+		Platform:        channel.PlatformWeixin,
+		ChannelID:       b.Name(),
+		SenderID:        msg.FromUserID,
+		SenderName:      "", // no display name available from iLink
+		ChatID:          msg.FromUserID,
+		IsGroup:         false, // DM only for v1
+		Content:         content,
+		ReplyCapability: durableReplyCapability(msg),
 	}
 	if msg.MessageID != 0 {
 		im.MessageID = strconv.FormatInt(msg.MessageID, 10)

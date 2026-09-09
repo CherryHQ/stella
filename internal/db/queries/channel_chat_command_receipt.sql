@@ -6,6 +6,13 @@ INSERT INTO channel_chat_command_receipt (channel_id, chat_key, message_id, comm
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (channel_id, chat_key, message_id) DO NOTHING;
 
+-- name: GetChatCommandReceipt :one
+SELECT *
+FROM channel_chat_command_receipt
+WHERE channel_id = sqlc.arg(channel_id)
+  AND chat_key = sqlc.arg(chat_key)
+  AND message_id = sqlc.arg(message_id);
+
 -- name: DeleteChatCommandReceipt :exec
 -- Releases a claim whose command did not run, so the next redelivery may retry.
 -- This is the ONLY delete; a consumed receipt is permanent, because the Web API

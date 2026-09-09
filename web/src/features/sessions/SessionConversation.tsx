@@ -115,6 +115,7 @@ export function SessionConversation({
     resumeEnabled,
     chatStatus,
     chatResume,
+    transport.isRemoteRunActive,
     recoveringDisconnect,
     chatClearError,
     completeReconnectCheck,

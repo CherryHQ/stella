@@ -217,6 +217,7 @@ export function SessionDetail({
     resumeEnabled,
     chatStatus,
     chatResume,
+    transport?.isRemoteRunActive,
     recoveringDisconnect,
     chatClearError,
     completeReconnectCheck,

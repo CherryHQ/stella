@@ -50,6 +50,16 @@ func TestConfigDecodeRedactSchemaAndValidation(t *testing.T) {
 	}
 }
 
+func TestNewUsesSynchronousIngressBoundary(t *testing.T) {
+	b, err := New(Config{Token: "token"}, fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !b.session.SyncEvents {
+		t.Fatal("discord gateway handlers are asynchronous; durable admission could be bypassed before the callback returns")
+	}
+}
+
 func TestIncomingMessageNormalizationAndMentionStripping(t *testing.T) {
 	b, err := New(Config{InstanceID: "discord-main", Token: "token"}, fakeHandler{})
 	if err != nil {

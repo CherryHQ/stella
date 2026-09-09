@@ -29,12 +29,13 @@ const (
 	// deliberately: the legacy readers returned them untrimmed, so normalizing
 	// them would silently rewrite a padded DSN instead of letting the database
 	// layer reject it.
-	databaseURLEnv  = "STELLA_DATABASE_URL"
-	serverURLEnv    = "STELLA_SERVER_URL"
-	baseURLEnv      = "STELLA_BASE_URL"
-	vaultKeyEnv     = "STELLA_VAULT_KEY"
-	pprofAddrEnv    = "STELLA_PPROF_ADDR"
-	recordToolIOEnv = "OTEL_STELLA_RECORD_TOOL_IO"
+	databaseURLEnv      = "STELLA_DATABASE_URL"
+	databasePoolModeEnv = "STELLA_DATABASE_POOL_MODE"
+	serverURLEnv        = "STELLA_SERVER_URL"
+	baseURLEnv          = "STELLA_BASE_URL"
+	vaultKeyEnv         = "STELLA_VAULT_KEY"
+	pprofAddrEnv        = "STELLA_PPROF_ADDR"
+	recordToolIOEnv     = "OTEL_STELLA_RECORD_TOOL_IO"
 	// riverLogLevelEnv is the companion of LOG_LEVEL (read pre-config in main)
 	// for the River job queue only; internal/platform/cli.ParseLogLevel owns the dialect,
 	// so the value passes through raw.
@@ -195,9 +196,8 @@ type ObservabilityConfig struct {
 	RiverLogLevel string
 }
 
-// DatabaseConfig holds the two variables that jointly decide, at startup,
-// whether the server runs its own embedded PostgreSQL or connects to an
-// external one.
+// DatabaseConfig holds the startup database settings that select embedded or
+// external PostgreSQL and describe any known pooler mode.
 type DatabaseConfig struct {
 	// RequireExternalDB forbids the embedded-PostgreSQL fallback. The embedded
 	// cluster is a single-node local convenience: in a container it lands on an
@@ -212,6 +212,11 @@ type DatabaseConfig struct {
 	// own embedded PostgreSQL — the zero-config default, so a fresh install needs
 	// no separately installed or running database.
 	URL string
+	// PoolMode records the operator's known PostgreSQL pooler mode for the
+	// pool-external control connection. It is empty when the endpoint is known
+	// only by its DSN; session is safe, while transaction and statement are
+	// rejected because LISTEN and session advisory locks require affinity.
+	PoolMode string
 }
 
 // defaultServerURL is the legacy ServerURL fallback: applied only when the
@@ -226,6 +231,7 @@ const defaultServerURL = "http://127.0.0.1:25678"
 // after the struct is populated to preserve the existing actionable messages.
 type rawServerConfig struct {
 	RequireExternalDB    string `env:"STELLA_REQUIRE_EXTERNAL_DB"`
+	DatabasePoolMode     string `env:"STELLA_DATABASE_POOL_MODE"`
 	HTTPShutdownTimeout  string `env:"STELLA_HTTP_SHUTDOWN_TIMEOUT"`
 	RiverSoftStopTimeout string `env:"STELLA_RIVER_SOFT_STOP_TIMEOUT"`
 	EvalCodeToolSurface  string `env:"STELLA_EVAL_CODE_TOOL_SURFACE"`
@@ -238,6 +244,7 @@ type rawServerConfig struct {
 // unrelated variable can never leak into the parse.
 var serverConfigKeys = []string{
 	requireExternalDBEnv,
+	databasePoolModeEnv,
 	httpShutdownTimeoutEnv,
 	riverSoftStopTimeoutEnv,
 	evalCodeToolSurfaceEnv,
@@ -333,6 +340,10 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 	if err != nil {
 		errs = append(errs, err)
 	}
+	databasePoolMode, err := parseDatabasePoolMode(databasePoolModeEnv, raw.DatabasePoolMode)
+	if err != nil {
+		errs = append(errs, err)
+	}
 	httpTimeout, err := parseServerDuration(httpShutdownTimeoutEnv, raw.HTTPShutdownTimeout, defaultHTTPShutdownTimeout)
 	if err != nil {
 		errs = append(errs, err)
@@ -356,6 +367,7 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 	return ServerConfig{
 		Database: DatabaseConfig{
 			RequireExternalDB: requireExternalDB,
+			PoolMode:          databasePoolMode,
 		},
 		Lifecycle: Lifecycle{
 			HTTPShutdownTimeout:  httpTimeout,
@@ -364,6 +376,16 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 		Agent: AgentConfig{CodeToolSurface: codeToolSurface},
 		MCP:   MCPConfig{AllowPrivateEndpoints: mcpAllowPrivate},
 	}, nil
+}
+
+func parseDatabasePoolMode(name, value string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(value))
+	switch mode {
+	case "", "session", "transaction", "statement":
+		return mode, nil
+	default:
+		return "", fmt.Errorf("%s=%q is invalid: set it to session, transaction, or statement", name, value)
+	}
 }
 
 func parseCodeToolSurface(name, value string) (coreagent.CodeToolSurface, error) {

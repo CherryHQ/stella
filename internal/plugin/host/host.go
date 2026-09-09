@@ -27,6 +27,11 @@ type ListenerCap func(context.Context, string, string) (bool, error)
 // Channel runtimes fail closed when this gate is absent.
 var ErrListenerCapUnavailable = errors.New("pluginhost: listener capability unavailable")
 
+// ErrChannelLeadershipUnavailable means the process currently does not own
+// the durable channel ingress lock. Durable channel writes may still commit;
+// the next control-session epoch will reconcile them before starting a poller.
+var ErrChannelLeadershipUnavailable = errors.New("pluginhost: channel leadership unavailable")
+
 type Host struct {
 	store    config.Store
 	log      *slog.Logger
@@ -382,6 +387,19 @@ func (h *Host) listenerAllowed(ctx context.Context, pluginID, agentID string) (b
 func (h *Host) Quiesce(ctx context.Context) { h.runtimes.Quiesce(ctx) }
 
 func (h *Host) Stop(ctx context.Context) error { return h.runtimes.Stop(ctx) }
+
+// SetChannelLeadership controls whether managed channel runtimes may start.
+// It is used by the pool-external control session and is recoverable across
+// connection epochs until Quiesce or Stop makes the host terminal.
+func (h *Host) SetChannelLeadership(active bool) error {
+	return h.runtimes.SetChannelLeadership(active)
+}
+
+// ReleaseChannelIngress stops current channel pollers after a leadership loss
+// while keeping the runtime host reusable for a later epoch.
+func (h *Host) ReleaseChannelIngress(ctx context.Context) error {
+	return h.runtimes.ReleaseChannelIngress(ctx)
+}
 
 func (h *Host) PromptTools(ctx context.Context, pluginID, agentID string) ([]pkgplugins.PromptToolInfo, error) {
 	h.mu.RLock()

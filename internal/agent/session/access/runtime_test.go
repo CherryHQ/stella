@@ -112,6 +112,11 @@ type fakeRuntimeManager struct{ svc *fakeRuntimeService }
 func (m fakeRuntimeManager) GetService(string) RuntimeService { return m.svc }
 func (m fakeRuntimeManager) Default() RuntimeService          { return m.svc }
 
+type emptyRuntimeManager struct{}
+
+func (emptyRuntimeManager) GetService(string) RuntimeService { return nil }
+func (emptyRuntimeManager) Default() RuntimeService          { return nil }
+
 type fakeRuntimeService struct {
 	chatCalls      int
 	stopCalls      int
@@ -125,6 +130,7 @@ type fakeRuntimeService struct {
 	managedErr     error
 	chatEvents     []agent.Event
 	chatDone       chan struct{}
+	runID          string
 }
 
 func (s *fakeRuntimeService) Chat(ctx context.Context, req agent.ChatRequest) <-chan agent.Event {
@@ -183,6 +189,10 @@ func (s *fakeRuntimeService) SubscribeSession(string) (<-chan agent.Event, func(
 	return s.events, func() {}
 }
 func (s *fakeRuntimeService) SessionLive(string) bool { return s.live }
+func (s *fakeRuntimeService) SessionRun(context.Context, string) (string, bool, error) {
+	return s.runID, s.runID != "", nil
+}
+
 func (s *fakeRuntimeService) CompactAuthorizedSession(context.Context, agentsession.Info) (string, error) {
 	return "", errors.New("not used")
 }
@@ -362,6 +372,89 @@ func TestAttachIdleSubscribes(t *testing.T) {
 	}
 	if attach.Cancel == nil || rt.events == nil {
 		t.Fatal("Attach did not subscribe")
+	}
+}
+
+func TestAttachReportsDurableRunWhenRuntimeIsRemote(t *testing.T) {
+	svc, rt, _, authority := newRuntimeTestService(t)
+	runID := uuid.NewString()
+	bootID := uuid.NewString()
+	if _, err := sqlc.New(svc.db).CreateExecutorBoot(t.Context(), bootID); err != nil {
+		t.Fatalf("CreateExecutorBoot: %v", err)
+	}
+	run, err := sqlc.New(svc.db).CreateAgentRun(t.Context(), sqlc.CreateAgentRunParams{
+		ID: runID, SessionID: "s1", ExecutorBootID: bootID, Source: "scheduler", LeaseSeconds: 30,
+	})
+	if err != nil {
+		t.Fatalf("CreateAgentRun: %v", err)
+	}
+	// The durable row is visible, but this replica has no local runtime for the
+	// session. Attach must preserve the run identity so the HTTP layer can tell
+	// the browser to retry instead of returning a false idle 204.
+	svc.runtime = emptyRuntimeManager{}
+	attach, err := svc.Attach(t.Context(), AttachInput{Authority: authority, AgentID: "a1", SessionID: "s1"})
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	if attach.RemoteRunID != run.ID {
+		t.Fatalf("RemoteRunID = %q, want %q", attach.RemoteRunID, run.ID)
+	}
+	if attach.Live || attach.Events != nil {
+		t.Fatalf("remote attach = live=%v events=%v, want no local stream", attach.Live, attach.Events)
+	}
+	if rt.subscribeCalls != 0 {
+		t.Fatalf("SubscribeSession calls = %d, want 0 for remote run", rt.subscribeCalls)
+	}
+}
+
+func TestAttachReportsExpiredDurableRunUntilTerminalized(t *testing.T) {
+	svc, rt, _, authority := newRuntimeTestService(t)
+	runID := uuid.NewString()
+	bootID := uuid.NewString()
+	if _, err := sqlc.New(svc.db).CreateExecutorBoot(t.Context(), bootID); err != nil {
+		t.Fatalf("CreateExecutorBoot: %v", err)
+	}
+	if _, err := sqlc.New(svc.db).CreateAgentRun(t.Context(), sqlc.CreateAgentRunParams{
+		ID: runID, SessionID: "s1", ExecutorBootID: bootID, Source: "scheduler", LeaseSeconds: 1,
+	}); err != nil {
+		t.Fatalf("CreateAgentRun: %v", err)
+	}
+	if _, err := svc.db.Exec(t.Context(), `UPDATE agent_run SET lease_expires_at = clock_timestamp() - interval '1 second' WHERE id = $1`, runID); err != nil {
+		t.Fatalf("expire AgentRun: %v", err)
+	}
+	rt.live = false
+	attach, err := svc.Attach(t.Context(), AttachInput{Authority: authority, AgentID: "a1", SessionID: "s1"})
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	if attach.RemoteRunID != runID || attach.Live {
+		t.Fatalf("expired attach = remote=%q live=%v, want remote run %q", attach.RemoteRunID, attach.Live, runID)
+	}
+}
+
+func TestAttachRejectsStaleLocalHubForNewRemoteRun(t *testing.T) {
+	svc, rt, _, authority := newRuntimeTestService(t)
+	runID := uuid.NewString()
+	bootID := uuid.NewString()
+	if _, err := sqlc.New(svc.db).CreateExecutorBoot(t.Context(), bootID); err != nil {
+		t.Fatalf("CreateExecutorBoot: %v", err)
+	}
+	if _, err := sqlc.New(svc.db).CreateAgentRun(t.Context(), sqlc.CreateAgentRunParams{
+		ID: runID, SessionID: "s1", ExecutorBootID: bootID, Source: "scheduler", LeaseSeconds: 30,
+	}); err != nil {
+		t.Fatalf("CreateAgentRun: %v", err)
+	}
+	rt.live = true
+	rt.runID = uuid.NewString()
+	attach, err := svc.Attach(t.Context(), AttachInput{Authority: authority, AgentID: "a1", SessionID: "s1"})
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	if attach.RemoteRunID != runID || attach.Live {
+		t.Fatalf("stale local attach = remote=%q live=%v, want remote run %q", attach.RemoteRunID, attach.Live, runID)
+	}
+	if rt.subscribeCalls != 0 {
+		t.Fatalf("SubscribeSession calls = %d, want 0 for stale local hub", rt.subscribeCalls)
 	}
 }
 

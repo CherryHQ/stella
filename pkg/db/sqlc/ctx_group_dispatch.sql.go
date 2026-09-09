@@ -101,6 +101,9 @@ WITH dispatch_lock AS (
     AND candidate.agent_id = $3
     AND candidate.kind = 'wake'
     AND candidate.status = 'pending'
+    AND NOT EXISTS (
+      SELECT 1 FROM channel_fifo_item fifo WHERE fifo.id = candidate.id
+    )
     AND (candidate.next_attempt_at IS NULL OR candidate.next_attempt_at <= $4)
     AND NOT EXISTS (
       SELECT 1
@@ -141,6 +144,9 @@ WITH dispatch_lock AS (
     AND older.agent_id = $3
     AND older.kind = 'wake'
     AND older.status = 'pending'
+    AND NOT EXISTS (
+      SELECT 1 FROM channel_fifo_item fifo WHERE fifo.id = older.id
+    )
     -- A row carrying an accepted result still owes egress: requeue preserves
     -- result_message_id, and nothing ever reads a superseded row, so retiring
     -- one here would strand a committed reply.
@@ -234,6 +240,9 @@ WHERE dispatch.id = $2
   AND dispatch.agent_id = $4
   AND dispatch.kind = 'nudge'
   AND dispatch.status = 'pending'
+  AND NOT EXISTS (
+    SELECT 1 FROM channel_fifo_item fifo WHERE fifo.id = dispatch.id
+  )
   AND (dispatch.next_attempt_at IS NULL OR dispatch.next_attempt_at <= $5)
   AND NOT EXISTS (
     SELECT 1
@@ -491,6 +500,9 @@ func (q *Queries) GetGroupDispatch(ctx context.Context, id string) (CtxGroupDisp
 const listExpiredRunningGroupDispatch = `-- name: ListExpiredRunningGroupDispatch :many
 SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, publish_started_at, published_at FROM ctx_group_dispatch
 WHERE status = 'running'
+  AND NOT EXISTS (
+    SELECT 1 FROM channel_fifo_item fifo WHERE fifo.id = ctx_group_dispatch.id
+  )
   AND lease_until IS NOT NULL
   AND lease_until <= $1
 ORDER BY lease_until ASC
@@ -546,7 +558,10 @@ SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attem
 FROM ctx_group_dispatch
 WHERE kind = 'nudge'
   AND status = 'pending'
-  AND (next_attempt_at IS NULL OR next_attempt_at <= $1)
+  AND NOT EXISTS (
+    SELECT 1 FROM channel_fifo_item fifo WHERE fifo.id = ctx_group_dispatch.id
+  )
+  AND (ctx_group_dispatch.next_attempt_at IS NULL OR ctx_group_dispatch.next_attempt_at <= $1)
 ORDER BY trigger_seq
 LIMIT $2
 `
@@ -602,7 +617,13 @@ SELECT DISTINCT ON (group_id, agent_id) id, group_message_id, group_id, agent_id
 FROM ctx_group_dispatch
 WHERE kind = 'wake'
   AND status = 'pending'
-  AND (next_attempt_at IS NULL OR next_attempt_at <= $1)
+  -- FIFO-backed group rows share this table for the dispatch ledger.  The
+  -- durable FIFO consumer owns those rows; the legacy scanner must not feed
+  -- them into its process-local worker a second time.
+  AND NOT EXISTS (
+    SELECT 1 FROM channel_fifo_item fifo WHERE fifo.id = ctx_group_dispatch.id
+  )
+  AND (ctx_group_dispatch.next_attempt_at IS NULL OR ctx_group_dispatch.next_attempt_at <= $1)
 ORDER BY group_id, agent_id, trigger_seq DESC
 LIMIT $2
 `

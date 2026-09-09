@@ -173,3 +173,7 @@ Telegram 没有折叠容器，因此 `<details>` 会被展开：`<summary>` 变�
 
 - 在 **管理 -> 模型** 配置图片基线。声明 `text, image` 的模型只在当前回合接收像素。群图片在第一次被读取的那个回合描述一次并存下来；没有可用的基线模型时，历史里才显示不可用标记。
 - 文件上传需要为活跃 agent 启用 Xberg skill。
+
+**重启或回复结果不确定后，消息一直没有继续？**
+
+已受理消息会按顺序等待。Stella 无法确认回复或工具操作是否完成时，会暂停该会话队列，避免重复副作用。管理员可以通过 `stellad channel fifo list --help` 查找阻塞项，通过 `stellad channel fifo inspect --help` 检查详情，再通过 `stellad channel fifo reject --help` 明确拒绝。拒绝前先核对外部执行结果；拒绝只允许后续消息继续，不会重放消息或恢复缺失回复。
