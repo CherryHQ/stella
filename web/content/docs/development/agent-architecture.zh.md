@@ -243,6 +243,8 @@ Publisher 报告外发结果时不等待 Run 完成，后续顺序由 FIFO 消�
 
 每个进程在查询连接池之外持有一条串行使用的 PostgreSQL 控制连接，用于入口领导权和通知；连接丢失时取消并等待入口退出，重连后全量扫描。已知的 transaction 或 statement pooling 配置会被拒绝，因为领导权依赖稳定的数据库会话。Telegram 持久化已确认的 update offset；Discord 持久化可恢复的 gateway cursor，先受理 replay 再推进 cursor。Discord resume 状态失效时会阻塞入口，不会静默建立新会话并丢弃缺口。
 
+Discord 在恢复重放时通过 64 条事件的派发队列施加可取消的 TCP 背压。队列持续满时可能延迟读取心跳确认，现有心跳超时会关闭连接。初次恢复期间超时仍会使频道启动失败；启动完成后的连接循环会从持久化游标重连。
+
 ### 实时事件扇出
 
 每个已受理的 turn 都归服务端生命周期所有，而不是归某条 HTTP 连接所有。Runtime 把事件经由每个 runtime 一份的 `SessionHub` tee 出去，因此浏览器切换页面、刷新或短暂断线都不会停止 agent：

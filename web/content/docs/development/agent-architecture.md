@@ -243,6 +243,8 @@ The publisher reports its egress outcome without waiting for Run completion. The
 
 A process owns one serialized PostgreSQL control connection outside the query pool. It carries ingress leadership and notifications; loss cancels and joins ingress before reacquisition, and reconnect performs a full scan. Known transaction- or statement-pooling configurations are rejected because leadership requires a stable database session. Telegram persists its acknowledged update offset; Discord persists its resumable gateway cursor and admits replay before advancing it. Invalid Discord resume state blocks ingress rather than silently starting a fresh session and losing the gap.
 
+Discord uses a 64-event dispatch queue to apply cancellable TCP backpressure during resume replay. A saturated queue can delay heartbeat acknowledgements; the existing heartbeat timeout closes that connection. A timeout during initial recovery still fails channel startup; after startup, the connection loop reconnects from the durable cursor.
+
 ### Live event fan-out
 
 Every admitted turn is owned by the server lifecycle, not by an HTTP connection. Runtime tees its events through a per-runtime `SessionHub` so a browser can navigate, refresh, or temporarily disconnect without stopping the agent:

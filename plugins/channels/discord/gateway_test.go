@@ -565,7 +565,7 @@ func TestGatewayStartBuffersReplayBeforeResumedUntilActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	bot.session.Client = &http.Client{Transport: gatewayRoundTripper{}}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	runErr := make(chan error, 1)
 	go func() { runErr <- bot.Start(ctx) }()
@@ -579,11 +579,20 @@ func TestGatewayStartBuffersReplayBeforeResumedUntilActivation(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatalf("gateway was not connected: %v", ctx.Err())
 	}
-	store.mu.Lock()
-	cursor := store.cursor
-	store.mu.Unlock()
-	if cursor != 44 {
-		t.Fatalf("cursor after replay admission = %d, want 44", cursor)
+	// `connected` only proves the mock server wrote RESUMED, not that this
+	// process observed it and persisted the cursor. Poll the durable cursor.
+	for {
+		store.mu.Lock()
+		cursor := store.cursor
+		store.mu.Unlock()
+		if cursor == 44 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("cursor after replay admission = %d, want 44", cursor)
+		case <-time.After(time.Millisecond):
+		}
 	}
 	handler.mu.Lock()
 	calls := handler.calls
@@ -642,7 +651,7 @@ func TestGatewayStreamsLargeResumeReplayWithBoundedPending(t *testing.T) {
 	}
 	bot.session.Client = &http.Client{Transport: gatewayRoundTripper{}}
 	bot.rest = newFakeDiscordREST()
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
 	runErr := make(chan error, 1)
 	go func() { runErr <- bot.Start(ctx) }()
@@ -661,11 +670,20 @@ func TestGatewayStreamsLargeResumeReplayWithBoundedPending(t *testing.T) {
 		case <-time.After(time.Millisecond):
 		}
 	}
-	store.mu.Lock()
-	cursor := store.cursor
-	store.mu.Unlock()
-	if cursor != 123 {
-		t.Fatalf("cursor after 80-event replay = %d, want 123", cursor)
+	// Admitting the last replay message does not prove RESUMED itself was
+	// observed and persisted; poll the durable cursor for sequence 123.
+	for {
+		store.mu.Lock()
+		cursor := store.cursor
+		store.mu.Unlock()
+		if cursor == 123 {
+			break
+		}
+		select {
+		case <-deadline.C:
+			t.Fatalf("cursor after 80-event replay = %d, want 123", cursor)
+		case <-time.After(time.Millisecond):
+		}
 	}
 	cancel()
 	select {
@@ -690,4 +708,53 @@ func handlerCall(h *replayRecordingHandler) <-chan struct{} {
 		}
 	}()
 	return called
+}
+
+func TestGatewayFullDispatchQueueRemainsCancellable(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade gateway websocket: %v", err)
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		if err := conn.WriteJSON(gatewayPacket{Operation: 0, Sequence: 43, Type: "MESSAGE_CREATE", Data: json.RawMessage(`{}`)}); err != nil {
+			t.Errorf("write queued dispatch: %v", err)
+			return
+		}
+		<-ctx.Done()
+	}))
+	t.Cleanup(func() {
+		cancel()
+		server.Close()
+	})
+	conn, response, err := websocket.DefaultDialer.DialContext(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if response != nil && response.Body != nil {
+		_ = response.Body.Close()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	gateway := &discordGateway{conn: conn}
+	packets := make(chan gatewayPacket, 1)
+	packets <- gatewayPacket{}
+	done := make(chan error, 1)
+	go gateway.readLoop(ctx, packets, done)
+	select {
+	case err := <-done:
+		t.Fatalf("full queue terminated the reader before cancellation: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("reader cancellation: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("full dispatch queue prevented reader cancellation")
+	}
 }

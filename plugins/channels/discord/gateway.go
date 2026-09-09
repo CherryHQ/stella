@@ -538,17 +538,14 @@ func (g *discordGateway) readLoop(ctx context.Context, packets chan<- gatewayPac
 		}
 		switch packet.Operation {
 		case 0:
+			// The bounded queue applies TCP backpressure during replay. A full
+			// queue delays heartbeat ACK reads; the watchdog still closes the
+			// connection. Separate control traffic if admission saturation can
+			// last a heartbeat interval. Cancellation must unblock this send.
 			select {
 			case packets <- packet:
 			case <-ctx.Done():
 				result = ctx.Err()
-				return
-			default:
-				// A full queue means admission cannot keep up with the gateway.
-				// Closing forces a reconnect from the last durable cursor instead
-				// of spawning unbounded handler goroutines or dropping events.
-				g.closeConn()
-				result = errors.New("discord gateway dispatch queue is full")
 				return
 			}
 		case 1:
