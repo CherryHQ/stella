@@ -9,7 +9,7 @@ title: Sandbox Backend Abstraction
 The sandbox abstraction exists so runner code, plugin wiring, and tool execution do not depend on concrete backend types. Execution always runs through the active backend selected by the runner.
 
 - `pkg/sandbox.Policy` — immutable backend-agnostic execution policy (process-visible filesystem roots, working dir, network mode, env, timeout)
-- `pkg/sandbox.Session` — per-run execution boundary and lifecycle owner; combines lifecycle and host-access into one interface
+- `pkg/sandbox.Session` — execution and file capability for one Session's compute; runner handles borrow its lifecycle from the generation owner
 - `pkg/sandbox.FileAccess` — mediated file capability returned by `Session.Files`; callers use the same process-visible coordinates as commands and never receive provider backing paths
 
 Backend identity stays inside the runner and runner-facing sandbox packages. Plugin packages do not import `internal/agent/sandbox`.
@@ -47,7 +47,13 @@ Explicit destructive user, group, or Agent deletion fences local execution befor
 
 ### Session ownership
 
-The runner creates a `sandbox.Session` for each run and keeps ownership of its lifecycle. Runner construction fails closed when no active sandbox session is available.
+`GenerationStore` owns retained compute under a PostgreSQL Session generation and the immutable executor boot shared with `AgentRun`. Generation identifies disposable compute, never Workspace bytes. A partial unique index permits one non-destroyed generation per Session; a successor requires proof that the previous resource has stopped.
+
+Runner handles borrow that compute. Ordinary runner retirement after 10 idle minutes releases the borrow, so the next runner can reuse the same healthy generation and immutable policy. Per-turn environment replacement still refreshes credentials. A process retains at most 1024 generations. When no idle resource can be safely reclaimed, admission of another resource fails with a capacity error; existing healthy native resources are not silently evicted.
+
+Private user-CLI preparation sessions are auxiliary resources of the same generation. Each attempt has its own backing directory and is recorded before execution. A generation can retain at most 64 preparations without absence proof; another installation fails before creating a resource when that limit is reached. A known installation result may publish its immutable selection while an unproved native termination retains the auxiliary resource and backing. An unknown execution result fences the generation; replacing or destroying it requires absence proof for the main resource and every auxiliary resource. Docker toolcache helpers remain under their separate shared cache owner.
+
+Stale generation operations fail before reaching the backend. A compute operation with an unknown outcome fences the generation and cannot be replayed into a replacement. A failure proven to occur before execution starts does not fence healthy compute. Workspace/API file access remains independent of this execution authority.
 
 ### Backend resolution
 
@@ -67,7 +73,7 @@ All local execution paths that must obey sandbox policy are mediated through the
 
 A core tool that reads files selects one `FileView` per invocation. Its policy environment, working directory, and `FileAccess` come from the same resilient generation, so path expansion cannot silently switch backing trees midway. Provider errors that cross this boundary identify logical process mounts without exposing physical source paths.
 
-The resource projection is atomically published and verified on every load, but it is not a separate isolation boundary from commands running as the same user. Such a command can race verification or modify the disposable tree afterward. A load that observes a mismatch fails closed instead of replacing the path. Session close removes its temporary backing; Docker startup cleanup also removes stale temporary directories left by interrupted sessions.
+The resource projection is atomically published and verified on every load, but it is not a separate isolation boundary from commands running as the same user. Such a command can race verification or modify the disposable tree afterward. A load that observes a mismatch fails closed instead of replacing the path. Temporary backing is removed only when the backend can establish that no owned execution still needs it. Docker's legacy startup cleanup skips resources managed by the generation store.
 
 ### Long-lived processes
 
@@ -147,13 +153,15 @@ matching Stella release when its bundled tools change.
 
 ## Resource cleanup and process boundary
 
-The local backend enforces its configured filesystem and network policy, but a
-leader close does not prove that detached descendants have stopped. The `none`
-backend provides no reliable process isolation. A normal turn close therefore
-does not prove that resource bytes or derived caches can be removed. Stella does
-not clear resource data by TTL or by guessing a process ID. Docker cleans the
-session resources it creates; package and MCP retention is independent of that
-session lifecycle.
+Database fencing precedes physical cleanup. Cleanup errors, lost control-plane access, an incomplete resource identity, and failed fence writes never authorize replacement. Managed resources are reconciled by a backend controller reconstructed from deployment configuration, so recovery does not depend on the creating process's raw Session handle.
+
+Docker proof binds the daemon identity captured before creation to a full immutable container ID. A lookup on a different daemon proves nothing. Kubernetes binds the deployment PVC UID and namespace to the Pod UID. Pod-object disappearance alone is not execution proof: a partitioned node or force deletion can leave execution behind. The backend retains its finalizer until it observes termination of the exact Pod.
+
+Local and `none` sessions start separate native processes. Their original raw session can prove absence after closing without ever starting a process; Linux local can also prove absence after reaping every bwrap PID-namespace owner. Closing a root process, observing an empty process list, or losing a PID does not prove that detached descendants have stopped. Without sufficient resource proof, or after losing that raw observer across a restart, the generation remains unknown and temporary backing is retained. Bridge resources belong to the external evaluation harness; closing Stella's connection does not prove their destruction.
+
+Operator recovery can inspect a generation, ask its controller to reconcile it, or record explicit proof of absence for an unknown resource. Manual acknowledgement requires the exact Session, generation, owner boot, an audit reason, and explicit confirmation. The old owner must be drained or have missed heartbeats for more than 30 seconds, and no Run may remain running for the Session. See `stellad sandbox --help` and its subcommand help. This changes compute eligibility only; it never resumes the old Run or deletes Workspace bytes.
+
+Deployment remains single-replica. Channel leadership, durable publication/recovery, remote live attachment, and shared-storage readiness remain separate prerequisites for activation.
 
 ## Adding a New Backend
 

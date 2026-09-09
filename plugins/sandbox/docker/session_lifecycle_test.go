@@ -26,6 +26,12 @@ type stopCountingAPI struct {
 	removes  atomic.Int32
 	execs    atomic.Int32
 	execUser string
+	create   mobyclient.ContainerCreateOptions
+}
+
+func (f *stopCountingAPI) ContainerCreate(_ context.Context, opts mobyclient.ContainerCreateOptions) (mobyclient.ContainerCreateResult, error) {
+	f.create = opts
+	return mobyclient.ContainerCreateResult{ID: "container-1"}, nil
 }
 
 func (f *stopCountingAPI) ContainerStop(context.Context, string, mobyclient.ContainerStopOptions) (mobyclient.ContainerStopResult, error) {
@@ -65,7 +71,7 @@ func (f *startFailAPI) Info(context.Context, mobyclient.InfoOptions) (mobyclient
 	if f.infoErr != nil {
 		return mobyclient.SystemInfoResult{}, f.infoErr
 	}
-	info := system.Info{CgroupDriver: "systemd"}
+	info := system.Info{ID: "test-daemon", CgroupDriver: "systemd"}
 	if f.rootless {
 		info.SecurityOptions = []string{"name=rootless"}
 	}
@@ -179,7 +185,7 @@ func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) 
 		t.Fatal(err)
 	}
 	factory := &dockerFactory{
-		cfg: Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		cfg: Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost, Generation: 7, ExecutorBootID: "boot-1"},
 		mountSources: map[string]string{
 			workspaceMount:                    workspace,
 			path.Join(stellaHomeMount, "bin"): imageBinHost,
@@ -201,6 +207,10 @@ func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) 
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = session.Close() })
+	labels := api.create.Config.Labels
+	if labels[dockerclient.LabelGeneration] != "7" || labels[dockerclient.LabelOwnerBootID] != "boot-1" {
+		t.Fatalf("generation ownership labels = %#v, want generation=7 owner_boot_id=boot-1", labels)
+	}
 	policy := session.Policy()
 	if got := policy.Filesystem.Mounts[0].SandboxPath; got != workspaceMount {
 		t.Errorf("normalized SandboxPath = %q, want %q", got, workspaceMount)

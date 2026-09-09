@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"time"
 )
 
 const createExecutorBoot = `-- name: CreateExecutorBoot :one
@@ -41,6 +42,24 @@ func (q *Queries) DrainExecutorBoot(ctx context.Context, id string) (int64, erro
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const getExecutorBootRecoveryState = `-- name: GetExecutorBootRecoveryState :one
+SELECT status, heartbeat_at
+FROM runtime_executor_boot
+WHERE id = $1
+`
+
+type GetExecutorBootRecoveryStateRow struct {
+	Status      string    `json:"status"`
+	HeartbeatAt time.Time `json:"heartbeat_at"`
+}
+
+func (q *Queries) GetExecutorBootRecoveryState(ctx context.Context, id string) (GetExecutorBootRecoveryStateRow, error) {
+	row := q.db.QueryRow(ctx, getExecutorBootRecoveryState, id)
+	var i GetExecutorBootRecoveryStateRow
+	err := row.Scan(&i.Status, &i.HeartbeatAt)
+	return i, err
 }
 
 const heartbeatExecutorBoot = `-- name: HeartbeatExecutorBoot :execrows

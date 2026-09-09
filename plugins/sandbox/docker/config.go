@@ -26,6 +26,13 @@ type Config struct {
 	// Image is the container image to use. Required.
 	Image string
 
+	// Generation and ExecutorBootID identify the durable SessionSandbox owner
+	// that created a container. When supplied, CreateSession copies both into
+	// Docker labels so a later executor can locate the intended generation
+	// during reconciliation.
+	Generation     int64
+	ExecutorBootID string
+
 	// Runtime selects the Docker daemon's registered OCI runtime for every
 	// sandbox and tool-cache helper container. Empty uses the daemon default.
 	// Normally auto-derived from STELLA_DOCKER_RUNTIME by NewFactory.

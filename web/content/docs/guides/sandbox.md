@@ -187,7 +187,7 @@ The following literal paths describe a process view, not the Agent filesystem AP
 | macOS `local` and `none`   | The process sees the actual host paths rather than remapped sandbox paths.                     |
 | Docker without `/user`     | `$STELLA_ASSETS_DIR` is absent, and the XDG directories fall back under `$HOME`/the workspace. |
 
-Every backend creates a private temporary directory for each sandbox session and removes it when the session closes. Docker stores its backing directory under `$STELLA_HOME/cache/sandbox-tmp/` and mounts it at `/tmp`, so shell commands and file tools access the same content; startup cleanup removes stale Docker directories. This is scratch space, not a durability promise.
+Every backend creates a private temporary directory for each sandbox session. It is removed only after resource termination is proved; an unknown outcome retains the directory for recovery. Docker stores its backing directory under `$STELLA_HOME/cache/sandbox-tmp/` and mounts it at `/tmp`, so shell commands and file tools access the same content. Startup cleanup skips resources owned by the generation ledger. This is scratch space, not a durability promise.
 
 Isolating backends render the selected system resources and release-owned builtin bundle as read-only execution inputs. User and Agent resources are projected only when the current authority selects them. A package or Skill file is not a second sandbox boundary, and its complete source root or history is never mounted as a shortcut. CLI artifacts and MCP connections may be reused when the turn identity is unchanged. MCP connections are session-owned and close with the session;
 resource-derived bytes and installation caches remain until verified maintenance can clean them.
@@ -228,6 +228,14 @@ Each agent independently controls whether its sandbox allows outbound network ac
 Docker and the Linux local backend validate the configured mode at session-create time and fail if the backend cannot enforce it. The macOS local backend currently ignores network policy.
 
 ## Troubleshooting
+
+**A session reports a fenced or unknown sandbox:**
+Stella could not prove that its previous execution environment stopped. Restore access to the original Docker daemon or Kubernetes deployment, then use `stellad sandbox reconcile --help` for the exact recovery procedure. Use `stellad sandbox inspect --help` to inspect the recorded resource first. Recovery creates eligibility for fresh work; it does not repeat an interrupted command or recover a lost reply.
+
+For native processes or resources whose control plane cannot prove termination, stop the old executor and verify that all of its processes have stopped, including detached children. Only then use the explicit confirmation documented in `stellad sandbox acknowledge-absent --help`. The confirmation records your reason and refuses a live owner or a running turn. With embedded PostgreSQL, stop Stella before using these maintenance commands; external databases use `STELLA_DATABASE_URL`.
+
+**Sandbox retention capacity is exhausted:**
+Each server process retains at most 1024 execution environments. Normal runner retirement after 10 idle minutes preserves a healthy environment for the next turn. If none can be reclaimed with reliable termination proof, Stella refuses another environment rather than deleting an existing one. Inspect blocked resources and follow the recovery help above.
 
 **bubblewrap fails inside a Docker container:**
 The kernel seccomp profile blocks namespace creation. Add `--security-opt seccomp=unconfined` to your Docker run command or compose file. Alternatively, switch to the `docker` sandbox backend.

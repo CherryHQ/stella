@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
@@ -108,8 +109,15 @@ func TestFactory_sessionsOwnDistinctTempDirs(t *testing.T) {
 	if err := firstSession.Close(); err != nil {
 		t.Fatalf("Close(first): %v", err)
 	}
-	if _, err := os.Stat(firstTmp); !os.IsNotExist(err) {
-		t.Errorf("first TMPDIR survives close: %v", err)
+	if runtime.GOOS == "linux" {
+		if _, err := os.Stat(firstTmp); !os.IsNotExist(err) {
+			t.Errorf("Linux bwrap TMPDIR survives a complete process proof: %v", err)
+		}
+	} else {
+		if _, err := os.Stat(firstTmp); err != nil {
+			t.Errorf("first TMPDIR was removed without a descendant proof: %v", err)
+		}
+		_ = os.RemoveAll(firstTmp)
 	}
 	if _, err := os.Stat(secondTmp); err != nil {
 		t.Errorf("closing first session affected second TMPDIR: %v", err)
@@ -118,7 +126,7 @@ func TestFactory_sessionsOwnDistinctTempDirs(t *testing.T) {
 		t.Fatalf("Close(second): %v", err)
 	}
 	if _, err := os.Stat(secondTmp); !os.IsNotExist(err) {
-		t.Errorf("second TMPDIR survives close: %v", err)
+		t.Errorf("unused second TMPDIR survives close: %v", err)
 	}
 }
 
@@ -250,12 +258,97 @@ func TestLocalSession_closeRetainsTempWithNativePending(t *testing.T) {
 	if err := os.Mkdir(tmp, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s := &localSession{done: make(chan struct{}), nativePending: true, tmpMounts: []tmpMount{{realPath: tmp, owned: true}}}
+	s := &localSession{done: make(chan struct{}), everNativeStarted: true, tmpMounts: []tmpMount{{realPath: tmp, owned: true}}}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(tmp); err != nil {
 		t.Fatalf("native-pending temp removed: %v", err)
+	}
+}
+
+func TestLocalSessionCloseCancelsExec(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+	s := newExecTestSession(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.Exec(ctx, "sleep 30", sandboxpkg.ExecOptions{})
+		done <- err
+	}()
+
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for {
+		s.mu.RLock()
+		tracked := len(s.procs) != 0
+		s.mu.RUnlock()
+		if tracked {
+			break
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("Exec did not register its process")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("Close did not cancel a running Exec")
+	}
+}
+
+func TestLocalSessionCloseCancelsStartProcess(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+	s := newExecTestSession(t)
+	proc, err := s.StartProcess(context.Background(), sandboxpkg.ProcessRequest{
+		Path: "sh",
+		Args: []string{"-c", "sleep 30"},
+	})
+	if err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	waitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := proc.Wait(waitCtx); err != nil {
+		t.Fatalf("Wait after Close: %v", err)
+	}
+}
+
+func TestLocalSessionInvalidCwdDoesNotRetireSession(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+	s := newExecTestSession(t)
+	_, err := s.Exec(context.Background(), "printf invalid", sandboxpkg.ExecOptions{Cwd: filepath.Join(s.WorkingDir(), "missing")})
+	if err == nil || !errors.Is(err, sandboxpkg.ErrNotStarted) {
+		t.Fatalf("invalid cwd error = %v, want ErrNotStarted", err)
+	}
+	result, err := s.Exec(context.Background(), "printf valid", sandboxpkg.ExecOptions{})
+	if err != nil {
+		t.Fatalf("valid command after invalid cwd: %v", err)
+	}
+	if result.Stdout != "valid" || result.ExitCode != 0 {
+		t.Fatalf("valid command result = %+v", result)
+	}
+}
+
+func TestLocalProcessMarkExitedReleasesContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	proc := &localProcess{cancel: cancel, exitCh: make(chan struct{})}
+	proc.markExited()
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("markExited did not cancel the process context")
 	}
 }
 

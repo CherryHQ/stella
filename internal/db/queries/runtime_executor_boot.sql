@@ -13,6 +13,11 @@ SELECT id FROM runtime_executor_boot
 WHERE id = sqlc.arg(id) AND status = 'running'
 FOR SHARE;
 
+-- name: GetExecutorBootRecoveryState :one
+SELECT status, heartbeat_at
+FROM runtime_executor_boot
+WHERE id = sqlc.arg(id);
+
 -- name: DrainExecutorBoot :execrows
 UPDATE runtime_executor_boot
 SET status = 'drained', drained_at = clock_timestamp(), updated_at = clock_timestamp()

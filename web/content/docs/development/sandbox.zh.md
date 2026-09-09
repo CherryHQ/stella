@@ -9,7 +9,7 @@ title: 沙箱后端抽象
 沙箱抽象的目的是使 runner 代码、插件配置和工具执行不依赖于具体的后端类型。执行总是通过 runner 选中的活动后端进行。
 
 - `pkg/sandbox.Policy` — 不可变的、后端无关的执行策略（进程可见的文件系统根目录、工作目录、网络模式、环境变量、超时）
-- `pkg/sandbox.Session` — 每次运行的执行边界和生命周期所有者；将生命周期和宿主机访问合并为单一接口
+- `pkg/sandbox.Session` — 一个 Session 计算资源的执行与文件能力；runner 句柄从代次 owner 借用其生命周期
 - `pkg/sandbox.FileAccess` — 由 `Session.Files` 返回的中介文件 capability；调用方与命令使用同一套进程可见坐标，且永远不会获得 provider backing path
 
 后端标识保留在 runner 和面向 runner 的 sandbox 包内部。插件包不导入 `internal/agent/sandbox`。
@@ -47,7 +47,13 @@ Phase 1 仅支持一个副本和一个可信 POSIX `STELLA_HOME`。PostgreSQL ow
 
 ### 会话所有权
 
-runner 为每次运行创建一个 `sandbox.Session` 并持有其生命周期所有权。当没有可用的活动沙箱会话时，runner 构建失败。
+`GenerationStore` 持有计算资源，其权威是 PostgreSQL 中的 Session 代次，以及与 `AgentRun` 共用的不可变 executor boot。代次只标识可丢弃的计算资源，不用于定位 Workspace 文件。部分唯一索引限制每个 Session 只能有一代未销毁的资源；只有证明上一代资源已停止，才能创建下一代。
+
+runner 句柄借用该资源。runner 闲置 10 分钟后的普通回收只释放借用，后续 runner 可以复用同一健康代次和不可变策略；逐轮环境替换仍负责更新凭据。每个进程最多保留 1024 代资源。如果无法安全回收任何闲置资源，新增资源会得到明确的容量错误，不会静默淘汰已有健康原生资源。
+
+用户 CLI 的私有 preparation Session 属于同一代次的辅助资源，每次尝试都有独立目录并在执行前登记。每代最多保留 64 个尚无缺失证明的 preparation，达到上限时，新的安装会在创建资源之前被拒绝。安装结果已知时可发布不可变选择；原生终止尚无证明时保留辅助资源和目录。执行结果不明会 fence 整个代次，替换或销毁要求主资源及全部辅助资源都已证明不存在。Docker toolcache helper 仍由独立的共享缓存 owner 管理。
+
+旧代次的操作在进入后端前被拒绝。计算操作结果不确定时封锁该代次，不得在替代资源上重放；能够证明尚未开始执行的失败，不会封锁健康资源。Workspace/API 文件访问保持独立。
 
 ### 后端解析
 
@@ -67,7 +73,7 @@ runner 会从 `STELLA_SANDBOX_BACKEND` 解析部署时后端，并通过注入�
 
 读取文件的核心工具每次调用只选择一个 `FileView`。其中的策略环境、工作目录与 `FileAccess` 来自同一个 resilient generation，因此路径展开不会在中途静默切换 backing tree。跨越该边界的 provider 错误只标识逻辑进程 mount，不暴露物理 source path。
 
-资源投影会原子发布，并在每次 load 时校验，但它不是针对同一用户身份运行命令的独立隔离边界。此类命令可能与校验并发，或在校验后修改 disposable tree。只要 load 观察到不一致，就会 fail closed，而不会替换该路径。Session 关闭时会删除其临时 backing；Docker 启动清理还会移除被中断 Session 遗留的临时目录。
+资源投影会原子发布，并在每次 load 时校验，但它不是针对同一用户身份运行命令的独立隔离边界。此类命令可能与校验并发，或在校验后修改 disposable tree。只要 load 观察到不一致，就会 fail closed，而不会替换该路径。只有后端能够确认没有所属执行仍在使用临时文件时，才移除其 backing。Docker 的旧版启动清理会跳过已由 generation store 管理的资源。
 
 ### 长期运行进程
 
@@ -137,10 +143,15 @@ MCP 连接会随 Session 关闭。
 
 ## 资源清理和进程边界
 
-local backend 会执行配置的文件系统和网络策略，但 leader 关闭不能证明脱离进程组的后代
-已经停止。`none` backend 不提供可靠的进程隔离。因此正常关闭 turn 不足以证明可以删除
-资源字节或派生缓存。Stella 不会使用 TTL 或猜测 PID 清除资源数据。Docker 负责清理它创建
-的 Session 资源；包和 MCP 的保留独立于 Session 生命周期。
+数据库封锁先于物理清理。清理失败、控制面不可达、资源身份不完整，或封锁写入失败，都不能授权创建替代资源。资源 controller 根据部署配置重建，因此恢复不依赖原进程中的 Session 句柄。
+
+Docker 将创建前取得的 daemon 身份与完整、不可变的 container ID 绑定；另一个 daemon 上的查询不能证明旧资源缺失。Kubernetes 将部署 PVC UID、namespace 与 Pod UID 绑定。Pod 对象消失本身不能证明执行已停止，网络分区中的节点或强制删除都可能留下运行中的进程；后端在观察到精确 Pod 的终态前保留自己的 finalizer。
+
+local 和 `none` Session 启动独立的原生进程。原始 raw Session 从未启动进程且已关闭时可以证明资源不存在；Linux local 在所有 bwrap PID 命名空间 owner 都已回收后也可以提供证明。关闭主进程、观察到空进程列表或找不到 PID，都不能证明脱离进程组的后代已停止。无法取得充分证明，或重启后丢失原始 raw 观察器时，代次保持 unknown，临时文件继续保留。bridge 资源由外部评测 harness 持有，关闭 Stella 连接不能证明资源已销毁。
+
+运维恢复可以查看代次、让 controller 核实并清理，或为 unknown 资源记录明确的人工缺失证明。人工确认必须指定精确的 Session、代次、owner boot、审计原因和显式确认。旧 owner 必须已 drained 或超过 30 秒未心跳，且该 Session 不得仍有 running Run。具体语法见 `stellad sandbox --help` 及各子命令帮助。这只改变计算资源的可创建状态，不会恢复旧 Run，也不会删除 Workspace 文件。
+
+部署仍限制为单副本。渠道领导权、持久发布和恢复、远程实时订阅，以及共享存储就绪，仍是独立的多副本启用前提。
 
 ## 添加新后端
 

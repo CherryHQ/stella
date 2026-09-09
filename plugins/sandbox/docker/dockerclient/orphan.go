@@ -48,6 +48,12 @@ func CaptureOrphanedContainers(ctx context.Context, c *Client, stellaHome string
 		if cs.ID == "" {
 			continue
 		}
+		// Generation-owned containers are reconciled through AgentSandboxGeneration
+		// and its backend controller. Legacy startup GC must not delete one merely
+		// because the creating executor is absent.
+		if isGenerationManaged(cs.Labels) {
+			continue
+		}
 		if _, ok := seen[cs.ID]; ok {
 			continue
 		}
@@ -67,6 +73,10 @@ func CaptureOrphanedContainers(ctx context.Context, c *Client, stellaHome string
 		}
 		return clean, nil
 	}, nil
+}
+
+func isGenerationManaged(labels map[string]string) bool {
+	return labels[LabelGeneration] != "" || labels[LabelOwnerBootID] != ""
 }
 
 // SessionIDsWithContainers returns session IDs still represented by any scoped

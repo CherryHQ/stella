@@ -109,6 +109,13 @@ func (f *dockerFactory) ResourceController(ctx context.Context) (sandboxpkg.Reso
 	return client.Controller(), nil
 }
 
+// NewResourceController constructs the Docker controller used by startup
+// reconciliation. It captures no container identity itself; Probe and
+// Terminate require the persisted daemon authority and full container ID.
+func NewResourceController(ctx context.Context) (sandboxpkg.ResourceController, error) {
+	return dockerclient.NewResourceController(ctx)
+}
+
 // Available reports whether a docker daemon is reachable. The CLI is not a
 // runtime dependency — the moby SDK talks to the socket directly — so this
 // builds a client and pings ServerVersion with a short timeout.
@@ -273,10 +280,15 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		span.End()
 		return nil, fmt.Errorf("docker session: inspect daemon security: %w", err)
 	}
-	// The daemon authority is resolved lazily by ResourceIdentity for old/unit
-	// test fakes that do not expose an Engine ID. A real daemon always returns a
-	// non-empty ID, which is then retained with the container's immutable ID.
-	daemonID, _ := client.DaemonID(ctx)
+	// Capture the daemon authority before creating anything. If the endpoint is
+	// unavailable or cannot identify itself, a created container would have no
+	// safe durable owner and must not escape this call.
+	daemonID, err := client.DaemonID(ctx)
+	if err != nil {
+		recordError(span, err)
+		span.End()
+		return nil, fmt.Errorf("docker session: identify daemon: %w", err)
+	}
 
 	cleanupScope := f.cfg.cleanupScope(f.cfg.StellaHome)
 	opts := dockerclient.CreateOptions{
@@ -294,6 +306,15 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 			dockerclient.LabelOwnerPID:   strconv.Itoa(os.Getpid()),
 		},
 		Name: "stella-sandbox-" + sessionID,
+	}
+	if f.cfg.Generation > 0 || f.cfg.ExecutorBootID != "" {
+		if f.cfg.Generation <= 0 || f.cfg.ExecutorBootID == "" {
+			recordError(span, errors.New("docker session: incomplete generation ownership metadata"))
+			span.End()
+			return nil, errors.New("docker session: generation and executor boot identity must be supplied together")
+		}
+		opts.Labels[dockerclient.LabelGeneration] = strconv.FormatInt(f.cfg.Generation, 10)
+		opts.Labels[dockerclient.LabelOwnerBootID] = f.cfg.ExecutorBootID
 	}
 
 	var selectionCaches *selectionToolCacheSet
@@ -635,14 +656,7 @@ func (s *dockerSession) ResourceIdentity(ctx context.Context) (sandboxpkg.Resour
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.daemonID == "" {
-		if s.client == nil {
-			return sandboxpkg.ResourceIdentity{}, errors.New("docker: session has no client")
-		}
-		daemonID, err := s.client.DaemonID(ctx)
-		if err != nil {
-			return sandboxpkg.ResourceIdentity{}, err
-		}
-		s.daemonID = daemonID
+		return sandboxpkg.ResourceIdentity{}, errors.New("docker: session has no captured daemon identity")
 	}
 	if s.containerID == "" {
 		return sandboxpkg.ResourceIdentity{}, errors.New("docker: session has no container identity")
@@ -659,20 +673,26 @@ func (s *dockerSession) Policy() sandboxpkg.Policy {
 // RenderEnv applies the fixed Docker filesystem view and server endpoint to a
 // fresh logical turn environment. It intentionally does not copy retained
 // policy variables, so removed package values cannot cross EnvReplace.
-func (s *dockerSession) RenderEnv(_ context.Context, logicalEnv map[string]string) (map[string]string, error) {
+func (s *dockerSession) RenderEnv(ctx context.Context, logicalEnv map[string]string) (map[string]string, error) {
+	// Keep RenderEnv's preflight failures distinguishable from a provider
+	// request. The caller may use the rendered environment to prepare a later
+	// Exec, but this method itself never contacts Docker.
+	if err := ctx.Err(); err != nil {
+		return nil, sandboxpkg.MarkNotStarted(err)
+	}
 	s.mu.RLock()
 	closed := s.closed || s.closing
 	view, serverURL := s.filesystemView, s.serverURL
 	s.mu.RUnlock()
 	if closed {
-		return nil, errors.New("docker: session is closed")
+		return nil, sandboxpkg.MarkNotStarted(errors.New("docker: session is closed"))
 	}
 	env := maps.Clone(logicalEnv)
 	if env == nil {
 		env = make(map[string]string)
 	}
 	if err := sandboxpkg.ApplyFilesystemEnv(env, view); err != nil {
-		return nil, fmt.Errorf("docker: render filesystem environment: %w", err)
+		return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("docker: render filesystem environment: %w", err))
 	}
 	return withServerURL(env, serverURL), nil
 }
@@ -891,7 +911,16 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 	closed := h.session.closed || h.session.closing
 	h.session.mu.RUnlock()
 	if closed {
-		return sandboxpkg.ExecResult{}, errors.New("docker: session is closed")
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(errors.New("docker: session is closed"))
+	}
+	if err := ctx.Err(); err != nil {
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(fmt.Errorf("docker host exec: context: %w", err))
+	}
+	if opts.EnvMode != sandboxpkg.EnvOverlay && opts.EnvMode != sandboxpkg.EnvReplace {
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(errors.New("docker host exec: invalid environment mode"))
+	}
+	if err := h.session.resolver.ValidateBackingPaths(); err != nil {
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(fmt.Errorf("docker host exec: validate filesystem plan: %w", err))
 	}
 	cwd := opts.Cwd
 	if cwd == "" {
@@ -900,7 +929,7 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 
 	resolvedCwd, err := h.session.resolver.ResolveDirectory(cwd)
 	if err != nil {
-		return sandboxpkg.ExecResult{}, fmt.Errorf("docker host exec: resolve cwd: %w", err)
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(fmt.Errorf("docker host exec: resolve cwd: %w", err))
 	}
 	containerCwd := resolvedCwd.SandboxPath
 
@@ -919,6 +948,9 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
+	}
+	if err := ctx.Err(); err != nil {
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(fmt.Errorf("docker host exec: context: %w", err))
 	}
 
 	result, err := h.session.client.Exec(ctx, dockerclient.ExecOptions{
@@ -944,7 +976,19 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 	closed := h.session.closed || h.session.closing
 	h.session.mu.RUnlock()
 	if closed {
-		return nil, errors.New("docker: session is closed")
+		return nil, sandboxpkg.MarkNotStarted(errors.New("docker: session is closed"))
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("docker host start_process: context: %w", err))
+	}
+	if req.Path == "" {
+		return nil, sandboxpkg.MarkNotStarted(errors.New("docker host start_process: path is required"))
+	}
+	if req.EnvMode != sandboxpkg.EnvOverlay && req.EnvMode != sandboxpkg.EnvReplace {
+		return nil, sandboxpkg.MarkNotStarted(errors.New("docker host start_process: invalid environment mode"))
+	}
+	if err := h.session.resolver.ValidateBackingPaths(); err != nil {
+		return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("docker host start_process: validate filesystem plan: %w", err))
 	}
 	cwd := req.Cwd
 	if cwd == "" {
@@ -953,7 +997,7 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 
 	resolvedCwd, err := h.session.resolver.ResolveDirectory(cwd)
 	if err != nil {
-		return nil, fmt.Errorf("docker host start_process: resolve cwd: %w", err)
+		return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("docker host start_process: resolve cwd: %w", err))
 	}
 	containerCwd := resolvedCwd.SandboxPath
 
@@ -977,6 +1021,10 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 		execCtx, cancel = context.WithTimeout(ctx, timeout)
 	} else {
 		execCtx, cancel = context.WithCancel(ctx)
+	}
+	if err := execCtx.Err(); err != nil {
+		cancel()
+		return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("docker host start_process: context: %w", err))
 	}
 
 	command := make([]string, 0, 1+len(req.Args))

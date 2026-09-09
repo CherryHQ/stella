@@ -197,6 +197,40 @@ type AgentRun struct {
 	UpdatedAt         time.Time          `json:"updated_at"`
 }
 
+type AgentSandboxGeneration struct {
+	SessionID         string             `json:"session_id"`
+	Generation        int64              `json:"generation"`
+	OwnerBootID       string             `json:"owner_boot_id"`
+	Backend           string             `json:"backend"`
+	ConfigDigest      string             `json:"config_digest"`
+	State             string             `json:"state"`
+	ResourceAuthority string             `json:"resource_authority"`
+	ResourceRef       string             `json:"resource_ref"`
+	LastError         string             `json:"last_error"`
+	CreatedAt         time.Time          `json:"created_at"`
+	StartedAt         time.Time          `json:"started_at"`
+	ActiveAt          pgtype.Timestamptz `json:"active_at"`
+	FencedAt          pgtype.Timestamptz `json:"fenced_at"`
+	DestroyedAt       pgtype.Timestamptz `json:"destroyed_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+}
+
+type AgentSandboxGenerationAuxiliary struct {
+	AuxID             string    `json:"aux_id"`
+	SessionID         string    `json:"session_id"`
+	Generation        int64     `json:"generation"`
+	Role              string    `json:"role"`
+	Backend           string    `json:"backend"`
+	BackingRoot       string    `json:"backing_root"`
+	ResourceAuthority string    `json:"resource_authority"`
+	ResourceRef       string    `json:"resource_ref"`
+	ExecutionState    string    `json:"execution_state"`
+	TerminationState  string    `json:"termination_state"`
+	LastError         string    `json:"last_error"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
 type AgentWorkflow struct {
 	ID                 string          `json:"id"`
 	OwnerKind          string          `json:"owner_kind"`

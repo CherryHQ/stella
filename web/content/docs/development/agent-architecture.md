@@ -227,7 +227,7 @@ Model EOF allows a source adapter to finish its work. Adapters that still have o
 
 Inbox recovery follows the linked Run's terminal state without invoking a model or tool. Startup may reauthorize and append legacy or unassociated receipts, but cannot create a new Run for them. A crash can leave accepted input without a reply; automatic replay would risk repeating tool or outbound effects.
 
-Deployment remains single-replica. #1035 tracks the remaining compute-generation, durable-channel, leadership, and remote-attachment requirements, and #637 also requires shared-storage readiness before multi-replica activation.
+Compute has a separate Session generation owned by the same immutable executor boot. Healthy compute survives ordinary runner retirement; unknown execution is fenced until resource termination is proven. See [Sandbox ownership](./sandbox#session-ownership). Deployment remains single-replica. #1035 tracks the remaining durable-channel, leadership, and remote-attachment requirements, and #637 also requires shared-storage readiness before multi-replica activation.
 
 ### Live event fan-out
 

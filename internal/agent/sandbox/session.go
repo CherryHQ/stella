@@ -43,6 +43,11 @@ type BackendRequest struct {
 	// actual process mount is a named volume populated from verified caches.
 	StableProjectionRoot string
 	StableProjectionID   string
+	// Generation and ExecutorBootID bind backend-created compute to the
+	// PostgreSQL SessionSandbox owner. Backends must carry both values into
+	// provider labels/metadata when they support cross-boot reconciliation.
+	Generation     int64
+	ExecutorBootID string
 }
 
 // Backend creates one raw sandbox session from host-prepared input.
@@ -50,18 +55,21 @@ type Backend func(context.Context, BackendRequest) (pkgsandbox.Session, error)
 
 // BackendDefinition names one compiled-in sandbox backend.
 type BackendDefinition struct {
-	Name   string
-	Create Backend
+	Name              string
+	Create            Backend
+	ControllerFactory func(context.Context) (pkgsandbox.ResourceController, error)
 }
 
 // BackendRegistry is an immutable index of compiled-in sandbox backends.
 type BackendRegistry struct {
-	backends map[string]Backend
+	backends    map[string]Backend
+	controllers map[string]func(context.Context) (pkgsandbox.ResourceController, error)
 }
 
 // NewBackendRegistry validates and indexes sandbox backends.
 func NewBackendRegistry(definitions ...BackendDefinition) (*BackendRegistry, error) {
 	backends := make(map[string]Backend, len(definitions))
+	controllers := make(map[string]func(context.Context) (pkgsandbox.ResourceController, error), len(definitions))
 	for _, definition := range definitions {
 		if definition.Name == "" {
 			return nil, errors.New("sandbox: empty backend name")
@@ -73,8 +81,35 @@ func NewBackendRegistry(definitions ...BackendDefinition) (*BackendRegistry, err
 			return nil, fmt.Errorf("sandbox: duplicate backend %q", definition.Name)
 		}
 		backends[definition.Name] = definition.Create
+		if definition.ControllerFactory != nil {
+			controllers[definition.Name] = definition.ControllerFactory
+		}
 	}
-	return &BackendRegistry{backends: backends}, nil
+	return &BackendRegistry{backends: backends, controllers: controllers}, nil
+}
+
+// Controller returns a backend's durable-resource controller. A backend may
+// omit one when it cannot prove cross-boot absence, in which case callers must
+// preserve an unknown/fenced generation instead of recreating it.
+func (r *BackendRegistry) Controller(ctx context.Context, backend string) (pkgsandbox.ResourceController, error) {
+	if r == nil {
+		return nil, nil
+	}
+	factory := r.controllers[backend]
+	if factory == nil {
+		return nil, nil
+	}
+	return factory(ctx)
+}
+
+// HasController reports whether a backend advertises a durable-resource
+// controller without constructing that controller. Session creation uses this
+// to require a durable identity before declaring an isolating resource active.
+func (r *BackendRegistry) HasController(backend string) bool {
+	if r == nil {
+		return false
+	}
+	return r.controllers[backend] != nil
 }
 
 // SyncSession copies changed files from the session overlay back to the source
@@ -362,7 +397,7 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 		cfg.SessionEnvSpecs = readySessionEnvSpecs(cfg.SessionEnvSpecs, *cfg.PluginPreparationResult)
 	}
 
-	create := func(ctx context.Context) (pkgsandbox.Session, error) {
+	createRaw := func(ctx context.Context) (pkgsandbox.Session, error) {
 		// User and user-agent installs need the internal mise engine during a
 		// short preparation session. The final session is recreated from the
 		// exact optional selection alongside the mandatory core runtimes.
@@ -393,7 +428,39 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 		return session, nil
 	}
 
-	session, err := create(ctx)
+	createWithGeneration := func(ctx context.Context, generation int64, ownerBootID string) (pkgsandbox.Session, error) {
+		previousGeneration, previousBoot := cfg.Generation, cfg.ExecutorBootID
+		cfg.Generation, cfg.ExecutorBootID = generation, ownerBootID
+		defer func() { cfg.Generation, cfg.ExecutorBootID = previousGeneration, previousBoot }()
+		return createRaw(ctx)
+	}
+
+	if cfg.GenerationStore != nil && cfg.SessionID != "" {
+		if cfg.ExecutorBootID == "" {
+			cfg.ExecutorBootID = cfg.GenerationStore.OwnerBootID()
+		}
+		if cfg.ConfigDigest == "" {
+			_, policy, mountSources, digestErr := buildBasePolicy(ctx, cfg)
+			if digestErr != nil {
+				return nil, fmt.Errorf("derive sandbox generation digest: %w", digestErr)
+			}
+			if name == config.SandboxBackendDocker {
+				policy.InheritEnv = true
+			}
+			cfg.ConfigDigest = SandboxConfigDigest(name, policy, mountSources)
+		}
+		session, err := cfg.GenerationStore.Open(ctx, GenerationSpec{
+			SessionID: cfg.SessionID, Backend: name, ConfigDigest: cfg.ConfigDigest,
+			Create: createWithGeneration,
+		})
+		if err != nil {
+			recordSandboxError(span, err)
+			return nil, err
+		}
+		return session, nil
+	}
+
+	session, err := createRaw(ctx)
 	if err != nil {
 		recordSandboxError(span, err)
 		return nil, err
@@ -403,7 +470,7 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 	// recreation to the backend that created the initial session; changing
 	// between an isolating /workspace view and a host-coordinate view would make
 	// paths already retained by tools ambiguous.
-	return pkgsandbox.NewResilientSession(session, create), nil
+	return pkgsandbox.NewResilientSession(session, createRaw), nil
 }
 
 func mergeBinaryInstallResult(dst *BinaryInstallResult, src BinaryInstallResult) {
@@ -432,11 +499,7 @@ func reusableUserBinarySelection(cfg Config, specs []pkgplugins.PluginBinarySpec
 	if principalDir == "" || principalID == "" {
 		return BinaryInstallResult{}, false, nil
 	}
-	contextIdentity := "selection"
-	if cfg.ContextBinaryPlan != nil && cfg.ContextBinaryPlan.Identity != "" {
-		contextIdentity = cfg.ContextBinaryPlan.Identity
-	}
-	managedRoot := filepath.Join(cfg.Paths.StellaHome, ".mise-managed", principalDir, principalID, contextIdentity)
+	managedRoot := filepath.Join(cfg.Paths.StellaHome, ".mise-managed", principalDir, principalID, "selection")
 	stableRoot := stablePublicSelectionRoot(cfg.Paths.StellaHome, cfg)
 	if stableRoot == "" {
 		return BinaryInstallResult{}, false, errors.New("sandbox: session-scoped public selection identity is unsafe")
@@ -516,64 +579,93 @@ func prepareUserBinarySelection(ctx context.Context, cfg Config, backendName str
 	}
 	principalDir, principalID := misePrincipal(cfg)
 	if principalDir == "" || principalID == "" {
-		return BinaryInstallResult{}, fmt.Errorf("sandbox: user binary install requires a principal")
+		return BinaryInstallResult{}, errors.New("sandbox: user binary install requires a principal")
 	}
-	identity := "selection"
-	if cfg.ContextBinaryPlan != nil && cfg.ContextBinaryPlan.Identity != "" {
-		identity = cfg.ContextBinaryPlan.Identity
+	parent := filepath.Join(cfg.Paths.StellaHome, ".mise-managed", principalDir, principalID)
+	logicalRoot := filepath.Join(parent, "selection")
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return BinaryInstallResult{}, fmt.Errorf("sandbox: create managed binary parent: %w", err)
+	}
+	// A retained native descendant may still use an earlier staging tree. Give
+	// every attempt a distinct backing root, even for the same package selection.
+	backingRoot, err := os.MkdirTemp(parent, "selection-")
+	if err != nil {
+		return BinaryInstallResult{}, fmt.Errorf("sandbox: create managed binary root: %w", err)
 	}
 	prepCfg := cfg
 	prepCfg.ContextBinaryPlan = nil
 	prepCfg.UserBinaryPlan = nil
-	prepCfg.ManagedBinaryRoot = filepath.Join(cfg.Paths.StellaHome, ".mise-managed", principalDir, principalID, identity)
-	if err := os.MkdirAll(prepCfg.ManagedBinaryRoot, 0o700); err != nil {
-		return BinaryInstallResult{}, fmt.Errorf("sandbox: create managed binary root: %w", err)
+	prepCfg.ManagedBinaryRoot = backingRoot
+	create := func(ctx context.Context, generation int64, ownerBootID string) (pkgsandbox.Session, error) {
+		creationCfg := prepCfg
+		creationCfg.Generation, creationCfg.ExecutorBootID = generation, ownerBootID
+		return createSessionForBackend(ctx, creationCfg, backendName)
 	}
-	prep, err := createSessionForBackend(ctx, prepCfg, backendName)
-	if err != nil {
-		return BinaryInstallResult{}, err
+	var userResult BinaryInstallResult
+	install := func(prep pkgsandbox.Session) error {
+		var installErr error
+		userResult, installErr = installSandboxBinaries(ctx, prep, specs, logicalRoot)
+		return installErr
 	}
-	userResult, installErr := InstallSandboxBinaries(ctx, prep, specs)
-	closeErr := prep.Close()
-	if installErr != nil {
-		_ = cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
-		if closeErr != nil {
-			return BinaryInstallResult{}, fmt.Errorf("install sandbox plugin binaries: %w; close preparation session: %w", installErr, closeErr)
+	observation := pkgsandbox.ResourceObservation{State: pkgsandbox.ResourceStateUnknown}
+	if cfg.GenerationStore != nil && cfg.SessionID != "" {
+		observation, err = cfg.GenerationStore.Prepare(ctx, PreparationSpec{
+			SessionID: cfg.SessionID, Generation: cfg.Generation, Backend: backendName,
+			BackingRoot: backingRoot, Create: create,
+		}, install)
+	} else {
+		// Startup callers without a durable Session retain the same conservative
+		// backing rule. A successful Close alone never authorizes deletion.
+		var prep pkgsandbox.Session
+		prep, err = create(ctx, cfg.Generation, cfg.ExecutorBootID)
+		if err == nil {
+			err = install(prep)
+			closeErr := prep.Close()
+			err = errors.Join(err, closeErr)
+			if observer, ok := prep.(pkgsandbox.ResourceObservationProvider); ok && closeErr == nil {
+				var observeErr error
+				observation, observeErr = observer.ObserveResource(context.WithoutCancel(ctx))
+				err = errors.Join(err, observeErr)
+			}
 		}
-		return BinaryInstallResult{}, fmt.Errorf("install sandbox plugin binaries: %w", installErr)
 	}
-	if closeErr != nil {
-		return BinaryInstallResult{}, fmt.Errorf("close sandbox binary preparation: %w", closeErr)
+	if err != nil {
+		if observation.State == pkgsandbox.ResourceStateAbsent {
+			err = errors.Join(err, os.RemoveAll(backingRoot))
+		}
+		return BinaryInstallResult{}, err
 	}
 	userPlan := userResult.Plan
 	if cfg.SessionID != "" {
 		stableRoot := stablePublicSelectionRoot(cfg.Paths.StellaHome, cfg)
 		if stableRoot == "" {
-			_ = cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
 			return BinaryInstallResult{}, errors.New("sandbox: session-scoped public selection identity is unsafe")
 		}
 		userPlan.DataDir = stableRoot
 		for i := range userPlan.Selections {
 			selection := &userPlan.Selections[i]
-			source := selection.PublicDir
+			// Plan paths belong to the provider's process namespace. Publication
+			// is a host operation, so derive its source from our exact owned root.
+			source := filepath.Join(backingRoot, "public", selection.Identity)
 			destination := filepath.Join(stableRoot, selection.Identity)
 			if err := toolinstall.PublishNativeSelectionTree(source, destination); err != nil {
-				_ = cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot)
 				return BinaryInstallResult{}, fmt.Errorf("publish sandbox CLI selection: %w", err)
 			}
 			selection.DataDir = stableRoot
 			selection.PublicDir = destination
 			selection.PublicBinDir = destination
 		}
+		if observation.State == pkgsandbox.ResourceStateAbsent {
+			if err := os.RemoveAll(backingRoot); err != nil {
+				return BinaryInstallResult{}, fmt.Errorf("sandbox: clean proved-absent preparation: %w", err)
+			}
+		}
 	} else {
-		userPlan = relocateBinaryPlan(userResult.Plan, prepCfg.ManagedBinaryRoot)
-	}
-	if err := cleanupManagedBinaryPrep(prepCfg.ManagedBinaryRoot); err != nil {
-		return BinaryInstallResult{}, fmt.Errorf("sandbox: clean managed binary preparation: %w", err)
-	}
-	if cfg.SessionID != "" {
-		if err := os.RemoveAll(filepath.Join(prepCfg.ManagedBinaryRoot, "public")); err != nil {
-			return BinaryInstallResult{}, fmt.Errorf("sandbox: clean private public staging: %w", err)
+		userPlan = relocateBinaryPlan(userResult.Plan, backingRoot)
+		if observation.State == pkgsandbox.ResourceStateAbsent {
+			if err := cleanupManagedBinaryPrep(backingRoot); err != nil {
+				return BinaryInstallResult{}, fmt.Errorf("sandbox: clean managed binary preparation: %w", err)
+			}
 		}
 	}
 	userResult.Plan = userPlan
@@ -703,5 +795,7 @@ func createSessionForBackend(ctx context.Context, cfg Config, name string) (pkgs
 		SessionEnvRollbacks:  maps.Clone(cfg.SessionEnvRollbacks),
 		StableProjectionRoot: stablePublicSelectionRoot(paths.StellaHome, cfg),
 		StableProjectionID:   stableProjectionID(cfg),
+		Generation:           cfg.Generation,
+		ExecutorBootID:       cfg.ExecutorBootID,
 	})
 }

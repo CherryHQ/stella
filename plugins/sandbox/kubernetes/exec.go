@@ -67,6 +67,12 @@ func (s *session) frame(req sandbox.ProcessRequest) ([]byte, error) {
 	if s.closed || s.invalid {
 		return nil, errors.New("kubernetes: execution generation is invalid")
 	}
+	if req.Path == "" {
+		return nil, errors.New("kubernetes: process path is required")
+	}
+	if req.EnvMode != sandbox.EnvOverlay && req.EnvMode != sandbox.EnvReplace {
+		return nil, errors.New("kubernetes: invalid environment mode")
+	}
 	if err := s.resolver.ValidateBackingPaths(); err != nil {
 		return nil, err
 	}
@@ -121,7 +127,7 @@ func (s *session) Exec(ctx context.Context, command string, opts sandbox.ExecOpt
 	req := sandbox.ProcessRequest{Path: "/bin/bash", Args: []string{"-c", command}, Cwd: opts.Cwd, Env: opts.Env, EnvMode: opts.EnvMode}
 	frame, err := s.frame(req)
 	if err != nil {
-		return sandbox.ExecResult{}, err
+		return sandbox.ExecResult{}, sandbox.MarkNotStarted(err)
 	}
 	timeout := opts.Timeout
 	if timeout == 0 {
@@ -131,6 +137,9 @@ func (s *session) Exec(ctx context.Context, command string, opts sandbox.ExecOpt
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
+	}
+	if err := ctx.Err(); err != nil {
+		return sandbox.ExecResult{}, sandbox.MarkNotStarted(err)
 	}
 	out, stderr := sandbox.NewExecOutputBuffer(), sandbox.NewExecOutputBuffer()
 	result, err := s.run(ctx, frame, nil, out, stderr)
@@ -153,7 +162,7 @@ type process struct {
 func (s *session) StartProcess(ctx context.Context, req sandbox.ProcessRequest) (sandbox.ProcessHandle, error) {
 	frame, err := s.frame(req)
 	if err != nil {
-		return nil, err
+		return nil, sandbox.MarkNotStarted(err)
 	}
 	var cancel context.CancelFunc
 	timeout := req.Timeout
@@ -164,6 +173,10 @@ func (s *session) StartProcess(ctx context.Context, req sandbox.ProcessRequest) 
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 	} else {
 		ctx, cancel = context.WithCancel(ctx)
+	}
+	if err := ctx.Err(); err != nil {
+		cancel()
+		return nil, sandbox.MarkNotStarted(err)
 	}
 	stdin, in := io.Pipe()
 	out, stdout := io.Pipe()

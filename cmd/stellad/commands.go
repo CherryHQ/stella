@@ -21,6 +21,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/agent/settingspolicy"
 	"github.com/CherryHQ/stella/internal/agentrun"
@@ -91,6 +92,7 @@ the server, or use "stellad service" to manage it as a background service.`,
 			versionCommand(),
 			upgradeCommand(),
 			postgresCommand(),
+			sandboxCommand(),
 			vaultCommand(),
 			systemBundleCommand(),
 			serviceCommand(),
@@ -395,7 +397,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build provider registry: %w", err)
 	}
-	sandboxBackends, err := setupSandboxBackends(parent, cfg)
+	bootID := agentrun.NewBootID()
+	sandboxBackends, err := setupSandboxBackendsWithBoot(parent, cfg, bootID)
 	if err != nil {
 		return nil, fmt.Errorf("build sandbox backend registry: %w", err)
 	}
@@ -737,7 +740,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	registeredToolMeta = toolmeta.NewRegistry(registeredSpecs...)
 
-	agentRuns := agentrun.NewStoreWithContext(parent, db, agentrun.NewBootID())
+	agentRuns := agentrun.NewStoreWithContext(parent, db, bootID)
 	if err := agentRuns.RegisterBoot(parent); err != nil {
 		agentRuns.Close()
 		return nil, err
@@ -751,8 +754,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			_ = agentRuns.DrainBoot(drainCtx)
 		}
 	}()
+	sandboxGenerations := agentsandbox.NewGenerationStore(db, bootID, sandboxBackends)
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithAgentRuns(agentRuns),
+		agent.WithSandboxGenerationStore(sandboxGenerations),
 		agent.WithSnapshotLoader(snapshotLoader),
 		agent.WithCodeToolSurface(cfg.Agent.CodeToolSurface),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),

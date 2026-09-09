@@ -187,32 +187,33 @@ func runnerPluginAuthority(params RunnerParams) (authz.Authority, error) {
 
 // runnerBuilderConfig holds all dependencies needed to assemble a NewRunnerFunc.
 type runnerBuilderConfig struct {
-	Snap                  *config.Snapshot
-	BuiltinTools          []BuiltinTool
-	ToolMetaRegistry      *toolmeta.Registry
-	NativePolicy          *plugin.NativePolicy
-	PluginToolsBuilder    PluginToolsBuilder
-	ProviderStreamBuilder ProviderStreamBuilder
-	SandboxBackends       *sandbox.BackendRegistry
-	PromptSectionsBuilder PromptSectionsBuilder
-	PluginContextBuilder  PluginContextBuilder
-	PluginHooksBuilder    PluginHooksBuilder
-	ToolLifecycleBuilder  ToolLifecycleBuilder
-	SkillRevisionReader   skillstool.RuntimeReader
-	SkillReadAuthorizer   skillstool.SkillReadAuthorizer
-	SkillPackageReader    skillstool.PackageSkillReader
-	MCPToolProvider       MCPToolProvider
-	ToolOverrideFetcher   ToolOverrideFetcher
-	ToolLifecycle         *coreagent.ToolLifecycle
-	SandboxBackendFn      func(ctx context.Context) string
-	SystemRuntimePlan     *systemplugins.RuntimePlan
-	VaultEnvLoader        sandbox.VaultEnvLoader
-	TokenManager          *oauth.TokenManager
-	ProjectResolver       ProjectResolverFunc
-	SessionImages         SessionImagePipeline
-	GroupRosterLoader     func(context.Context, string, string) prompt.GroupRoster
-	Home                  home.Workspace
-	CodeToolSurface       coreagent.CodeToolSurface
+	Snap                   *config.Snapshot
+	BuiltinTools           []BuiltinTool
+	ToolMetaRegistry       *toolmeta.Registry
+	NativePolicy           *plugin.NativePolicy
+	PluginToolsBuilder     PluginToolsBuilder
+	ProviderStreamBuilder  ProviderStreamBuilder
+	SandboxBackends        *sandbox.BackendRegistry
+	SandboxGenerationStore *sandbox.GenerationStore
+	PromptSectionsBuilder  PromptSectionsBuilder
+	PluginContextBuilder   PluginContextBuilder
+	PluginHooksBuilder     PluginHooksBuilder
+	ToolLifecycleBuilder   ToolLifecycleBuilder
+	SkillRevisionReader    skillstool.RuntimeReader
+	SkillReadAuthorizer    skillstool.SkillReadAuthorizer
+	SkillPackageReader     skillstool.PackageSkillReader
+	MCPToolProvider        MCPToolProvider
+	ToolOverrideFetcher    ToolOverrideFetcher
+	ToolLifecycle          *coreagent.ToolLifecycle
+	SandboxBackendFn       func(ctx context.Context) string
+	SystemRuntimePlan      *systemplugins.RuntimePlan
+	VaultEnvLoader         sandbox.VaultEnvLoader
+	TokenManager           *oauth.TokenManager
+	ProjectResolver        ProjectResolverFunc
+	SessionImages          SessionImagePipeline
+	GroupRosterLoader      func(context.Context, string, string) prompt.GroupRoster
+	Home                   home.Workspace
+	CodeToolSurface        coreagent.CodeToolSurface
 }
 
 // canonicalImageConfig is the session image policy every runner gets, group or
@@ -474,6 +475,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			SandboxBackendFn:  cfg.SandboxBackendFn,
 			SystemRuntimePlan: cfg.SystemRuntimePlan,
 			Backends:          cfg.SandboxBackends,
+			GenerationStore:   cfg.SandboxGenerationStore,
 			Paths: sandbox.Paths{
 				StellaHome:    config.StellaHome(),
 				AgentRoot:     cfg.Snap.Workspace,

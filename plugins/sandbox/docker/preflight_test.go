@@ -37,6 +37,7 @@ func (f *fakePreflightAPI) Info(context.Context, mobyclient.InfoOptions) (mobycl
 
 func supportedSystemInfo() mobyclient.SystemInfoResult {
 	return mobyclient.SystemInfoResult{Info: system.Info{
+		ID:             "test-daemon",
 		MemoryLimit:    true,
 		SwapLimit:      true,
 		CPUCfsPeriod:   true,

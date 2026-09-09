@@ -29,6 +29,14 @@ type SessionImages interface {
 	Enrich(context.Context, sessionmedia.Owner, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
 }
 
+// SandboxOwnerCloser is the narrow terminal lifecycle port for retained
+// sandbox generations. Runner.Close deliberately releases only its borrow so
+// idle runners can be reused; explicit Session and Runtime shutdowns call this
+// port to close the retained owner even after the runner has been reaped.
+type SandboxOwnerCloser interface {
+	CloseSessionOwner(context.Context, string) error
+}
+
 // SkillTurnCapture resolves the immutable Skill view for one admitted turn
 // and returns a context carrying it. Implementations must retain the view for
 // the whole turn, including prompt overrides and delegated calls.
@@ -46,6 +54,7 @@ type Runtime struct {
 	snapshotPrompt       SnapshotPromptFunc
 	sessionImages        SessionImages
 	skillTurnCapture     SkillTurnCapture
+	sandboxOwnerCloser   SandboxOwnerCloser
 	active               sync.Map // session ID → *activeTurn, tracks in-flight turns
 	turns                turnTracker
 	hub                  *SessionHub
@@ -160,6 +169,7 @@ type Config struct {
 	SnapshotPrompt       SnapshotPromptFunc
 	SessionImages        SessionImages
 	SkillTurnCapture     SkillTurnCapture
+	SandboxOwnerCloser   SandboxOwnerCloser
 }
 
 // New creates a Runtime from the given config.
@@ -190,6 +200,7 @@ func New(cfg Config) (*Runtime, error) {
 		snapshotPrompt:       cfg.SnapshotPrompt,
 		sessionImages:        cfg.SessionImages,
 		skillTurnCapture:     cfg.SkillTurnCapture,
+		sandboxOwnerCloser:   cfg.SandboxOwnerCloser,
 		hub:                  NewSessionHub(),
 	}, nil
 }
@@ -277,14 +288,17 @@ func (rt *Runtime) SetDelegateRunner(r delegatetool.SessionRunner) {
 }
 
 // CloseSession closes the runner for a single session without affecting others.
-func (rt *Runtime) CloseSession(_ context.Context, sessionID string) error {
-	return rt.cache.close(sessionID)
+func (rt *Runtime) CloseSession(ctx context.Context, sessionID string) error {
+	err := rt.cache.close(sessionID)
+	return errors.Join(err, rt.closeSessionOwner(ctx, sessionID))
 }
 
 // Close shuts down all runners and rejects every later admission.
 func (rt *Runtime) Close() error {
 	rt.closed.Store(true)
-	return rt.cache.closeAll()
+	ids := rt.cache.sessionIDs()
+	err := rt.cache.closeAll()
+	return errors.Join(err, rt.closeSessionOwners(context.Background(), ids))
 }
 
 // DetachClose marks this runtime closed and returns slow runner cleanup. The
@@ -295,7 +309,11 @@ func (rt *Runtime) DetachClose() func() error {
 	}
 	rt.closed.Store(true)
 	rt.cancelAllActive()
-	return rt.cache.detachCloseAll()
+	ids := rt.cache.sessionIDs()
+	closeDetached := rt.cache.detachCloseAll()
+	return func() error {
+		return errors.Join(closeDetached(), rt.closeSessionOwners(context.Background(), ids))
+	}
 }
 
 // StartReaper begins the idle-runner eviction loop. Call in a goroutine.
@@ -341,9 +359,10 @@ func (rt *Runtime) TerminalCloseWhere(include func(session.Info) bool) error {
 }
 
 // DetachRunnersWhere removes matching runners synchronously and returns a
-// cleanup operation. Detaching is the lifecycle-critical part; callers must
-// run the returned operation after releasing global lifecycle and admission
-// locks because runner close may block on a process or container.
+// terminal cleanup operation. It is reserved for revocation/owner deletion;
+// normal refresh paths use DetachStaleRunners*. Callers must run the returned
+// operation after releasing global lifecycle and admission locks because
+// runner and retained-owner close may block on a process or container.
 func (rt *Runtime) DetachRunnersWhere(include func(session.Info) bool) func() error {
 	if rt == nil || rt.cache == nil {
 		return func() error { return nil }
@@ -356,7 +375,27 @@ func (rt *Runtime) DetachRunnersWhere(include func(session.Info) bool) func() er
 	// as the detached cache IDs, so terminal revocation closes that pre-cache
 	// window without introducing a second ownership registry.
 	rt.cancelActiveWhere(include, ids)
-	return closeDetached
+	return func() error {
+		return errors.Join(closeDetached(), rt.closeSessionOwners(context.Background(), ids))
+	}
+}
+
+func (rt *Runtime) closeSessionOwner(ctx context.Context, sessionID string) error {
+	if rt == nil || rt.sandboxOwnerCloser == nil || sessionID == "" {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return rt.sandboxOwnerCloser.CloseSessionOwner(ctx, sessionID)
+}
+
+func (rt *Runtime) closeSessionOwners(ctx context.Context, sessionIDs []string) error {
+	var joined error
+	for _, sessionID := range sessionIDs {
+		joined = errors.Join(joined, rt.closeSessionOwner(ctx, sessionID))
+	}
+	return joined
 }
 
 func (rt *Runtime) cancelActiveWhere(include func(session.Info) bool, ids []string) {

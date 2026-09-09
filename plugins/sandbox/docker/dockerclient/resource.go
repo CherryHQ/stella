@@ -2,6 +2,7 @@ package dockerclient
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -30,6 +31,21 @@ type ResourceController struct {
 	client *Client
 }
 
+// NewResourceController opens the configured Docker daemon and verifies its
+// identity before returning a controller. The controller retains the client
+// for the process lifetime because reconciliation may run after startup.
+func NewResourceController(ctx context.Context) (sandboxpkg.ResourceController, error) {
+	client, err := New()
+	if err != nil {
+		return nil, fmt.Errorf("docker resource controller: new client: %w", err)
+	}
+	if _, err := client.DaemonID(ctx); err != nil {
+		_ = client.Close()
+		return nil, err
+	}
+	return client.Controller(), nil
+}
+
 // Controller returns a controller backed by this Docker client.
 func (c *Client) Controller() *ResourceController {
 	return &ResourceController{client: c}
@@ -51,6 +67,9 @@ func (r *ResourceController) Probe(ctx context.Context, identity sandboxpkg.Reso
 	inspected, err := r.client.api.ContainerInspect(ctx, identity.Ref, mobyclient.ContainerInspectOptions{})
 	if err != nil {
 		if errdefs.IsNotFound(err) {
+			if err := r.checkAuthority(ctx, identity.Authority); err != nil {
+				return unknownObservation(err), err
+			}
 			return sandboxpkg.ResourceObservation{State: sandboxpkg.ResourceStateAbsent, Detail: "container not found on the recorded daemon"}, nil
 		}
 		err = fmt.Errorf("docker resource inspect %s: %w", identity.Ref, err)
@@ -58,6 +77,9 @@ func (r *ResourceController) Probe(ctx context.Context, identity sandboxpkg.Reso
 	}
 	if inspected.Container.ID != identity.Ref {
 		err := fmt.Errorf("%w: requested %q, daemon returned %q", ErrResourceIdentityMismatch, identity.Ref, inspected.Container.ID)
+		return unknownObservation(err), err
+	}
+	if err := r.checkAuthority(ctx, identity.Authority); err != nil {
 		return unknownObservation(err), err
 	}
 	return sandboxpkg.ResourceObservation{State: sandboxpkg.ResourceStatePresent, Detail: "container exists on the recorded daemon"}, nil
@@ -79,6 +101,9 @@ func (r *ResourceController) Terminate(ctx context.Context, identity sandboxpkg.
 	inspected, err := r.client.api.ContainerInspect(ctx, identity.Ref, mobyclient.ContainerInspectOptions{})
 	if err != nil {
 		if errdefs.IsNotFound(err) {
+			if err := r.checkAuthority(ctx, identity.Authority); err != nil {
+				return unknownObservation(err), err
+			}
 			return sandboxpkg.ResourceObservation{State: sandboxpkg.ResourceStateAbsent, Detail: "container already absent on the recorded daemon"}, nil
 		}
 		err = fmt.Errorf("docker resource inspect %s before terminate: %w", identity.Ref, err)
@@ -124,6 +149,12 @@ func validateResourceIdentity(identity sandboxpkg.ResourceIdentity) error {
 	}
 	if identity.Ref == "" {
 		return errors.New("docker resource identity has empty container reference")
+	}
+	if len(identity.Ref) != 64 {
+		return errors.New("docker resource identity container reference must be a full 64-character ID")
+	}
+	if _, err := hex.DecodeString(identity.Ref); err != nil {
+		return fmt.Errorf("docker resource identity container reference is not a full hexadecimal ID: %w", err)
 	}
 	return nil
 }

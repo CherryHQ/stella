@@ -27,6 +27,14 @@ const (
 )
 
 func setupSandboxBackends(ctx context.Context, cfg config.ServerConfig) (*agentsandbox.BackendRegistry, error) {
+	return setupSandboxBackendsWithBoot(ctx, cfg, "")
+}
+
+// setupSandboxBackendsWithBoot binds provider labels to the same executor boot
+// that owns AgentRun and SessionSandbox rows. Generation-managed resources
+// remain under durable reconciliation; only legacy unmanaged resources use
+// startup cleanup.
+func setupSandboxBackendsWithBoot(ctx context.Context, cfg config.ServerConfig, bootID string) (*agentsandbox.BackendRegistry, error) {
 	if err := config.ValidateSandboxBackend(); err != nil {
 		return nil, err
 	}
@@ -38,7 +46,7 @@ func setupSandboxBackends(ctx context.Context, cfg config.ServerConfig) (*agents
 		}
 		initCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 		defer cancel()
-		kubeClient, err = kubernetesbackend.NewInCluster(initCtx, kubernetesbackend.Config{Image: cmp.Or(cfg.KubernetesSandbox.Image, sandboxImage()), ServerPort: cfg.KubernetesSandbox.ServerPort, StartupTimeout: cfg.KubernetesSandbox.StartupTimeout, ServerURL: cfg.KubernetesSandbox.ServerURL, StellaHome: config.StellaHome(), BundleRevision: registry.BundleRevision()})
+		kubeClient, err = kubernetesbackend.NewInCluster(initCtx, kubernetesBackendConfig(cfg, bootID, registry.BundleRevision()))
 		if err != nil {
 			return nil, err
 		}
@@ -48,7 +56,12 @@ func setupSandboxBackends(ctx context.Context, cfg config.ServerConfig) (*agents
 			if kubeClient == nil {
 				return nil, errors.New("kubernetes backend was not configured at startup")
 			}
-			return kubeClient.Factory(request.MountSources).CreateSession(ctx, request.Policy)
+			return kubeClient.FactoryWithGeneration(request.MountSources, request.Generation, request.ExecutorBootID).CreateSession(ctx, request.Policy)
+		}, ControllerFactory: func(ctx context.Context) (pkgsandbox.ResourceController, error) {
+			if kubeClient == nil {
+				return nil, errors.New("kubernetes backend was not configured at startup")
+			}
+			return kubeClient.Factory(nil).ResourceController(ctx)
 		}},
 		agentsandbox.BackendDefinition{Name: config.SandboxBackendDocker, Create: func(ctx context.Context, request agentsandbox.BackendRequest) (session pkgsandbox.Session, err error) {
 			request.Policy.InheritEnv = true
@@ -58,6 +71,8 @@ func setupSandboxBackends(ctx context.Context, cfg config.ServerConfig) (*agents
 			}
 			backendConfig := dockerbackend.Config{
 				Image:                    sandboxImage(),
+				Generation:               request.Generation,
+				ExecutorBootID:           request.ExecutorBootID,
 				StellaHome:               request.Paths.StellaHome,
 				ExpectedBundleRevision:   resourceRegistry.BundleRevision(),
 				SessionEnvRollbacks:      maps.Clone(request.SessionEnvRollbacks),
@@ -82,7 +97,7 @@ func setupSandboxBackends(ctx context.Context, cfg config.ServerConfig) (*agents
 				return session, nil
 			}
 			return nil, sandboxDockerSessionError(err)
-		}},
+		}, ControllerFactory: dockerbackend.NewResourceController},
 		agentsandbox.BackendDefinition{Name: config.SandboxBackendLocal, Create: func(ctx context.Context, request agentsandbox.BackendRequest) (pkgsandbox.Session, error) {
 			session, err := localbackend.NewFactoryWithMountSources(request.MountSources, localbackend.Config{StellaHome: request.Paths.StellaHome}).CreateSession(ctx, request.Policy)
 			if err != nil {
@@ -109,6 +124,19 @@ func setupSandboxBackends(ctx context.Context, cfg config.ServerConfig) (*agents
 			return session, nil
 		}},
 	)
+}
+
+func kubernetesBackendConfig(cfg config.ServerConfig, bootID, bundleRevision string) kubernetesbackend.Config {
+	return kubernetesbackend.Config{
+		Image:                   cmp.Or(cfg.KubernetesSandbox.Image, sandboxImage()),
+		ServerPort:              cfg.KubernetesSandbox.ServerPort,
+		StartupTimeout:          cfg.KubernetesSandbox.StartupTimeout,
+		ServerURL:               cfg.KubernetesSandbox.ServerURL,
+		StellaHome:              config.StellaHome(),
+		BundleRevision:          bundleRevision,
+		BootID:                  bootID,
+		SkipPreviousBootCleanup: bootID == "",
+	}
 }
 
 func sandboxImage() string {

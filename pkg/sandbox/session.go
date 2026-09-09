@@ -29,6 +29,42 @@ type Session interface {
 	WorkingDir() string
 }
 
+// ErrNotStarted marks failures that happen before the backend accepts a
+// process request. Such failures cannot have had a command side effect.
+var ErrNotStarted = errors.New("sandbox process did not start")
+
+// NotStartedError preserves the pre-start marker while retaining the cause.
+type NotStartedError struct{ Cause error }
+
+func (e *NotStartedError) Error() string {
+	if e == nil || e.Cause == nil {
+		return ErrNotStarted.Error()
+	}
+	return ErrNotStarted.Error() + ": " + e.Cause.Error()
+}
+
+func (e *NotStartedError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func (e *NotStartedError) Is(target error) bool { return target == ErrNotStarted }
+
+// MarkNotStarted wraps an error from validation, path resolution, or process
+// start before registration. It leaves an existing marker unchanged.
+func MarkNotStarted(err error) error {
+	if err == nil {
+		return nil
+	}
+	var marked *NotStartedError
+	if errors.As(err, &marked) {
+		return err
+	}
+	return &NotStartedError{Cause: err}
+}
+
 // FileView binds process-visible metadata and filesystem access to one selected
 // Session generation. It does not keep that generation alive; if the backend
 // dies during an operation, callers get an error instead of silently continuing

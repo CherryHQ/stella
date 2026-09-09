@@ -6,8 +6,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
@@ -312,9 +314,10 @@ func TestFactoryCreateSession_ownsDistinctTempDirs(t *testing.T) {
 	if err := first.Close(); err != nil {
 		t.Fatalf("Close(first): %v", err)
 	}
-	if _, err := os.Stat(firstTmp); !os.IsNotExist(err) {
-		t.Errorf("first TMPDIR survives close: %v", err)
+	if _, err := os.Stat(firstTmp); err != nil {
+		t.Errorf("first TMPDIR was removed without a descendant proof: %v", err)
 	}
+	_ = os.RemoveAll(firstTmp)
 	if _, err := os.Stat(secondTmp); err != nil {
 		t.Errorf("closing first session affected second TMPDIR: %v", err)
 	}
@@ -322,7 +325,7 @@ func TestFactoryCreateSession_ownsDistinctTempDirs(t *testing.T) {
 		t.Fatalf("Close(second): %v", err)
 	}
 	if _, err := os.Stat(secondTmp); !os.IsNotExist(err) {
-		t.Errorf("second TMPDIR survives close: %v", err)
+		t.Errorf("unused second TMPDIR survives close: %v", err)
 	}
 }
 
@@ -357,12 +360,100 @@ func TestNoneSession_closeRetainsTempWithNativePending(t *testing.T) {
 	if err := os.Mkdir(tmp, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s := &noneSession{done: make(chan struct{}), nativePending: true, ownedTempDir: tmp}
+	s := &noneSession{done: make(chan struct{}), everNativeStarted: true, ownedTempDir: tmp}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(tmp); err != nil {
 		t.Fatalf("native-pending temp removed: %v", err)
+	}
+}
+
+func TestNoneSessionCloseCancelsExec(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sleep command is not available on Windows")
+	}
+	s := newTestSession(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.Exec(ctx, "sleep 30", sandboxpkg.ExecOptions{})
+		done <- err
+	}()
+
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for {
+		s.mu.RLock()
+		tracked := len(s.procs) != 0
+		s.mu.RUnlock()
+		if tracked {
+			break
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("Exec did not register its process")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("Close did not cancel a running Exec")
+	}
+}
+
+func TestNoneSessionCloseCancelsStartProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell sleep command is not available on Windows")
+	}
+	s := newTestSession(t)
+	proc, err := s.StartProcess(context.Background(), sandboxpkg.ProcessRequest{
+		Path: "sh",
+		Args: []string{"-c", "sleep 30"},
+	})
+	if err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	waitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := proc.Wait(waitCtx); err != nil {
+		t.Fatalf("Wait after Close: %v", err)
+	}
+}
+
+func TestNoneSessionInvalidCwdDoesNotRetireSession(t *testing.T) {
+	s := newTestSession(t)
+	_, err := s.Exec(context.Background(), "printf invalid", sandboxpkg.ExecOptions{Cwd: filepath.Join(s.WorkingDir(), "missing")})
+	if err == nil || !errors.Is(err, sandboxpkg.ErrNotStarted) {
+		t.Fatalf("invalid cwd error = %v, want ErrNotStarted", err)
+	}
+	result, err := s.Exec(context.Background(), "printf valid", sandboxpkg.ExecOptions{})
+	if err != nil {
+		t.Fatalf("valid command after invalid cwd: %v", err)
+	}
+	if result.Stdout != "valid" || result.ExitCode != 0 {
+		t.Fatalf("valid command result = %+v", result)
+	}
+}
+
+func TestNoneProcessMarkExitedReleasesContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	proc := &noneProcess{cancel: cancel, exitCh: make(chan struct{})}
+	proc.markExited()
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("markExited did not cancel the process context")
 	}
 }
 

@@ -85,6 +85,19 @@ type runnerCache struct {
 	log     *slog.Logger
 }
 
+func (c *runnerCache) sessionIDs() []string {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ids := make([]string, 0, len(c.sessions))
+	for id := range c.sessions {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // maxConcurrentRunnerCloses bounds Docker and filesystem cleanup pressure
 // during a large invalidation while avoiding serial idle-runner retirement.
 const maxConcurrentRunnerCloses = 8
@@ -94,6 +107,7 @@ type retiredRunner struct {
 	owner      *RunnerBuildOwner
 	session    *cachedSession
 	incomplete bool
+	ownerClose bool
 	closing    bool
 	done       chan struct{}
 }
@@ -107,6 +121,11 @@ func (c *runnerCache) retireLocked(r Runner) *retiredRunner {
 				return entry
 			}
 		}
+		// Retiring for normal refresh, policy invalidation, model changes, or
+		// idle reaping releases only the runner's borrow. Terminal session
+		// shutdown opts into owner close explicitly below; otherwise a refresh
+		// would destroy the retained sandbox generation and strand its durable
+		// owner.
 		entry := &retiredRunner{runner: r}
 		for _, cs := range c.sessions {
 			if cs.r == r {
@@ -778,6 +797,19 @@ func (c *runnerCache) closeRetired(r Runner) (err error) {
 	return r.Close()
 }
 
+func (c *runnerCache) closeRetiredOwner(r Runner) (err error) {
+	defer func() {
+		if recover() != nil {
+			c.log.Error("runner owner close panicked")
+			err = errors.New("runner owner close failed")
+		}
+	}()
+	if owner, ok := r.(interface{ CloseOwner() error }); ok {
+		return owner.CloseOwner()
+	}
+	return r.Close()
+}
+
 func (c *runnerCache) removeRetired(entry *retiredRunner, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -808,7 +840,11 @@ func (c *runnerCache) removeRetired(entry *retiredRunner, err error) {
 func (c *runnerCache) closeRetiredEntry(entry *retiredRunner) error {
 	var err error
 	if entry.runner != nil {
-		err = c.closeRetired(entry.runner)
+		if entry.ownerClose {
+			err = c.closeRetiredOwner(entry.runner)
+		} else {
+			err = c.closeRetired(entry.runner)
+		}
 	} else if entry.owner != nil {
 		err = c.closeBuildOwner(entry.owner)
 	}
@@ -927,6 +963,7 @@ func (c *runnerCache) terminalCloseSession(cs *cachedSession, cb SandboxSessionC
 	cs.operation = make(chan struct{})
 	owner := c.retireLocked(cs.r)
 	if owner != nil {
+		owner.ownerClose = true
 		owner.closing = true
 		owner.done = make(chan struct{})
 	}
@@ -1186,7 +1223,8 @@ func (c *runnerCache) reap() {
 				continue
 			}
 			if cs.unusable && cs.r != nil {
-				c.retireLocked(cs.r)
+				entry := c.retireLocked(cs.r)
+				entry.ownerClose = false
 				cs.r = nil
 				cs.stale = false
 				cs.unusable = false
@@ -1206,7 +1244,8 @@ func (c *runnerCache) reap() {
 			lastActivity := cs.r.LastActivity()
 			if !cs.r.Alive() {
 				c.log.Warn("removing dead runner", "session_id", id)
-				c.retireLocked(cs.r)
+				entry := c.retireLocked(cs.r)
+				entry.ownerClose = false
 				cs.r = nil
 				continue
 			}
@@ -1214,7 +1253,8 @@ func (c *runnerCache) reap() {
 				c.log.Info("reaping idle runner",
 					"session_id", id,
 					"idle_duration", now.Sub(lastActivity).Round(time.Second))
-				c.retireLocked(cs.r)
+				entry := c.retireLocked(cs.r)
+				entry.ownerClose = false
 				cs.r = nil
 			}
 		}

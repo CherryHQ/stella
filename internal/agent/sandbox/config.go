@@ -67,4 +67,14 @@ type Config struct {
 	// token injected at turn start outlives the turn (#722). Zero uses the
 	// runner's default turn budget.
 	ChatTimeout time.Duration
+	// GenerationStore is the PostgreSQL authority for retained compute. A nil
+	// store keeps the package usable in standalone unit tests; production
+	// composition supplies it together with the process boot identity.
+	GenerationStore *GenerationStore
+	ExecutorBootID  string
+	// ConfigDigest may be supplied by a caller that already computed the
+	// immutable backend/policy/mount projection. Empty values are derived by
+	// ResolveSession before creating a generation.
+	ConfigDigest string
+	Generation   int64
 }

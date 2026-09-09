@@ -395,8 +395,11 @@ type localSession struct {
 	mu              sync.RWMutex
 	closed          bool
 	closing         bool
-	nativePending   bool
-	procs           []*localProcess
+	// everNativeStarted remains true on platforms where a leader/process-group
+	// exit cannot prove detached descendants are gone. Linux bwrap clears it
+	// only after every tracked namespace owner has been reaped.
+	everNativeStarted bool
+	procs             []*localProcess
 }
 
 func (s *localSession) Policy() sandboxpkg.Policy {
@@ -475,9 +478,9 @@ func (s *localSession) Close() error {
 	}
 	s.mu.RLock()
 	noProcs := len(s.procs) == 0
-	nativePending := s.nativePending
+	everNativeStarted := s.everNativeStarted
 	s.mu.RUnlock()
-	if closeErr == nil && noProcs && !nativePending {
+	if closeErr == nil && noProcs && !everNativeStarted {
 		for _, mount := range tmpMounts {
 			if mount.owned {
 				closeErr = errors.Join(closeErr, os.RemoveAll(mount.realPath))
@@ -514,6 +517,9 @@ func (s *localSession) deregisterProcess(p *localProcess) {
 	for i, proc := range s.procs {
 		if proc == p {
 			s.procs = append(s.procs[:i], s.procs[i+1:]...)
+			if resourceCloseProof() && len(s.procs) == 0 {
+				s.everNativeStarted = false
+			}
 			return
 		}
 	}
@@ -553,6 +559,69 @@ func (s *localSession) invalidateFilesystemPlan(err error) error {
 	return errors.Join(err, s.Close())
 }
 
+// startProcess serializes the OS start and registration with Close. The gate
+// is released as soon as the process is registered; callers must wait outside
+// it so Close can cancel a running command.
+func (s *localSession) startProcess(ctx context.Context, cmd *exec.Cmd, cancel context.CancelFunc) (*localProcess, error) {
+	s.closeMu.Lock()
+	s.mu.RLock()
+	closed := s.closed || s.closing
+	s.mu.RUnlock()
+	if closed {
+		s.closeMu.Unlock()
+		return nil, sandboxpkg.MarkNotStarted(errors.New("local: session is closed"))
+	}
+	if err := ctx.Err(); err != nil {
+		s.closeMu.Unlock()
+		return nil, sandboxpkg.MarkNotStarted(err)
+	}
+	if err := cmd.Start(); err != nil {
+		s.closeMu.Unlock()
+		return nil, classifyStartError(err)
+	}
+	s.mu.Lock()
+	s.everNativeStarted = true
+	s.mu.Unlock()
+	if err := applyRlimits(cmd); err != nil {
+		killProcessGroup(cmd)
+		_ = cmd.Wait()
+		s.mu.Lock()
+		if resourceCloseProof() && len(s.procs) == 0 {
+			s.everNativeStarted = false
+		}
+		s.mu.Unlock()
+		s.closeMu.Unlock()
+		return nil, err
+	}
+	proc := &localProcess{
+		session: s,
+		cmd:     cmd,
+		cancel:  cancel,
+		exitCh:  make(chan struct{}),
+	}
+	s.mu.Lock()
+	if s.closed || s.closing {
+		// Close cannot set this state while closeMu is held, but retain the
+		// check so a future lifecycle path cannot register after termination.
+		s.mu.Unlock()
+		killProcessGroup(cmd)
+		_ = cmd.Wait()
+		s.closeMu.Unlock()
+		return nil, errors.New("local: session is closed")
+	}
+	s.procs = append(s.procs, proc)
+	s.mu.Unlock()
+	s.closeMu.Unlock()
+	return proc, nil
+}
+
+func classifyStartError(err error) error {
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, exec.ErrDot) || os.IsNotExist(err) {
+		return sandboxpkg.MarkNotStarted(err)
+	}
+	return err
+}
+
 // Exec runs a shell command via sh -c on the host.
 func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
 	// Finding 5: check closed before starting. Per-exec env reads take a policy
@@ -565,7 +634,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local: session is closed")
 	}
 	if err := s.resolver.ValidateBackingPaths(); err != nil {
-		return sandboxpkg.ExecResult{}, s.invalidateFilesystemPlan(fmt.Errorf("local exec: validate filesystem plan: %w", err))
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(s.invalidateFilesystemPlan(fmt.Errorf("local exec: validate filesystem plan: %w", err)))
 	}
 
 	sandboxCwd := opts.Cwd
@@ -577,20 +646,25 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	if timeout == 0 {
 		timeout = policy.Timeout
 	}
+	var (
+		execCtx context.Context
+		cancel  context.CancelFunc
+	)
 	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
+		execCtx, cancel = context.WithTimeout(ctx, timeout)
+	} else {
+		execCtx, cancel = context.WithCancel(ctx)
 	}
+	defer cancel()
 
 	sandboxCwd, realCwd, err := s.resolveCwd(sandboxCwd)
 	if err != nil {
-		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: resolve cwd: %w", err)
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(fmt.Errorf("local exec: resolve cwd: %w", err))
 	}
 
 	execPath, execArgs, err := s.wrapCommand(policy, sandboxCwd, "sh", []string{"-c", command})
 	if err != nil {
-		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: wrap: %w", err)
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(fmt.Errorf("local exec: wrap: %w", err))
 	}
 
 	// Finding 2: do NOT use exec.CommandContext — it only kills the leader PID,
@@ -604,31 +678,26 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	stderr := sandboxpkg.NewExecOutputBuffer()
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	if s.stellaHomeHost != "" {
-		s.mu.Lock()
-		s.nativePending = true
-		s.mu.Unlock()
-	}
-	if startErr := cmd.Start(); startErr != nil {
-		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: start: %w", startErr)
-	}
-
-	// Finding 3: reap zombie if rlimits fail.
-	if rlErr := applyRlimits(cmd); rlErr != nil {
-		killProcessGroup(cmd)
-		_ = cmd.Wait()
-		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: rlimits: %w", rlErr)
+	proc, err := s.startProcess(execCtx, cmd, cancel)
+	if err != nil {
+		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: start: %w", err)
 	}
 
 	// Finding 2: watch ctx cancellation manually so the whole process group dies.
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	go func() {
+		waitErr := cmd.Wait()
+		done <- waitErr
+		// Publish the natural result before canceling execCtx. Otherwise the
+		// cancellation case can win the select for a successful short command.
+		proc.markExited()
+	}()
 
 	select {
-	case <-ctx.Done():
-		killProcessGroup(cmd)
+	case <-execCtx.Done():
+		_ = proc.Close()
 		<-done // reap
-		return sandboxpkg.ExecResult{}, ctx.Err()
+		return sandboxpkg.ExecResult{}, execCtx.Err()
 	case waitErr := <-done:
 		exitCode := 0
 		if waitErr != nil {
@@ -658,7 +727,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		return nil, fmt.Errorf("local: session is closed")
 	}
 	if err := s.resolver.ValidateBackingPaths(); err != nil {
-		return nil, s.invalidateFilesystemPlan(fmt.Errorf("local start_process: validate filesystem plan: %w", err))
+		return nil, sandboxpkg.MarkNotStarted(s.invalidateFilesystemPlan(fmt.Errorf("local start_process: validate filesystem plan: %w", err)))
 	}
 
 	sandboxCwd := req.Cwd
@@ -699,20 +768,20 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		}
 		if err != nil {
 			cancel()
-			return nil, fmt.Errorf("local start_process: resolve %q from process PATH: %w", req.Path, err)
+			return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("local start_process: resolve %q from process PATH: %w", req.Path, err))
 		}
 	}
 
 	sandboxCwd, realCwd, err := s.resolveCwd(sandboxCwd)
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("local start_process: resolve cwd: %w", err)
+		return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("local start_process: resolve cwd: %w", err))
 	}
 
 	execPath, execArgs, err := s.wrapCommand(policy, sandboxCwd, processPath, args)
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("local start_process: wrap: %w", err)
+		return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("local start_process: wrap: %w", err))
 	}
 
 	// Finding 2: do NOT use exec.CommandContext — kill the process group instead.
@@ -725,60 +794,32 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("local start_process: stdin pipe: %w", err)
+		return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("local start_process: stdin pipe: %w", err))
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = stdin.Close()
 		cancel()
-		return nil, fmt.Errorf("local start_process: stdout pipe: %w", err)
+		return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("local start_process: stdout pipe: %w", err))
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
 		cancel()
-		return nil, fmt.Errorf("local start_process: stderr pipe: %w", err)
+		return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("local start_process: stderr pipe: %w", err))
 	}
-	if s.stellaHomeHost != "" {
-		s.mu.Lock()
-		s.nativePending = true
-		s.mu.Unlock()
-	}
-	if err := cmd.Start(); err != nil {
+	proc, err := s.startProcess(execCtx, cmd, cancel)
+	if err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
 		_ = stderr.Close()
 		cancel()
 		return nil, fmt.Errorf("local start_process: start: %w", err)
 	}
-
-	// Finding 3: reap zombie if rlimits fail.
-	if rlErr := applyRlimits(cmd); rlErr != nil {
-		killProcessGroup(cmd)
-		_ = cmd.Wait()
-		cancel()
-		return nil, fmt.Errorf("local start_process: rlimits: %w", rlErr)
-	}
-
-	// Finding 5: check closed and register atomically under write lock.
-	s.mu.Lock()
-	if s.closed || s.closing {
-		s.mu.Unlock()
-		killProcessGroup(cmd)
-		_ = cmd.Wait()
-		cancel()
-		return nil, fmt.Errorf("local: session is closed")
-	}
-	proc := &localProcess{
-		session: s,
-		cmd:     cmd,
-		cancel:  cancel,
-		stdin:   stdin,
-		stdout:  stdout,
-		stderr:  stderr,
-		exitCh:  make(chan struct{}),
-	}
+	proc.stdin = stdin
+	proc.stdout = stdout
+	proc.stderr = stderr
 	// Watch context cancellation so the process group is killed on timeout/cancel.
 	go func() {
 		select {
@@ -787,8 +828,6 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		case <-proc.exitCh:
 		}
 	}()
-	s.procs = append(s.procs, proc)
-	s.mu.Unlock()
 
 	return proc, nil
 }
@@ -858,6 +897,26 @@ func (p *localProcess) Stdin() io.WriteCloser { return p.stdin }
 func (p *localProcess) Stdout() io.ReadCloser { return p.stdout }
 func (p *localProcess) Stderr() io.ReadCloser { return p.stderr }
 
+func (p *localProcess) markExited() {
+	p.mu.Lock()
+	if !p.closed {
+		p.closed = true
+		if p.exitCh != nil {
+			close(p.exitCh)
+		}
+	}
+	p.mu.Unlock()
+	// Release the timer and parent-context watcher as soon as the process
+	// exits. Waiting for a deadline after a natural exit retains the whole
+	// context tree until the timeout fires.
+	if p.cancel != nil {
+		p.cancel()
+	}
+	if p.session != nil {
+		p.session.deregisterProcess(p)
+	}
+}
+
 func (p *localProcess) Wait(ctx context.Context) (sandboxpkg.ExecResult, error) {
 	done := make(chan struct {
 		code int
@@ -874,17 +933,7 @@ func (p *localProcess) Wait(ctx context.Context) (sandboxpkg.ExecResult, error) 
 			}
 		}
 		// Finding 1: deregister on natural exit so Close() doesn't kill a stale PID.
-		p.mu.Lock()
-		if !p.closed {
-			p.closed = true
-			if p.exitCh != nil {
-				close(p.exitCh)
-			}
-		}
-		p.mu.Unlock()
-		if p.session != nil {
-			p.session.deregisterProcess(p)
-		}
+		p.markExited()
 		done <- struct {
 			code int
 			err  error

@@ -157,6 +157,22 @@ func (s *session) TurnDeadline() (time.Time, bool) {
 	return s.deadline, !s.deadline.IsZero()
 }
 
+// ResourceIdentity exposes only diagnostics for the externally owned harness
+// resource. The bridge process is outside stellad's authority, so this backend
+// deliberately has no ResourceController and Close cannot prove termination.
+func (s *session) ResourceIdentity(ctx context.Context) (sandboxpkg.ResourceIdentity, error) {
+	if err := ctx.Err(); err != nil {
+		return sandboxpkg.ResourceIdentity{}, err
+	}
+	s.mu.RLock()
+	client := s.client
+	s.mu.RUnlock()
+	if client == nil || client.socket == "" || client.nonce == "" {
+		return sandboxpkg.ResourceIdentity{}, errors.New("bridge: external resource identity is unavailable")
+	}
+	return sandboxpkg.ResourceIdentity{Backend: "bridge", Authority: client.socket, Ref: client.nonce}, nil
+}
+
 func (s *session) Alive() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -188,6 +204,8 @@ func (s *session) RefreshEnv(updates map[string]string) {
 	s.policy.Env = env
 }
 
+var _ sandboxpkg.ResourceIdentityProvider = (*session)(nil)
+
 func (s *session) checkOpen() error {
 	if !s.Alive() {
 		return errors.New("bridge: session is closed")
@@ -197,7 +215,16 @@ func (s *session) checkOpen() error {
 
 func (s *session) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
 	if err := s.checkOpen(); err != nil {
-		return sandboxpkg.ExecResult{}, err
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(err)
+	}
+	// A cancellation observed before dialing the externally owned harness is
+	// known to have had no effect. Once call has started, keep transport errors
+	// unknown because the harness may already have accepted the request.
+	if err := ctx.Err(); err != nil {
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(err)
+	}
+	if opts.EnvMode != sandboxpkg.EnvOverlay && opts.EnvMode != sandboxpkg.EnvReplace {
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(errors.New("bridge: invalid environment mode"))
 	}
 	policy := s.Policy()
 	var env map[string]string
@@ -231,7 +258,7 @@ func (s *session) Exec(ctx context.Context, command string, opts sandboxpkg.Exec
 // a long-lived process, and Harbor's environment exec is request/response.
 // Ceiling: implement over a streaming transport if eval tasks require it.
 func (s *session) StartProcess(context.Context, sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
-	return nil, errors.New("bridge: StartProcess is not supported by the eval backend")
+	return nil, sandboxpkg.MarkNotStarted(errors.New("bridge: StartProcess is not supported by the eval backend"))
 }
 
 // fileAccess forwards every file operation to the bridge. Paths are container

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 
+	"github.com/moby/moby/api/types/system"
 	mobyclient "github.com/moby/moby/client"
 )
 
@@ -17,7 +18,7 @@ func (noopAPI) ServerVersion(context.Context, mobyclient.ServerVersionOptions) (
 }
 
 func (noopAPI) Info(context.Context, mobyclient.InfoOptions) (mobyclient.SystemInfoResult, error) {
-	return mobyclient.SystemInfoResult{}, nil
+	return mobyclient.SystemInfoResult{Info: system.Info{ID: "test-daemon"}}, nil
 }
 
 func (noopAPI) ImageInspect(context.Context, string, ...mobyclient.ImageInspectOption) (mobyclient.ImageInspectResult, error) {

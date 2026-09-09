@@ -160,6 +160,13 @@ func WithSandboxBackends(backends *sandbox.BackendRegistry) PoolManagerOption {
 	return func(pm *PoolManager) { pm.sandboxBackends = backends }
 }
 
+// WithSandboxGenerationStore supplies the process-wide PostgreSQL compute
+// generation owner to every runner. The store is shared across Agents so a
+// Session cannot be recreated through an Agent-local cache without fencing.
+func WithSandboxGenerationStore(store *sandbox.GenerationStore) PoolManagerOption {
+	return func(pm *PoolManager) { pm.sandboxGenerationStore = store }
+}
+
 func WithSkillRevisionReader(r skillstool.RuntimeReader) PoolManagerOption {
 	return func(pm *PoolManager) { pm.skillRevisionReader = r }
 }
@@ -241,40 +248,41 @@ type PoolManager struct {
 	// started is set true when StartAll runs. The one-shot pre-start binds
 	// (Bind* below) refuse to run once started, while the dynamic reconfigure
 	// surface (ReloadPlugin*/SyncAgent/Invalidate*) stays available afterward.
-	started               bool
-	idleTimeout           time.Duration
-	compaction            CompactionConfig
-	builtinTools          []BuiltinTool
-	toolMetaRegistry      *toolmeta.Registry
-	nativePolicy          *plugin.NativePolicy
-	pluginToolsBuilder    PluginToolsBuilder
-	hookPlugins           []hooks.HookPlugin
-	coreHooks             []hooks.HookPlugin
-	pluginHooksBuilder    PluginHooksBuilder
-	promptSectionsBuilder PromptSectionsBuilder
-	pluginContextBuilder  PluginContextBuilder
-	beforeRunBuilder      BeforeRunBuilder
-	toolLifecycle         *coreagent.ToolLifecycle
-	toolLifecycleBuilder  ToolLifecycleBuilder
-	providerStreamBuilder ProviderStreamBuilder
-	sandboxBackends       *sandbox.BackendRegistry
-	skillRevisionReader   skillstool.RuntimeReader
-	skillPackageReader    skillstool.PackageSkillReader
-	skillReadAuthz        skillstool.SkillReadAuthorizer
-	mcpToolProvider       MCPToolProvider
-	toolOverrideFetcher   ToolOverrideFetcher
-	vaultEnvLoader        sandbox.VaultEnvLoader
-	projectResolver       ProjectResolverFunc
-	tokenManager          *oauth.TokenManager
-	oauthRegistry         *oauth.ProviderRegistry
-	sessionImages         SessionImagePipeline
-	sessionAccess         SessionAccessService
-	sessionInbox          SessionInbox
-	groupRosterLoader     func(context.Context, string, string) prompt.GroupRoster
-	codeToolSurface       coreagent.CodeToolSurface
-	systemRuntimePlan     *systemplugins.RuntimePlan
-	homeWorkspace         home.Workspace
-	log                   *slog.Logger
+	started                bool
+	idleTimeout            time.Duration
+	compaction             CompactionConfig
+	builtinTools           []BuiltinTool
+	toolMetaRegistry       *toolmeta.Registry
+	nativePolicy           *plugin.NativePolicy
+	pluginToolsBuilder     PluginToolsBuilder
+	hookPlugins            []hooks.HookPlugin
+	coreHooks              []hooks.HookPlugin
+	pluginHooksBuilder     PluginHooksBuilder
+	promptSectionsBuilder  PromptSectionsBuilder
+	pluginContextBuilder   PluginContextBuilder
+	beforeRunBuilder       BeforeRunBuilder
+	toolLifecycle          *coreagent.ToolLifecycle
+	toolLifecycleBuilder   ToolLifecycleBuilder
+	providerStreamBuilder  ProviderStreamBuilder
+	sandboxBackends        *sandbox.BackendRegistry
+	sandboxGenerationStore *sandbox.GenerationStore
+	skillRevisionReader    skillstool.RuntimeReader
+	skillPackageReader     skillstool.PackageSkillReader
+	skillReadAuthz         skillstool.SkillReadAuthorizer
+	mcpToolProvider        MCPToolProvider
+	toolOverrideFetcher    ToolOverrideFetcher
+	vaultEnvLoader         sandbox.VaultEnvLoader
+	projectResolver        ProjectResolverFunc
+	tokenManager           *oauth.TokenManager
+	oauthRegistry          *oauth.ProviderRegistry
+	sessionImages          SessionImagePipeline
+	sessionAccess          SessionAccessService
+	sessionInbox           SessionInbox
+	groupRosterLoader      func(context.Context, string, string) prompt.GroupRoster
+	codeToolSurface        coreagent.CodeToolSurface
+	systemRuntimePlan      *systemplugins.RuntimePlan
+	homeWorkspace          home.Workspace
+	log                    *slog.Logger
 }
 
 func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManagerOption) *PoolManager {
@@ -520,6 +528,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	cfg := agentruntime.Config{
 		AgentRuns:            pm.agentRuns,
 		NewRunner:            factory,
+		SandboxOwnerCloser:   pm.sandboxGenerationStore,
 		PluginContextBuilder: pluginContextBuilder,
 		Memory:               pm.mem,
 		IdleTimeout:          pm.idleTimeout,
@@ -1037,32 +1046,33 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 
 	sandboxBackendFn := func(context.Context) string { return config.ActiveSandboxBackend() }
 	return newRunnerFunc(runnerBuilderConfig{
-		Snap:                  snap,
-		BuiltinTools:          builtinTools,
-		ToolMetaRegistry:      pm.toolMetaRegistry,
-		NativePolicy:          pm.nativePolicy,
-		PluginToolsBuilder:    pm.pluginToolsBuilder,
-		ProviderStreamBuilder: pm.providerStreamBuilder,
-		SandboxBackends:       pm.sandboxBackends,
-		PromptSectionsBuilder: pm.promptSectionsBuilder,
-		PluginContextBuilder:  pm.pluginContextBuilder,
-		PluginHooksBuilder:    pm.pluginHooksBuilder,
-		ToolLifecycleBuilder:  pm.toolLifecycleBuilder,
-		SkillRevisionReader:   pm.skillRevisionReader,
-		SkillPackageReader:    pm.skillPackageReader,
-		SkillReadAuthorizer:   pm.skillReadAuthz,
-		MCPToolProvider:       pm.mcpToolProvider,
-		ToolOverrideFetcher:   pm.toolOverrideFetcher,
-		ToolLifecycle:         pm.toolLifecycle,
-		SandboxBackendFn:      sandboxBackendFn,
-		VaultEnvLoader:        pm.vaultEnvLoader,
-		TokenManager:          pm.tokenManager,
-		ProjectResolver:       pm.projectResolver,
-		SessionImages:         pm.sessionImages,
-		GroupRosterLoader:     pm.groupRosterLoader,
-		Home:                  pm.homeWorkspace,
-		CodeToolSurface:       pm.codeToolSurface,
-		SystemRuntimePlan:     pm.systemRuntimePlan,
+		Snap:                   snap,
+		BuiltinTools:           builtinTools,
+		ToolMetaRegistry:       pm.toolMetaRegistry,
+		NativePolicy:           pm.nativePolicy,
+		PluginToolsBuilder:     pm.pluginToolsBuilder,
+		ProviderStreamBuilder:  pm.providerStreamBuilder,
+		SandboxBackends:        pm.sandboxBackends,
+		SandboxGenerationStore: pm.sandboxGenerationStore,
+		PromptSectionsBuilder:  pm.promptSectionsBuilder,
+		PluginContextBuilder:   pm.pluginContextBuilder,
+		PluginHooksBuilder:     pm.pluginHooksBuilder,
+		ToolLifecycleBuilder:   pm.toolLifecycleBuilder,
+		SkillRevisionReader:    pm.skillRevisionReader,
+		SkillPackageReader:     pm.skillPackageReader,
+		SkillReadAuthorizer:    pm.skillReadAuthz,
+		MCPToolProvider:        pm.mcpToolProvider,
+		ToolOverrideFetcher:    pm.toolOverrideFetcher,
+		ToolLifecycle:          pm.toolLifecycle,
+		SandboxBackendFn:       sandboxBackendFn,
+		VaultEnvLoader:         pm.vaultEnvLoader,
+		TokenManager:           pm.tokenManager,
+		ProjectResolver:        pm.projectResolver,
+		SessionImages:          pm.sessionImages,
+		GroupRosterLoader:      pm.groupRosterLoader,
+		Home:                   pm.homeWorkspace,
+		CodeToolSurface:        pm.codeToolSurface,
+		SystemRuntimePlan:      pm.systemRuntimePlan,
 	})
 }
 
@@ -1508,6 +1518,11 @@ func (pm *PoolManager) Close() error {
 		// enumerable for a later Close retry. Do not tear down shared hooks or
 		// memory while a runtime still owns backend resources.
 		return lastErr
+	}
+	if pm.sandboxGenerationStore != nil {
+		if err := pm.sandboxGenerationStore.Close(context.Background()); err != nil {
+			return err
+		}
 	}
 	pm.mu.RLock()
 	hookPlugins := append([]hooks.HookPlugin(nil), pm.hookPlugins...)

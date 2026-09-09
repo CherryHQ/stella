@@ -385,8 +385,15 @@ esac
 	}); err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	if len(privateFiles) != 0 {
-		t.Fatalf("prep config survived final publication: %v", privateFiles)
+	// Unprovable native cleanup retains the private backing. Its existence
+	// must never grant the final session access to the installer's configuration.
+	for _, private := range privateFiles {
+		for _, resolved := range sessions {
+			result, err := resolved.Exec(t.Context(), "cat '"+strings.ReplaceAll(private, "'", "'\"'\"'")+"'", pkgsandbox.ExecOptions{})
+			if err == nil && result.ExitCode == 0 {
+				t.Fatalf("final session could read retained preparation config %s", private)
+			}
+		}
 	}
 }
 

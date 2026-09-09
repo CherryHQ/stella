@@ -5,7 +5,9 @@ package system
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -59,15 +61,34 @@ func (h *harness) testChatAbortPersistsAcrossRestart(t *testing.T) {
 		t.Fatalf("restart replayed model work: requests = %d, before restart %d", got, requests)
 	}
 
-	// The old canceled owner cannot prevent a fresh turn or overwrite its result.
+	// A forced crash has no absence proof for the retained native sandbox.
+	// Reject this Session without touching the model until compute recovery has
+	// completed; an aborted Run alone cannot authorize a replacement sandbox.
+	blocked := h.openChatStream(t, ctx, agentID, sessionID, "must remain fenced")
+	body, err := io.ReadAll(blocked.Body)
+	_ = blocked.Body.Close()
+	if err != nil || !strings.Contains(string(body), "sandbox generation") {
+		t.Fatalf("crashed compute was not fenced: body=%s err=%v", body, err)
+	}
+	if got := fake.requestCount(); got != requests {
+		t.Fatalf("fenced compute reached the model: requests=%d, before=%d", got, requests)
+	}
+
+	// Compute recovery is scoped to the affected Session. A separate Session
+	// can acquire a fresh Run without reviving or rewriting the canceled owner.
+	successorSessionID := h.createSession(t, ctx, agentID)
 	fake.enqueueText("successor " + h.runID)
-	_, reply := h.streamChatTurn(t, ctx, agentID, sessionID, "start a fresh turn")
+	_, reply := h.streamChatTurn(t, ctx, agentID, successorSessionID, "start a fresh turn")
 	if reply != "successor "+h.runID {
 		t.Fatalf("successor reply = %q", reply)
 	}
 	var count int
-	if err := h.db.QueryRow(ctx, "SELECT count(*) FROM agent_run WHERE session_id = $1 AND id <> $2 AND status = 'completed'", sessionID, runID).Scan(&count); err != nil || count != 1 {
+	if err := h.db.QueryRow(ctx, "SELECT count(*) FROM agent_run WHERE session_id = $1 AND id <> $2 AND status = 'completed'", successorSessionID, runID).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("completed successor count = %d, err = %v", count, err)
+	}
+	var originalStatus string
+	if err := h.db.QueryRow(ctx, "SELECT status FROM agent_run WHERE id = $1", runID).Scan(&originalStatus); err != nil || originalStatus != "aborted" {
+		t.Fatalf("original Run changed after restart: status=%s err=%v", originalStatus, err)
 	}
 }
 

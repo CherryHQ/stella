@@ -161,6 +161,12 @@ func InstallContextBinariesAt(ctx context.Context, stellaHome, publicRoot string
 // InstallSandboxBinaries installs each user package through the already-created
 // sandbox session. Each package receives an isolated config and public tree.
 func InstallSandboxBinaries(ctx context.Context, session pkgsandbox.Session, specs []pkgplugins.PluginBinarySpec) (BinaryInstallResult, error) {
+	return installSandboxBinaries(ctx, session, specs, "")
+}
+
+// identityRoot is the stable logical installer scope. A unique physical staging
+// directory must not change a published selection identity or defeat cache hits.
+func installSandboxBinaries(ctx context.Context, session pkgsandbox.Session, specs []pkgplugins.PluginBinarySpec, identityRoot string) (BinaryInstallResult, error) {
 	if session == nil {
 		return BinaryInstallResult{}, errors.New("sandbox: sandbox session is required")
 	}
@@ -169,7 +175,10 @@ func InstallSandboxBinaries(ctx context.Context, session pkgsandbox.Session, spe
 	if dataDir == "" || baseEnv["MISE_NOT_FOUND_AUTO_INSTALL"] != "true" {
 		return BinaryInstallResult{}, errors.New("sandbox: user CLI install requires a writable sandbox mise home")
 	}
-	identity, err := binarySelectionIdentity(specs, dataDir)
+	if identityRoot == "" {
+		identityRoot = dataDir
+	}
+	identity, err := binarySelectionIdentity(specs, identityRoot)
 	if err != nil {
 		return BinaryInstallResult{}, err
 	}
@@ -179,7 +188,7 @@ func InstallSandboxBinaries(ctx context.Context, session pkgsandbox.Session, spe
 	plan := BinaryInstallPlan{Identity: identity, DataDir: dataDir}
 	result := BinaryInstallResult{Plan: plan}
 	for _, group := range groupedBinarySpecs(specs, isUserBinary) {
-		packageIdentity, err := binarySelectionIdentity(group.specs, dataDir)
+		packageIdentity, err := binarySelectionIdentity(group.specs, identityRoot)
 		if err != nil {
 			return BinaryInstallResult{}, err
 		}

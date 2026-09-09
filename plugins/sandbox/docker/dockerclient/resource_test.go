@@ -3,6 +3,7 @@ package dockerclient
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/containerd/errdefs"
@@ -16,6 +17,8 @@ import (
 type resourceAPI struct {
 	API
 	daemonID     string
+	daemonIDs    []string
+	infoCalls    int
 	inspect      []resourceInspect
 	inspectCalls int
 	stopErr      error
@@ -30,6 +33,14 @@ type resourceInspect struct {
 }
 
 func (f *resourceAPI) Info(context.Context, mobyclient.InfoOptions) (mobyclient.SystemInfoResult, error) {
+	if len(f.daemonIDs) > 0 {
+		index := f.infoCalls
+		if index >= len(f.daemonIDs) {
+			index = len(f.daemonIDs) - 1
+		}
+		f.infoCalls++
+		return mobyclient.SystemInfoResult{Info: system.Info{ID: f.daemonIDs[index]}}, nil
+	}
 	return mobyclient.SystemInfoResult{Info: system.Info{ID: f.daemonID}}, nil
 }
 
@@ -57,11 +68,11 @@ func resourceContainer(id string) mobyclient.ContainerInspectResult {
 }
 
 func resourceIdentity() sandboxpkg.ResourceIdentity {
-	return sandboxpkg.ResourceIdentity{Backend: resourceBackend, Authority: "daemon-a", Ref: "container-a"}
+	return sandboxpkg.ResourceIdentity{Backend: resourceBackend, Authority: "daemon-a", Ref: strings.Repeat("a", 64)}
 }
 
 func TestResourceControllerProbeRequiresSameDaemon(t *testing.T) {
-	api := &resourceAPI{daemonID: "daemon-b", inspect: []resourceInspect{{result: resourceContainer("container-a")}}}
+	api := &resourceAPI{daemonID: "daemon-b", inspect: []resourceInspect{{result: resourceContainer(strings.Repeat("a", 64))}}}
 	got, err := NewWithAPI(api).Controller().Probe(context.Background(), resourceIdentity())
 	if !errors.Is(err, ErrResourceAuthorityMismatch) {
 		t.Fatalf("Probe error = %v, want authority mismatch", err)
@@ -85,8 +96,22 @@ func TestResourceControllerProbeMissingIsAbsentOnlyOnSameDaemon(t *testing.T) {
 	}
 }
 
+func TestResourceControllerProbeMissingRechecksAuthority(t *testing.T) {
+	api := &resourceAPI{
+		daemonIDs: []string{"daemon-a", "daemon-b"},
+		inspect:   []resourceInspect{{err: errdefs.ErrNotFound}},
+	}
+	got, err := NewWithAPI(api).Controller().Probe(context.Background(), resourceIdentity())
+	if !errors.Is(err, ErrResourceAuthorityMismatch) {
+		t.Fatalf("Probe error = %v, want authority mismatch after inspect", err)
+	}
+	if got.State != sandboxpkg.ResourceStateUnknown {
+		t.Fatalf("Probe state = %q, want unknown", got.State)
+	}
+}
+
 func TestResourceControllerProbeRejectsAmbiguousInspect(t *testing.T) {
-	api := &resourceAPI{daemonID: "daemon-a", inspect: []resourceInspect{{result: resourceContainer("other-container")}}}
+	api := &resourceAPI{daemonID: "daemon-a", inspect: []resourceInspect{{result: resourceContainer(strings.Repeat("b", 64))}}}
 	got, err := NewWithAPI(api).Controller().Probe(context.Background(), resourceIdentity())
 	if !errors.Is(err, ErrResourceIdentityMismatch) {
 		t.Fatalf("Probe error = %v, want identity mismatch", err)
@@ -100,7 +125,7 @@ func TestResourceControllerTerminateProvesRemoval(t *testing.T) {
 	api := &resourceAPI{
 		daemonID: "daemon-a",
 		inspect: []resourceInspect{
-			{result: resourceContainer("container-a")},
+			{result: resourceContainer(strings.Repeat("a", 64))},
 			{err: errdefs.ErrNotFound},
 		},
 	}
@@ -125,5 +150,21 @@ func TestResourceControllerProbeErrorsAreUnknown(t *testing.T) {
 	}
 	if got.State != sandboxpkg.ResourceStateUnknown {
 		t.Fatalf("Probe state = %q, want unknown", got.State)
+	}
+}
+
+func TestResourceControllerRejectsShortContainerReference(t *testing.T) {
+	identity := resourceIdentity()
+	identity.Ref = "container-a"
+	api := &resourceAPI{daemonID: "daemon-a"}
+	got, err := NewWithAPI(api).Controller().Probe(context.Background(), identity)
+	if err == nil {
+		t.Fatal("Probe succeeded with a non-durable container reference")
+	}
+	if got.State != sandboxpkg.ResourceStateUnknown {
+		t.Fatalf("Probe state = %q, want unknown", got.State)
+	}
+	if api.infoCalls != 0 {
+		t.Fatalf("Info calls = %d, want 0 for invalid identity", api.infoCalls)
 	}
 }

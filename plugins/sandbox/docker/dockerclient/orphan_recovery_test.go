@@ -14,6 +14,7 @@ type recoveryAPI struct {
 	API
 	mu         sync.Mutex
 	list       []string
+	labels     map[string]map[string]string
 	listErr    error
 	status     map[string]string
 	inspectErr map[string]error
@@ -29,9 +30,31 @@ func (a *recoveryAPI) ContainerList(context.Context, mobyclient.ContainerListOpt
 	}
 	items := make([]container.Summary, 0, len(a.list))
 	for _, id := range a.list {
-		items = append(items, container.Summary{ID: id})
+		items = append(items, container.Summary{ID: id, Labels: a.labels[id]})
 	}
 	return mobyclient.ContainerListResult{Items: items}, nil
+}
+
+func TestCaptureOrphanedContainersSkipsGenerationOwnedContainers(t *testing.T) {
+	api := &recoveryAPI{
+		list:    []string{"managed", "legacy"},
+		labels:  map[string]map[string]string{"managed": {LabelGeneration: "7", LabelOwnerBootID: "boot-a"}},
+		status:  map[string]string{"managed": "exited", "legacy": "exited"},
+		removed: map[string]int{},
+	}
+	guard, err := CaptureOrphanedContainers(context.Background(), NewWithAPI(api), "scope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clean, err := guard(context.Background()); err != nil || !clean {
+		t.Fatalf("managed container snapshot: clean=%v err=%v, want clean", clean, err)
+	}
+	if api.removed["managed"] != 0 {
+		t.Fatalf("managed container removed %d times, want 0", api.removed["managed"])
+	}
+	if api.removed["legacy"] != 1 {
+		t.Fatalf("legacy container removed %d times, want once", api.removed["legacy"])
+	}
 }
 
 func (a *recoveryAPI) ContainerInspect(_ context.Context, id string, _ mobyclient.ContainerInspectOptions) (mobyclient.ContainerInspectResult, error) {

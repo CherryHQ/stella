@@ -187,7 +187,7 @@ mise、Lark 和系统目录由其工具托管，不是通用存储位置。mise 
 | macOS `local` 和 `none`   | 进程看到实际宿主机路径，而不是重映射后的沙箱路径。                           |
 | Docker 缺少 `/user`       | `$STELLA_ASSETS_DIR` 不存在，XDG 目录会回退到 `$HOME`/工作区下。             |
 
-每个后端都会为每个沙箱会话创建私有临时目录，并在会话关闭时删除。Docker 的 backing 目录位于 `$STELLA_HOME/cache/sandbox-tmp/` 下并挂载到 `/tmp`，因此 shell 命令和文件工具访问的是同一份内容；启动清理会删除遗留的 Docker 临时目录。这是临时工作区，不承诺持久性。
+每个后端都会为沙箱会话创建私有临时目录。只有确认资源已终止后才删除；结果不明时保留目录供恢复。Docker 的 backing 目录位于 `$STELLA_HOME/cache/sandbox-tmp/` 下并挂载到 `/tmp`，因此 shell 命令和文件工具访问的是同一份内容。启动清理会跳过由 generation 台账持有的资源。这是临时工作区，不承诺持久性。
 
 隔离型后端会将选中的 system 资源和发行版 builtin bundle 作为只读执行输入。只有当前 authority 选中的用户和 Agent 资源才会投影进来。包或 Skill 文件不是第二个沙箱边界，完整来源根和历史也不会作为捷径挂载。turn 身份未变化时可以复用 CLI 产物。MCP 连接属于 Session，会随 Session 关闭；资源派生
 字节和安装缓存会保留到经过验证的维护操作安全清理为止。
@@ -228,6 +228,14 @@ Docker 沙箱镜像会烤入并标记同一 revision，且不会回退到宿主�
 Docker 和 Linux 本地后端会在会话创建时验证网络模式，如果后端无法强制执行则失败。macOS 本地后端当前会忽略网络策略。
 
 ## 故障排查
+
+**会话提示沙箱已封锁或状态未知：**
+Stella 无法证明上一执行环境已经停止。先恢复对原 Docker daemon 或 Kubernetes 部署的访问，再查看 `stellad sandbox reconcile --help` 中的精确恢复流程。可以先用 `stellad sandbox inspect --help` 查看已记录的资源。恢复只允许后续新工作开始，不会重复执行被中断的命令，也不会补回丢失的回复。
+
+对于原生进程，或控制面无法证明已终止的资源，先停止旧执行器，核实其全部进程已退出，包括脱离进程组的子进程。完成核实后，才能按照 `stellad sandbox acknowledge-absent --help` 进行显式确认。确认会保存原因，并拒绝仍存活的 owner 或运行中的回合。使用内置 PostgreSQL 时，先停止 Stella 再运行维护命令；外部数据库通过 `STELLA_DATABASE_URL` 连接。
+
+**沙箱保留容量已满：**
+每个服务进程最多保留 1024 个执行环境。runner 闲置 10 分钟后的普通回收会保留健康环境，供下一回合复用。如果没有资源能在取得可靠终止证明后回收，Stella 会拒绝新增环境，而不是删除已有资源。查看被封锁的资源，并按上方帮助完成恢复。
 
 **bubblewrap 在 Docker 容器内失败：**
 内核 seccomp 配置阻止命名空间创建。在 Docker run 命令或 compose 文件中添加 `--security-opt seccomp=unconfined`。或者切换到 `docker` 沙箱后端。

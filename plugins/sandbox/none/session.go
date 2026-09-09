@@ -197,22 +197,25 @@ func directoryExists(name string) bool {
 
 // noneSession implements sandboxpkg.Session with zero isolation.
 type noneSession struct {
-	id            string
-	policy        sandboxpkg.Policy
-	stellaHome    string
-	userDataDir   string
-	done          chan struct{}
-	doneOnce      sync.Once
-	closeMu       sync.Mutex
-	mu            sync.RWMutex
-	closed        bool
-	closing       bool
-	nativePending bool
-	closeErr      error
-	procs         []*noneProcess
-	ownedTempDir  string
-	resolver      *sessionfs.Resolver
-	files         sandboxpkg.FileAccess
+	id          string
+	policy      sandboxpkg.Policy
+	stellaHome  string
+	userDataDir string
+	done        chan struct{}
+	doneOnce    sync.Once
+	closeMu     sync.Mutex
+	mu          sync.RWMutex
+	closed      bool
+	closing     bool
+	// everNativeStarted stays true after any host process starts. The none
+	// backend cannot prove that a detached descendant has exited from the
+	// leader's disappearance or an empty process map.
+	everNativeStarted bool
+	closeErr          error
+	procs             []*noneProcess
+	ownedTempDir      string
+	resolver          *sessionfs.Resolver
+	files             sandboxpkg.FileAccess
 }
 
 // RenderEnv applies the none backend's fixed filesystem and host path view to
@@ -288,9 +291,9 @@ func (s *noneSession) Close() error {
 	}
 	s.mu.RLock()
 	noProcs := len(s.procs) == 0
-	nativePending := s.nativePending
+	everNativeStarted := s.everNativeStarted
 	s.mu.RUnlock()
-	if closeErr == nil && noProcs && !nativePending && tmpDir != "" {
+	if closeErr == nil && noProcs && !everNativeStarted && tmpDir != "" {
 		closeErr = errors.Join(closeErr, os.RemoveAll(tmpDir))
 	}
 
@@ -309,6 +312,58 @@ func (s *noneSession) Close() error {
 	return nil
 }
 
+// startProcess serializes the OS start and registration with Close. The gate
+// is released as soon as the process is registered; callers must wait outside
+// it so Close can cancel a running command.
+func (s *noneSession) startProcess(ctx context.Context, cmd *exec.Cmd, cancel context.CancelFunc) (*noneProcess, error) {
+	s.closeMu.Lock()
+	s.mu.RLock()
+	closed := s.closed || s.closing
+	s.mu.RUnlock()
+	if closed {
+		s.closeMu.Unlock()
+		return nil, sandboxpkg.MarkNotStarted(errors.New("none: session is closed"))
+	}
+	if err := ctx.Err(); err != nil {
+		s.closeMu.Unlock()
+		return nil, sandboxpkg.MarkNotStarted(err)
+	}
+	if err := cmd.Start(); err != nil {
+		s.closeMu.Unlock()
+		return nil, classifyStartError(err)
+	}
+	s.mu.Lock()
+	s.everNativeStarted = true
+	s.mu.Unlock()
+	proc := &noneProcess{
+		session: s,
+		cmd:     cmd,
+		cancel:  cancel,
+		exitCh:  make(chan struct{}),
+	}
+	s.mu.Lock()
+	if s.closed || s.closing {
+		// Close cannot set this state while closeMu is held, but retain the
+		// check so a future lifecycle path cannot register after termination.
+		s.mu.Unlock()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		s.closeMu.Unlock()
+		return nil, errors.New("none: session is closed")
+	}
+	s.procs = append(s.procs, proc)
+	s.mu.Unlock()
+	s.closeMu.Unlock()
+	return proc, nil
+}
+
+func classifyStartError(err error) error {
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, exec.ErrDot) || os.IsNotExist(err) {
+		return sandboxpkg.MarkNotStarted(err)
+	}
+	return err
+}
+
 func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
 	s.mu.RLock()
 	closed := s.closed || s.closing
@@ -318,7 +373,7 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 		return sandboxpkg.ExecResult{}, errors.New("none: session is closed")
 	}
 	if err := s.resolver.ValidateBackingPaths(); err != nil {
-		return sandboxpkg.ExecResult{}, fmt.Errorf("none: validate filesystem plan: %w", err)
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(fmt.Errorf("none: validate filesystem plan: %w", err))
 	}
 
 	cwd := opts.Cwd
@@ -327,18 +382,23 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 	}
 	resolvedCwd, err := s.resolver.ResolveDirectory(cwd)
 	if err != nil {
-		return sandboxpkg.ExecResult{}, fmt.Errorf("none: resolve cwd: %w", err)
+		return sandboxpkg.ExecResult{}, sandboxpkg.MarkNotStarted(fmt.Errorf("none: resolve cwd: %w", err))
 	}
 
 	timeout := opts.Timeout
 	if timeout == 0 {
 		timeout = policy.Timeout
 	}
+	var (
+		execCtx context.Context
+		cancel  context.CancelFunc
+	)
 	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
+		execCtx, cancel = context.WithTimeout(ctx, timeout)
+	} else {
+		execCtx, cancel = context.WithCancel(ctx)
 	}
+	defer cancel()
 
 	sh, shFlag := shell()
 	cmd := exec.Command(sh, shFlag, command)
@@ -348,23 +408,25 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if s.stellaHome != "" {
-		s.mu.Lock()
-		s.nativePending = true
-		s.mu.Unlock()
-	}
-	if err := cmd.Start(); err != nil {
+	proc, err := s.startProcess(execCtx, cmd, cancel)
+	if err != nil {
 		return sandboxpkg.ExecResult{}, err
 	}
 
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	go func() {
+		waitErr := cmd.Wait()
+		done <- waitErr
+		// Publish the natural result before canceling execCtx. Otherwise the
+		// cancellation case can win the select for a successful short command.
+		proc.markExited()
+	}()
 
 	select {
-	case <-ctx.Done():
-		_ = cmd.Process.Kill()
+	case <-execCtx.Done():
+		_ = proc.Close()
 		<-done
-		return sandboxpkg.ExecResult{}, ctx.Err()
+		return sandboxpkg.ExecResult{}, execCtx.Err()
 	case waitErr := <-done:
 		exitCode := 0
 		if waitErr != nil {
@@ -392,7 +454,7 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 		return nil, errors.New("none: session is closed")
 	}
 	if err := s.resolver.ValidateBackingPaths(); err != nil {
-		return nil, fmt.Errorf("none: validate filesystem plan: %w", err)
+		return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("none: validate filesystem plan: %w", err))
 	}
 
 	cwd := req.Cwd
@@ -401,7 +463,7 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 	}
 	resolvedCwd, err := s.resolver.ResolveDirectory(cwd)
 	if err != nil {
-		return nil, fmt.Errorf("none: resolve cwd: %w", err)
+		return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("none: resolve cwd: %w", err))
 	}
 
 	timeout := req.Timeout
@@ -426,7 +488,7 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 	}
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("none: resolve %q from process PATH: %w", req.Path, err)
+		return nil, sandboxpkg.MarkNotStarted(fmt.Errorf("none: resolve %q from process PATH: %w", req.Path, err))
 	}
 	cmd := exec.Command(processPath, req.Args...)
 	cmd.Dir = resolvedCwd.HostPath()
@@ -435,51 +497,32 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
-		return nil, err
+		return nil, sandboxpkg.MarkNotStarted(err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		_ = stdin.Close()
 		cancel()
-		return nil, err
+		return nil, sandboxpkg.MarkNotStarted(err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
 		cancel()
-		return nil, err
+		return nil, sandboxpkg.MarkNotStarted(err)
 	}
-	if s.stellaHome != "" {
-		s.mu.Lock()
-		s.nativePending = true
-		s.mu.Unlock()
-	}
-	if err := cmd.Start(); err != nil {
+	proc, err := s.startProcess(execCtx, cmd, cancel)
+	if err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
 		_ = stderr.Close()
 		cancel()
 		return nil, err
 	}
-
-	s.mu.Lock()
-	if s.closed || s.closing {
-		s.mu.Unlock()
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		cancel()
-		return nil, errors.New("none: session is closed")
-	}
-	proc := &noneProcess{
-		session: s,
-		cmd:     cmd,
-		cancel:  cancel,
-		stdin:   stdin,
-		stdout:  stdout,
-		stderr:  stderr,
-		exitCh:  make(chan struct{}),
-	}
+	proc.stdin = stdin
+	proc.stdout = stdout
+	proc.stderr = stderr
 	go func() {
 		select {
 		case <-execCtx.Done():
@@ -487,8 +530,6 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 		case <-proc.exitCh:
 		}
 	}()
-	s.procs = append(s.procs, proc)
-	s.mu.Unlock()
 
 	return proc, nil
 }
@@ -568,6 +609,26 @@ func (p *noneProcess) Stdin() io.WriteCloser { return p.stdin }
 func (p *noneProcess) Stdout() io.ReadCloser { return p.stdout }
 func (p *noneProcess) Stderr() io.ReadCloser { return p.stderr }
 
+func (p *noneProcess) markExited() {
+	p.mu.Lock()
+	if !p.closed {
+		p.closed = true
+		if p.exitCh != nil {
+			close(p.exitCh)
+		}
+	}
+	p.mu.Unlock()
+	// Release the timer and parent-context watcher as soon as the process
+	// exits. Waiting for a deadline after a natural exit retains the whole
+	// context tree until the timeout fires.
+	if p.cancel != nil {
+		p.cancel()
+	}
+	if p.session != nil {
+		p.session.deregisterProcess(p)
+	}
+}
+
 func (p *noneProcess) Wait(ctx context.Context) (sandboxpkg.ExecResult, error) {
 	type result struct {
 		code int
@@ -584,15 +645,7 @@ func (p *noneProcess) Wait(ctx context.Context) (sandboxpkg.ExecResult, error) {
 				err = nil
 			}
 		}
-		p.mu.Lock()
-		if !p.closed {
-			p.closed = true
-			close(p.exitCh)
-		}
-		p.mu.Unlock()
-		if p.session != nil {
-			p.session.deregisterProcess(p)
-		}
+		p.markExited()
 		done <- result{code, err}
 	}()
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,12 +27,22 @@ import (
 const finalizer = "stella.cherryhq.io/execution-fence"
 
 type factory struct {
-	client  *Client
-	sources map[string]string
+	client         *Client
+	sources        map[string]string
+	generation     int64
+	executorBootID string
 }
 
-func (c *Client) Factory(sources map[string]string) sandbox.Factory {
-	return &factory{c, maps.Clone(sources)}
+func (c *Client) Factory(sources map[string]string) *factory {
+	return &factory{client: c, sources: maps.Clone(sources)}
+}
+
+// FactoryWithGeneration binds resources created by this factory to one
+// durable SessionSandbox generation. The labels are omitted for legacy callers
+// that do not participate in generation ownership, preserving their strict
+// startup cleanup path.
+func (c *Client) FactoryWithGeneration(sources map[string]string, generation int64, executorBootID string) *factory {
+	return &factory{client: c, sources: maps.Clone(sources), generation: generation, executorBootID: executorBootID}
 }
 func (f *factory) Name() string                     { return "kubernetes" }
 func (f *factory) Available() bool                  { return f.client != nil }
@@ -60,6 +71,9 @@ func subPath(home, source string) (string, error) {
 func (f *factory) CreateSession(ctx context.Context, p sandbox.Policy) (sandbox.Session, error) {
 	if err := f.Supported(p); err != nil {
 		return nil, err
+	}
+	if (f.generation == 0) != (f.executorBootID == "") || f.generation < 0 {
+		return nil, errors.New("kubernetes: generation and executor boot must be supplied together")
 	}
 	c := f.client
 	// Creation is serialized per server; parallelize only with per-owner fencing.
@@ -160,7 +174,17 @@ func (f *factory) CreateSession(ctx context.Context, p sandbox.Policy) (sandbox.
 		p.Env["STELLA_SERVER_URL"] = c.cfg.ServerURL
 	}
 	p.Filesystem.Mounts = sessionfs.PolicyMounts(mounts)
-	pod := &core.Pod{ObjectMeta: meta.ObjectMeta{Name: "stella-sandbox-" + id, Namespace: c.owner.Namespace, Labels: map[string]string{labelStorage: string(c.pvc.UID), labelBoot: c.boot, "stella.cherryhq.io/generation": id, "stella.cherryhq.io/network": string(p.NetworkModeOrDefault())}, Finalizers: []string{finalizer}, OwnerReferences: []meta.OwnerReference{{APIVersion: "v1", Kind: "Pod", Name: c.owner.Name, UID: c.owner.UID}}}, Spec: core.PodSpec{
+	bootLabel, generationLabel := c.boot, id
+	managedGeneration := f.generation > 0
+	if managedGeneration {
+		bootLabel = f.executorBootID
+		generationLabel = strconv.FormatInt(f.generation, 10)
+	}
+	labels := map[string]string{labelStorage: string(c.pvc.UID), labelBoot: bootLabel, labelGeneration: generationLabel, "stella.cherryhq.io/network": string(p.NetworkModeOrDefault())}
+	if managedGeneration {
+		labels[labelGenerationManaged] = generationManagedValue
+	}
+	pod := &core.Pod{ObjectMeta: meta.ObjectMeta{Name: "stella-sandbox-" + id, Namespace: c.owner.Namespace, Labels: labels, Finalizers: []string{finalizer}, OwnerReferences: []meta.OwnerReference{{APIVersion: "v1", Kind: "Pod", Name: c.owner.Name, UID: c.owner.UID}}}, Spec: core.PodSpec{
 		ImagePullSecrets: c.owner.Spec.ImagePullSecrets, RestartPolicy: core.RestartPolicyNever, AutomountServiceAccountToken: ptr.To(false), EnableServiceLinks: ptr.To(false), ServiceAccountName: "stella-sandbox", TerminationGracePeriodSeconds: ptr.To(int64(1)),
 		SecurityContext: &core.PodSecurityContext{RunAsNonRoot: ptr.To(true), RunAsUser: ptr.To(int64(1000)), RunAsGroup: ptr.To(int64(1000)), SeccompProfile: &core.SeccompProfile{Type: core.SeccompProfileTypeRuntimeDefault}},
 		Affinity:        &core.Affinity{NodeAffinity: &core.NodeAffinity{RequiredDuringSchedulingIgnoredDuringExecution: &core.NodeSelector{NodeSelectorTerms: []core.NodeSelectorTerm{{MatchFields: []core.NodeSelectorRequirement{{Key: "metadata.name", Operator: core.NodeSelectorOpIn, Values: []string{c.owner.Spec.NodeName}}}}}}}},

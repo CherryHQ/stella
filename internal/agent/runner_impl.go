@@ -1283,6 +1283,17 @@ func (r *runner) SandboxSession() pkgsandbox.Session { return r.session }
 // Close shuts down runner resources in dependency order. Failed resources stay
 // owned so the cache can retry Close without releasing scratch prematurely.
 func (r *runner) Close() error {
+	return r.close(false)
+}
+
+// CloseOwner is the terminal lifecycle path used by Runtime.CloseSession and
+// daemon shutdown. Ordinary Close only releases a retained sandbox borrow so
+// idle runner eviction can reopen the same healthy generation.
+func (r *runner) CloseOwner() error {
+	return r.close(true)
+}
+
+func (r *runner) close(ownerClose bool) error {
 	r.closeMu.Lock()
 	defer r.closeMu.Unlock()
 	var errs []error
@@ -1306,7 +1317,17 @@ func (r *runner) Close() error {
 	}
 
 	if !r.sessionClosed && r.session != nil {
-		if err := r.session.Close(); err != nil {
+		var err error
+		if ownerClose {
+			if closer, ok := r.session.(interface{ CloseOwner() error }); ok {
+				err = closer.CloseOwner()
+			} else {
+				err = r.session.Close()
+			}
+		} else {
+			err = r.session.Close()
+		}
+		if err != nil {
 			errs = append(errs, err)
 		} else {
 			r.sessionClosed = true

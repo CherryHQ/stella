@@ -3,6 +3,10 @@ package bridge
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
+	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -29,6 +33,78 @@ func TestSessionRenderEnvUsesBindingCoordinates(t *testing.T) {
 	}
 	if _, ok := rendered["OLD_TOKEN"]; ok {
 		t.Fatal("renderer resurrected a removed old token")
+	}
+}
+
+func TestSessionResourceIdentityReportsExternalBindingWithoutTerminationProof(t *testing.T) {
+	s := &session{client: &client{socket: "/tmp/bridge.sock", nonce: "nonce-1"}, done: make(chan struct{})}
+	identity, err := s.ResourceIdentity(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.Backend != "bridge" || identity.Authority != "/tmp/bridge.sock" || identity.Ref != "nonce-1" {
+		t.Fatalf("external resource identity = %+v", identity)
+	}
+	if _, ok := any(s).(sandboxpkg.ResourceController); ok {
+		t.Fatal("bridge session must not claim a local resource controller")
+	}
+}
+
+func TestExecCanceledBeforeBridgeDialIsNotStarted(t *testing.T) {
+	s := &session{
+		client: &client{socket: "/does/not/exist", nonce: "nonce-1"},
+		policy: sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/app"}},
+		done:   make(chan struct{}),
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := s.Exec(ctx, "true", sandboxpkg.ExecOptions{})
+	if err == nil || !errors.Is(err, sandboxpkg.ErrNotStarted) {
+		t.Fatalf("canceled bridge Exec error = %v, want NotStartedError", err)
+	}
+	_, err = s.Exec(t.Context(), "true", sandboxpkg.ExecOptions{EnvMode: sandboxpkg.EnvMode(99)})
+	if err == nil || !errors.Is(err, sandboxpkg.ErrNotStarted) {
+		t.Fatalf("invalid bridge environment mode error = %v, want NotStartedError", err)
+	}
+}
+
+func TestExecBridgeTransportFailureRemainsUnknown(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bridge transport uses Unix sockets")
+	}
+	socket := fmt.Sprintf("/tmp/stella-bridge-%d.sock", os.Getpid())
+	_ = os.Remove(socket)
+	defer func() { _ = os.Remove(socket) }()
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = listener.Close() }()
+	accepted := make(chan struct{})
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr == nil {
+			_ = conn.Close()
+		}
+		close(accepted)
+	}()
+	s := &session{
+		client: &client{socket: socket, nonce: "nonce-1"},
+		policy: sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/app"}},
+		done:   make(chan struct{}),
+	}
+	_, err = s.Exec(t.Context(), "true", sandboxpkg.ExecOptions{})
+	if err == nil || errors.Is(err, sandboxpkg.ErrNotStarted) {
+		t.Fatalf("bridge transport error = %v, want uncertain result", err)
+	}
+	<-accepted
+}
+
+func TestStartProcessUnsupportedIsNotStarted(t *testing.T) {
+	s := &session{done: make(chan struct{})}
+	_, err := s.StartProcess(t.Context(), sandboxpkg.ProcessRequest{Path: "/bin/true"})
+	if err == nil || !errors.Is(err, sandboxpkg.ErrNotStarted) {
+		t.Fatalf("unsupported bridge StartProcess error = %v, want NotStartedError", err)
 	}
 }
 

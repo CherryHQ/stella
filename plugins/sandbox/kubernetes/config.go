@@ -31,6 +31,14 @@ type Config struct {
 	Image, StellaHome, BundleRevision, ServerURL string
 	ServerPort                                   int
 	StartupTimeout                               time.Duration
+	// BootID is supplied by stellad's registered executor boot. Empty keeps
+	// direct package tests self-contained; production must use one shared boot
+	// identity for AgentRun, SessionSandbox labels, and recovery.
+	BootID string
+	// SkipPreviousBootCleanup defers orphan cleanup to the durable generation
+	// reconciler. Startup cleanup cannot delete a Pod before PostgreSQL fences
+	// its generation.
+	SkipPreviousBootCleanup bool
 }
 
 // Client owns one deployment connection and boot identity. Reuse it across factories.
@@ -39,6 +47,7 @@ type Client struct {
 	rest         *rest.Config
 	cfg          Config
 	boot         string
+	authority    string // Captured from the validated home PVC; never adopted later.
 	owner        *core.Pod
 	pvc          *core.PersistentVolumeClaim
 	volumePrefix string
@@ -72,7 +81,11 @@ func NewClient(ctx context.Context, cfg Config, rc *rest.Config) (*Client, error
 	if err != nil {
 		return nil, err
 	}
-	c := &Client{api: api, rest: rest.CopyConfig(rc), boot: sandbox.NewSessionID()}
+	bootID := cfg.BootID
+	if bootID == "" {
+		bootID = sandbox.NewSessionID()
+	}
+	c := &Client{api: api, rest: rest.CopyConfig(rc), boot: bootID}
 	owner, err := api.CoreV1().Pods(identity.Namespace).Get(ctx, identity.Name, meta.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("kubernetes: owner: %w", err)
@@ -102,8 +115,14 @@ func NewClient(ctx context.Context, cfg Config, rc *rest.Config) (*Client, error
 	}
 	c.pvc = pvc
 	c.volumePrefix = prefix
-	if err = c.cleanupPreviousBoot(ctx); err != nil {
+	c.authority, err = encodeResourceAuthority(owner.Namespace, string(pvc.UID))
+	if err != nil {
 		return nil, err
+	}
+	if !cfg.SkipPreviousBootCleanup {
+		if err = c.cleanupPreviousBoot(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if err = os.RemoveAll(filepath.Join(cfg.StellaHome, "tmp", "kubernetes", string(c.pvc.UID))); err != nil {
 		return nil, err

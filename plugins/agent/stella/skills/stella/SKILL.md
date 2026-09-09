@@ -75,6 +75,13 @@ clear retained resource bytes with a TTL or guessed process ID. Read
 [references/configuration.md](references/configuration.md) for operator paths
 and [references/update.md](references/update.md) for upgrades.
 
+If a sandbox reports unknown execution or a fenced resource, stop using it and
+report the interruption. Do not retry commands through a replacement backend or
+another tool. Operators can inspect the resource and follow `stellad sandbox
+--help` to verify cleanup; manual acknowledgement requires actual termination
+proof and an audit reason. These are operator commands, not an Agent shell
+surface. Normal runner retirement preserves healthy compute for later turns.
+
 ## Architecture
 
 - **Multi-agent**: Multiple agents can run simultaneously, each with its own global Provider/model selection, optional API-key override, system prompt, and workspace. Provider endpoints, types, models, and enabled state remain administrator-controlled; per-Agent key overrides are API-only.
