@@ -39,7 +39,7 @@ func (t *Tool) Search(ctx context.Context, in SkillSearchInput) (any, error) {
 		return nil, fmt.Errorf("search installed skills: %w", err)
 	}
 
-	skills := t.visibleSearchableSkills(merged)
+	skills := t.visibleSearchableSkills(ctx, merged)
 	if len(skills) == 0 {
 		return noInstalledSkills, nil
 	}
@@ -88,15 +88,19 @@ func (t *Tool) Search(ctx context.Context, in SkillSearchInput) (any, error) {
 // this agent can see no skill at all, which is worth saying plainly.
 const noInstalledSkills = "No installed skills found."
 
-func (t *Tool) visibleSearchableSkills(merged []ResolvedSkill) []Skill {
-	all := make([]Skill, 0, len(merged))
-	for _, rs := range merged {
-		all = append(all, rs.Skill)
-	}
-	all = filterVisibleSkills(all, pkgplugins.SystemPromptContext{
+func (t *Tool) visibleSearchableSkills(ctx context.Context, merged []ResolvedSkill) []Skill {
+	build := pkgplugins.SystemPromptContext{
 		RegisteredPluginIDs: t.registeredPluginIDs,
 		EnabledPluginIDs:    t.enabledPluginIDs,
-	})
+	}
+	if turn, ok := SkillTurnViewFromContext(ctx); ok {
+		build = addTurnPackageVisibility(build, turn)
+	}
+	visible := filterVisibleResolvedSkills(merged, build)
+	all := make([]Skill, 0, len(visible))
+	for _, rs := range visible {
+		all = append(all, rs.Skill)
+	}
 
 	out := make([]Skill, 0, len(all))
 	for _, skill := range all {

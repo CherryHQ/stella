@@ -2,6 +2,7 @@ package lcm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -404,6 +405,13 @@ func (p *Provider) appendRowsWithQueries(ctx context.Context, qtx *sqlc.Queries,
 	for rowIndex, row := range rows {
 		seq++
 		actor := actorForStorageRow(ctx, session, row)
+		var executionMetadata []byte
+		if row.execution != nil {
+			executionMetadata, err = json.Marshal(row.execution)
+			if err != nil {
+				return fmt.Errorf("marshal execution metadata: %w", err)
+			}
+		}
 		inboxID := pgtype.Text{}
 		if claim != nil && rowIndex == 0 {
 			inboxID = pgtype.Text{String: claim.id, Valid: true}
@@ -421,6 +429,7 @@ func (p *Provider) appendRowsWithQueries(ctx context.Context, qtx *sqlc.Queries,
 			SourceSessionID:      pgtype.Text{String: actor.SourceSessionID, Valid: actor.SourceSessionID != ""},
 			InboxID:              inboxID,
 			OriginGroupMessageID: pgtype.Text{String: row.originGroupMessageID, Valid: row.originGroupMessageID != ""},
+			ExecutionMetadata:    executionMetadata,
 		})
 		if err != nil {
 			return fmt.Errorf("create message: %w", err)

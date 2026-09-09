@@ -243,6 +243,70 @@ func TestRefreshSessionEnvPreservesOldEnvOnFailure(t *testing.T) {
 	}
 }
 
+func TestRefreshSessionEnvReportsUnavailableRequiredPlugin(t *testing.T) {
+	ctx := t.Context()
+	store := newStubOAuthVaultStore()
+	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"ACME_TOKEN": "expired"}}
+	cfg := oauthRefreshConfig(t, store, "", []pkgplugins.SessionEnvSpec{{
+		PluginID: "needs-acme", EnvVar: "ACME_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"),
+		OAuthProviderID: "acme", Required: true,
+	}})
+	result := RefreshSessionEnv(ctx, sess, cfg)
+	if result.Ready {
+		t.Fatal("missing provider authorization must make the turn unavailable")
+	}
+	if !result.PluginUnavailable("needs-acme") {
+		t.Fatalf("UnavailablePluginIDs = %v, want needs-acme", result.UnavailablePluginIDs)
+	}
+	if got := sess.env["ACME_TOKEN"]; got != "expired" {
+		t.Fatalf("failed refresh must not rotate an unavailable credential, got %q", got)
+	}
+}
+
+func TestRefreshSessionEnvOptionalProviderFailureDoesNotBlockTurn(t *testing.T) {
+	ctx := t.Context()
+	store := newStubOAuthVaultStore()
+	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{}}
+	cfg := oauthRefreshConfig(t, store, "", []pkgplugins.SessionEnvSpec{{
+		PluginID: "optional-acme", EnvVar: "ACME_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"),
+		OAuthProviderID: "acme", Required: false,
+	}})
+	result := RefreshSessionEnv(ctx, sess, cfg)
+	if !result.Ready {
+		t.Fatal("missing optional OAuth provider must not block the turn")
+	}
+	if !result.PluginUnavailable("optional-acme") {
+		t.Fatalf("UnavailablePluginIDs = %v, want optional-acme", result.UnavailablePluginIDs)
+	}
+	if !slices.Contains(result.UnavailableProviders, "acme") {
+		t.Fatalf("UnavailableProviders = %v, want acme", result.UnavailableProviders)
+	}
+}
+
+func TestRefreshSessionEnvChecksPackagesIndependently(t *testing.T) {
+	ctx := t.Context()
+	store := newStubOAuthVaultStore()
+	if err := oauth.SaveOAuthBundle(ctx, store, "u1", "ACME_OAUTH", oauth.OAuthBundle{
+		Version: 1, AccessToken: "new-access", AccessExpiresAt: time.Now().Add(2 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{
+		"ACCESS": "old-access", "CLIENT": "old-client",
+	}}
+	cfg := oauthRefreshConfig(t, store, "", []pkgplugins.SessionEnvSpec{
+		{PluginID: "access-package", EnvVar: "ACCESS", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "acme", Required: true},
+		{PluginID: "client-package", EnvVar: "CLIENT", Source: pkgplugins.SessionEnvSource("oauth.client_id"), OAuthProviderID: "acme", Required: true},
+	})
+	result := RefreshSessionEnv(ctx, sess, cfg)
+	if result.Ready || !result.PluginUnavailable("client-package") || result.PluginUnavailable("access-package") {
+		t.Fatalf("result = %+v, want only client-package unavailable", result)
+	}
+	if sess.env["ACCESS"] != "new-access" || sess.env["CLIENT"] != "old-client" {
+		t.Fatalf("env = %#v, want only access binding rotated", sess.env)
+	}
+}
+
 // TestRefreshSessionEnvNoOpWithoutRefresher asserts a session that cannot refresh
 // its env is a safe no-op (no panic).
 func TestRefreshSessionEnvNoOpWithoutRefresher(t *testing.T) {

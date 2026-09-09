@@ -15,6 +15,7 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/ai"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -215,6 +216,33 @@ func TestSerializeToolRowExportsTypedChildAuditOnly(t *testing.T) {
 	child := (*m.ChildCalls)[0]
 	if child.Id != "outer:1" || child.Name != "bash" || !child.IsError || child.ErrorKind == nil || *child.ErrorKind != apitypes.SessionChildToolCallAuditErrorKindToolError {
 		t.Fatalf("child call = %#v", child)
+	}
+}
+
+func TestSerializeExecutionSummaryKeepsSkillOnlyView(t *testing.T) {
+	got := serializeExecutionSummary(&ai.ExecutionSummary{Skills: []ai.ExecutionSkill{{
+		PluginID: "pkg", Name: "docs", Source: "package", Digest: "sha256:abc", State: "masked",
+	}}})
+	if got == nil || len(got.Plugins) != 0 || got.Skills == nil || len(*got.Skills) != 1 {
+		t.Fatalf("serialized skill-only summary = %#v", got)
+	}
+	if (*got.Skills)[0].State == nil || *(*got.Skills)[0].State != apitypes.Masked {
+		t.Fatalf("serialized skill state = %#v", (*got.Skills)[0])
+	}
+}
+
+func TestDecodeExecutionMetadataKeepsSkillOnlyView(t *testing.T) {
+	actualJSON := []byte(`{"skills":[{"plugin_id":"pkg","name":"docs","source":"package","digest":"sha256:abc","state":"masked"}]}`)
+	decoded := decodeExecutionMetadata(actualJSON)
+	if decoded == nil || len(decoded.Plugins) != 0 || len(decoded.Skills) != 1 {
+		t.Fatalf("decoded skill-only summary = %#v", decoded)
+	}
+	serialized := serializeExecutionSummary(decoded)
+	if serialized == nil || serialized.Skills == nil || len(*serialized.Skills) != 1 {
+		t.Fatalf("re-serialized skill-only summary = %#v", serialized)
+	}
+	if (*serialized.Skills)[0].State == nil || *(*serialized.Skills)[0].State != apitypes.Masked {
+		t.Fatalf("decoded skill state = %#v", (*serialized.Skills)[0])
 	}
 }
 

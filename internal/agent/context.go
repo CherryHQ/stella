@@ -35,3 +35,11 @@ func WithExcludedTools(ctx context.Context, names ...string) context.Context {
 func ExcludedToolsFromContext(ctx context.Context) []string {
 	return agentctx.ExcludedToolsFromContext(ctx)
 }
+
+func WithAllowedTools(ctx context.Context, names ...string) context.Context {
+	return agentctx.WithAllowedTools(ctx, names...)
+}
+
+func AllowedToolsFromContext(ctx context.Context) ([]string, bool) {
+	return agentctx.AllowedToolsFromContext(ctx)
+}

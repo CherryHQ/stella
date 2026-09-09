@@ -31,6 +31,7 @@ import (
 	"github.com/CherryHQ/stella/internal/mcp"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/oidc"
+	pluginpkg "github.com/CherryHQ/stella/internal/plugin"
 	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -55,11 +56,14 @@ type Server struct {
 	toolOverrides   *agent.ToolOverrideStore
 	sessionAccess   *sessionaccess.Service
 	skillAccess     *access.Service
-	skills          *skill.POSIXStore
+	skills          *skill.FileStore
+	skillManagement *skill.Management
 	rateLimiter     *auth.RateLimiter
 	linkCodes       *auth.LinkCodeStore
 	poolManager     *agent.PoolManager
 	pluginHost      *host.Host
+	pluginFiles     *pluginpkg.FileService // optional; file-backed plugin endpoints
+	nativePolicy    *pluginpkg.NativePolicy
 	weixinRegistrar WeixinRegistrar
 	// pinger is the narrow database-liveness port backing the /healthz, /readyz,
 	// and admin status probes. It is the injected pool viewed as DBPinger, so the
@@ -70,8 +74,9 @@ type Server struct {
 	vaultRecipient       *age.X25519Recipient  // optional; if set, age keys are generated for new users
 	vaultSvc             *vault.Service        // optional; if nil, vault endpoints return 503
 	mcpSvc               *mcp.Service          // optional; if nil, MCP endpoints return 503
+	mcpFiles             *mcp.FileService      // optional; file-backed MCP endpoints
+	agentMCPCatalog      agent.MCPCatalogFunc  // optional; authority-bound file MCP tools
 	mcpCatalog           mcp.Catalog           // optional; if nil, registry endpoints return 503
-	mcpAccess            *mcp.Access           // optional; shared scoped MCP authority boundary
 	credResolver         *credential.Service   // unified bearer credential front door
 	oauthAS              *oidc.Service         // OAuth2 authorization server
 	controlPlane         *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
@@ -169,16 +174,23 @@ type Deps struct {
 	// SkillAccess is the DB-backed Skill enforcement point. When nil the
 	// skill endpoints report 503 through the centralized unavailable mapping.
 	SkillAccess *access.Service
+	// SkillManagement is the single authorization and mutation boundary for
+	// managed Skill CRUD, source fetches, upgrades, and file deletion.
+	SkillManagement *skill.Management
 	// Skills is the single managed-Skill authority used by HTTP transports. The
 	// exact revision and digest-CAS surfaces are mandatory; no plugin service
 	// locator or capability assertion participates in management requests.
-	Skills    *skill.POSIXStore
+	Skills    *skill.FileStore
 	LinkCodes *auth.LinkCodeStore
 	OIDC      OIDCDeps
 
-	// Agent runtime + plugins.
-	PoolManager  *agent.PoolManager
-	PluginHost   *host.Host
+	// Agent runtime and native plugin host.
+	PoolManager *agent.PoolManager
+	PluginHost  *host.Host
+	// PluginFiles is the authority-bound file-backed plugin capability. File
+	// endpoints return 503 when it is absent.
+	PluginFiles  *pluginpkg.FileService
+	NativePolicy *pluginpkg.NativePolicy
 	BuiltinTools []agent.BuiltinTool
 	// ToolMeta is the generated declaration registry already assembled by the
 	// composition root. Profile catalog rows use it for family metadata; plugins
@@ -222,16 +234,17 @@ type Deps struct {
 	// matching endpoints report 503 through the centralized unavailable mapping
 	// (see capabilityUnavailable). Presence is never inferred from the
 	// environment inside the server.
-	Vault          *vault.Service
-	VaultRecipient *age.X25519Recipient
-	MCP            *mcp.Service
-	MCPCatalog     mcp.Catalog
-	MCPAccess      *mcp.Access
-	Scheduler      *scheduler.Service
-	Goal           *goal.Service
-	Workflow       *workflowpkg.Service
-	Provisioning   *provisioning.Service
-	Library        *library.Service
+	Vault           *vault.Service
+	VaultRecipient  *age.X25519Recipient
+	MCP             *mcp.Service
+	MCPFiles        *mcp.FileService
+	AgentMCPCatalog agent.MCPCatalogFunc
+	MCPCatalog      mcp.Catalog
+	Scheduler       *scheduler.Service
+	Goal            *goal.Service
+	Workflow        *workflowpkg.Service
+	Provisioning    *provisioning.Service
+	Library         *library.Service
 }
 
 // OIDCDeps groups the login-authentication components produced by oidc.Setup.
@@ -272,6 +285,7 @@ func (d Deps) validate() error {
 	req(d.AgentSkillPolicy != nil, "AgentSkillPolicy")
 	req(d.SessionAccess != nil, "SessionAccess")
 	req(d.Skills != nil, "Skills")
+	req(d.SkillManagement != nil, "SkillManagement")
 	req(d.LinkCodes != nil, "LinkCodes")
 	req(d.PoolManager != nil, "PoolManager")
 	req(d.PluginHost != nil, "PluginHost")
@@ -328,12 +342,15 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		sessionAccess:        deps.SessionAccess,
 		skillAccess:          deps.SkillAccess,
 		skills:               deps.Skills,
+		skillManagement:      deps.SkillManagement,
 		rateLimiter:          auth.NewRateLimiter(),
 		webhookLimiter:       newWebhookLimiter(5, 20),
 		linkCodes:            deps.LinkCodes,
 		poolManager:          deps.PoolManager,
 		pinger:               deps.Pinger,
 		pluginHost:           deps.PluginHost,
+		pluginFiles:          deps.PluginFiles,
+		nativePolicy:         deps.NativePolicy,
 		weixinRegistrar:      deps.WeixinRegistrar,
 		mux:                  http.NewServeMux(),
 		log:                  log,
@@ -343,8 +360,9 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		vaultRecipient:       deps.VaultRecipient,
 		vaultSvc:             deps.Vault,
 		mcpSvc:               deps.MCP,
+		mcpFiles:             deps.MCPFiles,
+		agentMCPCatalog:      deps.AgentMCPCatalog,
 		mcpCatalog:           deps.MCPCatalog,
-		mcpAccess:            deps.MCPAccess,
 		credResolver:         deps.CredentialFrontDoor,
 		oauthAS:              deps.OAuthAuthServer,
 		controlPlane:         deps.ControlPlane,

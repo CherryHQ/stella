@@ -26,6 +26,7 @@ const (
 
 type OwnerFenceLease interface {
 	Commit()
+	CommitUnknown()
 	Release()
 }
 type OwnerFenceAcquirer interface {
@@ -174,7 +175,7 @@ func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor st
 			return nil
 		}
 		if e != nil {
-			lease.Commit()
+			lease.CommitUnknown()
 			return fmt.Errorf("home: unknown commit outcome: %w", err)
 		}
 		return err

@@ -101,8 +101,10 @@ func (f *factory) CreateSession(ctx context.Context, p sandbox.Policy) (sandbox.
 			return nil, errors.New("kubernetes: invalid mount access")
 		}
 
-		// These two runtime trees belong to the verified Linux image, not the host.
-		if m.SandboxPath == "/opt/stella/bin" || m.SandboxPath == "/opt/stella/.mise-tools" {
+		// The image owns the shared mise tree, but the core selection at
+		// /opt/stella/bin is a verified Linux projection prepared on the same
+		// Kubernetes node and must be mounted for EnvCoreRuntimeDir to resolve.
+		if m.SandboxPath == "/opt/stella/.mise-tools" {
 			if m.Access != sandbox.MountReadOnly {
 				return nil, errors.New("kubernetes: image runtime mounts must be read-only")
 			}
@@ -178,7 +180,7 @@ func (f *factory) CreateSession(ctx context.Context, p sandbox.Policy) (sandbox.
 		return nil, err
 	}
 	s := &session{client: c, pod: created, policy: p, sources: maps.Clone(f.sources), resolver: resolver, files: sessionfs.NewAccessWithTempDir(resolver, "/tmp"), tmp: tmp, done: make(chan struct{})}
-	s.policy.Env = s.environment(nil)
+	s.policy.Env = s.environment(nil, sandbox.EnvOverlay)
 	keep = true // Never remove backing storage before execution has been fenced.
 	err = wait.PollUntilContextCancel(ctx, 200*time.Millisecond, true, func(ctx context.Context) (bool, error) {
 		got, err := c.api.CoreV1().Pods(c.owner.Namespace).Get(ctx, pod.Name, meta.GetOptions{})
@@ -246,7 +248,7 @@ func (s *session) Done() <-chan struct{} { return s.done }
 func (s *session) RefreshEnv(env map[string]string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.policy.Env = s.environment(env)
+	s.policy.Env = s.environment(env, sandbox.EnvOverlay)
 }
 
 func (s *session) Close() error {

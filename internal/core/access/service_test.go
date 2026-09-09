@@ -241,3 +241,19 @@ func TestNoNeedlessAssignmentQuery(t *testing.T) {
 		t.Fatalf("user system-scope read touched the assignment store %d times, want 0", userAssign.calls)
 	}
 }
+
+func TestDisabledAgentReadRemainsAvailableButExecuteIsForbidden(t *testing.T) {
+	ctx := context.Background()
+	store := testStore{agents: map[string]config.Agent{
+		"disabled": {ID: "disabled", Scope: config.AgentScopeRestricted, CreatorID: "owner", Enabled: false},
+	}}
+	assign := &testAssignments{ids: []string{"disabled"}}
+	svc := NewService(store, assign)
+	user := userAuthority(t, "owner", false)
+	if _, err := svc.Read(ctx, user, "disabled"); err != nil {
+		t.Fatalf("disabled agent read = %v, want nil", err)
+	}
+	if _, err := svc.Use(ctx, user, "disabled"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("disabled agent execute = %v, want forbidden", err)
+	}
+}

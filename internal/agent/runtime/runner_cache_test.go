@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -12,21 +13,23 @@ import (
 	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // --- fake runner ------------------------------------------------------------
 
 type fakeRunner struct {
-	alive      bool
-	busy       bool
-	closed     bool
-	lastAct    time.Time
-	system     string
-	chatSystem string
-	closeErr   error
-	panicAlive bool
-	panicBusy  bool
-	panicClose bool
+	alive         bool
+	busy          bool
+	closed        bool
+	lastAct       time.Time
+	system        string
+	chatSystem    string
+	closeErr      error
+	panicAlive    bool
+	panicBusy     bool
+	panicClose    bool
+	pluginContext PluginContext
 }
 
 func newFakeRunner() *fakeRunner { return &fakeRunner{alive: true, lastAct: time.Now()} }
@@ -72,14 +75,299 @@ func (r *fakeRunner) Busy() bool {
 	}
 	return r.busy
 }
-func (r *fakeRunner) LastActivity() time.Time { return r.lastAct }
-func (r *fakeRunner) SystemPrompt() string    { return r.system }
+func (r *fakeRunner) LastActivity() time.Time      { return r.lastAct }
+func (r *fakeRunner) SystemPrompt() string         { return r.system }
+func (r *fakeRunner) PluginContext() PluginContext { return r.pluginContext }
 func (r *fakeRunner) Close() error {
 	if r.panicClose {
 		panic("close panic")
 	}
 	r.closed = true
 	return r.closeErr
+}
+
+func TestRunnerBuildOwnerDefersPartialCloseUntilComplete(t *testing.T) {
+	resource := newFakeRunner()
+	owner := NewRunnerBuildOwner()
+	if err := owner.AdoptRunner(resource); err != nil {
+		t.Fatalf("adopt partial runner: %v", err)
+	}
+	if err := owner.Close(); err != nil {
+		t.Fatalf("incomplete close: %v", err)
+	}
+	if resource.closed {
+		t.Fatal("incomplete build owner closed its partial runner")
+	}
+	owner.Complete()
+	if err := owner.Close(); err != nil {
+		t.Fatalf("complete close: %v", err)
+	}
+	if !resource.closed {
+		t.Fatal("complete build owner did not close its partial runner")
+	}
+}
+
+func TestRunnerBuildOwnerRetriesPartialCloseAfterFailure(t *testing.T) {
+	resource := newFakeRunner()
+	want := errors.New("partial close failed")
+	resource.closeErr = want
+	owner := NewRunnerBuildOwner()
+	if err := owner.AdoptRunner(resource); err != nil {
+		t.Fatalf("adopt partial runner: %v", err)
+	}
+	owner.Complete()
+	if err := owner.Close(); !errors.Is(err, want) {
+		t.Fatalf("first close = %v, want %v", err, want)
+	}
+	resource.closeErr = nil
+	if err := owner.Close(); err != nil {
+		t.Fatalf("retry close: %v", err)
+	}
+}
+
+func TestRunnerCacheClosesPartialOwnerWhenFactoryFails(t *testing.T) {
+	want := errors.New("registry build failed")
+	partial := newFakeRunner()
+	cache := newRunnerCache(func(_ context.Context, params RunnerParams) (Runner, error) {
+		if err := params.BuildOwner.AdoptRunner(partial); err != nil {
+			t.Fatalf("adopt partial runner: %v", err)
+		}
+		return nil, want
+	}, fakeMemory{}, time.Minute, slog.Default())
+	if _, _, err := cache.getOrCreate(context.Background(), validInfo("partial-factory-error"), "", ""); !errors.Is(err, want) {
+		t.Fatalf("factory error = %v, want %v", err, want)
+	}
+	if !partial.closed {
+		t.Fatal("partial runner was not closed after factory failure")
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if len(cache.retired) != 0 {
+		t.Fatalf("retired partial owner remains after successful close: %d", len(cache.retired))
+	}
+}
+
+func TestRunnerCacheRetiresPartialOwnerWhenTerminalCloseRacesFactory(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	partial := newFakeRunner()
+	cache := newRunnerCache(func(_ context.Context, params RunnerParams) (Runner, error) {
+		if err := params.BuildOwner.AdoptRunner(partial); err != nil {
+			t.Fatalf("adopt partial runner: %v", err)
+		}
+		close(started)
+		<-release
+		return partial, nil
+	}, fakeMemory{}, time.Minute, slog.Default())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, _, err := cache.getOrCreate(ctx, validInfo("partial-terminal-close"), "", "")
+		result <- err
+	}()
+	<-started
+	closeDetached := cache.detachCloseAll()
+	closed := make(chan error, 1)
+	go func() { closed <- closeDetached() }()
+	select {
+	case <-closed:
+		t.Fatal("terminal close completed before construction was fenced")
+	default:
+	}
+	cancel()
+	close(release)
+	if err := <-result; err == nil {
+		t.Fatal("raced build was admitted after terminal close")
+	}
+	if err := <-closed; err != nil {
+		t.Fatalf("closeAll during build: %v", err)
+	}
+	if !partial.closed {
+		t.Fatal("detached partial runner was not closed")
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if len(cache.retired) != 0 {
+		t.Fatalf("retired partial owner remains after terminal close: %d", len(cache.retired))
+	}
+}
+
+type blockingCloseGate struct {
+	mu         sync.Mutex
+	started    int
+	want       int
+	active     int
+	maxActive  int
+	allStarted chan struct{}
+	release    chan struct{}
+}
+
+func (g *blockingCloseGate) markStarted() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.started++
+	g.active++
+	if g.active > g.maxActive {
+		g.maxActive = g.active
+	}
+	if g.started == g.want {
+		close(g.allStarted)
+	}
+}
+
+func (g *blockingCloseGate) markFinished() {
+	g.mu.Lock()
+	g.active--
+	g.mu.Unlock()
+}
+
+func (g *blockingCloseGate) peakActive() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.maxActive
+}
+
+type blockingCloseRunner struct {
+	*fakeRunner
+	gate *blockingCloseGate
+	err  error
+}
+
+func (r *blockingCloseRunner) Close() error {
+	r.gate.markStarted()
+	defer r.gate.markFinished()
+	<-r.gate.release
+	r.closed = true
+	return r.err
+}
+
+func TestRunnerCacheResetClosesIdleRunnersConcurrentlyAndWaits(t *testing.T) {
+	ids := []string{"idle-close-a", "idle-close-b"}
+	wantErr := errors.New("close failed")
+	gate := &blockingCloseGate{
+		want:       len(ids),
+		allStarted: make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	runners := make([]*blockingCloseRunner, 0, len(ids))
+	for i, id := range ids {
+		r := &blockingCloseRunner{fakeRunner: newFakeRunner(), gate: gate}
+		if i == 0 {
+			r.err = wantErr
+		}
+		runners = append(runners, r)
+		cache.sessions[id] = &cachedSession{r: r, info: validInfo(id)}
+	}
+
+	resetDone := make(chan error, 1)
+	go func() { resetDone <- cache.reset() }()
+	select {
+	case <-gate.allStarted:
+	case <-time.After(time.Second):
+		close(gate.release)
+		t.Fatal("reset did not start all idle runner closes concurrently")
+	}
+	select {
+	case err := <-resetDone:
+		t.Fatalf("reset returned before all closes were released: %v", err)
+	default:
+	}
+
+	close(gate.release)
+	if err := <-resetDone; !errors.Is(err, wantErr) {
+		t.Fatalf("reset error = %v, want %v", err, wantErr)
+	}
+	for _, r := range runners {
+		if !r.closed {
+			t.Fatal("reset returned before a detached runner closed")
+		}
+	}
+}
+
+func TestRunnerCacheResetBoundsConcurrentIdleRunnerCloses(t *testing.T) {
+	const runnerCount = maxConcurrentRunnerCloses + 1
+	gate := &blockingCloseGate{
+		want:       maxConcurrentRunnerCloses,
+		allStarted: make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	runners := make([]*blockingCloseRunner, 0, runnerCount)
+	for i := range runnerCount {
+		id := "bounded-close-" + strconv.Itoa(i)
+		r := &blockingCloseRunner{fakeRunner: newFakeRunner(), gate: gate}
+		runners = append(runners, r)
+		cache.sessions[id] = &cachedSession{r: r, info: validInfo(id)}
+	}
+
+	resetDone := make(chan error, 1)
+	go func() { resetDone <- cache.reset() }()
+	select {
+	case <-gate.allStarted:
+	case <-time.After(time.Second):
+		close(gate.release)
+		t.Fatal("reset did not start the close worker batch")
+	}
+	select {
+	case err := <-resetDone:
+		close(gate.release)
+		t.Fatalf("reset returned before the first close batch was released: %v", err)
+	default:
+	}
+
+	close(gate.release)
+	if err := <-resetDone; err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	if got := gate.peakActive(); got > maxConcurrentRunnerCloses {
+		t.Fatalf("peak concurrent closes = %d, want <= %d", got, maxConcurrentRunnerCloses)
+	}
+	for _, r := range runners {
+		if !r.closed {
+			t.Fatal("reset returned before a detached runner closed")
+		}
+	}
+}
+
+func TestRunnerCacheKeepsReservedContextAndRefreshesNewRunner(t *testing.T) {
+	first := newFakeRunner()
+	first.pluginContext = PluginContext{view: pkgplugins.SessionPluginView{ExposedPluginIDs: []string{"plugin/old"}}}
+	second := newFakeRunner()
+	second.pluginContext = PluginContext{view: pkgplugins.SessionPluginView{ExposedPluginIDs: []string{"plugin/new"}}}
+	builds := 0
+	cache := newRunnerCache(func(context.Context, RunnerParams) (Runner, error) {
+		builds++
+		if builds == 1 {
+			return first, nil
+		}
+		return second, nil
+	}, fakeMemory{}, time.Minute, slog.Default())
+	info := session.Info{ID: "session", UserID: "user", AgentID: "agent"}
+
+	selection, err := cache.getOrCreateReserved(context.Background(), info, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := selection.pluginContext.SessionPluginView().ExposedPluginIDs; len(got) != 1 || got[0] != "plugin/old" {
+		t.Fatalf("first selection context = %v", got)
+	}
+	if err := cache.invalidateSkillPolicy(); err != nil {
+		t.Fatal(err)
+	}
+	cache.releaseReservation(selection.session)
+
+	selection, err = cache.getOrCreateReserved(context.Background(), info, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selection.runner != second {
+		t.Fatalf("runner after invalidation = %p, want refreshed runner %p", selection.runner, second)
+	}
+	if got := selection.pluginContext.SessionPluginView().ExposedPluginIDs; len(got) != 1 || got[0] != "plugin/new" {
+		t.Fatalf("refreshed selection context = %v", got)
+	}
 }
 
 // --- fake memory provider ---------------------------------------------------
@@ -556,7 +844,7 @@ func TestAdmittedSelectionKeepsModelThinkingAcrossReset(t *testing.T) {
 		Memory:          mem,
 		DefaultModel:    "old-model",
 		DefaultThinking: "low",
-		BeforeRun: func(_ context.Context, _ session.Info, model, _ string, _ string, _ []ai.Message) (string, error) {
+		BeforeRun: func(_ context.Context, _ session.Info, model, _ string, _ string, _ []ai.Message, _ PluginContext) (string, error) {
 			mu.Lock()
 			beforeModels = append(beforeModels, model)
 			mu.Unlock()
@@ -606,30 +894,35 @@ func TestAdmittedSelectionKeepsModelThinkingAcrossReset(t *testing.T) {
 	}
 }
 
-func TestResetDuringReservedFactoryBuildKeepsSelectionAndDropsCacheMetadata(t *testing.T) {
+func TestResetDuringReservedFactoryBuildRetriesWithNewSelection(t *testing.T) {
 	factoryStarted := make(chan struct{})
 	releaseFactory := make(chan struct{})
+	release := sync.OnceFunc(func() { close(releaseFactory) })
+	defer release()
 	var (
-		params []RunnerParams
-		models []string
-		mu     sync.Mutex
+		params  []RunnerParams
+		models  []string
+		runners []*fakeRunner
+		mu      sync.Mutex
 	)
 	rt, err := New(Config{
 		NewRunner: func(_ context.Context, p RunnerParams) (Runner, error) {
+			runner := newFakeRunner()
 			mu.Lock()
 			params = append(params, p)
+			runners = append(runners, runner)
 			first := len(params) == 1
 			mu.Unlock()
 			if first {
 				close(factoryStarted)
 				<-releaseFactory
 			}
-			return newFakeRunner(), nil
+			return runner, nil
 		},
 		Memory:          fakeMemory{},
 		DefaultModel:    "old-model",
 		DefaultThinking: "low",
-		BeforeRun: func(_ context.Context, _ session.Info, model, _ string, _ string, _ []ai.Message) (string, error) {
+		BeforeRun: func(_ context.Context, _ session.Info, model, _ string, _ string, _ []ai.Message, _ PluginContext) (string, error) {
 			mu.Lock()
 			models = append(models, model)
 			mu.Unlock()
@@ -654,14 +947,14 @@ func TestResetDuringReservedFactoryBuildKeepsSelectionAndDropsCacheMetadata(t *t
 	if err := rt.ResetRunners(); err != nil {
 		t.Fatalf("reset during factory build: %v", err)
 	}
-	close(releaseFactory)
+	release()
 	first := <-admitted
 	if first.err != nil {
-		t.Fatalf("admit old turn: %v", first.err)
+		t.Fatalf("retry admission: %v", first.err)
 	}
 	for event := range first.stream {
 		if event.Err != nil {
-			t.Fatalf("old turn event: %v", event.Err)
+			t.Fatalf("retried turn event: %v", event.Err)
 		}
 	}
 	for event := range rt.Chat(context.Background(), info, "second") {
@@ -671,8 +964,11 @@ func TestResetDuringReservedFactoryBuildKeepsSelectionAndDropsCacheMetadata(t *t
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(params) != 2 || params[0].Model != "old-model" || params[0].Thinking != "low" || params[1].Model != "new-model" || params[1].Thinking != "high" || len(models) != 2 || models[0] != "old-model" || models[1] != "new-model" {
+	if len(params) != 2 || params[0].Model != "old-model" || params[0].Thinking != "low" || params[1].Model != "new-model" || params[1].Thinking != "high" || len(models) != 2 || models[0] != "new-model" || models[1] != "new-model" {
 		t.Fatalf("factory-build reset params=%#v models=%#v; want old immutable then new defaults", params, models)
+	}
+	if !runners[0].closed {
+		t.Fatal("discarded old runner was not closed")
 	}
 }
 
@@ -692,7 +988,7 @@ func TestCompactionKeepsAdmittedSelectionMetadata(t *testing.T) {
 		Memory:          mem,
 		DefaultModel:    "old-model",
 		DefaultThinking: "low",
-		BeforeRun: func(_ context.Context, _ session.Info, model, _ string, _ string, _ []ai.Message) (string, error) {
+		BeforeRun: func(_ context.Context, _ session.Info, model, _ string, _ string, _ []ai.Message, _ PluginContext) (string, error) {
 			mu.Lock()
 			models = append(models, model)
 			mu.Unlock()
@@ -941,6 +1237,59 @@ func TestFailedAdmissionRetirementClosePanicIsBounded(t *testing.T) {
 	}
 }
 
+func TestRunnerCacheRetriesRetiredCloseAfterError(t *testing.T) {
+	want := errors.New("close failed")
+	r := newFakeRunner()
+	r.closeErr = want
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	cache.sessions["retry-close"] = &cachedSession{r: r, info: validInfo("retry-close")}
+	if err := cache.reset(); !errors.Is(err, want) {
+		t.Fatalf("first reset error = %v, want %v", err, want)
+	}
+	cache.mu.Lock()
+	retired := len(cache.retired)
+	cache.mu.Unlock()
+	if retired != 1 {
+		t.Fatalf("retired entries after close error = %d, want 1", retired)
+	}
+	r.closeErr = nil
+	if err := cache.reset(); err != nil {
+		t.Fatalf("retry reset: %v", err)
+	}
+	cache.mu.Lock()
+	retired = len(cache.retired)
+	cache.mu.Unlock()
+	if retired != 0 {
+		t.Fatalf("retired entries after successful retry = %d, want 0", retired)
+	}
+}
+
+func TestRunnerCacheRetriesRetiredCloseAfterPanic(t *testing.T) {
+	r := newFakeRunner()
+	r.panicClose = true
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	cache.sessions["retry-panic-close"] = &cachedSession{r: r, info: validInfo("retry-panic-close")}
+	if err := cache.reset(); err == nil {
+		t.Fatal("first reset error = nil, want recovered close panic")
+	}
+	cache.mu.Lock()
+	retired := len(cache.retired)
+	cache.mu.Unlock()
+	if retired != 1 {
+		t.Fatalf("retired entries after close panic = %d, want 1", retired)
+	}
+	r.panicClose = false
+	if err := cache.reset(); err != nil {
+		t.Fatalf("retry reset: %v", err)
+	}
+	cache.mu.Lock()
+	retired = len(cache.retired)
+	cache.mu.Unlock()
+	if retired != 0 {
+		t.Fatalf("retired entries after successful panic retry = %d, want 0", retired)
+	}
+}
+
 func newFailedAdmissionRuntime(t *testing.T, sessionID string) (*Runtime, session.Info, *fakeRunner, *int) {
 	t.Helper()
 	bad := newFakeRunner()
@@ -1069,7 +1418,7 @@ func TestRuntimeChat_BeforeRunOverride(t *testing.T) {
 			return runner, nil
 		},
 		Memory: fakeMemory{},
-		BeforeRun: func(_ context.Context, info session.Info, model, msgText, system string, history []ai.Message) (string, error) {
+		BeforeRun: func(_ context.Context, info session.Info, model, msgText, system string, history []ai.Message, _ PluginContext) (string, error) {
 			if info.ID != "s1" {
 				t.Fatalf("session ID = %q, want s1", info.ID)
 			}
@@ -1390,5 +1739,103 @@ func TestFailedFactoryRunnerRemainsAvailableForOwnerFence(t *testing.T) {
 	r.closeErr = nil
 	if err := cache.close(info.ID); err != nil || cache.sessions[info.ID] != nil {
 		t.Fatalf("retry: %v", err)
+	}
+}
+
+type blockedBootstrapMemory struct {
+	fakeMemory
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (m blockedBootstrapMemory) Bootstrap(context.Context, memory.Session) error {
+	close(m.entered)
+	<-m.release
+	return nil
+}
+
+func TestOwnerFenceRejectsAdmissionDuringBootstrap(t *testing.T) {
+	mem := blockedBootstrapMemory{entered: make(chan struct{}), release: make(chan struct{})}
+	r := newFakeRunner()
+	cache := newRunnerCache(func(context.Context, RunnerParams) (Runner, error) { return r, nil }, mem, time.Minute, slog.Default())
+	admitted := make(chan error, 1)
+	go func() {
+		_, err := cache.getOrCreateReserved(t.Context(), validInfo("bootstrap-fence"), "", "")
+		admitted <- err
+	}()
+	<-mem.entered
+	closeDetached := cache.detachWhere(func(*cachedSession) bool { return true })
+	closed := make(chan error, 1)
+	go func() { closed <- closeDetached() }()
+	close(mem.release)
+	if err := <-admitted; err == nil {
+		t.Fatal("admitted a runner after owner fencing during bootstrap")
+	}
+	if err := <-closed; err != nil {
+		t.Fatal(err)
+	}
+	if !r.closed || len(cache.sessions) != 0 {
+		t.Fatal("owner fence left execution behind")
+	}
+}
+
+type blockedRetryRunner struct {
+	*fakeRunner
+	calls   int
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (r *blockedRetryRunner) Close() error {
+	r.calls++
+	if r.calls == 2 {
+		close(r.entered)
+		<-r.release
+	}
+	return errors.New("termination unconfirmed")
+}
+
+func TestOwnerFenceWaitsForRetirementRetry(t *testing.T) {
+	r := &blockedRetryRunner{fakeRunner: newFakeRunner(), entered: make(chan struct{}), release: make(chan struct{})}
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	info := validInfo("retry-fence")
+	cache.sessions[info.ID] = &cachedSession{info: info, r: r}
+	if err := cache.reset(); err == nil {
+		t.Fatal("first Close failure was hidden")
+	}
+	retried := make(chan error, 1)
+	go func() { retried <- cache.closeRetiredBatch() }()
+	<-r.entered
+	closeDetached := cache.detachWhere(func(*cachedSession) bool { return true })
+	closed := make(chan error, 1)
+	go func() { closed <- closeDetached() }()
+	select {
+	case <-closed:
+		t.Fatal("owner fence ignored a pending retry after an earlier failure")
+	default:
+	}
+	close(r.release)
+	if err := <-retried; err == nil {
+		t.Fatal("retry failure was hidden")
+	}
+	if err := <-closed; err == nil {
+		t.Fatal("owner fence reported success despite failed termination")
+	}
+	if cache.sessions[info.ID] == nil {
+		t.Fatal("pending execution lost its owner")
+	}
+}
+
+func TestFactoryGenerationRetryRejectsPendingRetirement(t *testing.T) {
+	called := false
+	cache := newRunnerCache(func(context.Context, RunnerParams) (Runner, error) { called = true; return newFakeRunner(), nil }, fakeMemory{}, time.Minute, slog.Default())
+	info := validInfo("generation-cleanup")
+	cs := &cachedSession{info: info, operation: make(chan struct{})}
+	cache.sessions[info.ID] = cs
+	// A concurrent cleanup already owns this failed generation. The next
+	// factory attempt shares the admission operation and must not overlap it.
+	cache.retired = []*retiredRunner{{session: cs, runner: newFakeRunner(), closing: true, done: make(chan struct{})}}
+	if _, err := cache.getOrCreateWithReservationAttempt(t.Context(), info, "", "", true, nil, nil); err == nil || called {
+		t.Fatalf("factory overlapped retirement: called=%t err=%v", called, err)
 	}
 }

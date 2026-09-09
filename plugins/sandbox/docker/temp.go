@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
@@ -41,12 +40,12 @@ func (f *dockerFactory) prepareSessionTempDir(sessionID string) (string, error) 
 	return dir, nil
 }
 
-const staleSessionTempMinimumAge = time.Hour
-
-// cleanupStaleSessionTempDirs removes only old owned fallback directories that
-// are not referenced by any scoped Docker container. The age gate closes the
-// race with a concurrently starting peer that has made its directory but has
-// not yet created its container.
+// cleanupStaleSessionTempDirs deliberately retains unreferenced directories.
+// Without a durable per-session creation/close marker, absence from Docker is
+// ambiguous: it can mean a crashed session, or a peer that is between creating
+// its host directory and creating its container. An age cutoff would turn that
+// race into data loss, so startup leaves these paths for an explicit recovery
+// pass that has stronger ownership evidence.
 func cleanupStaleSessionTempDirs(ctx context.Context, client *dockerclient.Client, scope, stellaHome string) {
 	if stellaHome == "" {
 		return
@@ -56,30 +55,11 @@ func cleanupStaleSessionTempDirs(ctx context.Context, client *dockerclient.Clien
 		slog.Warn("docker session: skip stale temp cleanup", "error", err)
 		return
 	}
-	root := filepath.Join(stellaHome, "cache", "sandbox-tmp")
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			slog.Warn("docker session: read stale temp directory", "path", root, "error", err)
-		}
-		return
-	}
-	cutoff := time.Now().Add(-staleSessionTempMinimumAge)
-	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "sandbox-") {
-			continue
-		}
-		if _, live := active[entry.Name()]; live {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil || info.ModTime().After(cutoff) {
-			continue
-		}
-		stalePath := filepath.Join(root, entry.Name())
-		if err := os.RemoveAll(stalePath); err != nil {
-			slog.Warn("docker session: remove stale temp directory", "path", stalePath, "error", err)
-		}
+	if len(active) == 0 {
+		// Keep the read/list above as an ownership check for callers and to make
+		// Docker failures fail closed. There is no safe deletion decision without
+		// a durable marker tying a directory to a terminal container lifecycle.
+		slog.Debug("docker session: retaining unreferenced temp directories pending recovery evidence")
 	}
 }
 

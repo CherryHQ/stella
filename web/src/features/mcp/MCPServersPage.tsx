@@ -1,35 +1,32 @@
-import { apiErrorCode } from "@/lib/api-error";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { PlugZap, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  createScopedMcpServer,
-  deleteScopedMcpServer as deleteScopedMcpServerRequest,
-  disconnectMcpoAuth,
-  listAgents,
-  listScopedMcpServers,
-  startMcpoAuth,
-  updateScopedMcpServer,
+  createMcpServer,
+  deleteMcpServer,
+  disconnectMcpServerOAuth,
+  getMcpServerFile,
+  probeMcpServer,
+  startMcpServerOAuth,
+  updateMcpServer,
+  updateMcpServerCredentials,
+  updateMcpServerFile,
 } from "@/lib/api-client/sdk.gen";
-import { McpInstallSheet } from "@/features/mcp/McpInstallSheet";
-import { McpServerDrawer } from "@/features/mcp/McpServerDrawer";
-import type { McpServer } from "@/lib/api-client/types.gen";
-import type { Agent } from "@/lib/types";
-import { useI18n } from "@/lib/i18n";
-import type { MessageKey } from "@/lib/i18n/messages";
-import { useToast } from "@/hooks/use-toast";
+import type { CreateMcpServerRequest, McpDeclaration, McpServer } from "@/lib/api-client/types.gen";
+import { mcpServersQueryOptions } from "@/lib/queries/mcp";
+import { allAgentsAdminQueryOptions, agentsQueryOptions } from "@/lib/queries/agents";
 import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogPopup,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  isAgentManagedScope,
+  scopesForBand,
+  type ManagedScope,
+  type ScopeBand,
+  isManagedScope,
+} from "@/lib/scope-band";
+import { ErrorState } from "@/components/RouteFallback";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
-import { Switch } from "@/components/ui/switch";
+import { Card } from "@/components/ui/card";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectItem,
@@ -37,695 +34,736 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  McpServerFields,
-  transportLabel,
-  type McpAuthType,
-  type McpTransport,
-} from "@/features/mcp/McpServerFields";
-import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
-import { ErrorState } from "@/components/RouteFallback";
-import {
-  SettingsCard,
-  SettingsCardSection,
-  SettingsDetailSheet,
-  SettingsGridPage,
-} from "@/features/settings/SettingsCardGrid";
+import { Spinner } from "@/components/ui/spinner";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
-import {
-  isAgentManagedScope,
-  scopeForRange,
-  scopeQueriesForBand,
-  scopesForBand,
-  type ScopeBand,
-} from "@/lib/scope-band";
+import { McpInstallSheet } from "./McpInstallSheet";
+import { ensureMcpBearerCredentialRef, transitionMcpAuthType } from "./mcp-credential";
+import { useToast } from "@/hooks/use-toast";
+import { useI18n } from "@/lib/i18n";
+import { apiErrorMessage } from "@/lib/api-error";
+import { RefreshCw, Wifi, WifiOff, X } from "lucide-react";
 
-type MCPScope = McpServer["scope"];
-
-// A 409 from PATCH/DELETE means the registration changed elsewhere; the local
-// copy is stale, so reload instead of retrying blind.
-function isConflictStatus<TError>(error: TError): boolean {
-  return apiErrorCode(error) === 409;
+function toBase64(value: string) {
+  return btoa(unescape(encodeURIComponent(value)));
 }
-type MCPTransport = McpTransport;
-type MCPAuthType = McpAuthType;
-
-type ScopeRange = "all" | "specific";
-
-const SCOPE_ORDER: MCPScope[] = ["user", "user_agent", "system", "system_agent"];
-
-const SCOPE_LABEL_KEY = {
-  user: "mcp.scope.user.label",
-  user_agent: "mcp.scope.userAgent.label",
-  system: "mcp.scope.system.label",
-  system_agent: "mcp.scope.systemAgent.label",
-} satisfies Record<MCPScope, MessageKey>;
-
-function isAgentScope(scope: MCPScope) {
-  return isAgentManagedScope(scope);
+function fromBase64(value: string) {
+  try {
+    return decodeURIComponent(escape(atob(value)));
+  } catch {
+    return atob(value);
+  }
+}
+function scopeLabel(scope: ManagedScope, t: ReturnType<typeof useI18n>["t"]) {
+  const labels = {
+    user: t("plugins.scope.user"),
+    user_agent: t("plugins.scope.user_agent"),
+    system: t("plugins.scope.system"),
+    system_agent: t("plugins.scope.system_agent"),
+  };
+  return labels[scope];
 }
 
-export function MCPServersPanel({
-  embedded = false,
-  scopeBand,
+function isMcpTransport(value: string): value is McpDeclaration["transport"] {
+  return value === "streamable_http" || value === "sse";
+}
+
+function isMcpAuthType(value: string): value is McpDeclaration["auth_type"] {
+  return value === "none" || value === "bearer" || value === "oauth";
+}
+
+function isMcpCredentialMode(value: string): value is McpDeclaration["credential_mode"] {
+  return value === "shared" || value === "per_user";
+}
+
+function ScopePicker({
+  band,
+  scope,
+  agentId,
+  agents,
+  onScope,
+  onAgent,
 }: {
-  embedded?: boolean;
-  scopeBand: ScopeBand;
+  band: ScopeBand;
+  scope: ManagedScope;
+  agentId: string;
+  agents: Array<{ id?: string; name?: string }>;
+  onScope: (value: ManagedScope) => void;
+  onAgent: (value: string) => void;
 }) {
   const { t } = useI18n();
-  // SAFETY: scopesForBand returns ManagedScope, the same literal union as MCPScope.
-  const managedScopes = scopesForBand(scopeBand) as readonly MCPScope[];
-  const { showToast } = useToast();
-
-  const [servers, setServers] = useState<McpServer[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [installOpen, setInstallOpen] = useState(false);
-  const [drawerServer, setDrawerServer] = useState<McpServer | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<McpServer | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [editingServer, setEditingServer] = useState<McpServer | null>(null);
-
-  const [formRange, setFormRange] = useState<ScopeRange>("all");
-  const [formAgentID, setFormAgentID] = useState("");
-  const [name, setName] = useState("");
-  const [url, setURL] = useState("");
-  const [transport, setTransport] = useState<MCPTransport>("streamable_http");
-  const [authType, setAuthType] = useState<MCPAuthType>("none");
-  const [token, setToken] = useState("");
-  const [oauthClientId, setOauthClientId] = useState("");
-  const [oauthClientSecret, setOauthClientSecret] = useState("");
-  const [credentialMode, setCredentialMode] = useState<"shared" | "per_user">("shared");
-
-  // The OAuth callback lands on this page with a fixed-enum result; surface it
-  // once and scrub the URL so a refresh doesn't re-toast.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const connected = params.get("connected");
-    const oauthError = params.get("oauth_error");
-    if (!connected && !oauthError) return;
-    if (connected) {
-      showToast(t("mcp.oauthSuccess"));
-    } else {
-      // SAFETY: the callback only ever writes the fixed error enum into the URL.
-      const key = `mcp.oauthError.${oauthError}` as MessageKey;
-      showToast(t(key), "error");
-    }
-    window.history.replaceState(null, "", window.location.pathname);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const agentName = useCallback(
-    (id?: string | null) => (id && agents.find((agent) => agent.id === id)?.name) || id || "",
-    [agents],
-  );
-
-  // These used to swallow into `[]`, so an unreachable server rendered as
-  // "no MCP servers configured" — indistinguishable from a clean install.
-  // Failures now surface through `loadError`.
-  const fetchScope = useCallback(async (scope: MCPScope, agentID?: string) => {
-    const { data } = await listScopedMcpServers({
-      query: { scope, agent_id: agentID },
-      throwOnError: true,
-    });
-    return data?.servers ?? [];
-  }, []);
-
-  const loadAgents = useCallback(async () => {
-    const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
-    // SAFETY: listAgents returns Agent items under data.agents.
-    const list = (data?.agents as Agent[]) ?? [];
-    setAgents(list);
-    return list;
-  }, []);
-
-  const loadServers = useCallback(
-    async (agentList: Agent[]) => {
-      setLoading(true);
-      try {
-        const jobs = scopeQueriesForBand(
-          scopeBand,
-          agentList.map((agent) => agent.id),
-        ).map(({ scope, agentID }) =>
-          // SAFETY: scopeQueriesForBand emits ManagedScope, the same literal union as MCPScope.
-          fetchScope(scope as MCPScope, agentID),
-        );
-        const results = await Promise.all(jobs);
-        setServers(results.flat());
-      } finally {
-        setLoading(false);
-      }
-    },
-    [fetchScope, scopeBand],
-  );
-
-  const reloadScope = useCallback(
-    async (scope: MCPScope, agentID?: string) => {
-      const fetched = await fetchScope(scope, agentID);
-      setServers((prev) => [
-        ...prev.filter(
-          (server) => !(server.scope === scope && (agentID ? server.agent_id === agentID : true)),
-        ),
-        ...fetched,
-      ]);
-    },
-    [fetchScope],
-  );
-
-  const init = useCallback(async () => {
-    setLoadError(false);
-    try {
-      const agentList = await loadAgents();
-      await loadServers(agentList);
-    } catch {
-      setAgents([]);
-      setServers([]);
-      setLoadError(true);
-    }
-  }, [loadAgents, loadServers]);
-
-  useEffect(() => {
-    void init();
-  }, [init]);
-
-  const openAddSheet = useCallback(() => {
-    setEditingServer(null);
-    setFormRange("all");
-    setFormAgentID("");
-    setName("");
-    setURL("");
-    setTransport("streamable_http");
-    setAuthType("none");
-    setToken("");
-    setSheetOpen(true);
-  }, []);
-
-  const openEditSheet = useCallback((server: McpServer) => {
-    setEditingServer(server);
-    setFormRange(isAgentScope(server.scope) ? "specific" : "all");
-    setFormAgentID(server.agent_id ?? "");
-    setName(server.name);
-    setURL(server.url);
-    setTransport(server.transport);
-    setAuthType(server.auth_type);
-    setToken("");
-    setSheetOpen(true);
-  }, []);
-
-  const saveServer = useCallback(async () => {
-    // SAFETY: scopeForRange returns ManagedScope, the same literal union as MCPScope.
-    const scope = scopeForRange(scopeBand, formRange === "specific") as MCPScope;
-    const agentScoped = isAgentScope(scope);
-    if (!name.trim()) {
-      showToast(t("mcp.nameRequired"), "error");
-      return;
-    }
-    if (!url.trim()) {
-      showToast(t("mcp.urlRequired"), "error");
-      return;
-    }
-    if (agentScoped && !formAgentID) {
-      showToast(t("mcp.scope.agentMissing"), "error");
-      return;
-    }
-    if (authType === "bearer" && !editingServer && !token.trim()) {
-      showToast(t("mcp.tokenRequired"), "error");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      if (editingServer) {
-        await updateScopedMcpServer({
-          path: { id: editingServer.id },
-          query: {
-            scope: editingServer.scope,
-            agent_id: isAgentScope(editingServer.scope) ? editingServer.agent_id : undefined,
-          },
-          headers: editingServer.version ? { "If-Match": editingServer.version } : undefined,
-          body: {
-            scope,
-            agent_id: agentScoped ? formAgentID : undefined,
-            name: name.trim(),
-            url: url.trim(),
-            transport,
-            auth_type: authType,
-            token: authType === "bearer" && token.trim() ? token : undefined,
-            oauth_client_id: authType === "oauth" ? oauthClientId.trim() : undefined,
-            oauth_client_secret:
-              authType === "oauth" && oauthClientSecret.trim()
-                ? oauthClientSecret.trim()
-                : undefined,
-            credential_mode: authType === "oauth" ? credentialMode : undefined,
-          },
-          throwOnError: true,
-        });
-        showToast(t("mcp.updated"));
-        await reloadScope(
-          editingServer.scope,
-          isAgentScope(editingServer.scope) ? editingServer.agent_id : undefined,
-        );
-      } else {
-        await createScopedMcpServer({
-          body: {
-            scope,
-            agent_id: agentScoped ? formAgentID : undefined,
-            name: name.trim(),
-            url: url.trim(),
-            transport,
-            auth_type: authType,
-            token: authType === "bearer" ? token : undefined,
-            oauth_client_id:
-              authType === "oauth" && oauthClientId.trim() ? oauthClientId.trim() : undefined,
-            oauth_client_secret:
-              authType === "oauth" && oauthClientSecret.trim()
-                ? oauthClientSecret.trim()
-                : undefined,
-            credential_mode: authType === "oauth" ? credentialMode : undefined,
-          },
-          throwOnError: true,
-        });
-        showToast(t("mcp.created"));
-      }
-      setSheetOpen(false);
-      await reloadScope(scope, agentScoped ? formAgentID : undefined);
-    } catch (e) {
-      if (editingServer && isConflictStatus(e)) {
-        showToast(t("mcp.server.changed"), "error");
-        await reloadScope(
-          editingServer.scope,
-          isAgentScope(editingServer.scope) ? editingServer.agent_id : undefined,
-        );
-        setSheetOpen(false);
-      } else {
-        showToast(e instanceof Error ? e.message : t("mcp.saveFailed"), "error");
-      }
-    } finally {
-      setSaving(false);
-    }
-  }, [
-    authType,
-    editingServer,
-    formAgentID,
-    formRange,
-    scopeBand,
-    name,
-    reloadScope,
-    showToast,
-    t,
-    token,
-    transport,
-    url,
-  ]);
-
-  const toggleServer = useCallback(
-    async (server: McpServer, enabled: boolean) => {
-      try {
-        await updateScopedMcpServer({
-          path: { id: server.id },
-          query: {
-            scope: server.scope,
-            agent_id: isAgentScope(server.scope) ? server.agent_id : undefined,
-          },
-          headers: server.version ? { "If-Match": server.version } : undefined,
-          body: { enabled },
-          throwOnError: true,
-        });
-        await reloadScope(server.scope, isAgentScope(server.scope) ? server.agent_id : undefined);
-      } catch (e) {
-        showToast(
-          isConflictStatus(e)
-            ? t("mcp.server.changed")
-            : e instanceof Error
-              ? e.message
-              : t("mcp.saveFailed"),
-          "error",
-        );
-        await reloadScope(server.scope, isAgentScope(server.scope) ? server.agent_id : undefined);
-      }
-    },
-    [reloadScope, showToast, t],
-  );
-
-  const deleteServer = useCallback(
-    async (server: McpServer) => {
-      try {
-        await deleteScopedMcpServerRequest({
-          path: { id: server.id },
-          query: {
-            scope: server.scope,
-            agent_id: isAgentScope(server.scope) ? server.agent_id : undefined,
-          },
-          headers: server.version ? { "If-Match": server.version } : undefined,
-          throwOnError: true,
-        });
-        showToast(t("mcp.deleted"));
-        if (editingServer?.id === server.id) {
-          setSheetOpen(false);
-          setEditingServer(null);
-        }
-        await reloadScope(server.scope, isAgentScope(server.scope) ? server.agent_id : undefined);
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : t("mcp.deleteFailed"), "error");
-      }
-    },
-    [editingServer?.id, reloadScope, showToast, t],
-  );
-
-  const connectServer = useCallback(
-    async (server: McpServer) => {
-      try {
-        const { data } = await startMcpoAuth({
-          path: { id: server.id },
-          query: {
-            scope: server.scope,
-            agent_id: isAgentScope(server.scope) ? server.agent_id : undefined,
-          },
-          throwOnError: true,
-        });
-        if (data?.authorization_url) {
-          // The authorization URL belongs to the external authorization server;
-          // navigate the whole tab so its callback returns to Stella.
-          window.location.href = data.authorization_url;
-        }
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : t("mcp.connectFailed"), "error");
-      }
-    },
-    [showToast, t],
-  );
-
-  const disconnectServer = useCallback(
-    async (server: McpServer) => {
-      try {
-        await disconnectMcpoAuth({
-          path: { id: server.id },
-          query: {
-            scope: server.scope,
-            agent_id: isAgentScope(server.scope) ? server.agent_id : undefined,
-          },
-          throwOnError: true,
-        });
-        showToast(t("mcp.oauth.notConnected"));
-        await reloadScope(server.scope, isAgentScope(server.scope) ? server.agent_id : undefined);
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : t("mcp.disconnectFailed"), "error");
-      }
-    },
-    [reloadScope, showToast, t],
-  );
-
-  const sortedServers = useMemo(
-    () =>
-      [...servers]
-        .filter((server) => managedScopes.includes(server.scope))
-        .sort((a, b) => SCOPE_ORDER.indexOf(a.scope) - SCOPE_ORDER.indexOf(b.scope)),
-    [managedScopes, servers],
-  );
-
-  // SAFETY: scopeForRange returns ManagedScope, the same literal union as MCPScope.
-  const formScope = scopeForRange(scopeBand, formRange === "specific") as MCPScope;
-  // SAFETY: the scope Select offers the managed scopes as options; membership is re-checked in the handler.
-  const onSelectScope = (value: string | null) => {
-    if (!value) return;
-    // SAFETY: the scope Select's value is one of the managed scopes; membership is checked next.
-    const scope = value as MCPScope;
-    if (!managedScopes.includes(scope)) return;
-    setFormRange(isAgentScope(scope) ? "specific" : "all");
-  };
-  // SAFETY: the scope options are MCPScope keys rendered back through SCOPE_LABEL_KEY.
-  const renderScopeLabel = (value: string) => t(SCOPE_LABEL_KEY[(value as MCPScope) || formScope]);
-  // SAFETY: the agent Select offers agent-id options as strings; null clears the field.
-  const onSelectFormAgent = (value: string | null) =>
-    setFormAgentID((value as string | null) ?? "");
-
-  const addPanel = (
-    <DetailPanel
-      onCancel={() => setSheetOpen(false)}
-      onDelete={editingServer ? () => setConfirmDelete(editingServer) : undefined}
-      onSave={saveServer}
-      saveLabel={editingServer ? t("common.save") : t("mcp.add")}
-      cancelLabel={t("common.cancel")}
-      isSaving={saving}
-      canSave={!saving}
-    >
-      <DetailPanelHeader
-        title={editingServer ? t("mcp.editTitle") : t("mcp.addTitle")}
-        subtitle={editingServer ? t("mcp.editDescription") : t("mcp.addDescription")}
-      />
-
-      <div className="space-y-4">
-        <Field>
-          <FieldLabel>{t("mcp.scope")}</FieldLabel>
-          <Select value={formScope} onValueChange={onSelectScope}>
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <Field className="min-w-40">
+        <FieldLabel>{t("plugins.scopeLabel")}</FieldLabel>
+        <Select
+          value={scope}
+          onValueChange={(value) => value && isManagedScope(value) && onScope(value)}
+        >
+          <SelectTrigger>
+            <SelectValue>
+              {(value) => scopeLabel(value && isManagedScope(value) ? value : scope, t)}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectPopup>
+            {scopesForBand(band).map((value) => (
+              <SelectItem key={value} value={value}>
+                {scopeLabel(value, t)}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      </Field>
+      {isAgentManagedScope(scope) && (
+        <Field className="min-w-52">
+          <FieldLabel>{t("plugins.agent")}</FieldLabel>
+          <Select
+            value={agentId || "__none"}
+            onValueChange={(value) => value && onAgent(value === "__none" ? "" : value)}
+          >
             <SelectTrigger>
-              <SelectValue>{renderScopeLabel}</SelectValue>
+              <SelectValue placeholder={t("plugins.selectAgent")} />
             </SelectTrigger>
             <SelectPopup>
-              {SCOPE_ORDER.filter((scope) => managedScopes.includes(scope)).map((scope) => (
-                <SelectItem key={scope} value={scope}>
-                  {t(SCOPE_LABEL_KEY[scope])}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-          <FieldDescription>{t("mcp.scope.description")}</FieldDescription>
-        </Field>
-
-        {isAgentScope(formScope) && (
-          <Field>
-            <FieldLabel>{t("mcp.agent")}</FieldLabel>
-            <Select value={formAgentID || null} onValueChange={onSelectFormAgent}>
-              <SelectTrigger>
-                <SelectValue placeholder={t("mcp.scope.selectAgent")}>
-                  {(value) => (value ? agentName(value) : null)}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup>
-                {agents.map((agent) => (
+              <SelectItem value="__none">{t("plugins.selectAgent")}</SelectItem>
+              {agents.map((agent) =>
+                agent.id ? (
                   <SelectItem key={agent.id} value={agent.id}>
                     {agent.name || agent.id}
                   </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          </Field>
-        )}
-
-        <McpServerFields
-          name={name}
-          onNameChange={setName}
-          url={url}
-          onUrlChange={setURL}
-          transport={transport}
-          onTransportChange={setTransport}
-          authType={authType}
-          onAuthTypeChange={setAuthType}
-          token={token}
-          onTokenChange={setToken}
-          editing={!!editingServer}
-          oauthClientId={oauthClientId}
-          onOauthClientIdChange={setOauthClientId}
-          oauthClientSecret={oauthClientSecret}
-          onOauthClientSecretChange={setOauthClientSecret}
-          credentialMode={credentialMode}
-          onCredentialModeChange={setCredentialMode}
-          showCredentialMode={scopeBand === "system"}
-        />
-      </div>
-    </DetailPanel>
-  );
-
-  const content = loading ? (
-    <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
-  ) : loadError ? (
-    <ErrorState
-      title={t("route.error.title")}
-      description={t("route.loadFailed")}
-      onRetry={() => void init()}
-    />
-  ) : sortedServers.length === 0 ? (
-    <SettingsEmptyState
-      icon={<PlugZap className="size-5" />}
-      message={t("mcp.empty")}
-      description={t("mcp.empty.description")}
-      action={<Button onClick={openAddSheet}>{t("mcp.add")}</Button>}
-    />
-  ) : (
-    <SettingsCardSection
-      icon={<PlugZap className="size-4" />}
-      title={t(scopeBand === "system" ? "admin.resources.mcp.title" : "mcp.title")}
-      description={t("mcp.sectionDescription")}
-      count={sortedServers.length}
-    >
-      {sortedServers.map((server) => (
-        <SettingsCard
-          key={server.id}
-          icon={<PlugZap className="size-4" />}
-          title={server.name}
-          badge={
-            <Badge variant="secondary" size="sm">
-              {t(SCOPE_LABEL_KEY[server.scope])}
-            </Badge>
-          }
-          description={server.url}
-          action={
-            <Switch
-              checked={server.enabled}
-              onCheckedChange={(checked) => void toggleServer(server, checked)}
-            />
-          }
-          onClick={() => setDrawerServer(server)}
-          footer={
-            <>
-              <Badge variant="outline" size="sm">
-                {transportLabel(server.transport)}
-              </Badge>
-              <Badge variant="secondary" size="sm">
-                {server.auth_type === "bearer"
-                  ? t("mcp.auth.bearer")
-                  : server.auth_type === "oauth"
-                    ? t("mcp.auth.oauth")
-                    : t("mcp.auth.none")}
-              </Badge>
-              {server.auth_type === "oauth" && server.oauth && (
-                <Badge variant="outline" size="sm">
-                  {server.oauth.connected
-                    ? t("mcp.oauth.connected")
-                    : server.oauth.client_registered
-                      ? t("mcp.oauth.needsReconnect")
-                      : t("mcp.oauth.notConnected")}
-                </Badge>
+                ) : null,
               )}
-              {isAgentScope(server.scope) && server.agent_id && (
-                <span className="truncate text-xs text-muted-foreground">
-                  {agentName(server.agent_id)}
-                </span>
-              )}
-              {server.auth_type === "oauth" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void (server.oauth?.connected
-                      ? disconnectServer(server)
-                      : connectServer(server));
-                  }}
-                >
-                  {server.oauth?.connected
-                    ? t("mcp.disconnect")
-                    : server.oauth?.client_registered
-                      ? t("mcp.reconnect")
-                      : t("mcp.connect")}
-                </Button>
-              )}
-            </>
-          }
-        />
-      ))}
-    </SettingsCardSection>
-  );
-
-  const action = (
-    <Button size="sm" onClick={() => setInstallOpen(true)}>
-      <Plus className="size-4" />
-      {t("mcp.add")}
-    </Button>
-  );
-
-  return (
-    <>
-      {embedded ? (
-        <div className="space-y-3">
-          <div className="flex justify-end">{action}</div>
-          {content}
-        </div>
-      ) : (
-        <SettingsGridPage
-          title={t(scopeBand === "system" ? "admin.resources.mcp.title" : "mcp.title")}
-          action={action}
-        >
-          {content}
-        </SettingsGridPage>
+            </SelectPopup>
+          </Select>
+        </Field>
       )}
+    </div>
+  );
+}
 
-      <SettingsDetailSheet open={sheetOpen} onClose={() => setSheetOpen(false)}>
-        {addPanel}
-      </SettingsDetailSheet>
-      <McpInstallSheet
-        open={installOpen}
-        onOpenChange={setInstallOpen}
-        notify={showToast}
-        defaultScope={scopeBand === "system" ? "system" : "user"}
-        isAdmin={scopeBand === "system"}
-        manual={
-          <div className="space-y-4">
-            <Button onClick={openAddSheet}>
-              <Plus className="size-4" />
-              {t("mcp.market.openManual")}
+function DeclarationFields({
+  declaration,
+  onChange,
+  disabled,
+}: {
+  declaration: McpDeclaration;
+  onChange: (value: McpDeclaration) => void;
+  disabled?: boolean;
+}) {
+  const { t } = useI18n();
+  const set = (patch: Partial<McpDeclaration>) => onChange({ ...declaration, ...patch });
+  return (
+    <div className="space-y-3">
+      <Field>
+        <FieldLabel>{t("mcp.url")}</FieldLabel>
+        <Input
+          value={declaration.url}
+          onChange={(event) => set({ url: event.target.value })}
+          disabled={disabled}
+          nativeInput
+        />
+      </Field>
+      <Field>
+        <FieldLabel>{t("mcp.transport")}</FieldLabel>
+        <Select
+          value={declaration.transport}
+          onValueChange={(value) => value && isMcpTransport(value) && set({ transport: value })}
+          disabled={disabled}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopup>
+            <SelectItem value="streamable_http">Streamable HTTP</SelectItem>
+            <SelectItem value="sse">SSE</SelectItem>
+          </SelectPopup>
+        </Select>
+      </Field>
+      <Field>
+        <FieldLabel>{t("mcp.auth")}</FieldLabel>
+        <Select
+          value={declaration.auth_type}
+          onValueChange={(value) =>
+            value && isMcpAuthType(value) && onChange(transitionMcpAuthType(declaration, value))
+          }
+          disabled={disabled}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopup>
+            <SelectItem value="none">{t("mcp.auth.none")}</SelectItem>
+            <SelectItem value="bearer">{t("mcp.auth.bearer")}</SelectItem>
+            <SelectItem value="oauth">{t("mcp.auth.oauth")}</SelectItem>
+          </SelectPopup>
+        </Select>
+      </Field>
+      <Field>
+        <FieldLabel>{t("mcp.credentialMode")}</FieldLabel>
+        <Select
+          value={declaration.credential_mode}
+          onValueChange={(value) =>
+            value && isMcpCredentialMode(value) && set({ credential_mode: value })
+          }
+          disabled={disabled}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopup>
+            <SelectItem value="shared">{t("mcp.credentialMode.shared")}</SelectItem>
+            <SelectItem value="per_user">{t("mcp.credentialMode.perUser")}</SelectItem>
+          </SelectPopup>
+        </Select>
+      </Field>
+      <Field>
+        <FieldLabel>{t("mcp.addDescription")}</FieldLabel>
+        <Input
+          value={declaration.description ?? ""}
+          onChange={(event) => set({ description: event.target.value || undefined })}
+          disabled={disabled}
+          nativeInput
+        />
+      </Field>
+      <Field>
+        <FieldLabel>{t("mcp.scope")}</FieldLabel>
+        <Input
+          value={(declaration.scopes ?? []).join(", ")}
+          onChange={(event) =>
+            set({
+              scopes: event.target.value
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean),
+            })
+          }
+          disabled={disabled}
+          nativeInput
+        />
+      </Field>
+    </div>
+  );
+}
+
+function McpDetail({
+  server,
+  onRefresh,
+  onClose,
+}: {
+  server: McpServer;
+  onRefresh: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const { showToast } = useToast();
+  const queryClient = useQueryClient();
+  const [declaration, setDeclaration] = useState<McpDeclaration | null>(server.declaration);
+  const [raw, setRaw] = useState("");
+  const [rawMode, setRawMode] = useState(false);
+  const [token, setToken] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ["mcp-servers"] });
+    onRefresh();
+  };
+  useEffect(() => {
+    setDeclaration(server.declaration);
+    setRaw("");
+    setRawMode(false);
+    setToken("");
+    setClientSecret("");
+  }, [server.id, server.content_digest]);
+  const saveDeclaration = useMutation({
+    mutationFn: () => {
+      if (!declaration) throw new Error(t("mcp.declarationRequired"));
+      const nextDeclaration = transitionMcpAuthType(declaration, declaration.auth_type);
+      return updateMcpServer({
+        path: { id: server.id },
+        body: {
+          declaration: nextDeclaration,
+          expected_digest: server.content_digest,
+        },
+        throwOnError: true,
+      });
+    },
+    onSuccess: () => {
+      showToast(t("mcp.updated"), "success");
+      invalidate();
+    },
+    onError: (error) => showToast(apiErrorMessage(error, t("mcp.saveFailed")), "error"),
+  });
+  const saveRaw = useMutation({
+    mutationFn: () =>
+      updateMcpServerFile({
+        path: { id: server.id },
+        body: {
+          content_base64: toBase64(raw),
+          expected_digest: server.content_digest,
+        },
+        throwOnError: true,
+      }),
+    onSuccess: () => {
+      showToast(t("mcp.updated"), "success");
+      invalidate();
+    },
+    onError: (error) => showToast(apiErrorMessage(error, t("mcp.saveFailed")), "error"),
+  });
+  const saveCredentials = useMutation({
+    mutationFn: () => {
+      if (declaration?.auth_type === "bearer") {
+        if (!token.trim()) throw new Error(t("mcp.credentialsRequired"));
+        return updateMcpServerCredentials({
+          path: { id: server.id },
+          body: {
+            expected_digest: server.content_digest,
+            bearer_token: token.trim(),
+          },
+          throwOnError: true,
+        });
+      }
+      if (declaration?.auth_type === "oauth") {
+        if (!clientSecret) throw new Error(t("mcp.credentialsRequired"));
+        return updateMcpServerCredentials({
+          path: { id: server.id },
+          body: {
+            expected_digest: server.content_digest,
+            client_secret: clientSecret,
+          },
+          throwOnError: true,
+        });
+      }
+      throw new Error(t("mcp.credentialsRequired"));
+    },
+    onSuccess: () => {
+      showToast(t("mcp.credentialsSaved"), "success");
+      setToken("");
+      setClientSecret("");
+      invalidate();
+    },
+    onError: (error) => showToast(apiErrorMessage(error, t("mcp.saveFailed")), "error"),
+  });
+  const probe = useMutation({
+    mutationFn: () => probeMcpServer({ path: { id: server.id }, throwOnError: true }),
+    onSuccess: () => {
+      showToast(t("mcp.server.probed"), "success");
+      invalidate();
+    },
+    onError: (error) => showToast(apiErrorMessage(error, t("mcp.saveFailed")), "error"),
+  });
+  const connect = useMutation({
+    mutationFn: () =>
+      startMcpServerOAuth({
+        path: { id: server.id },
+        body: { expected_digest: server.content_digest },
+        throwOnError: true,
+      }),
+    onSuccess: ({ data }) => {
+      if (data?.authorization_url) window.location.href = data.authorization_url;
+    },
+    onError: (error) => showToast(apiErrorMessage(error, t("mcp.connectFailed")), "error"),
+  });
+  const disconnect = useMutation({
+    mutationFn: () => disconnectMcpServerOAuth({ path: { id: server.id }, throwOnError: true }),
+    onSuccess: invalidate,
+    onError: (error) => showToast(apiErrorMessage(error, t("mcp.disconnectFailed")), "error"),
+  });
+  const remove = useMutation({
+    mutationFn: () =>
+      deleteMcpServer({
+        path: { id: server.id },
+        query: { expected_digest: server.content_digest },
+        throwOnError: true,
+      }),
+    onSuccess: () => {
+      showToast(t("mcp.deleted"), "success");
+      onClose();
+      invalidate();
+    },
+    onError: (error) => showToast(apiErrorMessage(error, t("mcp.deleteFailed")), "error"),
+  });
+  const readFile = async () => {
+    try {
+      const { data } = await getMcpServerFile({
+        path: { id: server.id },
+        throwOnError: true,
+      });
+      if (!data) throw new Error(t("mcp.saveFailed"));
+      setRaw(fromBase64(data.content_base64));
+      setRawMode(true);
+    } catch (error) {
+      showToast(apiErrorMessage(error, t("mcp.saveFailed")), "error");
+    }
+  };
+  const blocked = server.is_read_only || !server.is_standalone;
+  return (
+    <DetailPanel>
+      <DetailPanelHeader
+        title={server.name}
+        action={
+          <Button variant="ghost" size="icon-sm" aria-label={t("common.close")} onClick={onClose}>
+            <X size={16} />
+          </Button>
+        }
+      />
+      <div className="space-y-4 overflow-y-auto p-4">
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline">{scopeLabel(server.scope, t)}</Badge>
+          <Badge
+            variant={
+              server.status === "ready"
+                ? "success"
+                : server.status === "error"
+                  ? "destructive"
+                  : "warning"
+            }
+          >
+            {server.status}
+          </Badge>
+          {server.is_overridden && <Badge variant="warning">{t("plugins.overridden")}</Badge>}
+          {!server.is_standalone && <Badge variant="secondary">{t("mcp.packageSource")}</Badge>}
+        </div>
+        {server.diagnostics.map((diagnostic, index) => (
+          <div
+            key={`${diagnostic.code}-${index}`}
+            className="rounded-md border border-border p-2 text-xs"
+          >
+            <Badge variant={diagnostic.severity === "error" ? "destructive" : "warning"} size="sm">
+              {diagnostic.severity}
+            </Badge>{" "}
+            {diagnostic.message}
+          </div>
+        ))}
+        {declaration && !rawMode && (
+          <DeclarationFields
+            declaration={declaration}
+            onChange={setDeclaration}
+            disabled={blocked}
+          />
+        )}
+        {rawMode && (
+          <textarea
+            value={raw}
+            onChange={(event) => setRaw(event.target.value)}
+            className="min-h-72 w-full rounded-md border border-border bg-background p-3 font-mono text-xs"
+            aria-label={t("mcp.fileContent")}
+            disabled={blocked}
+          />
+        )}
+        {!blocked && (
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRawMode(!rawMode);
+                if (!rawMode && !raw) void readFile();
+              }}
+            >
+              {rawMode ? t("mcp.formMode") : t("mcp.jsonMode")}
+            </Button>
+            <Button
+              onClick={() => (rawMode ? saveRaw.mutate() : saveDeclaration.mutate())}
+              loading={saveRaw.isPending || saveDeclaration.isPending}
+            >
+              {t("common.save")}
             </Button>
           </div>
-        }
-        onRequestManual={(prefill) => {
-          setInstallOpen(false);
-          openAddSheet();
-          setName(prefill.name);
-          setURL(prefill.url);
-        }}
-      />
-      <McpServerDrawer
-        server={drawerServer}
-        open={!!drawerServer}
-        onOpenChange={(next) => !next && setDrawerServer(null)}
-        onConnect={(srv) => void connectServer(srv)}
-        onDisconnect={(srv) => void disconnectServer(srv)}
-        onEdit={(srv) => {
-          setDrawerServer(null);
-          openEditSheet(srv);
-        }}
-        onDelete={(srv) => setConfirmDelete(srv)}
-        notify={showToast}
-      />
-      <AlertDialog open={!!confirmDelete} onOpenChange={(next) => !next && setConfirmDelete(null)}>
-        <AlertDialogPopup>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("mcp.deleteTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("mcp.deleteConfirm", { name: confirmDelete?.name ?? "" })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="ghost" />}>
-              {t("common.cancel")}
-            </AlertDialogClose>
+        )}
+        {!server.is_standalone && (
+          <p className="text-sm text-muted-foreground">{t("mcp.packageEditHint")}</p>
+        )}
+        <div className="space-y-2 rounded-lg border border-border p-3">
+          <p className="text-xs font-semibold text-muted-foreground">{t("mcp.credentials")}</p>
+          <Input
+            type="password"
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            placeholder={t("mcp.token")}
+            nativeInput
+            disabled={server.is_read_only}
+          />
+          <Input
+            type="password"
+            value={clientSecret}
+            onChange={(event) => setClientSecret(event.target.value)}
+            placeholder={t("mcp.oauth.clientSecret")}
+            nativeInput
+            disabled={server.is_read_only}
+          />
+          <Button
+            variant="outline"
+            onClick={() => saveCredentials.mutate()}
+            disabled={server.is_read_only || saveCredentials.isPending}
+            loading={saveCredentials.isPending}
+          >
+            {t("mcp.saveCredentials")}
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => probe.mutate()} loading={probe.isPending}>
+            <RefreshCw size={16} />
+            {t("mcp.server.probe")}
+          </Button>
+          {server.needs_auth && (
+            <Button variant="outline" onClick={() => connect.mutate()} loading={connect.isPending}>
+              <Wifi size={16} />
+              {t("mcp.connect")}
+            </Button>
+          )}
+          {!server.needs_auth && server.declaration?.auth_type === "oauth" && (
+            <Button
+              variant="outline"
+              onClick={() => disconnect.mutate()}
+              loading={disconnect.isPending}
+            >
+              <WifiOff size={16} />
+              {t("mcp.disconnect")}
+            </Button>
+          )}
+          {server.is_standalone && (
             <Button
               variant="destructive"
-              onClick={() => {
-                const target = confirmDelete;
-                setConfirmDelete(null);
-                if (target) void deleteServer(target);
-              }}
+              onClick={() => remove.mutate()}
+              loading={remove.isPending}
             >
               {t("common.delete")}
             </Button>
-          </AlertDialogFooter>
-        </AlertDialogPopup>
-      </AlertDialog>
-    </>
+          )}
+        </div>
+      </div>
+    </DetailPanel>
+  );
+}
+
+function CreateMcp({
+  band,
+  agents,
+  onDone,
+}: {
+  band: ScopeBand;
+  agents: Array<{ id?: string; name?: string }>;
+  onDone: () => void;
+}) {
+  const { t } = useI18n();
+  const { showToast } = useToast();
+  const [name, setName] = useState("");
+  const [scope, setScope] = useState<ManagedScope>(scopesForBand(band)[0]);
+  const [agentId, setAgentId] = useState("");
+  const [url, setURL] = useState("");
+  const [transport, setTransport] = useState<McpDeclaration["transport"]>("streamable_http");
+  const [auth, setAuth] = useState<McpDeclaration["auth_type"]>("none");
+  const create = useMutation({
+    mutationFn: () => {
+      if (isAgentManagedScope(scope) && !agentId) throw new Error(t("plugins.selectAgent"));
+      const declaration: McpDeclaration = {
+        url: url.trim(),
+        transport,
+        auth_type: auth,
+        credential_mode: scope === "system" || scope === "system_agent" ? "shared" : "per_user",
+      };
+      if (auth === "bearer") declaration.credential_ref = ensureMcpBearerCredentialRef();
+      const body: CreateMcpServerRequest = {
+        name: name.trim(),
+        scope,
+        declaration,
+      };
+      if (agentId) body.agent_id = agentId;
+      return createMcpServer({
+        body,
+        throwOnError: true,
+      });
+    },
+    onSuccess: () => {
+      showToast(t("mcp.created"), "success");
+      onDone();
+      setName("");
+      setURL("");
+    },
+    onError: (error) => showToast(apiErrorMessage(error, t("mcp.saveFailed")), "error"),
+  });
+  return (
+    <div className="space-y-3 rounded-lg border border-border p-4">
+      <p className="text-sm font-semibold">{t("mcp.create")}</p>
+      <Input
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        placeholder={t("mcp.name")}
+        nativeInput
+      />
+      <ScopePicker
+        band={band}
+        scope={scope}
+        agentId={agentId}
+        agents={agents}
+        onScope={setScope}
+        onAgent={setAgentId}
+      />
+      <Input
+        value={url}
+        onChange={(event) => setURL(event.target.value)}
+        placeholder="https://mcp.example.com/mcp"
+        nativeInput
+      />
+      <div className="flex flex-wrap gap-2">
+        <Select
+          value={transport}
+          onValueChange={(value) => value && isMcpTransport(value) && setTransport(value)}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopup>
+            <SelectItem value="streamable_http">Streamable HTTP</SelectItem>
+            <SelectItem value="sse">SSE</SelectItem>
+          </SelectPopup>
+        </Select>
+        <Select
+          value={auth}
+          onValueChange={(value) => value && isMcpAuthType(value) && setAuth(value)}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopup>
+            <SelectItem value="none">{t("mcp.auth.none")}</SelectItem>
+            <SelectItem value="bearer">{t("mcp.auth.bearer")}</SelectItem>
+            <SelectItem value="oauth">{t("mcp.auth.oauth")}</SelectItem>
+          </SelectPopup>
+        </Select>
+      </div>
+      <Button
+        onClick={() => create.mutate()}
+        disabled={!name.trim() || !url.trim() || create.isPending}
+        loading={create.isPending}
+      >
+        {t("common.create")}
+      </Button>
+    </div>
   );
 }
 
 export function MCPServersPage({ scopeBand }: { scopeBand: ScopeBand }) {
-  return <MCPServersPanel scopeBand={scopeBand} />;
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const agentsQuery = useQuery(
+    scopeBand === "system" ? allAgentsAdminQueryOptions(true) : agentsQueryOptions,
+  );
+  const agents = agentsQuery.data ?? [];
+  const [agentId, setAgentId] = useState("");
+  const [scope, setScope] = useState<ManagedScope>(scopesForBand(scopeBand)[0]);
+  const [selected, setSelected] = useState<McpServer | null>(null);
+  const [marketOpen, setMarketOpen] = useState(false);
+  const query = useQuery(mcpServersQueryOptions(scopeBand, agentId || undefined));
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ["mcp-servers"] });
+  };
+  if (query.isPending)
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <Spinner />
+      </div>
+    );
+  if (query.isError)
+    return (
+      <ErrorState
+        title={t("mcp.loadFailed")}
+        description={apiErrorMessage(query.error, t("mcp.saveFailed"))}
+        onRetry={() => void query.refetch()}
+      />
+    );
+  const servers = query.data.filter((item) => item.scope === scope);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-semibold">{t("mcp.title")}</h1>
+            <p className="text-sm text-muted-foreground">{t("mcp.rawResourceHelp")}</p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setMarketOpen(true)}>
+              {t("mcp.market.title")}
+            </Button>
+            <Button variant="outline" onClick={refresh}>
+              <RefreshCw size={16} />
+              {t("plugins.refresh")}
+            </Button>
+          </div>
+        </div>
+        <ScopePicker
+          band={scopeBand}
+          scope={scope}
+          agentId={agentId}
+          agents={agents}
+          onScope={setScope}
+          onAgent={setAgentId}
+        />
+        <CreateMcp band={scopeBand} agents={agents} onDone={refresh} />
+        <div className="grid gap-3 md:grid-cols-2">
+          {servers.length === 0 ? (
+            <ErrorState title={t("mcp.noServers")} description={t("mcp.noServersDesc")} />
+          ) : (
+            servers.map((server) => (
+              <Card key={server.id} className="flex flex-col gap-3 p-4">
+                <button type="button" className="text-left" onClick={() => setSelected(server)}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{server.name}</p>
+                      <p className="font-mono text-xs text-muted-foreground">{server.server_key}</p>
+                    </div>
+                    <Badge
+                      variant={
+                        server.status === "ready"
+                          ? "success"
+                          : server.status === "error"
+                            ? "destructive"
+                            : "warning"
+                      }
+                    >
+                      {server.status}
+                    </Badge>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <Badge variant="outline" size="sm">
+                      {scopeLabel(server.scope, t)}
+                    </Badge>
+                    {server.is_overridden && (
+                      <Badge variant="warning" size="sm">
+                        {t("plugins.overridden")}
+                      </Badge>
+                    )}
+                    {!server.is_standalone && (
+                      <Badge variant="secondary" size="sm">
+                        {t("mcp.packageSource")}
+                      </Badge>
+                    )}
+                    <Badge variant="secondary" size="sm">
+                      {server.tools.length} {t("mcp.server.tools")}
+                    </Badge>
+                  </div>
+                </button>
+              </Card>
+            ))
+          )}
+        </div>
+        {selected && (
+          <McpDetail server={selected} onRefresh={refresh} onClose={() => setSelected(null)} />
+        )}
+        <McpInstallSheet
+          open={marketOpen}
+          onOpenChange={setMarketOpen}
+          notify={(message, kind) => showToast(message, kind === "error" ? "error" : "success")}
+          defaultScope={scope}
+          agentId={agentId || undefined}
+          isAdmin={scopeBand === "system"}
+        />
+      </div>
+    </div>
+  );
 }
 
 export function PersonalMCPPage() {
   return <MCPServersPage scopeBand="personal" />;
 }
-
 export function GlobalMCPPage() {
   return <MCPServersPage scopeBand="system" />;
 }

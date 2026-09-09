@@ -39,8 +39,11 @@ const (
 	// cutover evidence schema, retired RTK plugin cleanup, retired Settings tool
 	// override cleanup, the built-in Stella Settings default, retired
 	// webfetch override cleanup, retired tap-web plugin cleanup, and the dropped
-	// plugin scheduler columns are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 39
+	// plugin scheduler columns are checked explicitly, followed by native Agent
+	// deny admission, plugin tool identity cutover, and file-backed Skill
+	// evidence migrations.
+	currentMigrationVersion = sequentialAnchor + 40
+	latestMigrationVersion  = sequentialAnchor + 48
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -212,6 +215,12 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 		INSERT INTO skill_file (skill_id, path, content) VALUES
 			($1, 'SKILL.md', '# Previous GA Skill'),
 			($1, 'references/raw.bin', E'\\x00ff78')`, previousGASkillID)
+	exec("legacy Skill usage", `
+		INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at)
+		VALUES ($1, $2, $3, 4, $4)`, previousGASkillID, previousGAUserID, previousGAAgentID, previousGATime)
+	exec("legacy Skill changelog", `
+		INSERT INTO skill_changelog (skill_id, user_id, agent_id, scope, action, version_after, metadata, created_at)
+		VALUES ($1, $2, $3, 'user_agent', 'create', 1, '{}', $4)`, previousGASkillID, previousGAUserID, previousGAAgentID, previousGATime)
 	exec("group", `INSERT INTO ctx_group_state (id, platform, platform_group_id, created_at, updated_at) VALUES ($1, 'test', 'previous-ga-group', $2, $2)`, previousGAGroupID, previousGATime)
 	exec("duplicate group chats", `
 		INSERT INTO ctx_conversation (id, session_id, channel, kind, archived, last_active, agent_id, user_id, group_id, created_at, updated_at)
@@ -342,6 +351,42 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	if legacySkillName != "Previous GA / Skill" || legacySkillFileCount != 2 || legacySkillBytes <= 0 {
 		t.Fatalf("previous-GA Skill = name %q files %d bytes %d", legacySkillName, legacySkillFileCount, legacySkillBytes)
 	}
+	var legacyUseCount int64
+	var legacyWriter string
+	if err := db.QueryRow(ctx, `SELECT use_count FROM skill_usage WHERE skill_id = $1`, previousGASkillID).Scan(&legacyUseCount); err != nil {
+		t.Fatalf("read migrated legacy Skill usage: %v", err)
+	}
+	if legacyUseCount != 4 {
+		t.Fatalf("migrated legacy Skill usage count = %d, want 4", legacyUseCount)
+	}
+	if err := db.QueryRow(ctx, `SELECT writer FROM skill_changelog WHERE skill_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1`, previousGASkillID).Scan(&legacyWriter); err != nil {
+		t.Fatalf("read migrated legacy Skill changelog writer: %v", err)
+	}
+	if legacyWriter != "" {
+		t.Fatalf("migrated legacy Skill changelog writer = %q, want empty default", legacyWriter)
+	}
+	if got := count("filesystem Skill resource evidence columns", `
+		SELECT count(*) FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name IN ('skill_usage', 'skill_changelog')
+		  AND column_name = 'resource_id'
+		  AND is_nullable = 'YES'`); got != 2 {
+		t.Fatalf("filesystem Skill resource evidence columns = %d, want 2", got)
+	}
+	if got := count("filesystem Skill evidence indexes", `
+		SELECT count(*) FROM pg_indexes
+		WHERE schemaname = 'public'
+		  AND indexname IN ('idx_skill_usage_resource_identity', 'idx_skill_changelog_resource_lookup')`); got != 2 {
+		t.Fatalf("filesystem Skill evidence indexes = %d, want 2", got)
+	}
+	if got := count("Skill usage foreign key", `
+		SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.skill_usage'::regclass AND conname = 'skill_usage_skill_id_fkey'`); got != 0 {
+		t.Fatalf("skill_usage skill FK = %d, want 0", got)
+	}
+	if got := count("Skill changelog foreign key", `
+		SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.skill_changelog'::regclass AND conname = 'skill_changelog_skill_id_fkey'`); got != 0 {
+		t.Fatalf("skill_changelog skill FK = %d, want 0", got)
+	}
 	if got := count("Skill Home migration evidence table", `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='skill_home_migration'`); got != 1 {
 		t.Fatalf("Skill Home migration evidence tables = %d, want 1", got)
 	}
@@ -364,6 +409,13 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	var legacyActorType string
 	if err := db.QueryRow(ctx, `SELECT actor_type FROM ctx_message WHERE id = $1`, previousGAMessageID).Scan(&legacyActorType); err != nil {
 		t.Fatalf("read defaulted legacy message actor: %v", err)
+	}
+	var executionMetadata []byte
+	if err := db.QueryRow(ctx, `SELECT execution_metadata FROM ctx_message WHERE id = $1`, previousGAMessageID).Scan(&executionMetadata); err != nil {
+		t.Fatalf("legacy execution_metadata: %v", err)
+	}
+	if executionMetadata != nil {
+		t.Fatalf("legacy execution_metadata = %s, want NULL", executionMetadata)
 	}
 	if legacyActorType != "human" {
 		t.Fatalf("defaulted legacy message actor=%q, want human", legacyActorType)
@@ -883,12 +935,23 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		t.Fatalf("embedding row still carries model/api_key (%v/%v), want them stripped", laneModel, laneKey)
 	}
 
+	if got := count("OAuth catalog foreign keys", `
+		SELECT count(*) FROM pg_constraint constraint_ref
+		JOIN pg_attribute column_ref ON column_ref.attrelid = constraint_ref.conrelid
+			AND column_ref.attnum = ANY(constraint_ref.conkey)
+		WHERE constraint_ref.contype = 'f'
+			AND constraint_ref.conrelid = 'public.mcp_oauth_flow'::regclass
+			AND column_ref.attname = 'server_id'
+	`); got != 0 {
+		t.Fatalf("OAuth catalog foreign keys = %d, want file targets to be independent", got)
+	}
+
 	var latest int64
 	if err := db.QueryRow(ctx, `SELECT version_id FROM goose_db_version ORDER BY id DESC LIMIT 1`).Scan(&latest); err != nil {
 		t.Fatalf("read goose migration ledger: %v", err)
 	}
-	if latest != currentMigrationVersion {
-		t.Fatalf("latest goose migration = %d, want %d", latest, currentMigrationVersion)
+	if latest != latestMigrationVersion {
+		t.Fatalf("latest goose migration = %d, want %d", latest, latestMigrationVersion)
 	}
 }
 

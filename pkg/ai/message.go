@@ -140,6 +140,10 @@ type Message interface {
 type UserMessage struct {
 	Content   any
 	Timestamp time.Time
+	// Execution is host-authored, provider-invisible admission evidence. It is
+	// attached to the durable user anchor so turns without tool results still
+	// retain the exact selected plugin context.
+	Execution *ExecutionSummary `json:"-"`
 }
 
 func (UserMessage) messageRole() string { return "user" }
@@ -257,6 +261,48 @@ type ToolResultMessage struct {
 }
 
 func (ToolResultMessage) messageRole() string { return "tool" }
+
+// ExecutionSummary records the immutable plugin selection and bounded
+// preparation outcome observed by one admitted turn. Versions are optional:
+// an authored range is never presented as an installed version.
+type ExecutionSummary struct {
+	Plugins []ExecutionPlugin `json:"plugins,omitempty"`
+	Skills  []ExecutionSkill  `json:"skills,omitempty"`
+}
+
+type ExecutionPlugin struct {
+	PluginID       string            `json:"plugin_id"`
+	PackageVersion string            `json:"package_version,omitempty"`
+	PackageDigest  string            `json:"package_digest,omitempty"`
+	Source         string            `json:"source,omitempty"`
+	ConfigID       string            `json:"config_id,omitempty"`
+	ConfigScope    string            `json:"config_scope,omitempty"`
+	ConfigRevision int64             `json:"config_revision,omitempty"`
+	Authorization  string            `json:"authorization,omitempty"`
+	Readiness      string            `json:"readiness,omitempty"`
+	Binaries       []ExecutionBinary `json:"binaries,omitempty"`
+	Failures       []string          `json:"failures,omitempty"`
+}
+
+type ExecutionBinary struct {
+	Name              string `json:"name"`
+	Tool              string `json:"tool,omitempty"`
+	RequestedVersion  string `json:"requested_version,omitempty"`
+	ResolvedVersion   string `json:"resolved_version,omitempty"`
+	Backend           string `json:"backend,omitempty"`
+	SelectionIdentity string `json:"selection_identity,omitempty"`
+	Source            string `json:"source,omitempty"`
+}
+
+type ExecutionSkill struct {
+	PluginID string `json:"plugin_id,omitempty"`
+	Name     string `json:"name"`
+	Version  string `json:"version,omitempty"`
+	Source   string `json:"source,omitempty"`
+	Scope    string `json:"scope,omitempty"`
+	Digest   string `json:"digest,omitempty"`
+	State    string `json:"state,omitempty"`
+}
 
 // HasImage reports whether the given content blocks contain at least one ImageContent.
 func HasImage(blocks []ContentBlock) bool {

@@ -2,7 +2,6 @@ package skill
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -18,12 +17,29 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 	if reader == nil || authorizer == nil {
 		return pkgplugins.SystemPromptSection{}, fmt.Errorf("skills prompt requires identity reader and read authorizer")
 	}
-	identities, err := listManagedIdentitiesWhenAvailable(ctx, reader, ViewContext{UserID: build.UserID, AgentID: build.AgentID})
-	if err != nil {
-		return pkgplugins.SystemPromptSection{}, err
+	var identities []Skill
+	var masked []string
+	if turn, ok := SkillTurnViewFromContext(ctx); ok {
+		if err := ValidateSkillTurnSelection(turn); err != nil {
+			return pkgplugins.SystemPromptSection{}, err
+		}
+		project = turn.ProjectSnapshot()
+		identities = turn.ManagedIdentities()
+		masked = turn.MaskedSkillNames()
+	} else {
+		var err error
+		identities, err = listManagedIdentitiesWhenAvailable(ctx, reader, ViewContext{UserID: build.UserID, AgentID: build.AgentID})
+		if err != nil {
+			return pkgplugins.SystemPromptSection{}, err
+		}
 	}
 	svc := NewService()
-	merged := filterDisabled(svc.ListMerged(identities, project), build.DisabledSkillRefs)
+	var packages []PackageSkillRef
+	if turn, ok := SkillTurnViewFromContext(ctx); ok {
+		packages = turn.PackageSkills()
+	}
+	merged := filterDisabled(svc.ListMergedWithPackages(identities, project, packages, masked), build.DisabledSkillRefs)
+	merged = filterMaskedSkills(merged, masked)
 	decision, err := authorizer.BeginRead(ctx)
 	if errors.Is(err, authz.ErrUnauthenticated) {
 		decision, err = nil, nil
@@ -31,25 +47,46 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 	if err != nil {
 		return pkgplugins.SystemPromptSection{}, err
 	}
+	if decision == nil {
+		return pkgplugins.SystemPromptSection{}, ErrSkillReadUnavailable
+	}
+	if turn, ok := SkillTurnViewFromContext(ctx); ok {
+		build = addTurnPackageVisibility(build, turn)
+	}
 	authorized := make([]ResolvedSkill, 0, len(merged))
 	for _, rs := range merged {
-		if !isDBSkill(rs) {
+		id, scope, userID, agentID, required := readAuthorizationTarget(rs)
+		if !required {
 			authorized = append(authorized, rs)
 			continue
 		}
-		if decision == nil {
-			continue
-		}
-		allowed, err := decision.AllowRead(ctx, rs.ID, rs.Scope, rs.UserID, rs.AgentID)
+		allowed, err := decision.AllowRead(ctx, id, scope, userID, agentID)
 		if err != nil {
 			return pkgplugins.SystemPromptSection{}, err
 		}
 		if !allowed {
 			continue
 		}
-		revision, err := reader.LoadCurrentRevision(ctx, resolvedIdentity(rs))
-		if errors.Is(err, errCurrentSkillSelectorMissing) {
+		if isFilePackageSkill(rs) {
+			authorized = append(authorized, rs)
 			continue
+		}
+		var revision ManagedRevision
+		if turn, hasTurn := SkillTurnViewFromContext(ctx); hasTurn {
+			var captured bool
+			revision, captured = turn.ManagedRevision(rs.ID)
+			if !captured && isFileSkillID(rs.ID) {
+				return pkgplugins.SystemPromptSection{}, ErrInvalidSkillRevision
+			}
+			if !captured && validSkillDigest(rs.ContentDigest) {
+				revision, err = reader.LoadExactRevision(ctx, resolvedIdentity(rs), rs.ContentDigest)
+			} else if !captured {
+				revision, err = reader.LoadCurrentRevision(ctx, resolvedIdentity(rs))
+			}
+		} else if validSkillDigest(rs.ContentDigest) {
+			revision, err = reader.LoadExactRevision(ctx, resolvedIdentity(rs), rs.ContentDigest)
+		} else {
+			revision, err = reader.LoadCurrentRevision(ctx, resolvedIdentity(rs))
 		}
 		if err != nil {
 			return pkgplugins.SystemPromptSection{}, err
@@ -65,11 +102,11 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 
 func buildPromptSection(build pkgplugins.SystemPromptContext, merged []ResolvedSkill) (pkgplugins.SystemPromptSection, error) {
 	// Apply plugin visibility filtering.
-	all := make([]Skill, 0, len(merged))
-	for _, rs := range merged {
+	visible := filterVisibleResolvedSkills(merged, build)
+	all := make([]Skill, 0, len(visible))
+	for _, rs := range visible {
 		all = append(all, rs.Skill)
 	}
-	all = filterVisibleSkills(all, build)
 
 	if len(all) == 0 {
 		return pkgplugins.SystemPromptSection{}, nil
@@ -127,7 +164,20 @@ func escapeXML(s string) string {
 	return s
 }
 
-func filterVisibleSkills(skills []Skill, build pkgplugins.SystemPromptContext) []Skill {
+func addTurnPackageVisibility(build pkgplugins.SystemPromptContext, turn SkillTurnView) pkgplugins.SystemPromptContext {
+	build.RegisteredPluginIDs = append([]string(nil), build.RegisteredPluginIDs...)
+	build.EnabledPluginIDs = append([]string(nil), build.EnabledPluginIDs...)
+	for _, ref := range turn.PackageSkills() {
+		if ref.Builtin || ref.Masked || ref.Disabled || !isFilePackageSkillRef(ref) {
+			continue
+		}
+		build.RegisteredPluginIDs = append(build.RegisteredPluginIDs, ref.PackageID)
+		build.EnabledPluginIDs = append(build.EnabledPluginIDs, ref.PackageID)
+	}
+	return build
+}
+
+func filterVisibleResolvedSkills(skills []ResolvedSkill, build pkgplugins.SystemPromptContext) []ResolvedSkill {
 	if len(skills) == 0 {
 		return nil
 	}
@@ -140,41 +190,18 @@ func filterVisibleSkills(skills []Skill, build pkgplugins.SystemPromptContext) [
 		enabled[id] = struct{}{}
 	}
 
-	out := make([]Skill, 0, len(skills))
+	out := make([]ResolvedSkill, 0, len(skills))
 	for _, skill := range skills {
-		if skill.Scope != "system" && skill.Scope != "builtin" {
-			out = append(out, skill)
-			continue
+		owner := skill.OwnerPluginID()
+		if owner != "" {
+			if _, ok := registered[owner]; !ok {
+				continue
+			}
+			if _, ok := enabled[owner]; !ok {
+				continue
+			}
 		}
-		owner := ownerPlugin(skill.Metadata)
-		if owner == "" || skill.Name == "stella" {
-			out = append(out, skill)
-			continue
-		}
-		if _, ok := registered[owner]; !ok {
-			out = append(out, skill)
-			continue
-		}
-		if _, ok := enabled[owner]; ok {
-			out = append(out, skill)
-		}
+		out = append(out, skill)
 	}
 	return out
-}
-
-func ownerPlugin(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var meta map[string]any
-	if err := json.Unmarshal(raw, &meta); err != nil {
-		return ""
-	}
-	owner, _ := meta["owner_plugin"].(string)
-	if owner != "" {
-		return owner
-	}
-	nested, _ := meta["metadata"].(map[string]any)
-	owner, _ = nested["owner_plugin"].(string)
-	return owner
 }

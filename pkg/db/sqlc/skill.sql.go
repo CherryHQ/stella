@@ -80,6 +80,34 @@ func (q *Queries) DeleteSkill(ctx context.Context, arg DeleteSkillParams) error 
 	return err
 }
 
+const getLatestSkillChangelogBySkill = `-- name: GetLatestSkillChangelogBySkill :one
+SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at, content_digest, writer, resource_id FROM skill_changelog
+WHERE COALESCE(resource_id, skill_id) = $1::text
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLatestSkillChangelogBySkill(ctx context.Context, skillID string) (SkillChangelog, error) {
+	row := q.db.QueryRow(ctx, getLatestSkillChangelogBySkill, skillID)
+	var i SkillChangelog
+	err := row.Scan(
+		&i.ID,
+		&i.SkillID,
+		&i.UserID,
+		&i.AgentID,
+		&i.Scope,
+		&i.Action,
+		&i.VersionBefore,
+		&i.VersionAfter,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.ContentDigest,
+		&i.Writer,
+		&i.ResourceID,
+	)
+	return i, err
+}
+
 const getSkillByID = `-- name: GetSkillByID :one
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill WHERE id = $1
 `
@@ -148,6 +176,7 @@ INSERT INTO skill_changelog (
   version_before,
   version_after,
   content_digest,
+  writer,
   metadata
 )
 VALUES (
@@ -159,9 +188,10 @@ VALUES (
   $6,
   $7,
   $8,
-  $9
+  $9,
+  $10
 )
-RETURNING id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at, content_digest
+RETURNING id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at, content_digest, writer, resource_id
 `
 
 type InsertSkillChangelogParams struct {
@@ -173,6 +203,7 @@ type InsertSkillChangelogParams struct {
 	VersionBefore pgtype.Int8     `json:"version_before"`
 	VersionAfter  int64           `json:"version_after"`
 	ContentDigest pgtype.Text     `json:"content_digest"`
+	Writer        string          `json:"writer"`
 	Metadata      json.RawMessage `json:"metadata"`
 }
 
@@ -186,6 +217,7 @@ func (q *Queries) InsertSkillChangelog(ctx context.Context, arg InsertSkillChang
 		arg.VersionBefore,
 		arg.VersionAfter,
 		arg.ContentDigest,
+		arg.Writer,
 		arg.Metadata,
 	)
 	var i SkillChangelog
@@ -201,14 +233,111 @@ func (q *Queries) InsertSkillChangelog(ctx context.Context, arg InsertSkillChang
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.ContentDigest,
+		&i.Writer,
+		&i.ResourceID,
+	)
+	return i, err
+}
+
+const linkLegacySkillResource = `-- name: LinkLegacySkillResource :one
+WITH expected AS MATERIALIZED (
+  SELECT 1
+  FROM skill
+  WHERE skill.id = $1
+    AND skill.scope = $2
+    AND coalesce(skill.user_id::text, '') = coalesce($3::text, '')
+    AND coalesce(skill.agent_id, '') = coalesce($4, '')
+    AND skill.name = $5
+), conflicts AS MATERIALIZED (
+  SELECT 1 AS conflict
+  WHERE EXISTS (
+      SELECT 1
+      FROM skill_usage AS su
+      WHERE su.skill_id <> $1
+        AND coalesce(su.resource_id, su.skill_id) = $6::text
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM skill_usage AS su
+      WHERE su.skill_id = $1
+        AND su.resource_id IS NOT NULL
+        AND su.resource_id <> $6::text
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM skill_changelog AS sc
+      WHERE sc.skill_id <> $1
+        AND coalesce(sc.resource_id, sc.skill_id) = $6::text
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM skill_changelog AS sc
+      WHERE sc.skill_id = $1
+        AND sc.resource_id IS NOT NULL
+        AND sc.resource_id <> $6::text
+    )
+), usage_linked AS (
+  UPDATE skill_usage
+  SET resource_id = $6::text
+  WHERE skill_id = $1
+    AND resource_id IS NULL
+    AND EXISTS (SELECT 1 FROM expected)
+    AND NOT EXISTS (SELECT 1 FROM conflicts)
+  RETURNING 1
+), changelog_linked AS (
+  UPDATE skill_changelog
+  SET resource_id = $6::text
+  WHERE skill_id = $1
+    AND resource_id IS NULL
+    AND EXISTS (SELECT 1 FROM expected)
+    AND NOT EXISTS (SELECT 1 FROM conflicts)
+  RETURNING 1
+)
+SELECT EXISTS (SELECT 1 FROM expected) AS legacy_match,
+       EXISTS (SELECT 1 FROM conflicts) AS has_conflict,
+       (SELECT count(*)::bigint FROM usage_linked) AS usage_linked,
+       (SELECT count(*)::bigint FROM changelog_linked) AS changelog_linked
+`
+
+type LinkLegacySkillResourceParams struct {
+	LegacySkillID string      `json:"legacy_skill_id"`
+	Scope         string      `json:"scope"`
+	UserID        pgtype.Text `json:"user_id"`
+	AgentID       pgtype.Text `json:"agent_id"`
+	Name          string      `json:"name"`
+	ResourceID    string      `json:"resource_id"`
+}
+
+type LinkLegacySkillResourceRow struct {
+	LegacyMatch     bool  `json:"legacy_match"`
+	HasConflict     bool  `json:"has_conflict"`
+	UsageLinked     int64 `json:"usage_linked"`
+	ChangelogLinked int64 `json:"changelog_linked"`
+}
+
+func (q *Queries) LinkLegacySkillResource(ctx context.Context, arg LinkLegacySkillResourceParams) (LinkLegacySkillResourceRow, error) {
+	row := q.db.QueryRow(ctx, linkLegacySkillResource,
+		arg.LegacySkillID,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+		arg.Name,
+		arg.ResourceID,
+	)
+	var i LinkLegacySkillResourceRow
+	err := row.Scan(
+		&i.LegacyMatch,
+		&i.HasConflict,
+		&i.UsageLinked,
+		&i.ChangelogLinked,
 	)
 	return i, err
 }
 
 const listSkillChangelogBySkill = `-- name: ListSkillChangelogBySkill :many
-SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at, content_digest FROM skill_changelog
-WHERE skill_id = $1
-ORDER BY version_after DESC, created_at DESC, id DESC
+SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at, content_digest, writer, resource_id FROM skill_changelog
+WHERE COALESCE(resource_id, skill_id) = $1::text
+ORDER BY created_at DESC, id DESC
 LIMIT $2
 `
 
@@ -238,6 +367,8 @@ func (q *Queries) ListSkillChangelogBySkill(ctx context.Context, arg ListSkillCh
 			&i.Metadata,
 			&i.CreatedAt,
 			&i.ContentDigest,
+			&i.Writer,
+			&i.ResourceID,
 		); err != nil {
 			return nil, err
 		}

@@ -83,7 +83,10 @@ func TestVaultToolMutationsInvalidateRunners(t *testing.T) {
 			if resp.Name != tt.secret || resp.Scope != vaultScopeOrDefault(tt.scope) || resp.Status != tt.wantStatus {
 				t.Fatalf("response = %+v, want name=%s scope=%s status=%s", resp, tt.secret, vaultScopeOrDefault(tt.scope), tt.wantStatus)
 			}
-			wantCalls := []string{"user:" + userID}
+			wantCalls := []string(nil)
+			if tt.action == "set" {
+				wantCalls = []string{"user:" + userID}
+			}
 			if !reflect.DeepEqual(inv.calls, wantCalls) {
 				t.Fatalf("invalidation calls = %v, want %v", inv.calls, wantCalls)
 			}

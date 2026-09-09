@@ -31,8 +31,8 @@ func init() {
 	plugins.Register(PluginID, plugins.PluginFunc(func(host plugins.Host) {
 		plugins.RegisterManagedChannelPlugin(host, plugins.ManagedChannelPluginRegistration{
 			PluginID: PluginID, RuntimeName: RuntimeName,
-			Meta: plugins.PluginInfo{
-				ID: PluginID, Kind: "channel", Name: channel.PlatformDiscord, DisplayName: "Discord", Description: "Discord bot integration.", AdminVisible: true,
+			Info: plugins.PluginInfo{
+				ID: PluginID, Kind: "channel", Name: channel.PlatformDiscord, DisplayName: "Discord", Description: "Discord bot integration.",
 				Capabilities: []string{plugins.CapabilityRuntime, plugins.CapabilityConfig, plugins.CapabilityStatus}, RequiredCapabilities: []plugins.Capability{plugins.CapabilityChannelPlatform, plugins.CapabilityLogger, plugins.CapabilityRuntimeLookup},
 			},
 			DefaultConfig: func() map[string]any {

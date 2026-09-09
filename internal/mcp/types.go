@@ -9,11 +9,12 @@
 package mcp
 
 import (
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/plugin"
 )
 
 // Scope values mirror the skill/vault 4-value model.
@@ -128,7 +129,22 @@ type CatalogTool struct {
 
 // Registration is one MCP server registration (metadata only, no secret).
 type Registration struct {
+	// IdentityKind distinguishes file-backed resources from the legacy
+	// database adapters. File registrations use a stable UUIDv8 derived from
+	// the trusted resource key and normalized authentication target; they do
+	// not acquire a plugin_config row.
+	IdentityKind string
+	FileKey      plugin.ResourceKey
+	// AuthenticationTarget is the canonical, non-secret target used to bind
+	// grants. It deliberately excludes package digests and presentation fields.
+	AuthenticationTarget string
+	// ID is the file authentication identity or legacy child server UUID.
+	// ParentConfigID belongs only to the legacy database adapter.
 	ID             string
+	ParentConfigID string
+	ServerKey      string
+	PluginID       string
+	ConfigRevision int64
 	Scope          string
 	UserID         string
 	AgentID        string
@@ -143,55 +159,31 @@ type Registration struct {
 	ProbedAt       time.Time // zero when never probed
 	Tools          []CatalogTool
 	CredentialMode string
-	Metadata       map[string]any
+	// Headers are public, non-credential request headers authored by the
+	// package. Credential-bearing headers are rejected at config boundaries.
+	Headers     map[string]string
+	Metadata    map[string]any
+	Description string
 	// OAuthClientID is the public pre-registered client id from
 	// metadata.oauth.client_id; the client secret never leaves the vault.
-	OAuthClientID string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	OAuthClientID           string
+	OAuthClientSecretRef    string
+	TokenEndpointAuthMethod string
+	CallTimeoutSeconds      int
+	OAuthScopes             []string
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
-// ToolNamespaceSep separates the MCP prefix, server name, and tool name in the
-// namespaced tool id exposed to the model (e.g. mcp__github__create_issue).
-const ToolNamespaceSep = "__"
+const RegistrationIdentityFile = "file"
 
-// mcpToolPrefix is the reserved first segment of every MCP tool name.
-const mcpToolPrefix = "mcp" + ToolNamespaceSep
+// IsFile reports whether r came from a trusted filesystem resource.
+func (r Registration) IsFile() bool { return r.IdentityKind == RegistrationIdentityFile }
 
 // SanitizeIdent normalizes a server or tool name to the [A-Za-z0-9_] charset
-// used inside namespaced MCP tool names.
+// used inside exported MCP tool names.
 func SanitizeIdent(s, fallback string) string {
 	return sanitizeIdent(s, fallback)
-}
-
-// SplitToolName splits a namespaced MCP tool name (mcp__<server>__<tool>) into
-// its server and tool segments. It splits on the first separator after the
-// prefix: a server name containing "__" makes its tools ambiguous, and the
-// first split matches how NamespacedToolName composes. ok is false for
-// anything that is not a well-formed MCP tool name (missing prefix, missing or
-// empty segments, trailing separator).
-func SplitToolName(name string) (server, tool string, ok bool) {
-	if !strings.HasPrefix(name, mcpToolPrefix) {
-		return "", "", false
-	}
-	rest := strings.TrimPrefix(name, mcpToolPrefix)
-	sep := strings.Index(rest, ToolNamespaceSep)
-	if sep <= 0 || sep == len(rest)-len(ToolNamespaceSep) {
-		return "", "", false
-	}
-	server, tool = rest[:sep], rest[sep+len(ToolNamespaceSep):]
-	if server == "" || tool == "" {
-		return "", "", false
-	}
-	return server, tool, true
-}
-
-// NamespacedToolName returns the agent-facing tool name for a remote MCP tool,
-// namespaced by server so tools from different servers do not collide with core,
-// plugin, or skill tools. Both server and remote tool segments are normalized to
-// [A-Za-z0-9_]; callers still detect collisions between normalized names.
-func NamespacedToolName(serverName, toolName string) string {
-	return "mcp" + ToolNamespaceSep + sanitizeIdent(serverName, "server") + ToolNamespaceSep + sanitizeIdent(toolName, "tool")
 }
 
 func sanitizeIdent(s, fallback string) string {
@@ -211,17 +203,6 @@ func sanitizeIdent(s, fallback string) string {
 	return out
 }
 
-// The hash deliberately covers only user-editable metadata: probe results
-// (Status, StatusError, ProbedAt, Tools) are observations, so a probe must
-// never change Version() and invalidate a client's If-Match.
-func registrationHash(r Registration) [32]byte {
-	return sha256.Sum256([]byte(strings.Join([]string{
-		r.ID, r.Scope, r.UserID, r.AgentID, r.Name, r.URL, r.Transport,
-		r.AuthType, r.CredentialRef, fmt.Sprintf("%t", r.Enabled),
-		r.CredentialMode, r.UpdatedAt.UTC().Format(time.RFC3339Nano),
-	}, "\x00")))
-}
-
 func credentialName(serverID string) string {
 	return "MCP_TOKEN_" + strings.ToUpper(strings.ReplaceAll(serverID, "-", "_"))
 }
@@ -237,45 +218,4 @@ func oauthBundleName(serverID string) string {
 // OAuth client secret. The table stores only the public client_id.
 func oauthClientSecretName(serverID string) string {
 	return oauthClientSecretPrefix + strings.ToUpper(strings.ReplaceAll(serverID, "-", "_"))
-}
-
-// validateCredentialMode enforces the credential-mode enum and its coupling:
-// per_user is only meaningful for OAuth (each user connects their own
-// account). shared stays the default for every auth type.
-func validateCredentialMode(mode, authType string) error {
-	if mode == "" {
-		return nil
-	}
-	if !ValidCredentialMode(mode) {
-		return fmt.Errorf("mcp: invalid credential_mode %q", mode)
-	}
-	if mode == CredentialModePerUser && authType != AuthTypeOAuth {
-		return fmt.Errorf("mcp: credential_mode %q requires auth_type %q", CredentialModePerUser, AuthTypeOAuth)
-	}
-	return nil
-}
-
-// validateRegistration checks the invariants enforced at every write boundary
-// (HTTP/CLI): known scope, HTTP-based transport, known auth type, non-empty
-// url/name. Enum values are enforced here in Go, not by a DB CHECK.
-func validateRegistration(scope, name, rawURL, transport, authType string, policy EndpointPolicy) error {
-	if !ValidScope(scope) {
-		return fmt.Errorf("mcp: invalid scope %q", scope)
-	}
-	if strings.TrimSpace(name) == "" {
-		return fmt.Errorf("mcp: name is required")
-	}
-	if strings.TrimSpace(rawURL) == "" {
-		return fmt.Errorf("mcp: url is required")
-	}
-	if err := policy.validateEndpointURL(rawURL); err != nil {
-		return err
-	}
-	if !ValidTransport(transport) {
-		return fmt.Errorf("mcp: unsupported transport %q: only %q and %q are allowed (stdio is not supported)", transport, TransportStreamableHTTP, TransportSSE)
-	}
-	if !ValidAuthType(authType) {
-		return fmt.Errorf("mcp: invalid auth_type %q", authType)
-	}
-	return nil
 }

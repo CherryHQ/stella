@@ -1,6 +1,7 @@
 package reflect
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -155,7 +156,7 @@ func TestExecuteSkillPlanCanRetryAfterPartialCommit(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-	inner := newReflectPOSIXSkillStore(t, db)
+	inner := newReflectFileSkillStore(t, db)
 	wantFailure := errors.New("injected second operation failure")
 	writer := &failOnceReflectSkillWriter{inner: inner, failCall: 2, err: wantFailure}
 	bundle := skillRelatedBundle{
@@ -196,9 +197,10 @@ func TestExecuteSkillPlanCanRetryAfterPartialCommit(t *testing.T) {
 	if err := db.QueryRow(ctx, `
 		SELECT sc.metadata
 		FROM skill_changelog sc
-		JOIN skill s ON s.id = sc.skill_id
-		WHERE s.name = 'partial-commit-first'
-	`).Scan(&firstMetadata); err != nil {
+		WHERE COALESCE(sc.resource_id, sc.skill_id) = $1
+		ORDER BY sc.created_at DESC, sc.id DESC
+		LIMIT 1
+	`, partial[0].ID).Scan(&firstMetadata); err != nil {
 		t.Fatalf("read first partial changelog: %v", err)
 	}
 	var firstProvenance reflectProvenanceMetadata[skillOperationProvenance]
@@ -208,12 +210,25 @@ func TestExecuteSkillPlanCanRetryAfterPartialCommit(t *testing.T) {
 	if firstProvenance.ReflectProvenance.OperationRef != "skill-0001" {
 		t.Fatalf("first partial operation ref = %q", firstProvenance.ReflectProvenance.OperationRef)
 	}
-	var secondBeforeRetry int
-	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM skill WHERE name = 'partial-commit-second'`).Scan(&secondBeforeRetry); err != nil {
-		t.Fatalf("count second skill before retry: %v", err)
+	var firstHistory int
+	if err := db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM skill_changelog
+		WHERE COALESCE(resource_id, skill_id) = $1
+	`, partial[0].ID).Scan(&firstHistory); err != nil {
+		t.Fatalf("count first partial changelog: %v", err)
 	}
-	if secondBeforeRetry != 0 {
-		t.Fatalf("failed second operation committed %d skills", secondBeforeRetry)
+	if firstHistory != 1 {
+		t.Fatalf("first partial changelog rows = %d, want 1", firstHistory)
+	}
+	visibleBeforeRetry, err := inner.ListIdentityByScope(ctx, "user_agent", userID, agentID)
+	if err != nil {
+		t.Fatalf("list filesystem skills before retry: %v", err)
+	}
+	for _, candidate := range visibleBeforeRetry {
+		if candidate.Name == "partial-commit-second" {
+			t.Fatalf("failed second operation committed filesystem Skill: %#v", candidate)
+		}
 	}
 
 	// A later line retry gets a new run ID. The already committed first create is
@@ -226,16 +241,59 @@ func TestExecuteSkillPlanCanRetryAfterPartialCommit(t *testing.T) {
 	if len(written) != 2 || written[0].Name != "partial-commit-first" || written[1].Name != "partial-commit-second" {
 		t.Fatalf("retry written skills = %#v", written)
 	}
-	if written[0].Version != 1 || written[1].Version != 1 {
-		t.Fatalf("retry versions = %d/%d, want 1/1", written[0].Version, written[1].Version)
+	if written[0].Version != 0 || written[1].Version != 0 {
+		t.Fatalf("retry filesystem versions = %d/%d, want 0/0", written[0].Version, written[1].Version)
+	}
+	visibleAfterRetry, err := inner.ListIdentityByScope(ctx, "user_agent", userID, agentID)
+	if err != nil || len(visibleAfterRetry) != 2 {
+		t.Fatalf("filesystem skills after retry = %#v, err=%v; want exactly two resources", visibleAfterRetry, err)
+	}
+	var firstRetryMetadata []byte
+	if err := db.QueryRow(ctx, `
+		SELECT sc.metadata
+		FROM skill_changelog sc
+		WHERE COALESCE(sc.resource_id, sc.skill_id) = $1
+		ORDER BY sc.created_at DESC, sc.id DESC
+		LIMIT 1
+	`, partial[0].ID).Scan(&firstRetryMetadata); err != nil {
+		t.Fatalf("read first retry changelog: %v", err)
+	}
+	var firstRetryProvenance reflectProvenanceMetadata[skillOperationProvenance]
+	if err := json.Unmarshal(firstRetryMetadata, &firstRetryProvenance); err != nil {
+		t.Fatalf("decode first retry provenance: %v", err)
+	}
+	if !bytes.Equal(firstRetryMetadata, firstMetadata) {
+		t.Fatalf("first retry provenance changed: got %s, want %s", firstRetryMetadata, firstMetadata)
+	}
+	if err := db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM skill_changelog
+		WHERE COALESCE(resource_id, skill_id) = $1
+	`, partial[0].ID).Scan(&firstHistory); err != nil {
+		t.Fatalf("count first retry changelog: %v", err)
+	}
+	if firstHistory != 1 {
+		t.Fatalf("first retry changelog rows = %d, want 1", firstHistory)
+	}
+	var secondHistory int
+	if err := db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM skill_changelog
+		WHERE COALESCE(resource_id, skill_id) = $1
+	`, written[1].ID).Scan(&secondHistory); err != nil {
+		t.Fatalf("count second retry changelog: %v", err)
+	}
+	if secondHistory != 1 {
+		t.Fatalf("second retry changelog rows = %d, want 1", secondHistory)
 	}
 	var secondMetadata []byte
 	if err := db.QueryRow(ctx, `
 		SELECT sc.metadata
 		FROM skill_changelog sc
-		JOIN skill s ON s.id = sc.skill_id
-		WHERE s.name = 'partial-commit-second'
-	`).Scan(&secondMetadata); err != nil {
+		WHERE COALESCE(sc.resource_id, sc.skill_id) = $1
+		ORDER BY sc.created_at DESC, sc.id DESC
+		LIMIT 1
+	`, written[1].ID).Scan(&secondMetadata); err != nil {
 		t.Fatalf("read second retry changelog: %v", err)
 	}
 	var secondProvenance reflectProvenanceMetadata[skillOperationProvenance]

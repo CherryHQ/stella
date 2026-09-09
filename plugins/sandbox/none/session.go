@@ -16,13 +16,14 @@ import (
 	"sync"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/processpath"
 	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
 // Config configures the none factory.
 type Config struct {
-	// StellaHome is the host path to the stella home directory, used for
-	// building a PATH that includes $STELLA_HOME/bin.
+	// StellaHome is the host path to the Stella home directory, used to resolve
+	// per-user paths and runner-owned environment values.
 	StellaHome string
 }
 
@@ -75,6 +76,8 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	s := &noneSession{
 		id:           id,
 		policy:       policy,
+		stellaHome:   f.cfg.StellaHome,
+		userDataDir:  userData,
 		ownedTempDir: tmpDir,
 		done:         make(chan struct{}),
 	}
@@ -114,7 +117,15 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, workspace, userData, tm
 		if dir := sandboxpkg.PerUserMiseDataDir(env, f.cfg.StellaHome); dir != "" {
 			userShims = sandboxpkg.MiseUserShimsDir(dir)
 		}
-		env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome, userShims)
+		selectionShims := env[sandboxpkg.EnvNativeSelectionDir]
+		if selectionShims == "" {
+			selectionShims = env["MISE_SHIMS_DIR"]
+		}
+		bundledShims := env[sandboxpkg.EnvCoreRuntimeDir]
+		userSelectionShims := env[sandboxpkg.EnvUserNativeSelectionDir]
+		selections := append(filepath.SplitList(userSelectionShims), filepath.SplitList(selectionShims)...)
+		selections = append(selections, bundledShims)
+		env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome, userShims, selections...)
 		env[sandboxpkg.EnvRunnerPath] = env["PATH"]
 	}
 	policy.Env = env
@@ -186,17 +197,46 @@ func directoryExists(name string) bool {
 
 // noneSession implements sandboxpkg.Session with zero isolation.
 type noneSession struct {
-	id           string
-	policy       sandboxpkg.Policy
-	done         chan struct{}
-	doneOnce     sync.Once
-	mu           sync.RWMutex
-	closed       bool
-	closeErr     error
-	procs        []*noneProcess
-	ownedTempDir string
-	resolver     *sessionfs.Resolver
-	files        sandboxpkg.FileAccess
+	id            string
+	policy        sandboxpkg.Policy
+	stellaHome    string
+	userDataDir   string
+	done          chan struct{}
+	doneOnce      sync.Once
+	closeMu       sync.Mutex
+	mu            sync.RWMutex
+	closed        bool
+	closing       bool
+	nativePending bool
+	closeErr      error
+	procs         []*noneProcess
+	ownedTempDir  string
+	resolver      *sessionfs.Resolver
+	files         sandboxpkg.FileAccess
+}
+
+// RenderEnv applies the none backend's fixed filesystem and host path view to
+// a fresh logical turn environment without consulting retained policy state.
+func (s *noneSession) RenderEnv(_ context.Context, env map[string]string) (map[string]string, error) {
+	s.mu.RLock()
+	closed := s.closed || s.closing
+	workingDir, userDataDir, tempDir, stellaHome := s.policy.Filesystem.WorkingDir, s.userDataDir, s.ownedTempDir, s.stellaHome
+	s.mu.RUnlock()
+	if closed {
+		return nil, errors.New("none: session is closed")
+	}
+	if tempDir == "" {
+		tempDir = os.TempDir()
+	}
+	policy, err := (&Factory{cfg: Config{StellaHome: stellaHome}}).adjustPolicy(sandboxpkg.Policy{Env: maps.Clone(env)}, workingDir, userDataDir, tempDir)
+	if err != nil {
+		return nil, fmt.Errorf("none: render filesystem environment: %w", err)
+	}
+	if policy.Env["PATH"] == "" {
+		policy.Env["PATH"] = sandboxpkg.HostEnvBuildPath(stellaHome, "")
+		policy.Env[sandboxpkg.EnvRunnerPath] = policy.Env["PATH"]
+	}
+	return policy.Env, nil
 }
 
 func (s *noneSession) Policy() sandboxpkg.Policy {
@@ -218,37 +258,60 @@ func (s *noneSession) WorkingDir() string {
 func (s *noneSession) Alive() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return !s.closed
+	return !s.closed && !s.closing
 }
 
 func (s *noneSession) Done() <-chan struct{} { return s.done }
 
 func (s *noneSession) Close() error {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+
+	s.mu.Lock()
+	if s.closed {
+		closeErr := s.closeErr
+		s.mu.Unlock()
+		return closeErr
+	}
+	s.closing = true
+	procs := append([]*noneProcess(nil), s.procs...)
+	resolver := s.resolver
+	tmpDir := s.ownedTempDir
+	s.mu.Unlock()
+
+	var closeErr error
+	for _, p := range procs {
+		closeErr = errors.Join(closeErr, p.Close())
+	}
+	if resolver != nil {
+		closeErr = errors.Join(closeErr, resolver.Close())
+	}
+	s.mu.RLock()
+	noProcs := len(s.procs) == 0
+	nativePending := s.nativePending
+	s.mu.RUnlock()
+	if closeErr == nil && noProcs && !nativePending && tmpDir != "" {
+		closeErr = errors.Join(closeErr, os.RemoveAll(tmpDir))
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed {
-		return s.closeErr
+	if closeErr != nil {
+		s.closeErr = closeErr
+		return closeErr
 	}
 	s.closed = true
-	procs := s.procs
+	s.closing = false
+	s.closeErr = nil
 	s.procs = nil
-	for _, p := range procs {
-		p.Close() //nolint:errcheck
-	}
-	if s.resolver != nil {
-		s.closeErr = s.resolver.Close()
-	}
-	if s.ownedTempDir != "" {
-		s.closeErr = errors.Join(s.closeErr, os.RemoveAll(s.ownedTempDir))
-	}
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "none", "explicit_close")
-	return s.closeErr
+	return nil
 }
 
 func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
 	s.mu.RLock()
-	closed := s.closed
+	closed := s.closed || s.closing
 	policy := s.policy
 	s.mu.RUnlock()
 	if closed {
@@ -280,12 +343,16 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 	sh, shFlag := shell()
 	cmd := exec.Command(sh, shFlag, command)
 	cmd.Dir = resolvedCwd.HostPath()
-	cmd.Env = buildEnv(policy, opts.Env)
+	cmd.Env = buildEnvMode(policy, opts.Env, opts.EnvMode)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-
+	if s.stellaHome != "" {
+		s.mu.Lock()
+		s.nativePending = true
+		s.mu.Unlock()
+	}
 	if err := cmd.Start(); err != nil {
 		return sandboxpkg.ExecResult{}, err
 	}
@@ -318,7 +385,7 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 
 func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
 	s.mu.RLock()
-	closed := s.closed
+	closed := s.closed || s.closing
 	policy := s.policy
 	s.mu.RUnlock()
 	if closed {
@@ -350,9 +417,20 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 		execCtx, cancel = context.WithCancel(ctx)
 	}
 
-	cmd := exec.Command(req.Path, req.Args...)
+	cmdEnv := buildEnvMode(policy, req.Env, req.EnvMode)
+	processPath, err := processpath.Resolve(req.Path, cmdEnv)
+	if err != nil && req.EnvMode == sandboxpkg.EnvOverlay && !processpath.HasPath(cmdEnv) {
+		// Preserve the legacy host lookup when overlay mode intentionally omits
+		// PATH. EnvReplace never falls back to the host environment.
+		processPath, err = exec.LookPath(req.Path)
+	}
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("none: resolve %q from process PATH: %w", req.Path, err)
+	}
+	cmd := exec.Command(processPath, req.Args...)
 	cmd.Dir = resolvedCwd.HostPath()
-	cmd.Env = buildEnv(policy, req.Env)
+	cmd.Env = cmdEnv
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -372,7 +450,11 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 		cancel()
 		return nil, err
 	}
-
+	if s.stellaHome != "" {
+		s.mu.Lock()
+		s.nativePending = true
+		s.mu.Unlock()
+	}
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
@@ -382,7 +464,7 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 	}
 
 	s.mu.Lock()
-	if s.closed {
+	if s.closed || s.closing {
 		s.mu.Unlock()
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
@@ -425,8 +507,12 @@ func (s *noneSession) deregisterProcess(p *noneProcess) {
 // buildEnv merges host env with policy env and per-call overrides.
 // If InheritEnv is false, host environment is not included.
 func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
+	return buildEnvMode(policy, overrides, sandboxpkg.EnvOverlay)
+}
+
+func buildEnvMode(policy sandboxpkg.Policy, overrides map[string]string, mode sandboxpkg.EnvMode) []string {
 	merged := make(map[string]string)
-	if policy.InheritEnv {
+	if mode == sandboxpkg.EnvOverlay && policy.InheritEnv {
 		for _, kv := range os.Environ() {
 			k, v, ok := cutEnv(kv)
 			if ok {
@@ -434,7 +520,9 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 			}
 		}
 	}
-	maps.Copy(merged, policy.Env)
+	if mode == sandboxpkg.EnvOverlay {
+		maps.Copy(merged, policy.Env)
+	}
 	maps.Copy(merged, overrides)
 	if renderedPath, ok := merged["PATH"]; ok {
 		merged[sandboxpkg.EnvRunnerPath] = renderedPath

@@ -8,11 +8,11 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// TestApplyChannelHonoursOnlyExplicitPlatformOverride pins the kill-switch
+// TestReconcileChannelHonoursOnlyExplicitPlatformOverride pins the kill-switch
 // semantics: a channel runs unless an admin stored an explicit "off" row for its
 // platform. An absent row must not read as a veto — that would mean creating one
 // channel required a deployment-wide plugin write first.
-func TestApplyChannelHonoursOnlyExplicitPlatformOverride(t *testing.T) {
+func TestReconcileChannelHonoursOnlyExplicitPlatformOverride(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		overrides   map[string]config.Plugin
@@ -46,7 +46,10 @@ func TestApplyChannelHonoursOnlyExplicitPlatformOverride(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			host := New(&stubStore{plugins: tc.overrides})
+			store := &stubStore{plugins: tc.overrides, channels: map[string][]config.Channel{
+				"telegram": {{ID: "telegram-team", Type: "telegram", Enabled: true}},
+			}}
+			host := New(store, WithListenerCap(allowAllListenerCap))
 			host.RegisterPluginID("channel/telegram")
 
 			var got []pkgplugins.PluginState
@@ -62,7 +65,7 @@ func TestApplyChannelHonoursOnlyExplicitPlatformOverride(t *testing.T) {
 			})
 
 			channel := config.Channel{ID: "telegram-team", Type: "telegram", Enabled: true}
-			if err := host.ApplyChannel(context.Background(), channel); err != nil {
+			if err := host.ReconcileChannel(context.Background(), channel.ID); err != nil {
 				t.Fatalf("apply channel: %v", err)
 			}
 			if len(got) != 1 {

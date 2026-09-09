@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
 	skillstool "github.com/CherryHQ/stella/internal/skill"
@@ -182,6 +183,7 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 
 	snap := &config.Snapshot{AgentID: "a1", Provider: "anthropic", Model: "test-model", APIKey: "test-key"}
 	snap.Workspace = t.TempDir()
+	corePlan := fixtureRunnerSystemRuntimePlan(t, stellaHome)
 	for _, tt := range []struct {
 		name     string
 		params   RunnerParams
@@ -200,9 +202,16 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 			}
 			var promptBuild plugins.SystemPromptContext
 			build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
-				Snap: snap,
-				Home: testWorkspaceViewer{root: stellaHome},
+				Snap:              snap,
+				Home:              testWorkspaceViewer{root: stellaHome},
+				SystemRuntimePlan: corePlan,
+				PluginContextBuilder: func(context.Context, authz.Authority, string) (PluginContext, error) {
+					return PluginContext{}, nil
+				},
 				PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
+					if tt.name == "user-less" {
+						t.Fatal("user-less runner must skip plugin prompt sections")
+					}
 					promptBuild = build
 					return nil, nil
 				},
@@ -312,9 +321,9 @@ func TestNewRunnerFuncCleansUserlessScratchOnConstructionFailure(t *testing.T) {
 				cfg.SkillRevisionReader = nil
 			}
 			if stage == "panic" {
-				cfg.PromptSectionsBuilder = func(context.Context, plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
-					panic("prompt initialization failed")
-				}
+				cfg.BuiltinTools = []BuiltinTool{{Available: func(context.Context, RunnerParams) (bool, error) {
+					panic("tool initialization failed")
+				}}}
 			}
 			panicked := false
 			func() {
@@ -323,8 +332,8 @@ func TestNewRunnerFuncCleansUserlessScratchOnConstructionFailure(t *testing.T) {
 					t.Fatal("runner construction succeeded")
 				}
 			}()
-			if panicked != (stage == "panic") {
-				t.Fatalf("unexpected panic state: %v", panicked)
+			if panicked {
+				t.Fatalf("runner construction leaked a panic for stage %q", stage)
 			}
 			entries, err := os.ReadDir(filepath.Join(stellaHome, runnerScratchDir))
 			if err != nil {

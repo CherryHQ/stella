@@ -3,10 +3,12 @@ package sandbox
 import (
 	"context"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
-	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -32,6 +34,22 @@ func oauthMinValidity(cfg Config) time.Duration {
 	return timeout + oauthValiditySafetyMargin
 }
 
+// SessionEnvRefreshResult is the per-turn authorization result for OAuth
+// session environment. Ready covers required bindings; optional packages with
+// a failed live binding are still listed in UnavailablePluginIDs so the caller
+// can remove them before exposing model-facing resources.
+type SessionEnvRefreshResult struct {
+	Ready                bool
+	UnavailablePluginIDs []string
+	UnavailableProviders []string
+}
+
+// PluginUnavailable reports whether this turn lacks a usable OAuth binding for
+// pluginID.
+func (r SessionEnvRefreshResult) PluginUnavailable(pluginID string) bool {
+	return slices.Contains(r.UnavailablePluginIDs, pluginID)
+}
+
 // RefreshSessionEnv reloads the OAuth bundles behind the session's env specs and
 // atomically updates the derived sandbox env in place, so a long-lived cached
 // runner keeps serving valid OAuth-derived tool credentials as access tokens
@@ -41,69 +59,137 @@ func oauthMinValidity(cfg Config) time.Duration {
 //
 // It refreshes only env vars actually injected from OAuth at session creation
 // (recorded in cfg.OAuthEnvBindings), so an explicit vault override of the same
-// name — which injectSessionEnv leaves untouched — is never clobbered. It is a
-// no-op for group sessions (which must never touch the human OAuth vault, D9),
-// sessions whose env cannot be refreshed, or a config without a TokenManager or
-// oauth-sourced bindings. A reload/refresh failure for a provider is logged and
-// leaves that env var at its previous value — which keeps working until it
-// actually expires — rather than clearing it.
-func RefreshSessionEnv(ctx context.Context, session pkgsandbox.Session, cfg Config) {
+// name — which injectSessionEnv leaves untouched — is never clobbered. Group
+// sessions, sessions whose env cannot be refreshed, and configs without a
+// TokenManager return unavailable package IDs without touching the human OAuth
+// vault or session env. A reload/refresh failure for a provider is logged and
+// leaves the old env untouched for cleanup, while the result marks affected
+// packages unavailable so callers cannot dispatch the stale credential.
+func RefreshSessionEnv(ctx context.Context, session pkgsandbox.Session, cfg Config) SessionEnvRefreshResult {
+	result := SessionEnvRefreshResult{Ready: true}
+	policyEnv := map[string]string(nil)
+	if session != nil {
+		policyEnv = session.Policy().Env
+	}
+
+	// Group specs by provider and package. A required unbound spec is
+	// still checked when no current env value satisfies it. Unbound values that
+	// are present came from an explicit vault override and must not be replaced.
+	providerPackageSpecs := make(map[string]map[string][]pkgplugins.SessionEnvSpec)
+	for _, spec := range cfg.SessionEnvSpecs {
+		src := string(spec.Source)
+		if !strings.HasPrefix(src, "oauth.") || spec.OAuthProviderID == "" {
+			continue
+		}
+		if !cfg.OAuthEnvBindings.Has(spec.EnvVar) && policyEnv[spec.EnvVar] != "" {
+			continue
+		}
+		packages, exists := providerPackageSpecs[spec.OAuthProviderID]
+		if !exists {
+			packages = make(map[string][]pkgplugins.SessionEnvSpec)
+			providerPackageSpecs[spec.OAuthProviderID] = packages
+		}
+		packages[spec.PluginID] = append(packages[spec.PluginID], spec)
+	}
+
+	if len(providerPackageSpecs) == 0 {
+		return result
+	}
+	markUnavailable := func(providerID string, specs []pkgplugins.SessionEnvSpec) {
+		if !slices.Contains(result.UnavailableProviders, providerID) {
+			result.UnavailableProviders = append(result.UnavailableProviders, providerID)
+		}
+		for _, spec := range specs {
+			bound := cfg.OAuthEnvBindings.Has(spec.EnvVar)
+			if !bound && policyEnv[spec.EnvVar] != "" {
+				continue
+			}
+			if spec.Required {
+				result.Ready = false
+			}
+			if spec.PluginID != "" && !result.PluginUnavailable(spec.PluginID) {
+				result.UnavailablePluginIDs = append(result.UnavailablePluginIDs, spec.PluginID)
+			}
+		}
+	}
+	providerIDs := slices.Sorted(maps.Keys(providerPackageSpecs))
+	markProviderUnavailable := func(providerID string) {
+		for _, packageID := range slices.Sorted(maps.Keys(providerPackageSpecs[providerID])) {
+			markUnavailable(providerID, providerPackageSpecs[providerID][packageID])
+		}
+	}
+
 	if session == nil || cfg.GroupID != "" || cfg.TokenManager == nil {
-		return
+		for _, providerID := range providerIDs {
+			markProviderUnavailable(providerID)
+		}
+		return result
 	}
 	refresher, ok := session.(pkgsandbox.EnvRefresher)
 	if !ok {
-		return
+		for _, providerID := range providerIDs {
+			markProviderUnavailable(providerID)
+		}
+		return result
 	}
 
 	minValidity := oauthMinValidity(cfg)
-	// bundles caches one resolution per provider so multiple env vars sourced
-	// from the same provider trigger a single reload/refresh. A nil entry records
-	// a resolution that failed, so we don't retry it within one turn.
-	bundles := make(map[string]*oauth.OAuthBundle)
 	updates := make(map[string]string)
 	var rotatedSecrets []string
-	for _, spec := range cfg.SessionEnvSpecs {
-		src := string(spec.Source)
-		if !strings.HasPrefix(src, "oauth.") {
+	for _, providerID := range providerIDs {
+		bundle, err := cfg.TokenManager.GetOAuthToken(ctx, providerID, cfg.UserID, minValidity)
+		if err != nil {
+			// GetOAuthToken was asked for the full turn validity floor. On error,
+			// leave the old value only for cleanup; the result removes affected
+			// packages from the turn view instead of reusing that value.
+			markProviderUnavailable(providerID)
+			slog.Warn("session env refresh skipped: oauth token unavailable",
+				"component", "runner_sandbox", "user_id", cfg.UserID,
+				"provider", providerID, "error", err)
 			continue
 		}
-		// Only vars injected from OAuth at creation are refreshable; anything the
-		// vault explicitly provided (or that was never connected) is left alone.
-		if !cfg.OAuthEnvBindings.Has(spec.EnvVar) {
-			continue
-		}
-		providerID := spec.OAuthProviderID
-		if providerID == "" {
-			continue
-		}
-		bundle, seen := bundles[providerID]
-		if !seen {
-			var err error
-			bundle, err = cfg.TokenManager.GetOAuthToken(ctx, providerID, cfg.UserID, minValidity)
-			if err != nil {
-				// Preserve the old env: log and skip rather than clear a value
-				// that may still work until it truly expires.
-				slog.Warn("session env refresh skipped: oauth token unavailable",
-					"component", "runner_sandbox",
-					"user_id", cfg.UserID,
-					"provider", providerID,
-					"env_var", spec.EnvVar,
-					"error", err,
-				)
-				bundle = nil
+		for _, packageID := range slices.Sorted(maps.Keys(providerPackageSpecs[providerID])) {
+			packageSpecs := providerPackageSpecs[providerID][packageID]
+			providerUpdates, valuesOK := oauthSessionEnvValues(packageSpecs, bundle)
+			if !valuesOK {
+				markUnavailable(providerID, packageSpecs)
+				slog.Debug("session env refresh skipped: OAuth requirements unavailable", "component", "runner_sandbox", "provider", providerID, "plugin", packageID)
+				continue
 			}
-			bundles[providerID] = bundle
-		}
-		if bundle == nil {
-			continue
-		}
-		field := strings.TrimPrefix(src, "oauth.")
-		value, known := oauthBundleField(bundle, field)
-		if known && value != "" {
-			updates[spec.EnvVar] = value
-			if oauthSessionEnvFieldSecret(field) {
-				rotatedSecrets = append(rotatedSecrets, value)
+			for _, spec := range packageSpecs {
+				bound := cfg.OAuthEnvBindings.Has(spec.EnvVar)
+				if !bound && !spec.Required {
+					continue
+				}
+				if !bound && policyEnv[spec.EnvVar] != "" {
+					continue
+				}
+				if !bound || providerUpdates[spec.EnvVar] == "" {
+					// This session never received the required binding, or a bound
+					// available token belongs to the next rebuilt session, rather
+					// than being silently introduced into this runner. A bound
+					// optional value that disappeared is also unavailable: keeping
+					// its old env would reuse a revoked credential.
+					markUnavailable(providerID, packageSpecs)
+					valuesOK = false
+					break
+				}
+			}
+			if !valuesOK {
+				continue
+			}
+			for _, spec := range packageSpecs {
+				if !cfg.OAuthEnvBindings.Has(spec.EnvVar) {
+					continue
+				}
+				value, present := providerUpdates[spec.EnvVar]
+				if !present {
+					continue
+				}
+				updates[spec.EnvVar] = value
+				if oauthSessionEnvFieldSecret(strings.TrimPrefix(string(spec.Source), "oauth.")) {
+					rotatedSecrets = append(rotatedSecrets, value)
+				}
 			}
 		}
 	}
@@ -113,4 +199,5 @@ func RefreshSessionEnv(ctx context.Context, session pkgsandbox.Session, cfg Conf
 		cfg.SessionSecretValues.Add(rotatedSecrets...)
 		refresher.RefreshEnv(updates)
 	}
+	return result
 }

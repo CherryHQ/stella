@@ -3,6 +3,7 @@ package skill
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -31,6 +32,37 @@ func TestServiceMergesExactSnapshotsByPrecedence(t *testing.T) {
 	}
 	if got := byName["stella"]; got.IsImmutable() || got.ID != "managed-stella" {
 		t.Fatalf("stella winner = %#v, want managed snapshot", got)
+	}
+}
+
+func TestServicePackageSkillsRemainBelowProjectAndManagedOverrides(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("e", 64)
+	snapshot, err := SnapshotProjectSkills(t.Context(), snapshotRoot{fstest.MapFS{
+		".agents/skills/shared/SKILL.md": {Data: []byte("---\nname: shared\ndescription: project winner\n---\n")},
+	}}, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged := NewService().ListMergedWithPackages([]Skill{
+		{ID: "managed-shared", Scope: "user", Name: "shared", Description: "managed loser"},
+		{ID: "managed-package", Scope: "user", Name: "package", Description: "managed override"},
+	}, snapshot, []PackageSkillRef{
+		{PackageID: "demo", PackageDigest: digest, Name: "shared", Description: "package loser"},
+		{PackageID: "demo", PackageDigest: digest, Name: "package", Description: "package loser"},
+		{PackageID: "demo", PackageDigest: digest, Name: "only-package", Description: "package winner"},
+	}, nil)
+	byName := make(map[string]ResolvedSkill, len(merged))
+	for _, skill := range merged {
+		byName[skill.Name] = skill
+	}
+	if got := byName["shared"]; got.Scope != "project" || got.Description != "project winner" {
+		t.Fatalf("project override = %#v", got)
+	}
+	if got := byName["package"]; got.ID != "managed-package" || got.IsPackage() {
+		t.Fatalf("managed override = %#v", got)
+	}
+	if got := byName["only-package"]; !got.IsPackage() || got.OwnerPluginID() != "demo" {
+		t.Fatalf("package winner = %#v", got)
 	}
 }
 

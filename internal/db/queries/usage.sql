@@ -42,7 +42,7 @@ WHERE fact_id = sqlc.arg(fact_id);
 -- name: UpsertSkillUsageOnReflectCreate :exec
 INSERT INTO skill_usage (skill_id, user_id, agent_id, content_digest, use_count, last_used_at)
 VALUES (sqlc.arg(skill_id), sqlc.arg(user_id), sqlc.arg(agent_id), sqlc.arg(content_digest), 1, now())
-ON CONFLICT (skill_id) DO UPDATE
+ON CONFLICT ((COALESCE(resource_id, skill_id))) DO UPDATE
 SET user_id = excluded.user_id,
     agent_id = excluded.agent_id,
     content_digest = excluded.content_digest,
@@ -51,13 +51,8 @@ SET user_id = excluded.user_id,
 
 -- name: RefreshSkillUsageOnReflectPatch :exec
 INSERT INTO skill_usage (skill_id, user_id, agent_id, content_digest, use_count, last_used_at)
-SELECT s.id, s.user_id, s.agent_id, sqlc.arg(content_digest), 0, now()
-FROM skill s
-WHERE s.id = sqlc.arg(skill_id)
-  AND s.user_id = sqlc.arg(user_id)::uuid
-  AND s.agent_id = sqlc.arg(agent_id)::text
-  AND s.scope = 'user_agent'
-ON CONFLICT (skill_id) DO UPDATE
+VALUES (sqlc.arg(skill_id), sqlc.arg(user_id)::uuid, sqlc.arg(agent_id)::text, sqlc.arg(content_digest), 0, now())
+ON CONFLICT ((COALESCE(resource_id, skill_id))) DO UPDATE
 SET content_digest = excluded.content_digest,
     last_used_at = excluded.last_used_at;
 
@@ -66,27 +61,22 @@ UPDATE skill_usage su
 SET use_count = su.use_count + 1,
     last_used_at = now(),
     content_digest = sqlc.arg(content_digest)
-FROM skill s
-WHERE su.skill_id = sqlc.arg(skill_id)
+WHERE COALESCE(su.resource_id, su.skill_id) = sqlc.arg(skill_id)::text
   AND su.user_id = sqlc.arg(user_id)::uuid
   AND su.agent_id = sqlc.arg(agent_id)::text
-  AND s.id = su.skill_id
-  AND s.user_id = su.user_id
-  AND s.agent_id = su.agent_id
-  AND s.scope = 'user_agent'
   AND su.content_digest IS NOT DISTINCT FROM sqlc.arg(content_digest);
 
 -- name: GetSkillUsageForUpdate :one
 SELECT *
 FROM skill_usage
-WHERE skill_id = sqlc.arg(skill_id)
+WHERE COALESCE(resource_id, skill_id) = sqlc.arg(skill_id)::text
   AND user_id = sqlc.arg(user_id)::uuid
   AND agent_id = sqlc.arg(agent_id)::text
 FOR UPDATE;
 
 -- name: DeleteSkillUsage :exec
 DELETE FROM skill_usage
-WHERE skill_id = sqlc.arg(skill_id);
+WHERE COALESCE(resource_id, skill_id) = sqlc.arg(skill_id)::text;
 
 -- name: ListReflectUsagePairs :many
 SELECT DISTINCT owned.user_id, owned.agent_id
@@ -142,9 +132,9 @@ WITH pair_activity AS (
     AND c.kind NOT IN ('task', 'delegate', 'scheduler')
 )
 SELECT
-  s.id AS skill_id,
-  s.user_id::text AS user_id,
-  s.agent_id::text AS agent_id,
+  COALESCE(su.resource_id, su.skill_id)::text AS skill_id,
+  su.user_id::text AS user_id,
+  su.agent_id::text AS agent_id,
   su.content_digest,
   su.use_count,
   su.last_used_at,
@@ -154,11 +144,9 @@ SELECT
     ELSE 'low_use'
   END AS rule
 FROM skill_usage su
-JOIN skill s ON s.id = su.skill_id
 CROSS JOIN pair_activity
 WHERE su.user_id = sqlc.arg(user_id)::uuid
   AND su.agent_id = sqlc.arg(agent_id)::text
-  AND s.scope = 'user_agent'
   AND su.content_digest IS NOT NULL
   AND (
     su.last_used_at < sqlc.arg(stale_before)
@@ -168,7 +156,7 @@ WHERE su.user_id = sqlc.arg(user_id)::uuid
     )
   )
   AND pair_activity.latest > su.last_used_at
-ORDER BY su.last_used_at ASC, s.id ASC;
+ORDER BY su.last_used_at ASC, COALESCE(su.resource_id, su.skill_id) ASC;
 
 -- name: HasEligiblePairActivityAfter :one
 SELECT EXISTS (

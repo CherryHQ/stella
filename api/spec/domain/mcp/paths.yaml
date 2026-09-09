@@ -2,34 +2,32 @@ paths:
   /api/mcp/servers:
     get:
       tags: [mcp]
-      summary: List scoped MCP server registrations
-      operationId: listScopedMCPServers
-      x-agent-tool: {
-        tool: "settings_mcp",
-        resource: "server",
-        action: "list",
-        add: {
-          target_agent_id: {
-            type: string,
-            description: Optional Agent whose scoped registrations are listed.,
-          },
-          limit: {
-            type: integer,
-            default: 50,
-            maximum: 50,
-            description: Maximum registrations to return before truncation.,
-          },
-        },
-      }
+      summary: List file-backed MCP servers visible to the caller
+      operationId: listMCPServers
+      x-agent-tool:
+        tool: settings_mcp
+        resource: server
+        action: list
+        omit: [scope, agent_id]
+        input:
+          $ref: "../../components.yaml#/components/schemas/MCPServerToolListInput"
       parameters:
         - name: scope
           in: query
           required: false
-          schema:
-            type: string
-            enum: [user, user_agent, system, system_agent]
-            default: user
+          schema: {
+            type: string,
+            enum: [system, system_agent, user, user_agent],
+          }
         - name: agent_id
+          in: query
+          required: false
+          schema: { type: string }
+        - name: page_size
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 20 }
+        - name: page_token
           in: query
           required: false
           schema: { type: string }
@@ -41,27 +39,26 @@ paths:
               schema: {
                 $ref: "../../components.yaml#/components/schemas/MCPServerList",
               }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
     post:
       tags: [mcp]
-      summary: Register a scoped MCP server
-      operationId: createScopedMCPServer
-      x-agent-tool: {
-        tool: "settings_mcp",
-        resource: "server",
-        action: "create",
-        fixed: { auth_type: none },
-        omit: [token],
-        add: {
-          target_agent_id: {
-            type: string,
-            description: Optional Agent whose scoped registration is created.,
-          },
-        },
-      }
+      summary: Create one standalone MCP declaration file
+      operationId: createMCPServer
+      x-agent-tool:
+        tool: settings_mcp
+        resource: server
+        action: create
+        input:
+          $ref: "../../components.yaml#/components/schemas/MCPServerToolCreateInput"
       requestBody:
         required: true
         content:
@@ -84,43 +81,22 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
   /api/mcp/servers/{id}:
     parameters:
-      - {
-          name: id,
-          in: path,
-          required: true,
-          schema: { type: string },
-          description: "MCP server id",
-        }
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
     get:
       tags: [mcp]
-      summary: Get a scoped MCP server registration
-      operationId: getScopedMCPServer
-      x-agent-tool: {
-        tool: "settings_mcp",
-        resource: "server",
-        action: "get",
-        add: {
-          target_agent_id: {
-            type: string,
-            description: Optional Agent whose scoped registration is read.,
-          },
-        },
-      }
-      parameters:
-        - name: scope
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [user, user_agent, system, system_agent]
-            default: user
-        - name: agent_id
-          in: query
-          required: false
-          schema: { type: string }
+      summary: Get one file-backed MCP server
+      operationId: getMCPServer
+      x-agent-tool: { tool: settings_mcp, resource: server, action: get }
       responses:
         "200":
           description: ok
@@ -134,51 +110,105 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
     patch:
       tags: [mcp]
-      summary: Update a scoped MCP server registration
-      operationId: updateScopedMCPServer
-      x-agent-tool: {
-        tool: "settings_mcp",
-        resource: "server",
-        action: "update",
-        omit: [auth_type, token, "If-Match"],
-        add: {
-          target_agent_id: {
-            type: string,
-            description: Optional Agent whose scoped registration is updated.,
-          },
-          expected_version: {
-            type: string,
-            minLength: 1,
-            description: Opaque version returned by settings_mcp_server_get.,
-          },
-        },
-        require: [expected_version],
-      }
-      parameters:
-        - name: scope
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [user, user_agent, system, system_agent]
-            default: user
-        - name: agent_id
-          in: query
-          required: false
-          schema: { type: string }
-        - name: If-Match
-          in: header
-          required: false
-          schema: { type: string }
-          description: Optional opaque version; a stale value returns 409.
+      summary: Update one file-backed MCP declaration or enablement
+      operationId: updateMCPServer
+      x-agent-tool:
+        tool: settings_mcp
+        resource: server
+        action: update
+        input:
+          $ref: "../../components.yaml#/components/schemas/MCPServerToolUpdateInput"
       requestBody:
         required: true
         content:
           application/json:
             schema: {
               $ref: "../../components.yaml#/components/schemas/UpdateMCPServerRequest",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/MCPServer",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    delete:
+      tags: [mcp]
+      summary: Delete one standalone MCP declaration
+      operationId: deleteMCPServer
+      x-agent-tool: { tool: settings_mcp, resource: server, action: delete }
+      parameters:
+        - name: expected_digest
+          in: query
+          required: true
+          description: Exact current declaration digest required for deletion.
+          schema: { type: string, minLength: 1 }
+      responses:
+        "204": { description: deleted }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/mcp/servers/{id}/file:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [mcp]
+      summary: Read one standalone MCP declaration file
+      operationId: getMCPServerFile
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ResourceFileContent",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    patch:
+      tags: [mcp]
+      summary: Replace one standalone MCP declaration file
+      operationId: updateMCPServerFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateMCPServerFileRequest",
             }
       responses:
         "200":
@@ -197,48 +227,35 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
-    delete:
+
+  /api/mcp/servers/{id}/credentials:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
       tags: [mcp]
-      summary: Remove a scoped MCP server registration
-      operationId: deleteScopedMCPServer
-      x-agent-tool: {
-        tool: "settings_mcp",
-        resource: "server",
-        action: "delete",
-        omit: ["If-Match"],
-        add: {
-          target_agent_id: {
-            type: string,
-            description: Optional Agent whose scoped registration is deleted.,
-          },
-          expected_version: {
-            type: string,
-            minLength: 1,
-            description: Opaque version returned by settings_mcp_server_get.,
-          },
-        },
-        require: [expected_version],
-      }
-      parameters:
-        - name: scope
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [user, user_agent, system, system_agent]
-            default: user
-        - name: agent_id
-          in: query
-          required: false
-          schema: { type: string }
-        - name: If-Match
-          in: header
-          required: false
-          schema: { type: string }
-          description: Optional opaque version; a stale value returns 409.
+      summary: Store one bearer token or OAuth client secret for an MCP declaration
+      operationId: updateMCPServerCredentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateMCPServerCredentialsRequest",
+            }
       responses:
-        "204":
-          description: deleted
+        "200":
+          description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/MCPServer",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -247,49 +264,19 @@ paths:
         "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
   /api/mcp/servers/{id}/probe:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
     post:
       tags: [mcp]
-      summary: Probe a scoped MCP server and refresh its tool catalog
-      description: >-
-        Connects to the server, runs tools/list, and persists the result. Always
-        returns 200 with the updated server; a failed probe is reported through
-        status=error / status=needs_auth with a redacted reason, not an error
-        response.
+      summary: Probe one MCP server and return its current tools
       operationId: probeMCPServer
-      x-agent-tool: {
-        tool: "settings_mcp",
-        resource: "server",
-        action: "probe",
-        body: false,
-        add: {
-          target_agent_id: {
-            type: string,
-            description: Optional Agent whose scoped registration is probed.,
-          },
-        },
-      }
-      parameters:
-        - {
-            name: id,
-            in: path,
-            required: true,
-            schema: { type: string },
-            description: "MCP server id",
-          }
-        - name: scope
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [user, user_agent, system, system_agent]
-            default: user
-        - name: agent_id
-          in: query
-          required: false
-          schema: { type: string }
+      x-agent-tool: { tool: settings_mcp, resource: server, action: probe }
       responses:
         "200":
-          description: probe result (success or failure) persisted
+          description: probe result
           content:
             application/json:
               schema: {
@@ -300,31 +287,31 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
-  /api/mcp/servers/{id}/oauth-start:
+  /api/mcp/servers/{id}/oauth/start:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
     post:
       tags: [mcp]
-      summary: Begin an OAuth authorization for a scoped MCP server
-      operationId: startMCPOAuth
-      parameters:
-        - {
-            name: id,
-            in: path,
-            required: true,
-            schema: { type: string },
-            description: "MCP server id",
-          }
-        - name: scope
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [user, user_agent, system, system_agent]
-            default: user
-        - name: agent_id
-          in: query
-          required: false
-          schema: { type: string }
+      summary: Begin OAuth for one MCP server
+      operationId: startMCPServerOAuth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_digest]
+              properties:
+                expected_digest: { type: string, minLength: 1 }
       responses:
         "201":
           description: authorization started
@@ -341,31 +328,18 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
-  /api/mcp/servers/{id}/oauth-disconnect:
+  /api/mcp/servers/{id}/oauth/disconnect:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
     post:
       tags: [mcp]
-      summary: Remove stored OAuth authorization for a scoped MCP server
-      operationId: disconnectMCPOAuth
-      parameters:
-        - {
-            name: id,
-            in: path,
-            required: true,
-            schema: { type: string },
-            description: "MCP server id",
-          }
-        - name: scope
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [user, user_agent, system, system_agent]
-            default: user
-        - name: agent_id
-          in: query
-          required: false
-          schema: { type: string }
+      summary: Disconnect the current OAuth grant for one MCP server
+      operationId: disconnectMCPServerOAuth
       responses:
         "200":
           description: disconnected
@@ -379,6 +353,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
   /api/mcp/oauth/callback:
     get:
@@ -390,10 +365,8 @@ paths:
         - { name: code, in: query, required: true, schema: { type: string } }
         - { name: state, in: query, required: true, schema: { type: string } }
       responses:
-        "302":
-          description: redirect on success or fixed-enum error
-        "400":
-          description: bad request
+        "302": { description: redirect on success or fixed-enum error }
+        "400": { description: bad request }
 
   /api/mcp/registry/servers:
     get:

@@ -106,6 +106,12 @@ func (a *Access) AuthorizeManage(ctx context.Context, sk skill.Skill, action aut
 	if a.scopeAgentID != "" && sk.AgentID != "" && a.scopeAgentID != sk.AgentID {
 		return ErrNotFound
 	}
+	// Admin status grants deployment-scope management, while personal Skill
+	// mutations remain owner-bound. Keep admin read visibility unchanged so the
+	// shared catalog can still be inspected through the management read path.
+	if a.authority.IsAdmin() && userScope(sk.Scope) && (action == authz.ActionWrite || action == authz.ActionDelete) && a.userID != sk.UserID {
+		return ErrNotFound
+	}
 	// Managing an admin scope requires the admin superuser regardless of the
 	// requested verb: reading a system skill through the management API is itself
 	// an admin operation (a user reads shared system skills through the agent

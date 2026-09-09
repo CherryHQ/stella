@@ -47,11 +47,28 @@ func SelectFileView(ctx context.Context, session Session) (FileView, error) {
 		return FileView{}, errors.New("sandbox: active session is required")
 	}
 	if selector, ok := session.(interface {
-		selectFileView(context.Context) (FileView, error)
+		SelectFileView(context.Context) (FileView, error)
 	}); ok {
-		return selector.selectFileView(ctx)
+		return selector.SelectFileView(ctx)
 	}
 	return fileView(session), nil
+}
+
+// SelectSession binds an operation to the currently alive raw backend
+// generation. Resilient sessions recreate once when needed, allowing backend
+// specific preparation hooks to run against the same generation that owns the
+// selected image, mounts, and client. Callers must not retain the returned raw
+// session beyond the composed operation.
+func SelectSession(ctx context.Context, session Session) (Session, error) {
+	if session == nil {
+		return nil, errors.New("sandbox: active session is required")
+	}
+	if selector, ok := session.(interface {
+		selectSession(context.Context) (Session, error)
+	}); ok {
+		return selector.selectSession(ctx)
+	}
+	return session, nil
 }
 
 func fileView(session Session) FileView {
@@ -71,9 +88,23 @@ type EnvRefresher interface {
 	RefreshEnv(updates map[string]string)
 }
 
+// EnvRenderer renders a fresh logical turn environment into the backend's
+// fixed process coordinate system. It must not read a retained Policy.Env:
+// callers use it to apply current-turn revocations without resurrecting stale
+// package variables or selections.
+type EnvRenderer interface {
+	RenderEnv(context.Context, map[string]string) (map[string]string, error)
+}
+
 type ExecOptions struct {
-	Cwd     string
-	Env     map[string]string
+	Cwd string
+	Env map[string]string
+	// EnvMode controls how Env is combined with the immutable session policy.
+	// Overlay preserves the historical per-call override behavior. Replace
+	// treats Env as the complete environment for this process, which lets a
+	// caller revoke a plugin variable or replace a CLI selection without
+	// mutating the long-lived session.
+	EnvMode EnvMode
 	Timeout time.Duration
 }
 
@@ -87,12 +118,26 @@ type ExecResult struct {
 }
 
 type ProcessRequest struct {
-	Path    string
-	Args    []string
-	Cwd     string
-	Env     map[string]string
+	Path string
+	Args []string
+	Cwd  string
+	Env  map[string]string
+	// EnvMode has the same semantics as ExecOptions.EnvMode.
+	EnvMode EnvMode
 	Timeout time.Duration
 }
+
+// EnvMode controls how a process call receives its environment.
+type EnvMode uint8
+
+const (
+	// EnvOverlay merges Env over the session policy. This is the zero value so
+	// existing callers remain source-compatible.
+	EnvOverlay EnvMode = iota
+	// EnvReplace uses Env as the complete process environment and never carries
+	// values from a previous turn.
+	EnvReplace
+)
 
 type ProcessHandle interface {
 	PID() int

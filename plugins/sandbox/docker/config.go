@@ -1,6 +1,10 @@
 package docker
 
-import "strings"
+import (
+	"strings"
+
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+)
 
 // DockerSandboxMode describes how the Docker daemon sees STELLA_HOME.
 type DockerSandboxMode string
@@ -73,11 +77,21 @@ type Config struct {
 	// auto-detected by NewFactory as stellad's address on SandboxNetwork.
 	ServerURL string
 
-	// UserToolBinaries are manifest-declared, user-configured CLIs that are not
-	// baked into the versioned sandbox image. They are installed in a Linux
-	// helper container and exposed to sessions through a Docker-managed tool
-	// cache, never through host $STELLA_HOME/bin.
-	UserToolBinaries []ToolBinary
+	// SelectionToolBinaries are all authorized snapshot binaries, across system,
+	// system-agent, user, and user-agent scopes. The Linux helper prepares them
+	// from the resolved image, never from the host filesystem. Writable per-user
+	// trees remain ordered ahead of this immutable selection in PATH.
+	SelectionToolBinaries []ToolBinary
+	// StableProjectionID scopes the read-only session projection volume. Empty
+	// keeps the lightweight/unit-test path that mounts hash-specific caches
+	// directly.
+	StableProjectionID string
+	// StableProjectionHostRoot is the native host coordinate used only to
+	// translate per-call path variables to the named volume's container root.
+	StableProjectionHostRoot string
+	// SessionEnvRollbacks contains only package env values that survived all
+	// runner-owned overlays. Docker restores these values when a package fails.
+	SessionEnvRollbacks map[string]pkgplugins.SessionEnvRollback
 }
 
 // TranslateToDaemonPath rewrites a stella-process-view absolute path into the

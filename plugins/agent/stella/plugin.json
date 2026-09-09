@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "stella",
+  "version": "1.0.0",
+  "description": "Stella platform guidance and operating workflows.",
+  "extensions": { "com.cherryhq.stella": { "version": "1", "display_name": "Stella" } }
+}

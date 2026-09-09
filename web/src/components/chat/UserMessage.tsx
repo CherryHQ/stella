@@ -5,6 +5,8 @@ import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { ContentBlock } from "@/lib/types";
+import type { SessionExecutionSummary } from "@/lib/api-client/types.gen";
+import { ExecutionSummaryPanel } from "./ExecutionSummary";
 import { Badge } from "@/components/ui/badge";
 import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
 import {
@@ -22,6 +24,7 @@ export interface UserMessageProps {
     blocks?: ContentBlock[];
     timestamp?: string;
     token_count?: number;
+    execution?: SessionExecutionSummary;
   };
   agentId?: string;
   sessionId?: string;
@@ -166,6 +169,7 @@ export function UserMessage({
             onClose={() => setPreviewPath(null)}
           />
         )}
+        {msg.execution && <ExecutionSummaryPanel summary={msg.execution} />}
         {(hasCanonicalImage || text || (showTimestamp && msg.timestamp)) && (
           <div
             className={cn(

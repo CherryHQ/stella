@@ -1,7 +1,6 @@
 package plugins
 
 import (
-	"reflect"
 	"testing"
 )
 
@@ -14,37 +13,6 @@ func TestPluginInfoCloneCopiesCapabilities(t *testing.T) {
 	clone.Capabilities[0] = "changed"
 	if info.Capabilities[0] != "channel" {
 		t.Fatalf("original capabilities mutated after clone")
-	}
-}
-
-func TestRegisteredPluginCloneIsIndependent(t *testing.T) {
-	p := RegisteredPlugin{
-		Info:         PluginInfo{ID: "x", Capabilities: []string{"tool"}},
-		Capabilities: []string{"tool", "hook"},
-		State:        PluginState{Config: map[string]any{"k": "v"}},
-	}
-	clone := p.Clone()
-	clone.Capabilities[0] = "changed"
-	clone.State.Config["k"] = "mutated"
-
-	if p.Capabilities[0] != "tool" {
-		t.Fatalf("original capabilities mutated")
-	}
-	if p.State.Config["k"] != "v" {
-		t.Fatalf("original state config mutated")
-	}
-}
-
-func TestRegisteredPluginSortedCapabilities(t *testing.T) {
-	p := RegisteredPlugin{Capabilities: []string{"tool", "channel", "hook"}}
-	got := p.SortedCapabilities()
-	want := []string{"channel", "hook", "tool"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("SortedCapabilities() = %v, want %v", got, want)
-	}
-	// must not mutate original
-	if p.Capabilities[0] != "tool" {
-		t.Fatalf("original capabilities mutated by SortedCapabilities")
 	}
 }
 

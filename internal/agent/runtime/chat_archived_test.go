@@ -132,7 +132,7 @@ func TestChatDoesNotResurrectSessionArchivedMidTurn(t *testing.T) {
 		Memory:     mem,
 		Compaction: CompactionConfig{MaxTokens: 1000, KeepTail: 4},
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
-			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
 	})
 	if err != nil {
@@ -161,7 +161,7 @@ func TestGuestChatRunsAutoCompaction(t *testing.T) {
 	rt, err := New(Config{
 		Memory: mem, Compaction: CompactionConfig{MaxTokens: 1000, KeepTail: 4},
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
-			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
 	})
 	if err != nil {
@@ -188,7 +188,7 @@ func TestChatSavesInfoForActiveSession(t *testing.T) {
 	rt, err := New(Config{
 		Memory: mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
-			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
 	})
 	if err != nil {

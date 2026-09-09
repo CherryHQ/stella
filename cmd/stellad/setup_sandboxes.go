@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -55,11 +56,24 @@ func setupSandboxBackends(ctx context.Context, cfg config.ServerConfig) (*agents
 			if err != nil {
 				return nil, fmt.Errorf("load builtin skill bundle: %w", err)
 			}
-			factory, err := dockerbackend.NewFactoryWithMountSources(dockerbackend.Config{
-				Image:                  sandboxImage(),
-				StellaHome:             request.Paths.StellaHome,
-				ExpectedBundleRevision: resourceRegistry.BundleRevision(),
-			}, request.MountSources)
+			backendConfig := dockerbackend.Config{
+				Image:                    sandboxImage(),
+				StellaHome:               request.Paths.StellaHome,
+				ExpectedBundleRevision:   resourceRegistry.BundleRevision(),
+				SessionEnvRollbacks:      maps.Clone(request.SessionEnvRollbacks),
+				StableProjectionID:       request.StableProjectionID,
+				StableProjectionHostRoot: request.StableProjectionRoot,
+			}
+			// Every resolved selection is prepared in the isolated Linux helper.
+			// User-scoped installers never execute on the host.
+			for _, spec := range request.BinarySpecs {
+				backendConfig.SelectionToolBinaries = append(backendConfig.SelectionToolBinaries, dockerbackend.ToolBinary{
+					PluginID: spec.PluginID, ConfigID: spec.ConfigID, Scope: spec.Scope, Revision: spec.Revision, PackageDigest: spec.PackageDigest,
+					Name: spec.Name, Tool: spec.Tool, Version: spec.Version, Options: maps.Clone(spec.Options),
+				})
+			}
+
+			factory, err := dockerbackend.NewFactoryWithMountSources(backendConfig, request.MountSources)
 			if err != nil {
 				return nil, err
 			}

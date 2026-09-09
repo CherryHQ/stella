@@ -258,6 +258,9 @@ components:
           type: string
           description: >-
             Stable backend-owned family identifier for grouping a non-MCP tool. Settings policy actions use display families such as agent_management; generated builtin actions use their toolmeta family; hand-written core and plugin tools use stable fallback families. Clients must not infer this value from the tool name.
+        plugin_server_key:
+          type: string
+          description: Authored MCP server key for plugin-owned tools.
         policy_reason:
           type: string
           enum: [core_sandbox, settings_policy, runtime_unavailable]
@@ -485,22 +488,65 @@ components:
           type: string
     AgentMCPServer:
       type: object
-      allOf:
-        - $ref: "#/components/schemas/MCPServer"
-        - type: object
-          required: [readable]
-          properties:
-            shadowed_scopes:
-              type: array
-              description: >-
-                Scopes of same-named registrations that lost the precedence resolution to this one. Overrides are keyed by tool name, so a shadowed registration's overrides simply lose with it.
-              items:
-                type: string
-                enum: [user, user_agent, system, system_agent]
-            readable:
-              type: boolean
-              description: >-
-                Whether the caller could read this registration through the scoped MCP API; a user sees another user's row only as an unreadable system-owned shadow it cannot manage.
+      required: [
+        id,
+        resource_id,
+        name,
+        server_key,
+        content_digest,
+        scope,
+        enabled,
+        auth_type,
+        credential_mode,
+        needs_auth,
+        status,
+        tools,
+        readable,
+      ]
+      additionalProperties: false
+      description: >-
+        Safe effective MCP projection for an agent. This is a file-backed resource identity; it omits endpoints, payloads, credential references, OAuth state, and legacy plugin configuration identifiers.
+      properties:
+        id:
+          type: string
+          readOnly: true
+          description: Stable opaque mcp-file identity for this server.
+        resource_id:
+          type: string
+          readOnly: true
+          description: Stable file resource identifier for the source package or declaration.
+        name:
+          type: string
+          readOnly: true
+        server_key:
+          type: string
+          readOnly: true
+        content_digest:
+          type: string
+          readOnly: true
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+        enabled:
+          type: boolean
+        auth_type:
+          type: string
+          enum: [none, bearer, oauth]
+        credential_mode:
+          type: string
+          enum: [shared, per_user]
+        needs_auth:
+          type: boolean
+        status:
+          type: string
+          enum: [unknown, ready, error, needs_auth]
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/MCPTool"
+        readable:
+          type: boolean
+          description: Whether the caller may read and manage this file-backed resource.
     AgentMCPServerList:
       type: object
       required: [servers]
@@ -680,7 +726,7 @@ components:
             $ref: "#/components/schemas/BuiltinResource"
     Channel:
       type: object
-      required: [id, name, type, enabled, config]
+      required: [id, name, type, is_active, config]
       properties:
         id:
           type: string
@@ -690,8 +736,9 @@ components:
           type: string
         agent_id:
           type: string
-        enabled:
+        is_active:
           type: boolean
+          description: Whether this channel instance accepts and delivers messages.
         config:
           type: string
           description: "JSON string of the channel config"
@@ -725,7 +772,7 @@ components:
           nullable: true
     PublicChannel:
       type: object
-      required: [id, type, label, enabled]
+      required: [id, type, label, is_active]
       properties:
         id:
           type: string
@@ -737,8 +784,9 @@ components:
           type: string
         agent_name:
           type: string
-        enabled:
+        is_active:
           type: boolean
+          description: Whether this channel instance accepts and delivers messages.
     PublicChannelList:
       type: object
       required: [channels]
@@ -753,7 +801,7 @@ components:
         id:
           type: string
           description: >-
-            Channel id. Optional on create — the server mints a uuid when it is omitted (weixin is singleton-only and always gets the id "weixin"). Ignored on update; the path id wins.
+            Channel id. Optional on create — the server mints an independent uuid when it is omitted. Ignored on update; the path id wins.
         name:
           type: string
           description: >-
@@ -764,9 +812,10 @@ components:
         agent_id:
           type: string
           nullable: true
-        enabled:
+        is_active:
           type: boolean
           nullable: true
+          description: Set whether this channel instance accepts and delivers messages.
         config:
           type: string
           description: >-
@@ -851,7 +900,7 @@ components:
           type: string
           enum: [feishu, lark]
           default: feishu
-        enabled:
+        is_active:
           type: boolean
           default: true
         config:
@@ -872,10 +921,20 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/Channel"
+    WeixinRegistrationBeginRequest:
+      type: object
+      properties:
+        channel_id:
+          type: string
+          description: >-
+            Existing Weixin channel instance to update. Omit this to mint a new instance id; the returned id must be sent with every poll.
     WeixinRegistrationBegin:
       type: object
-      required: [qrcode, qr_image_url, poll_interval]
+      required: [channel_id, qrcode, qr_image_url, poll_interval]
       properties:
+        channel_id:
+          type: string
+          description: Exact channel instance id to use for this registration.
         qrcode:
           type: string
         qr_image_url:
@@ -884,14 +943,14 @@ components:
           type: integer
     WeixinRegistrationPollRequest:
       type: object
-      required: [qrcode, agent_id]
+      required: [qrcode, channel_id, agent_id]
       properties:
         qrcode:
           type: string
         channel_id:
           type: string
-          default: weixin
-          description: Weixin is singleton-only; omit or set to "weixin".
+          description: >-
+            Exact channel instance id returned by begin. The server verifies that it is a Weixin row before saving credentials.
         agent_id:
           type: string
         name:
@@ -2475,86 +2534,6 @@ components:
           nullable: true
         quota:
           $ref: "#/components/schemas/LibraryQuota"
-    MCPServer:
-      type: object
-      required: [
-        id,
-        scope,
-        name,
-        url,
-        transport,
-        auth_type,
-        enabled,
-        status,
-        credential_mode,
-      ]
-      properties:
-        id:
-          type: string
-        scope:
-          type: string
-          enum: [user, user_agent, system, system_agent]
-        user_id:
-          type: string
-        agent_id:
-          type: string
-        name:
-          type: string
-        url:
-          type: string
-        transport:
-          type: string
-          enum: [streamable_http, sse]
-        auth_type:
-          type: string
-          enum: [none, bearer, oauth]
-        enabled:
-          type: boolean
-        status:
-          type: string
-          enum: [unknown, ok, error, needs_auth]
-          description: Result of the last probe (or credential rejection).
-        status_error:
-          type: string
-          description: Redacted failure reason when status is error or needs_auth.
-        probed_at:
-          type: string
-          format: date-time
-          nullable: true
-          description: When the server was last probed; null if never.
-        tools:
-          type: array
-          description: Snapshot of the server's tools/list from the last successful probe.
-          items:
-            $ref: "#/components/schemas/MCPTool"
-        credential_mode:
-          type: string
-          enum: [shared, per_user]
-        version:
-          type: string
-          description: Opaque version digest; send it as If-Match on PATCH/DELETE.
-        oauth:
-          type: object
-          description: >-
-            OAuth connection state computed for the calling user (per_user) or the registration owner (shared). Never carries token material.
-          required: [connected, needs_reconnect, client_registered]
-          properties:
-            connected:
-              type: boolean
-            access_expires_at:
-              type: string
-              format: date-time
-              nullable: true
-            needs_reconnect:
-              type: boolean
-            client_registered:
-              type: boolean
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
     MCPOAuthStart:
       type: object
       required: [authorization_url, flow_id, expires_at]
@@ -2581,97 +2560,247 @@ components:
         annotations:
           type: object
           additionalProperties: true
+    MCPDeclaration:
+      type: object
+      additionalProperties: false
+      required: [url, transport, auth_type, credential_mode]
+      properties:
+        url:
+          type: string
+          format: uri
+        transport:
+          type: string
+          enum: [streamable_http, sse]
+        description:
+          type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        call_timeout_seconds:
+          type: integer
+          minimum: 0
+          maximum: 300
+          default: 0
+        auth_type:
+          type: string
+          enum: [none, bearer, oauth]
+        credential_mode:
+          type: string
+          enum: [shared, per_user]
+        credential_ref:
+          type: string
+        client_id:
+          type: string
+        client_secret_ref:
+          type: string
+        token_endpoint_auth_method:
+          type: string
+          enum: [client_secret_basic, client_secret_post, none]
+        scopes:
+          type: array
+          items:
+            type: string
+    MCPServer:
+      type: object
+      additionalProperties: false
+      required: [
+        id,
+        resource_id,
+        server_key,
+        name,
+        scope,
+        content_digest,
+        settings_digest,
+        is_enabled,
+        is_read_only,
+        is_standalone,
+        is_overridden,
+        diagnostics,
+        declaration,
+        needs_auth,
+        status,
+        tools,
+      ]
+      properties:
+        id:
+          type: string
+          readOnly: true
+          description: Stable opaque address for this file-backed MCP server.
+        resource_id:
+          type: string
+          readOnly: true
+          description: Stable identifier of the source file or package resource.
+        server_key:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        scope:
+          type: string
+          enum: [system, system_agent, user, user_agent]
+        user_id:
+          type: string
+          format: uuid
+          readOnly: true
+        agent_id:
+          type: string
+          readOnly: true
+        content_digest:
+          type: string
+          readOnly: true
+        settings_digest:
+          type: string
+          readOnly: true
+        is_enabled:
+          type: boolean
+        is_read_only:
+          type: boolean
+          readOnly: true
+        is_standalone:
+          type: boolean
+          readOnly: true
+        is_overridden:
+          type: boolean
+          readOnly: true
+        diagnostics:
+          type: array
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/PluginDiagnostic"
+        declaration:
+          allOf: [{ $ref: "#/components/schemas/MCPDeclaration" }]
+          nullable: true
+        needs_auth:
+          type: boolean
+        status:
+          type: string
+          enum: [unknown, ready, needs_auth, error]
+        status_error:
+          type: string
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/MCPTool"
     MCPServerList:
       type: object
-      required: [servers]
+      required: [servers, next_page_token, truncated]
       properties:
         servers:
           type: array
           items:
             $ref: "#/components/schemas/MCPServer"
+        next_page_token:
+          type: string
+          nullable: true
+        truncated:
+          type: boolean
+          readOnly: true
+          description: Whether the result was capped before all visible servers were returned.
     CreateMCPServerRequest:
       type: object
-      required: [name, url, scope]
+      additionalProperties: false
+      required: [name, scope, declaration]
       properties:
+        name:
+          type: string
+          minLength: 1
+        scope:
+          type: string
+          enum: [system, system_agent, user, user_agent]
+        agent_id:
+          type: string
+        declaration:
+          $ref: "#/components/schemas/MCPDeclaration"
+    UpdateMCPServerRequest:
+      description: Supply either declaration with expected_digest, or is_enabled with expected_settings_digest. Combining both mutations is rejected.
+      type: object
+      additionalProperties: false
+      properties:
+        expected_digest:
+          type: string
+          minLength: 1
+        declaration:
+          $ref: "#/components/schemas/MCPDeclaration"
+        is_enabled:
+          type: boolean
+        expected_settings_digest:
+          type: string
+    UpdateMCPServerFileRequest:
+      type: object
+      additionalProperties: false
+      required: [content_base64, expected_digest]
+      properties:
+        content_base64:
+          type: string
+          format: byte
+        expected_digest:
+          type: string
+          minLength: 1
+    UpdateMCPServerCredentialsRequest:
+      description: Supply exactly one of bearer_token or client_secret. Both or neither are rejected.
+      type: object
+      additionalProperties: false
+      required: [expected_digest]
+      properties:
+        expected_digest:
+          type: string
+          minLength: 1
+        bearer_token:
+          type: string
+          writeOnly: true
+          minLength: 1
+        client_secret:
+          type: string
+          writeOnly: true
+          minLength: 1
+    MCPServerToolCreateInput:
+      type: object
+      additionalProperties: false
+      required: [name, scope, url]
+      properties:
+        name:
+          type: string
+          minLength: 1
         scope:
           type: string
           enum: [user, user_agent, system, system_agent]
-        agent_id:
-          type: string
-        name:
-          type: string
         url:
           type: string
+          format: uri
         transport:
           type: string
           enum: [streamable_http, sse]
           default: streamable_http
-        auth_type:
-          type: string
-          enum: [none, bearer, oauth]
-          default: none
-        # token is the bearer credential; stored encrypted in the vault and never
-        # returned by any response.
-        token:
-          type: string
-        # oauth_client_id is the public pre-registered client id; without it the
-        # server's registration endpoint (DCR) is used on the first oauth-start.
-        oauth_client_id:
-          type: string
-          writeOnly: true
-        # oauth_client_secret is stored encrypted in the vault and never returned.
-        oauth_client_secret:
-          type: string
-          writeOnly: true
-        credential_mode:
-          type: string
-          enum: [shared, per_user]
-          default: shared
-          description: per_user is only valid with auth_type oauth.
-        # Marketplace provenance, written into metadata.registry on install.
-        source:
-          type: string
-          writeOnly: true
-        source_id:
-          type: string
-          writeOnly: true
-        source_version:
-          type: string
-          writeOnly: true
-    UpdateMCPServerRequest:
+    MCPServerToolUpdateInput:
       type: object
+      additionalProperties: false
+      required: [expected_digest]
       properties:
-        scope:
+        expected_digest:
           type: string
-          enum: [user, user_agent, system, system_agent]
-        agent_id:
-          type: string
-        name:
+          minLength: 1
+        expected_settings_digest:
           type: string
         url:
           type: string
-        # Same OAuth client fields as create; empty oauth_client_id removes the
-        # stored id, empty oauth_client_secret clears the vault secret.
-        oauth_client_id:
-          type: string
-          writeOnly: true
-        oauth_client_secret:
-          type: string
-          writeOnly: true
-        credential_mode:
-          type: string
-          enum: [shared, per_user]
+          format: uri
         transport:
           type: string
           enum: [streamable_http, sse]
-        auth_type:
-          type: string
-          enum: [none, bearer, oauth]
-        enabled:
+        is_enabled:
           type: boolean
-        # Omit token to keep the existing bearer token. Send with auth_type=bearer
-        # to replace it. Send auth_type=none to delete any stored token.
-        token:
+    MCPServerToolListInput:
+      type: object
+      additionalProperties: false
+      properties:
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 50
+        page_token:
           type: string
     MCPRegistryServer:
       type: object
@@ -2913,363 +3042,421 @@ components:
           type: string
         personal_access_token:
           $ref: "#/components/schemas/PersonalAccessToken"
-    PluginView:
+    NativePlugin:
       type: object
+      additionalProperties: false
+      required: [id, is_enabled]
       properties:
         id:
           type: string
-        kind:
-          type: string
-        name:
-          type: string
-        enabled:
+        is_enabled:
           type: boolean
-        config:
-          type: object
-          additionalProperties: true
-        display_name:
-          type: string
-        description:
-          type: string
-        managed:
-          type: boolean
-        admin_visible:
-          type: boolean
-        has_config:
-          type: boolean
-        has_status:
-          type: boolean
-        capabilities:
+    NativePluginList:
+      type: object
+      required: [native_plugins, next_page_token]
+      properties:
+        native_plugins:
           type: array
           items:
-            type: string
-        persisted:
-          type: boolean
-        persisted_id:
+            $ref: "#/components/schemas/NativePlugin"
+        next_page_token:
           type: string
-    TogglePluginRequest:
-      type: object
-      required: [enabled]
-      properties:
-        enabled:
-          type: boolean
-    UpdatePluginConfigRequest:
-      type: object
-      properties:
-        config:
-          type: object
-          additionalProperties: true
-    ManifestBinary:
+          nullable: true
+    NativeAgentDeny:
       type: object
       additionalProperties: false
-      required: [name, tool]
+      required: [native_id, agent_id, is_denied]
       properties:
+        native_id:
+          type: string
+        agent_id:
+          type: string
+        is_denied:
+          type: boolean
+    NativeAgentDenyList:
+      type: object
+      required: [denials, next_page_token]
+      properties:
+        denials:
+          type: array
+          items:
+            $ref: "#/components/schemas/NativeAgentDeny"
+        next_page_token:
+          type: string
+          nullable: true
+    CreateNativeAgentDenyRequest:
+      type: object
+      additionalProperties: false
+      required: [agent_id]
+      properties:
+        agent_id:
+          type: string
+    UpdateNativePluginRequest:
+      type: object
+      additionalProperties: false
+      required: [is_enabled]
+      properties:
+        is_enabled:
+          type: boolean
+    PluginResource:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - display_name
+        - version
+        - description
+        - scope
+        - content_digest
+        - settings_digest
+        - is_enabled
+        - is_forbidden
+        - is_read_only
+        - is_overridden
+        - diagnostics
+        - files
+        - resource_summary
+      properties:
+        id:
+          type: string
+          readOnly: true
+          description: Stable identifier of this visible plugin resource.
         name:
           type: string
-          description: Binary name installed into Stella's bin directory.
-        tool:
+          description: Plugin package name within its owning scope.
+        display_name:
           type: string
-          description: mise tool key, such as github:cli/cli or npm:serve.
+          description: Human-readable plugin name.
         version:
           type: string
-          description: Version to install. Defaults to latest when omitted.
-        options:
-          type: object
-          additionalProperties: true
-          description: mise backend options.
-    ManifestSkill:
-      type: object
-      deprecated: true
-      description: >
-        Reserved manifest declaration. Stella currently stores and returns skill entries but does not install or register them at runtime.
-
-      additionalProperties: false
-      required: [repo, name]
-      properties:
-        repo:
+          description: Plugin package version.
+        description:
           type: string
+          description: Safe plugin description.
+        scope:
+          type: string
+          enum: [system, system_agent, user, user_agent]
+          description: Scope that owns this raw plugin declaration.
+        user_id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: User that owns a user-scoped resource.
+        agent_id:
+          type: string
+          readOnly: true
+          description: Agent that owns an agent-scoped resource.
+        content_digest:
+          type: string
+          readOnly: true
+          description: Digest of the complete plugin declaration files.
+        settings_digest:
+          type: string
+          readOnly: true
+          description: Digest used to protect enablement changes.
+        is_enabled:
+          type: boolean
+          description: Whether this raw declaration is enabled at its scope.
+        is_forbidden:
+          type: boolean
+          readOnly: true
+          description: Whether policy forbids this resource from activation.
+        is_read_only:
+          type: boolean
+          readOnly: true
+          description: Whether this resource cannot be edited at its scope.
+        is_overridden:
+          type: boolean
+          readOnly: true
+          description: Whether a more specific visible resource declaration overrides this resource.
+        diagnostics:
+          type: array
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/PluginDiagnostic"
+          description: Safe validation diagnostics for this raw declaration.
+        files:
+          type: array
+          readOnly: true
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/ResourceFileInfo"
+          description: Bounded metadata for files in this plugin declaration.
+        resource_summary:
+          $ref: "#/components/schemas/PluginResourceSummary"
+    PluginDiagnostic:
+      type: object
+      additionalProperties: false
+      required: [severity, code, message]
+      properties:
+        severity:
+          type: string
+          enum: [info, warning, error]
+          description: Diagnostic severity.
+        code:
+          type: string
+          description: Stable diagnostic code.
+        path:
+          type: string
+          description: Optional declaration path associated with the diagnostic.
+        message:
+          type: string
+          description: Safe diagnostic message.
+    ResourceFileInfo:
+      type: object
+      additionalProperties: false
+      required: [path, size, is_executable]
+      properties:
+        path:
+          type: string
+          description: Relative path inside the plugin declaration.
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+          description: File size in bytes.
+        is_executable:
+          type: boolean
+          description: Whether the file has executable permission.
+    PluginFileInput:
+      type: object
+      additionalProperties: false
+      required: [content_base64]
+      properties:
+        content_base64:
+          type: string
+          format: byte
+          description: Base64-encoded file content.
+        is_executable:
+          type: boolean
+          default: false
+          description: Whether the stored file should be executable.
+    ResourceFileContent:
+      type: object
+      additionalProperties: false
+      required: [path, content_base64, is_executable, resource_digest]
+      properties:
+        path:
+          type: string
+          description: Relative path inside the plugin declaration.
+        content_base64:
+          type: string
+          format: byte
+          description: Base64-encoded file content.
+        is_executable:
+          type: boolean
+          description: Whether the file has executable permission.
+        resource_digest:
+          type: string
+          readOnly: true
+          description: Digest of the complete resource after this read.
+    PluginList:
+      type: object
+      required: [plugins, next_page_token]
+      properties:
+        plugins:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginResource"
+        next_page_token:
+          type: string
+          nullable: true
+    CreatePluginRequest:
+      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
+      type: object
+      additionalProperties: false
+      required: [name, scope, files]
+      properties:
         name:
           type: string
-    ManifestSessionEnv:
+          minLength: 1
+          maxLength: 64
+          pattern: '^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]{0,62}[a-z0-9])?$'
+          description: Plugin package name to create.
+        scope:
+          type: string
+          enum: [system, system_agent, user, user_agent]
+          description: Scope that owns the new raw declaration.
+        agent_id:
+          type: string
+          description: Target Agent for an agent-scoped declaration.
+        files:
+          type: object
+          minProperties: 1
+          additionalProperties:
+            $ref: "#/components/schemas/PluginFileInput"
+          description: Relative declaration paths and their base64-encoded contents.
+    ImportPluginRequest:
+      description: Import is admin-only; source_path is server-local and remains subject to the existing import restrictions.
       type: object
       additionalProperties: false
-      required: [env_var, source]
+      required: [source_path, scope]
+      properties:
+        source_path:
+          type: string
+          minLength: 1
+          description: Server-local path to an Agent Plugin package directory.
+        scope:
+          type: string
+          enum: [system, system_agent, user, user_agent]
+          description: Scope that owns the imported raw declaration.
+        agent_id:
+          type: string
+          description: Target Agent for an agent-scoped import.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Optional target package name; defaults to the source package name.
+    CopyPluginRequest:
+      type: object
+      additionalProperties: false
+      required: [scope]
+      properties:
+        scope:
+          type: string
+          enum: [system, system_agent, user, user_agent]
+          description: Scope that owns the copied raw declaration.
+        agent_id:
+          type: string
+          description: Target Agent for an agent-scoped copy.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Optional target package name; defaults to the source name.
+    UpdatePluginRequest:
+      type: object
+      additionalProperties: false
+      required: [is_enabled, expected_settings_digest]
+      properties:
+        is_enabled:
+          type: boolean
+          description: Whether to enable or disable this raw declaration.
+        expected_settings_digest:
+          type: string
+          description: Exact settings digest read before this update; empty when settings.json is absent.
+    UpdatePluginFileRequest:
+      description: JSON request body is limited to 1 MiB; larger requests return HTTP 400.
+      type: object
+      additionalProperties: false
+      required: [path, content_base64, expected_digest]
+      properties:
+        path:
+          type: string
+          minLength: 1
+          description: Relative path inside the plugin declaration.
+        content_base64:
+          type: string
+          format: byte
+          description: Base64-encoded replacement file content.
+        is_executable:
+          type: boolean
+          description: Whether the replacement file should be executable.
+        expected_digest:
+          type: string
+          minLength: 1
+          description: Exact current content digest required for the update.
+    PluginResourceSummary:
+      type: object
+      additionalProperties: false
+      required: [
+        binaries,
+        skills,
+        session_env,
+        mcp_servers,
+        oauth_provider_configured,
+      ]
+      properties:
+        binaries:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginCLIBackendBinarySummary"
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginCLIBackendSkillSummary"
+        session_env:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginCLIBackendSessionEnvSummary"
+        oauth_provider_configured:
+          type: boolean
+        mcp_servers:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginMCPServerSummary"
+    PluginCLIBackendBinarySummary:
+      type: object
+      additionalProperties: false
+      required: [name, version]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+    PluginCLIBackendSkillSummary:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+    PluginCLIBackendSessionEnvSummary:
+      type: object
+      additionalProperties: false
+      required: [env_var, source, required]
       properties:
         env_var:
           type: string
         source:
           type: string
-          description: Value source, such as static or oauth.access_token.
-        value:
-          type: string
         required:
           type: boolean
-    ManifestPluginDefinition:
+    PluginMCPServerSummary:
       type: object
       additionalProperties: false
-      required: [name, display_name, description]
+      required: [
+        server_key,
+        endpoint_configured,
+        bearer_configured,
+        oauth_client_id_configured,
+        oauth_client_secret_configured,
+      ]
       properties:
-        name:
+        server_key:
           type: string
-        display_name:
+        child_id:
           type: string
-        description:
-          type: string
-        category:
-          type: string
-          description: Optional settings UI grouping hint.
-        prompt:
-          type: string
-        binaries:
-          type: array
-          items:
-            $ref: "#/components/schemas/ManifestBinary"
-        skills:
-          type: array
-          deprecated: true
-          description: >
-            Reserved declarations. They are stored and returned but are not currently installed or registered at runtime.
-
-          items:
-            $ref: "#/components/schemas/ManifestSkill"
-        session_env:
-          type: array
-          items:
-            $ref: "#/components/schemas/ManifestSessionEnv"
-        oauth_provider:
-          type: string
-    ManifestPlugin:
-      type: object
-      additionalProperties: false
-      required: [id, kind, name, display_name, description, enabled]
-      properties:
-        id:
-          type: string
-        kind:
-          type: string
-        name:
-          type: string
-        display_name:
-          type: string
-        description:
-          type: string
-        enabled:
-          type: boolean
-        category:
-          type: string
-          description: Optional settings UI grouping hint.
-        essential:
-          type: boolean
-          description: Server policy indicating that the plugin cannot be disabled.
-        prompt:
-          type: string
-        binaries:
-          type: array
-          items:
-            $ref: "#/components/schemas/ManifestBinary"
-        skills:
-          type: array
-          deprecated: true
-          description: >
-            Reserved declarations. They are stored and returned but are not currently installed or registered at runtime.
-
-          items:
-            $ref: "#/components/schemas/ManifestSkill"
-        session_env:
-          type: array
-          items:
-            $ref: "#/components/schemas/ManifestSessionEnv"
-        oauth_provider:
-          type: string
-        builtin:
-          type: boolean
+          format: uuid
           readOnly: true
-          description: Whether the plugin definition ships with the server.
-        overridden_fields:
-          type: array
+        parent_config_id:
+          type: string
+          format: uuid
           readOnly: true
-          description: Definition fields owned by the stored override.
-          items:
-            $ref: "#/components/schemas/ManifestPluginDefinitionField"
-    ManifestPluginInput:
-      type: object
-      description: >
-        Submitted builtin plugin view. Only the definition fields named by the sibling `fields` array are stored; all other values are context for validation and remain unowned.
-
-      additionalProperties: false
-      properties:
-        id:
+        parent_revision:
+          type: integer
+          format: int64
+          readOnly: true
+        transport:
           type: string
-          description: Ignored; the URL identifies the plugin.
-        kind:
+          enum: [streamable_http, sse]
+        auth_type:
           type: string
-          description: Must match the kind in the URL when supplied.
-        name:
+          enum: [none, bearer, oauth]
+        credential_mode:
           type: string
-        display_name:
-          type: string
-        description:
-          type: string
-        enabled:
+          enum: [shared, per_user]
+        endpoint_configured:
           type: boolean
-          description: Used for admin-added plugins and ignored for builtins.
-        category:
-          type: string
-          description: Optional settings UI grouping hint.
-        essential:
+        bearer_configured:
           type: boolean
-          description: Server-owned for builtins.
-        prompt:
-          type: string
-        binaries:
-          type: array
-          items:
-            $ref: "#/components/schemas/ManifestBinary"
-        skills:
-          type: array
-          deprecated: true
-          description: >
-            Reserved declarations. They are stored and returned but are not currently installed or registered at runtime.
-
-          items:
-            $ref: "#/components/schemas/ManifestSkill"
-        session_env:
-          type: array
-          items:
-            $ref: "#/components/schemas/ManifestSessionEnv"
-        oauth_provider:
-          type: string
-    ManifestPluginDefinitionField:
-      type: string
-      description: >
-        Editable definition field. `skills` is reserved: its value can be stored and returned but is not currently installed or registered at runtime.
-
-      enum:
-        - name
-        - display_name
-        - description
-        - category
-        - prompt
-        - binaries
-        - skills
-        - session_env
-        - oauth_provider
-    SaveBuiltinManifestPluginDefinitionRequest:
-      type: object
-      additionalProperties: false
-      required: [plugin, fields]
-      properties:
-        plugin:
-          $ref: "#/components/schemas/ManifestPluginInput"
-        fields:
-          type: array
-          description: Definition fields this request takes ownership of.
-          items:
-            $ref: "#/components/schemas/ManifestPluginDefinitionField"
-    ManifestPluginReplacement:
-      type: object
-      description: >
-        Complete replacement value for an admin-added plugin. Empty strings and arrays explicitly clear optional definition fields.
-
-      additionalProperties: false
-      required:
-        - kind
-        - name
-        - display_name
-        - description
-        - enabled
-        - category
-        - essential
-        - prompt
-        - binaries
-        - skills
-        - session_env
-        - oauth_provider
-      properties:
-        id:
-          type: string
-          description: Ignored; the URL identifies the plugin.
-        kind:
-          type: string
-        name:
-          type: string
-        display_name:
-          type: string
-        description:
-          type: string
-        enabled:
+        oauth_client_id_configured:
           type: boolean
-        category:
-          type: string
-        essential:
+        oauth_client_secret_configured:
           type: boolean
-        prompt:
-          type: string
-        binaries:
-          type: array
-          items:
-            $ref: "#/components/schemas/ManifestBinary"
-        skills:
-          type: array
-          deprecated: true
-          description: >
-            Reserved declarations. They are stored and returned but are not currently installed or registered at runtime.
-
-          items:
-            $ref: "#/components/schemas/ManifestSkill"
-        session_env:
-          type: array
-          items:
-            $ref: "#/components/schemas/ManifestSessionEnv"
-        oauth_provider:
-          type: string
-    ReplaceCustomManifestPluginDefinitionRequest:
-      type: object
-      description: >
-        Full replacement for an admin-added plugin.
-
-      additionalProperties: false
-      required: [plugin]
-      properties:
-        plugin:
-          $ref: "#/components/schemas/ManifestPluginReplacement"
-    SaveManifestPluginDefinitionRequest:
-      oneOf:
-        - $ref: "#/components/schemas/SaveBuiltinManifestPluginDefinitionRequest"
-        - $ref: "#/components/schemas/ReplaceCustomManifestPluginDefinitionRequest"
-    ManifestOAuthProvider:
-      type: object
-      properties:
-        id:
-          type: string
-        scopes:
-          type: array
-          items:
-            type: string
-        vault_key:
-          type: string
-        client_id:
-          type: string
-    ManifestPluginsResponse:
-      type: object
-      required: [plugins, oauth_providers]
-      properties:
-        plugins:
-          type: array
-          items:
-            $ref: "#/components/schemas/ManifestPlugin"
-        oauth_providers:
-          type: array
-          items:
-            $ref: "#/components/schemas/ManifestOAuthProvider"
-    PluginViewList:
-      type: object
-      required: [plugins]
-      properties:
-        plugins:
-          type: array
-          items:
-            $ref: "#/components/schemas/PluginView"
     CliToolRegistryItem:
       type: object
       properties:
@@ -5457,6 +5644,94 @@ components:
         error_kind:
           type: string
           enum: [tool_error, command_nonzero, command_timeout]
+    SessionExecutionSummary:
+      type: object
+      additionalProperties: false
+      required: [plugins]
+      description: >-
+        Secret-free admission snapshot for the recorded turn. It contains selected identities and bounded readiness outcomes, never credentials, package payloads, or private file contents.
+      properties:
+        plugins:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionExecutionPlugin"
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionExecutionSkill"
+    SessionExecutionPlugin:
+      type: object
+      additionalProperties: false
+      required: [plugin_id, authorization, readiness]
+      properties:
+        plugin_id:
+          type: string
+        package_version:
+          type: string
+        package_digest:
+          type: string
+        source:
+          type: string
+        config_id:
+          type: string
+        config_scope:
+          type: string
+        config_revision:
+          type: integer
+          format: int64
+        authorization:
+          type: string
+          enum: [unknown, not_required, ready, unavailable]
+        readiness:
+          type: string
+          enum: [unknown, ready, unavailable]
+        binaries:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionExecutionBinary"
+        failures:
+          type: array
+          items:
+            type: string
+    SessionExecutionBinary:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+        tool:
+          type: string
+        requested_version:
+          type: string
+        resolved_version:
+          type: string
+        backend:
+          type: string
+        selection_identity:
+          type: string
+        source:
+          type: string
+    SessionExecutionSkill:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        plugin_id:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+        source:
+          type: string
+        scope:
+          type: string
+        digest:
+          type: string
+        state:
+          type: string
+          enum: [selected, masked, overridden]
     SessionMessage:
       type: object
       required: [id, role, actor_type, timestamp, token_count]
@@ -5501,6 +5776,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SessionChildToolCallAudit"
+        execution:
+          $ref: "#/components/schemas/SessionExecutionSummary"
         timestamp:
           type: string
           format: date-time
@@ -5751,6 +6028,25 @@ components:
           enum: [user, user_agent, system, system_agent]
         agent_id:
           type: string
+    CopyPackageSkillRequest:
+      type: object
+      required: [source_id, expected_digest, skill_name, scope]
+      properties:
+        source_id:
+          type: string
+          description: Plugin definition whose published package provides the Skill.
+        expected_digest:
+          type: string
+          description: Content digest of the package the caller reviewed.
+        skill_name:
+          type: string
+          description: Declared Skill name to copy from the package.
+        scope:
+          type: string
+          enum: [user, user_agent, system, system_agent]
+        agent_id:
+          type: string
+          description: Target Agent for an agent-scoped copy.
     StatusRuntime:
       type: object
       required: [goVersion, os, arch, goroutines, memory]
@@ -6425,6 +6721,12 @@ components:
             $ref: "#/components/schemas/Error"
     ServiceUnavailable:
       description: service is not configured or temporarily unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalServerError:
+      description: unexpected server-side failure
       content:
         application/json:
           schema:

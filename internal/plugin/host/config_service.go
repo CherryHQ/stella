@@ -19,11 +19,3 @@ func (s *configService) Get(ctx context.Context, pluginID string) (pkgplugins.Pl
 	}
 	return pkgplugins.PluginState{}, fmt.Errorf("get plugin state %q: %w", pluginID, err)
 }
-
-func (s *configService) Set(ctx context.Context, pluginID string, raw map[string]any) error {
-	return s.store.SetPluginConfig(ctx, pluginID, cloneMap(raw))
-}
-
-func (s *configService) SetEnabled(ctx context.Context, pluginID string, enabled bool) error {
-	return s.store.SetPluginEnabled(ctx, pluginID, enabled)
-}

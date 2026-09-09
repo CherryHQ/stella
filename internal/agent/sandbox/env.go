@@ -10,8 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	connections "github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
+	"github.com/CherryHQ/stella/internal/platform/toolinstall"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -25,13 +26,18 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) (pkgsandbox.FilesystemPolic
 		mounts = append(mounts, pkgsandbox.Mount{SandboxPath: pkgsandbox.MountUserData, Access: pkgsandbox.MountReadWrite})
 		sources[pkgsandbox.MountUserData] = userData
 	}
+	coreSelection := nativeCoreSelection(cfg)
 	for _, name := range pkgsandbox.StellaHomeSandboxDirs() {
 		sandboxPath := path.Join(pkgsandbox.MountStellaHome, strings.ReplaceAll(name, "\\", "/"))
+		source := filepath.Join(paths.StellaHome, name)
+		if name == "bin" && coreSelection != "" {
+			source = coreSelection
+		}
 		mounts = append(mounts, pkgsandbox.Mount{
 			SandboxPath: sandboxPath,
 			Access:      pkgsandbox.MountReadOnly,
 		})
-		sources[sandboxPath] = filepath.Join(paths.StellaHome, name)
+		sources[sandboxPath] = source
 	}
 	agentDelegates := filepath.Join(paths.AgentRoot, ".agents", "delegates")
 	if info, err := os.Stat(agentDelegates); cfg.AgentID != "" && filepath.Clean(paths.AgentRoot) != filepath.Clean(paths.WorkspaceRoot) && err == nil && info.IsDir() {
@@ -42,6 +48,35 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) (pkgsandbox.FilesystemPolic
 	if paths.BuiltinBundle != "" {
 		mounts = append(mounts, pkgsandbox.Mount{SandboxPath: pkgsandbox.MountBuiltinSkills, Access: pkgsandbox.MountReadOnly})
 		sources[pkgsandbox.MountBuiltinSkills] = paths.BuiltinBundle
+	}
+	if cfg.ContextBinaryPlan != nil {
+		if cfg.SessionID == "" || cfg.ManagedBinaryRoot != "" {
+			appendNativeSelectionMounts(&mounts, sources, paths.StellaHome, *cfg.ContextBinaryPlan, coreSelection)
+		}
+	}
+	if cfg.SystemRuntimePlan != nil {
+		appendNativeSecondarySelectionMount(&mounts, sources, paths.StellaHome, cfg.SystemRuntimePlan.PublicDir, coreSelection)
+	}
+	if cfg.UserBinaryPlan != nil {
+		if cfg.SessionID == "" || cfg.ManagedBinaryRoot != "" {
+			appendNativeSelectionMounts(&mounts, sources, paths.StellaHome, *cfg.UserBinaryPlan, coreSelection)
+		}
+	}
+	// The projection root is mounted once for the lifetime of this session.
+	// Individual turns publish new digest directories beneath it; the root is
+	// read-only here so a process can never mutate a selection or private mise
+	// state. Older digest directories remain available to already-started turns.
+	if cfg.ManagedBinaryRoot == "" && cfg.SessionID != "" {
+		if stableRoot := stablePublicSelectionRoot(paths.StellaHome, cfg); stableRoot != "" {
+			if rel, err := filepath.Rel(paths.StellaHome, stableRoot); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				appendSelectionMount(&mounts, sources, paths.StellaHome, rel)
+			}
+		}
+	}
+	if cfg.ManagedBinaryRoot != "" {
+		sandboxPath := remapStellaHomePolicyPath(cfg.ManagedBinaryRoot, paths.StellaHome)
+		mounts = append(mounts, pkgsandbox.Mount{SandboxPath: sandboxPath, Access: pkgsandbox.MountReadWrite})
+		sources[sandboxPath] = cfg.ManagedBinaryRoot
 	}
 	if miseDir := miseUserDirHost(paths, cfg); miseDir != "" {
 		sandboxPath := remapStellaHomePolicyPath(miseDir, paths.StellaHome)
@@ -56,6 +91,41 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) (pkgsandbox.FilesystemPolic
 		workingDir = path.Join(workingDir, filepath.ToSlash(rel))
 	}
 	return pkgsandbox.FilesystemPolicy{WorkingDir: workingDir, Mounts: mounts}, sources
+}
+
+func appendNativeSelectionMounts(mounts *[]pkgsandbox.Mount, sources map[string]string, stellaHome string, plan BinaryInstallPlan, core string) {
+	for _, selection := range plan.Selections {
+		appendNativeSecondarySelectionMount(mounts, sources, stellaHome, selection.PublicDir, core)
+	}
+}
+
+func nativeCoreSelection(cfg Config) string {
+	if cfg.SystemRuntimePlan != nil && cfg.SystemRuntimePlan.PublicDir != "" {
+		return cfg.SystemRuntimePlan.PublicDir
+	}
+	return ""
+}
+
+func appendNativeSecondarySelectionMount(mounts *[]pkgsandbox.Mount, sources map[string]string, stellaHome, publicDir, core string) {
+	if publicDir == "" || publicDir == core {
+		return
+	}
+	rel, err := filepath.Rel(stellaHome, publicDir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return
+	}
+	appendSelectionMount(mounts, sources, stellaHome, rel)
+}
+
+func appendSelectionMount(mounts *[]pkgsandbox.Mount, sources map[string]string, stellaHome, relative string) {
+	hostPath := filepath.Join(stellaHome, relative)
+	info, err := os.Stat(hostPath)
+	if err != nil || !info.IsDir() {
+		return
+	}
+	sandboxPath := path.Join(pkgsandbox.MountStellaHome, filepath.ToSlash(relative))
+	*mounts = append(*mounts, pkgsandbox.Mount{SandboxPath: sandboxPath, Access: pkgsandbox.MountReadOnly})
+	sources[sandboxPath] = hostPath
 }
 
 func remapStellaHomePolicyPath(hostPath, stellaHome string) string {
@@ -130,7 +200,9 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	env := make(map[string]string)
 	var vaultEnv map[string]string
 	sessionSecretEnv := make(map[string]string)
-	cfg.SessionSecretValues.Set(nil)
+	// Keep the redaction union across session recreation and turns. A process
+	// started with an older token may still emit it after a refresh; dropping it
+	// here would turn a harmless rotation into an output leak.
 
 	// Group sessions never load human vault secrets (D9 isolation).
 	if cfg.GroupID == "" && cfg.VaultEnvLoader != nil {
@@ -152,21 +224,49 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// Defense in depth: the vault-side system-managed filter is authoritative,
 	// but the OAuth bundle must still never reach the sandbox.
 	delete(env, oauth.VaultKeyGitHub)
+	priorSessionEnv := make(map[string]pkgplugins.SessionEnvRollback, len(cfg.SessionEnvSpecs))
+	for _, spec := range cfg.SessionEnvSpecs {
+		value, present := env[spec.EnvVar]
+		priorSessionEnv[spec.EnvVar] = pkgplugins.SessionEnvRollback{
+			PluginID:     spec.PluginID,
+			PriorPresent: present,
+			PriorValue:   value,
+		}
+	}
+	injectedSessionEnv := make(map[string]struct{}, len(cfg.SessionEnvSpecs))
 	if cfg.GroupID == "" {
+		for _, spec := range cfg.SessionEnvSpecs {
+			if spec.Source == pkgplugins.SessionEnvSourceStatic {
+				injectedSessionEnv[spec.EnvVar] = struct{}{}
+			}
+		}
 		if err := injectSessionEnv(ctx, cfg, env, vaultEnv, sessionSecretEnv); err != nil {
 			return nil, err
+		}
+		for _, spec := range cfg.SessionEnvSpecs {
+			if cfg.OAuthEnvBindings.Has(spec.EnvVar) {
+				if _, ok := env[spec.EnvVar]; ok {
+					injectedSessionEnv[spec.EnvVar] = struct{}{}
+				}
+			}
 		}
 	}
 
 	// The scoped sandbox token is retired; nothing may smuggle a value in
 	// under its old name (e.g. a pre-validation vault row).
 	delete(env, "STELLA_TOKEN")
+	delete(injectedSessionEnv, "STELLA_TOKEN")
 
 	// Runner-set vars overlay vault entries so they always take precedence.
-	maps.Copy(env, ProcessEnv(paths))
+	processEnv := ProcessEnv(paths)
+	for key := range processEnv {
+		delete(injectedSessionEnv, key)
+	}
+	maps.Copy(env, processEnv)
 	// Runtime files are session-scoped and must never be redirected into the
 	// persistent principal root (or accepted from a vault/session env entry).
 	delete(env, "XDG_RUNTIME_DIR")
+	delete(injectedSessionEnv, "XDG_RUNTIME_DIR")
 	// Every backend resolves tools through mise's native system < global <
 	// workspace layers. Installs stay in the per-user STELLA_HOME tree so their
 	// relative links to the shared system base survive backend remapping; the
@@ -176,12 +276,28 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	if paths.UserDataDir != "" {
 		userConfigDir = filepath.Join(paths.UserDataDir, ".config", "mise")
 	}
-	maps.Copy(env, manifest.RuntimeMiseEnv(
+	managedToolsDir := miseUserDirHost(paths, cfg)
+	if cfg.ManagedBinaryRoot != "" {
+		managedToolsDir = cfg.ManagedBinaryRoot
+		env["STELLA_NATIVE_PREP"] = "true"
+		delete(injectedSessionEnv, "STELLA_NATIVE_PREP")
+	}
+	runtimeMiseEnv := toolinstall.RuntimeMiseEnv(
 		paths.StellaHome,
-		miseUserDirHost(paths, cfg),
+		managedToolsDir,
 		userConfigDir,
 		paths.WorkspaceRoot,
-	))
+	)
+	for key := range runtimeMiseEnv {
+		delete(injectedSessionEnv, key)
+	}
+	maps.Copy(env, runtimeMiseEnv)
+	if cfg.SessionEnvRollbacks != nil {
+		clear(cfg.SessionEnvRollbacks)
+		for envVar := range injectedSessionEnv {
+			cfg.SessionEnvRollbacks[envVar] = priorSessionEnv[envVar]
+		}
+	}
 	recordSessionSecretValues(cfg.SessionSecretValues, env, vaultEnv, sessionSecretEnv)
 
 	return env, nil
@@ -220,12 +336,15 @@ func recordSessionSecretValues(target *SessionSecretValues, env map[string]strin
 
 // injectSessionEnv resolves plugin SessionEnvSpecs into env.
 func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, vaultEnv map[string]string, secretEnv map[string]string) error {
-	// oauthBundles caches loaded bundles per provider to avoid redundant vault hits.
-	oauthBundles := make(map[string]*oauth.OAuthBundle)
 	// oauthBoundVars records the env vars actually injected from OAuth so a later
 	// live refresh rotates exactly those and never an explicit vault override.
 	var oauthBoundVars []string
 	defer func() { cfg.OAuthEnvBindings.Set(oauthBoundVars) }()
+	// Keep provider groups in declaration order. A provider is committed only
+	// after all of its required bindings resolve, so a failed sibling cannot
+	// expose a partial credential set; earlier providers remain usable.
+	providerSpecs := make(map[string][]pkgplugins.SessionEnvSpec)
+	var providerOrder []string
 	for _, spec := range cfg.SessionEnvSpecs {
 		src := string(spec.Source)
 		if spec.Source == pkgplugins.SessionEnvSourceStatic {
@@ -242,12 +361,7 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, va
 		if _, ok := vaultEnv[spec.EnvVar]; ok {
 			continue
 		}
-		if cfg.TokenManager == nil {
-			if spec.Required {
-				return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
-			}
-			continue
-		}
+
 		providerID := spec.OAuthProviderID
 		if providerID == "" {
 			if spec.Required {
@@ -255,56 +369,73 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, va
 			}
 			continue
 		}
-		bundle, ok := oauthBundles[providerID]
+		if _, ok := providerSpecs[providerID]; !ok {
+			providerOrder = append(providerOrder, providerID)
+		}
+		providerSpecs[providerID] = append(providerSpecs[providerID], spec)
+	}
+
+	for _, providerID := range providerOrder {
+		if cfg.TokenManager == nil {
+			continue
+		}
+		specs := providerSpecs[providerID]
+		bundle, err := cfg.TokenManager.GetOAuthToken(ctx, providerID, cfg.UserID, oauthMinValidity(cfg))
+		if err != nil {
+			slog.Debug("session env injection skipped: OAuth token unavailable", "component", "runner_sandbox", "provider", providerID, "error", err)
+			continue
+		}
+		updates, ok := oauthSessionEnvValues(specs, bundle)
 		if !ok {
-			var err error
-			bundle, err = cfg.TokenManager.GetOAuthToken(ctx, providerID, cfg.UserID, oauthMinValidity(cfg))
-			if err != nil {
-				slog.Debug("session env injection skipped",
-					"component", "runner_sandbox",
-					"user_id", cfg.UserID,
-					"env_var", spec.EnvVar,
-					"source", spec.Source,
-					"error", err,
-				)
-			}
-			oauthBundles[providerID] = bundle
-		}
-		if bundle == nil {
-			if spec.Required {
-				return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
-			}
-			// Provider not connected: the tool will run without this env var.
-			// Expected when a user hasn't connected the tool's credential yet,
-			// so keep it at Debug — the credentials page surfaces the prompt.
-			slog.Debug("session env skipped: oauth provider not connected",
-				"component", "runner_sandbox",
-				"user_id", cfg.UserID,
-				"env_var", spec.EnvVar,
-				"provider", providerID,
-				"plugin", spec.PluginID,
-			)
+			// Missing authentication removes this provider's bindings only.
+			// Other providers and package Skills remain usable.
+			slog.Debug("session env injection skipped: OAuth requirements unavailable", "component", "runner_sandbox", "provider", providerID)
 			continue
 		}
-		field := strings.TrimPrefix(src, "oauth.")
-		value, known := oauthBundleField(bundle, field)
-		if !known {
-			if spec.Required {
-				return fmt.Errorf("required session env %q (source %q) for plugin %q: unknown oauth field %q", spec.EnvVar, spec.Source, spec.PluginID, field)
+		maps.Copy(env, updates)
+		for _, spec := range specs {
+			value, present := updates[spec.EnvVar]
+			if !present {
+				continue
 			}
-			continue
-		}
-		if value != "" {
-			env[spec.EnvVar] = value
 			oauthBoundVars = append(oauthBoundVars, spec.EnvVar)
-			if oauthSessionEnvFieldSecret(field) {
+			if oauthSessionEnvFieldSecret(strings.TrimPrefix(string(spec.Source), "oauth.")) {
 				secretEnv[spec.EnvVar] = value
 			}
-		} else if spec.Required {
-			return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
 		}
 	}
 	return nil
+}
+
+// oauthSessionEnvValues stages one provider's complete required binding set.
+// Initial injection and refresh must agree on both scope and field availability.
+func oauthSessionEnvValues(specs []pkgplugins.SessionEnvSpec, bundle *oauth.OAuthBundle) (map[string]string, bool) {
+	if bundle == nil {
+		return nil, false
+	}
+	if missing, known := requiredOAuthScopes(specs, bundle); !known || len(missing) > 0 {
+		return nil, false
+	}
+	updates := make(map[string]string)
+	for _, spec := range specs {
+		value, known := oauthBundleField(bundle, strings.TrimPrefix(string(spec.Source), "oauth."))
+		if !known || value == "" {
+			if spec.Required {
+				return nil, false
+			}
+			continue
+		}
+		updates[spec.EnvVar] = value
+	}
+	return updates, true
+}
+
+func requiredOAuthScopes(specs []pkgplugins.SessionEnvSpec, bundle *oauth.OAuthBundle) ([]string, bool) {
+	var required []string
+	for _, spec := range specs {
+		required = append(required, spec.OAuthScopes...)
+	}
+	return connections.CheckRequiredScopes(required, bundle.GrantedScope)
 }
 
 // oauthBundleField maps an oauth.<field> source suffix to the corresponding

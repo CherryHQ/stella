@@ -8,14 +8,24 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/CherryHQ/stella/internal/plugin"
+
 	"github.com/CherryHQ/stella/internal/platform/config"
-	"github.com/CherryHQ/stella/internal/plugin/manifest"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type Option func(*Host)
+
+// ListenerCap decides whether a channel instance may accept new ingress.
+// pluginID identifies the platform plugin and agentID identifies the bound
+// channel owner. The gate is required for channel runtime admission.
+type ListenerCap func(context.Context, string, string) (bool, error)
+
+// ErrListenerCapUnavailable means the common listener policy was not wired.
+// Channel runtimes fail closed when this gate is absent.
+var ErrListenerCapUnavailable = errors.New("pluginhost: listener capability unavailable")
 
 type Host struct {
 	store    config.Store
@@ -26,58 +36,48 @@ type Host struct {
 	// sealed is set by Seal() after all static registrations and capability
 	// bindings are complete. Once sealed, the static composition surface
 	// (LoadCatalog and the Set* capability binders) refuses further changes,
-	// while the dynamic desired-state surface (ApplyPlugin/ApplyChannel/
-	// SetEnabled/Stop/RegisterManifestPlugins) stays available.
-	sealed             bool
-	pluginIDs          map[string]struct{}
-	manifestIDs        map[string]struct{}
-	manifestEnabledIDs map[string]struct{}
-	manifestOwnedIDs   map[string]struct{}
-	metadataRegs       map[string]pkgplugins.PluginInfo
-	notifications      pkgplugins.Notifier
-	stateStore         StateStoreBackend
-	authService        pkgplugins.Auth
-	enrollment         AccountEnrollmentBackend
-	channelRuntime     pkgplugins.ChannelPlatform
-	toolRegs           map[string]pkgplugins.ToolSpec
-	hookRegs           map[string]pkgplugins.HookSpec
-	beforeRunRegs      map[string]pkgplugins.BeforeRunSpec
-	beforeToolRegs     map[string]pkgplugins.BeforeToolCallSpec
-	afterToolRegs      map[string]pkgplugins.AfterToolResultSpec
-	channelRegs        map[string]pkgplugins.ChannelSpec
-	runtimeRegs        map[string]pkgplugins.RuntimeSpec
-	configRegs         map[string]pkgplugins.AdminSpec
-	statusRegs         map[string]pkgplugins.AdminSpec
-	promptRegs         map[string]pkgplugins.PromptInventorySpec
-	systemPromptRegs   map[string]pkgplugins.SystemPromptSpec
-	manifestPrompts    map[string]pkgplugins.SystemPromptSection
-	sessionEnvRegs     map[string][]pkgplugins.SessionEnvSpec
-	bundledSkillRegs   map[string][]pkgplugins.BundledSkillSpec
+	// while the dynamic desired-state surface (ApplyPlugin/ReconcileChannel/
+	// Stop) stays available.
+	sealed           bool
+	pluginIDs        map[string]struct{}
+	metadataRegs     map[string]pkgplugins.PluginInfo
+	notifications    pkgplugins.Notifier
+	stateStore       StateStoreBackend
+	authService      pkgplugins.Auth
+	enrollment       AccountEnrollmentBackend
+	nativePolicy     *plugin.NativePolicy
+	channelRuntime   pkgplugins.ChannelPlatform
+	listenerCap      ListenerCap
+	toolRegs         map[string]pkgplugins.ToolSpec
+	hookRegs         map[string]pkgplugins.HookSpec
+	beforeRunRegs    map[string]pkgplugins.BeforeRunSpec
+	beforeToolRegs   map[string]pkgplugins.BeforeToolCallSpec
+	afterToolRegs    map[string]pkgplugins.AfterToolResultSpec
+	channelRegs      map[string]pkgplugins.ChannelSpec
+	runtimeRegs      map[string]pkgplugins.RuntimeSpec
+	configRegs       map[string]pkgplugins.AdminSpec
+	statusRegs       map[string]pkgplugins.AdminSpec
+	promptRegs       map[string]pkgplugins.PromptInventorySpec
+	systemPromptRegs map[string]pkgplugins.SystemPromptSpec
 }
 
 func New(store config.Store, opts ...Option) *Host {
 	h := &Host{
-		store:              store,
-		log:                slog.With("component", "plugin_host"),
-		pluginIDs:          map[string]struct{}{},
-		manifestIDs:        map[string]struct{}{},
-		manifestEnabledIDs: map[string]struct{}{},
-		manifestOwnedIDs:   map[string]struct{}{},
-		metadataRegs:       map[string]pkgplugins.PluginInfo{},
-		toolRegs:           map[string]pkgplugins.ToolSpec{},
-		hookRegs:           map[string]pkgplugins.HookSpec{},
-		beforeRunRegs:      map[string]pkgplugins.BeforeRunSpec{},
-		beforeToolRegs:     map[string]pkgplugins.BeforeToolCallSpec{},
-		afterToolRegs:      map[string]pkgplugins.AfterToolResultSpec{},
-		channelRegs:        map[string]pkgplugins.ChannelSpec{},
-		runtimeRegs:        map[string]pkgplugins.RuntimeSpec{},
-		configRegs:         map[string]pkgplugins.AdminSpec{},
-		statusRegs:         map[string]pkgplugins.AdminSpec{},
-		promptRegs:         map[string]pkgplugins.PromptInventorySpec{},
-		systemPromptRegs:   map[string]pkgplugins.SystemPromptSpec{},
-		manifestPrompts:    map[string]pkgplugins.SystemPromptSection{},
-		sessionEnvRegs:     map[string][]pkgplugins.SessionEnvSpec{},
-		bundledSkillRegs:   map[string][]pkgplugins.BundledSkillSpec{},
+		store:            store,
+		log:              slog.With("component", "plugin_host"),
+		pluginIDs:        map[string]struct{}{},
+		metadataRegs:     map[string]pkgplugins.PluginInfo{},
+		toolRegs:         map[string]pkgplugins.ToolSpec{},
+		hookRegs:         map[string]pkgplugins.HookSpec{},
+		beforeRunRegs:    map[string]pkgplugins.BeforeRunSpec{},
+		beforeToolRegs:   map[string]pkgplugins.BeforeToolCallSpec{},
+		afterToolRegs:    map[string]pkgplugins.AfterToolResultSpec{},
+		channelRegs:      map[string]pkgplugins.ChannelSpec{},
+		runtimeRegs:      map[string]pkgplugins.RuntimeSpec{},
+		configRegs:       map[string]pkgplugins.AdminSpec{},
+		statusRegs:       map[string]pkgplugins.AdminSpec{},
+		promptRegs:       map[string]pkgplugins.PromptInventorySpec{},
+		systemPromptRegs: map[string]pkgplugins.SystemPromptSpec{},
 	}
 	h.config = &configService{store: store}
 	h.runtimes = NewRuntimeHost(h)
@@ -90,6 +90,44 @@ func New(store config.Store, opts ...Option) *Host {
 func (h *Host) Logger(pluginID string) *slog.Logger { return h.log.With("plugin", pluginID) }
 func (h *Host) Config() ConfigBackend               { return h.config }
 func (h *Host) Runtime() pkgplugins.RuntimeLookup   { return h.runtimes }
+
+// SetNativePolicy binds the trusted native admission policy before the host is
+// sealed. Every capability registered through this Go host uses this policy;
+// Agent package resources are composed separately by the runner.
+func (h *Host) SetNativePolicy(policy *plugin.NativePolicy) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.requireUnsealedLocked("SetNativePolicy")
+	h.nativePolicy = policy
+}
+
+func (h *Host) nativeState(ctx context.Context, pluginID, agentID string) (pkgplugins.PluginState, bool, error) {
+	h.mu.RLock()
+	policy := h.nativePolicy
+	h.mu.RUnlock()
+	if policy == nil {
+		return pkgplugins.PluginState{}, false, plugin.ErrNativePolicyUnavailable
+	}
+	allowed, err := policy.Allows(ctx, pluginID, agentID)
+	if err != nil {
+		return pkgplugins.PluginState{}, false, err
+	}
+	if !allowed {
+		return pkgplugins.PluginState{}, false, nil
+	}
+	global, err := policy.GlobalPlugin(ctx, pluginID)
+	if err != nil {
+		return pkgplugins.PluginState{}, false, err
+	}
+	if !global.Enabled {
+		return pkgplugins.PluginState{}, false, nil
+	}
+	var stateConfig map[string]any
+	if global.Config != nil {
+		stateConfig = cloneMap(global.Config)
+	}
+	return pkgplugins.PluginState{ID: pluginID, Enabled: true, Config: stateConfig}, true, nil
+}
 
 // ListChannelChats returns the group chats currently joined by a channel bot.
 func (h *Host) ListChannelChats(ctx context.Context, channelID string, pageSize int, pageToken string) (pkgchannel.JoinedChatPage, error) {
@@ -113,7 +151,7 @@ func (h *Host) RegisterPluginID(id string) {
 // registrations fail here; duplicate static registrations already fail eagerly
 // at registration time (registerUnique). After Seal, LoadCatalog and the Set*
 // capability binders refuse late changes, while the dynamic desired-state
-// surface (ApplyPlugin/ApplyChannel/SetEnabled/RegisterManifestPlugins/Stop)
+// surface (ApplyPlugin/ReconcileChannel/Stop)
 // remains available. Seal is one-shot.
 func (h *Host) Seal() error {
 	if err := h.ValidateRegistrations(); err != nil {
@@ -165,108 +203,6 @@ func (h *Host) LoadCatalog(catalog *pkgplugins.Catalog) error {
 }
 
 func (h *Host) LoadDefaultCatalog() error { return h.LoadCatalog(defaultCatalog()) }
-
-// RegisterManifestPlugins registers plugins declared in a manifest. For each
-// enabled plugin:
-//   - New plugins (not already Go-registered) are fully registered with ID, info,
-//     and session envs.
-//   - Existing plugins (already Go-registered) get manifest session envs registered
-//     so the manifest is the single source of truth for env injection. Go code
-//     should no longer call AddSessionEnv for manifest-declared env vars.
-func (h *Host) RegisterManifestPlugins(m *manifest.Manifest) {
-	if m == nil {
-		return
-	}
-
-	// Collect which IDs are already registered without holding the lock across
-	// the public method calls (RegisterPluginID / SetInfo / AddSessionEnv each
-	// acquire the lock themselves). Also clear prior manifest registrations so
-	// admin UI manifest edits can be applied without accumulating stale env specs.
-	type toRegister struct {
-		plugin    manifest.ManifestPlugin
-		alreadyGo bool
-	}
-	var entries []toRegister
-
-	h.mu.Lock()
-	for id := range h.manifestEnabledIDs {
-		delete(h.sessionEnvRegs, id)
-		delete(h.manifestPrompts, id)
-	}
-	for id := range h.manifestOwnedIDs {
-		delete(h.pluginIDs, id)
-		delete(h.metadataRegs, id)
-		delete(h.sessionEnvRegs, id)
-	}
-	h.manifestIDs = map[string]struct{}{}
-	h.manifestEnabledIDs = map[string]struct{}{}
-	h.manifestOwnedIDs = map[string]struct{}{}
-
-	for _, p := range m.Plugins {
-		h.manifestIDs[p.ID] = struct{}{}
-		if !p.Enabled {
-			continue
-		}
-		_, alreadyGo := h.pluginIDs[p.ID]
-		h.manifestEnabledIDs[p.ID] = struct{}{}
-		if !alreadyGo {
-			h.manifestOwnedIDs[p.ID] = struct{}{}
-		}
-		entries = append(entries, toRegister{plugin: p, alreadyGo: alreadyGo})
-	}
-	h.mu.Unlock()
-
-	for _, e := range entries {
-		p := e.plugin
-		if !e.alreadyGo {
-			name := p.Name
-			if name == "" {
-				name = p.ID
-			}
-			displayName := p.DisplayName
-			if displayName == "" {
-				displayName = name
-			}
-			var caps []string
-			if p.Prompt != "" {
-				caps = append(caps, pkgplugins.CapabilityPrompt)
-			}
-			h.RegisterPluginID(p.ID)
-			h.SetInfo(pkgplugins.PluginInfo{
-				ID:           p.ID,
-				Kind:         p.Kind,
-				Name:         name,
-				DisplayName:  displayName,
-				Description:  p.Description,
-				AdminVisible: true,
-				Capabilities: caps,
-			})
-		}
-
-		// Register manifest session_envs for all enabled plugins, including
-		// Go-registered ones. The manifest is the source of truth.
-		for _, se := range p.SessionEnvs {
-			h.AddSessionEnv(pkgplugins.SessionEnvSpec{
-				PluginID:        p.ID,
-				EnvVar:          se.EnvVar,
-				Source:          pkgplugins.SessionEnvSource(se.Source),
-				Value:           se.Value,
-				Required:        se.Required,
-				OAuthProviderID: p.OAuthProvider,
-			})
-		}
-
-		if p.Prompt != "" {
-			promptName := p.Name
-			if promptName == "" {
-				promptName = p.ID
-			}
-			h.mu.Lock()
-			h.manifestPrompts[p.ID] = pkgplugins.SystemPromptSection{Title: promptName, Content: p.Prompt}
-			h.mu.Unlock()
-		}
-	}
-}
 
 func (h *Host) SetInfo(info pkgplugins.PluginInfo) {
 	info = normalizeMetadata(info)
@@ -345,50 +281,6 @@ func (h *Host) AddSystemPrompt(reg pkgplugins.SystemPromptSpec) {
 	registerUnique(h.systemPromptRegs, promptKey(reg.PluginID, reg.Name), reg, "system prompt")
 }
 
-func (h *Host) AddSessionEnv(spec pkgplugins.SessionEnvSpec) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.sessionEnvRegs[spec.PluginID] = append(h.sessionEnvRegs[spec.PluginID], spec)
-}
-
-func (h *Host) AddBundledSkill(spec pkgplugins.BundledSkillSpec) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.bundledSkillRegs[spec.PluginID] = append(h.bundledSkillRegs[spec.PluginID], spec)
-}
-
-func (h *Host) SessionEnvSpecs(pluginID string) []pkgplugins.SessionEnvSpec {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return append([]pkgplugins.SessionEnvSpec(nil), h.sessionEnvRegs[pluginID]...)
-}
-
-func (h *Host) AllSessionEnvSpecs() []pkgplugins.SessionEnvSpec {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	var out []pkgplugins.SessionEnvSpec
-	for _, specs := range h.sessionEnvRegs {
-		out = append(out, specs...)
-	}
-	return out
-}
-
-func (h *Host) BundledSkillSpecs(pluginID string) []pkgplugins.BundledSkillSpec {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return append([]pkgplugins.BundledSkillSpec(nil), h.bundledSkillRegs[pluginID]...)
-}
-
-func (h *Host) AllBundledSkillSpecs() []pkgplugins.BundledSkillSpec {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	var out []pkgplugins.BundledSkillSpec
-	for _, specs := range h.bundledSkillRegs {
-		out = append(out, specs...)
-	}
-	return out
-}
-
 func registerUnique[T any](m map[string]T, key string, reg T, kind string) {
 	if key == "" {
 		panic("pluginhost: empty " + kind + " key")
@@ -401,10 +293,6 @@ func registerUnique[T any](m map[string]T, key string, reg T, kind string) {
 
 func runtimeRegKey(pluginID, name string) string { return pluginID + "/" + name }
 func promptKey(pluginID, name string) string     { return pluginID + "/" + name }
-
-func (h *Host) SetEnabled(ctx context.Context, pluginID string, enabled bool) error {
-	return h.config.SetEnabled(ctx, pluginID, enabled)
-}
 
 func (h *Host) Status(ctx context.Context, pluginID string) (any, error) {
 	h.mu.RLock()
@@ -469,8 +357,23 @@ func (h *Host) ApplyPlugin(ctx context.Context, pluginID string) error {
 	return h.runtimes.ApplyPlugin(ctx, pluginID)
 }
 
-func (h *Host) ApplyChannel(ctx context.Context, channel config.Channel) error {
-	return h.runtimes.ApplyChannel(ctx, channel)
+// ReconcileChannel reapplies one committed channel instance by exact ID.
+func (h *Host) ReconcileChannel(ctx context.Context, channelID string) error {
+	return h.runtimes.ReconcileChannel(ctx, channelID)
+}
+
+func (h *Host) listenerAllowed(ctx context.Context, pluginID, agentID string) (bool, error) {
+	h.mu.RLock()
+	cap := h.listenerCap
+	h.mu.RUnlock()
+	if cap == nil {
+		return false, ErrListenerCapUnavailable
+	}
+	allowed, err := cap(ctx, pluginID, agentID)
+	if err != nil {
+		return false, fmt.Errorf("listener capability for %s/%s: %w", pluginID, agentID, err)
+	}
+	return allowed, nil
 }
 
 // Quiesce halts new ingress on managed runtimes (channel pollers) for a graceful
@@ -480,7 +383,7 @@ func (h *Host) Quiesce(ctx context.Context) { h.runtimes.Quiesce(ctx) }
 
 func (h *Host) Stop(ctx context.Context) error { return h.runtimes.Stop(ctx) }
 
-func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.PromptToolInfo, error) {
+func (h *Host) PromptTools(ctx context.Context, pluginID, agentID string) ([]pkgplugins.PromptToolInfo, error) {
 	h.mu.RLock()
 	regs := make([]pkgplugins.PromptInventorySpec, 0, len(h.promptRegs))
 	for _, reg := range h.promptRegs {
@@ -497,9 +400,12 @@ func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.P
 		if reg.GetTools == nil {
 			continue
 		}
-		state, err := h.DesiredState(ctx, reg.PluginID)
+		state, enabled, err := h.nativeState(ctx, reg.PluginID, agentID)
 		if err != nil {
-			state = pkgplugins.PluginState{ID: reg.PluginID, Config: h.defaultConfigFor(reg.PluginID)}
+			return nil, err
+		}
+		if !enabled {
+			continue
 		}
 		tools, err := reg.GetTools(ctx, pkgplugins.PromptInventoryContext{Platform: h.platform(reg.PluginID), State: state})
 		if err != nil {
@@ -512,18 +418,6 @@ func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.P
 	return out, nil
 }
 
-func (h *Host) ManifestPluginPrompts() []pkgplugins.SystemPromptSection {
-	h.mu.RLock()
-	out := make([]pkgplugins.SystemPromptSection, 0, len(h.manifestPrompts))
-	for _, s := range h.manifestPrompts {
-		s.Inline = true
-		out = append(out, s)
-	}
-	h.mu.RUnlock()
-	sort.Slice(out, func(i, j int) bool { return out[i].Title < out[j].Title })
-	return out
-}
-
 func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 	h.mu.RLock()
 	regs := make([]pkgplugins.SystemPromptSpec, 0, len(h.systemPromptRegs))
@@ -534,25 +428,17 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 	sort.Slice(regs, func(i, j int) bool {
 		return promptKey(regs[i].PluginID, regs[i].Name) < promptKey(regs[j].PluginID, regs[j].Name)
 	})
-
 	var out []pkgplugins.SystemPromptSection
 	for _, reg := range regs {
 		if reg.Build == nil {
 			continue
 		}
-		state := build.State
-		if reg.Required {
-			state = pkgplugins.PluginState{
-				ID:      reg.PluginID,
-				Enabled: true,
-				Config:  h.defaultConfigFor(reg.PluginID),
-			}
-		} else {
-			var err error
-			state, err = h.DesiredState(ctx, reg.PluginID)
-			if err != nil || !state.Enabled {
-				continue
-			}
+		state, enabled, err := h.nativeState(ctx, reg.PluginID, build.AgentID)
+		if err != nil {
+			return nil, err
+		}
+		if !enabled {
+			continue
 		}
 		section, err := reg.Build(ctx, pkgplugins.SystemPromptContext{
 			Platform:            h.platform(reg.PluginID),
@@ -596,19 +482,12 @@ func (h *Host) BeforeRun(ctx context.Context, build pkgplugins.BeforeRunContext)
 			continue
 		}
 
-		state := build.State
-		if reg.Required {
-			state = pkgplugins.PluginState{
-				ID:      reg.PluginID,
-				Enabled: true,
-				Config:  h.defaultConfigFor(reg.PluginID),
-			}
-		} else {
-			var err error
-			state, err = h.DesiredState(ctx, reg.PluginID)
-			if err != nil || !state.Enabled {
-				continue
-			}
+		state, enabled, err := h.nativeState(ctx, reg.PluginID, build.AgentID)
+		if err != nil {
+			return pkgplugins.BeforeRunResult{}, err
+		}
+		if !enabled {
+			continue
 		}
 
 		result, err := reg.Run(ctx, pkgplugins.BeforeRunContext{

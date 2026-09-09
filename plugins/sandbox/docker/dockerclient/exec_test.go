@@ -57,4 +57,21 @@ func TestBuildExecCreateOptions(t *testing.T) {
 			t.Fatalf("unexpected env: %v", co.Env)
 		}
 	})
+	t.Run("unset env is encoded as names without values", func(t *testing.T) {
+		opts := ExecOptions{
+			Command:  []string{"env"},
+			Env:      map[string]string{"CURRENT": "yes"},
+			UnsetEnv: []string{"OLD_TOKEN", "EMPTY", "CURRENT", "bad=name"},
+		}
+		co := buildExecCreateOptions(opts)
+		want := []string{"CURRENT=yes", "EMPTY", "OLD_TOKEN"}
+		if len(co.Env) != len(want) {
+			t.Fatalf("unexpected env: %v", co.Env)
+		}
+		for i := range want {
+			if co.Env[i] != want[i] {
+				t.Fatalf("env[%d] = %q, want %q (all env: %v)", i, co.Env[i], want[i], co.Env)
+			}
+		}
+	})
 }

@@ -22,32 +22,24 @@ func SettingsPluginActionTools() []SettingsPluginActionTool {
 		{Name: "settings_plugin_disable", Family: "settings_plugin", Action: "disable", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
-    "kind": {
-      "type": "string"
-    },
-    "name": {
+    "plugin_id": {
       "type": "string"
     }
   },
   "required": [
-    "kind",
-    "name"
+    "plugin_id"
   ],
   "type": "object"
 }`},
 		{Name: "settings_plugin_enable", Family: "settings_plugin", Action: "enable", InputSchemaJSON: `{
   "additionalProperties": false,
   "properties": {
-    "kind": {
-      "type": "string"
-    },
-    "name": {
+    "plugin_id": {
       "type": "string"
     }
   },
   "required": [
-    "kind",
-    "name"
+    "plugin_id"
   ],
   "type": "object"
 }`},
@@ -75,13 +67,11 @@ type SettingsPluginHandler interface {
 }
 
 type SettingsPluginDisableInput struct {
-	Kind string `json:"kind,omitempty"`
-	Name string `json:"name,omitempty"`
+	PluginId string `json:"plugin_id,omitempty"`
 }
 
 type SettingsPluginEnableInput struct {
-	Kind string `json:"kind,omitempty"`
-	Name string `json:"name,omitempty"`
+	PluginId string `json:"plugin_id,omitempty"`
 }
 
 type SettingsPluginListInput struct {
@@ -91,13 +81,13 @@ func SettingsPluginDispatch(ctx context.Context, h SettingsPluginHandler, action
 	switch action {
 	case "disable":
 		var in SettingsPluginDisableInput
-		if err := tools.DecodeInputStrict(args, &in, []string{"kind", "name"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"plugin_id"}); err != nil {
 			return nil, err
 		}
 		return h.Disable(ctx, in)
 	case "enable":
 		var in SettingsPluginEnableInput
-		if err := tools.DecodeInputStrict(args, &in, []string{"kind", "name"}); err != nil {
+		if err := tools.DecodeInputStrict(args, &in, []string{"plugin_id"}); err != nil {
 			return nil, err
 		}
 		return h.Enable(ctx, in)

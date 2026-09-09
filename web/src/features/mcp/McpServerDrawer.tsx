@@ -10,23 +10,32 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { probeMcpServer } from "@/lib/api-client/sdk.gen";
-import type { McpServer } from "@/lib/api-client/types.gen";
+import type { AgentMcpServer } from "@/lib/api-client/types.gen";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useI18n } from "@/lib/i18n";
 import { SCOPE_LABEL_KEY } from "@/lib/skill-scope";
-import { formatTime } from "@/lib/time";
 
 function statusBadgeVariant(status: string) {
-  if (status === "ok") return "success";
+  if (status === "ready") return "success";
   if (status === "error" || status === "needs_auth") return "warning";
   return "outline";
 }
 
-/**
- * The read-side server drawer: health (status badge, last error, probed time)
- * with a Probe action, OAuth connect controls, and the persisted tool catalog.
- * Edit and delete stay on the host page — the drawer only reads and probes.
- */
+function statusLabel(status: string, t: ReturnType<typeof useI18n>["t"]): string {
+  switch (status) {
+    case "ready":
+      return t("mcp.status.ready");
+    case "ok":
+      return t("mcp.status.ok");
+    case "error":
+      return t("mcp.status.error");
+    case "needs_auth":
+      return t("mcp.status.needs_auth");
+    default:
+      return t("mcp.status.unknown");
+  }
+}
+
 export function McpServerDrawer({
   server,
   open,
@@ -37,42 +46,29 @@ export function McpServerDrawer({
   onDelete,
   notify,
 }: {
-  server: McpServer | null;
+  server: AgentMcpServer | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConnect: (server: McpServer) => void;
-  onDisconnect: (server: McpServer) => void;
-  onEdit: (server: McpServer) => void;
-  onDelete: (server: McpServer) => void;
+  onConnect: (server: AgentMcpServer) => void;
+  onDisconnect: (server: AgentMcpServer) => void;
+  onEdit: (server: AgentMcpServer) => void;
+  onDelete: (server: AgentMcpServer) => void;
   notify: (message: string, kind?: "success" | "error") => void;
 }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-
   const probe = useMutation({
-    mutationFn: (target: McpServer) =>
+    mutationFn: (target: AgentMcpServer) =>
       probeMcpServer({
         path: { id: target.id },
-        query: {
-          scope: target.scope,
-          agent_id:
-            target.scope === "user_agent" || target.scope === "system_agent"
-              ? target.agent_id
-              : undefined,
-        },
         throwOnError: true,
       }),
-    onSuccess: async ({ data }) => {
-      notify(
-        t("mcp.server.probed", { time: data?.probed_at ? formatTime(data.probed_at) : "—" }),
-        "success",
-      );
-      await queryClient.invalidateQueries({ queryKey: ["mcp-servers"] });
+    onSuccess: async () => {
+      notify(t("mcp.server.probed", { time: new Date().toISOString() }), "success");
       await queryClient.invalidateQueries({ queryKey: ["agent-mcp-servers"] });
     },
-    onError: (e) => notify(apiErrorMessage(e, t("mcp.saveFailed")), "error"),
+    onError: (error) => notify(apiErrorMessage(error, t("mcp.saveFailed")), "error"),
   });
-
   if (!server) return null;
   return (
     <Drawer open={open} onOpenChange={onOpenChange} position="right">
@@ -87,32 +83,9 @@ export function McpServerDrawer({
               {t(SCOPE_LABEL_KEY[server.scope])}
             </Badge>
             <Badge variant={statusBadgeVariant(server.status)} size="sm">
-              {t(
-                server.status === "ok"
-                  ? "mcp.status.ok"
-                  : server.status === "error"
-                    ? "mcp.status.error"
-                    : server.status === "needs_auth"
-                      ? "mcp.status.needs_auth"
-                      : "mcp.status.unknown",
-              )}
+              {statusLabel(server.status, t)}
             </Badge>
-            <span className="text-xs text-muted-foreground">
-              {server.probed_at
-                ? t("mcp.server.probed", { time: formatTime(server.probed_at) })
-                : t("mcp.server.neverProbed")}
-            </span>
           </div>
-
-          {server.status_error && (
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">
-                {t("mcp.server.lastError")}
-              </p>
-              <p className="text-sm">{server.status_error}</p>
-            </div>
-          )}
-
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
@@ -123,29 +96,32 @@ export function McpServerDrawer({
               <RefreshCw size={16} />
               {t("mcp.server.probe")}
             </Button>
-            {server.auth_type === "oauth" && (
+            {server.credential_mode === "per_user" && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => (server.oauth?.connected ? onDisconnect(server) : onConnect(server))}
+                onClick={() => (server.needs_auth ? onConnect(server) : onDisconnect(server))}
               >
-                {server.oauth?.connected ? t("mcp.disconnect") : t("mcp.connect")}
+                {server.needs_auth ? t("mcp.connect") : t("mcp.disconnect")}
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={() => onEdit(server)}>
-              {t("common.edit")}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => onDelete(server)}>
-              {t("common.delete")}
-            </Button>
+            {server.readable && (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => onEdit(server)}>
+                  {t("common.edit")}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => onDelete(server)}>
+                  {t("common.delete")}
+                </Button>
+              </>
+            )}
           </div>
-
           <div className="space-y-2">
             <p className="text-xs font-medium text-muted-foreground">{t("mcp.server.tools")}</p>
-            {(server.tools ?? []).length === 0 ? (
+            {server.tools.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t("mcp.server.noTools")}</p>
             ) : (
-              (server.tools ?? []).map((tool) => (
+              server.tools.map((tool) => (
                 <div key={tool.name} className="rounded-lg border p-3">
                   <p className="truncate font-mono text-sm font-medium">{tool.name}</p>
                   {tool.description && (

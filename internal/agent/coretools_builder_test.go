@@ -8,9 +8,10 @@ import (
 )
 
 type fakeSession struct {
-	alive    bool
-	policy   pkgsandbox.Policy
-	lastExec pkgsandbox.ExecOptions
+	alive       bool
+	policy      pkgsandbox.Policy
+	lastExec    pkgsandbox.ExecOptions
+	lastProcess pkgsandbox.ProcessRequest
 }
 
 func (f *fakeSession) Policy() pkgsandbox.Policy { return f.policy }
@@ -27,7 +28,8 @@ func (f *fakeSession) Exec(_ context.Context, _ string, opts pkgsandbox.ExecOpti
 	return pkgsandbox.ExecResult{Stdout: "ok", ExitCode: 0}, nil
 }
 
-func (f *fakeSession) StartProcess(_ context.Context, _ pkgsandbox.ProcessRequest) (pkgsandbox.ProcessHandle, error) {
+func (f *fakeSession) StartProcess(_ context.Context, req pkgsandbox.ProcessRequest) (pkgsandbox.ProcessHandle, error) {
+	f.lastProcess = req
 	return nil, nil
 }
 func (f *fakeSession) Files() pkgsandbox.FileAccess { return pkgsandbox.NopSession().Files() }

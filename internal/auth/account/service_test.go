@@ -3,6 +3,7 @@ package account
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
@@ -20,6 +21,27 @@ type fakeUsers struct {
 	activeSet  map[string]bool
 	defaultSet map[string]string
 	updateErr  error
+}
+
+type orderedRevoker struct {
+	events []string
+}
+
+type denyingRevoker struct {
+	err error
+}
+
+func (r denyingRevoker) ApplyUserRevocation(context.Context, string, string, func() error) error {
+	return r.err
+}
+
+func (r *orderedRevoker) ApplyUserRevocation(_ context.Context, userID, agentID string, mutate func() error) error {
+	r.events = append(r.events, "begin:"+userID+":"+agentID)
+	if err := mutate(); err != nil {
+		return err
+	}
+	r.events = append(r.events, "cutoff:"+userID+":"+agentID)
+	return nil
 }
 
 func (f *fakeUsers) GetUser(_ context.Context, id string) (auth.User, error) {
@@ -66,6 +88,18 @@ func (f *fakeUsers) UpdateUserDefaultAgent(_ context.Context, id, agentID string
 	}
 	f.defaultSet[id] = agentID
 	return nil
+}
+
+func (f *fakeUsers) DeactivateUserIfUserRole(_ context.Context, id string) (bool, error) {
+	u, ok := f.users[id]
+	if !ok || u.Role != auth.RoleUser {
+		return false, nil
+	}
+	if f.activeSet == nil {
+		f.activeSet = map[string]bool{}
+	}
+	f.activeSet[id] = false
+	return true, nil
 }
 
 type fakeChannels struct {
@@ -373,5 +407,76 @@ func TestSetUserAgentsReconciles(t *testing.T) {
 	}
 	if len(assign.assigned) != 1 || assign.assigned[0] != "c" {
 		t.Fatalf("assigned = %v, want [c]", assign.assigned)
+	}
+}
+
+func TestSetActiveRunsMutationBeforeRevocationCutoff(t *testing.T) {
+	ctx := t.Context()
+	users := &fakeUsers{users: map[string]auth.User{"u2": {ID: "u2", Role: auth.RoleUser}}}
+	sessions := &fakeSessions{}
+	pats := &fakePATs{}
+	revoker := &orderedRevoker{}
+	svc := newService(users, &fakeChannels{byID: map[string]auth.ChannelIdentity{}}, sessions, nil, pats)
+	svc.SetRevocationCoordinator(revoker)
+
+	if _, err := svc.SetActive(ctx, userAuthority(t, "admin", true), "u2", false); err != nil {
+		t.Fatalf("deactivate = %v", err)
+	}
+	if got, want := revoker.events, []string{"begin:u2:", "cutoff:u2:"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("revocation order = %v, want %v", got, want)
+	}
+	if active := users.activeSet["u2"]; active {
+		t.Fatal("account remained active")
+	}
+	if len(sessions.deletedUser) != 1 || len(pats.revoked) != 1 {
+		t.Fatalf("lockdown sessions=%v pats=%v, want one each", sessions.deletedUser, pats.revoked)
+	}
+}
+
+func TestSetActiveDoesNotMutateWhenRevocationAdmissionDenied(t *testing.T) {
+	ctx := t.Context()
+	users := &fakeUsers{users: map[string]auth.User{"u2": {ID: "u2", Role: auth.RoleUser}}}
+	svc := newService(users, &fakeChannels{byID: map[string]auth.ChannelIdentity{}}, &fakeSessions{}, nil, &fakePATs{})
+	svc.SetRevocationCoordinator(denyingRevoker{err: errors.New("revocation gate closed")})
+
+	if _, err := svc.SetActive(ctx, userAuthority(t, "admin", true), "u2", false); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("denied deactivation = %v, want ErrUnavailable", err)
+	}
+	if _, changed := users.activeSet["u2"]; changed {
+		t.Fatalf("account mutation ran after admission denial: %v", users.activeSet)
+	}
+}
+
+func TestSetUserAgentsRemovalRunsThroughRevocationCutoff(t *testing.T) {
+	ctx := t.Context()
+	users := &fakeUsers{users: map[string]auth.User{"u2": {ID: "u2"}}}
+	assign := &fakeAssign{byUser: map[string][]string{"u2": {"a", "b"}}}
+	revoker := &orderedRevoker{}
+	svc := newService(users, &fakeChannels{byID: map[string]auth.ChannelIdentity{}}, &fakeSessions{}, assign, nil)
+	svc.SetRevocationCoordinator(revoker)
+
+	if _, err := svc.SetUserAgents(ctx, userAuthority(t, "admin", true), "u2", []string{"b", "c"}); err != nil {
+		t.Fatalf("set agents = %v", err)
+	}
+	if got, want := revoker.events, []string{"begin:u2:a", "cutoff:u2:a"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("revocation events = %v, want %v", got, want)
+	}
+}
+
+func TestDeactivateUserIfUserRoleRunsThroughRevocationCutoff(t *testing.T) {
+	ctx := t.Context()
+	users := &fakeUsers{users: map[string]auth.User{"u2": {ID: "u2", Role: auth.RoleUser}}}
+	revoker := &orderedRevoker{}
+	svc := newService(users, &fakeChannels{byID: map[string]auth.ChannelIdentity{}}, &fakeSessions{}, nil, &fakePATs{})
+	svc.SetRevocationCoordinator(revoker)
+
+	if _, err := svc.DeactivateUserIfUserRole(ctx, userAuthority(t, "admin", true), "u2"); err != nil {
+		t.Fatalf("conditional deactivate = %v", err)
+	}
+	if got, want := revoker.events, []string{"begin:u2:", "cutoff:u2:"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("revocation events = %v, want %v", got, want)
+	}
+	if active := users.activeSet["u2"]; active {
+		t.Fatal("account remained active")
 	}
 }

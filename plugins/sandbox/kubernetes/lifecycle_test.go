@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	core "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
@@ -96,5 +97,55 @@ func TestFileViewRejectsRootReplacement(t *testing.T) {
 	}
 	if _, err = view.ReadFile("old"); err == nil {
 		t.Fatal("old view survives root replacement")
+	}
+}
+
+func TestCreateSessionMountsCoreSelectionFromPVC(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	workspace := filepath.Join(home, "workspace")
+	coreDir := filepath.Join(home, "core")
+	for _, dir := range []string{workspace, coreDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	api := fake.NewClientset()
+	var captured *core.Pod
+	api.PrependReactor("create", "pods", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		create := action.(clienttesting.CreateAction)
+		captured = create.GetObject().(*core.Pod).DeepCopy()
+		return true, nil, apierrors.NewForbidden(core.Resource("pods"), captured.Name, errors.New("test boundary"))
+	})
+	c := &Client{
+		api:          api,
+		cfg:          Config{Image: "sandbox:test", StellaHome: home, BundleRevision: "bundle"},
+		owner:        &core.Pod{ObjectMeta: meta.ObjectMeta{Name: "server", Namespace: "tenant", UID: "owner"}},
+		pvc:          &core.PersistentVolumeClaim{ObjectMeta: meta.ObjectMeta{Name: "home", Namespace: "tenant", UID: "pvc"}},
+		volumePrefix: ".",
+	}
+	policy := sandbox.Policy{Filesystem: sandbox.FilesystemPolicy{
+		WorkingDir: "/workspace",
+		Mounts: []sandbox.Mount{
+			{SandboxPath: "/workspace", Access: sandbox.MountReadWrite},
+			{SandboxPath: "/opt/stella/bin", Access: sandbox.MountReadOnly},
+		},
+	}}
+	_, err := c.Factory(map[string]string{"/workspace": workspace, "/opt/stella/bin": coreDir}).CreateSession(t.Context(), policy)
+	if err == nil || captured == nil {
+		t.Fatalf("CreateSession err=%v captured=%v", err, captured != nil)
+	}
+	var got *core.VolumeMount
+	for _, mount := range captured.Spec.Containers[0].VolumeMounts {
+		if mount.MountPath == "/opt/stella/bin" {
+			got = &mount
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("core selection PVC mount missing")
+	}
+	if got.Name != "home" || got.SubPath != "core" || !got.ReadOnly {
+		t.Fatalf("core selection mount = %+v", *got)
 	}
 }

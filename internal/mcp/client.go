@@ -59,8 +59,9 @@ var (
 // Client is a live connection to one external MCP server. It is safe to Close
 // more than once.
 type Client struct {
-	session   *mcpsdk.ClientSession
-	closeOnce sync.Once
+	session *mcpsdk.ClientSession
+	closeMu sync.Mutex
+	closed  bool
 }
 
 // Connect opens an MCP session to the server described by reg, injecting the
@@ -142,7 +143,7 @@ func buildBearerTransport(reg Registration, bearer string, policy EndpointPolicy
 	if err := policy.validateEndpointURL(reg.URL); err != nil {
 		return nil, err
 	}
-	httpClient := safeHTTPClient(bearer, policy)
+	httpClient := safeHTTPClientWithHeaders(bearer, reg.Headers, policy)
 	switch reg.Transport {
 	case TransportStreamableHTTP:
 		return &mcpsdk.StreamableClientTransport{Endpoint: reg.URL, HTTPClient: httpClient}, nil
@@ -156,8 +157,14 @@ func buildBearerTransport(reg Registration, bearer string, policy EndpointPolicy
 // buildTransport is the Service-level choke point: OAuth rides the streamable
 // transport's OAuthHandler (SSE has no handler hook, so oauth + sse is
 // refused); everything else delegates to the bearer transport.
-func (s *Service) buildTransport(reg Registration, owner CredentialOwner) (mcpsdk.Transport, error) {
+func (s *Service) buildTransport(ctx context.Context, reg Registration, owner CredentialOwner) (mcpsdk.Transport, error) {
+	if reg.IsFile() {
+		return s.buildFileTransport(ctx, reg, owner)
+	}
 	if reg.AuthType == AuthTypeOAuth {
+		if _, err := s.loadCredentialSnapshot(ctx, reg, owner); err != nil {
+			return nil, err
+		}
 		if reg.Transport != TransportStreamableHTTP {
 			return nil, fmt.Errorf("mcp: auth_type %q requires the streamable_http transport", AuthTypeOAuth)
 		}
@@ -165,15 +172,15 @@ func (s *Service) buildTransport(reg Registration, owner CredentialOwner) (mcpsd
 			return nil, err
 		}
 		return &mcpsdk.StreamableClientTransport{
-			Endpoint: reg.URL, HTTPClient: safeHTTPClient("", s.endpoints),
+			Endpoint: reg.URL, HTTPClient: safeHTTPClientWithHeaders("", reg.Headers, s.endpoints),
 			OAuthHandler: &oauthSession{svc: s, reg: reg, owner: owner},
 		}, nil
 	}
-	bearer, err := s.BearerToken(context.Background(), reg)
+	snapshot, err := s.loadCredentialSnapshot(ctx, reg, owner)
 	if err != nil {
 		return nil, err
 	}
-	return buildBearerTransport(reg, bearer, s.endpoints)
+	return buildBearerTransport(reg, snapshot.BearerToken, s.endpoints)
 }
 
 // ListTools returns the tools the server currently advertises.
@@ -198,23 +205,32 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 // Close ends the session. Idempotent so multiple tool wrappers can share one
 // client and each safely Close it on registry teardown.
 func (c *Client) Close() error {
-	var err error
-	c.closeOnce.Do(func() { err = c.session.Close() })
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
+	if c.closed {
+		return nil
+	}
+	// ClientSession.Close may return an OAuth TokenSource/DELETE error after
+	// it has already terminated the local JSON-RPC connection. Mark this
+	// handle terminal before calling it so callers never retry a half-closed
+	// SDK session or retain it after best-effort remote cleanup.
+	c.closed = true
+	err := c.session.Close()
 	return err
 }
 
 // isCredentialRejection reports whether an MCP client error is an HTTP 401/403
-// from the server. The streamable SDK surfaces the status as its HTTP status
-// text ("tools/call: Unauthorized"), so the check matches those exact words;
-// false positives just flip a server to needs_auth, which is recoverable from
-// the Web UI, while a miss would keep calling with a dead credential.
+// from the server, or an OAuth refresh rejected with the protocol's
+// invalid_grant error. The streamable SDK surfaces the status as its HTTP
+// status text ("tools/call: Unauthorized"), while x/oauth2 includes the OAuth
+// error code in its 400 response; both cases must persist needs_auth.
 //
 // The whole chain is inspected: connectionFailure deliberately hides its cause
 // from Error(), so a 401 during connect would otherwise read as a plain error.
 func isCredentialRejection(err error) bool {
 	for e := err; e != nil; e = errors.Unwrap(e) {
 		msg := e.Error()
-		if strings.Contains(msg, http.StatusText(http.StatusUnauthorized)) || strings.Contains(msg, http.StatusText(http.StatusForbidden)) || strings.Contains(msg, credentialRejectedHint) {
+		if strings.Contains(msg, http.StatusText(http.StatusUnauthorized)) || strings.Contains(msg, http.StatusText(http.StatusForbidden)) || strings.Contains(msg, credentialRejectedHint) || strings.Contains(msg, "invalid_grant") {
 			return true
 		}
 	}
@@ -224,12 +240,19 @@ func isCredentialRejection(err error) bool {
 // authRoundTripper injects a bearer token on every request. When the token is
 // empty it is a transparent pass-through, so unauthenticated servers work too.
 type authRoundTripper struct {
-	base   http.RoundTripper
-	bearer string
-	policy EndpointPolicy
+	base       http.RoundTripper
+	bearer     string
+	bearerFunc func(context.Context) (string, error)
+	headers    map[string]string
+	policy     EndpointPolicy
 }
 
 func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method == http.MethodDelete {
+		ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
+		defer cancel()
+		req = req.WithContext(ctx)
+	}
 	base := a.base
 	if base == nil {
 		base = safeBaseTransport(a.policy)
@@ -241,18 +264,58 @@ func (a *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 			return nil, err
 		}
 	}
-	if a.bearer != "" {
+	bearer := a.bearer
+	if a.bearerFunc != nil {
+		var err error
+		bearer, err = a.bearerFunc(req.Context())
+		if err != nil {
+			return nil, err
+		}
+	}
+	if bearer != "" || len(a.headers) != 0 {
 		// Clone before mutating: RoundTrippers must not modify the caller's request.
 		req = req.Clone(req.Context())
-		req.Header.Set("Authorization", "Bearer "+a.bearer)
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		for name, value := range a.headers {
+			req.Header.Set(name, value)
+		}
 	}
 	return base.RoundTrip(req)
 }
 
+func buildDynamicBearerTransport(reg Registration, bearer func(context.Context) (string, error), policy EndpointPolicy) (mcpsdk.Transport, error) {
+	if err := policy.validateEndpointURL(reg.URL); err != nil {
+		return nil, err
+	}
+	httpClient := safeHTTPClientWithBearerFunc(bearer, reg.Headers, policy)
+	switch reg.Transport {
+	case TransportStreamableHTTP:
+		return &mcpsdk.StreamableClientTransport{Endpoint: reg.URL, HTTPClient: httpClient}, nil
+	case TransportSSE:
+		return &mcpsdk.SSEClientTransport{Endpoint: reg.URL, HTTPClient: httpClient}, nil
+	default:
+		return nil, fmt.Errorf("mcp: unsupported transport %q: only %q and %q are allowed (stdio is not supported)", reg.Transport, TransportStreamableHTTP, TransportSSE)
+	}
+}
+
+func safeHTTPClientWithBearerFunc(bearer func(context.Context) (string, error), headers map[string]string, policy EndpointPolicy) *http.Client {
+	return safeHTTPClientWithTransport(&authRoundTripper{base: safeBaseTransport(policy), bearerFunc: bearer, headers: headers, policy: policy}, policy, 0)
+}
+
 func safeHTTPClient(bearer string, policy EndpointPolicy) *http.Client {
+	return safeHTTPClientWithHeaders(bearer, nil, policy)
+}
+
+func safeHTTPClientWithHeaders(bearer string, headers map[string]string, policy EndpointPolicy) *http.Client {
+	return safeHTTPClientWithTransport(&authRoundTripper{base: safeBaseTransport(policy), bearer: bearer, headers: headers, policy: policy}, policy, 30*time.Second)
+}
+
+func safeHTTPClientWithTransport(transport http.RoundTripper, policy EndpointPolicy, timeout time.Duration) *http.Client {
 	return &http.Client{
-		Transport: &authRoundTripper{base: safeBaseTransport(policy), bearer: bearer, policy: policy},
-		Timeout:   30 * time.Second,
+		Transport: transport,
+		Timeout:   timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if err := policy.validateEndpointURL(req.URL.String()); err != nil {
 				return err

@@ -20,6 +20,12 @@ export function isAgentManagedScope(scope: ManagedScope): boolean {
   return scope === "user_agent" || scope === "system_agent";
 }
 
+export function isManagedScope(value: string): value is ManagedScope {
+  return (
+    value === "user" || value === "user_agent" || value === "system" || value === "system_agent"
+  );
+}
+
 export function scopeQueriesForBand(
   scopeBand: ScopeBand,
   agentIDs: readonly string[],

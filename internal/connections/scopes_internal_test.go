@@ -2,6 +2,7 @@ package connections
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -183,6 +184,121 @@ func TestDesiredScopesPersistAcrossIncrementalFlows(t *testing.T) {
 	}
 	if want := []string{"basic", "profile", "documents.read"}; !reflect.DeepEqual(status.RequestedScopes, want) {
 		t.Fatalf("moved-floor requested scopes = %v, want %v", status.RequestedScopes, want)
+	}
+}
+
+type orderedConnectionRevoker struct {
+	events []string
+}
+
+type recordingInvalidator struct {
+	users int
+}
+
+func (r *recordingInvalidator) InvalidateUser(string) error {
+	r.users++
+	return nil
+}
+
+func (r *recordingInvalidator) InvalidateAgent(string) error { return nil }
+
+func (r *recordingInvalidator) InvalidateAll() error { return nil }
+
+type denyingConnectionRevoker struct {
+	err error
+}
+
+var errRevocationGateClosed = errors.New("revocation gate closed")
+
+func (r denyingConnectionRevoker) ApplyUserRevocation(context.Context, string, string, func() error) error {
+	return r.err
+}
+
+func (r *orderedConnectionRevoker) ApplyUserRevocation(_ context.Context, userID, agentID string, mutate func() error) error {
+	r.events = append(r.events, "begin:"+userID+":"+agentID)
+	if err := mutate(); err != nil {
+		return err
+	}
+	r.events = append(r.events, "cutoff:"+userID+":"+agentID)
+	return nil
+}
+
+func newDisconnectFixture(t *testing.T) (*Service, *vault.Service, string) {
+	t.Helper()
+	db := dbtest.New(t)
+	q := pkgdb.New(db)
+	oidc := appdb.NewOIDCStore(db)
+	ctx := t.Context()
+
+	masterID, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatalf("GenerateX25519Identity: %v", err)
+	}
+	vaultSvc, err := vault.NewService(q, masterID.String(), nil)
+	if err != nil {
+		t.Fatalf("vault.NewService: %v", err)
+	}
+	user, err := oidc.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "oauth-disconnect@test.invalid", Name: "OAuth Disconnect"})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	publicKey, encryptedPrivateKey, err := vault.GenerateUserKeys(vaultSvc.MasterRecipient())
+	if err != nil {
+		t.Fatalf("GenerateUserKeys: %v", err)
+	}
+	if err := oidc.UpdateUserAgeKeys(ctx, user.ID, publicKey, encryptedPrivateKey); err != nil {
+		t.Fatalf("UpdateUserAgeKeys: %v", err)
+	}
+	registry := oauth.NewProviderRegistry()
+	registry.Register(oauth.ProviderConfig{ID: "acme", VaultKey: "ACME_OAUTH", ClientID: "client"})
+	svc := NewService(vaultSvc, q, oauth.NewFlowStore(), "http://localhost:8080")
+	svc.SetRegistry(registry)
+	if err := svc.saveBundle(ctx, "acme", user.ID, "access", "refresh", time.Now().Add(time.Hour), time.Time{}, "profile", []string{"profile"}); err != nil {
+		t.Fatalf("save bundle: %v", err)
+	}
+	return svc, vaultSvc, user.ID
+}
+
+func TestDisconnectDeletesBundleBeforeRevocationCutoff(t *testing.T) {
+	svc, vaultSvc, userID := newDisconnectFixture(t)
+	ctx := t.Context()
+	revoker := &orderedConnectionRevoker{}
+	svc.SetRevocationCoordinator(revoker)
+	legacyInvalidator := &recordingInvalidator{}
+	svc.SetInvalidator(legacyInvalidator)
+
+	if err := svc.Disconnect(ctx, userID, "acme"); err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+	if got, want := revoker.events, []string{"begin:" + userID + ":", "cutoff:" + userID + ":"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("revocation events = %v, want %v", got, want)
+	}
+	stored, err := oauth.LoadOAuthBundle(ctx, vaultSvc, userID, "ACME_OAUTH")
+	if err != nil {
+		t.Fatalf("load deleted bundle: %v", err)
+	}
+	if stored != nil {
+		t.Fatalf("bundle still present after Disconnect: %+v", stored)
+	}
+	if legacyInvalidator.users != 0 {
+		t.Fatalf("Disconnect used legacy broad invalidator %d times", legacyInvalidator.users)
+	}
+}
+
+func TestDisconnectDoesNotDeleteBundleWhenRevocationAdmissionDenied(t *testing.T) {
+	svc, vaultSvc, userID := newDisconnectFixture(t)
+	ctx := t.Context()
+	svc.SetRevocationCoordinator(denyingConnectionRevoker{err: errRevocationGateClosed})
+
+	if err := svc.Disconnect(ctx, userID, "acme"); !errors.Is(err, errRevocationGateClosed) {
+		t.Fatalf("Disconnect error = %v, want revocation gate error", err)
+	}
+	stored, err := oauth.LoadOAuthBundle(ctx, vaultSvc, userID, "ACME_OAUTH")
+	if err != nil {
+		t.Fatalf("load denied bundle: %v", err)
+	}
+	if stored == nil {
+		t.Fatal("bundle deleted after revocation admission denial")
 	}
 }
 

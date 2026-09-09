@@ -28,6 +28,7 @@
     "group-chat-dataflow",
     "session-compaction",
     "plugin-system",
+    "agent-plugin-packages",
     "goal-model"
   ]
 }

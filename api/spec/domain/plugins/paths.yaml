@@ -1,55 +1,90 @@
 paths:
-  /api/plugins:
+  /api/native-plugins:
     get:
       tags: [plugins]
-      summary: List all plugins (admin only)
-      operationId: listPlugins
-      x-agent-tool: { tool: "settings_plugin", action: "list" }
+      summary: List native plugins
+      operationId: listNativePlugins
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            required: false,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - {
+            name: page_token,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/PluginViewList",
+                $ref: "../../components.yaml#/components/schemas/NativePluginList",
               }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
-  /api/plugins/{kind}/{name}:
+  /api/native-plugins/{kind}/{name}:
     parameters:
       - { name: kind, in: path, required: true, schema: { type: string } }
       - { name: name, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [plugins]
+      summary: Get a native plugin global switch
+      operationId: getNativePlugin
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/NativePlugin",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
     patch:
       tags: [plugins]
-      summary: Toggle plugin enabled state (admin only)
-      operationId: togglePlugin
-      x-agent-tool:
-        - {
-            tool: "settings_plugin",
-            action: "enable",
-            fixed: { enabled: true },
-          }
-        - {
-            tool: "settings_plugin",
-            action: "disable",
-            fixed: { enabled: false },
-          }
+      summary: Update a native plugin global switch
+      operationId: updateNativePlugin
       requestBody:
         required: true
         content:
           application/json:
             schema: {
-              $ref: "../../components.yaml#/components/schemas/TogglePluginRequest",
+              $ref: "../../components.yaml#/components/schemas/UpdateNativePluginRequest",
             }
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: { type: object, additionalProperties: true }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/NativePlugin",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -57,64 +92,76 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
-  /api/plugins/{kind}/{name}/status:
+  /api/native-plugins/{kind}/{name}/agent-denials:
     parameters:
       - { name: kind, in: path, required: true, schema: { type: string } }
       - { name: name, in: path, required: true, schema: { type: string } }
     get:
       tags: [plugins]
-      summary: Get plugin status (admin only)
-      operationId: getPluginStatus
+      summary: List native plugin Agent denies
+      operationId: listNativePluginAgentDenials
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            required: false,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+        - {
+            name: page_token,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: { type: object, additionalProperties: true }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/NativeAgentDenyList",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-
-  /api/plugins/{kind}/{name}/config:
-    parameters:
-      - { name: kind, in: path, required: true, schema: { type: string } }
-      - { name: name, in: path, required: true, schema: { type: string } }
-    get:
-      tags: [plugins]
-      summary: Get plugin config (admin only)
-      operationId: getPluginConfig
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: { type: object, additionalProperties: true }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
         }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-    patch:
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    post:
       tags: [plugins]
-      summary: Update plugin config (admin only)
-      operationId: updatePluginConfig
+      summary: Deny one Agent native plugin access
+      operationId: createNativePluginAgentDeny
       requestBody:
         required: true
         content:
           application/json:
             schema: {
-              $ref: "../../components.yaml#/components/schemas/UpdatePluginConfigRequest",
+              $ref: "../../components.yaml#/components/schemas/CreateNativeAgentDenyRequest",
             }
       responses:
-        "200":
-          description: ok
+        "201":
+          description: created
           content:
             application/json:
-              schema: { type: object, additionalProperties: true }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/NativeAgentDeny",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -122,94 +169,249 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
-  /api/plugins/{kind}/{name}/config-schema:
+  /api/native-plugins/{kind}/{name}/agent-denials/{agent_id}:
     parameters:
       - { name: kind, in: path, required: true, schema: { type: string } }
       - { name: name, in: path, required: true, schema: { type: string } }
+      - { name: agent_id, in: path, required: true, schema: { type: string } }
     get:
       tags: [plugins]
-      summary: Get plugin config schema (admin only)
-      operationId: getPluginConfigSchema
+      summary: Get one Agent native plugin deny
+      operationId: getNativePluginAgentDeny
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema: { type: object, additionalProperties: true }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/NativeAgentDeny",
+              }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-
-  /api/manifest-plugins:
-    get:
-      tags: [plugins]
-      summary: List manifest plugins (admin only)
-      operationId: listManifestPlugins
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                $ref: "../../components.yaml#/components/schemas/ManifestPluginsResponse"
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
         }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-  /api/manifest-plugins/{kind}/{name}:
-    parameters:
-      - name: kind
-        in: path
-        required: true
-        schema: { type: string }
-      - name: name
-        in: path
-        required: true
-        schema: { type: string }
-    patch:
-      tags: [plugins]
-      summary: Update one manifest plugin's definition (admin only)
-      description: >
-        Updates the definition of the addressed plugin. For a builtin, `fields`
-        names the definition fields this request takes ownership of: those keys
-        are stored at the submitted values, every other field of the plugin keeps
-        whatever ownership it already had, and unowned fields keep following the
-        definition the server ships. `kind` and `essential` belong to the server
-        and cannot be owned. `enabled` is ignored for a builtin — the enable
-        switch has its own operation. A plugin an admin added has no shipped
-        definition underneath it, so the body is the whole plugin, `fields` does
-        not apply, `enabled` travels with it, and empty values explicitly clear
-        optional definition fields.
-      operationId: saveManifestPluginDefinition
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "../../components.yaml#/components/schemas/SaveManifestPluginDefinitionRequest"
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                $ref: "../../components.yaml#/components/schemas/ManifestPluginsResponse"
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
         }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
     delete:
       tags: [plugins]
-      summary: Remove a custom manifest plugin (admin only)
-      description: >
-        Removes a plugin an admin added. Builtin plugins ship with the server and
-        cannot be removed — disable them instead.
-      operationId: deleteManifestPlugin
+      summary: Remove one Agent native plugin deny
+      operationId: allowNativePluginAgent
+      responses:
+        "204": { description: deleted }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "500": {
+          $ref: "../../components.yaml#/components/responses/InternalServerError",
+        }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/plugins:
+    get:
+      tags: [plugins]
+      summary: List raw plugin resources visible to the caller
+      operationId: listPlugins
+      x-agent-tool:
+        tool: settings_plugin
+        action: list
+        omit: [page_size, page_token, scope, agent_id]
+      parameters:
+        - name: page_size
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 20 }
+        - name: page_token
+          in: query
+          required: false
+          schema: { type: string }
+        - name: scope
+          in: query
+          required: false
+          description: Restrict results to one raw resource scope; omit to list all visible system, user, and requested-Agent layers.
+          schema: {
+            type: string,
+            enum: [system, system_agent, user, user_agent],
+          }
+        - name: agent_id
+          in: query
+          required: false
+          description: Restrict results to resources for this authorized Agent and its system/user layers.
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PluginList",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    post:
+      tags: [plugins]
+      summary: Create a raw plugin resource from declaration files
+      operationId: createPlugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/CreatePluginRequest",
+            }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PluginResource",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/plugins/import:
+    post:
+      tags: [plugins]
+      summary: Import a plugin package directory into a target raw resource scope (admin only)
+      operationId: importPluginPackage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/ImportPluginRequest",
+            }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PluginResource",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/plugins/{plugin_id}:
+    parameters:
+      - name: plugin_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [plugins]
+      summary: Get a visible raw plugin resource
+      operationId: getPlugin
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PluginResource",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    patch:
+      tags: [plugins]
+      summary: Enable or disable a raw plugin resource
+      operationId: updatePlugin
+      x-agent-tool:
+        - tool: settings_plugin
+          action: enable
+          fixed: { is_enabled: true }
+          body: false
+        - tool: settings_plugin
+          action: disable
+          fixed: { is_enabled: false }
+          body: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdatePluginRequest",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PluginResource",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    delete:
+      tags: [plugins]
+      summary: Delete a raw plugin resource declaration without changing policy or grant files
+      operationId: deletePlugin
+      parameters:
+        - name: expected_digest
+          in: query
+          required: true
+          description: Exact current content digest required for deletion.
+          schema: { type: string, minLength: 1 }
       responses:
         "204": { description: deleted }
         "400": {
@@ -220,40 +422,36 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
-  /api/manifest-plugins/{kind}/{name}/enabled:
+  /api/plugins/{plugin_id}/copy:
     parameters:
-      - name: kind
+      - name: plugin_id
         in: path
         required: true
         schema: { type: string }
-      - name: name
-        in: path
-        required: true
-        schema: { type: string }
-    put:
+    post:
       tags: [plugins]
-      summary: Enable or disable one manifest plugin (admin only)
-      description: >
-        Turns the addressed plugin on or off without touching its definition.
-        Essential builtin plugins back core tools and cannot be disabled.
-      operationId: setManifestPluginEnabled
+      summary: Copy a complete plugin resource to a target scope
+      operationId: copyPlugin
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [enabled]
-              properties:
-                enabled: { type: boolean }
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/CopyPluginRequest",
+            }
       responses:
-        "200":
-          description: ok
+        "201":
+          description: created
           content:
             application/json:
-              schema:
-                $ref: "../../components.yaml#/components/schemas/ManifestPluginsResponse"
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PluginResource",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -262,45 +460,35 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
-  /api/manifest-plugins/{kind}/{name}/reset:
+  /api/plugins/{plugin_id}/file:
     parameters:
-      - name: kind
+      - name: plugin_id
         in: path
         required: true
         schema: { type: string }
-      - name: name
-        in: path
-        required: true
-        schema: { type: string }
-    post:
+    get:
       tags: [plugins]
-      summary: Reset a builtin plugin to its shipped definition (admin only)
-      description: >
-        Hands a builtin's definition back to the running server: one field when
-        `field` names one, the whole definition otherwise. The enable switch is a
-        separate decision and is left alone. A plugin an admin added has no
-        shipped definition to return to and is refused — delete it instead.
-      operationId: resetManifestPlugin
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                field:
-                  type: string
-                  description: >
-                    Definition field to hand back, e.g. "binaries". Omit to reset
-                    the whole definition.
+      summary: Read one plugin declaration file
+      operationId: getPluginFile
+      parameters:
+        - name: path
+          in: query
+          required: true
+          description: Relative declaration path to read.
+          schema: { type: string, minLength: 1 }
       responses:
         "200":
           description: ok
           content:
             application/json:
-              schema:
-                $ref: "../../components.yaml#/components/schemas/ManifestPluginsResponse"
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ResourceFileContent",
+              }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
@@ -309,22 +497,69 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-
-  /api/manifest-plugins/sync:
-    post:
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    patch:
       tags: [plugins]
-      summary: Sync manifest plugins (admin only)
-      operationId: syncManifestPlugins
+      summary: Replace one plugin declaration file
+      operationId: updatePluginFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdatePluginFileRequest",
+            }
       responses:
         "200":
-          description: ok
+          description: updated
           content:
             application/json:
-              schema: { type: object, additionalProperties: true }
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PluginResource",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    delete:
+      tags: [plugins]
+      summary: Delete one plugin declaration file
+      operationId: deletePluginFile
+      parameters:
+        - name: path
+          in: query
+          required: true
+          description: Relative declaration path to delete.
+          schema: { type: string, minLength: 1 }
+        - name: expected_digest
+          in: query
+          required: true
+          description: Exact current content digest required for deletion.
+          schema: { type: string, minLength: 1 }
+      responses:
+        "204": { description: deleted }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
   /api/cli-tools/registry:
     get:
@@ -332,14 +567,13 @@ paths:
       summary: Search the mise tool registry (admin only)
       operationId: searchCliToolRegistry
       parameters:
-        - name: q
-          in: query
-          required: true
-          schema: { type: string }
-        - name: limit
-          in: query
-          required: false
-          schema: { type: integer, default: 30 }
+        - { name: q, in: query, required: true, schema: { type: string } }
+        - {
+            name: limit,
+            in: query,
+            required: false,
+            schema: { type: integer, default: 30 },
+          }
       responses:
         "200":
           description: ok
@@ -355,17 +589,13 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-
   /api/cli-tools/latest:
     get:
       tags: [plugins]
       summary: Resolve the latest version for a mise tool (admin only)
       operationId: getCliToolLatest
       parameters:
-        - name: tool
-          in: query
-          required: true
-          schema: { type: string }
+        - { name: tool, in: query, required: true, schema: { type: string } }
       responses:
         "200":
           description: ok

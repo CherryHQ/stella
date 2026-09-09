@@ -1,11 +1,20 @@
 package vault
 
+import "context"
+
 // RunnerInvalidator is the runner-cache surface vault mutations need. It is
 // implemented by the credentials service at the composition boundary.
 type RunnerInvalidator interface {
 	InvalidateAll() error
 	InvalidateAgent(agentID string) error
 	InvalidateUser(userID string) error
+}
+
+// RevocationCoordinator orders an authorized vault deletion with the runtime
+// cutoff. userID and agentID identify the affected owner: user, user_agent,
+// system_agent, or the whole deployment when both are empty.
+type RevocationCoordinator interface {
+	ApplyUserRevocation(ctx context.Context, userID, agentID string, mutate func() error) error
 }
 
 // InvalidateForScope closes the live runners affected by a vault mutation so

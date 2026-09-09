@@ -455,3 +455,47 @@ func TestOpenRootMissingOwnerDoesNotMaterialize(t *testing.T) {
 		t.Fatalf("Skill root materialized for missing owner: %v", statErr)
 	}
 }
+
+func TestResourceRootBoundaries(t *testing.T) {
+	db := dbtest.New(t)
+	user := uuid.NewString()
+	if _, err := db.Exec(t.Context(), "INSERT INTO auth_user(id,email) VALUES($1,$2)", user, user+"@test.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(t.Context(), `INSERT INTO agent(id,name,workspace) VALUES('resource-agent','Resources','')`); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewWorkspaceManager(db, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+	req := WorkspaceRequest{UserID: user, AgentID: "resource-agent"}
+	for _, scope := range []RootScope{RootSystemResources, RootSystemAgentResources, RootUserResources, RootUserAgentResources} {
+		root, err := manager.OpenRoot(t.Context(), req, scope, RootReadOnly)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := root.Write(t.Context(), "settings.json", strings.NewReader("{}"), WriteOptions{}); !errors.Is(err, ErrReadOnly) {
+			t.Fatalf("scope %d allowed write: %v", scope, err)
+		}
+		if err := root.Read(t.Context(), "../outside", io.Discard, ReadOptions{MaxBytes: 10}); err == nil {
+			t.Fatalf("scope %d escaped", scope)
+		}
+		_ = root.Close()
+	}
+	for _, scope := range []RootScope{RootUserResources, RootUserAgentResources} {
+		group := req
+		group.GroupID = "shared"
+		if root, err := manager.OpenRoot(t.Context(), group, scope, RootReadOnly); err == nil {
+			_ = root.Close()
+			t.Fatal("group received personal resource root")
+		}
+		other := req
+		other.UserID = uuid.NewString()
+		if root, err := manager.OpenRoot(t.Context(), other, scope, RootReadOnly); err == nil {
+			_ = root.Close()
+			t.Fatal("missing user received resource root")
+		}
+	}
+}

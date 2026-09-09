@@ -11,19 +11,21 @@ import (
 type Option func(*chatOptions)
 
 type chatOptions struct {
-	model          string
-	systemOverride string
-	excludedTools  []string
-	extraTools     []tools.Tool
-	currentSpeaker memory.CurrentSpeaker
-	hasSpeaker     bool
-	inputActor     eventlog.MessageActor
-	inboxID        string
-	groupWake      memory.GroupWake
-	channel        string
-	bindingID      string
-	turnAuthority  authz.Authority
-	hasAuthority   bool
+	model           string
+	systemOverride  string
+	excludedTools   []string
+	allowedTools    []string
+	hasAllowedTools bool
+	extraTools      []tools.Tool
+	currentSpeaker  memory.CurrentSpeaker
+	hasSpeaker      bool
+	inputActor      eventlog.MessageActor
+	inboxID         string
+	groupWake       memory.GroupWake
+	channel         string
+	bindingID       string
+	turnAuthority   authz.Authority
+	hasAuthority    bool
 }
 
 // WithInputActor attaches runtime-derived provenance to the input message.
@@ -97,6 +99,15 @@ func WithSystemOverride(system string) Option {
 func WithExcludedTools(names ...string) Option {
 	return func(o *chatOptions) {
 		o.excludedTools = append(o.excludedTools, names...)
+	}
+}
+
+// WithAllowedTools restricts this Chat call to the named tools/families.
+// Calling it with no names deliberately exposes no tools.
+func WithAllowedTools(names ...string) Option {
+	return func(o *chatOptions) {
+		o.allowedTools = append(o.allowedTools, names...)
+		o.hasAllowedTools = true
 	}
 }
 

@@ -62,11 +62,34 @@ stellad server
 
 你可以在 Web UI 中把每个渠道绑定到特定 agent。
 
+## MCP 工具
+
+Stella 通过 streamable HTTP 或 Server-Sent Events 连接远程 MCP（Model Context
+Protocol）服务器。MCP 声明直接保存在普通文件中：独立服务器使用
+`mcp/<name>.json`，包内服务器跟随所属完整包保存。文件只保存凭据引用，认证
+令牌独立加密保存在授权存储中。
+
+资源有四种作用域：`system`、`system_agent`、`user` 和 `user_agent`。同一个
+完整包按 `user_agent` > `user` > `system_agent` > `system` 选择；更窄作用域
+会整体替换更宽作用域的包。复制出来的包独立存在，不会随来源后续修改自动升级。
+文件编辑在下一轮生效，已经开始的 turn 继续使用本轮捕获的内容。删除声明只删除
+资源，不会断开 OAuth 授权；需要撤销本地访问时必须单独执行 **Disconnect**。Disconnect
+会关闭本地连接并阻止迟到刷新，但不承诺远端 provider 一定撤权。资源字节和安装缓存会
+保留到经过验证的维护操作安全清理为止。local backend 会执行沙箱策略，但不能证明脱离
+进程组的后代已停止；`none` sandbox 不提供可靠的进程隔离。
+
 ## 技能
 
-技能是可复用的操作手册，教会 Stella 如何执行特定任务。在对话中，Stella 可以搜索当前 Agent 已有的技能，并加载其精确版本。请在 Web UI 中安装、上传、编辑和删除技能；每次写入都必须选择明确的所有权作用域。
+Skill 是教 Stella 执行特定任务的可复用操作手册。Skill 可以直接存在项目、Agent、
+用户或系统资源根，也可以存在完整包中。Stella 先选择胜出的完整包，再一起读取其中
+的 Skill、CLI、环境绑定和 MCP 声明。更窄作用域会整体替换更宽作用域；复制的包独立
+存在，不会自动跟随来源升级。文件修改在下一轮生效，已经接纳的 turn 保留本轮视图。
 
-随发行版提供的技能为只读；管理员单独管理共享技能。作用域、按 Agent 启用和优先级详见[技能指南](web/content/docs/guides/skills.zh.md)。
+Web UI 和 API 可以在选定作用域编辑完整包，也可以编辑独立 Skill 或 MCP 文件。
+`settings.json` 只负责停用资源和施加管理员限制，不会改变声明本身。OAuth 的
+Disconnect 与删除文件是两个动作。无法证明相关进程及其后代已经停止时，Stella
+会保留资源字节。`none` backend 不提供可靠的进程隔离。作用域、优先级和编辑方式
+详见[技能指南](web/content/docs/guides/skills.zh.md)。
 
 ## 文档
 
@@ -87,7 +110,9 @@ stellad server --port 8080              # 自定义端口
 stellad upgrade                         # 自升级到最新版本
 stellad version                         # 打印版本
 stellad vault keygen                    # 生成保险库引导密钥
-stellad mise reconcile-builtins         # 同步内置沙箱工具
+stellad system-bundle revision          # 打印 builtin Skill bundle 版本
+stellad system-bundle install           # 安装已验证的 builtin Skill bundle
+stellad system-bundle verify            # 验证 builtin Skill bundle
 ```
 
 ## 开发

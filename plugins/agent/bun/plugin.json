@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "bun",
+  "version": "1.0.0",
+  "description": "An incredibly fast JavaScript runtime, bundler, test runner, and package manager.",
+  "extensions": {
+    "com.cherryhq.stella": { "version": "1", "display_name": "Bun", "binaries": [{ "name": "bun", "tool": "bun" }] }
+  }
+}

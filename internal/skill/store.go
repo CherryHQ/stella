@@ -44,6 +44,7 @@ type SkillChangelog struct {
 	VersionBefore int64
 	VersionAfter  int64
 	ContentDigest string
+	Writer        string
 	Metadata      json.RawMessage
 	CreatedAt     time.Time
 }
@@ -91,11 +92,6 @@ type ManagedSkillDelete struct {
 	ExpectedDigest string
 }
 
-type ManagedSkillFileDelete struct {
-	ManagedSkillDelete
-	Path string
-}
-
 // ManagedRevision is one fully verified immutable Home revision. Files and
 // Modes are the complete bounded file tree and ContentDigest identifies these
 // exact bytes and modes.
@@ -103,6 +99,13 @@ type ManagedRevision struct {
 	Skill Skill
 	Files map[string][]byte
 	Modes map[string]fs.FileMode
+}
+
+// ManagedSkillFile preserves the authored bytes and permission bits when a
+// package Skill is copied into the managed store.
+type ManagedSkillFile struct {
+	Content []byte
+	Mode    fs.FileMode
 }
 
 // IdentityReader exposes PostgreSQL identity inventory separately from Home
@@ -127,6 +130,10 @@ func listManagedIdentitiesWhenAvailable(ctx context.Context, reader IdentityRead
 	return identities, err
 }
 
+func invocationVisible(sk Skill) bool {
+	return sk.Status != SkillStatusDeprecated && !sk.DisableModelInvocation
+}
+
 // RuntimeReader is the complete managed-Skill read boundary used by an Agent
 // turn. Runtime usage is pinned to the exact verified revision that was loaded;
 // an identity-only or digest-free implementation cannot serve executable Skill
@@ -134,10 +141,4 @@ func listManagedIdentitiesWhenAvailable(ctx context.Context, reader IdentityRead
 type RuntimeReader interface {
 	IdentityReader
 	TouchReflectSkillRuntimeUseDigest(context.Context, string, string, string, string) error
-}
-
-// IsCurrentSelectorMissing reports the narrow recoverable catalog state where
-// the identity still exists but its Home current-selector entry is absent.
-func IsCurrentSelectorMissing(err error) bool {
-	return errors.Is(err, errCurrentSkillSelectorMissing)
 }

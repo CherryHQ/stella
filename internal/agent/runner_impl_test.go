@@ -26,6 +26,28 @@ type stubProvider struct{}
 
 type stubTool struct{ name string }
 
+type identifiedMCPTool struct{}
+
+func (identifiedMCPTool) Definition() tools.Definition {
+	return tools.Definition{Name: "custom_settings_main_list_30942630260c"}
+}
+
+func (identifiedMCPTool) Execute(context.Context, map[string]any) (string, error) { return "", nil }
+
+func (identifiedMCPTool) PluginToolIdentity() (string, string, string, bool) {
+	return "custom.settings", "main", "list", true
+}
+
+func TestRunnerMCPToolIdentityValidatesDurableIdentity(t *testing.T) {
+	identity, err := runnerMCPToolIdentity(identifiedMCPTool{})
+	if err != nil {
+		t.Fatalf("runnerMCPToolIdentity error = %v", err)
+	}
+	if identity.PluginID != "custom.settings" || identity.ServerKey != "main" || identity.LocalToolName != "list" {
+		t.Fatalf("identity = %+v", identity)
+	}
+}
+
 func (s *stubTool) Definition() tools.Definition {
 	return tools.Definition{Name: s.name, Description: "stub tool"}
 }
@@ -567,6 +589,7 @@ func TestInitializationFailureRetainsUnterminatedSandbox(t *testing.T) {
 				Cleanup: func() error { cleaned = true; return nil },
 			})
 			cfg.Sandbox.Backends = backends
+			cfg.Sandbox.SystemRuntimePlan = fixtureRunnerSystemRuntimePlan(t, cfg.Sandbox.Paths.StellaHome)
 			r, err := newRunner(t.Context(), cfg)
 			if err == nil || r == nil || cleaned {
 				t.Fatalf("lost pending cleanup: runner=%v err=%v cleaned=%v", r != nil, err, cleaned)

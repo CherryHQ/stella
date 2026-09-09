@@ -23,7 +23,7 @@ const (
 )
 
 // ProviderFlowConfig holds the static configuration for one OAuth flow type
-// (authorization_code or device_code) read from manifest YAML.
+// (authorization_code or device_code) read from the OAuth resource YAML.
 type ProviderFlowConfig struct {
 	Type          string
 	AuthURL       string
@@ -34,8 +34,8 @@ type ProviderFlowConfig struct {
 }
 
 // ProviderConfig holds the static configuration for an OAuth provider read
-// from manifest YAML. ClientID and ClientSecret are YAML defaults; DB overrides
-// take precedence at flow-start time.
+// from the OAuth resource YAML. ClientID and ClientSecret are YAML defaults;
+// DB overrides take precedence at flow-start time.
 type ProviderConfig struct {
 	ID           string
 	Icon         string
@@ -47,7 +47,7 @@ type ProviderConfig struct {
 }
 
 // ProviderRegistry maps OAuth provider IDs to their static ProviderConfig.
-// It is populated from manifest oauth_providers at runtime.
+// It is populated from the OAuth resource providers at runtime.
 type ProviderRegistry struct {
 	mu          sync.RWMutex
 	entries     map[string]ProviderConfig
@@ -158,6 +158,26 @@ func (r *ProviderRegistry) DeleteBundle(ctx context.Context, vs VaultStore, prov
 	}
 	_, err := withBundleLock(r, providerID, userID, func() (*OAuthBundle, error) {
 		return nil, DeleteBundle(ctx, vs, userID, cfg.VaultKey)
+	})
+	return err
+}
+
+// DeleteBundleWithMutation acquires the per-user/provider bundle lock before
+// invoking apply. This ordering is required when apply is the process-wide
+// runtime revocation gate: a refresh may hold this lock across an OAuth
+// network request, but it must never hold the global admission gate while a
+// disconnect waits for it. The mutation callback is still run under both
+// locks, so delete and the runtime cutoff remain one ordered operation.
+func (r *ProviderRegistry) DeleteBundleWithMutation(ctx context.Context, vs VaultStore, providerID, userID string, apply func(func() error) error) error {
+	cfg, ok := r.providerConfig(providerID)
+	if !ok {
+		return fmt.Errorf("oauth: unknown provider: %s", providerID)
+	}
+	if apply == nil {
+		return fmt.Errorf("oauth: delete bundle mutation callback is nil")
+	}
+	_, err := withBundleLock(r, providerID, userID, func() (*OAuthBundle, error) {
+		return nil, apply(func() error { return DeleteBundle(ctx, vs, userID, cfg.VaultKey) })
 	})
 	return err
 }
