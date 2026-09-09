@@ -89,11 +89,12 @@ func (f *Factory) CreateSession(ctx context.Context, policy sandboxpkg.Policy) (
 	var entropy [6]byte
 	_, _ = rand.Read(entropy[:])
 	s := &session{
-		id:      "bridge-" + hex.EncodeToString(entropy[:]),
-		client:  c,
-		policy:  policy,
-		tempDir: tempDir,
-		done:    make(chan struct{}),
+		id:       "bridge-" + hex.EncodeToString(entropy[:]),
+		client:   c,
+		policy:   policy,
+		tempDir:  tempDir,
+		deadline: binding.Deadline,
+		done:     make(chan struct{}),
 	}
 	s.files = &fileAccess{s: s}
 	sandboxpkg.LogSessionCreated(s.id, "bridge", policy)
@@ -101,11 +102,12 @@ func (f *Factory) CreateSession(ctx context.Context, policy sandboxpkg.Policy) (
 }
 
 type session struct {
-	id      string
-	client  *client
-	tempDir string
-	done    chan struct{}
-	files   *fileAccess
+	id       string
+	client   *client
+	tempDir  string
+	deadline time.Time
+	done     chan struct{}
+	files    *fileAccess
 
 	mu     sync.RWMutex
 	policy sandboxpkg.Policy
@@ -121,6 +123,10 @@ func (s *session) Policy() sandboxpkg.Policy {
 func (s *session) WorkingDir() string           { return s.Policy().Filesystem.WorkingDir }
 func (s *session) Files() sandboxpkg.FileAccess { return s.files }
 func (s *session) Done() <-chan struct{}        { return s.done }
+
+func (s *session) TurnDeadline() (time.Time, bool) {
+	return s.deadline, !s.deadline.IsZero()
+}
 
 func (s *session) Alive() bool {
 	s.mu.RLock()

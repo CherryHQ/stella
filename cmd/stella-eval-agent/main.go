@@ -36,12 +36,23 @@ const (
 )
 
 type binding struct {
-	Socket  string `json:"socket"`
-	Nonce   string `json:"nonce"`
-	Workdir string `json:"workdir"`
-	Home    string `json:"home,omitempty"`
-	TempDir string `json:"temp_dir,omitempty"`
-	Path    string `json:"path,omitempty"`
+	Socket   string    `json:"socket"`
+	Nonce    string    `json:"nonce"`
+	Workdir  string    `json:"workdir"`
+	Home     string    `json:"home,omitempty"`
+	TempDir  string    `json:"temp_dir,omitempty"`
+	Path     string    `json:"path,omitempty"`
+	Deadline time.Time `json:"deadline,omitzero"`
+}
+
+func bindingDeadline(b binding, maxBudget time.Duration, now time.Time) (time.Time, error) {
+	if b.Deadline.IsZero() || !b.Deadline.After(now) {
+		return time.Time{}, errors.New("bridge binding requires a future task deadline")
+	}
+	if b.Deadline.After(now.Add(maxBudget)) {
+		return time.Time{}, errors.New("bridge binding deadline exceeds the declared task budget")
+	}
+	return b.Deadline.UTC(), nil
 }
 
 type result struct {
@@ -596,7 +607,12 @@ func run() int {
 		return exitAdapter
 	}
 	r.BridgeNonce = b.Nonce
-	deadline := time.Now().UTC().Add(time.Duration(deadlineSec) * time.Second)
+	deadline, err := bindingDeadline(b, time.Duration(deadlineSec)*time.Second, time.Now().UTC())
+	if err != nil {
+		r.Errors = append(r.Errors, err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
 	confirmBudget := stopConfirmBudget
 	if stopConfirmSec > 0 {
 		confirmBudget = time.Duration(stopConfirmSec) * time.Second

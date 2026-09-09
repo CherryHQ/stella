@@ -71,6 +71,13 @@ type EnvRefresher interface {
 	RefreshEnv(updates map[string]string)
 }
 
+// TurnDeadlineProvider exposes a budget owned by an external task runner.
+// It applies to model work as well as tools, and must not be renewed when a
+// cached session starts another turn. Sessions without one use normal limits.
+type TurnDeadlineProvider interface {
+	TurnDeadline() (time.Time, bool)
+}
+
 type ExecOptions struct {
 	Cwd     string
 	Env     map[string]string

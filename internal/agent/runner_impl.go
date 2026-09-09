@@ -67,7 +67,7 @@ type runnerConfig struct {
 	ToolLifecycle        *coreagent.ToolLifecycle
 	DelegateRunner       delegatetool.SessionRunner
 	DelegateTimeout      time.Duration // default wall-clock timeout per delegate (0 = 15m)
-	ChatTimeout          time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
+	ChatTimeout          time.Duration // explicit turn cap; 0 uses the sandbox task deadline, otherwise 30m
 	CanonicalImages      *coreagent.CanonicalImageConfig
 	Vision               *vision.Service // auxiliary vision service for view_image text routing
 	Cleanup              func() error
@@ -530,11 +530,8 @@ func sendEvent(ctx context.Context, out chan<- Event, evt Event) bool {
 func (r *runner) Chat(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event {
 	out := make(chan Event, 100)
 
-	timeout := r.chatTimeout
-	if timeout <= 0 {
-		timeout = defaultChatTimeout
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	deadline, externallyTimed := chatTurnDeadline(ctx, r.session, r.chatTimeout, time.Now().UTC())
+	ctx, cancel := context.WithDeadline(ctx, deadline)
 
 	r.mu.Lock()
 	r.lastActivity = time.Now()
@@ -592,21 +589,22 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			}(),
 		})
 
+		// Reload the OAuth-derived session env before each turn so a long-lived
+		// cached runner (kept warm by frequent scheduler fires) never hands tools
+		// an expired OAuth token. A no-op on a fresh credential, on group
+		// sessions, and on sessions without OAuth-sourced env (#722).
+		if r.session != nil {
+			cfg := r.sandboxCfg
+			cfg.ChatTimeout = time.Until(deadline)
+			sandbox.RefreshSessionEnv(ctx, r.session, cfg)
+		}
 		// Nudge the model toward a summary as the wall-clock budget runs out.
 		// The trigger is elapsed time, not a turn count. Turn milestones fire in
 		// the middle of healthy work on fast turns, and the old turn-50 message
 		// ("please report your current progress") was answered with a summary
 		// and no tool call, which ends the loop: every unattended task was
 		// capped at 50 turns regardless of how much of its budget was left.
-		loopRunner.SetTurnNotify(progressNudge(timeout))
-
-		// Reload the OAuth-derived session env before each turn so a long-lived
-		// cached runner (kept warm by frequent scheduler fires) never hands tools
-		// an expired OAuth token. A no-op on a fresh credential, on group
-		// sessions, and on sessions without OAuth-sourced env (#722).
-		if r.session != nil {
-			sandbox.RefreshSessionEnv(ctx, r.session, r.sandboxCfg)
-		}
+		loopRunner.SetTurnNotify(progressNudge(time.Until(deadline), externallyTimed))
 		loopRunner.SetSecretValues(r.sandboxCfg.SessionSecretValues.Values())
 
 		messages := make([]ai.Message, len(history))
@@ -639,6 +637,26 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 	}()
 
 	return out
+}
+
+func chatTurnDeadline(ctx context.Context, session pkgsandbox.Session, configured time.Duration, now time.Time) (time.Time, bool) {
+	deadline := now.Add(defaultChatTimeout)
+	externallyTimed := false
+	if timed, ok := session.(pkgsandbox.TurnDeadlineProvider); ok {
+		if taskDeadline, exists := timed.TurnDeadline(); exists {
+			deadline, externallyTimed = taskDeadline, true
+		}
+	}
+	if configured > 0 {
+		configuredDeadline := now.Add(configured)
+		if !externallyTimed || configuredDeadline.Before(deadline) {
+			deadline = configuredDeadline
+		}
+	}
+	if parent, ok := ctx.Deadline(); ok && parent.Before(deadline) {
+		deadline = parent
+	}
+	return deadline, externallyTimed
 }
 
 // Alive reports whether the runner is healthy. Capability-bearing runners
@@ -884,15 +902,15 @@ const (
 	nudgeWrapUpFraction     = 9.0 / 10.0
 )
 
-// progressNudge returns a turn-notify callback that fires at most twice per
-// chat, on elapsed time rather than turn count. The wording matters as much as
+// progressNudge optionally announces the initial task budget and emits at
+// most two elapsed-time reminders. The wording matters as much as
 // the trigger: a nudge the model reads as "stop and report" ends the loop,
 // because a turn without a tool call is a finished turn.
-func progressNudge(budget time.Duration) func(int, time.Duration) *string {
+func progressNudge(budget time.Duration, announceBudget bool) func(int, time.Duration) *string {
 	checkpoint := time.Duration(float64(budget) * nudgeCheckpointFraction)
 	wrapUp := time.Duration(float64(budget) * nudgeWrapUpFraction)
 	var sentCheckpoint, sentWrapUp bool
-	return func(_ int, elapsed time.Duration) *string {
+	return func(turn int, elapsed time.Duration) *string {
 		var msg string
 		switch {
 		case !sentWrapUp && elapsed >= wrapUp:
@@ -903,6 +921,9 @@ func progressNudge(budget time.Duration) func(int, time.Duration) *string {
 			sentCheckpoint = true
 			msg = fmt.Sprintf("Checkpoint: you have been working for %s of a %s budget. Briefly state your progress and then keep working. This is not a request to stop; if the approach is not converging, try a different one.",
 				elapsed.Round(time.Second), budget.Round(time.Second))
+		case announceBudget && turn == 1:
+			msg = fmt.Sprintf("You have approximately %s remaining to complete this request. This includes reasoning, tool execution, and verification. Prioritize a working result and leave time to check it; do not spend the whole budget planning.",
+				max(budget-elapsed, 0).Round(time.Second))
 		default:
 			return nil
 		}

@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 func TestLoadBinding(t *testing.T) {
@@ -42,5 +45,23 @@ func TestLoadBinding(t *testing.T) {
 	}
 	if _, err := LoadBinding("", "u1"); err == nil {
 		t.Fatal("empty binding dir must be rejected")
+	}
+}
+
+func TestBindingDeadlineSurvivesSessionWrapper(t *testing.T) {
+	const deadline = "2030-01-02T03:04:05.123456Z"
+	dir := t.TempDir()
+	body := `{"socket":"/tmp/b.sock","nonce":"abc","workdir":"/app","deadline":"` + deadline + `"}`
+	if err := os.WriteFile(filepath.Join(dir, "u.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b, err := LoadBinding(dir, "u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapped := sandboxpkg.NewResilientSession(&session{deadline: b.Deadline}, nil)
+	got, ok := wrapped.TurnDeadline()
+	if !ok || got.Format(time.RFC3339Nano) != deadline {
+		t.Fatalf("deadline=%v present=%v", got, ok)
 	}
 }

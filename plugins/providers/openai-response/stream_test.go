@@ -1,6 +1,7 @@
 package openairesponse
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/openai/openai-go/responses"
@@ -8,7 +9,14 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-func newItemToCall() map[string]string { return make(map[string]string) }
+func mapEventForTest(t *testing.T, event responses.ResponseStreamEventUnion, state *streamState) []ai.AssistantEvent {
+	t.Helper()
+	events, err := state.mapEvent(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return events
+}
 
 func TestMapEventTextDelta(t *testing.T) {
 	event := responses.ResponseStreamEventUnion{
@@ -17,7 +25,7 @@ func TestMapEventTextDelta(t *testing.T) {
 			OfString: "hello",
 		},
 	}
-	events := mapEvent(event, newItemToCall())
+	events := mapEventForTest(t, event, newStreamState())
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
@@ -33,8 +41,8 @@ func TestMapEventTextDelta(t *testing.T) {
 func TestMapEventFunctionCallArgumentsDelta(t *testing.T) {
 	// Simulate the real flow: output_item.added registers the item_id → call_id mapping,
 	// then arguments.delta uses item_id which gets resolved to call_id.
-	m := newItemToCall()
-	m["fc_0"] = "call_0"
+	m := newStreamState()
+	m.itemToCall["fc_0"] = "call_0"
 
 	event := responses.ResponseStreamEventUnion{
 		Type:   "response.function_call_arguments.delta",
@@ -43,7 +51,7 @@ func TestMapEventFunctionCallArgumentsDelta(t *testing.T) {
 			OfString: `{"q":"test"}`,
 		},
 	}
-	events := mapEvent(event, m)
+	events := mapEventForTest(t, event, m)
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
@@ -57,7 +65,7 @@ func TestMapEventFunctionCallArgumentsDelta(t *testing.T) {
 }
 
 func TestMapEventOutputItemAddedFunctionCall(t *testing.T) {
-	m := newItemToCall()
+	m := newStreamState()
 	event := responses.ResponseStreamEventUnion{
 		Type: "response.output_item.added",
 		Item: responses.ResponseOutputItemUnion{
@@ -67,7 +75,7 @@ func TestMapEventOutputItemAddedFunctionCall(t *testing.T) {
 			Name:   "lookup",
 		},
 	}
-	events := mapEvent(event, m)
+	events := mapEventForTest(t, event, m)
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
@@ -79,8 +87,8 @@ func TestMapEventOutputItemAddedFunctionCall(t *testing.T) {
 		t.Fatalf("unexpected tool call: %+v", tc)
 	}
 	// Verify the item_id → call_id mapping was recorded.
-	if m["fc_1"] != "call_1" {
-		t.Fatalf("expected item_id mapping fc_1→call_1, got %q", m["fc_1"])
+	if m.itemToCall["fc_1"] != "call_1" {
+		t.Fatalf("expected item_id mapping fc_1→call_1, got %q", m.itemToCall["fc_1"])
 	}
 }
 
@@ -99,7 +107,7 @@ func TestMapEventCompleted(t *testing.T) {
 			},
 		},
 	}
-	events := mapEvent(event, newItemToCall())
+	events := mapEventForTest(t, event, newStreamState())
 	if len(events) != 2 {
 		t.Fatalf("expected 2 events, got %d", len(events))
 	}
@@ -125,7 +133,7 @@ func TestMapEventFailed(t *testing.T) {
 	event := responses.ResponseStreamEventUnion{
 		Type: "response.failed",
 	}
-	events := mapEvent(event, newItemToCall())
+	events := mapEventForTest(t, event, newStreamState())
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
@@ -142,7 +150,7 @@ func TestMapEventFunctionCallFlow(t *testing.T) {
 	// Simulate the full function call streaming sequence:
 	// 1. output_item.added (registers item_id → call_id)
 	// 2. function_call_arguments.delta (uses item_id, resolved to call_id)
-	m := newItemToCall()
+	m := newStreamState()
 
 	// Step 1: output_item.added
 	added := responses.ResponseStreamEventUnion{
@@ -154,7 +162,7 @@ func TestMapEventFunctionCallFlow(t *testing.T) {
 			Name:   "bash",
 		},
 	}
-	events := mapEvent(added, m)
+	events := mapEventForTest(t, added, m)
 	if len(events) != 1 {
 		t.Fatalf("step 1: expected 1 event, got %d", len(events))
 	}
@@ -171,7 +179,7 @@ func TestMapEventFunctionCallFlow(t *testing.T) {
 			OfString: `{"command":"ls"}`,
 		},
 	}
-	events = mapEvent(delta, m)
+	events = mapEventForTest(t, delta, m)
 	if len(events) != 1 {
 		t.Fatalf("step 2: expected 1 event, got %d", len(events))
 	}
@@ -188,7 +196,7 @@ func TestMapEventIncomplete(t *testing.T) {
 	event := responses.ResponseStreamEventUnion{
 		Type: "response.incomplete",
 	}
-	events := mapEvent(event, newItemToCall())
+	events := mapEventForTest(t, event, newStreamState())
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
@@ -198,5 +206,36 @@ func TestMapEventIncomplete(t *testing.T) {
 	}
 	if stop.Reason != ai.StopReasonLength {
 		t.Fatalf("expected stop reason length, got %q", stop.Reason)
+	}
+}
+
+func TestSnapshotsRecoverTextWithoutDuplication(t *testing.T) {
+	for _, kind := range []string{"output_text", "refusal"} {
+		t.Run(kind, func(t *testing.T) {
+			state := newStreamState()
+			first := mapEventForTest(t, responses.ResponseStreamEventUnion{Type: "response." + kind + ".delta", ItemID: "msg_1", Delta: responses.ResponseStreamEventUnionDelta{OfString: "hel"}}, state)
+			done := responses.ResponseStreamEventUnion{Type: "response." + kind + ".done", ItemID: "msg_1", Text: "hello", Refusal: "hello"}
+			tail := mapEventForTest(t, done, state)
+			repeated := mapEventForTest(t, done, state)
+			if len(first) != 1 || len(tail) != 1 || len(repeated) != 0 || first[0].(ai.EventTextDelta).Text+tail[0].(ai.EventTextDelta).Text != "hello" {
+				t.Fatalf("unexpected text events: %v %v %v", first, tail, repeated)
+			}
+		})
+	}
+}
+
+func TestConflictingSnapshotsFailWithoutLeakingArguments(t *testing.T) {
+	state := newStreamState()
+	item := responses.ResponseOutputItemUnion{ID: "fc_1", Type: "function_call", CallID: "call_1", Name: "lookup", Arguments: `{"secret":"private-value"}`}
+	mapEventForTest(t, responses.ResponseStreamEventUnion{Type: "response.output_item.added", Item: item}, state)
+	item.Arguments = `{"secret":"different-private-value"}`
+	if _, err := state.mapEvent(responses.ResponseStreamEventUnion{Type: "response.output_item.done", Item: item}); err == nil || strings.Contains(err.Error(), "private-value") {
+		t.Fatalf("expected redacted conflict error, got %v", err)
+	}
+	if _, err := state.mapEvent(responses.ResponseStreamEventUnion{Type: "response.output_text.delta", ItemID: "msg", Delta: responses.ResponseStreamEventUnionDelta{OfString: "hello"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.mapEvent(responses.ResponseStreamEventUnion{Type: "response.output_text.done", ItemID: "msg", Text: "goodbye"}); err == nil {
+		t.Fatal("conflicting text was accepted")
 	}
 }

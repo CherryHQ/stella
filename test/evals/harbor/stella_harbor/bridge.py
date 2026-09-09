@@ -22,6 +22,7 @@ import shutil
 import tempfile
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,7 @@ class Binding:
     home: str = ""
     temp_dir: str = ""
     path: str = ""
+    deadline: str | None = None
 
     def write(self, binding_dir: Path, user_id: str) -> Path:
         binding_dir.mkdir(parents=True, exist_ok=True)
@@ -95,6 +97,7 @@ class BridgeServer:
     # ---- lifecycle -------------------------------------------------------
 
     async def start(self) -> Binding:
+        deadline = (datetime.now(UTC) + timedelta(seconds=self.budget_sec)).isoformat() if self.budget_sec > 0 else None
         self._deadline = time.monotonic() + self.budget_sec if self.budget_sec > 0 else 0.0
         self._bind_path = self._short_socket_path()
         if self._bind_path.exists():
@@ -115,6 +118,7 @@ class BridgeServer:
             home=home,
             temp_dir=temp_dir,
             path=path,
+            deadline=deadline,
         )
 
     async def close(self) -> None:

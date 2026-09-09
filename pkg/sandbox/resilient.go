@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"sync"
+	"time"
 )
 
 // SessionCreator creates a new session. Used by ResilientSession to recreate
@@ -97,6 +98,16 @@ func (r *ResilientSession) WorkingDir() string {
 		return ""
 	}
 	return s.WorkingDir()
+}
+
+func (r *ResilientSession) TurnDeadline() (time.Time, bool) {
+	r.mu.Lock()
+	s := r.inner
+	r.mu.Unlock()
+	if timed, ok := s.(TurnDeadlineProvider); ok {
+		return timed.TurnDeadline()
+	}
+	return time.Time{}, false
 }
 
 func (r *ResilientSession) selectFileView(ctx context.Context) (FileView, error) {

@@ -24,6 +24,14 @@ internal/agent.Service        business intent seam
 
 The old `Pool` shape mixed these responsibilities. New code should not add behavior back to a caller-specific path just because it is convenient.
 
+## Turn completion and deadlines
+
+The system prompt asks the agent to complete authorized actions and check each requested outcome before its final response. Verification should be able to catch an error in the producing step; displaying the generated output alone is not enough. This is model guidance, not a guarantee that a task passes its checks.
+
+The Responses adapter reconciles streamed tool arguments and text with final snapshots, emitting only missing suffixes. Repeated snapshots do not duplicate tool calls. Conflicting snapshots and streams ending without a terminal response event fail instead of silently reporting completion.
+
+Ordinary chats retain the 30-minute default. A trusted sandbox may supply an absolute turn deadline; the Harbor bridge uses this to carry the original task budget through HTTP into model execution. An explicit chat timeout or earlier parent deadline still caps the turn. The budget begins before bridge discovery and is not restarted when the server accepts the request. Externally timed turns receive the remaining budget on their first model turn; the existing elapsed-time reminders remain.
+
 ## Module responsibilities
 
 ### `agent.Service`
