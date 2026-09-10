@@ -32,6 +32,10 @@ Responses 适配器将工具参数和文本的流式增量与最终快照核对�
 
 普通对话保留默认 30 分钟时限。可信沙箱可以提供绝对截止时间；Harbor bridge 用它将原始任务预算跨 HTTP 传入模型执行。显式对话时限和更早的父上下文截止时间仍会限制回合。预算从 bridge 发现前开始计算，服务端接受请求时不会重新计时。外部计时回合会在首次模型调用时收到剩余预算，已有的按耗时提醒继续生效。
 
+运行层在 runner 停止且本轮结果提交结束后才完成 Run。群聊通过 `GroupResultCommitter` 在这个范围内提交回复、transcript 和消费游标；sandbox 检查通过 `WithSandboxResult` 使用执行 context。提交失败会使本轮失败；流提前出错时，运行层先取消并等待生产者退出，再释放 runner。
+
+Caller 消费流，并负责自己的独立工作：渠道发布、Scheduler 记账及 Goal 状态流转。返回 stream 表示可以开始消费；EOF 表示运行层的结果提交已经结束，不代表平台已经送达。Caller 不需要确认完成或管理运行层的执行权。
+
 ## Module 职责
 
 ### `agent.Service`

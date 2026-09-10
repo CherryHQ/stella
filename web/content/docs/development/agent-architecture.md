@@ -32,6 +32,10 @@ The Responses adapter reconciles streamed tool arguments and text with final sna
 
 Ordinary chats retain the 30-minute default. A trusted sandbox may supply an absolute turn deadline; the Harbor bridge uses this to carry the original task budget through HTTP into model execution. An explicit chat timeout or earlier parent deadline still caps the turn. The budget begins before bridge discovery and is not restarted when the server accepts the request. Externally timed turns receive the remaining budget on their first model turn; the existing elapsed-time reminders remain.
 
+Runtime completes a turn after its runner stops and all agent-owned results commit. Group acceptance commits the reply, transcript, and consumed cursor inside this boundary through `GroupResultCommitter`; sandbox checks run through `WithSandboxResult` using the execution context. Commit failures fail the turn. An early stream failure cancels and drains the runner before releasing its reservation.
+
+Callers consume the stream and retain their independent work: channel publication, scheduler bookkeeping, and Goal state transitions. Returning a stream means execution has started; EOF means runtime has finished its result commits, not that a platform delivered the reply. Callers do not acknowledge completion or manage runtime ownership.
+
 ## Module responsibilities
 
 ### `agent.Service`

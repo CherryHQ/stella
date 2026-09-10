@@ -592,7 +592,8 @@ type TaskChatRequest struct {
 	Message          MessageContent
 	ExtraTools       []tools.Tool // per-run tools (e.g. task_control)
 	ExcludedTools    []string
-	OnSandboxSession func(sandbox.Session) error
+	OnSandboxSession func(context.Context, sandbox.Session) error
+	StopWhen         func() bool
 	Authority        authz.Authority
 }
 
@@ -652,6 +653,9 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 	opts := []agentruntime.Option{
 		agentruntime.WithExtraTools(req.ExtraTools...),
 		agentruntime.WithTelemetryChannel("goal", ""),
+		agentruntime.WithSandboxResult(req.OnSandboxSession),
+		agentruntime.WithOneShotRunner(),
+		agentruntime.WithStopWhen(req.StopWhen),
 	}
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
@@ -660,28 +664,11 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 		agentruntime.WithExcludedTools(settingspolicy.ToolNames()...),
 		agentruntime.WithInputActor(messageActor(req.Authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))),
 	)
-	src, err := s.admit(ctx, info, req.Message, opts...)
+	stream, err := s.admit(ctx, info, req.Message, opts...)
 	if err != nil {
 		return errorEvents(err)
 	}
-	out := make(chan Event)
-	go func() {
-		defer close(out)
-		for ev := range src {
-			out <- ev
-		}
-		closeCtx := context.WithoutCancel(ctx)
-		var err error
-		if req.OnSandboxSession != nil {
-			err = s.Runtime.CloseSessionWithSandbox(closeCtx, req.SessionID, req.OnSandboxSession)
-		} else {
-			err = s.Runtime.CloseSession(closeCtx, req.SessionID)
-		}
-		if err != nil {
-			out <- Event{Err: fmt.Errorf("close worker session: %w", err)}
-		}
-	}()
-	return out
+	return stream
 }
 
 // ResolvePrivateChannelSession resolves or creates a chat session whose id IS

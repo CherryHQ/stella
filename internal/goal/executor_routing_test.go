@@ -34,7 +34,7 @@ func TestExecutorWaitsForOneShotSessionClose(t *testing.T) {
 			close(eventConsumed)
 			<-releaseClose
 			if p.OnSandboxSession != nil {
-				if err := p.OnSandboxSession(sandbox.NopSession()); err != nil {
+				if err := p.OnSandboxSession(ctx, sandbox.NopSession()); err != nil {
 					ch <- agent.Event{Err: err}
 					return
 				}
@@ -53,7 +53,7 @@ func TestExecutorWaitsForOneShotSessionClose(t *testing.T) {
 				ExecutorAgentID: pgtype.Text{String: "a", Valid: true},
 			},
 			Input: AttemptInput{Intent: "do the thing"},
-			OnSandboxSession: func(sandbox.Session) error {
+			OnSandboxSession: func(context.Context, sandbox.Session) error {
 				close(callbackCalled)
 				return nil
 			},
@@ -98,7 +98,7 @@ func TestExecutorWaitsForOneShotSessionClose(t *testing.T) {
 
 func TestExecutorRunsSandboxCallbackOnlyForTerminalSubmitTurn(t *testing.T) {
 	turns := 0
-	chat := func(_ context.Context, p TaskChatParams) <-chan agent.Event {
+	chat := func(ctx context.Context, p TaskChatParams) <-chan agent.Event {
 		turns++
 		ch := make(chan agent.Event, 1)
 		if turns == 1 {
@@ -109,7 +109,7 @@ func TestExecutorRunsSandboxCallbackOnlyForTerminalSubmitTurn(t *testing.T) {
 			}
 		}
 		if p.OnSandboxSession != nil {
-			if err := p.OnSandboxSession(sandbox.NopSession()); err != nil {
+			if err := p.OnSandboxSession(ctx, sandbox.NopSession()); err != nil {
 				ch <- agent.Event{Err: err}
 			}
 		}
@@ -127,7 +127,7 @@ func TestExecutorRunsSandboxCallbackOnlyForTerminalSubmitTurn(t *testing.T) {
 			ExecutorAgentID: pgtype.Text{String: "a", Valid: true},
 		},
 		Input: AttemptInput{Intent: "do the thing"},
-		OnSandboxSession: func(sandbox.Session) error {
+		OnSandboxSession: func(context.Context, sandbox.Session) error {
 			callbacks++
 			return nil
 		},
@@ -201,7 +201,7 @@ func TestExecutorRoutesDecomposeFlag(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var got bool
-			chat := func(_ context.Context, p TaskChatParams) <-chan agent.Event {
+			chat := func(ctx context.Context, p TaskChatParams) <-chan agent.Event {
 				got = p.Decompose
 				// Drive a terminal action through the injected goal_control tool so
 				// the attempt resolves without a real agent runtime.

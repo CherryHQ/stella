@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -618,10 +619,8 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 			return nil
 		}
 	}
-	// The sink is deliberately installed before Chat. The runtime finalizes it
-	// before closing its output, so draining the stream is the handoff barrier.
-	sink := memory.NewGroupTurnSink()
-	chatCtx := memory.WithGroupTurnSink(ownedCtx, sink)
+	result := &dispatchResult{dispatcher: d, row: claimed}
+	chatCtx := agentruntime.WithGroupResultCommitter(ownedCtx, result)
 	stream, err := d.chat(chatCtx, claimed, message, state)
 	if errors.Is(err, errGroupNudgeMoot) {
 		// The re-check runs after the session queue grants this slot. Do not emit
@@ -654,24 +653,24 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	// chat returns only after its per-(group, agent) session queue gives this
 	// turn the slot. This is the first truthful point to project it as running.
 	d.announceTurn(claimed, "running", reason)
-	response := d.bufferGroupResponse(ownedCtx, stream)
-	turn, delivered := sink.Result()
-	if response.err != nil || !response.complete || !delivered || !turn.Complete {
-		cause := response.err
-		if cause == nil {
-			cause = errors.New("group turn ended without a complete deferred result")
+	// Runtime has already buffered and committed the result when EOF arrives.
+	// Drain errors as well so an early consumer exit cannot strand the producer.
+	var runErr error
+	for event := range stream.Events {
+		if event.Err != nil && runErr == nil {
+			runErr = event.Err
 		}
-		return d.failDispatch(ctx, claimed, cause)
 	}
-	// The model's own decision to stay quiet, checked before the accept gates:
-	// nothing was written, so there is nothing for them to judge.
-	if isModelPass(response.text) {
-		return d.retireModelPass(ownedCtx, claimed, turn)
+	if runErr == nil {
+		runErr = ownedCtx.Err()
 	}
-	outcome, err := d.acceptGroupResponse(ownedCtx, claimed, response, turn)
-	if err != nil {
-		return d.failDispatch(ctx, claimed, err)
+	if runErr != nil {
+		return d.failDispatch(ctx, claimed, runErr)
 	}
+	if !result.committed {
+		return d.failDispatch(ctx, claimed, errors.New("group turn ended without committing its result"))
+	}
+	response, outcome := result.response, result.outcome
 	if outcome.Status != groupTurnAccepted {
 		d.announceTurn(claimed, string(outcome.Status), outcome.Reason)
 		return nil
@@ -884,52 +883,26 @@ type groupResponse struct {
 	reasoning string
 	sessionID string
 	events    []pkgchannel.Event
-	complete  bool
-	err       error
 }
 
-// bufferGroupResponse drains the runtime completely before any platform side
-// effect. The ceiling is an intentional in-memory limit: use BlobStore spooling
-// when a deployment needs responses larger than this.
-func (d *GroupDispatcher) bufferGroupResponse(ctx context.Context, stream *pkgchannel.ChatStream) groupResponse {
-	response := groupResponse{sessionID: stream.SessionID, complete: true}
-	limit := defaultGroupReplyBufferBytes
-	var used int
-	for evt := range stream.Events {
-		if evt.Err != nil {
-			response.complete = false
-			if response.err == nil {
-				response.err = evt.Err
-			}
-			continue
-		}
-		encoded, err := json.Marshal(evt)
-		if err != nil {
-			response.complete = false
-			if response.err == nil {
-				response.err = fmt.Errorf("encode group reply event: %w", err)
-			}
-			continue
-		}
-		used += len(encoded)
-		if used > limit {
-			response.complete = false
-			if response.err == nil {
-				response.err = fmt.Errorf("group reply exceeded %d-byte buffer", limit)
-			}
-			continue
-		}
-		response.events = append(response.events, evt)
-		response.text += evt.Text
-		response.reasoning += evt.Reasoning
+// append keeps the existing 8 MiB in-memory reply ceiling. Use blob spooling
+// when a deployment needs larger replies.
+func (r *groupResponse) append(evt pkgchannel.Event, used *int) error {
+	if evt.Err != nil {
+		return evt.Err
 	}
-	if ctx.Err() != nil {
-		response.complete = false
-		if response.err == nil {
-			response.err = ctx.Err()
-		}
+	encoded, err := json.Marshal(evt)
+	if err != nil {
+		return fmt.Errorf("encode group reply event: %w", err)
 	}
-	return response
+	*used += len(encoded)
+	if *used > defaultGroupReplyBufferBytes {
+		return fmt.Errorf("group reply exceeded %d-byte buffer", defaultGroupReplyBufferBytes)
+	}
+	r.events = append(r.events, evt)
+	r.text += evt.Text
+	r.reasoning += evt.Reasoning
+	return nil
 }
 
 func backoff(attempts int64) time.Duration {

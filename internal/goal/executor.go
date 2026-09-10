@@ -108,16 +108,16 @@ func (r *terminalRecorder) snapshot() (Result, bool) {
 	return r.result, r.done
 }
 
-func terminalSubmitSandboxCallback(rec *terminalRecorder, cb func(sandbox.Session) error) func(sandbox.Session) error {
+func terminalSubmitSandboxCallback(rec *terminalRecorder, cb func(context.Context, sandbox.Session) error) func(context.Context, sandbox.Session) error {
 	if cb == nil {
 		return nil
 	}
-	return func(sess sandbox.Session) error {
+	return func(runCtx context.Context, sess sandbox.Session) error {
 		res, ok := rec.snapshot()
 		if !ok || res.Action != terminalSubmit {
 			return nil
 		}
-		return cb(sess)
+		return cb(runCtx, sess)
 	}
 }
 
@@ -219,6 +219,7 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 				ExtraTools:       []tools.Tool{ctTool},
 				ExcludedTools:    append([]string(nil), e.excludedTools...),
 				OnSandboxSession: terminalSubmitSandboxCallback(rec, req.OnSandboxSession),
+				StopWhen:         rec.isDone,
 				Authority:        authority,
 			}),
 			cancel: cancel,
@@ -266,17 +267,14 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 }
 
 // runTurn pumps one chat turn until the event channel closes. Once a terminal
-// action is recorded, it cancels the turn but keeps draining so the one-shot
-// session can run its pre-close sandbox callback and close before Execute returns.
+// action is recorded, runtime stops the model and commits its sandbox checks.
+// The executor keeps draining; it owns cancellation only on failure or exit.
 func (e *workerExecutor) runTurn(ctx context.Context, turn executorTurn, rec *terminalRecorder) (text string, res Result, done bool, fail *Result, err error) {
-	cancelled := false
-	cancelTurn := func() {
-		if !cancelled {
-			cancelled = true
-			turn.cancel()
+	defer func() {
+		turn.cancel()
+		for range turn.events {
 		}
-	}
-	defer cancelTurn()
+	}()
 
 	var buf strings.Builder
 	for ev := range turn.events {
@@ -296,7 +294,6 @@ func (e *workerExecutor) runTurn(ctx context.Context, turn executorTurn, rec *te
 		if !done && rec.isDone() {
 			res, _ = rec.snapshot()
 			done = true
-			cancelTurn()
 		}
 	}
 	if done {

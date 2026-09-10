@@ -632,6 +632,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 				ExtraTools:       p.ExtraTools,
 				ExcludedTools:    p.ExcludedTools,
 				OnSandboxSession: p.OnSandboxSession,
+				StopWhen:         p.StopWhen,
 				Authority:        p.Authority,
 			}
 			// Decomposition runs on the goal's KindDelegate planning session;

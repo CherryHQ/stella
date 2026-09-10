@@ -124,9 +124,6 @@ func (d *GroupDispatcher) retireModelPass(ctx context.Context, row sqlc.CtxGroup
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("model pass: commit: %w", err)
 	}
-	if d.events != nil {
-		d.events.AnnounceTurn(row.GroupID, row.AgentID, string(groupTurnSilent), groupSilentModelPass)
-	}
 	return nil
 }
 

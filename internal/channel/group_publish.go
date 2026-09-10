@@ -292,7 +292,7 @@ func groupResponseFromMessage(message sqlc.CtxGroupMessage) groupResponse {
 	}
 	return groupResponse{
 		text: message.Content, reasoning: message.Reasoning, sessionID: message.AgentSessionID,
-		events: events, complete: true,
+		events: events,
 	}
 }
 

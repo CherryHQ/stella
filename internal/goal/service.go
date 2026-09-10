@@ -55,7 +55,7 @@ type ExecutorRequest struct {
 	Goal             sqlc.AgentGoal
 	Attempt          sqlc.AgentGoalAttempt
 	Input            AttemptInput
-	OnSandboxSession func(sandbox.Session) error
+	OnSandboxSession func(context.Context, sandbox.Session) error
 }
 
 // ExecutorResult is the executor's declared outcome for one attempt. Exactly

@@ -89,23 +89,22 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		close(out)
 		return
 	}
-	groupSink, hasGroupSink := memory.GroupTurnSinkFrom(ctx)
-	// A sink only owns this turn when the turn really is a group turn; a stray
-	// sink on a direct session must not swallow the ordinary persist path.
-	deferredGroupTurn := hasGroupSink && memSess.GroupID != ""
+	groupCommitter, hasGroupCommitter := GroupResultCommitterFrom(ctx)
+	// Only group sessions defer their transcript to the accept transaction.
+	deferredGroupTurn := hasGroupCommitter && memSess.GroupID != ""
 	deferred := memory.DeferredGroupTurn{
 		Session:              memSess,
 		TriggerSeq:           memory.GroupSeqFromContext(ctx),
 		OriginGroupMessageID: memory.GroupMessageIDFromContext(ctx),
 	}
-	// This is the only owner of out for a valid turn. Deliver before close gives
-	// the dispatcher a happens-before edge after it finishes draining the stream.
-	defer func() {
-		if deferredGroupTurn {
-			groupSink.Deliver(deferred)
-		}
-		close(out)
-	}()
+	defer close(out)
+	if co.closeAfterRun {
+		defer func() {
+			if err := rt.cache.close(info.ID); err != nil {
+				sendEvent(ctx, out, Event{Err: fmt.Errorf("close worker runner: %w", err)})
+			}
+		}()
+	}
 
 	msgText := MessageText(msg)
 	rt.log.Debug("chat started", "session_id", info.ID, "message_len", len(msgText))
@@ -331,14 +330,45 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		}
 	}
 
-	stream := selection.runner.Chat(ctx, history, modelMsg)
-	ownRows, chatErr := rt.streamEvents(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
-	if deferredGroupTurn {
-		deferred.OwnRows = ownRows
-		deferred.Complete = chatErr == nil && assembledOK && ctx.Err() == nil
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	stream := selection.runner.Chat(context.WithValue(runCtx, groupResultKey{}, false), history, modelMsg)
+	stopped := false
+	stopModel := func() {
+		if co.stopWhen != nil && co.stopWhen() {
+			stopped = true
+			cancelRun()
+		}
+	}
+	ownRows, chatErr := rt.streamEvents(runCtx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, stopModel, storePrefix...)
+	// An observer or persistence failure may leave the runner producing events.
+	// Cancel and join it before releasing its reservation or reporting completion.
+	cancelRun()
+	for range stream {
+	}
+	if stopped && ctx.Err() == nil && errors.Is(chatErr, context.Canceled) {
+		chatErr = nil
+	}
+	if chatErr != nil {
 		return
 	}
-	if chatErr == nil && assembledOK && ctx.Err() == nil && memSess.GroupID != "" {
+	if assembledOK && ctx.Err() == nil && co.sandboxResult != nil {
+		if err := commitSandboxResult(ctx, selection.runner, co.sandboxResult); err != nil {
+			sendEvent(ctx, out, Event{Err: err})
+			return
+		}
+	}
+	if deferredGroupTurn {
+		deferred.OwnRows = ownRows
+		deferred.Complete = assembledOK && ctx.Err() == nil
+		if deferred.Complete {
+			if err := groupCommitter.Commit(ctx, deferred); err != nil {
+				sendEvent(ctx, out, Event{Err: fmt.Errorf("commit group result: %w", err)})
+			}
+		}
+		return
+	}
+	if assembledOK && ctx.Err() == nil && memSess.GroupID != "" {
 		if committer, ok := rt.mem.(memory.GroupCursorCommitter); ok {
 			commitCtx := context.WithoutCancel(ctx)
 			if err := committer.CommitGroupCursor(commitCtx, memSess, memory.GroupSeqFromContext(ctx)); err != nil {
@@ -471,8 +501,14 @@ func (rt *Runtime) streamEvents(
 	hs *hooks.HookSet,
 	hookMeta hooks.HookMeta,
 	chatStart time.Time,
+	stopModel func(),
 	storePrefix ...ai.Message,
-) ([]ai.Message, error) {
+) (rows []ai.Message, resultErr error) {
+	defer func() {
+		if resultErr != nil && ctx.Err() == nil && !errors.Is(resultErr, ErrChatTimeout) {
+			sendEvent(ctx, out, Event{Err: resultErr})
+		}
+	}()
 	persistCtx := context.WithoutCancel(ctx)
 	isGroup := memSess.GroupID != ""
 	var chatErr error
@@ -515,6 +551,11 @@ func (rt *Runtime) streamEvents(
 	}()
 
 	for evt := range stream {
+		if committer, ok := GroupResultCommitterFrom(ctx); isGroup && ok && evt.Err == nil {
+			if err := committer.Observe(evt); err != nil {
+				return nil, fmt.Errorf("buffer group result: %w", err)
+			}
+		}
 		if evt.Err != nil {
 			chatErr = evt.Err
 			flushInterruptedAssistant()
@@ -534,7 +575,6 @@ func (rt *Runtime) streamEvents(
 				sendEvent(ctx, out, Event{Text: notice})
 				return nil, chatErr
 			}
-			sendEvent(ctx, out, evt)
 			return nil, chatErr
 		}
 
@@ -563,6 +603,9 @@ func (rt *Runtime) streamEvents(
 				flushInterruptedAssistant()
 				return nil, chatErr
 			}
+			if stopModel != nil {
+				stopModel()
+			}
 			continue
 		}
 
@@ -577,6 +620,9 @@ func (rt *Runtime) streamEvents(
 			flushInterruptedAssistant()
 			return nil, chatErr
 		}
+		if stopModel != nil {
+			stopModel()
+		}
 	}
 
 	if ctx.Err() != nil {
@@ -587,7 +633,7 @@ func (rt *Runtime) streamEvents(
 		pendingStores = append(pendingStores, bufferedAssistantMessage(textBuf.String(), reasoningBuf.String()))
 	}
 	if isGroup {
-		if _, deferred := memory.GroupTurnSinkFrom(ctx); deferred {
+		if _, deferred := GroupResultCommitterFrom(ctx); deferred {
 			ownRows := make([]ai.Message, 0, len(storePrefix)+len(pendingStores))
 			ownRows = append(ownRows, storePrefix...)
 			ownRows = append(ownRows, pendingStores...)

@@ -800,70 +800,58 @@ func TestRuntimeChatDoesNotCommitGroupCursorWhenAssembleFails(t *testing.T) {
 	}
 }
 
-func TestSinkDeliversExactlyOneResultOnEveryExit(t *testing.T) {
+func TestGroupResultNeverCommitsFailedTurn(t *testing.T) {
 	group := "11111111-1111-4111-8111-111111111111"
-	info := session.Info{ID: "sink-session", UserID: group, AgentID: "agent-1", GroupID: group}
+	info := session.Info{ID: "group-result-failure", UserID: group, AgentID: "agent-1", GroupID: group}
 	boom := errors.New("boom")
 	for _, tc := range []struct {
-		name      string
-		mem       *recordingMemory
-		beforeRun BeforeRunFunc
-		events    []Event
+		name   string
+		mem    *recordingMemory
+		runner Runner
 	}{
-		{name: "assemble failure", mem: &recordingMemory{assembleError: boom}},
-		{name: "before run failure", mem: &recordingMemory{}, beforeRun: func(context.Context, session.Info, string, string, string, []ai.Message, PluginContext) (string, error) {
-			return "", boom
-		}},
-		{name: "runner error", mem: &recordingMemory{}, events: []Event{{Err: boom}}},
+		{"assemble", &recordingMemory{assembleError: boom}, &chatFakeRunner{}},
+		{"runner error", &recordingMemory{}, &chatFakeRunner{events: []Event{{Err: boom}}}},
+		{"runner panic", &recordingMemory{}, panicRunner{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rt, err := New(Config{
-				Memory:    tc.mem,
-				BeforeRun: tc.beforeRun,
-				NewRunner: func(context.Context, RunnerParams) (Runner, error) { return &chatFakeRunner{events: tc.events}, nil },
-			})
+			rt, err := New(Config{Memory: tc.mem, NewRunner: func(context.Context, RunnerParams) (Runner, error) { return tc.runner, nil }})
 			if err != nil {
 				t.Fatal(err)
 			}
-			sink := memory.NewGroupTurnSink()
-			for range rt.Chat(memory.WithGroupTurnSink(context.Background(), sink), info, "hello") {
+			result := &testGroupResult{}
+			for range rt.Chat(WithGroupResultCommitter(t.Context(), result), info, "hello") {
 			}
-			turn, delivered := sink.Result()
-			if !delivered {
-				t.Fatal("sink did not deliver a result")
-			}
-			if turn.Complete {
-				t.Fatal("incomplete exit delivered Complete=true")
-			}
-			sink.Deliver(memory.DeferredGroupTurn{Complete: true})
-			if got, ok := sink.Result(); !ok || got.Complete {
-				t.Fatalf("second delivery replaced result: %+v, %v", got, ok)
+			if result.commits != 0 {
+				t.Fatalf("failed turn committed %d times", result.commits)
 			}
 		})
 	}
-
-	t.Run("runner construction panic", func(t *testing.T) {
-		rt, err := New(Config{
-			Memory:    &recordingMemory{},
-			NewRunner: func(context.Context, RunnerParams) (Runner, error) { return panicRunner{}, nil },
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		sink := memory.NewGroupTurnSink()
-		for range rt.Chat(memory.WithGroupTurnSink(context.Background(), sink), info, "hello") {
-		}
-		turn, delivered := sink.Result()
-		if !delivered {
-			t.Fatal("sink did not deliver a result")
-		}
-		if turn.Complete {
-			t.Fatal("panic delivered Complete=true")
-		}
-	})
 }
 
-func TestNoSinkGroupTurnKeepsInlineAssemblerAppendAndCursor(t *testing.T) {
+type testGroupResult struct {
+	turn    memory.DeferredGroupTurn
+	commits int
+	commit  func(context.Context, memory.DeferredGroupTurn) error
+	observe func(Event) error
+}
+
+func (r *testGroupResult) Observe(e Event) error {
+	if r.observe != nil {
+		return r.observe(e)
+	}
+	return nil
+}
+
+func (r *testGroupResult) Commit(ctx context.Context, turn memory.DeferredGroupTurn) error {
+	r.turn = turn
+	r.commits++
+	if r.commit != nil {
+		return r.commit(ctx, turn)
+	}
+	return nil
+}
+
+func TestUnmanagedGroupTurnKeepsInlineAssemblerAppendAndCursor(t *testing.T) {
 	mem := &recordingMemory{}
 	rt, err := New(Config{
 		Memory: mem,
@@ -884,7 +872,7 @@ func TestNoSinkGroupTurnKeepsInlineAssemblerAppendAndCursor(t *testing.T) {
 	}
 }
 
-func TestSinkGroupTurnDefersRowsAndCursor(t *testing.T) {
+func TestGroupResultCommitsRowsAndCursorBeforeEOF(t *testing.T) {
 	mem := &recordingMemory{}
 	rt, err := New(Config{
 		Memory: mem,
@@ -896,13 +884,13 @@ func TestSinkGroupTurnDefersRowsAndCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	group := "11111111-1111-4111-8111-111111111111"
-	sink := memory.NewGroupTurnSink()
-	ctx := memory.WithGroupTurnSink(memory.WithGroupSeq(context.Background(), 8), sink)
+	result := &testGroupResult{}
+	ctx := WithGroupResultCommitter(memory.WithGroupSeq(t.Context(), 8), result)
 	for range rt.Chat(ctx, session.Info{ID: "deferred-sink-session", UserID: group, AgentID: "agent-1", GroupID: group}, "hello") {
 	}
-	turn, delivered := sink.Result()
-	if !delivered {
-		t.Fatal("sink did not deliver a result")
+	turn := result.turn
+	if result.commits != 1 {
+		t.Fatalf("commits = %d", result.commits)
 	}
 	if !turn.Complete || turn.TriggerSeq != 8 || len(turn.OwnRows) != 2 {
 		t.Fatalf("deferred turn = %+v", turn)
@@ -1063,6 +1051,62 @@ func (rt *Runtime) streamEventsClosing(
 	storePrefix ...ai.Message,
 ) error {
 	defer close(out)
-	_, err := rt.streamEvents(ctx, sessionID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
+	_, err := rt.streamEvents(ctx, sessionID, memSess, stream, out, hs, hookMeta, chatStart, nil, storePrefix...)
 	return err
+}
+
+func TestGroupCommitHoldsRunAndReturnsFailure(t *testing.T) {
+	boom := errors.New("commit rejected")
+	mem := &activityRecordingMemory{}
+	rt, err := New(Config{Memory: mem, NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+		return &chatFakeRunner{events: []Event{{Text: "reply"}}}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := "11111111-1111-4111-8111-111111111111"
+	info := session.Info{ID: "group-commit", UserID: group, GroupID: group, AgentID: "a1"}
+	entered, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+	result := &testGroupResult{commit: func(ctx context.Context, turn memory.DeferredGroupTurn) error {
+		if memory.SessionIDFromContext(ctx) != info.ID {
+			t.Error("commit lost execution context")
+		}
+		close(entered)
+		<-release
+		return boom
+	}}
+	stream, err := rt.ChatAdmitted(WithGroupResultCommitter(t.Context(), result), info, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("commit did not start")
+	}
+	if _, err := rt.ChatAdmitted(t.Context(), info, "second"); !errors.Is(err, ErrSessionBusy) {
+		t.Fatalf("concurrent turn: %v", err)
+	}
+	if got := mem.activitySnapshot(); len(got) != 1 {
+		t.Fatalf("premature completion: %v", got)
+	}
+	unblock()
+	var got error
+	for event := range stream {
+		if event.Err != nil {
+			got = event.Err
+		}
+	}
+	if !errors.Is(got, boom) {
+		t.Fatalf("commit failure = %v", got)
+	}
+	if got := mem.activitySnapshot(); len(got) != 2 || got[1] != "completed:error" {
+		t.Fatalf("activity = %v", got)
+	}
+	if _, busy := rt.active.Load(info.ID); busy {
+		t.Fatal("runtime still held after commit finished")
+	}
 }
