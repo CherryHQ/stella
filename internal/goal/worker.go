@@ -156,7 +156,11 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 		OnTurnStarted: ownership.admit,
 		OnSandboxSession: func(sess sandbox.Session) error {
 			checksRan = true
-			checkErr = w.runChecks(ctx, goal, att, sess)
+			checkCtx := ctx
+			if lease := ownership.current.Lease(); lease != nil {
+				checkCtx = lease.ContextWith(ctx)
+			}
+			checkErr = w.runChecks(checkCtx, goal, att, sess)
 			return nil
 		},
 	})

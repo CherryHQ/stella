@@ -395,6 +395,37 @@ func TestStaleRunFenceRefusesTheGoalTransition(t *testing.T) {
 	}
 }
 
+func TestStaleRunCannotRecordDeterministicAcceptance(t *testing.T) {
+	h := newHarness(t)
+	fx := newGoalRunFixture(t, h)
+	root := h.createRoot(KindLeaf, deterministicContract(0))
+	h.activate(root.ID)
+	h.worker.checks = &lcl_checkRunner{pass: true}
+	h.exec.fn = func(req ExecutorRequest) (ExecutorResult, error) {
+		handoff := fx.admit(t.Context(), req.Attempt.SessionID)
+		fx.expireAndReap(t.Context(), handoff)
+		return ExecutorResult{
+			Submitted: true, handoff: handoff,
+			Evidence: AttemptEvidence{Summary: "stale check"},
+			Output:   AttemptOutput{Summary: "stale", Hash: "stale"},
+		}, nil
+	}
+	attempt, err := h.svc.Claim(t.Context(), root.ID, "w-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.worker.Run(t.Context(), root.ID, attempt.ID, Actor{Type: ActorWorker}); !errors.Is(err, agentrun.ErrLeaseLost) {
+		t.Fatalf("stale worker result = %v", err)
+	}
+	events, err := h.q.ListAcceptanceEventByGoal(t.Context(), root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("stale Run committed %d deterministic acceptance records", len(events))
+	}
+}
+
 // TestStaleRunFenceRefusesRepairRoundBookkeeping pins the same fence for the
 // decomposition attempt's first durable write, which is also a Run-derived write.
 func TestStaleRunFenceRefusesRepairRoundBookkeeping(t *testing.T) {
