@@ -1,12 +1,10 @@
-// Package usage commits run usage before completion and queues independent observations.
+// Package usage persists provider-reported usage synchronously inside the Run.
 package usage
 
 import (
 	"context"
 	"log/slog"
 	"strconv"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/sessionexecution"
@@ -19,115 +17,38 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
-const queueCapacity = 1024
-
-// Hook commits execution-scoped usage synchronously. For independent calls, its queue bounds
-// shutdown loss to 1024 accepted records. Under sustained database overload,
-// excess observations are deliberately dropped rather than delaying a turn.
+// Hook persists usage synchronously under the current execution's write guard.
 type Hook struct {
 	db  *pgxpool.Pool
-	q   *sqlc.Queries
 	log *slog.Logger
-
-	jobs chan sqlc.CreateAgentLLMCallParams
-	done chan struct{}
-	wg   sync.WaitGroup
-
-	mu      sync.RWMutex
-	closed  bool
-	pending map[string]int64
-	dropped atomic.Int64
-	onDrop  func()
 }
 
 func New(db *pgxpool.Pool) *Hook {
 	return &Hook{
-		db:      db,
-		q:       sqlc.New(db),
-		log:     slog.With("hook", "llm_usage"),
-		jobs:    make(chan sqlc.CreateAgentLLMCallParams, queueCapacity),
-		done:    make(chan struct{}),
-		pending: make(map[string]int64),
+		db:  db,
+		log: slog.With("hook", "llm_usage"),
 	}
 }
 
 func (*Hook) Name() string  { return "llm_usage" }
 func (*Hook) Priority() int { return 10 }
 
-// SetDropObserver installs a non-blocking callback for queue drops.
-func (h *Hook) SetDropObserver(fn func()) {
-	h.mu.Lock()
-	h.onDrop = fn
-	h.mu.Unlock()
-}
-
-func (h *Hook) QueueDepth() int     { return len(h.jobs) }
-func (h *Hook) DroppedCount() int64 { return h.dropped.Load() }
-
-// Start owns the one background writer for this process-lifetime core hook.
-func (h *Hook) Start() {
-	h.wg.Go(func() {
-		for {
-			select {
-			case job := <-h.jobs:
-				h.write(job)
-			case <-h.done:
-				for {
-					select {
-					case job := <-h.jobs:
-						h.write(job)
-					default:
-						return
-					}
-				}
-			}
-		}
-	})
-}
-
 func (h *Hook) OnPostLLMCall(ctx context.Context, hctx *hooks.PostLLMCallContext) {
 	if hctx.SessionID == "" || hctx.AgentID == "" {
 		return
 	}
 	job := paramsFrom(hctx)
-	if sessionexecution.FromContext(ctx) != nil {
-		_, err := sessionexecution.Write(context.WithoutCancel(ctx), h.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.AgentLlmCall, error) {
-			return q.CreateAgentLLMCall(ctx, job)
-		})
-		if err != nil {
-			sessionexecution.Abort(ctx, err)
-			h.log.Warn("persist run llm usage", "session_id", job.SessionID, "error", err)
-		}
-		return
+	// A model deadline does not discard its usage; the execution guard still
+	// rejects writes after the owning Run is canceled or loses its lease.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sessionexecution.OperationTimeout)
+	defer cancel()
+	_, err := sessionexecution.Write(ctx, h.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.AgentLlmCall, error) {
+		return q.CreateAgentLLMCall(ctx, job)
+	})
+	if err != nil {
+		sessionexecution.Abort(ctx, err)
+		h.log.Warn("persist run llm usage", "session_id", job.SessionID, "error", err)
 	}
-	if err := sessionexecution.Check(ctx); err != nil {
-		return
-	}
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.closed {
-		return
-	}
-	select {
-	case h.jobs <- job:
-		h.pending[job.SessionID]++
-	default:
-		h.dropped.Add(1)
-		h.log.Warn("llm usage queue full; dropping observation", "session_id", hctx.SessionID, "agent_id", hctx.AgentID)
-		if h.onDrop != nil {
-			h.onDrop()
-		}
-	}
-}
-
-// PendingCallCount reports accepted observations that have not finished their
-// database write. It is session-scoped so callers can distinguish a complete
-// zero-usage session from one whose accounting is still in flight.
-func (h *Hook) PendingCallCount(sessionID string) int64 {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.pending[sessionID]
 }
 
 func paramsFrom(hctx *hooks.PostLLMCallContext) sqlc.CreateAgentLLMCallParams {
@@ -162,34 +83,4 @@ func paramsFrom(hctx *hooks.PostLLMCallContext) sqlc.CreateAgentLLMCallParams {
 		_ = p.CostUsd.Scan(strconv.FormatFloat(hctx.Usage.Cost.Total, 'f', -1, 64))
 	}
 	return p
-}
-
-func (h *Hook) write(job sqlc.CreateAgentLLMCallParams) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := h.q.CreateAgentLLMCall(ctx, job); err != nil {
-		h.log.Warn("persist llm usage", "error", err, "session_id", job.SessionID, "agent_id", job.AgentID)
-	}
-	h.mu.Lock()
-	if h.pending[job.SessionID] <= 1 {
-		delete(h.pending, job.SessionID)
-	} else {
-		h.pending[job.SessionID]--
-	}
-	h.mu.Unlock()
-}
-
-// Close stops admission, then drains the bounded queue before returning. It is
-// called after agent runtimes stop, while the database pool is still available.
-func (h *Hook) Close() error {
-	h.mu.Lock()
-	if h.closed {
-		h.mu.Unlock()
-		return nil
-	}
-	h.closed = true
-	close(h.done)
-	h.mu.Unlock()
-	h.wg.Wait()
-	return nil
 }

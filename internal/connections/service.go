@@ -37,34 +37,26 @@ type Service struct {
 	log         *slog.Logger
 }
 
-// NewService creates a credentials service. vaultSvc and q may be nil if the
+// NewServiceForPool creates a credentials service. vaultSvc and pool may be nil if the
 // vault / DB is not yet configured (methods that need them return errors).
-func NewService(
-	vaultSvc *vault.Service,
-	q *pkgdb.Queries,
-	flowStore *oauth.FlowStore,
-	corsOrigin string,
-) *Service {
-	return &Service{
-		vaultSvc:   vaultSvc,
-		q:          q,
-		flowStore:  flowStore,
-		corsOrigin: corsOrigin,
-		log:        slog.With("component", "credentials"),
-	}
-}
-
-// NewServiceForPool creates a credentials service that owns the sqlc query set
-// for the connections tables, so callers pass only the pgx pool.
 func NewServiceForPool(
 	vaultSvc *vault.Service,
 	pool *pgxpool.Pool,
 	flowStore *oauth.FlowStore,
 	corsOrigin string,
 ) *Service {
-	svc := NewService(vaultSvc, pkgdb.New(pool), flowStore, corsOrigin)
-	svc.pool = pool
-	return svc
+	var q *pkgdb.Queries
+	if pool != nil {
+		q = pkgdb.New(pool)
+	}
+	return &Service{
+		pool:       pool,
+		vaultSvc:   vaultSvc,
+		q:          q,
+		flowStore:  flowStore,
+		corsOrigin: corsOrigin,
+		log:        slog.With("component", "credentials"),
+	}
 }
 
 // SetRegistry wires the OAuth provider registry used for generic provider operations.
@@ -366,7 +358,7 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 	if scopes == nil {
 		scopes = []string{}
 	}
-	if err := s.mutateProvider(ctx, func(ctx context.Context, q *pkgdb.Queries) error {
+	if err := sessionexecution.Exec(ctx, s.pool, func(ctx context.Context, q *pkgdb.Queries) error {
 		return q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
 			ID:              uuid.Must(uuid.NewV7()).String(),
 			ProviderID:      cfg.ProviderID,
@@ -399,7 +391,7 @@ func (s *Service) DeleteOAuthProviderConfig(ctx context.Context, providerID stri
 	if s.q == nil {
 		return fmt.Errorf("database not configured")
 	}
-	return s.mutateProvider(ctx, func(ctx context.Context, q *pkgdb.Queries) error { return q.DeleteAuthOAuthProvider(ctx, providerID) })
+	return sessionexecution.Exec(ctx, s.pool, func(ctx context.Context, q *pkgdb.Queries) error { return q.DeleteAuthOAuthProvider(ctx, providerID) })
 }
 
 // ProviderClientID returns the effective client_id for the given tool OAuth provider.
@@ -806,17 +798,4 @@ func toFlowStatus(fs oauth.FlowStatus) FlowStatus {
 		Error:           fs.Error,
 		RequestedScopes: append([]string(nil), fs.DesiredScopes...),
 	}
-}
-
-func (s *Service) mutateProvider(ctx context.Context, fn func(context.Context, *pkgdb.Queries) error) error {
-	if s.pool != nil {
-		return sessionexecution.Exec(ctx, s.pool, fn)
-	}
-	if err := sessionexecution.Check(ctx); err != nil {
-		return err
-	}
-	if sessionexecution.FromContext(ctx) != nil {
-		return sessionexecution.ErrLost
-	}
-	return fn(ctx, s.q)
 }

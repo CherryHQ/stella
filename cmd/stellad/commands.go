@@ -532,7 +532,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("build session prompt service: %w", err)
 	}
 	usageHook := usage.New(db)
-	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry), sessionaccess.WithUsageProgress(usageHook))
+	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry))
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
@@ -575,12 +575,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	traceHook := tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO,
 		tracehook.WithToolMeta(toolMetaRegistry))
 	traceHook.Start(parent)
-	metricHook := metrichook.New(usageHook, traceHook.ActiveSessions, func(name string) bool {
+	metricHook := metrichook.New(traceHook.ActiveSessions, func(name string) bool {
 		_, ok := toolMetaRegistry.Lookup(name)
 		return ok
 	})
-	usageHook.SetDropObserver(metricHook.RecordQueueDrop)
-	usageHook.Start()
 	coreHooks := []hooks.HookPlugin{traceHook, usageHook, metricHook}
 
 	toolLifecycleBuilder := func(ctx context.Context) (*coreagent.ToolLifecycle, error) {

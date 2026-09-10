@@ -169,13 +169,6 @@ func New(cfg Config) (*Runtime, error) {
 	if cfg.Memory == nil {
 		return nil, fmt.Errorf("runtime.Config.Memory is required")
 	}
-	if cfg.Execution == nil {
-		if source, ok := cfg.Memory.(interface {
-			SessionExecutionStore() *sessionexecution.Store
-		}); ok {
-			cfg.Execution = source.SessionExecutionStore()
-		}
-	}
 	if cfg.Execution == nil && !cfg.LocalOnly {
 		return nil, fmt.Errorf("runtime.Config.Execution is required")
 	}

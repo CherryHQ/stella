@@ -179,21 +179,9 @@ func (a *Access) List(ctx context.Context, limit, offset int) (ListResult, error
 // captured userID, so a share owned by another user is never touched; a missing
 // (or foreign) row is ErrNotFound.
 func (a *Access) Revoke(ctx context.Context, id string) error {
-	var rows int64
-	var err error
-	if a.svc.db == nil {
-		if err := sessionexecution.Check(ctx); err != nil {
-			return err
-		}
-		if sessionexecution.FromContext(ctx) != nil {
-			return sessionexecution.ErrLost
-		}
-		rows, err = a.svc.q.DeleteShareByUser(ctx, sqlc.DeleteShareByUserParams{ID: id, UserID: a.userID})
-	} else {
-		rows, err = sessionexecution.Write(ctx, a.svc.db, func(ctx context.Context, q *sqlc.Queries) (int64, error) {
-			return q.DeleteShareByUser(ctx, sqlc.DeleteShareByUserParams{ID: id, UserID: a.userID})
-		})
-	}
+	rows, err := sessionexecution.Write(ctx, a.svc.db, func(ctx context.Context, q *sqlc.Queries) (int64, error) {
+		return q.DeleteShareByUser(ctx, sqlc.DeleteShareByUserParams{ID: id, UserID: a.userID})
+	})
 	if err != nil {
 		return err
 	}

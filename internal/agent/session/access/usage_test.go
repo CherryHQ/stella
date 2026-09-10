@@ -72,13 +72,8 @@ func TestUsageRequiresSessionReadAccessAndNeverReturnsPartialTotals(t *testing.T
 	}
 }
 
-type usageProgressStub map[string]int64
-
-func (s usageProgressStub) PendingCallCount(sessionID string) int64 { return s[sessionID] }
-
-func TestUsageReportsAcceptedWritesStillPending(t *testing.T) {
+func TestUsageRetainsZeroPendingCountForCompatibility(t *testing.T) {
 	m := newSessionMatrix(t)
-	m.svc.usage = usageProgressStub{m.private: 2}
 	owner, err := authz.NewUserAuthority(authz.UserID(m.owner), false)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +86,7 @@ func TestUsageReportsAcceptedWritesStillPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if usage.PendingCallCount != 2 {
-		t.Fatalf("pending calls = %d, want 2", usage.PendingCallCount)
+	if usage.PendingCallCount != 0 {
+		t.Fatalf("pending calls = %d, want 0", usage.PendingCallCount)
 	}
 }

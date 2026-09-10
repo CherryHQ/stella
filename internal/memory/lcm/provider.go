@@ -105,8 +105,6 @@ func New(db *pgxpool.Pool, summarizerFn func(ctx context.Context, prompt string)
 	return p, nil
 }
 
-func (p *Provider) SessionExecutionStore() *sessionexecution.Store { return sessionexecution.New(p.db) }
-
 // Name implements memory.Provider.
 func (p *Provider) Name() string { return "lcm" }
 

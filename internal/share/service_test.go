@@ -37,7 +37,7 @@ func TestAuthorizedMethodsEnforceShareOwnership(t *testing.T) {
 	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
+	svc := sharepkg.NewServiceForPool(db, mem, recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
 	owner := uuid.NewString()
 	foreign := uuid.NewString()
 	for _, userID := range []string{owner, foreign} {
@@ -64,7 +64,7 @@ func TestPublicContentResolvesByToken(t *testing.T) {
 	db := dbtest.New(t)
 	q := sqlc.New(db)
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, memorytest.New(), recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
+	svc := sharepkg.NewServiceForPool(db, memorytest.New(), recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
 	userID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
 		t.Fatalf("seed user: %v", err)
@@ -110,11 +110,10 @@ func TestPublicContentResolvesByToken(t *testing.T) {
 func TestShareArticleUsesDatabaseBodyWhenMirrorIsMissing(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
 	store := recally.NewStore(db)
-	svc := sharepkg.NewService(q, mem, store, home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
+	svc := sharepkg.NewServiceForPool(db, mem, store, home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
 	userID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
 		t.Fatalf("seed user: %v", err)
@@ -147,10 +146,9 @@ func TestShareArticleUsesDatabaseBodyWhenMirrorIsMissing(t *testing.T) {
 func TestShareArtifactNormalizesSemanticRoots(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(allowAgentRead{}))
+	svc := sharepkg.NewServiceForPool(db, mem, recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(allowAgentRead{}))
 	userID := uuid.NewString()
 	agentID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
@@ -213,10 +211,9 @@ func TestShareArtifactNormalizesSemanticRoots(t *testing.T) {
 func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(allowAgentRead{}))
+	svc := sharepkg.NewServiceForPool(db, mem, recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(allowAgentRead{}))
 	userID := uuid.NewString()
 	foreignUser := uuid.NewString()
 	agentID := uuid.NewString()
@@ -307,7 +304,7 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 func newShareService(t *testing.T, db *pgxpool.Pool) *sharepkg.Service {
 	t.Helper()
 	home := t.TempDir()
-	return sharepkg.NewService(sqlc.New(db), memorytest.New(), recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
+	return sharepkg.NewServiceForPool(db, memorytest.New(), recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
 }
 
 // seedShareUser inserts a durable user and returns its id.

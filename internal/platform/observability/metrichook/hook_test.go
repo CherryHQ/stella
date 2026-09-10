@@ -13,11 +13,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
-type queueStats struct{ depth int }
-
-func (q queueStats) QueueDepth() int     { return q.depth }
-func (q queueStats) DroppedCount() int64 { return 0 }
-
 func collect(t *testing.T, reader *metric.ManualReader) metricdata.ResourceMetrics {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
@@ -99,8 +94,7 @@ func TestHookRecordsCoreInstrumentsAndBoundedLabels(t *testing.T) {
 	reader := metric.NewManualReader()
 	provider := metric.NewMeterProvider(metric.WithReader(reader))
 	defer func() { _ = provider.Shutdown(context.Background()) }()
-	q := queueStats{depth: 7}
-	h := New(q, func() int64 { return 3 })
+	h := New(func() int64 { return 3 })
 	if err := h.Bind(provider.Meter("stella")); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +114,6 @@ func TestHookRecordsCoreInstrumentsAndBoundedLabels(t *testing.T) {
 		ToolName: "bash", IsError: true, ErrorKind: ai.ToolErrorKindCommandNonzero, Duration: time.Second,
 	})
 	h.OnPostMemoryCall(context.Background(), &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{UserID: "user", SessionID: "session"}, Op: hooks.MemoryOpSearch, Duration: time.Second})
-	h.RecordQueueDrop()
 
 	rm := collect(t, reader)
 	names := metricNames(rm)
@@ -149,10 +142,10 @@ func TestHookRecordsCoreInstrumentsAndBoundedLabels(t *testing.T) {
 			t.Fatalf("duration labels missing %q: %v", key, gotLabels)
 		}
 	}
-	if data, ok := names["stella.llm_usage.queue.depth"].Data.(metricdata.Gauge[int64]); !ok || len(data.DataPoints) != 1 || data.DataPoints[0].Value != 7 {
+	if data, ok := names["stella.llm_usage.queue.depth"].Data.(metricdata.Gauge[int64]); !ok || len(data.DataPoints) != 1 || data.DataPoints[0].Value != 0 {
 		t.Fatalf("queue depth = %#v", names["stella.llm_usage.queue.depth"].Data)
 	}
-	if data, ok := names["stella.llm_usage.queue.dropped"].Data.(metricdata.Sum[int64]); !ok || len(data.DataPoints) != 1 || data.DataPoints[0].Value != 1 {
+	if data, ok := names["stella.llm_usage.queue.dropped"].Data.(metricdata.Sum[int64]); !ok || len(data.DataPoints) != 1 || data.DataPoints[0].Value != 0 {
 		t.Fatalf("queue dropped = %#v", names["stella.llm_usage.queue.dropped"].Data)
 	}
 }
@@ -161,7 +154,7 @@ func TestHookUnknownToolUsesStableLabel(t *testing.T) {
 	reader := metric.NewManualReader()
 	provider := metric.NewMeterProvider(metric.WithReader(reader))
 	defer func() { _ = provider.Shutdown(context.Background()) }()
-	h := New(nil, nil)
+	h := New(nil)
 	if err := h.Bind(provider.Meter("stella")); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +171,7 @@ func TestHookUnknownToolUsesStableLabel(t *testing.T) {
 }
 
 func TestHookBindIsExplicitAndOnlyOnce(t *testing.T) {
-	h := New(nil, nil)
+	h := New(nil)
 	reader := metric.NewManualReader()
 	provider := metric.NewMeterProvider(metric.WithReader(reader))
 	defer func() { _ = provider.Shutdown(context.Background()) }()
@@ -190,5 +183,5 @@ func TestHookBindIsExplicitAndOnlyOnce(t *testing.T) {
 		t.Fatal("second Bind succeeded")
 	}
 	// An unbound hook is deliberately inert, not a panic waiting to happen.
-	New(nil, nil).OnPostMemoryCall(context.Background(), &hooks.PostMemoryCallContext{Duration: time.Second})
+	New(nil).OnPostMemoryCall(context.Background(), &hooks.PostMemoryCallContext{Duration: time.Second})
 }

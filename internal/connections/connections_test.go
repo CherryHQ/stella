@@ -11,7 +11,6 @@ import (
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	pkgdb "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -21,7 +20,7 @@ func TestMain(m *testing.M) { dbtest.Main(m) }
 func newService(t *testing.T) *connections.Service {
 	t.Helper()
 	flowStore := oauth.NewFlowStore()
-	return connections.NewService(nil, nil, flowStore, "http://localhost:8080")
+	return connections.NewServiceForPool(nil, nil, flowStore, "http://localhost:8080")
 }
 
 func userAuthority(t *testing.T, id string) authz.Authority {
@@ -183,7 +182,7 @@ func TestOAuthPollFlowOwnership(t *testing.T) {
 	ctx := context.Background()
 	flowStore := oauth.NewFlowStore()
 	flowStore.Create(oauth.FlowStatus{Provider: oauth.ProviderGitHub, FlowID: "owner-flow", UserID: "owner", FlowType: "device_code"})
-	svc := connections.NewService(nil, nil, flowStore, "http://localhost:8080")
+	svc := connections.NewServiceForPool(nil, nil, flowStore, "http://localhost:8080")
 
 	accForeign, err := svc.Access(userAuthority(t, "foreign"))
 	if err != nil {
@@ -272,7 +271,7 @@ func TestSetOAuthProviderConfigNilDB(t *testing.T) {
 func TestSetAndGetOAuthProviderConfig(t *testing.T) {
 	db := dbtest.New(t)
 
-	svc := connections.NewService(nil, pkgdb.New(db), oauth.NewFlowStore(), "http://localhost:8080")
+	svc := connections.NewServiceForPool(nil, db, oauth.NewFlowStore(), "http://localhost:8080")
 	ctx := context.Background()
 
 	if err := svc.SetOAuthProviderConfig(ctx, connections.OAuthProviderConfig{ProviderID: "github", ClientID: "my-client"}); err != nil {
@@ -292,7 +291,7 @@ func TestSetAndGetOAuthProviderConfig(t *testing.T) {
 // leaves existing sessions running (D4).
 func TestSetOAuthProviderConfigInvalidatesOnCredentialChange(t *testing.T) {
 	db := dbtest.New(t)
-	svc := connections.NewService(nil, pkgdb.New(db), oauth.NewFlowStore(), "http://localhost:8080")
+	svc := connections.NewServiceForPool(nil, db, oauth.NewFlowStore(), "http://localhost:8080")
 	inv := &stubInvalidator{}
 	svc.SetInvalidator(inv)
 	ctx := context.Background()

@@ -59,7 +59,7 @@ func TestMissingScopes(t *testing.T) {
 // unioned in, never denied. The provider's consent screen is the authority on
 // what a user can actually grant.
 func TestDesiredScopesUnionFloorAndRequest(t *testing.T) {
-	svc := NewService(nil, nil, oauth.NewFlowStore(), "http://localhost:8080")
+	svc := NewServiceForPool(nil, nil, oauth.NewFlowStore(), "http://localhost:8080")
 	reg := oauth.NewProviderRegistry()
 	reg.Register(oauth.ProviderConfig{ID: "acme", VaultKey: "ACME_OAUTH", Scopes: []string{"profile"}})
 	svc.SetRegistry(reg)
@@ -127,7 +127,7 @@ func TestDesiredScopesPersistAcrossIncrementalFlows(t *testing.T) {
 		Scopes: []string{"profile"},
 		Flows:  []oauth.ProviderFlowConfig{{Type: "authorization_code", AuthURL: "https://example.test/authorize", TokenURL: "https://example.test/token"}},
 	})
-	svc := NewService(vaultSvc, q, oauth.NewFlowStore(), "http://localhost:8080")
+	svc := NewServiceForPool(vaultSvc, db, oauth.NewFlowStore(), "http://localhost:8080")
 	svc.SetRegistry(reg)
 	authority, err := authz.NewUserAuthority(authz.UserID(user.ID), false)
 	if err != nil {
@@ -251,7 +251,7 @@ func newDisconnectFixture(t *testing.T) (*Service, *vault.Service, string) {
 	}
 	registry := oauth.NewProviderRegistry()
 	registry.Register(oauth.ProviderConfig{ID: "acme", VaultKey: "ACME_OAUTH", ClientID: "client"})
-	svc := NewService(vaultSvc, q, oauth.NewFlowStore(), "http://localhost:8080")
+	svc := NewServiceForPool(vaultSvc, db, oauth.NewFlowStore(), "http://localhost:8080")
 	svc.SetRegistry(registry)
 	if err := svc.saveBundle(ctx, "acme", user.ID, "access", "refresh", time.Now().Add(time.Hour), time.Time{}, "profile", []string{"profile"}); err != nil {
 		t.Fatalf("save bundle: %v", err)
@@ -359,7 +359,7 @@ func TestReconnectDecision(t *testing.T) {
 func TestProviderScopes_OverrideWinsElseDefault(t *testing.T) {
 	db := dbtest.New(t)
 	q := pkgdb.New(db)
-	svc := NewService(nil, q, oauth.NewFlowStore(), "http://localhost:8080")
+	svc := NewServiceForPool(nil, db, oauth.NewFlowStore(), "http://localhost:8080")
 
 	reg := oauth.NewProviderRegistry()
 	reg.Register(oauth.ProviderConfig{ID: "github", VaultKey: oauth.VaultKeyGitHub, Scopes: []string{"repo"}})

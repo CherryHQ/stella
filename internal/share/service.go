@@ -122,20 +122,13 @@ func WithAgentAccess(access AgentReadAuthorizer) Option {
 	return func(s *Service) { s.agents = access }
 }
 
-func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, stellaHome, baseURL string, opts ...Option) *Service {
-	s := &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), baseURL: strings.TrimRight(baseURL, "/")}
+// NewServiceForPool owns the query set and transaction pool for share writes.
+func NewServiceForPool(pool *pgxpool.Pool, mem memory.Provider, store *recally.Store, stellaHome, baseURL string, opts ...Option) *Service {
+	s := &Service{db: pool, q: sqlc.New(pool), mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), baseURL: strings.TrimRight(baseURL, "/")}
 	for _, opt := range opts {
 		opt(s)
 	}
 	return s
-}
-
-// NewServiceForPool creates a share service that owns the sqlc query set for the
-// share tables, so callers pass only the pgx pool.
-func NewServiceForPool(pool *pgxpool.Pool, mem memory.Provider, store *recally.Store, stellaHome, baseURL string, opts ...Option) *Service {
-	svc := NewService(sqlc.New(pool), mem, store, stellaHome, baseURL, opts...)
-	svc.db = pool
-	return svc
 }
 
 func (s *Service) PublicURL(token string) string {
@@ -154,7 +147,7 @@ func (s *Service) create(ctx context.Context, userID, title, mediaType string, c
 	if err != nil {
 		return Created{}, err
 	}
-	row, err := s.write(ctx, func(ctx context.Context, q *sqlc.Queries) (sqlc.Share, error) {
+	row, err := sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.Share, error) {
 		return q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.Must(uuid.NewV7()).String(), TokenHash: tokenHash, UserID: userID, Title: title, MediaType: mediaType, Content: content, ExpiresAt: expiresAt})
 	})
 	if err != nil {
@@ -274,18 +267,4 @@ func NewToken() (string, string, error) {
 func TokenHash(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
-}
-
-// SQL-only fixtures can use independent calls; a run always needs the pool transaction.
-func (s *Service) write(ctx context.Context, fn func(context.Context, *sqlc.Queries) (sqlc.Share, error)) (sqlc.Share, error) {
-	if s.db == nil {
-		if err := sessionexecution.Check(ctx); err != nil {
-			return sqlc.Share{}, err
-		}
-		if sessionexecution.FromContext(ctx) != nil {
-			return sqlc.Share{}, sessionexecution.ErrLost
-		}
-		return fn(ctx, s.q)
-	}
-	return sessionexecution.Write(ctx, s.db, fn)
 }
