@@ -17,29 +17,29 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err
 		return nil
 	}
 	defer req.Stream.Discard()
-	outcome := channel.EgressDelivered
+	outcome := channel.DeliverySent
 	defer func() {
 		ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		if ackErr := req.Stream.Ack(ackCtx, outcome); ackErr != nil && err == nil {
+		if ackErr := req.Stream.Settle(ackCtx, outcome); ackErr != nil && err == nil {
 			err = ackErr
 		}
 	}()
 	if err := ctx.Err(); err != nil {
-		outcome = channel.EgressDiscarded
+		outcome = channel.DeliveryNotSent
 		return err
 	}
 	groupID := strings.TrimPrefix(req.PlatformGroupID, "qq:group:")
 	if groupID == "" {
-		outcome = channel.EgressFailed
+		outcome = channel.DeliveryNotSent
 		return fmt.Errorf("qq: empty group id")
 	}
 	stream, err := channel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			outcome = channel.EgressDiscarded
+			outcome = channel.DeliveryNotSent
 		} else {
-			outcome = channel.EgressOutcomeForError(err)
+			outcome = channel.DeliveryResultForError(err)
 		}
 		return err
 	}
@@ -54,20 +54,20 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err
 		response = "(empty response)"
 	}
 	if b.api == nil {
-		outcome = channel.EgressFailed
+		outcome = channel.DeliveryNotSent
 		return fmt.Errorf("qq: group API unavailable")
 	}
-	if err := stream.CheckOperation(ctx); err != nil {
-		outcome = channel.EgressDiscarded
+	if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
+		outcome = channel.DeliveryNotSent
 		return err
 	}
 	sent := false
 	for i, chunk := range channel.SplitMessage(response, qqMaxMessageLen) {
-		if err := stream.CheckOperation(ctx); err != nil {
+		if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
 			if sent {
-				outcome = channel.EgressOutcomeForError(err)
+				outcome = channel.DeliveryResultForError(err)
 			} else {
-				outcome = channel.EgressDiscarded
+				outcome = channel.DeliveryNotSent
 			}
 			return err
 		}
@@ -77,7 +77,7 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err
 			MsgID:   req.ReplyTo,
 			MsgSeq:  uint32(i + 1),
 		}); err != nil {
-			outcome = channel.EgressOutcomeForError(err)
+			outcome = channel.DeliveryResultForError(err)
 			return fmt.Errorf("qq: send group response chunk %d: %w", i+1, err)
 		}
 		sent = true

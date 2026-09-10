@@ -765,6 +765,33 @@ func (q *Queries) ListUnrepliedGroupToolCallContents(ctx context.Context, arg Li
 	return items, nil
 }
 
+const lockGroupDispatchPublishOwnership = `-- name: LockGroupDispatchPublishOwnership :one
+SELECT id FROM ctx_group_dispatch
+WHERE id = $1
+  AND status = 'running'
+  AND attempt_count = $2
+  AND publish_started_at IS NOT NULL
+  AND published_at IS NULL
+FOR SHARE
+`
+
+type LockGroupDispatchPublishOwnershipParams struct {
+	ID           string `json:"id"`
+	AttemptCount int64  `json:"attempt_count"`
+}
+
+// Per-send authority for one publish attempt. The Run that produced this reply
+// is already terminal: its committed output is owned by this dispatch row, so
+// the row's own CAS state is what authorizes the send. A superseded attempt
+// (re-claimed, republished, or completed by another worker) fails here instead
+// of continuing to send chunks the row no longer owns.
+func (q *Queries) LockGroupDispatchPublishOwnership(ctx context.Context, arg LockGroupDispatchPublishOwnershipParams) (string, error) {
+	row := q.db.QueryRow(ctx, lockGroupDispatchPublishOwnership, arg.ID, arg.AttemptCount)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const markExpiredGroupDispatchFailed = `-- name: MarkExpiredGroupDispatchFailed :execrows
 UPDATE ctx_group_dispatch
 SET status = 'failed',

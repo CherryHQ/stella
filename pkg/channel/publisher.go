@@ -66,9 +66,9 @@ func ValidateGroupReplay(ctx context.Context, stream *ChatStream) (*ChatStream, 
 				}
 				close(replay)
 				return &ChatStream{
-					Events:     replay,
-					SessionID:  stream.SessionID,
-					Completion: stream.Completion,
+					Events:    replay,
+					SessionID: stream.SessionID,
+					Delivery:  stream.Delivery,
 				}, nil
 			}
 			if event.Err != nil {

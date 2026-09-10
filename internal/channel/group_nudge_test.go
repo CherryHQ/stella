@@ -11,7 +11,6 @@ import (
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/pkg/ai"
-	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
@@ -427,13 +426,13 @@ func TestQueuedNudgeRechecksMootAfterSessionSlotWithoutRunning(t *testing.T) {
 	// Hold the local session queue without taking a durable dispatch row. The
 	// nudge can claim its DB lease, but it cannot announce running until this
 	// predecessor releases the slot.
-	stream, done, err := fx.d.chats.queue.Enqueue(ctx, agent.BuildGroupSessionKey("agent-1", fx.groupID), func(context.Context) (*pkgchannel.ChatStream, error) {
-		return textStream("queue holder"), nil
+	stream, done, err := fx.d.chats.queue.Enqueue(ctx, agent.BuildGroupSessionKey("agent-1", fx.groupID), func(context.Context) (*queuedTurn, error) {
+		return wrapTurn(textStream("queue holder")), nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for range stream.Events {
+	for range stream.stream.Events {
 	}
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-1", Content: "wake finished"}); err != nil {
 		t.Fatal(err)

@@ -16,18 +16,16 @@ import (
 // sendFinalResponse delivers response text (via streaming when possible, otherwise
 // chunked sendmessage), then sends any collected images.
 func (b *Bot) sendFinalResponse(msg WeixinMessage, response string, images []channel.ImageEvent) {
-	_ = b.sendFinalResponseChecked(context.Background(), nil, msg, response, images, nil)
+	_ = b.sendFinalResponseChecked(context.Background(), nil, msg, response, images, nil, channel.SendOutput)
 }
 
-func (b *Bot) sendFinalResponseChecked(ctx context.Context, stream *channel.ChatStream, msg WeixinMessage, response string, images []channel.ImageEvent, files []channel.FileEvent) error {
+func (b *Bot) sendFinalResponseChecked(ctx context.Context, stream *channel.ChatStream, msg WeixinMessage, response string, images []channel.ImageEvent, files []channel.FileEvent, kind channel.SendKind) error {
 	if err := b.guard.AssertActive(); err != nil {
 		return err
 	}
 
-	if stream != nil {
-		if err := stream.CheckOperation(ctx); err != nil {
-			return err
-		}
+	if err := stream.AuthorizeSend(ctx, kind); err != nil {
+		return err
 	}
 	streamed, err := b.sendViaStreamChecked(ctx, stream, msg, response)
 	if err != nil {
@@ -40,7 +38,7 @@ func (b *Bot) sendFinalResponseChecked(ctx context.Context, stream *channel.Chat
 		streamed = false
 	}
 	if !streamed {
-		if err := b.sendViaMessagesChecked(ctx, stream, msg, response); err != nil {
+		if err := b.sendViaMessagesChecked(ctx, stream, msg, response, kind); err != nil {
 			return err
 		}
 	}
@@ -66,7 +64,7 @@ func (b *Bot) sendFinalResponseChecked(ctx context.Context, stream *channel.Chat
 	return nil
 }
 
-func (b *Bot) sendViaMessagesChecked(ctx context.Context, stream *channel.ChatStream, msg WeixinMessage, response string) error {
+func (b *Bot) sendViaMessagesChecked(ctx context.Context, stream *channel.ChatStream, msg WeixinMessage, response string, kind channel.SendKind) error {
 	chunks := channel.SplitMessage(response, weixinMaxMessageLen)
 
 	contextToken := ""
@@ -75,10 +73,8 @@ func (b *Bot) sendViaMessagesChecked(ctx context.Context, stream *channel.ChatSt
 	}
 
 	for _, chunk := range chunks {
-		if stream != nil {
-			if err := stream.CheckOperation(ctx); err != nil {
-				return err
-			}
+		if err := stream.AuthorizeSend(ctx, kind); err != nil {
+			return err
 		}
 		reply := WeixinMessage{
 			ToUserID:     msg.FromUserID,
@@ -104,10 +100,8 @@ func (b *Bot) sendImageChecked(ctx context.Context, stream *channel.ChatStream, 
 	if err := b.guard.AssertActive(); err != nil {
 		return err
 	}
-	if stream != nil {
-		if err := stream.CheckOperation(ctx); err != nil {
-			return err
-		}
+	if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
+		return err
 	}
 	data, err := decodeBase64(img.Data)
 	if err != nil {
@@ -133,10 +127,8 @@ func (b *Bot) sendImageChecked(ctx context.Context, stream *channel.ChatStream, 
 	fileKey := RandomFileKey()
 
 	// Get upload URL.
-	if stream != nil {
-		if err := stream.CheckOperation(ctx); err != nil {
-			return err
-		}
+	if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
+		return err
 	}
 	uploadResp, err := b.client.GetUploadURL(UploadParams{
 		FileKey:     fileKey,
@@ -153,10 +145,8 @@ func (b *Bot) sendImageChecked(ctx context.Context, stream *channel.ChatStream, 
 	}
 
 	// Upload to CDN.
-	if stream != nil {
-		if err := stream.CheckOperation(ctx); err != nil {
-			return err
-		}
+	if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
+		return err
 	}
 	encryptedParam, err := UploadToCDN("", uploadResp.UploadFullURL, uploadResp.UploadParam, fileKey, encrypted)
 	if err != nil {
@@ -190,10 +180,8 @@ func (b *Bot) sendImageChecked(ctx context.Context, stream *channel.ChatStream, 
 			},
 		},
 	}
-	if stream != nil {
-		if err := stream.CheckOperation(ctx); err != nil {
-			return err
-		}
+	if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
+		return err
 	}
 	if err := b.client.SendMessage(reply); err != nil {
 		return fmt.Errorf("send image message: %w", err)
@@ -212,10 +200,8 @@ func (b *Bot) sendFileChecked(ctx context.Context, stream *channel.ChatStream, m
 	if err := b.guard.AssertActive(); err != nil {
 		return err
 	}
-	if stream != nil {
-		if err := stream.CheckOperation(ctx); err != nil {
-			return err
-		}
+	if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
+		return err
 	}
 	key, keyHex := RandomFileKey(), ""
 	keyBytes, err := hex.DecodeString(key)
@@ -232,10 +218,8 @@ func (b *Bot) sendFileChecked(ctx context.Context, stream *channel.ChatStream, m
 	rawMD5 := md5Sum(data)
 	fileKey := RandomFileKey()
 
-	if stream != nil {
-		if err := stream.CheckOperation(ctx); err != nil {
-			return err
-		}
+	if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
+		return err
 	}
 	uploadResp, err := b.client.GetUploadURL(UploadParams{
 		FileKey:     fileKey,
@@ -251,10 +235,8 @@ func (b *Bot) sendFileChecked(ctx context.Context, stream *channel.ChatStream, m
 		return fmt.Errorf("getuploadurl for file: %w", err)
 	}
 
-	if stream != nil {
-		if err := stream.CheckOperation(ctx); err != nil {
-			return err
-		}
+	if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
+		return err
 	}
 	encryptedParam, err := UploadToCDN("", uploadResp.UploadFullURL, uploadResp.UploadParam, fileKey, encrypted)
 	if err != nil {
@@ -287,10 +269,8 @@ func (b *Bot) sendFileChecked(ctx context.Context, stream *channel.ChatStream, m
 			},
 		},
 	}
-	if stream != nil {
-		if err := stream.CheckOperation(ctx); err != nil {
-			return err
-		}
+	if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
+		return err
 	}
 	if err := b.client.SendMessage(reply); err != nil {
 		return fmt.Errorf("send file message: %w", err)

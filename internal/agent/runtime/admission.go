@@ -26,16 +26,20 @@ import (
 // lifecycle locks, and Publish starts the asynchronous turn after a short
 // publication recheck.
 type ChatAdmission struct {
-	rt                    *Runtime
-	ctx                   context.Context
-	info                  session.Info
-	msg                   MessageContent
-	co                    chatOptions
-	activity              memory.Session
-	turn                  *activeTurn
-	lease                 *agentrun.Lease
-	completion            *CompletionBarrier
-	completionExternal    bool
+	rt       *Runtime
+	ctx      context.Context
+	info     session.Info
+	msg      MessageContent
+	co       chatOptions
+	activity memory.Session
+	turn     *activeTurn
+	lease    *agentrun.Lease
+	// handoff is non-nil only when the caller claimed this turn's terminal
+	// transition; the runtime then publishes its outcome instead of finishing.
+	handoff *ExecutionHandoff
+	// committed holds the messages this turn durably appended, which is the
+	// output the caller may hand to a delivery owner.
+	committed             []ai.Message
 	out                   chan Event
 	selection             runnerSelection
 	prepared              bool
@@ -52,17 +56,13 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 		return nil, err
 	}
 	var turn *activeTurn
-	var completion *CompletionBarrier
 	defer func() {
 		if recover() == nil {
 			return
 		}
-		if completion != nil {
-			completion.fail(errors.New("chat admission panicked"))
-		}
 		if turn != nil {
 			if turn.lease != nil {
-				finishCtx, cancel := context.WithTimeout(context.WithoutCancel(turn.ctx), 5*time.Second)
+				finishCtx, cancel := terminalContext(turn.ctx)
 				_ = turn.lease.Finish(finishCtx, agentrun.StatusFailed, "chat admission panicked")
 				cancel()
 			}
@@ -84,11 +84,7 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 	for _, option := range opts {
 		option(&co)
 	}
-	completion = co.completion
-	if completion == nil && rt.runs != nil {
-		completion = NewCompletionBarrier()
-		co.completion = completion
-	}
+	handoff := co.handoff
 	turnCtx, cancel := context.WithCancel(ctx)
 	turn = &activeTurn{cancel: cancel, done: make(chan struct{}), ctx: turnCtx, info: info}
 	if _, loaded := rt.active.LoadOrStore(info.ID, turn); loaded {
@@ -96,9 +92,6 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 		return nil, fmt.Errorf("%w: session %s", ErrSessionBusy, info.ID)
 	}
 	if err := turnCtx.Err(); err != nil {
-		if completion != nil {
-			completion.fail(err)
-		}
 		turn.cancel()
 		rt.active.CompareAndDelete(info.ID, turn)
 		close(turn.done)
@@ -106,9 +99,6 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 	}
 	if beforeStart != nil {
 		if err := beforeStart(); err != nil {
-			if completion != nil {
-				completion.fail(err)
-			}
 			turn.cancel()
 			rt.active.CompareAndDelete(info.ID, turn)
 			close(turn.done)
@@ -151,9 +141,6 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 			lease, err = rt.runs.Acquire(turnCtx, info.ID, runtimeSource(info))
 		}
 		if err != nil {
-			if completion != nil {
-				completion.fail(err)
-			}
 			turn.cancel()
 			rt.active.CompareAndDelete(info.ID, turn)
 			close(turn.done)
@@ -164,42 +151,32 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 		turnCtx = coreagent.WithOperationContext(turnCtx, agentrun.Check, lease.ContextWith)
 		turn.ctx = turnCtx
 		turn.stopLeasePropagation = context.AfterFunc(lease.Context(), turn.cancel)
-		if completion == nil {
-			completion = NewCompletionBarrier()
-			co.completion = completion
-		}
-		if err := completion.bindLease(lease); err != nil {
-			completion.fail(err)
-			_ = lease.Finish(context.WithoutCancel(turnCtx), agentrun.StatusFailed, "completion barrier bind failed")
-			turn.cancel()
-			rt.active.CompareAndDelete(info.ID, turn)
-			close(turn.done)
-			return nil, err
-		}
-	} else if completion != nil {
-		// Standalone runtime tests have no cross-process store. Keep the barrier
-		// contract deterministic without claiming a durable ownership fence.
-		noop := &noopCompletion{done: make(chan struct{})}
-		if err := completion.bind(noop); err != nil {
-			completion.fail(err)
-			turn.cancel()
-			rt.active.CompareAndDelete(info.ID, turn)
-			close(turn.done)
-			return nil, err
+		if handoff != nil {
+			// The caller commits the terminal transition together with its own
+			// durable handoff. Ownership is transferred here, so a refused bind
+			// must release the Run before returning.
+			if err := handoff.bind(lease); err != nil {
+				finishCtx, cancel := terminalContext(turnCtx)
+				_ = lease.Finish(finishCtx, agentrun.StatusFailed, "execution handoff bind failed")
+				cancel()
+				turn.cancel()
+				rt.active.CompareAndDelete(info.ID, turn)
+				close(turn.done)
+				return nil, err
+			}
 		}
 	}
 	return &ChatAdmission{
-		rt:                 rt,
-		ctx:                turnCtx,
-		info:               info,
-		msg:                msg,
-		co:                 co,
-		activity:           activity,
-		turn:               turn,
-		lease:              turn.lease,
-		completion:         completion,
-		completionExternal: co.completionExternal,
-		out:                make(chan Event, 100),
+		rt:       rt,
+		ctx:      turnCtx,
+		info:     info,
+		msg:      msg,
+		co:       co,
+		activity: activity,
+		turn:     turn,
+		lease:    turn.lease,
+		handoff:  handoff,
+		out:      make(chan Event, 100),
 	}, nil
 }
 
@@ -369,11 +346,14 @@ func (rt *Runtime) AbortChatAdmission(admission *ChatAdmission) {
 			}
 		}
 		if admission.lease != nil {
+			defer admission.lease.Release()
 			// Admission owns a durable Run before runner/plugin preparation. Any
 			// later preparation or publication failure must release that owner
-			// immediately instead of waiting for lease expiry.
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(admission.ctx), 5*time.Second)
-			if err := admission.lease.Finish(ctx, agentrun.StatusFailed, "chat admission aborted"); err != nil && !errors.Is(err, agentrun.ErrOutcomeUnknown) {
+			// immediately instead of waiting for lease expiry — including when the
+			// caller claimed the handoff: a turn that never published has no owner to
+			// finish it, and the caller only ever sees the returned error.
+			ctx, cancel := terminalContext(admission.ctx)
+			if err := admission.lease.Finish(ctx, agentrun.StatusFailed, "chat admission aborted"); err != nil && !errors.Is(err, agentrun.ErrLeaseLost) {
 				rt.log.Warn("finish aborted chat admission", "session_id", admission.info.ID, "error", err)
 			}
 			cancel()
@@ -437,26 +417,47 @@ func (rt *Runtime) PublishChatAdmission(admission *ChatAdmission) (stream <-chan
 type chatProducerResult struct {
 	result memory.SessionTurnResult
 	reason string
+	// commitErr is set when the turn's deliverable output could not be
+	// committed. Such a turn must never report success or hand off a reply.
+	commitErr error
 }
 
 func (rt *Runtime) runChatProducer(admission *ChatAdmission, inner chan Event, producerResult chan chatProducerResult) {
 	result := memory.SessionTurnSuccess
 	reason := "turn completed"
+	var commitErr error
 	defer rt.turns.end()
 	defer func() {
 		if p := recover(); p != nil {
 			rt.log.Error("chat turn panicked", "session_id", admission.info.ID, "panic", p)
 			result = memory.SessionTurnError
 			reason = "chat turn panicked"
+			commitErr = errors.New("chat turn panicked")
 			safeClose(inner)
 		}
 		if result != memory.SessionTurnError && admission.ctx.Err() != nil {
 			result = memory.SessionTurnCanceled
 			reason = "turn canceled"
 		}
-		producerResult <- chatProducerResult{result: result, reason: reason}
+		producerResult <- chatProducerResult{result: result, reason: reason, commitErr: commitErr}
 	}()
-	rt.chatWithRunner(admission.ctx, inner, admission.info, admission.msg, admission.co, admission.selection)
+	committed, err := rt.chatWithRunner(admission.ctx, inner, admission.info, admission.msg, admission.co, admission.selection)
+	admission.committed = committed
+	switch {
+	case err == nil:
+	case errors.Is(err, errOutputNotCommitted):
+		// The model may have finished cleanly, but its reply is not durable.
+		// This turn must not be reported as a success.
+		commitErr = err
+		result = memory.SessionTurnError
+		reason = err.Error()
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		result = memory.SessionTurnCanceled
+		reason = "turn canceled"
+	default:
+		result = memory.SessionTurnError
+		reason = err.Error()
+	}
 }
 
 func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner chan Event, producerResult chan chatProducerResult) {
@@ -488,9 +489,8 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner chan Event, 
 		result = producerOutcome.result
 		reason = producerOutcome.reason
 	}
-	rt.completeChatTurn(admission, result, reason)
-	// For adapter-owned completions, PrepareCompletion must be durable before
-	// EOF reaches the adapter. The adapter may now perform its final send and
-	// Ack while this goroutine unwinds its local turn state.
-	safeClose(admission.out)
+	// The outcome is published before EOF: a caller that owns this turn's
+	// terminal transition reads it as soon as its stream drains, and only ever
+	// hands off output the runtime committed.
+	rt.completeChatTurn(admission, result, reason, producerOutcome.commitErr)
 }

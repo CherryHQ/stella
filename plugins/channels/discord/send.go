@@ -30,10 +30,10 @@ func (b *Bot) sendText(ctx context.Context, channelID, text, replyTo string) err
 	return b.sendTextOptions(ctx, channelID, text, replyTo, false)
 }
 
-func (b *Bot) sendTextChecked(ctx context.Context, stream *channel.ChatStream, channelID, text, replyTo string) error {
+func (b *Bot) sendTextChecked(ctx context.Context, stream *channel.ChatStream, channelID, text, replyTo string, kind channel.SendKind) error {
 	chunks := channel.SplitMarkdown(text, maxMessageLength)
 	for i, chunk := range chunks {
-		if err := stream.CheckOperation(ctx); err != nil {
+		if err := stream.AuthorizeSend(ctx, kind); err != nil {
 			return err
 		}
 		msg := &discordgo.MessageSend{Content: chunk, AllowedMentions: noMentions()}
@@ -87,7 +87,7 @@ func (b *Bot) sendImage(ctx context.Context, channelID string, image channel.Ima
 }
 
 func (b *Bot) sendImageChecked(ctx context.Context, stream *channel.ChatStream, channelID string, image channel.ImageEvent) error {
-	if err := stream.CheckOperation(ctx); err != nil {
+	if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
 		return err
 	}
 	return b.sendImage(ctx, channelID, image)
@@ -111,7 +111,7 @@ func (b *Bot) sendFile(ctx context.Context, channelID string, file channel.FileE
 }
 
 func (b *Bot) sendFileChecked(ctx context.Context, stream *channel.ChatStream, channelID string, file channel.FileEvent) error {
-	if err := stream.CheckOperation(ctx); err != nil {
+	if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
 		return err
 	}
 	return b.sendFile(ctx, channelID, file)

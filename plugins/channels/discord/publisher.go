@@ -14,12 +14,12 @@ func (b *Bot) Publish(ctx context.Context, req pkgchannel.GroupPublishRequest) e
 	}
 	stream, err := pkgchannel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
-		outcome := pkgchannel.EgressOutcomeForError(err)
+		outcome := pkgchannel.DeliveryResultForError(err)
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			outcome = pkgchannel.EgressDiscarded
+			outcome = pkgchannel.DeliveryNotSent
 		}
 		ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		ackErr := req.Stream.Ack(ackCtx, outcome)
+		ackErr := req.Stream.Settle(ackCtx, outcome)
 		cancel()
 		req.Stream.Discard()
 		if ackErr != nil {

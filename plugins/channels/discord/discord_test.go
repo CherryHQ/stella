@@ -500,20 +500,20 @@ func TestDeliverStreamCreatesProgressMessageAndEditsFinal(t *testing.T) {
 	}
 }
 
-type discordCompletionProbe struct {
+type discordDeliveryProbe struct {
 	mu      sync.Mutex
 	done    chan struct{}
-	outcome channel.EgressOutcome
+	outcome channel.DeliveryResult
 	acked   bool
 }
 
-func newDiscordCompletionProbe() *discordCompletionProbe {
-	return &discordCompletionProbe{done: make(chan struct{})}
+func newDiscordDeliveryProbe() *discordDeliveryProbe {
+	return &discordDeliveryProbe{done: make(chan struct{})}
 }
 
-func (p *discordCompletionProbe) Check(context.Context) error { return nil }
+func (p *discordDeliveryProbe) Authorize(context.Context, channel.SendKind) error { return nil }
 
-func (p *discordCompletionProbe) Ack(_ context.Context, outcome channel.EgressOutcome) error {
+func (p *discordDeliveryProbe) Settle(_ context.Context, outcome channel.DeliveryResult) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.outcome = outcome
@@ -524,9 +524,9 @@ func (p *discordCompletionProbe) Ack(_ context.Context, outcome channel.EgressOu
 	return nil
 }
 
-func (p *discordCompletionProbe) Done() <-chan struct{} { return p.done }
+func (p *discordDeliveryProbe) Done() <-chan struct{} { return p.done }
 
-func TestDeliverStreamAcknowledgesOnlyAfterFinalSend(t *testing.T) {
+func TestDeliverStreamSettlesAfterFinalSend(t *testing.T) {
 	b, err := New(Config{Token: "token"}, fakeHandler{})
 	if err != nil {
 		t.Fatal(err)
@@ -536,11 +536,11 @@ func TestDeliverStreamAcknowledgesOnlyAfterFinalSend(t *testing.T) {
 	events := make(chan channel.Event, 1)
 	events <- channel.Event{Text: "final answer"}
 	close(events)
-	probe := newDiscordCompletionProbe()
-	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events, Completion: probe}, nil); err != nil {
+	probe := newDiscordDeliveryProbe()
+	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events, Delivery: probe}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if probe.outcome != channel.EgressDelivered {
+	if probe.outcome != channel.DeliverySent {
 		t.Fatalf("completion outcome = %q, want delivered", probe.outcome)
 	}
 	if len(rest.edited) != 1 || rest.edited[0] != "final answer" {
@@ -548,7 +548,7 @@ func TestDeliverStreamAcknowledgesOnlyAfterFinalSend(t *testing.T) {
 	}
 }
 
-func TestDeliverStreamAcknowledgesUnknownOnMediaFailure(t *testing.T) {
+func TestDeliverStreamRetainsUnknownOnMediaFailure(t *testing.T) {
 	b, err := New(Config{Token: "token"}, fakeHandler{})
 	if err != nil {
 		t.Fatal(err)
@@ -557,11 +557,11 @@ func TestDeliverStreamAcknowledgesUnknownOnMediaFailure(t *testing.T) {
 	events := make(chan channel.Event, 1)
 	events <- channel.Event{Image: &channel.ImageEvent{Data: "not-base64"}}
 	close(events)
-	probe := newDiscordCompletionProbe()
-	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events, Completion: probe}, nil); err == nil {
+	probe := newDiscordDeliveryProbe()
+	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events, Delivery: probe}, nil); err == nil {
 		t.Fatal("media failure returned nil")
 	}
-	if probe.outcome != channel.EgressUnknown {
+	if probe.outcome != channel.DeliveryUnknown {
 		t.Fatalf("completion outcome = %q, want unknown", probe.outcome)
 	}
 }

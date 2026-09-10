@@ -253,6 +253,20 @@ WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
 
+-- name: LockGroupDispatchPublishOwnership :one
+-- Per-send authority for one publish attempt. The Run that produced this reply
+-- is already terminal: its committed output is owned by this dispatch row, so
+-- the row's own CAS state is what authorizes the send. A superseded attempt
+-- (re-claimed, republished, or completed by another worker) fails here instead
+-- of continuing to send chunks the row no longer owns.
+SELECT id FROM ctx_group_dispatch
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count)
+  AND publish_started_at IS NOT NULL
+  AND published_at IS NULL
+FOR SHARE;
+
 -- name: MarkGroupDispatchPublishStarted :execrows
 -- Committed before the side effect so a crash is distinguishable from a publish
 -- that never began. Cleared again when the publisher returns a real error.

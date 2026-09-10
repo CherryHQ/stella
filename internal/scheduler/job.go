@@ -9,20 +9,22 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 )
 
-type agentCompletionKey struct{}
+type agentHandoffKey struct{}
 
-func withAgentCompletion(ctx context.Context, barrier *agentruntime.CompletionBarrier) context.Context {
-	return context.WithValue(ctx, agentCompletionKey{}, barrier)
+func withAgentHandoff(ctx context.Context, handoff *agentruntime.ExecutionHandoff) context.Context {
+	return context.WithValue(ctx, agentHandoffKey{}, handoff)
 }
 
 // AgentRuntimeOptionsFromContext is the composition-root handoff from one
-// durable scheduler execution to its AgentRun completion barrier.
+// durable scheduler execution to the admitted turn that runs it. The scheduler
+// owns the turn's terminal transition because it commits the job-run result
+// afterwards.
 func AgentRuntimeOptionsFromContext(ctx context.Context) []agentruntime.Option {
-	barrier, _ := ctx.Value(agentCompletionKey{}).(*agentruntime.CompletionBarrier)
-	if barrier == nil {
+	handoff, _ := ctx.Value(agentHandoffKey{}).(*agentruntime.ExecutionHandoff)
+	if handoff == nil {
 		return nil
 	}
-	return []agentruntime.Option{agentruntime.WithCompletionBarrier(barrier)}
+	return []agentruntime.Option{agentruntime.WithExecutionHandoff(handoff)}
 }
 
 const (

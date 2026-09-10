@@ -58,15 +58,11 @@ func (noopGroupPublisher) Publish(ctx context.Context, req pkgchannel.GroupPubli
 		case _, ok := <-req.Stream.Events:
 			if !ok {
 				// Web/group canonical event persistence happens before this no-op
-				// publisher is called. Acknowledge only after the replay has been
-				// consumed so the owning queue cannot release at model EOF.
-				return req.Stream.Ack(ctx, pkgchannel.EgressDelivered)
+				// publisher is called. The dispatcher settles the delivery attempt
+				// when this returns, so there is nothing to record here.
+				return nil
 			}
 		case <-ctx.Done():
-			// Cancellation says nothing about whether the canonical event-log
-			// consumer observed the replay. Keep the result unknown so a caller
-			// cannot mistake a lost wait for a proven absent egress.
-			_ = req.Stream.Ack(context.WithoutCancel(ctx), pkgchannel.EgressUnknown)
 			return ctx.Err()
 		}
 	}

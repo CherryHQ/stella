@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agentrun"
@@ -17,7 +16,6 @@ import (
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/runcontrol"
 )
 
 func terminalRunGuard(t *testing.T, db *pgxpool.Pool, sessionID string) agentrun.Guard {
@@ -37,18 +35,17 @@ func terminalRunGuard(t *testing.T, db *pgxpool.Pool, sessionID string) agentrun
 		t.Fatalf("create agent run: %v", err)
 	}
 	completedSession, err := q.CompleteAgentRunWithActivity(t.Context(), sqlc.CompleteAgentRunWithActivityParams{
-		RunID:             runID,
-		ExecutorBootID:    bootID,
-		Status:            agentrun.StatusCompleted,
-		Reason:            "run-fence-test",
-		CompletionOutcome: string(runcontrol.OutcomeDelivered),
-		TurnResult:        pgtype.Text{String: "success", Valid: true},
+		RunID:          runID,
+		ExecutorBootID: bootID,
+		Status:         agentrun.StatusCompleted,
+		Reason:         "run-fence-test",
+		SessionID:      sessionID,
 	})
 	if err != nil {
 		t.Fatalf("complete agent run: %v", err)
 	}
-	if completedSession != sessionID {
-		t.Fatalf("completed session = %q, want %q", completedSession, sessionID)
+	if completedSession.SessionID != sessionID {
+		t.Fatalf("completed session = %q, want %q", completedSession.SessionID, sessionID)
 	}
 	return agentrun.Guard{RunID: runID, SessionID: sessionID, ExecutorBootID: bootID}
 }

@@ -11,7 +11,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/pkg/runcontrol"
 )
 
 func TestIndependentStoresAdmitExactlyOneOwner(t *testing.T) {
@@ -70,7 +69,9 @@ func TestIndependentStoresAdmitExactlyOneOwner(t *testing.T) {
 	}
 }
 
-func TestDeliveredAckPreservesTheRuntimeResult(t *testing.T) {
+// The party that commits the turn's last durable fact records its own result;
+// nothing else (an adapter acknowledgement, a delivery outcome) can change it.
+func TestOwnerStatusIsTheRunResult(t *testing.T) {
 	db := dbtest.New(t)
 	ctx := t.Context()
 	store := agentrun.NewStoreWithContext(ctx, db, uuid.NewString())
@@ -85,7 +86,6 @@ func TestDeliveredAckPreservesTheRuntimeResult(t *testing.T) {
 		{agentrun.StatusCompleted, "success"},
 		{agentrun.StatusFailed, "error"},
 		{agentrun.StatusCanceled, "canceled"},
-		{agentrun.StatusInterrupted, "error"},
 	} {
 		t.Run(tc.status, func(t *testing.T) {
 			sessionID := uuid.NewString()
@@ -96,10 +96,7 @@ func TestDeliveredAckPreservesTheRuntimeResult(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := lease.PrepareCompletion(ctx, tc.status, "runtime result"); err != nil {
-				t.Fatal(err)
-			}
-			if err := lease.Completion().Ack(ctx, runcontrol.OutcomeDelivered); err != nil {
+			if err := lease.Finish(ctx, tc.status, "runtime result"); err != nil {
 				t.Fatal(err)
 			}
 			var status, result string
@@ -109,7 +106,7 @@ func TestDeliveredAckPreservesTheRuntimeResult(t *testing.T) {
 				t.Fatal(err)
 			}
 			if status != tc.status || result != tc.result {
-				t.Fatalf("delivered reply produced Run=%q activity=%q, want Run=%q activity=%q", status, result, tc.status, tc.result)
+				t.Fatalf("run=%q activity=%q, want %q/%q", status, result, tc.status, tc.result)
 			}
 		})
 	}
@@ -153,7 +150,7 @@ func TestExpiredOwnerCannotWriteOrFinishSuccessor(t *testing.T) {
 	if err := old.Finish(ctx, agentrun.StatusCompleted, "stale"); !errors.Is(err, agentrun.ErrLeaseLost) {
 		t.Fatalf("stale finish = %v", err)
 	}
-	if err := successor.Completion().Check(ctx); err != nil {
+	if err := agentrun.Check(successor.ContextWith(ctx)); err != nil {
 		t.Fatalf("stale owner invalidated successor: %v", err)
 	}
 	if err := successor.Finish(ctx, agentrun.StatusCompleted, "fresh"); err != nil {
@@ -187,27 +184,29 @@ func TestLocalReconciliationObservesAnotherExecutorsTerminalRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lease.PrepareCompletion(ctx, agentrun.StatusCompleted, "waiting for adapter"); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := db.Exec(ctx, "UPDATE agent_run SET lease_expires_at = clock_timestamp() - interval '1 second' WHERE id = $1", lease.Guard.RunID); err != nil {
 		t.Fatal(err)
 	}
 	if err := reaper.Reap(ctx); err != nil {
 		t.Fatal(err)
 	}
-	// The remote reaper changed the database, not this process's local queue.
-	// A later local full scan must repair a missed terminal notification.
+	// The remote reaper changed the database and recorded an unknown outcome; this
+	// process must stop renewing the Run it can no longer own.
 	if err := owner.Reap(ctx); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case <-lease.Completion().Done():
-	default:
-		t.Fatal("local completion stayed open after observing a remotely terminalized Run")
+	if got := owner.LocalRuns(); got != 0 {
+		t.Fatalf("local runs = %d after observing a remotely terminalized Run", got)
 	}
-	if err := lease.Completion().Check(ctx); !errors.Is(err, agentrun.ErrLeaseLost) {
+	if err := agentrun.Check(lease.ContextWith(ctx)); !errors.Is(err, agentrun.ErrLeaseLost) {
 		t.Fatalf("terminal owner check = %v", err)
+	}
+	var status string
+	if err := db.QueryRow(ctx, "SELECT status FROM agent_run WHERE id = $1", lease.Guard.RunID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != agentrun.StatusInterrupted {
+		t.Fatalf("recovered status = %q, want interrupted", status)
 	}
 }
 

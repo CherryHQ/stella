@@ -12,163 +12,71 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const abortAgentRunWithActivity = `-- name: AbortAgentRunWithActivity :one
-WITH terminal AS (
-    UPDATE agent_run
-    SET status = 'aborted',
-        abort_requested_at = COALESCE(abort_requested_at, clock_timestamp()),
-        abort_reason = CASE WHEN abort_reason = '' THEN $1 ELSE abort_reason END,
-        terminal_reason = CASE WHEN terminal_reason = '' THEN $1 ELSE terminal_reason END,
-        completion_state = CASE WHEN completion_state = 'ready' THEN 'unknown' WHEN completion_state = 'open' THEN 'acked' ELSE completion_state END,
-        completion_outcome = CASE WHEN completion_state = 'ready' THEN 'unknown' WHEN completion_state = 'open' THEN 'discarded' ELSE completion_outcome END,
-        completion_status = 'aborted', completion_reason = CASE WHEN completion_reason = '' THEN $1 ELSE completion_reason END,
-        completion_ready_at = COALESCE(completion_ready_at, clock_timestamp()),
-        completion_acked_at = CASE WHEN completion_state = 'open' THEN clock_timestamp() ELSE completion_acked_at END,
-        completed_at = clock_timestamp(), lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
-    WHERE agent_run.id = $2
-      AND agent_run.executor_boot_id = $3
-      AND agent_run.status = 'running'
-      AND agent_run.abort_requested_at IS NOT NULL
-      AND agent_run.lease_expires_at > clock_timestamp()
-    RETURNING agent_run.session_id, agent_run.completion_outcome
-), activity AS (
-    UPDATE ctx_conversation c
-    SET last_turn_completed_at = clock_timestamp(),
-        last_turn_result = 'canceled',
-        updated_at = clock_timestamp()
-    FROM terminal
-    WHERE c.session_id = terminal.session_id
-      AND c.archived = false
-    RETURNING c.session_id
-)
-SELECT terminal.session_id
-FROM terminal
-LEFT JOIN activity ON activity.session_id = terminal.session_id
-`
-
-type AbortAgentRunWithActivityParams struct {
-	Reason         string `json:"reason"`
-	RunID          string `json:"run_id"`
-	ExecutorBootID string `json:"executor_boot_id"`
-}
-
-func (q *Queries) AbortAgentRunWithActivity(ctx context.Context, arg AbortAgentRunWithActivityParams) (string, error) {
-	row := q.db.QueryRow(ctx, abortAgentRunWithActivity, arg.Reason, arg.RunID, arg.ExecutorBootID)
-	var session_id string
-	err := row.Scan(&session_id)
-	return session_id, err
-}
-
-const ackAgentRunCompletionWithActivity = `-- name: AckAgentRunCompletionWithActivity :one
-WITH terminal AS (
-    UPDATE agent_run
-    SET status = $1,
-        terminal_reason = completion_reason,
-        completion_state = 'acked', completion_outcome = $2,
-        completion_status = $1,
-        completion_ready_at = COALESCE(completion_ready_at, clock_timestamp()),
-        completion_acked_at = clock_timestamp(), completed_at = clock_timestamp(), lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
-    WHERE agent_run.id = $3
-      AND agent_run.executor_boot_id = $4
-      AND agent_run.status = 'running'
-      AND (
-          (agent_run.completion_state = 'ready' AND agent_run.completion_outcome = '')
-          OR (agent_run.completion_state = 'open' AND $2 <> 'delivered')
-      )
-      AND agent_run.abort_requested_at IS NULL
-      AND agent_run.lease_expires_at > clock_timestamp()
-    RETURNING agent_run.session_id
-), activity AS (
-    UPDATE ctx_conversation c
-    SET last_turn_completed_at = clock_timestamp(),
-        last_turn_result = $5,
-        updated_at = clock_timestamp()
-    FROM terminal
-    WHERE c.session_id = terminal.session_id
-      AND c.archived = false
-    RETURNING c.session_id
-)
-SELECT terminal.session_id
-FROM terminal
-LEFT JOIN activity ON activity.session_id = terminal.session_id
-`
-
-type AckAgentRunCompletionWithActivityParams struct {
-	Status            string      `json:"status"`
-	CompletionOutcome string      `json:"completion_outcome"`
-	RunID             string      `json:"run_id"`
-	ExecutorBootID    string      `json:"executor_boot_id"`
-	TurnResult        pgtype.Text `json:"turn_result"`
-}
-
-func (q *Queries) AckAgentRunCompletionWithActivity(ctx context.Context, arg AckAgentRunCompletionWithActivityParams) (string, error) {
-	row := q.db.QueryRow(ctx, ackAgentRunCompletionWithActivity,
-		arg.Status,
-		arg.CompletionOutcome,
-		arg.RunID,
-		arg.ExecutorBootID,
-		arg.TurnResult,
-	)
-	var session_id string
-	err := row.Scan(&session_id)
-	return session_id, err
-}
-
 const completeAgentRunWithActivity = `-- name: CompleteAgentRunWithActivity :one
 WITH terminal AS (
     UPDATE agent_run
-    SET status = $1, terminal_reason = $2,
-        completion_state = 'acked', completion_outcome = $3,
-        completion_status = $1, completion_reason = $2,
-        completion_ready_at = COALESCE(completion_ready_at, clock_timestamp()), completion_acked_at = clock_timestamp(),
+    SET status = CASE WHEN agent_run.abort_requested_at IS NOT NULL THEN 'aborted' ELSE $1 END,
+        terminal_reason = CASE
+            WHEN agent_run.abort_requested_at IS NOT NULL AND agent_run.abort_reason <> '' THEN agent_run.abort_reason
+            ELSE $2
+        END,
         completed_at = clock_timestamp(), lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
-    WHERE agent_run.id = $4
+    WHERE agent_run.id = $3
+      AND agent_run.session_id = $4
       AND agent_run.executor_boot_id = $5
       AND agent_run.status = 'running'
-      AND agent_run.completion_state = 'open'
-      AND agent_run.abort_requested_at IS NULL
       AND agent_run.lease_expires_at > clock_timestamp()
-    RETURNING agent_run.session_id
+    RETURNING agent_run.session_id, agent_run.status
 ), activity AS (
     UPDATE ctx_conversation c
     SET last_turn_completed_at = clock_timestamp(),
-        last_turn_result = $6,
+        last_turn_result = CASE
+            WHEN terminal.status = 'interrupted' THEN 'error'
+            WHEN terminal.status IN ('canceled', 'aborted') THEN 'canceled'
+            WHEN terminal.status = 'completed' THEN 'success'
+            ELSE 'error'
+        END,
         updated_at = clock_timestamp()
     FROM terminal
     WHERE c.session_id = terminal.session_id
       AND c.archived = false
     RETURNING c.session_id
 )
-SELECT terminal.session_id
+SELECT terminal.session_id, terminal.status
 FROM terminal
 LEFT JOIN activity ON activity.session_id = terminal.session_id
 `
 
 type CompleteAgentRunWithActivityParams struct {
-	Status            string      `json:"status"`
-	Reason            string      `json:"reason"`
-	CompletionOutcome string      `json:"completion_outcome"`
-	RunID             string      `json:"run_id"`
-	ExecutorBootID    string      `json:"executor_boot_id"`
-	TurnResult        pgtype.Text `json:"turn_result"`
+	Status         string `json:"status"`
+	Reason         string `json:"reason"`
+	RunID          string `json:"run_id"`
+	SessionID      string `json:"session_id"`
+	ExecutorBootID string `json:"executor_boot_id"`
 }
 
-// Couple the winning terminal transition and Session activity update. The
+type CompleteAgentRunWithActivityRow struct {
+	SessionID string `json:"session_id"`
+	Status    string `json:"status"`
+}
+
+// The single execution terminal transition, coupled with Session activity. A
+// durable abort request outranks the caller's status: the stop was recorded
+// before the owner learned its outcome, and the run is aborted either way. The
 // terminal row is returned even when the conversation was archived, so a
 // missing activity row cannot turn a durable completion into an ambiguous
-// lease result.
-func (q *Queries) CompleteAgentRunWithActivity(ctx context.Context, arg CompleteAgentRunWithActivityParams) (string, error) {
+// result.
+func (q *Queries) CompleteAgentRunWithActivity(ctx context.Context, arg CompleteAgentRunWithActivityParams) (CompleteAgentRunWithActivityRow, error) {
 	row := q.db.QueryRow(ctx, completeAgentRunWithActivity,
 		arg.Status,
 		arg.Reason,
-		arg.CompletionOutcome,
 		arg.RunID,
+		arg.SessionID,
 		arg.ExecutorBootID,
-		arg.TurnResult,
 	)
-	var session_id string
-	err := row.Scan(&session_id)
-	return session_id, err
+	var i CompleteAgentRunWithActivityRow
+	err := row.Scan(&i.SessionID, &i.Status)
+	return i, err
 }
 
 const createAgentRun = `-- name: CreateAgentRun :one
@@ -178,7 +86,7 @@ VALUES (
     clock_timestamp() + make_interval(secs => $5::integer)
 )
 ON CONFLICT DO NOTHING
-RETURNING id, session_id, executor_boot_id, source, status, completion_state, completion_outcome, completion_status, completion_reason, completion_ready_at, completion_acked_at, lease_expires_at, heartbeat_at, abort_requested_at, abort_reason, terminal_reason, completed_at, created_at, updated_at
+RETURNING id, session_id, executor_boot_id, source, status, lease_expires_at, heartbeat_at, abort_requested_at, abort_reason, terminal_reason, completed_at, created_at, updated_at
 `
 
 type CreateAgentRunParams struct {
@@ -204,12 +112,6 @@ func (q *Queries) CreateAgentRun(ctx context.Context, arg CreateAgentRunParams) 
 		&i.ExecutorBootID,
 		&i.Source,
 		&i.Status,
-		&i.CompletionState,
-		&i.CompletionOutcome,
-		&i.CompletionStatus,
-		&i.CompletionReason,
-		&i.CompletionReadyAt,
-		&i.CompletionAckedAt,
 		&i.LeaseExpiresAt,
 		&i.HeartbeatAt,
 		&i.AbortRequestedAt,
@@ -223,7 +125,7 @@ func (q *Queries) CreateAgentRun(ctx context.Context, arg CreateAgentRunParams) 
 }
 
 const getAgentRun = `-- name: GetAgentRun :one
-SELECT id, session_id, executor_boot_id, source, status, completion_state, completion_outcome, completion_status, completion_reason, completion_ready_at, completion_acked_at, lease_expires_at, heartbeat_at, abort_requested_at, abort_reason, terminal_reason, completed_at, created_at, updated_at FROM agent_run WHERE id = $1
+SELECT id, session_id, executor_boot_id, source, status, lease_expires_at, heartbeat_at, abort_requested_at, abort_reason, terminal_reason, completed_at, created_at, updated_at FROM agent_run WHERE id = $1
 `
 
 func (q *Queries) GetAgentRun(ctx context.Context, id string) (AgentRun, error) {
@@ -235,12 +137,6 @@ func (q *Queries) GetAgentRun(ctx context.Context, id string) (AgentRun, error) 
 		&i.ExecutorBootID,
 		&i.Source,
 		&i.Status,
-		&i.CompletionState,
-		&i.CompletionOutcome,
-		&i.CompletionStatus,
-		&i.CompletionReason,
-		&i.CompletionReadyAt,
-		&i.CompletionAckedAt,
 		&i.LeaseExpiresAt,
 		&i.HeartbeatAt,
 		&i.AbortRequestedAt,
@@ -254,7 +150,7 @@ func (q *Queries) GetAgentRun(ctx context.Context, id string) (AgentRun, error) 
 }
 
 const getRunningAgentRunBySession = `-- name: GetRunningAgentRunBySession :one
-SELECT id, session_id, executor_boot_id, source, status, completion_state, completion_outcome, completion_status, completion_reason, completion_ready_at, completion_acked_at, lease_expires_at, heartbeat_at, abort_requested_at, abort_reason, terminal_reason, completed_at, created_at, updated_at FROM agent_run WHERE session_id = $1 AND status = 'running'
+SELECT id, session_id, executor_boot_id, source, status, lease_expires_at, heartbeat_at, abort_requested_at, abort_reason, terminal_reason, completed_at, created_at, updated_at FROM agent_run WHERE session_id = $1 AND status = 'running'
 `
 
 func (q *Queries) GetRunningAgentRunBySession(ctx context.Context, sessionID string) (AgentRun, error) {
@@ -266,12 +162,6 @@ func (q *Queries) GetRunningAgentRunBySession(ctx context.Context, sessionID str
 		&i.ExecutorBootID,
 		&i.Source,
 		&i.Status,
-		&i.CompletionState,
-		&i.CompletionOutcome,
-		&i.CompletionStatus,
-		&i.CompletionReason,
-		&i.CompletionReadyAt,
-		&i.CompletionAckedAt,
 		&i.LeaseExpiresAt,
 		&i.HeartbeatAt,
 		&i.AbortRequestedAt,
@@ -294,7 +184,7 @@ WHERE id = $2
   AND status = 'running'
   AND abort_requested_at IS NULL
   AND lease_expires_at > clock_timestamp()
-RETURNING id, session_id, executor_boot_id, source, status, completion_state, completion_outcome, completion_status, completion_reason, completion_ready_at, completion_acked_at, lease_expires_at, heartbeat_at, abort_requested_at, abort_reason, terminal_reason, completed_at, created_at, updated_at
+RETURNING id, session_id, executor_boot_id, source, status, lease_expires_at, heartbeat_at, abort_requested_at, abort_reason, terminal_reason, completed_at, created_at, updated_at
 `
 
 type HeartbeatAgentRunParams struct {
@@ -312,12 +202,6 @@ func (q *Queries) HeartbeatAgentRun(ctx context.Context, arg HeartbeatAgentRunPa
 		&i.ExecutorBootID,
 		&i.Source,
 		&i.Status,
-		&i.CompletionState,
-		&i.CompletionOutcome,
-		&i.CompletionStatus,
-		&i.CompletionReason,
-		&i.CompletionReadyAt,
-		&i.CompletionAckedAt,
 		&i.LeaseExpiresAt,
 		&i.HeartbeatAt,
 		&i.AbortRequestedAt,
@@ -334,15 +218,11 @@ const interruptExpiredAgentRunBySession = `-- name: InterruptExpiredAgentRunBySe
 WITH terminal AS (
     UPDATE agent_run
     SET status = 'interrupted', terminal_reason = 'lease_expired',
-        completion_state = 'unknown', completion_outcome = 'unknown',
-        completion_status = 'interrupted', completion_reason = 'lease_expired',
-        completion_ready_at = COALESCE(completion_ready_at, clock_timestamp()),
-        completion_acked_at = NULL,
         completed_at = clock_timestamp(), lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
     WHERE agent_run.session_id = $1
       AND agent_run.status = 'running'
       AND agent_run.lease_expires_at <= clock_timestamp()
-    RETURNING agent_run.session_id, agent_run.completion_outcome
+    RETURNING agent_run.session_id
 )
 UPDATE ctx_conversation c
 SET last_turn_completed_at = clock_timestamp(),
@@ -354,8 +234,8 @@ WHERE c.session_id = terminal.session_id
 `
 
 // Lease expiry cannot prove that streaming or tool egress never crossed the
-// adapter boundary, even while completion is still open. Preserve unknown so
-// recovery never treats a crashed turn as safe to replay.
+// adapter boundary, so recovery always records the interruption as an unknown
+// external effect. Nothing replays it automatically.
 func (q *Queries) InterruptExpiredAgentRunBySession(ctx context.Context, sessionID string) (int64, error) {
 	result, err := q.db.Exec(ctx, interruptExpiredAgentRunBySession, sessionID)
 	if err != nil {
@@ -388,38 +268,6 @@ func (q *Queries) LockAgentRunOwnership(ctx context.Context, arg LockAgentRunOwn
 	return id, err
 }
 
-const prepareAgentRunCompletion = `-- name: PrepareAgentRunCompletion :execrows
-UPDATE agent_run
-SET completion_state = 'ready', completion_status = $1,
-    completion_reason = $2, completion_ready_at = clock_timestamp(), updated_at = clock_timestamp()
-WHERE id = $3
-  AND executor_boot_id = $4
-  AND status = 'running'
-  AND completion_state = 'open'
-  AND abort_requested_at IS NULL
-  AND lease_expires_at > clock_timestamp()
-`
-
-type PrepareAgentRunCompletionParams struct {
-	Status         string `json:"status"`
-	Reason         string `json:"reason"`
-	RunID          string `json:"run_id"`
-	ExecutorBootID string `json:"executor_boot_id"`
-}
-
-func (q *Queries) PrepareAgentRunCompletion(ctx context.Context, arg PrepareAgentRunCompletionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, prepareAgentRunCompletion,
-		arg.Status,
-		arg.Reason,
-		arg.RunID,
-		arg.ExecutorBootID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const reapAbortRequestedAgentRun = `-- name: ReapAbortRequestedAgentRun :many
 WITH candidates AS (
     SELECT id FROM agent_run
@@ -429,16 +277,11 @@ WITH candidates AS (
     FOR UPDATE SKIP LOCKED
 ), terminal AS (
     UPDATE agent_run run
-    SET status = 'aborted', terminal_reason = abort_reason,
-        completion_state = CASE WHEN completion_state = 'ready' THEN 'unknown' ELSE 'acked' END,
-        completion_outcome = CASE WHEN completion_state = 'ready' THEN 'unknown' ELSE 'discarded' END,
-        completion_status = 'aborted', completion_reason = abort_reason,
-        completion_ready_at = COALESCE(completion_ready_at, clock_timestamp()),
-        completion_acked_at = CASE WHEN completion_state = 'open' THEN clock_timestamp() ELSE completion_acked_at END,
+    SET status = 'aborted', terminal_reason = run.abort_reason,
         completed_at = clock_timestamp(), lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
     FROM candidates
     WHERE run.id = candidates.id
-    RETURNING run.id, run.session_id, run.executor_boot_id, run.source, run.status, run.completion_state, run.completion_outcome, run.completion_status, run.completion_reason, run.completion_ready_at, run.completion_acked_at, run.lease_expires_at, run.heartbeat_at, run.abort_requested_at, run.abort_reason, run.terminal_reason, run.completed_at, run.created_at, run.updated_at
+    RETURNING run.id, run.session_id, run.executor_boot_id, run.source, run.status, run.lease_expires_at, run.heartbeat_at, run.abort_requested_at, run.abort_reason, run.terminal_reason, run.completed_at, run.created_at, run.updated_at
 ), activity AS (
     UPDATE ctx_conversation c
     SET last_turn_completed_at = clock_timestamp(),
@@ -449,31 +292,25 @@ WITH candidates AS (
       AND c.archived = false
     RETURNING c.session_id
 )
-SELECT terminal.id, terminal.session_id, terminal.executor_boot_id, terminal.source, terminal.status, terminal.completion_state, terminal.completion_outcome, terminal.completion_status, terminal.completion_reason, terminal.completion_ready_at, terminal.completion_acked_at, terminal.lease_expires_at, terminal.heartbeat_at, terminal.abort_requested_at, terminal.abort_reason, terminal.terminal_reason, terminal.completed_at, terminal.created_at, terminal.updated_at
+SELECT terminal.id, terminal.session_id, terminal.executor_boot_id, terminal.source, terminal.status, terminal.lease_expires_at, terminal.heartbeat_at, terminal.abort_requested_at, terminal.abort_reason, terminal.terminal_reason, terminal.completed_at, terminal.created_at, terminal.updated_at
 FROM terminal
 LEFT JOIN activity ON activity.session_id = terminal.session_id
 `
 
 type ReapAbortRequestedAgentRunRow struct {
-	ID                string             `json:"id"`
-	SessionID         string             `json:"session_id"`
-	ExecutorBootID    string             `json:"executor_boot_id"`
-	Source            string             `json:"source"`
-	Status            string             `json:"status"`
-	CompletionState   string             `json:"completion_state"`
-	CompletionOutcome string             `json:"completion_outcome"`
-	CompletionStatus  string             `json:"completion_status"`
-	CompletionReason  string             `json:"completion_reason"`
-	CompletionReadyAt pgtype.Timestamptz `json:"completion_ready_at"`
-	CompletionAckedAt pgtype.Timestamptz `json:"completion_acked_at"`
-	LeaseExpiresAt    time.Time          `json:"lease_expires_at"`
-	HeartbeatAt       time.Time          `json:"heartbeat_at"`
-	AbortRequestedAt  pgtype.Timestamptz `json:"abort_requested_at"`
-	AbortReason       string             `json:"abort_reason"`
-	TerminalReason    string             `json:"terminal_reason"`
-	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
-	CreatedAt         time.Time          `json:"created_at"`
-	UpdatedAt         time.Time          `json:"updated_at"`
+	ID               string             `json:"id"`
+	SessionID        string             `json:"session_id"`
+	ExecutorBootID   string             `json:"executor_boot_id"`
+	Source           string             `json:"source"`
+	Status           string             `json:"status"`
+	LeaseExpiresAt   time.Time          `json:"lease_expires_at"`
+	HeartbeatAt      time.Time          `json:"heartbeat_at"`
+	AbortRequestedAt pgtype.Timestamptz `json:"abort_requested_at"`
+	AbortReason      string             `json:"abort_reason"`
+	TerminalReason   string             `json:"terminal_reason"`
+	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
 }
 
 func (q *Queries) ReapAbortRequestedAgentRun(ctx context.Context, limitCount int32) ([]ReapAbortRequestedAgentRunRow, error) {
@@ -491,12 +328,6 @@ func (q *Queries) ReapAbortRequestedAgentRun(ctx context.Context, limitCount int
 			&i.ExecutorBootID,
 			&i.Source,
 			&i.Status,
-			&i.CompletionState,
-			&i.CompletionOutcome,
-			&i.CompletionStatus,
-			&i.CompletionReason,
-			&i.CompletionReadyAt,
-			&i.CompletionAckedAt,
 			&i.LeaseExpiresAt,
 			&i.HeartbeatAt,
 			&i.AbortRequestedAt,
@@ -526,14 +357,10 @@ WITH candidates AS (
 ), terminal AS (
     UPDATE agent_run run
     SET status = 'interrupted', terminal_reason = 'lease_expired',
-        completion_state = 'unknown', completion_outcome = 'unknown',
-        completion_status = 'interrupted', completion_reason = 'lease_expired',
-        completion_ready_at = COALESCE(completion_ready_at, clock_timestamp()),
-        completion_acked_at = NULL,
         completed_at = clock_timestamp(), lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
     FROM candidates
     WHERE run.id = candidates.id
-    RETURNING run.id, run.session_id, run.executor_boot_id, run.source, run.status, run.completion_state, run.completion_outcome, run.completion_status, run.completion_reason, run.completion_ready_at, run.completion_acked_at, run.lease_expires_at, run.heartbeat_at, run.abort_requested_at, run.abort_reason, run.terminal_reason, run.completed_at, run.created_at, run.updated_at
+    RETURNING run.id, run.session_id, run.executor_boot_id, run.source, run.status, run.lease_expires_at, run.heartbeat_at, run.abort_requested_at, run.abort_reason, run.terminal_reason, run.completed_at, run.created_at, run.updated_at
 ), activity AS (
     UPDATE ctx_conversation c
     SET last_turn_completed_at = clock_timestamp(),
@@ -544,31 +371,25 @@ WITH candidates AS (
       AND c.archived = false
     RETURNING c.session_id
 )
-SELECT terminal.id, terminal.session_id, terminal.executor_boot_id, terminal.source, terminal.status, terminal.completion_state, terminal.completion_outcome, terminal.completion_status, terminal.completion_reason, terminal.completion_ready_at, terminal.completion_acked_at, terminal.lease_expires_at, terminal.heartbeat_at, terminal.abort_requested_at, terminal.abort_reason, terminal.terminal_reason, terminal.completed_at, terminal.created_at, terminal.updated_at
+SELECT terminal.id, terminal.session_id, terminal.executor_boot_id, terminal.source, terminal.status, terminal.lease_expires_at, terminal.heartbeat_at, terminal.abort_requested_at, terminal.abort_reason, terminal.terminal_reason, terminal.completed_at, terminal.created_at, terminal.updated_at
 FROM terminal
 LEFT JOIN activity ON activity.session_id = terminal.session_id
 `
 
 type ReapExpiredAgentRunRow struct {
-	ID                string             `json:"id"`
-	SessionID         string             `json:"session_id"`
-	ExecutorBootID    string             `json:"executor_boot_id"`
-	Source            string             `json:"source"`
-	Status            string             `json:"status"`
-	CompletionState   string             `json:"completion_state"`
-	CompletionOutcome string             `json:"completion_outcome"`
-	CompletionStatus  string             `json:"completion_status"`
-	CompletionReason  string             `json:"completion_reason"`
-	CompletionReadyAt pgtype.Timestamptz `json:"completion_ready_at"`
-	CompletionAckedAt pgtype.Timestamptz `json:"completion_acked_at"`
-	LeaseExpiresAt    time.Time          `json:"lease_expires_at"`
-	HeartbeatAt       time.Time          `json:"heartbeat_at"`
-	AbortRequestedAt  pgtype.Timestamptz `json:"abort_requested_at"`
-	AbortReason       string             `json:"abort_reason"`
-	TerminalReason    string             `json:"terminal_reason"`
-	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
-	CreatedAt         time.Time          `json:"created_at"`
-	UpdatedAt         time.Time          `json:"updated_at"`
+	ID               string             `json:"id"`
+	SessionID        string             `json:"session_id"`
+	ExecutorBootID   string             `json:"executor_boot_id"`
+	Source           string             `json:"source"`
+	Status           string             `json:"status"`
+	LeaseExpiresAt   time.Time          `json:"lease_expires_at"`
+	HeartbeatAt      time.Time          `json:"heartbeat_at"`
+	AbortRequestedAt pgtype.Timestamptz `json:"abort_requested_at"`
+	AbortReason      string             `json:"abort_reason"`
+	TerminalReason   string             `json:"terminal_reason"`
+	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
 }
 
 // As above, every lease-expiry recovery is an unknown external outcome.
@@ -587,12 +408,6 @@ func (q *Queries) ReapExpiredAgentRun(ctx context.Context, limitCount int32) ([]
 			&i.ExecutorBootID,
 			&i.Source,
 			&i.Status,
-			&i.CompletionState,
-			&i.CompletionOutcome,
-			&i.CompletionStatus,
-			&i.CompletionReason,
-			&i.CompletionReadyAt,
-			&i.CompletionAckedAt,
 			&i.LeaseExpiresAt,
 			&i.HeartbeatAt,
 			&i.AbortRequestedAt,
@@ -618,7 +433,7 @@ SET abort_requested_at = clock_timestamp(), abort_reason = $1, updated_at = cloc
 WHERE session_id = $2
   AND status = 'running'
   AND abort_requested_at IS NULL
-RETURNING id, session_id, executor_boot_id, source, status, completion_state, completion_outcome, completion_status, completion_reason, completion_ready_at, completion_acked_at, lease_expires_at, heartbeat_at, abort_requested_at, abort_reason, terminal_reason, completed_at, created_at, updated_at
+RETURNING id, session_id, executor_boot_id, source, status, lease_expires_at, heartbeat_at, abort_requested_at, abort_reason, terminal_reason, completed_at, created_at, updated_at
 `
 
 type RequestSessionAgentRunAbortParams struct {
@@ -635,12 +450,6 @@ func (q *Queries) RequestSessionAgentRunAbort(ctx context.Context, arg RequestSe
 		&i.ExecutorBootID,
 		&i.Source,
 		&i.Status,
-		&i.CompletionState,
-		&i.CompletionOutcome,
-		&i.CompletionStatus,
-		&i.CompletionReason,
-		&i.CompletionReadyAt,
-		&i.CompletionAckedAt,
 		&i.LeaseExpiresAt,
 		&i.HeartbeatAt,
 		&i.AbortRequestedAt,

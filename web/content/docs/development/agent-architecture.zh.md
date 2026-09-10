@@ -221,9 +221,11 @@ Agent 发起的发送保留进程内 FIFO，最多 32 条待处理输入，admis
 
 Run 所属的数据库写入在业务变更的同一事务中校验 Run ID、executor boot、running 状态、abort 状态和租约。在开启事务前检查并不足够，因为另一个 executor 可能在检查与提交之间终结 Run。标记 Session 已读等经过授权的展示状态写入仍独立于执行权。
 
-abort intent 与 completion 在 PostgreSQL 中竞争，获胜的终态转换在同一事务中记录 Run 结果和 Session turn activity。因此正常 Stop 会持久化 `canceled`，旧 executor 也不能覆盖后继回合的 activity。
+abort intent 与 completion 在 PostgreSQL 中竞争，获胜的终态转换在同一事务中记录 Run 结果和 Session turn activity。因此正常 Stop 会将 Session activity 持久化为 `canceled`，旧 executor 也不能覆盖后继回合的 activity。
 
-模型 EOF 允许来源适配器完成收尾。仍需外发或记录来源业务结果的适配器会继续持有租约，在操作完成后明确确认结果。确认丢失或结果无法判断时记为 unknown，AgentRun 恢复不会重新执行该回合。渠道持久发布及其恢复策略仍属于 #1035 跟踪的渠道要求。
+模型 EOF 不会直接结束 Run。来源方先提交剩余的持久写入：渠道回复及其路由的交接记录、群回复的 accept/stop 决定、scheduler 记账，或 Goal transition。这些写入仍在事务内校验 Run 执行权。来源方随后结束 Run；直接渠道和群回复的交接与 Run 终态在同一事务提交。持久化的 stop 请求优先于调用方请求的终态。提交结果未知时不能报告成功；放弃续租的运行中 Run 会过期为 interrupted。
+
+外部投递有自己的记录，不会为了等待确认而占用 Run。实时模型输出依赖执行租约；输出交接提交后，渠道依据交接记录取得投递权。每次请求都先记录发送尝试，再调用平台。尝试过但无法确认结果的投递视为 unknown，不自动重发。直接渠道的交接保存图片、文件和引用内容，附件字节按每块最多 1 MiB 存入 PostgreSQL，数据库占用随保留的附件量增长。远程投递和附件保留策略仍由 #1035 跟踪。
 
 已关联 inbox 的恢复只跟随 Run 终态，不调用模型或工具。启动恢复可以重新鉴权并追加 legacy 或未关联 receipt，但不能为它们创建新 Run。崩溃可能留下已受理却没有回复的输入；自动重放会带来重复工具调用或外发副作用。
 

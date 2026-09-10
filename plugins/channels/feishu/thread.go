@@ -61,12 +61,17 @@ func (b *Bot) sendFinalResponseInThread(ctx context.Context, chatID, replyMsgID,
 	return b.sendFinalResponseInThreadWithCheck(ctx, nil, chatID, replyMsgID, rootID, sentMsgID, response, refs, isGroup, reportFailure, cardStatusCompleted, "")
 }
 
-func (b *Bot) sendFinalResponseInThreadChecked(ctx context.Context, stream *channel.ChatStream, chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup, reportFailure bool) error {
-	var check func(context.Context) error
-	if stream != nil {
-		check = stream.CheckOperation
+// egressCheck adapts one stream's per-send authority to the internal
+// check-function seam these helpers already share with the group dispatcher.
+func egressCheck(stream *channel.ChatStream, kind channel.SendKind) func(context.Context) error {
+	if stream == nil {
+		return nil
 	}
-	return b.sendFinalResponseInThreadWithCheck(ctx, check, chatID, replyMsgID, rootID, sentMsgID, response, refs, isGroup, reportFailure, cardStatusCompleted, "")
+	return func(ctx context.Context) error { return stream.AuthorizeSend(ctx, kind) }
+}
+
+func (b *Bot) sendFinalResponseInThreadChecked(ctx context.Context, stream *channel.ChatStream, chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup, reportFailure bool, kind channel.SendKind) error {
+	return b.sendFinalResponseInThreadWithCheck(ctx, egressCheck(stream, kind), chatID, replyMsgID, rootID, sentMsgID, response, refs, isGroup, reportFailure, cardStatusCompleted, "")
 }
 
 func (b *Bot) sendFinalResponseInThreadWithCheck(ctx context.Context, check func(context.Context) error, chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup, reportFailure bool, status cardStatus, deliveryKey string) error {
@@ -188,17 +193,11 @@ func (b *Bot) reportDeliveryFailure(ctx context.Context, chatID, rootID, replyTo
 }
 
 func (b *Bot) sendImageInThreadChecked(ctx context.Context, stream *channel.ChatStream, chatID, replyMsgID, rootID string, img channel.ImageEvent) error {
-	var check func(context.Context) error
-	if stream != nil {
-		check = stream.CheckOperation
-	}
+	check := egressCheck(stream, channel.SendOutput)
 	return b.sendImageWithCheck(ctx, check, chatID, threadReplyTarget(replyMsgID, rootID), img, rootID != "")
 }
 
 func (b *Bot) sendFileInThreadChecked(ctx context.Context, stream *channel.ChatStream, chatID, replyMsgID, rootID string, file channel.FileEvent) error {
-	var check func(context.Context) error
-	if stream != nil {
-		check = stream.CheckOperation
-	}
+	check := egressCheck(stream, channel.SendOutput)
 	return b.sendFileWithCheck(ctx, check, chatID, threadReplyTarget(replyMsgID, rootID), file, rootID != "")
 }

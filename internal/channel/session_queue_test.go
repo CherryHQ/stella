@@ -38,15 +38,15 @@ func TestSessionQueue_SerializesSameSession(t *testing.T) {
 	firstUnblock := make(chan struct{})
 
 	// First fn: signals it is running, then blocks until test unblocks it.
-	fn1 := func(ctx context.Context) (*pkgchannel.ChatStream, error) {
+	fn1 := func(ctx context.Context) (*queuedTurn, error) {
 		record(1)
 		close(firstRunning)
 		<-firstUnblock
-		return makeStream(pkgchannel.Event{Text: "a"}), nil
+		return wrapTurn(makeStream(pkgchannel.Event{Text: "a"})), nil
 	}
-	fn2 := func(ctx context.Context) (*pkgchannel.ChatStream, error) {
+	fn2 := func(ctx context.Context) (*queuedTurn, error) {
 		record(2)
-		return makeStream(pkgchannel.Event{Text: "b"}), nil
+		return wrapTurn(makeStream(pkgchannel.Event{Text: "b"})), nil
 	}
 
 	// Enqueue fn1 in background.
@@ -58,7 +58,7 @@ func TestSessionQueue_SerializesSameSession(t *testing.T) {
 			t.Errorf("fn1 enqueue error: %v", err)
 			return
 		}
-		for range stream.Events {
+		for range stream.stream.Events {
 		}
 		close(doneC)
 	}()
@@ -74,7 +74,7 @@ func TestSessionQueue_SerializesSameSession(t *testing.T) {
 			t.Errorf("fn2 enqueue error: %v", err)
 			return
 		}
-		for range stream.Events {
+		for range stream.stream.Events {
 		}
 		close(doneC)
 	}()
@@ -100,11 +100,11 @@ func TestSessionQueue_ParallelDifferentSessions(t *testing.T) {
 	gate := make(chan struct{})
 	var running atomic.Int32
 
-	makeFn := func() func(context.Context) (*pkgchannel.ChatStream, error) {
-		return func(ctx context.Context) (*pkgchannel.ChatStream, error) {
+	makeFn := func() func(context.Context) (*queuedTurn, error) {
+		return func(ctx context.Context) (*queuedTurn, error) {
 			<-gate
 			running.Add(1)
-			return makeStream(), nil
+			return wrapTurn(makeStream()), nil
 		}
 	}
 
@@ -115,7 +115,7 @@ func TestSessionQueue_ParallelDifferentSessions(t *testing.T) {
 		defer close(done1)
 		stream, doneC, _ := q.Enqueue(ctx, "sess-x", makeFn())
 		if stream != nil {
-			for range stream.Events {
+			for range stream.stream.Events {
 			}
 			close(doneC)
 		}
@@ -124,7 +124,7 @@ func TestSessionQueue_ParallelDifferentSessions(t *testing.T) {
 		defer close(done2)
 		stream, doneC, _ := q.Enqueue(ctx, "sess-y", makeFn())
 		if stream != nil {
-			for range stream.Events {
+			for range stream.stream.Events {
 			}
 			close(doneC)
 		}
@@ -149,7 +149,7 @@ func TestSessionQueue_AbortActive(t *testing.T) {
 	ctx := context.Background()
 
 	started := make(chan struct{})
-	fn := func(ctx context.Context) (*pkgchannel.ChatStream, error) {
+	fn := func(ctx context.Context) (*queuedTurn, error) {
 		close(started)
 		// Block until context is cancelled.
 		<-ctx.Done()
@@ -191,13 +191,13 @@ func TestSessionQueue_AbortQueued(t *testing.T) {
 	ctx := context.Background()
 
 	started1 := make(chan struct{})
-	fn1 := func(ctx context.Context) (*pkgchannel.ChatStream, error) {
+	fn1 := func(ctx context.Context) (*queuedTurn, error) {
 		close(started1)
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
-	fn2 := func(ctx context.Context) (*pkgchannel.ChatStream, error) {
-		return makeStream(pkgchannel.Event{Text: "queued-ran"}), nil
+	fn2 := func(ctx context.Context) (*queuedTurn, error) {
+		return wrapTurn(makeStream(pkgchannel.Event{Text: "queued-ran"})), nil
 	}
 
 	var result2 string
@@ -217,7 +217,7 @@ func TestSessionQueue_AbortQueued(t *testing.T) {
 		if err != nil {
 			return
 		}
-		for evt := range stream.Events {
+		for evt := range stream.stream.Events {
 			result2 += evt.Text
 		}
 		close(doneC)
@@ -242,10 +242,10 @@ func TestSessionQueue_CallerContextCancelled(t *testing.T) {
 	unblock := make(chan struct{})
 	started := make(chan struct{})
 	go func() {
-		q.Enqueue(blockCtx, "sess-cc", func(ctx context.Context) (*pkgchannel.ChatStream, error) { //nolint:errcheck
+		q.Enqueue(blockCtx, "sess-cc", func(ctx context.Context) (*queuedTurn, error) { //nolint:errcheck
 			close(started)
 			<-unblock
-			return makeStream(), nil
+			return wrapTurn(makeStream()), nil
 		})
 	}()
 	<-started
@@ -256,8 +256,8 @@ func TestSessionQueue_CallerContextCancelled(t *testing.T) {
 	var gotErr error
 	go func() {
 		defer close(done)
-		_, _, gotErr = q.Enqueue(callerCtx, "sess-cc", func(ctx context.Context) (*pkgchannel.ChatStream, error) {
-			return makeStream(), nil
+		_, _, gotErr = q.Enqueue(callerCtx, "sess-cc", func(ctx context.Context) (*queuedTurn, error) {
+			return wrapTurn(makeStream()), nil
 		})
 	}()
 
@@ -296,13 +296,13 @@ func waitForSessionRemoval(t *testing.T, q *sessionQueue, sessionKey string) {
 func TestSessionQueue_ReclaimsIdleSlot(t *testing.T) {
 	q := newSessionQueueWithIdleTimeout(20 * time.Millisecond)
 
-	stream, doneC, err := q.Enqueue(context.Background(), "sess-idle", func(ctx context.Context) (*pkgchannel.ChatStream, error) {
-		return makeStream(pkgchannel.Event{Text: "done"}), nil
+	stream, doneC, err := q.Enqueue(context.Background(), "sess-idle", func(ctx context.Context) (*queuedTurn, error) {
+		return wrapTurn(makeStream(pkgchannel.Event{Text: "done"})), nil
 	})
 	if err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
-	for range stream.Events {
+	for range stream.stream.Events {
 	}
 	close(doneC)
 
@@ -313,13 +313,13 @@ func TestSessionQueue_RecreatesSlotAfterIdleCleanup(t *testing.T) {
 	q := newSessionQueueWithIdleTimeout(20 * time.Millisecond)
 
 	runOnce := func(sessionKey string) error {
-		stream, doneC, err := q.Enqueue(context.Background(), sessionKey, func(ctx context.Context) (*pkgchannel.ChatStream, error) {
-			return makeStream(pkgchannel.Event{Text: "ok"}), nil
+		stream, doneC, err := q.Enqueue(context.Background(), sessionKey, func(ctx context.Context) (*queuedTurn, error) {
+			return wrapTurn(makeStream(pkgchannel.Event{Text: "ok"})), nil
 		})
 		if err != nil {
 			return err
 		}
-		for range stream.Events {
+		for range stream.stream.Events {
 		}
 		close(doneC)
 		return nil
@@ -363,14 +363,14 @@ func TestSessionQueue_ControlOpReleasesSlotWhenCallerGivesUp(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		stream, doneC, err := q.Enqueue(context.Background(), "sess-ctl", func(context.Context) (*pkgchannel.ChatStream, error) {
-			return makeStream(pkgchannel.Event{Text: "next"}), nil
+		stream, doneC, err := q.Enqueue(context.Background(), "sess-ctl", func(context.Context) (*queuedTurn, error) {
+			return wrapTurn(makeStream(pkgchannel.Event{Text: "next"})), nil
 		})
 		if err != nil {
 			t.Errorf("follow-up enqueue: %v", err)
 			return
 		}
-		for range stream.Events {
+		for range stream.stream.Events {
 		}
 		close(doneC)
 	}()

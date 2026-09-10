@@ -176,25 +176,46 @@ type AgentProviderCredential struct {
 }
 
 type AgentRun struct {
-	ID                string             `json:"id"`
-	SessionID         string             `json:"session_id"`
-	ExecutorBootID    string             `json:"executor_boot_id"`
-	Source            string             `json:"source"`
-	Status            string             `json:"status"`
-	CompletionState   string             `json:"completion_state"`
-	CompletionOutcome string             `json:"completion_outcome"`
-	CompletionStatus  string             `json:"completion_status"`
-	CompletionReason  string             `json:"completion_reason"`
-	CompletionReadyAt pgtype.Timestamptz `json:"completion_ready_at"`
-	CompletionAckedAt pgtype.Timestamptz `json:"completion_acked_at"`
-	LeaseExpiresAt    time.Time          `json:"lease_expires_at"`
-	HeartbeatAt       time.Time          `json:"heartbeat_at"`
-	AbortRequestedAt  pgtype.Timestamptz `json:"abort_requested_at"`
-	AbortReason       string             `json:"abort_reason"`
-	TerminalReason    string             `json:"terminal_reason"`
-	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
-	CreatedAt         time.Time          `json:"created_at"`
-	UpdatedAt         time.Time          `json:"updated_at"`
+	ID               string             `json:"id"`
+	SessionID        string             `json:"session_id"`
+	ExecutorBootID   string             `json:"executor_boot_id"`
+	Source           string             `json:"source"`
+	Status           string             `json:"status"`
+	LeaseExpiresAt   time.Time          `json:"lease_expires_at"`
+	HeartbeatAt      time.Time          `json:"heartbeat_at"`
+	AbortRequestedAt pgtype.Timestamptz `json:"abort_requested_at"`
+	AbortReason      string             `json:"abort_reason"`
+	TerminalReason   string             `json:"terminal_reason"`
+	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+}
+
+type AgentRunOutput struct {
+	RunID     string             `json:"run_id"`
+	SessionID string             `json:"session_id"`
+	Platform  string             `json:"platform"`
+	ChannelID string             `json:"channel_id"`
+	ChatID    string             `json:"chat_id"`
+	ThreadID  string             `json:"thread_id"`
+	ReplyTo   string             `json:"reply_to"`
+	Text      string             `json:"text"`
+	Media     json.RawMessage    `json:"media"`
+	State     string             `json:"state"`
+	AttemptAt pgtype.Timestamptz `json:"attempt_at"`
+	SettledAt pgtype.Timestamptz `json:"settled_at"`
+	CreatedAt time.Time          `json:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at"`
+}
+
+type AgentRunOutputPart struct {
+	RunID     string          `json:"run_id"`
+	EventNo   int64           `json:"event_no"`
+	ChunkNo   int32           `json:"chunk_no"`
+	Metadata  json.RawMessage `json:"metadata"`
+	Data      []byte          `json:"data"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 type AgentWorkflow struct {

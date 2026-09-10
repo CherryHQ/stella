@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -98,7 +99,7 @@ func stripTrailingTextOnlyAssistant(rows []ai.Message) []ai.Message {
 // still commit. The pass reply itself does not: an empty assistant message
 // would make the session history look like the agent ignored the group, and
 // some providers reject empty turns outright.
-func (d *GroupDispatcher) retireModelPass(ctx context.Context, row sqlc.CtxGroupDispatch, turn memory.DeferredGroupTurn) error {
+func (d *GroupDispatcher) retireModelPass(ctx context.Context, row sqlc.CtxGroupDispatch, turn memory.DeferredGroupTurn, exec *groupExecution) error {
 	if d.committer == nil {
 		return errors.New("group dispatcher requires memory.TxGroupCommitter")
 	}
@@ -121,9 +122,15 @@ func (d *GroupDispatcher) retireModelPass(ctx context.Context, row sqlc.CtxGroup
 	if err := d.committer.CommitGroupTurn(ctx, tx, turn); err != nil {
 		return fmt.Errorf("model pass: commit read context: %w", err)
 	}
+	// The model's decision to stay quiet is this turn's durable result, so its
+	// execution is released here rather than after an egress that never happens.
+	if err := d.releaseTurnTx(ctx, tx, exec, agentrun.StatusCompleted, "model pass"); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("model pass: commit: %w", err)
 	}
+	d.markReleased(exec)
 	if d.events != nil {
 		d.events.AnnounceTurn(row.GroupID, row.AgentID, string(groupTurnSilent), groupSilentModelPass)
 	}

@@ -57,7 +57,9 @@ func (b *Bot) streamResponseInThreadChecked(ctx context.Context, stream *channel
 	if stream == nil {
 		return "", "", nil, nil, nil, 0, nil
 	}
-	return b.streamResponseInThreadWithCheck(ctx, stream.Events, stream.CheckOperation, chatID, replyMsgID, rootID, deliveryKey)
+	return b.streamResponseInThreadWithCheck(ctx, stream.Events, func(ctx context.Context) error {
+		return stream.AuthorizeSend(ctx, channel.SendOutput)
+	}, chatID, replyMsgID, rootID, deliveryKey)
 }
 
 func (b *Bot) streamResponseInThreadWithCheck(ctx context.Context, events <-chan channel.Event, check func(context.Context) error, chatID, replyMsgID, rootID, deliveryKey string) (string, string, []channel.ImageEvent, []channel.FileEvent, []renderrefs.Reference, time.Duration, error) {

@@ -32,7 +32,9 @@ func newToolTracker() channel.ToolTracker {
 }
 
 func (b *Bot) streamEventsChecked(c tele.Context, stream *channel.ChatStream) (string, *channel.ToolTracker, []channel.ImageEvent, error) {
-	return b.streamEventsWithCheck(c, stream, stream.CheckOperation)
+	return b.streamEventsWithCheck(c, stream, func(ctx context.Context) error {
+		return stream.AuthorizeSend(ctx, channel.SendOutput)
+	})
 }
 
 func (b *Bot) streamEventsWithCheck(c tele.Context, stream *channel.ChatStream, check func(context.Context) error) (string, *channel.ToolTracker, []channel.ImageEvent, error) {

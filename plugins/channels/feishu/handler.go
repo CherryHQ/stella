@@ -564,11 +564,11 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	}
 	defer cancel()
 	defer stream.Discard()
-	outcome := channel.EgressDelivered
+	outcome := channel.DeliverySent
 	defer func() {
 		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancelAck()
-		if ackErr := stream.Ack(ackCtx, outcome); ackErr != nil {
+		if ackErr := stream.Settle(ackCtx, outcome); ackErr != nil {
 			logger().Warn("acknowledge Feishu egress failed", "message_id", messageID, "error", ackErr)
 		}
 	}()
@@ -579,33 +579,35 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 
 	b.removeReaction(messageID, ackReactionID)
 
+	// A failed or empty turn's reply is the adapter's own notice, not model
+	// output: it stays sendable after the Run lost ownership.
+	sendKind := channel.SendOutput
 	if streamErr != nil {
-		outcome = channel.EgressOutcomeForError(streamErr)
+		sendKind = channel.SendControl
+		outcome = channel.DeliveryResultForError(streamErr)
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
 		b.reactToMessage(messageID, reactionError)
-		if response == "" {
-			response = fmt.Sprintf("Agent error: %v", streamErr)
-		} else {
-			response += fmt.Sprintf("\n\n[Agent error: %v]", streamErr)
-		}
+		response = fmt.Sprintf("Agent error: %v", streamErr)
+		images, files, refs = nil, nil, nil
 	}
 
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
+		sendKind = channel.SendControl
 	}
 
 	// Append elapsed time footer to the final response.
 	finalResponse := response + elapsedFooter(elapsed)
 
-	if err := b.sendFinalResponseInThreadChecked(ctx, stream, chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup, true); err != nil {
-		outcome = channel.EgressOutcomeForError(err)
+	if err := b.sendFinalResponseInThreadChecked(ctx, stream, chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup, true, sendKind); err != nil {
+		outcome = channel.DeliveryResultForError(err)
 		logger().Error("Feishu response delivery failed", "chat_id", chatID, "root_id", rootID, "message_id", messageID, "error", err)
 		return
 	}
 
 	for _, img := range images {
 		if err := b.sendImageInThreadChecked(ctx, stream, chatID, messageID, rootID, img); err != nil {
-			outcome = channel.EgressOutcomeForError(err)
+			outcome = channel.DeliveryResultForError(err)
 			logger().Error("send response image failed", "message_id", messageID, "error", err)
 			return
 		}
@@ -613,7 +615,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 
 	for _, file := range files {
 		if err := b.sendFileInThreadChecked(ctx, stream, chatID, messageID, rootID, file); err != nil {
-			outcome = channel.EgressOutcomeForError(err)
+			outcome = channel.DeliveryResultForError(err)
 			logger().Error("send response file failed", "message_id", messageID, "error", err)
 			return
 		}

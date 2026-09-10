@@ -1318,7 +1318,7 @@ func TestManagedFinalResponseDoesNotFallbackAfterStreamInitFailure(t *testing.T)
 	bot.contextTokens.Store("user1", "ctx-token")
 
 	stream := &channel.ChatStream{}
-	err := bot.sendFinalResponseChecked(context.Background(), stream, WeixinMessage{FromUserID: "user1"}, "hello world", nil, nil)
+	err := bot.sendFinalResponseChecked(t.Context(), stream, WeixinMessage{FromUserID: "user1"}, "hello world", nil, nil, channel.SendOutput)
 	if err == nil {
 		t.Fatal("managed final response unexpectedly succeeded")
 	}

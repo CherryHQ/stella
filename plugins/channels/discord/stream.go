@@ -77,7 +77,7 @@ func (d *discordDraft) edit(ctx context.Context, content string) error {
 	edit := discordgo.NewMessageEdit(d.channelID, d.messageID).SetContent(content)
 	edit.AllowedMentions = noMentions()
 	if d.stream != nil {
-		if err := d.stream.CheckOperation(ctx); err != nil {
+		if err := d.stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
 			return err
 		}
 	}
@@ -92,22 +92,24 @@ func (d *discordDraft) edit(ctx context.Context, content string) error {
 // button. It always unregisters the draft's cancel token, even on an edit
 // error, so a stale Cancel button an edit failure left clickable resolves to
 // "already ended" instead of silently re-arming a finished turn.
-func (d *discordDraft) finalize(ctx context.Context, content string) error {
+func (d *discordDraft) finalize(ctx context.Context, content string, kind channel.SendKind) error {
 	if d == nil {
 		return nil
 	}
+	defer func() {
+		d.bot.unregisterCancel(d.cancelToken)
+		d.cancelToken = ""
+	}()
 	empty := []discordgo.MessageComponent{}
 	edit := discordgo.NewMessageEdit(d.channelID, d.messageID).SetContent(content)
 	edit.AllowedMentions = noMentions()
 	edit.Components = &empty
 	if d.stream != nil {
-		if err := d.stream.CheckOperation(ctx); err != nil {
+		if err := d.stream.AuthorizeSend(ctx, kind); err != nil {
 			return err
 		}
 	}
 	_, err := d.bot.rest.ChannelMessageEditComplex(edit, discordgo.WithContext(ctx))
-	d.bot.unregisterCancel(d.cancelToken)
-	d.cancelToken = ""
 	if err == nil {
 		d.last = content
 	}
@@ -119,7 +121,7 @@ func (d *discordDraft) delete(ctx context.Context) error {
 		return nil
 	}
 	if d.stream != nil {
-		if err := d.stream.CheckOperation(ctx); err != nil {
+		if err := d.stream.AuthorizeSend(ctx, channel.SendControl); err != nil {
 			return err
 		}
 	}
@@ -136,11 +138,11 @@ func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stre
 		return nil
 	}
 	defer stream.Discard()
-	outcome := channel.EgressDelivered
+	outcome := channel.DeliverySent
 	defer func() {
 		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancelAck()
-		if ackErr := stream.Ack(ackCtx, outcome); ackErr != nil {
+		if ackErr := stream.Settle(ackCtx, outcome); ackErr != nil {
 			logger().Warn("acknowledge Discord egress failed", "channel_id", channelID, "error", ackErr)
 			if err == nil {
 				err = ackErr
@@ -149,13 +151,15 @@ func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stre
 	}()
 	// This is the only pre-send discard path. Once the working draft request
 	// starts, any returned error is unknown because Discord may have accepted it.
-	if err := stream.CheckOperation(ctx); err != nil {
-		outcome = channel.EgressDiscarded
+	// It authorizes delivery ownership rather than model output, so a turn that
+	// lost execution ownership still reports its terminal state below.
+	if err := stream.AuthorizeSend(ctx, channel.SendControl); err != nil {
+		outcome = channel.DeliveryNotSent
 		return err
 	}
 	draft, err := b.beginDraftChecked(ctx, channelID, replyTo, cancel, stream)
 	if err != nil {
-		outcome = channel.EgressOutcomeForError(err)
+		outcome = channel.DeliveryResultForError(err)
 		return err
 	}
 	var progressErr error
@@ -168,63 +172,63 @@ func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stre
 		}
 	})
 	if progressErr != nil {
-		outcome = channel.EgressOutcomeForError(progressErr)
+		outcome = channel.DeliveryResultForError(progressErr)
 		return progressErr
 	}
 	if errors.Is(streamErr, context.Canceled) || errors.Is(streamErr, context.DeadlineExceeded) {
 		if deleteErr := draft.delete(context.WithoutCancel(ctx)); deleteErr != nil {
-			outcome = channel.EgressOutcomeForError(deleteErr)
+			outcome = channel.DeliveryResultForError(deleteErr)
 			return deleteErr
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			// The working draft was already sent, so cancellation cannot prove that
 			// Discord did not receive it.
-			outcome = channel.EgressOutcomeForError(ctxErr)
+			outcome = channel.DeliveryResultForError(ctxErr)
 			return ctxErr
 		}
-		outcome = channel.EgressOutcomeForError(streamErr)
+		outcome = channel.DeliveryResultForError(streamErr)
 		return nil
 	}
+	sendKind := channel.SendOutput
 	if streamErr != nil {
-		outcome = channel.EgressOutcomeForError(streamErr)
+		outcome = channel.DeliveryResultForError(streamErr)
 		logger().Warn("Discord agent stream failed", "channel_id", channelID, "error", streamErr)
-		if text != "" {
-			text += "\n\n"
-		}
-		text += "Stella couldn't complete this response. Please try again."
+		text = "Stella couldn't complete this response. Please try again."
+		images, files = nil, nil
+		sendKind = channel.SendControl
 	}
 	if strings.TrimSpace(text) == "" && len(images) == 0 && len(files) == 0 {
 		text = "(empty response)"
 	}
 
 	if draft != nil && utf8.RuneCountInString(text) <= maxMessageLength && len(images) == 0 && len(files) == 0 {
-		err = draft.finalize(ctx, text)
+		err = draft.finalize(ctx, text, sendKind)
 		if err != nil {
-			outcome = channel.EgressOutcomeForError(err)
+			outcome = channel.DeliveryResultForError(err)
 		}
 		return err
 	}
 	if text != "" {
-		if err = b.sendTextChecked(ctx, stream, channelID, text, replyTo); err != nil {
-			outcome = channel.EgressOutcomeForError(err)
+		if err = b.sendTextChecked(ctx, stream, channelID, text, replyTo, sendKind); err != nil {
+			outcome = channel.DeliveryResultForError(err)
 			return err
 		}
 	}
 	for _, image := range images {
 		if err = b.sendImageChecked(ctx, stream, channelID, image); err != nil {
-			outcome = channel.EgressOutcomeForError(err)
+			outcome = channel.DeliveryResultForError(err)
 			return err
 		}
 	}
 	for _, file := range files {
 		if err = b.sendFileChecked(ctx, stream, channelID, file); err != nil {
-			outcome = channel.EgressOutcomeForError(err)
+			outcome = channel.DeliveryResultForError(err)
 			return err
 		}
 	}
 	err = draft.delete(ctx)
 	if err != nil {
-		outcome = channel.EgressOutcomeForError(err)
+		outcome = channel.DeliveryResultForError(err)
 	}
 	return err
 }

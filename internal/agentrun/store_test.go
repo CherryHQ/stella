@@ -12,7 +12,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/runcontrol"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -47,16 +46,14 @@ func TestLeaseHeartbeatOutlivesCanceledTurn(t *testing.T) {
 	}
 
 	// The 800ms tail crosses at least one 200ms heartbeat tick and the initial
-	// one-second database lease. PrepareCompletion proves the lease kept renewing.
+	// one-second database lease. The ownership fence proves the lease kept
+	// renewing: an expired Run would fail it.
 	time.Sleep(800 * time.Millisecond)
-	if err := lease.Completion().Check(ctx); err != nil {
+	if err := agentrun.Check(lease.ContextWith(ctx)); err != nil {
 		t.Fatalf("ownership lost during slow tail: %v", err)
 	}
-	if err := lease.PrepareCompletion(ctx, agentrun.StatusCompleted, ""); err != nil {
-		t.Fatalf("prepare completion after slow tail: %v", err)
-	}
-	if err := lease.Completion().Ack(ctx, runcontrol.OutcomeDelivered); err != nil {
-		t.Fatalf("ack completion: %v", err)
+	if err := lease.Finish(ctx, agentrun.StatusCompleted, ""); err != nil {
+		t.Fatalf("finish after slow tail: %v", err)
 	}
 }
 
@@ -112,7 +109,50 @@ func TestAcquireForInboxRebindsTargetGuardAtomically(t *testing.T) {
 	}
 }
 
-func TestCompletionFailureIsDurableAndConflictingAckRejected(t *testing.T) {
+// A caller-chosen status is exactly what the Run records, and Session activity
+// derives from that same statement, so the two can never disagree.
+func TestTerminalStatusDrivesSessionActivity(t *testing.T) {
+	for _, tc := range []struct {
+		status   string
+		activity string
+	}{
+		{agentrun.StatusCompleted, "success"},
+		{agentrun.StatusFailed, "error"},
+		{agentrun.StatusCanceled, "canceled"},
+		{agentrun.StatusInterrupted, "error"},
+	} {
+		t.Run(tc.status, func(t *testing.T) {
+			db := dbtest.New(t)
+			ctx := t.Context()
+			sessionID := uuid.NewString()
+			if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (session_id) VALUES ($1)`, sessionID); err != nil {
+				t.Fatalf("create conversation: %v", err)
+			}
+			store := agentrun.NewStoreWithLease(ctx, db, uuid.NewString(), time.Second)
+			t.Cleanup(store.Close)
+			if err := store.RegisterBoot(ctx); err != nil {
+				t.Fatalf("register executor boot: %v", err)
+			}
+			lease, err := store.Acquire(ctx, sessionID, "chat")
+			if err != nil {
+				t.Fatalf("acquire: %v", err)
+			}
+			if err := lease.Finish(ctx, tc.status, "runtime result"); err != nil {
+				t.Fatalf("finish: %v", err)
+			}
+			var status, activity string
+			if err := db.QueryRow(ctx, `SELECT r.status, c.last_turn_result FROM agent_run r
+				JOIN ctx_conversation c ON c.session_id = r.session_id WHERE r.id = $1`, lease.Guard.RunID).Scan(&status, &activity); err != nil {
+				t.Fatalf("read terminal run: %v", err)
+			}
+			if status != tc.status || activity != tc.activity {
+				t.Fatalf("run=%q activity=%q, want %q/%q", status, activity, tc.status, tc.activity)
+			}
+		})
+	}
+}
+
+func TestAbortRequestOutranksCallerStatus(t *testing.T) {
 	db := dbtest.New(t)
 	ctx := t.Context()
 	sessionID := uuid.NewString()
@@ -129,179 +169,29 @@ func TestCompletionFailureIsDurableAndConflictingAckRejected(t *testing.T) {
 	lease, err := store.Acquire(ctx, sessionID, "chat")
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
-	}
-	if err := lease.PrepareCompletion(ctx, agentrun.StatusCompleted, "model finished"); err != nil {
-		t.Fatalf("prepare completion: %v", err)
-	}
-	completion := lease.Completion()
-	if err := completion.Ack(ctx, runcontrol.OutcomeFailed); err != nil {
-		t.Fatalf("ack failed outcome: %v", err)
-	}
-	row, err := q.GetAgentRun(ctx, lease.Guard.RunID)
-	if err != nil {
-		t.Fatalf("read completed run: %v", err)
-	}
-	if row.Status != agentrun.StatusFailed || row.CompletionState != "acked" || row.CompletionOutcome != string(runcontrol.OutcomeFailed) {
-		t.Fatalf("failed completion row = status=%q state=%q outcome=%q", row.Status, row.CompletionState, row.CompletionOutcome)
-	}
-	if err := completion.Ack(ctx, runcontrol.OutcomeFailed); err != nil {
-		t.Fatalf("same failed outcome is not idempotent: %v", err)
-	}
-	if err := completion.Ack(ctx, runcontrol.OutcomeDelivered); !errors.Is(err, agentrun.ErrCompletionConflict) {
-		t.Fatalf("conflicting delivered outcome = %v, want ErrCompletionConflict", err)
-	}
-}
-
-func TestTerminalTransitionUpdatesSessionActivityAtomically(t *testing.T) {
-	db := dbtest.New(t)
-	ctx := t.Context()
-	sessionID := uuid.NewString()
-	bootID := uuid.NewString()
-	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (session_id) VALUES ($1)`, sessionID); err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
-	store := agentrun.NewStoreWithLease(ctx, db, bootID, time.Second)
-	t.Cleanup(store.Close)
-	if err := store.RegisterBoot(ctx); err != nil {
-		t.Fatalf("register executor boot: %v", err)
-	}
-	lease, err := store.Acquire(ctx, sessionID, "chat")
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	if err := lease.Finish(ctx, agentrun.StatusCompleted, "done"); err != nil {
-		t.Fatalf("finish: %v", err)
-	}
-	var result string
-	if err := db.QueryRow(ctx, `SELECT last_turn_result FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&result); err != nil {
-		t.Fatalf("read session activity: %v", err)
-	}
-	if result != "success" {
-		t.Fatalf("last_turn_result = %q, want success", result)
-	}
-}
-
-func TestAckRecordsFailedEgress(t *testing.T) {
-	db := dbtest.New(t)
-	ctx := t.Context()
-	sessionID := uuid.NewString()
-	bootID := uuid.NewString()
-	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (session_id) VALUES ($1)`, sessionID); err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
-	store := agentrun.NewStoreWithLease(ctx, db, bootID, time.Second)
-	t.Cleanup(store.Close)
-	if err := store.RegisterBoot(ctx); err != nil {
-		t.Fatalf("register executor boot: %v", err)
-	}
-	lease, err := store.Acquire(ctx, sessionID, "chat")
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	if err := lease.PrepareCompletion(ctx, agentrun.StatusCompleted, "model done"); err != nil {
-		t.Fatalf("prepare completion: %v", err)
-	}
-	if err := lease.Completion().Ack(ctx, runcontrol.OutcomeFailed); err != nil {
-		t.Fatalf("ack with activity: %v", err)
-	}
-	var status, result string
-	if err := db.QueryRow(ctx, `SELECT status, last_turn_result FROM agent_run run JOIN ctx_conversation c ON c.session_id = run.session_id WHERE run.id = $1`, lease.Guard.RunID).Scan(&status, &result); err != nil {
-		t.Fatalf("read terminal activity: %v", err)
-	}
-	if status != agentrun.StatusFailed || result != "error" {
-		t.Fatalf("status=%q activity=%q, want failed/error", status, result)
-	}
-}
-
-func TestEarlyUnknownAckTerminalizesOpenRun(t *testing.T) {
-	db := dbtest.New(t)
-	ctx := t.Context()
-	sessionID := uuid.NewString()
-	bootID := uuid.NewString()
-	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (session_id) VALUES ($1)`, sessionID); err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
-	store := agentrun.NewStoreWithLease(ctx, db, bootID, time.Second)
-	t.Cleanup(store.Close)
-	if err := store.RegisterBoot(ctx); err != nil {
-		t.Fatalf("register executor boot: %v", err)
-	}
-	lease, err := store.Acquire(ctx, sessionID, "chat")
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	if err := lease.Completion().Ack(ctx, runcontrol.OutcomeUnknown); err != nil {
-		t.Fatalf("early unknown ack: %v", err)
-	}
-	select {
-	case <-lease.Completion().Done():
-	case <-time.After(time.Second):
-		t.Fatal("completion barrier did not close after early unknown ack")
-	}
-	var status, state, outcome, activity string
-	if err := db.QueryRow(ctx, `SELECT run.status, run.completion_state, run.completion_outcome, c.last_turn_result FROM agent_run run JOIN ctx_conversation c ON c.session_id = run.session_id WHERE run.id = $1`, lease.Guard.RunID).Scan(&status, &state, &outcome, &activity); err != nil {
-		t.Fatalf("read terminal run: %v", err)
-	}
-	if status != agentrun.StatusInterrupted || state != "acked" || outcome != string(runcontrol.OutcomeUnknown) {
-		t.Fatalf("terminal run = status=%q state=%q outcome=%q", status, state, outcome)
-	}
-	if activity != "error" {
-		t.Fatalf("early unknown activity = %q, want error", activity)
-	}
-	if err := lease.Completion().Ack(ctx, runcontrol.OutcomeUnknown); err != nil {
-		t.Fatalf("repeated unknown ack is not idempotent: %v", err)
-	}
-	if err := lease.PrepareCompletion(ctx, agentrun.StatusCompleted, "late prepare"); !errors.Is(err, agentrun.ErrOutcomeUnknown) {
-		t.Fatalf("prepare after durable unknown = %v, want ErrOutcomeUnknown", err)
-	}
-	if err := lease.Completion().Check(ctx); !errors.Is(err, agentrun.ErrLeaseLost) {
-		t.Fatalf("ownership check after unknown terminal = %v, want ErrLeaseLost", err)
-	}
-}
-
-func TestAbortRequestedReadyCompletionBecomesUnknown(t *testing.T) {
-	db := dbtest.New(t)
-	ctx := t.Context()
-	sessionID := uuid.NewString()
-	bootID := uuid.NewString()
-	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (session_id) VALUES ($1)`, sessionID); err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
-	q := sqlc.New(db)
-	store := agentrun.NewStoreWithLease(ctx, db, bootID, time.Second)
-	t.Cleanup(store.Close)
-	if err := store.RegisterBoot(ctx); err != nil {
-		t.Fatalf("register executor boot: %v", err)
-	}
-	lease, err := store.Acquire(ctx, sessionID, "chat")
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	if err := lease.PrepareCompletion(ctx, agentrun.StatusCompleted, "model finished"); err != nil {
-		t.Fatalf("prepare completion: %v", err)
 	}
 	if _, err := store.RequestAbort(ctx, sessionID, "user_stop"); err != nil {
 		t.Fatalf("request abort: %v", err)
 	}
-	if err := store.Reap(ctx); err != nil {
-		t.Fatalf("reap abort: %v", err)
+	if err := lease.Finish(ctx, agentrun.StatusCompleted, "model finished"); err != nil {
+		t.Fatalf("finish after stop request: %v", err)
 	}
 	row, err := q.GetAgentRun(ctx, lease.Guard.RunID)
 	if err != nil {
 		t.Fatalf("read aborted run: %v", err)
 	}
-	if row.Status != agentrun.StatusAborted || row.CompletionState != "unknown" || row.CompletionOutcome != string(runcontrol.OutcomeUnknown) || row.CompletionAckedAt.Valid {
-		t.Fatalf("aborted ready completion row = status=%q state=%q outcome=%q acked_at=%v", row.Status, row.CompletionState, row.CompletionOutcome, row.CompletionAckedAt)
+	if row.Status != agentrun.StatusAborted || row.TerminalReason != "user_stop" {
+		t.Fatalf("run = status=%q reason=%q, want aborted/user_stop", row.Status, row.TerminalReason)
 	}
-	if err := lease.Completion().Ack(ctx, runcontrol.OutcomeUnknown); err != nil {
-		t.Fatalf("same unknown outcome acknowledgement = %v, want nil", err)
+	if err := lease.Finish(ctx, agentrun.StatusCompleted, "second attempt"); !errors.Is(err, agentrun.ErrLeaseLost) {
+		t.Fatalf("second finish after abort = %v, want ErrLeaseLost", err)
 	}
 	var activity string
 	if err := db.QueryRow(ctx, `SELECT last_turn_result FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&activity); err != nil {
 		t.Fatalf("read aborted activity: %v", err)
 	}
 	if activity != "canceled" {
-		t.Fatalf("aborted ready activity = %q, want canceled", activity)
+		t.Fatalf("aborted activity = %q, want canceled", activity)
 	}
 }
 
@@ -333,8 +223,8 @@ func TestExpiredRunRecordsErrorActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read expired run: %v", err)
 	}
-	if row.Status != agentrun.StatusInterrupted || row.CompletionState != "unknown" || row.CompletionOutcome != string(runcontrol.OutcomeUnknown) || row.CompletionAckedAt.Valid {
-		t.Fatalf("expired run = status=%q state=%q outcome=%q acked_at=%v", row.Status, row.CompletionState, row.CompletionOutcome, row.CompletionAckedAt)
+	if row.Status != agentrun.StatusInterrupted || row.TerminalReason != "lease_expired" {
+		t.Fatalf("expired run = status=%q reason=%q, want interrupted/lease_expired", row.Status, row.TerminalReason)
 	}
 	var activity string
 	if err := db.QueryRow(ctx, `SELECT last_turn_result FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&activity); err != nil {
@@ -343,61 +233,26 @@ func TestExpiredRunRecordsErrorActivity(t *testing.T) {
 	if activity != "error" {
 		t.Fatalf("expired activity = %q, want error", activity)
 	}
-	if err := lease.Completion().Ack(ctx, runcontrol.OutcomeUnknown); err != nil {
-		t.Fatalf("ack persisted expiry unknown: %v", err)
+	// A recovered Run never accepts a late transition from its old owner, and the
+	// local renewal for it has stopped.
+	if err := lease.Finish(ctx, agentrun.StatusCompleted, "late success"); !errors.Is(err, agentrun.ErrLeaseLost) {
+		t.Fatalf("late finish after expiry = %v, want ErrLeaseLost", err)
+	}
+	if got := store.LocalRuns(); got != 0 {
+		t.Fatalf("local runs = %d after reaping its own expired Run", got)
 	}
 }
 
-func TestLeaseAbortAfterRequestTerminalizesOpenRun(t *testing.T) {
+// The reason a stopped Run records comes from the durable request, not from
+// whatever the owner happens to pass when it notices the cancellation.
+func TestAbortRecordsTheDurableRequestReason(t *testing.T) {
 	db := dbtest.New(t)
 	ctx := t.Context()
 	sessionID := uuid.NewString()
-	bootID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (session_id) VALUES ($1)`, sessionID); err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
 	q := sqlc.New(db)
-	store := agentrun.NewStoreWithLease(ctx, db, bootID, time.Second)
-	t.Cleanup(store.Close)
-	if err := store.RegisterBoot(ctx); err != nil {
-		t.Fatalf("register executor boot: %v", err)
-	}
-	lease, err := store.Acquire(ctx, sessionID, "chat")
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	if _, err := store.RequestAbort(ctx, sessionID, "user_stop"); err != nil {
-		t.Fatalf("request abort: %v", err)
-	}
-	if err := lease.Abort(context.WithoutCancel(ctx)); err != nil {
-		t.Fatalf("abort: %v", err)
-	}
-	row, err := q.GetAgentRun(ctx, lease.Guard.RunID)
-	if err != nil {
-		t.Fatalf("read aborted run: %v", err)
-	}
-	if row.Status != agentrun.StatusAborted || row.CompletionState != "acked" || row.CompletionOutcome != string(runcontrol.OutcomeDiscarded) {
-		t.Fatalf("aborted open run = status=%q state=%q outcome=%q", row.Status, row.CompletionState, row.CompletionOutcome)
-	}
-	var activity string
-	if err := db.QueryRow(ctx, `SELECT last_turn_result FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&activity); err != nil {
-		t.Fatalf("read aborted activity: %v", err)
-	}
-	if activity != "canceled" {
-		t.Fatalf("aborted open activity = %q, want canceled", activity)
-	}
-	if err := lease.Abort(context.WithoutCancel(ctx)); err != nil {
-		t.Fatalf("repeated abort is not idempotent: %v", err)
-	}
-}
-
-func TestLeaseAbortUsesDurableRequestReason(t *testing.T) {
-	db := dbtest.New(t)
-	ctx := t.Context()
-	sessionID := uuid.NewString()
-	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (session_id) VALUES ($1)`, sessionID); err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
 	store := agentrun.NewStoreWithLease(ctx, db, uuid.NewString(), time.Second)
 	t.Cleanup(store.Close)
 	if err := store.RegisterBoot(ctx); err != nil {
@@ -410,7 +265,14 @@ func TestLeaseAbortUsesDurableRequestReason(t *testing.T) {
 	if _, err := store.RequestAbort(ctx, sessionID, "user_stop"); err != nil {
 		t.Fatalf("request abort: %v", err)
 	}
-	if err := lease.Abort(context.WithoutCancel(ctx)); err != nil {
-		t.Fatalf("abort should use the durable request reason: %v", err)
+	if err := lease.Finish(context.WithoutCancel(ctx), agentrun.StatusCanceled, "turn canceled"); err != nil {
+		t.Fatalf("finish after stop request: %v", err)
+	}
+	row, err := q.GetAgentRun(ctx, lease.Guard.RunID)
+	if err != nil {
+		t.Fatalf("read aborted run: %v", err)
+	}
+	if row.Status != agentrun.StatusAborted || row.TerminalReason != "user_stop" {
+		t.Fatalf("run = status=%q reason=%q, want aborted/user_stop", row.Status, row.TerminalReason)
 	}
 }

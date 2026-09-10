@@ -275,39 +275,39 @@ func (b *Bot) handleIncoming(authorID, groupID, msgID string, incoming channel.I
 	}
 
 	defer stream.Discard()
-	outcome := channel.EgressDelivered
+	outcome := channel.DeliverySent
 	defer func() {
 		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(b.ctx), 5*time.Second)
 		defer cancelAck()
-		if ackErr := stream.Ack(ackCtx, outcome); ackErr != nil {
+		if ackErr := stream.Settle(ackCtx, outcome); ackErr != nil {
 			logger().Warn("acknowledge QQ egress failed", "author", authorID, "error", ackErr)
 		}
 	}()
 
 	logger().Debug("message received", "author", authorID, "session", stream.SessionID)
 
-	if err := stream.CheckOperation(b.ctx); err != nil {
-		outcome = channel.EgressDiscarded
+	if err := stream.AuthorizeSend(b.ctx, channel.SendControl); err != nil {
+		outcome = channel.DeliveryNotSent
 		return
 	}
 	response, images, streamErr := b.streamResponse(b.ctx, stream, authorID, groupID, msgID, scope)
 
+	// A failed turn's reply is the adapter's own error notice, not model output.
+	sendKind := channel.SendOutput
 	if streamErr != nil {
-		outcome = channel.EgressOutcomeForError(streamErr)
+		sendKind = channel.SendControl
+		outcome = channel.DeliveryResultForError(streamErr)
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
-		if response == "" {
-			response = fmt.Sprintf("Agent error: %v", streamErr)
-		} else {
-			response += fmt.Sprintf("\n\n[Agent error: %v]", streamErr)
-		}
+		response = fmt.Sprintf("Agent error: %v", streamErr)
+		images = nil
 	}
 
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
 	}
 
-	if err := b.sendFinalResponse(b.ctx, stream, replyTarget, msgID, response, scope); err != nil {
-		outcome = channel.EgressOutcomeForError(err)
+	if err := b.sendFinalResponse(b.ctx, stream, replyTarget, msgID, response, scope, sendKind); err != nil {
+		outcome = channel.DeliveryResultForError(err)
 		logger().Error("send final response failed", "error", err)
 		return
 	}

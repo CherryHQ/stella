@@ -386,11 +386,11 @@ func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage
 		return
 	}
 	defer stream.Discard()
-	outcome := channel.EgressDelivered
+	outcome := channel.DeliverySent
 	defer func() {
 		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(b.ctx), 5*time.Second)
 		defer cancelAck()
-		if ackErr := stream.Ack(ackCtx, outcome); ackErr != nil {
+		if ackErr := stream.Settle(ackCtx, outcome); ackErr != nil {
 			logger().Warn("acknowledge Weixin egress failed", "user_id", msg.FromUserID, "error", ackErr)
 		}
 	}()
@@ -406,13 +406,10 @@ func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage
 	stopTyping()
 
 	if streamErr != nil {
-		outcome = channel.EgressOutcomeForError(streamErr)
+		outcome = channel.DeliveryResultForError(streamErr)
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
-		if response == "" {
-			response = fmt.Sprintf("Agent error: %v", streamErr)
-		} else {
-			response += fmt.Sprintf("\n\n[Agent error: %v]", streamErr)
-		}
+		response = fmt.Sprintf("Agent error: %v", streamErr)
+		images, files, tracker = nil, nil, nil
 	}
 
 	if strings.TrimSpace(response) == "" {
@@ -423,12 +420,13 @@ func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage
 		response += tracker.RenderFinal()
 	}
 
-	if err := stream.CheckOperation(b.ctx); err != nil {
-		outcome = channel.EgressDiscarded
-		return
+	// A failed turn's reply is the adapter's own error notice, not model output.
+	sendKind := channel.SendOutput
+	if streamErr != nil {
+		sendKind = channel.SendControl
 	}
-	if err := b.sendFinalResponseChecked(b.ctx, stream, msg, response, images, files); err != nil {
-		outcome = channel.EgressOutcomeForError(err)
+	if err := b.sendFinalResponseChecked(b.ctx, stream, msg, response, images, files, sendKind); err != nil {
+		outcome = channel.DeliveryResultForError(err)
 		logger().Error("send final response failed", "user_id", msg.FromUserID, "error", err)
 		return
 	}

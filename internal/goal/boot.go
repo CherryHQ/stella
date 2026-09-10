@@ -190,13 +190,13 @@ func (s *Service) StopDispatchTick(handle rivertype.PeriodicJobHandle) {
 // the goal's session. executor.go consumes this type; it is declared here
 // because BootConfig.Chat is its only producer.
 type TaskChatParams struct {
-	AgentID           string
-	UserID            string
-	SessionID         string
-	ProjectID         string
-	Prompt            string
-	RuntimeOpts       []agentruntime.Option
-	CompletionBarrier *agentruntime.CompletionBarrier
+	AgentID          string
+	UserID           string
+	SessionID        string
+	ProjectID        string
+	Prompt           string
+	RuntimeOpts      []agentruntime.Option
+	ExecutionHandoff *agentruntime.ExecutionHandoff
 	// Decompose routes the turn to the decomposition planning session
 	// (KindDelegate) instead of the worker session (KindTask). Set for
 	// purpose=decomposition attempts; the two session kinds resolve differently.

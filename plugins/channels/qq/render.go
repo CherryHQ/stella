@@ -10,7 +10,7 @@ import (
 
 // sendFinalResponse sends the completed response, splitting into chunks
 // if necessary.
-func (b *Bot) sendFinalResponse(ctx context.Context, stream *channel.ChatStream, targetID, msgID, response string, scope messageScope) error {
+func (b *Bot) sendFinalResponse(ctx context.Context, stream *channel.ChatStream, targetID, msgID, response string, scope messageScope, kind channel.SendKind) error {
 	chunks := channel.SplitMessage(response, qqMaxMessageLen)
 	for i, chunk := range chunks {
 		// MsgSeq starts at 100 to avoid collisions with stream chunk
@@ -23,7 +23,7 @@ func (b *Bot) sendFinalResponse(ctx context.Context, stream *channel.ChatStream,
 		}
 
 		var err error
-		if err := stream.CheckOperation(ctx); err != nil {
+		if err := stream.AuthorizeSend(ctx, kind); err != nil {
 			return err
 		}
 		switch scope {

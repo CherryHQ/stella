@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -278,31 +277,32 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, webhook string) {
 		return
 	}
 	defer stream.Discard()
-	outcome := channel.EgressDelivered
+	outcome := channel.DeliverySent
 	defer func() {
 		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancelAck()
-		if ackErr := stream.Ack(ackCtx, outcome); ackErr != nil {
+		if ackErr := stream.Settle(ackCtx, outcome); ackErr != nil {
 			logger().Warn("acknowledge DingTalk egress failed", "conversation_id", msg.ChatID, "error", ackErr)
 		}
 	}()
-	if err := stream.CheckOperation(ctx); err != nil {
-		outcome = channel.EgressDiscarded
+	if err := stream.AuthorizeSend(ctx, channel.SendControl); err != nil {
+		outcome = channel.DeliveryNotSent
 		return
 	}
 	response, streamErr := collectStream(ctx, stream)
+	sendKind := channel.SendOutput
 	if streamErr != nil {
-		outcome = channel.EgressOutcomeForError(streamErr)
-		if response != "" {
-			response += "\n\n"
-		}
-		response += "Agent error: " + streamErr.Error()
+		// The reply is now the adapter's own error notice, not model output.
+		sendKind = channel.SendControl
+		outcome = channel.DeliveryResultForError(streamErr)
+		response = "Agent error: " + streamErr.Error()
 	}
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
+		sendKind = channel.SendControl
 	}
-	if err := b.replyChecked(ctx, stream, webhook, response); err != nil {
-		outcome = channel.EgressOutcomeForError(err)
+	if err := b.replyChecked(ctx, stream, webhook, response, sendKind); err != nil {
+		outcome = channel.DeliveryResultForError(err)
 		logger().Error("reply failed", "error", err)
 	}
 }
@@ -333,24 +333,20 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err
 	if req.Stream != nil {
 		defer req.Stream.Discard()
 	}
-	outcome := channel.EgressDelivered
+	outcome := channel.DeliverySent
 	defer func() {
 		if req.Stream == nil {
 			return
 		}
 		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancelAck()
-		if ackErr := req.Stream.Ack(ackCtx, outcome); ackErr != nil && err == nil {
+		if ackErr := req.Stream.Settle(ackCtx, outcome); ackErr != nil && err == nil {
 			err = ackErr
 		}
 	}()
 	stream, err := channel.ValidateGroupReplay(ctx, req.Stream)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			outcome = channel.EgressDiscarded
-		} else {
-			outcome = channel.EgressFailed
-		}
+		outcome = channel.DeliveryNotSent
 		return err
 	}
 	if stream == nil {
@@ -358,20 +354,22 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err
 	}
 	response, streamErr := collectStream(ctx, stream)
 	if streamErr != nil {
-		outcome = channel.EgressOutcomeForError(streamErr)
+		outcome = channel.DeliveryResultForError(streamErr)
 		return fmt.Errorf("dingtalk: render group replay: %w", streamErr)
 	}
+	sendKind := channel.SendOutput
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
+		sendKind = channel.SendControl
 	}
 	session, ok := b.groupSessionFor(req.PlatformGroupID)
 	if !ok {
-		outcome = channel.EgressFailed
+		outcome = channel.DeliveryNotSent
 		return fmt.Errorf("dingtalk: no active session webhook for group %q", req.PlatformGroupID)
 	}
-	err = b.replyChecked(ctx, stream, session.URL, response)
+	err = b.replyChecked(ctx, stream, session.URL, response, sendKind)
 	if err != nil {
-		outcome = channel.EgressOutcomeForError(err)
+		outcome = channel.DeliveryResultForError(err)
 	}
 	return err
 }
@@ -389,14 +387,14 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 }
 
 func (b *Bot) reply(ctx context.Context, webhook, text string) error {
-	return b.replyChecked(ctx, nil, webhook, text)
+	return b.replyChecked(ctx, nil, webhook, text, channel.SendControl)
 }
 
-func (b *Bot) replyChecked(ctx context.Context, stream *channel.ChatStream, webhook, text string) error {
+func (b *Bot) replyChecked(ctx context.Context, stream *channel.ChatStream, webhook, text string, kind channel.SendKind) error {
 	chunks := channel.SplitMessage(text, dingTalkMaxMessageLen)
 	for i, chunk := range chunks {
 		if stream != nil {
-			if err := stream.CheckOperation(ctx); err != nil {
+			if err := stream.AuthorizeSend(ctx, kind); err != nil {
 				return err
 			}
 		}

@@ -41,7 +41,7 @@ type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory
 // chatWithRunner is the goroutine body for Runtime.Chat. The runner was selected and
 // reserved synchronously by ChatAdmitted, so a policy invalidation cannot slip
 // between admission and runner selection.
-func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions, selection runnerSelection) {
+func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions, selection runnerSelection) ([]ai.Message, error) {
 	defer rt.cache.releaseReservation(selection.session)
 
 	isGuest := info.GuestID != ""
@@ -87,7 +87,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	if err != nil {
 		out <- Event{Err: fmt.Errorf("session scope: %w", err)}
 		close(out)
-		return
+		return nil, fmt.Errorf("session scope: %w", err)
 	}
 	groupSink, hasGroupSink := memory.GroupTurnSinkFrom(ctx)
 	// A sink only owns this turn when the turn really is a group turn; a stray
@@ -195,7 +195,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		rt.log.Warn("memory assemble failed", "session_id", info.ID, "error", err)
 		if memSess.GroupID != "" {
 			out <- Event{Err: fmt.Errorf("assemble group memory: %w", err)}
-			return
+			return nil, fmt.Errorf("assemble group memory: %w", err)
 		}
 	} else {
 		history = assembled
@@ -226,7 +226,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		}
 		if rebuilt, err := selection.snapshotPrompt(ctx, info, snap, selection.pluginContext); err != nil {
 			out <- Event{Err: fmt.Errorf("snapshot prompt: %w", err)}
-			return
+			return nil, fmt.Errorf("snapshot prompt: %w", err)
 		} else {
 			baseSystem = rebuilt
 		}
@@ -235,7 +235,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		systemOut, err := selection.beforeRun(ctx, info, selection.model, msgText, baseSystem, history, selection.pluginContext)
 		if err != nil {
 			out <- Event{Err: fmt.Errorf("before run: %w", err)}
-			return
+			return nil, fmt.Errorf("before run: %w", err)
 		}
 		if systemOut != "" {
 			baseSystem = systemOut
@@ -293,17 +293,17 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 			if ai.HasImage(blocks) {
 				if rt.sessionImages == nil {
 					out <- Event{Err: errors.New("session image enrichment is not configured")}
-					return
+					return nil, errors.New("session image enrichment is not configured")
 				}
 				owner, err := sessionmedia.SessionOwner(info.UserID, info.GroupID)
 				if err != nil {
 					out <- Event{Err: fmt.Errorf("resolve session media owner: %w", err)}
-					return
+					return nil, fmt.Errorf("resolve session media owner: %w", err)
 				}
 				enriched, err := rt.sessionImages.Enrich(ctx, owner, info.AgentID, blocks)
 				if err != nil {
 					out <- Event{Err: fmt.Errorf("enrich user images: %w", err)}
-					return
+					return nil, fmt.Errorf("enrich user images: %w", err)
 				}
 				blocks = enriched
 			}
@@ -316,16 +316,16 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 			appender, ok := rt.mem.(memory.InboxAppender)
 			if !ok {
 				out <- Event{Err: errors.New("memory provider does not support durable Session inbox")}
-				return
+				return nil, errors.New("memory provider does not support durable Session inbox")
 			}
 			if err := appender.AppendInboxInput(ctx, memSess, co.inboxID, userMsg); err != nil {
 				out <- Event{Err: fmt.Errorf("persist Session inbox input: %w", err)}
-				return
+				return nil, fmt.Errorf("persist Session inbox input: %w", err)
 			}
 		} else if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
 			if hasCanonicalImage {
 				out <- Event{Err: fmt.Errorf("persist canonical user message: %w", err)}
-				return
+				return nil, fmt.Errorf("persist canonical user message: %w", err)
 			}
 			rt.log.Warn("memory append user message failed", "session_id", info.ID, "error", err)
 		}
@@ -336,7 +336,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	if deferredGroupTurn {
 		deferred.OwnRows = ownRows
 		deferred.Complete = chatErr == nil && assembledOK && ctx.Err() == nil
-		return
+		return ownRows, chatErr
 	}
 	if chatErr == nil && assembledOK && ctx.Err() == nil && memSess.GroupID != "" {
 		if committer, ok := rt.mem.(memory.GroupCursorCommitter); ok {
@@ -346,6 +346,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 			}
 		}
 	}
+	return ownRows, chatErr
 }
 
 func (rt *Runtime) getOrCreateReservedRunner(ctx context.Context, info session.Info, model string, extraTools []tools.Tool, generation uint64) (runnerSelection, error) {
@@ -476,6 +477,7 @@ func (rt *Runtime) streamEvents(
 	persistCtx := context.WithoutCancel(ctx)
 	isGroup := memSess.GroupID != ""
 	var chatErr error
+	var committed []ai.Message
 	var pendingStores []ai.Message
 	var textBuf strings.Builder
 	var reasoningBuf strings.Builder
@@ -484,10 +486,18 @@ func (rt *Runtime) streamEvents(
 		storeMessages = append(storeMessages, storePrefix...)
 		storeMessages = append(storeMessages, msgs...)
 		storePrefix = nil
-		if isGroup {
-			return rt.mem.Append(persistCtx, memSess, storeMessages...)
+		if err := rt.mem.Append(persistCtx, memSess, storeMessages...); err != nil {
+			return err
 		}
-		return rt.mem.Append(persistCtx, memSess, storeMessages...)
+		// Only messages this call actually committed are deliverable output of
+		// this turn; a trigger prefix belongs to the group's owned turn.
+		committed = append(committed, msgs...)
+		return nil
+	}
+	commitFailureErr := func(op string, err error) error {
+		failure := fmt.Errorf("%w: %s: %w", errOutputNotCommitted, op, err)
+		sendEvent(ctx, out, Event{Err: failure})
+		return failure
 	}
 	storeCurrent := func(msgs ...ai.Message) error {
 		if isGroup {
@@ -496,15 +506,16 @@ func (rt *Runtime) streamEvents(
 		}
 		return appendWithPrefix(msgs...)
 	}
-	flushInterruptedAssistant := func() {
+	flushInterruptedAssistant := func() error {
 		if isGroup || (textBuf.Len() == 0 && reasoningBuf.Len() == 0) {
-			return
+			return nil
 		}
 		if err := appendWithPrefix(bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())); err != nil {
-			rt.log.Warn("memory append interrupted assistant failed", "session_id", sessionID, "error", err)
+			return commitFailureErr("interrupted transcript", err)
 		}
 		textBuf.Reset()
 		reasoningBuf.Reset()
+		return nil
 	}
 	defer func() {
 		hs.RunPostAgentCall(ctx, &hooks.PostAgentCallContext{
@@ -517,25 +528,27 @@ func (rt *Runtime) streamEvents(
 	for evt := range stream {
 		if evt.Err != nil {
 			chatErr = evt.Err
-			flushInterruptedAssistant()
+			if err := flushInterruptedAssistant(); err != nil {
+				return nil, errors.Join(chatErr, err)
+			}
 			// Explicit stop and lifecycle shutdown are normal cancellation paths,
 			// not failed turns to surface as an in-band chat error.
 			if ctx.Err() != nil && errors.Is(evt.Err, context.Canceled) {
-				return nil, ctx.Err()
+				return committed, ctx.Err()
 			}
 			if errors.Is(evt.Err, ErrChatTimeout) {
 				notice := "I've been working on this for a while and have reached the time limit. Here's where things stand — feel free to send a message to continue or change direction."
 				if !isGroup {
 					noticeMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: notice}}}
-					if err := rt.mem.Append(persistCtx, memSess, noticeMsg); err != nil {
-						rt.log.Warn("memory append timeout notice failed", "session_id", sessionID, "error", err)
+					if err := appendWithPrefix(noticeMsg); err != nil {
+						return nil, commitFailureErr("timeout notice", err)
 					}
 				}
 				sendEvent(ctx, out, Event{Text: notice})
-				return nil, chatErr
+				return committed, chatErr
 			}
 			sendEvent(ctx, out, evt)
-			return nil, chatErr
+			return committed, chatErr
 		}
 
 		if evt.Store != nil {
@@ -546,22 +559,21 @@ func (rt *Runtime) streamEvents(
 				flush := bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())
 				if err := storeCurrent(flush); err != nil {
 					rt.log.Warn("memory append text-flush failed", "session_id", sessionID, "error", err)
-					return nil, fmt.Errorf("memory append text-flush: %w", err)
+					return nil, commitFailureErr("transcript text flush", err)
 				}
 				textBuf.Reset()
 				reasoningBuf.Reset()
 			}
 			if err := storeCurrent(evt.Store); err != nil {
 				rt.log.Warn("memory append store message failed", "session_id", sessionID, "error", err)
-				return nil, fmt.Errorf("memory append store message: %w", err)
+				return nil, commitFailureErr("transcript store message", err)
 			}
 		}
 
 		if evt.ToolUse != nil {
 			if !sendEvent(ctx, out, evt) {
 				chatErr = ctx.Err()
-				flushInterruptedAssistant()
-				return nil, chatErr
+				return committed, errors.Join(chatErr, flushInterruptedAssistant())
 			}
 			continue
 		}
@@ -574,14 +586,12 @@ func (rt *Runtime) streamEvents(
 		}
 		if !sendEvent(ctx, out, evt) {
 			chatErr = ctx.Err()
-			flushInterruptedAssistant()
-			return nil, chatErr
+			return committed, errors.Join(chatErr, flushInterruptedAssistant())
 		}
 	}
 
 	if ctx.Err() != nil {
-		flushInterruptedAssistant()
-		return nil, ctx.Err()
+		return committed, errors.Join(ctx.Err(), flushInterruptedAssistant())
 	}
 	if textBuf.Len() > 0 || reasoningBuf.Len() > 0 {
 		pendingStores = append(pendingStores, bufferedAssistantMessage(textBuf.String(), reasoningBuf.String()))
@@ -596,18 +606,18 @@ func (rt *Runtime) streamEvents(
 		if len(storePrefix) > 0 || len(pendingStores) > 0 {
 			if err := appendWithPrefix(pendingStores...); err != nil {
 				rt.log.Warn("memory append final message failed", "session_id", sessionID, "error", err)
-				return nil, fmt.Errorf("memory append final message: %w", err)
+				return nil, commitFailureErr("transcript final message", err)
 			}
 		}
-		return nil, nil
+		return committed, nil
 	}
 	if len(pendingStores) > 0 {
 		if err := appendWithPrefix(pendingStores...); err != nil {
 			rt.log.Warn("memory append final message failed", "session_id", sessionID, "error", err)
-			return nil, fmt.Errorf("memory append final message: %w", err)
+			return nil, commitFailureErr("transcript final message", err)
 		}
 	}
-	return nil, nil
+	return committed, nil
 }
 
 func bufferedAssistantMessage(text, reasoning string) ai.AssistantMessage {

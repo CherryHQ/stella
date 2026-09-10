@@ -33,6 +33,11 @@ type scriptedExecutor struct {
 func (e *scriptedExecutor) Execute(_ context.Context, req ExecutorRequest) (ExecutorResult, error) {
 	if e.fn != nil {
 		res, err := e.fn(req)
+		// The executor contract is that every admitted turn is reported to the worker
+		// before it is pumped, so a slow or failing turn's Run is still released.
+		if req.OnTurnStarted != nil {
+			req.OnTurnStarted(res.handoff)
+		}
 		if err != nil || !res.Submitted || req.OnSandboxSession == nil {
 			return res, err
 		}

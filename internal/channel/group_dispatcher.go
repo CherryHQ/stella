@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +16,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -38,7 +41,15 @@ const (
 	defaultGroupReplyBufferBytes = 8 << 20
 )
 
-type dispatchChatFunc func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error)
+// groupChatResult is one admitted group turn handed to the dispatcher: the
+// stream to buffer plus the execution ownership it must release with its own
+// durable decision.
+type groupChatResult struct {
+	stream *pkgchannel.ChatStream
+	exec   *groupExecution
+}
+
+type dispatchChatFunc func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (groupChatResult, error)
 
 // GroupDispatcher materializes durable group response decisions and executes
 // one selected-agent dispatch at a time. Ingest owns facts; this owns work.
@@ -622,7 +633,23 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	// before closing its output, so draining the stream is the handoff barrier.
 	sink := memory.NewGroupTurnSink()
 	chatCtx := memory.WithGroupTurnSink(ownedCtx, sink)
-	stream, err := d.chat(chatCtx, claimed, message, state)
+	chatResult, err := d.chat(chatCtx, claimed, message, state)
+	// Once a turn is admitted, its Run must be released on every path out of this
+	// function, including a panic below. The decision paths release it inside
+	// their own transaction and mark it released; this net covers the rest.
+	if exec := chatResult.exec; exec != nil {
+		defer func() {
+			defer exec.lease().Release()
+			defer func() { _ = d.settleTurnDelivery(context.WithoutCancel(ctx), exec) }()
+			if exec.markReleased() {
+				// Nothing terminal committed here; release it without reporting a
+				// success this path cannot prove.
+				if releaseErr := d.releaseTurn(ctx, exec, agentrun.StatusFailed, "group turn ended without a committed decision"); releaseErr != nil {
+					d.log.Warn("release group AgentRun failed", "dispatch_id", claimed.ID, "error", releaseErr)
+				}
+			}
+		}()
+	}
 	if errors.Is(err, errGroupNudgeMoot) {
 		// The re-check runs after the session queue grants this slot. Do not emit
 		// a running frame for work the wake ahead of it already completed.
@@ -654,7 +681,12 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	// chat returns only after its per-(group, agent) session queue gives this
 	// turn the slot. This is the first truthful point to project it as running.
 	d.announceTurn(claimed, "running", reason)
-	response := d.bufferGroupResponse(ownedCtx, stream)
+	response := d.bufferGroupResponse(ownedCtx, chatResult.stream)
+	exec := chatResult.exec
+	commitCtx := context.WithoutCancel(ownedCtx)
+	if lease := exec.lease(); lease != nil {
+		commitCtx = lease.ContextWith(commitCtx)
+	}
 	turn, delivered := sink.Result()
 	if response.err != nil || !response.complete || !delivered || !turn.Complete {
 		cause := response.err
@@ -662,32 +694,114 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 			cause = errors.New("group turn ended without a complete deferred result")
 		}
 		failErr := d.failDispatch(ctx, claimed, cause)
-		ackErr := ackGroupResponse(ownedCtx, response, pkgchannel.EgressFailed, cause.Error())
-		return joinDispatchErrors(failErr, ackErr)
+		return joinDispatchErrors(failErr, d.releaseTurn(ownedCtx, exec, agentrun.StatusFailed, cause.Error()))
 	}
 	// The model's own decision to stay quiet, checked before the accept gates:
 	// nothing was written, so there is nothing for them to judge.
 	if isModelPass(response.text) {
-		retireErr := d.retireModelPass(ownedCtx, claimed, turn)
+		retireErr := d.retireModelPass(commitCtx, claimed, turn, exec)
 		if retireErr != nil {
 			return retireErr
 		}
-		return ackGroupResponse(ownedCtx, response, pkgchannel.EgressDiscarded, "model pass")
+		return d.settleTurnDelivery(ownedCtx, exec)
 	}
-	outcome, err := d.acceptGroupResponse(ownedCtx, claimed, response, turn)
+	outcome, err := d.acceptGroupResponse(commitCtx, claimed, response, turn, exec)
 	if err != nil {
 		failErr := d.failDispatch(ctx, claimed, err)
-		ackErr := ackGroupResponse(ownedCtx, response, pkgchannel.EgressFailed, err.Error())
-		return joinDispatchErrors(failErr, ackErr)
+		return joinDispatchErrors(failErr, d.releaseTurn(ownedCtx, exec, agentrun.StatusFailed, err.Error()))
 	}
 	if outcome.Status != groupTurnAccepted {
 		d.announceTurn(claimed, string(outcome.Status), outcome.Reason)
-		return ackGroupResponse(ownedCtx, response, pkgchannel.EgressDiscarded, outcome.Reason)
+		return d.settleTurnDelivery(ownedCtx, exec)
 	}
 	return d.publishAccepted(ownedCtx, publishJob{
 		row: claimed, trigger: message, state: state, publisher: publisher,
 		response: response, envelope: envelope, acceptedMessageID: outcome.Accepted.Message.ID,
+		exec: exec,
 	})
+}
+
+// groupExecution is the execution ownership of one buffered group turn. Group
+// turns commit their reply inside the dispatcher's own transaction, so the
+// dispatcher — not the runtime — releases the Run, in the same transaction that
+// records the decision the reply belongs to.
+type groupExecution struct {
+	handoff  *agentruntime.ExecutionHandoff
+	delivery *dispatchDelivery
+	// released records that a terminal transition already committed, so the
+	// deferred safety net below does not finish this turn a second time.
+	released atomic.Bool
+}
+
+func (e *groupExecution) lease() *agentrun.Lease {
+	if e == nil || e.handoff == nil {
+		return nil
+	}
+	return e.handoff.Lease()
+}
+
+// markReleased reports whether this call is the one that released the turn.
+func (e *groupExecution) markReleased() bool {
+	return e != nil && e.released.CompareAndSwap(false, true)
+}
+
+// releaseTurnTx writes the Run's terminal transition inside the dispatcher
+// transaction that owns the turn's durable decision, so a crash can never leave
+// a terminal Run whose decision was never committed. It is deliberately SQL only:
+// the local renewal worker is released after this transaction commits, because a
+// rollback must leave the Run running and still owned. A nil exec means the seam
+// never admitted a Run (test doubles).
+func (d *GroupDispatcher) releaseTurnTx(ctx context.Context, tx pgx.Tx, exec *groupExecution, status, reason string) error {
+	lease := exec.lease()
+	if lease == nil {
+		return nil
+	}
+	written, err := agentrun.TerminalTx(ctx, tx, lease.Guard, status, reason)
+	if err != nil {
+		return fmt.Errorf("finish group AgentRun: %w", err)
+	}
+	if written != status {
+		return agentrun.ErrLeaseLost
+	}
+	return nil
+}
+
+// markReleased stops renewing this turn's Run after its decision committed. The
+// deferred safety net in ExecuteDispatch then knows not to finish it again.
+func (d *GroupDispatcher) markReleased(exec *groupExecution) {
+	if exec == nil || !exec.markReleased() {
+		return
+	}
+	if lease := exec.lease(); lease != nil {
+		lease.Release()
+	}
+}
+
+// releaseTurn is releaseTurnTx for a decision that has no transaction of its own,
+// e.g. a dispatch row that failed before any reply was accepted.
+func (d *GroupDispatcher) releaseTurn(ctx context.Context, exec *groupExecution, status, reason string) error {
+	lease := exec.lease()
+	if lease == nil {
+		return nil
+	}
+	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := lease.Finish(finishCtx, status, reason); err != nil && !errors.Is(err, agentrun.ErrLeaseLost) {
+		return fmt.Errorf("finish group AgentRun: %w", err)
+	}
+	return nil
+}
+
+// settleTurnDelivery ends this turn's publish attempt so the per-group FIFO can
+// admit the next turn. A turn that produced no egress settles its own delivery;
+// a published one settles after the publisher returns.
+func (d *GroupDispatcher) settleTurnDelivery(ctx context.Context, exec *groupExecution) error {
+	if exec == nil || exec.delivery == nil {
+		return nil
+	}
+	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return exec.delivery.Settle(settleCtx, pkgchannel.DeliveryNotSent)
 }
 
 // announceTurn projects one live turn state to the group's subscribers. The hub
@@ -721,10 +835,13 @@ func (d *GroupDispatcher) markAndAnnounce(ctx context.Context, row sqlc.CtxGroup
 // applies the row's terminal state. Retry policy stays with the row's owner.
 func (d *GroupDispatcher) publishAccepted(ctx context.Context, job publishJob) error {
 	row, err := d.publish.run(ctx, job)
+	// The attempt is over either way: release the per-group FIFO before the
+	// dispatcher's row bookkeeping, which is a separate durable decision.
+	settleErr := d.settleTurnDelivery(ctx, job.exec)
 	if err != nil {
-		return d.failDispatch(ctx, row, err)
+		return joinDispatchErrors(d.failDispatch(ctx, row, err), settleErr)
 	}
-	return d.completeDispatch(ctx, row)
+	return joinDispatchErrors(d.completeDispatch(ctx, row), settleErr)
 }
 
 // groupWake describes this turn to the agent about to run it: which gate let it
@@ -892,28 +1009,8 @@ type groupResponse struct {
 	reasoning string
 	sessionID string
 	events    []pkgchannel.Event
-	// completion survives the in-memory buffer and replay. The dispatcher must
-	// not let the group session queue release at model EOF; the publisher (or
-	// the canonical web commit) settles it after the final business effect.
-	completion pkgchannel.StreamCompletion
-	complete   bool
-	err        error
-}
-
-// ackGroupResponse settles a model turn after the dispatcher has committed the
-// corresponding durable decision. A rejected/held/pass turn has no external
-// egress, so it must still Ack discarded or the per-group FIFO would remain
-// occupied after model EOF.
-func ackGroupResponse(ctx context.Context, response groupResponse, outcome pkgchannel.EgressOutcome, reason string) error {
-	if response.completion == nil {
-		return nil
-	}
-	ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	if err := response.completion.Ack(ackCtx, outcome); err != nil {
-		return fmt.Errorf("ack group response (%s): %w", reason, err)
-	}
-	return nil
+	complete  bool
+	err       error
 }
 
 func joinDispatchErrors(primary, secondary error) error {
@@ -931,9 +1028,8 @@ func joinDispatchErrors(primary, secondary error) error {
 // when a deployment needs responses larger than this.
 func (d *GroupDispatcher) bufferGroupResponse(ctx context.Context, stream *pkgchannel.ChatStream) groupResponse {
 	response := groupResponse{
-		sessionID:  stream.SessionID,
-		completion: stream.Completion,
-		complete:   true,
+		sessionID: stream.SessionID,
+		complete:  true,
 	}
 	limit := defaultGroupReplyBufferBytes
 	var used int

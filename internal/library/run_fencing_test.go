@@ -6,13 +6,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/runcontrol"
 )
 
 func TestStaleRunCannotCommitLibraryUpload(t *testing.T) {
@@ -105,8 +103,7 @@ func terminalLibraryRunGuard(t *testing.T, database *pgxpool.Pool) agentrun.Guar
 	if _, err := q.CompleteAgentRunWithActivity(t.Context(), sqlc.CompleteAgentRunWithActivityParams{
 		RunID: runID, ExecutorBootID: bootID,
 		Status: agentrun.StatusCompleted, Reason: "library-run-fence",
-		CompletionOutcome: string(runcontrol.OutcomeDelivered),
-		TurnResult:        pgtype.Text{String: "success", Valid: true},
+		SessionID: sessionID,
 	}); err != nil {
 		t.Fatalf("complete AgentRun: %v", err)
 	}

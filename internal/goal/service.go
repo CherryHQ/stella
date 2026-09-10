@@ -58,6 +58,8 @@ type ExecutorRequest struct {
 	Attempt          sqlc.AgentGoalAttempt
 	Input            AttemptInput
 	OnSandboxSession func(sandbox.Session) error
+	// OnTurnStarted receives the handle before chat begins; it may bind a Run later.
+	OnTurnStarted func(*agentruntime.ExecutionHandoff)
 }
 
 // ExecutorResult is the executor's declared outcome for one attempt. Exactly
@@ -73,7 +75,9 @@ type ExecutorResult struct {
 	FailReason    string
 	FailureClass  string
 	BlockedBy     string
-	completion    *agentruntime.CompletionBarrier
+	// handoff carries the admitted turn's execution ownership to the worker, which
+	// releases it only after this attempt's durable transition is committed.
+	handoff *agentruntime.ExecutionHandoff
 }
 
 // CapabilityProbe reports deployment capabilities that affect contract

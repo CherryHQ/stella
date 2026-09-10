@@ -15,10 +15,10 @@ import (
 	"github.com/riverqueue/river"
 
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/runcontrol"
 )
 
 // ErrOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp
@@ -696,8 +696,9 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 		defer jobSpan.End()
 	}
 	outputSink := &RunOutputSink{}
-	completion := agentruntime.NewCompletionBarrier()
-	runCtx := withAgentCompletion(withRunOutputSink(WithRunID(WithRunSessionID(jobCtx, sessionID), runID), outputSink), completion)
+	handoff := agentruntime.NewExecutionHandoff()
+	defer func() { handoff.Lease().Release() }()
+	runCtx := withAgentHandoff(withRunOutputSink(WithRunID(WithRunSessionID(jobCtx, sessionID), runID), outputSink), handoff)
 
 	// Inject user into job copy so the callback can read job.UserID correctly.
 	jobRun := job
@@ -706,6 +707,11 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	runErr := s.dispatchJob(runCtx, jobRun)
 
 	finishedAt := time.Now().UTC()
+	// The Runtime's own outcome is authoritative for the execution. An adapter can
+	// swallow the event that reported a failed transcript commit, and a run recorded
+	// as success would then claim a result that is not durable.
+	outcome, hasOutcome := handoff.Outcome()
+	runErr, outcomeUnknown := schedulerExecutionErr(runErr, outcome, hasOutcome)
 	status := RunStatusSuccess
 	errStr := ""
 	if runErr != nil {
@@ -716,42 +722,35 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	// Finalize run bookkeeping on a context detached from cancellation: when a
 	// graceful shutdown cancels ctx mid-dispatch, the run row must still move out
 	// of "running" so it neither stays stuck nor blocks the next fire.
-	bookkeepingCtx := context.WithoutCancel(jobCtx)
-	if completion.Bound() {
-		guardedCtx, err := completion.Context(bookkeepingCtx)
-		if err != nil {
-			s.log.Warn("scheduler AgentRun completion fence unavailable", "run_id", runID, "error", err)
-			return
-		}
-		bookkeepingCtx = guardedCtx
-	}
+	bookkeepingCtx := runBookkeepingContext(jobCtx, handoff)
 	finishErr := s.finishJobRun(bookkeepingCtx, runID, job.ID, status, finishedAt, errStr, outputSink.get())
 	if finishErr != nil {
 		s.log.Warn("failed to finish job run record", "run_id", runID, "error", finishErr)
 	}
-
-	s.mu.Lock()
-	if jobState, ok := s.jobs[job.ID]; ok {
-		jobState.LastRunAt = &finishedAt
-		if runErr != nil {
-			jobState.LastError = runErr.Error()
-		} else {
-			jobState.LastError = ""
-		}
-		jobState.UpdatedAt = finishedAt
-		s.jobs[job.ID] = jobState
-	}
-	s.mu.Unlock()
-
 	recordErr := s.recordJobRun(bookkeepingCtx, job.ID, finishedAt, runErr)
 	if recordErr != nil {
 		s.log.Warn("failed to record scheduler job run", "id", job.ID, "error", recordErr)
 	}
-	if completion.Bound() {
-		if err := ackSchedulerCompletion(completion, bookkeepingCtx, schedulerCompletionOutcome(finishErr, recordErr)); err != nil {
-			s.log.Warn("failed to acknowledge scheduler AgentRun", "run_id", runID, "error", err)
+	// The cached last-run state mirrors the durable record: a write this execution
+	// was not allowed to make must not be advertised as its result either.
+	if recordErr == nil {
+		s.mu.Lock()
+		if jobState, ok := s.jobs[job.ID]; ok {
+			jobState.LastRunAt = &finishedAt
+			if runErr != nil {
+				jobState.LastError = runErr.Error()
+			} else {
+				jobState.LastError = ""
+			}
+			jobState.UpdatedAt = finishedAt
+			s.jobs[job.ID] = jobState
 		}
+		s.mu.Unlock()
 	}
+	// The job-run result is committed; only now is this execution complete. A
+	// bookkeeping failure is an execution failure, never a silent success.
+	runStatus, runReason := schedulerRunStatus(runErr, finishErr, recordErr, outcomeUnknown)
+	s.finishAgentRun(bookkeepingCtx, handoff, runStatus, runReason)
 
 	if isOneTime {
 		go s.retireOneTimeJob(job.ID)
@@ -805,11 +804,14 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 		jobCtx, jobSpan := startSchedulerJobSpan(svcCtx, job.ID, runID, job.AgentID, job.DispatchKind)
 		defer jobSpan.End()
 		outputSink := &RunOutputSink{}
-		completion := agentruntime.NewCompletionBarrier()
-		runCtx := withAgentCompletion(withRunOutputSink(WithRunID(WithRunSessionID(jobCtx, sessionID), runID), outputSink), completion)
+		handoff := agentruntime.NewExecutionHandoff()
+		defer func() { handoff.Lease().Release() }()
+		runCtx := withAgentHandoff(withRunOutputSink(WithRunID(WithRunSessionID(jobCtx, sessionID), runID), outputSink), handoff)
 		runErr := s.dispatchJob(runCtx, job)
 
 		finishedAt := time.Now().UTC()
+		outcome, hasOutcome := handoff.Outcome()
+		runErr, outcomeUnknown := schedulerExecutionErr(runErr, outcome, hasOutcome)
 		status := RunStatusSuccess
 		errStr := ""
 		if runErr != nil {
@@ -817,15 +819,7 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 			errStr = runErr.Error()
 		}
 
-		bookkeepingCtx := context.WithoutCancel(jobCtx)
-		if completion.Bound() {
-			guardedCtx, err := completion.Context(bookkeepingCtx)
-			if err != nil {
-				s.log.Warn("scheduler AgentRun completion fence unavailable", "run_id", runID, "error", err)
-				return
-			}
-			bookkeepingCtx = guardedCtx
-		}
+		bookkeepingCtx := runBookkeepingContext(jobCtx, handoff)
 		finishErr := s.finishJobRun(bookkeepingCtx, runID, jobID, status, finishedAt, errStr, outputSink.get())
 		if finishErr != nil {
 			s.log.Warn("failed to finish job run record", "run_id", runID, "error", finishErr)
@@ -834,43 +828,109 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 		if recordErr != nil {
 			s.log.Warn("failed to record scheduler job run", "id", jobID, "error", recordErr)
 		}
-		if completion.Bound() {
-			if err := ackSchedulerCompletion(completion, bookkeepingCtx, schedulerCompletionOutcome(finishErr, recordErr)); err != nil {
-				s.log.Warn("failed to acknowledge scheduler AgentRun", "run_id", runID, "error", err)
-			}
-		}
+		runStatus, runReason := schedulerRunStatus(runErr, finishErr, recordErr, outcomeUnknown)
+		s.finishAgentRun(bookkeepingCtx, handoff, runStatus, runReason)
 
-		s.mu.Lock()
-		if jobState, ok := s.jobs[jobID]; ok {
-			jobState.LastRunAt = &finishedAt
-			if runErr != nil {
-				jobState.LastError = runErr.Error()
-			} else {
-				jobState.LastError = ""
+		// The cached last-run state mirrors the durable record, so a write this
+		// execution was not allowed to make is not advertised as its result either.
+		if recordErr == nil {
+			s.mu.Lock()
+			if jobState, ok := s.jobs[jobID]; ok {
+				jobState.LastRunAt = &finishedAt
+				if runErr != nil {
+					jobState.LastError = runErr.Error()
+				} else {
+					jobState.LastError = ""
+				}
+				jobState.UpdatedAt = finishedAt
+				s.jobs[jobID] = jobState
 			}
-			jobState.UpdatedAt = finishedAt
-			s.jobs[jobID] = jobState
+			s.mu.Unlock()
 		}
-		s.mu.Unlock()
 	}()
 
 	return runID, nil
 }
 
-func schedulerCompletionOutcome(finishErr, recordErr error) runcontrol.Outcome {
-	if finishErr == nil && recordErr == nil {
-		return runcontrol.OutcomeDelivered
+// schedulerExecutionErr folds the Runtime's own execution outcome into the
+// scheduler's execution verdict. It returns the unknown flag alongside the error
+// so a commit whose result cannot be proven stays interrupted (non-replayable)
+// rather than becoming an ordinary retryable failure.
+//
+// The adapter's error wins when it reported one: a turn the adapter saw fail is a
+// definite failure, not an ambiguity.
+func schedulerExecutionErr(runErr error, outcome agentruntime.TurnOutcome, hasOutcome bool) (error, bool) {
+	if runErr != nil || !hasOutcome {
+		return runErr, false
 	}
-	// Job bookkeeping is a source-domain side effect. A failed commit can have
-	// applied on the server, so never let the next scheduler fire replay it as a
-	// known failure.
-	return runcontrol.OutcomeUnknown
+	if outcome.CommitErr != nil {
+		return fmt.Errorf("scheduler turn output commit outcome unknown: %w", outcome.CommitErr), true
+	}
+	if outcome.Status != agentrun.StatusCompleted {
+		reason := outcome.Reason
+		if reason == "" {
+			reason = "scheduler turn ended " + outcome.Status
+		}
+		return errors.New(reason), false
+	}
+	return nil, false
 }
 
-func ackSchedulerCompletion(completion *agentruntime.CompletionBarrier, ctx context.Context, outcome runcontrol.Outcome) error {
-	ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer cancel()
-	return completion.Ack(ackCtx, outcome)
+// runBookkeepingContext binds the admitted turn's execution fence onto the
+// context that carries this run's durable bookkeeping. The job-run record and the
+// job's last-run columns are this execution's own result, so a Run that was
+// expired, aborted, or replaced while it ran must not commit them. A run that
+// never admitted a turn (handler and workflow jobs) keeps the management path.
+func runBookkeepingContext(ctx context.Context, handoff *agentruntime.ExecutionHandoff) context.Context {
+	return leaseWriteContext(context.WithoutCancel(ctx), handoff.Lease())
+}
+
+// leaseWriteContext binds one admitted Run's execution fence onto an existing
+// context. It is the single place the Scheduler attaches ownership to its own
+// writes, so the fence it produces is exactly what the run bookkeeping uses.
+func leaseWriteContext(ctx context.Context, lease *agentrun.Lease) context.Context {
+	if lease == nil {
+		return ctx
+	}
+	return lease.ContextWith(ctx)
+}
+
+// schedulerRunStatus maps the job's own outcome onto the Run's terminal status.
+// A job bookkeeping failure is an execution failure: the run's result could not
+// be recorded, so reporting success would claim work that is not durable. An
+// execution whose own result could not be proven is interrupted, never completed.
+func schedulerRunStatus(runErr, finishErr, recordErr error, outcomeUnknown bool) (string, string) {
+	switch {
+	case finishErr != nil:
+		return agentrun.StatusFailed, "job run bookkeeping failed: " + finishErr.Error()
+	case recordErr != nil:
+		return agentrun.StatusFailed, "job run record failed: " + recordErr.Error()
+	case runErr != nil && outcomeUnknown:
+		return agentrun.StatusInterrupted, runErr.Error()
+	case errors.Is(runErr, context.Canceled), errors.Is(runErr, context.DeadlineExceeded):
+		return agentrun.StatusCanceled, runErr.Error()
+	case runErr != nil:
+		return agentrun.StatusFailed, runErr.Error()
+	default:
+		return agentrun.StatusCompleted, "scheduler run completed"
+	}
+}
+
+// finishAgentRun releases the execution one scheduler run owns. The dispatch
+// path always admits through AgentRuntimeOptionsFromContext, so a missing lease
+// means the turn was rejected before admission and never held ownership.
+func (s *Service) finishAgentRun(ctx context.Context, handoff *agentruntime.ExecutionHandoff, status, reason string) {
+	if handoff == nil {
+		return
+	}
+	lease := handoff.Lease()
+	if lease == nil {
+		return
+	}
+	defer lease.Release()
+	if err := lease.Finish(ctx, status, reason); err != nil {
+		s.log.Warn("failed to finish scheduler AgentRun", "run_id", lease.Guard.RunID, "error", err)
+	}
 }
 
 // ListJobRuns returns recent runs for a job.

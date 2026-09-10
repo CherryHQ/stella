@@ -224,16 +224,16 @@ func TestHandleNewSessionCommandWaitsForActiveTurn(t *testing.T) {
 	turnDone := make(chan struct{})
 	go func() {
 		defer close(turnDone)
-		stream, doneC, err := c.queue.Enqueue(ctx, turnChat.queueKey(), func(context.Context) (*pkgchannel.ChatStream, error) {
+		stream, doneC, err := c.queue.Enqueue(ctx, turnChat.queueKey(), func(context.Context) (*queuedTurn, error) {
 			close(turnRunning)
 			<-turnUnblock
-			return makeStream(pkgchannel.Event{Text: "answer"}), nil
+			return wrapTurn(makeStream(pkgchannel.Event{Text: "answer"})), nil
 		})
 		if err != nil {
 			t.Errorf("enqueue turn: %v", err)
 			return
 		}
-		for range stream.Events {
+		for range stream.stream.Events {
 		}
 		close(doneC)
 	}()

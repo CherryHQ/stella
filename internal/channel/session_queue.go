@@ -2,9 +2,12 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -32,17 +35,40 @@ type sessionSlot struct {
 	refs         int
 }
 
+// queuedTurn is one admitted turn entering a per-session queue: the
+// adapter-facing stream plus the ownership handles its admission produced.
+//
+// handoff is set when the caller owns the turn's terminal transition, and
+// delivery is the group publish authority for a group turn. Both are nil for a
+// turn whose admission never attributed them (a fake chat seam in tests, or a
+// group turn whose reply has no dispatch row).
+type queuedTurn struct {
+	stream   *pkgchannel.ChatStream
+	handoff  *agentruntime.ExecutionHandoff
+	delivery *dispatchDelivery
+}
+
+// lease returns the admitted Run this turn transferred to its consumer, or nil
+// when the seam never attributed one (a fake chat in tests, or a rejected
+// admission).
+func (t *queuedTurn) lease() *agentrun.Lease {
+	if t == nil || t.handoff == nil {
+		return nil
+	}
+	return t.handoff.Lease()
+}
+
 // queuedRequest carries the work unit that will be dispatched.
 type queuedRequest struct {
 	ctx     context.Context
-	fn      func(context.Context) (*pkgchannel.ChatStream, error)
+	fn      func(context.Context) (*queuedTurn, error)
 	resultC chan queueResult
 }
 
 type queueResult struct {
-	stream *pkgchannel.ChatStream
-	doneC  chan struct{} // caller signals via close(doneC) when stream is fully consumed
-	err    error
+	turn  *queuedTurn
+	doneC chan struct{} // caller signals via close(doneC) when the turn is fully consumed
+	err   error
 }
 
 // newSessionQueue creates an empty queue.
@@ -122,8 +148,8 @@ func (q *sessionQueue) tryDeleteIdle(slot *sessionSlot) bool {
 func (q *sessionQueue) Enqueue(
 	ctx context.Context,
 	sessionKey string,
-	fn func(context.Context) (*pkgchannel.ChatStream, error),
-) (*pkgchannel.ChatStream, chan struct{}, error) {
+	fn func(context.Context) (*queuedTurn, error),
+) (*queuedTurn, chan struct{}, error) {
 	slot := q.getOrCreate(sessionKey)
 	resultC := make(chan queueResult, 1)
 	req := queuedRequest{
@@ -140,22 +166,24 @@ func (q *sessionQueue) Enqueue(
 	}
 	select {
 	case res := <-resultC:
-		return res.stream, res.doneC, res.err
+		return res.turn, res.doneC, res.err
 	case <-ctx.Done():
 		// Wait for the queue worker in the background to send the result.
-		// If it produced a stream, we must clean it up to prevent a slot leak.
-		// doneC is closed whether or not a stream came back: the worker blocks on
-		// it, so a stream-less operation would otherwise wedge the session.
+		// If it produced a turn, we must clean it up to prevent a slot leak.
+		// doneC is closed whether or not a turn came back: the worker blocks on
+		// it, so a turn-less operation would otherwise wedge the session.
 		go func() {
 			res := <-resultC
-			if res.stream != nil {
+			if res.turn != nil && res.turn.stream != nil {
 				// The caller no longer owns the admitted turn after its context
-				// expires. Drain model output, then settle the completion as unknown:
+				// expires. Drain model output, then settle the delivery as unknown:
 				// cancellation does not prove that a platform effect was absent.
-				for range res.stream.Events {
+				for range res.turn.stream.Events {
 				}
-				ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-				_ = res.stream.Ack(ackCtx, pkgchannel.EgressUnknown)
+			}
+			if res.turn != nil {
+				settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				_ = finishAbandonedTurn(settleCtx, res.turn)
 				cancel()
 			}
 			if res.doneC != nil {
@@ -164,6 +192,31 @@ func (q *sessionQueue) Enqueue(
 		}()
 		return nil, nil, ctx.Err()
 	}
+}
+
+// finishAbandonedTurn releases one turn whose consumer walked away. The direct
+// path commits its own handoff as its stream drains, so this only settles the
+// delivery attempt; a group turn has no dispatcher left to release the Run, so it
+// is interrupted rather than left renewing until its lease expires.
+func finishAbandonedTurn(ctx context.Context, turn *queuedTurn) error {
+	if turn.stream != nil {
+		_ = turn.stream.Settle(ctx, pkgchannel.DeliveryUnknown)
+	}
+	lease := turn.lease()
+	if lease == nil {
+		return nil
+	}
+	// Either this release or the turn's own handler wins the terminal transition;
+	// the loser observes ErrLeaseLost and stops renewing. Both outcomes are safe:
+	// an interrupted Run never publishes a reply, and a completed one published it
+	// with its output record.
+	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := lease.Finish(finishCtx, agentrun.StatusInterrupted, "delivery owner abandoned the turn"); err != nil &&
+		!errors.Is(err, agentrun.ErrLeaseLost) {
+		return err
+	}
+	return nil
 }
 
 // EnqueueControl runs a non-streaming session operation (e.g. /new) in the same
@@ -186,7 +239,7 @@ func (q *sessionQueue) EnqueueControl(ctx context.Context, sessionKey string, fn
 	var mu sync.Mutex
 	begun := false
 	var opErr error
-	_, doneC, qerr := q.Enqueue(ctx, sessionKey, func(qctx context.Context) (*pkgchannel.ChatStream, error) {
+	_, doneC, qerr := q.Enqueue(ctx, sessionKey, func(qctx context.Context) (*queuedTurn, error) {
 		// The caller reclaims "never ran" the moment it observes a dead context
 		// and begun == false; honor that by not starting afterwards. The check
 		// and the flag share one critical section with the caller's read, so the
@@ -267,7 +320,7 @@ func (s *sessionSlot) run() {
 			s.activeCancel = cancel
 			s.mu.Unlock()
 
-			stream, err := req.fn(ctx)
+			turn, err := req.fn(ctx)
 			if err != nil {
 				cancel()
 				s.clearActiveCancel()
@@ -275,11 +328,11 @@ func (s *sessionSlot) run() {
 				continue
 			}
 
-			// doneC lets the caller signal when the stream has been fully consumed.
+			// doneC lets the caller signal when the turn has been fully consumed.
 			// The queue worker waits on it before dispatching the next request,
 			// ensuring history is written in order.
 			doneC := make(chan struct{})
-			req.resultC <- queueResult{stream: stream, doneC: doneC}
+			req.resultC <- queueResult{turn: turn, doneC: doneC}
 
 			<-doneC
 			cancel()

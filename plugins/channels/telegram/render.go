@@ -22,8 +22,8 @@ type goldmarkMD interface {
 	Convert(source []byte, w io.Writer, opts ...parser.ParseOption) error
 }
 
-func (b *Bot) sendFinalResponseChecked(ctx context.Context, stream *channel.ChatStream, c tele.Context, response string, images []channel.ImageEvent) error {
-	if err := b.sendChunkedMarkdownChecked(ctx, stream, c.Chat(), response, false, nil); err != nil {
+func (b *Bot) sendFinalResponseChecked(ctx context.Context, stream *channel.ChatStream, c tele.Context, response string, images []channel.ImageEvent, kind channel.SendKind) error {
+	if err := b.sendChunkedMarkdownChecked(ctx, stream, c.Chat(), response, false, nil, kind); err != nil {
 		return err
 	}
 	for _, img := range images {
@@ -45,10 +45,8 @@ func (b *Bot) sendImageTo(ctx context.Context, stream *channel.ChatStream, chat 
 		return err
 	}
 	photo := &tele.Photo{File: tele.FromReader(bytes.NewReader(data))}
-	if stream != nil {
-		if err := stream.CheckOperation(ctx); err != nil {
-			return err
-		}
+	if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
+		return err
 	}
 	if _, err := b.bot.Send(chat, photo); err != nil {
 		logger().Error("send image failed", "error", err)
@@ -62,20 +60,18 @@ func (b *Bot) sendImageTo(ctx context.Context, stream *channel.ChatStream, chat 
 // it is used for the markdown send attempt. Returns the first send error
 // that could not be recovered via plain-text fallback.
 func (b *Bot) sendChunkedMarkdown(chat tele.Recipient, text string, silent bool, sendOpts *tele.SendOptions) error {
-	return b.sendChunkedMarkdownChecked(context.Background(), nil, chat, text, silent, sendOpts)
+	return b.sendChunkedMarkdownChecked(context.Background(), nil, chat, text, silent, sendOpts, channel.SendOutput)
 }
 
-func (b *Bot) sendChunkedMarkdownChecked(ctx context.Context, stream *channel.ChatStream, chat tele.Recipient, text string, silent bool, sendOpts *tele.SendOptions) error {
+func (b *Bot) sendChunkedMarkdownChecked(ctx context.Context, stream *channel.ChatStream, chat tele.Recipient, text string, silent bool, sendOpts *tele.SendOptions, kind channel.SendKind) error {
 	if sendOpts == nil {
 		sendOpts = &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}
 	}
 	chunks := channel.SplitMessage(text, telegramMaxMessageLen)
 	for _, chunk := range chunks {
 		rendered := renderMarkdown(b.md, chunk)
-		if stream != nil {
-			if err := stream.CheckOperation(ctx); err != nil {
-				return err
-			}
+		if err := stream.AuthorizeSend(ctx, kind); err != nil {
+			return err
 		}
 		if _, err := b.bot.Send(chat, rendered, sendOpts); err != nil {
 			// Telegram rejects malformed MarkdownV2 before creating a message. The
@@ -88,10 +84,8 @@ func (b *Bot) sendChunkedMarkdownChecked(ctx context.Context, stream *channel.Ch
 			}
 			logger().Warn("markdown send failed, falling back to plain text", "error", err)
 			plainOpts := &tele.SendOptions{DisableNotification: silent}
-			if stream != nil {
-				if err := stream.CheckOperation(ctx); err != nil {
-					return err
-				}
+			if err := stream.AuthorizeSend(ctx, kind); err != nil {
+				return err
 			}
 			if _, err := b.bot.Send(chat, chunk, plainOpts); err != nil {
 				return fmt.Errorf("send message: %w", err)

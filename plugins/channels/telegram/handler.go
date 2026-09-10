@@ -307,11 +307,11 @@ func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) (err erro
 		return nil
 	}
 	defer stream.Discard()
-	outcome := channel.EgressDelivered
+	outcome := channel.DeliverySent
 	defer func() {
 		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(b.ctx), 5*time.Second)
 		defer cancelAck()
-		if ackErr := stream.Ack(ackCtx, outcome); ackErr != nil && err == nil {
+		if ackErr := stream.Settle(ackCtx, outcome); ackErr != nil && err == nil {
 			err = ackErr
 		}
 	}()
@@ -322,8 +322,10 @@ func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) (err erro
 	// what guarantees a terminal reaction follows. Group turns are served by
 	// Publish instead and carry their own lifecycle.
 	reactChat, reactMsg := reactionTarget(c)
-	if err := stream.CheckOperation(b.ctx); err != nil {
-		outcome = channel.EgressDiscarded
+	// This gate only asks whether this handler still owns the turn's delivery; the
+	// model-derived sends below check again, immediately before their own request.
+	if err := stream.AuthorizeSend(b.ctx, channel.SendControl); err != nil {
+		outcome = channel.DeliveryNotSent
 		return err
 	}
 	b.react(reactChat, reactMsg, reactionReceived)
@@ -335,14 +337,15 @@ func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) (err erro
 
 	stopTyping()
 
+	// A failed turn's reply is the adapter's own error notice, not model output:
+	// it stays sendable after the Run lost ownership.
+	sendKind := channel.SendOutput
 	if streamErr != nil {
-		outcome = channel.EgressOutcomeForError(streamErr)
+		sendKind = channel.SendControl
+		outcome = channel.DeliveryResultForError(streamErr)
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
-		if response == "" {
-			response = fmt.Sprintf("Agent error: %v", streamErr)
-		} else {
-			response += fmt.Sprintf("\n\n[Agent error: %v]", streamErr)
-		}
+		response = fmt.Sprintf("Agent error: %v", streamErr)
+		images, tracker = nil, nil
 	}
 
 	if strings.TrimSpace(response) == "" {
@@ -353,8 +356,8 @@ func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) (err erro
 		response += tracker.RenderFinal()
 	}
 
-	if err = b.sendFinalResponseChecked(b.ctx, stream, c, response, images); err != nil {
-		outcome = channel.EgressOutcomeForError(err)
+	if err = b.sendFinalResponseChecked(b.ctx, stream, c, response, images, sendKind); err != nil {
+		outcome = channel.DeliveryResultForError(err)
 		return err
 	}
 	b.finishReaction(reactChat, reactMsg, streamErr == nil)

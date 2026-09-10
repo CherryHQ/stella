@@ -1,6 +1,12 @@
 // Package agentrun owns the PostgreSQL execution lease shared by every Agent
 // entry path. A process-local runtime gate may reject faster, but this package
 // is the cross-replica authority.
+//
+// The lease covers execution only: admission, heartbeat, cancellation, expiry
+// recovery, and the terminal transition, which the party that commits the last
+// required durable result performs. External delivery is the channel's concern
+// and deliberately has no state here — a Run never stays alive because a
+// platform has not acknowledged bytes.
 package agentrun
 
 import (
@@ -13,22 +19,22 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/runcontrol"
 )
 
 var (
-	ErrBusy               = errors.New("agent run already active")
-	ErrLeaseLost          = errors.New("agent run ownership lost")
-	ErrOutcomeUnknown     = errors.New("agent run completion outcome unknown")
-	ErrCompletionConflict = errors.New("agent run completion outcome conflicts with an existing terminal result")
-	ErrInvalidGuard       = errors.New("agent run guard is invalid")
-	ErrStoreClosed        = errors.New("agent run store is closed")
-	ErrBootUnavailable    = errors.New("agent run executor boot is not running")
+	ErrBusy            = errors.New("agent run already active")
+	ErrLeaseLost       = errors.New("agent run ownership lost")
+	ErrInvalidGuard    = errors.New("agent run guard is invalid")
+	ErrStoreClosed     = errors.New("agent run store is closed")
+	ErrBootUnavailable = errors.New("agent run executor boot is not running")
 )
+
+// terminalWriteTimeout bounds a terminal write so a canceled caller context or a
+// broken database cannot leave a Run unsettled for its whole lease.
+const terminalWriteTimeout = 5 * time.Second
 
 const (
 	StatusCompleted   = "completed"
@@ -37,17 +43,6 @@ const (
 	StatusAborted     = "aborted"
 	StatusInterrupted = "interrupted"
 	defaultLease      = 30 * time.Second
-)
-
-// turnResult is the durable Session activity result written in the same
-// transaction as a winning AgentRun terminal transition. Keep this type local
-// to agentrun to avoid importing memory back into the lease package.
-type turnResult string
-
-const (
-	turnResultSuccess  turnResult = "success"
-	turnResultError    turnResult = "error"
-	turnResultCanceled turnResult = "canceled"
 )
 
 // Guard is immutable proof of one Run owner. Durable writers carry it through
@@ -87,17 +82,6 @@ func GuardFromContext(ctx context.Context) (Guard, bool) {
 	// ValidateTx/Check so an invalid guard cannot silently downgrade to an
 	// unguarded management write.
 	return value.Guard, ok
-}
-
-// InheritGuard copies the complete ownership fence, including its live Store
-// checker, onto an adapter-owned context. Use this only after the target Run
-// has been acquired, never to inherit source-session ownership.
-func InheritGuard(ctx, source context.Context) (context.Context, bool) {
-	value, ok := source.Value(guardKey{}).(guardedContext)
-	if !ok || !guardValid(value.Guard) {
-		return ctx, false
-	}
-	return context.WithValue(ctx, guardKey{}, value), true
 }
 
 func withLeaseGuard(ctx context.Context, guard Guard, store *Store) context.Context {
@@ -174,7 +158,7 @@ type Store struct {
 // leaseContext keeps request values available to the runtime while taking
 // cancellation and deadlines exclusively from the Store lifecycle. A child
 // turn context can therefore stop model work without stopping the ownership
-// heartbeat that protects the final adapter acknowledgement.
+// heartbeat that protects the final source commit.
 type leaseContext struct {
 	values    context.Context
 	lifecycle context.Context
@@ -266,30 +250,22 @@ func (s *Store) ExecutorBootID() string {
 type Lease struct {
 	Guard Guard
 	ctx   context.Context
-	// cancel is kept private so adapter code can only stop through the explicit
-	// abort path or context cancellation owned by the runtime.
+	// cancel is kept private so adapter code can only stop through the
+	// cancellation paths the runtime owns.
 	cancel context.CancelCauseFunc
 	store  *Store
 
-	heartbeatDone   chan struct{}
-	terminal        chan struct{}
-	terminalOnce    sync.Once
-	transitionMu    sync.Mutex
-	finished        bool
-	finishedOutcome runcontrol.Outcome
-	finishedStatus  string
-	finishedReason  string
+	heartbeatDone chan struct{}
 }
 
 func (l *Lease) Context() context.Context { return withLeaseGuard(l.ctx, l.Guard, l.store) }
 
-// Completion exposes the adapter-facing durable barrier. It is bound to this
-// Lease, so Check and Ack cannot be redirected to another Session Run.
-func (l *Lease) Completion() runcontrol.Completion {
-	if l == nil {
-		return nil
-	}
-	return leaseCompletion{lease: l}
+// ContextWith binds this Lease's target guard onto an existing execution
+// context. It deliberately preserves the caller's values, deadline, and
+// cancellation; Lease.Context is the Store-lifetime context for heartbeat
+// ownership, while this method is the normal runtime/admission bridge.
+func (l *Lease) ContextWith(ctx context.Context) context.Context {
+	return withLeaseGuard(ctx, l.Guard, l.store)
 }
 
 // Acquire creates a Run after interrupting an already expired owner.
@@ -413,15 +389,17 @@ func (s *Store) acquireWithWriter(ctx context.Context, sessionID, source, inboxI
 		return nil, err
 	}
 
-	// A model turn may be canceled after it has emitted its final event while a
-	// channel adapter is still delivering that event. Keep this context alive
-	// until the durable terminal transition or Store.Close; callers derive a
-	// separate turn context from Lease.Context when they need cancellation.
+	// The lease context survives a caller's turn cancellation: the party that
+	// commits this Run's final result needs it to terminalize after ordinary
+	// model cancellation. Callers derive their own turn context when they need
+	// cancellable model work.
 	runCtx, cancel := context.WithCancelCause(leaseContext{values: ctx, lifecycle: s.lifecycleCtx})
 	lease := &Lease{
-		Guard: Guard{RunID: row.ID, SessionID: row.SessionID, ExecutorBootID: row.ExecutorBootID},
-		ctx:   runCtx, cancel: cancel, store: s,
-		heartbeatDone: make(chan struct{}), terminal: make(chan struct{}),
+		Guard:         Guard{RunID: row.ID, SessionID: row.SessionID, ExecutorBootID: row.ExecutorBootID},
+		ctx:           runCtx,
+		cancel:        cancel,
+		store:         s,
+		heartbeatDone: make(chan struct{}),
 	}
 	s.mu.Lock()
 	s.local[row.ID] = lease
@@ -448,24 +426,6 @@ func (s *Store) bindLifecycle(ctx context.Context) (context.Context, func()) {
 	bound, cancel := context.WithCancelCause(ctx)
 	stop := context.AfterFunc(s.lifecycleCtx, func() {
 		cancel(context.Cause(s.lifecycleCtx))
-	})
-	return bound, func() {
-		stop()
-		cancel(nil)
-	}
-}
-
-// operationContext preserves the caller's values and cancellation while also
-// stopping terminal writes when this lease loses ownership or its Store is
-// closed. A canceled model turn does not reach l.ctx, so it remains safe for
-// adapters to acknowledge a final event after ordinary turn cancellation.
-func (l *Lease) operationContext(ctx context.Context) (context.Context, func()) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	bound, cancel := context.WithCancelCause(ctx)
-	stop := context.AfterFunc(l.ctx, func() {
-		cancel(context.Cause(l.ctx))
 	})
 	return bound, func() {
 		stop()
@@ -511,297 +471,126 @@ func (l *Lease) stopHeartbeat(cause error) {
 	l.store.mu.Unlock()
 }
 
-func (l *Lease) signalTerminal() { l.terminalOnce.Do(func() { close(l.terminal) }) }
-
-// PrepareCompletion makes the final runtime result visible while retaining
-// the lease for the adapter's external acknowledgement.
-func (l *Lease) PrepareCompletion(ctx context.Context, status, reason string) error {
-	if !validStatus(status) {
-		return fmt.Errorf("invalid AgentRun completion status %q", status)
-	}
-	if l == nil || l.store == nil {
-		return errors.New("AgentRun lease is not configured")
-	}
-	if err := l.leaseUnavailableError(ctx); err != nil {
-		return err
-	}
-	opCtx, release := l.operationContext(ctx)
-	defer release()
-	rows, err := l.store.q.PrepareAgentRunCompletion(opCtx, sqlc.PrepareAgentRunCompletionParams{
-		RunID: l.Guard.RunID, ExecutorBootID: l.Guard.ExecutorBootID, Status: status, Reason: reason,
-	})
-	if err != nil {
-		return fmt.Errorf("prepare AgentRun completion: %w", err)
-	}
-	if rows != 1 {
-		row, getErr := l.store.q.GetAgentRun(opCtx, l.Guard.RunID)
-		if getErr == nil && row.Status == "running" && row.CompletionState == "ready" && row.CompletionStatus == status && row.CompletionReason == reason {
-			return nil
-		}
-		return ErrLeaseLost
-	}
-	return nil
-}
-
-// leaseUnavailableError distinguishes a durable unknown terminal outcome from
-// a plain lease loss. Local cancellation alone is not proof of either state:
-// the reaper may have committed unknown just before canceling this Lease, or a
-// heartbeat may have failed while the row is still running.
-func (l *Lease) leaseUnavailableError(ctx context.Context) error {
-	l.transitionMu.Lock()
-	if l.finished {
-		outcome := l.finishedOutcome
-		l.transitionMu.Unlock()
-		if outcome == runcontrol.OutcomeUnknown {
-			return ErrOutcomeUnknown
-		}
-		return ErrLeaseLost
-	}
-	l.transitionMu.Unlock()
-	if l.ctx.Err() == nil {
-		return nil
-	}
-	row, err := l.store.q.GetAgentRun(ctx, l.Guard.RunID)
-	if err != nil {
-		return ErrLeaseLost
-	}
-	if row.Status != "running" && row.CompletionOutcome == string(runcontrol.OutcomeUnknown) {
-		return ErrOutcomeUnknown
-	}
-	return ErrLeaseLost
-}
-
-// Finish directly terminalizes a Run whose external effect has no separate
-// adapter acknowledgement. Adapter-backed callers should call PrepareCompletion
-// and then Completion.Ack instead.
+// Finish commits the terminal transition of this Run in its own transaction. Use
+// it when the required durable result is already committed and needs no atomic
+// coupling; use FinishWith when the two must commit together.
 func (l *Lease) Finish(ctx context.Context, status, reason string) error {
+	return l.FinishWith(ctx, status, reason, nil)
+}
+
+// FinishWith commits a caller's durable handoff and this Run's terminal
+// transition in one transaction owned by this method. The callback runs after
+// the terminal statement and receives the status PostgreSQL actually wrote, so a
+// durable stop request that outranked the caller's status also decides whether
+// the handoff may be published.
+//
+// Local lifecycle changes only after the commit: a rolled-back or failed
+// transaction leaves the Run running and this owner still renewing it. There is
+// deliberately no claim flag and no acknowledgement handshake — the row decides
+// the winner, and the heartbeat plus reconciliation observe that decision.
+//
+// Callers must pass a context that does not inherit a canceled turn: a stopped
+// turn still has to be able to record its outcome.
+func (l *Lease) FinishWith(ctx context.Context, status, reason string, before func(context.Context, pgx.Tx, string) error) error {
 	if l == nil || l.store == nil {
 		return errors.New("AgentRun lease is not configured")
 	}
-	return l.finish(ctx, status, reason)
-}
-
-func (l *Lease) finish(ctx context.Context, status, reason string) error {
+	l.store.admissionMu.RLock()
+	defer l.store.admissionMu.RUnlock()
+	if err := l.store.requireAdmission(); err != nil {
+		l.Release()
+		return errors.Join(ErrLeaseLost, err)
+	}
 	if !validStatus(status) {
 		return fmt.Errorf("invalid AgentRun completion status %q", status)
 	}
-	l.transitionMu.Lock()
-	defer l.transitionMu.Unlock()
-	if l.finished {
-		if l.finishedOutcome == runcontrol.OutcomeUnknown {
-			return ErrOutcomeUnknown
-		}
-		if l.finishedOutcome == runcontrol.OutcomeDelivered && l.finishedStatus == status && l.finishedReason == reason {
-			return nil
-		}
-		return ErrCompletionConflict
-	}
-	if l.ctx.Err() != nil {
+	// A lost lease and a closing store both mean this Run is no longer renewable
+	// here; recovery owns it. A caller cancellation (an explicit stop) does not:
+	// the owner must still be able to record the stopped turn's result.
+	if cause := context.Cause(l.ctx); errors.Is(cause, ErrLeaseLost) {
+		l.Release()
 		return ErrLeaseLost
 	}
-	opCtx, release := l.operationContext(ctx)
-	defer release()
-	_, err := l.store.q.CompleteAgentRunWithActivity(opCtx, sqlc.CompleteAgentRunWithActivityParams{
-		RunID: l.Guard.RunID, ExecutorBootID: l.Guard.ExecutorBootID,
-		Status: status, Reason: reason, CompletionOutcome: string(runcontrol.OutcomeDelivered),
-		TurnResult: pgtype.Text{String: string(turnResultForStatus(status)), Valid: true},
-	})
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("complete AgentRun: %w", err)
+	// The write is bounded by its own timeout rather than the caller's deadline,
+	// because a stopped turn still has to record its outcome.
+	opCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalWriteTimeout)
+	defer cancel()
+	opCtx, stopLifecycle := l.store.bindLifecycle(opCtx)
+	defer stopLifecycle()
+	tx, err := l.store.db.Begin(opCtx)
+	if err != nil {
+		return fmt.Errorf("begin AgentRun terminal transition: %w", err)
 	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		row, getErr := l.store.q.GetAgentRun(opCtx, l.Guard.RunID)
-		if getErr == nil && row.Status != "running" {
-			return l.observeTerminalLocked(row.CompletionOutcome, row.CompletionStatus, row.CompletionReason, runcontrol.OutcomeDelivered, status, reason)
-		}
-		_, abortErr := l.store.q.AbortAgentRunWithActivity(opCtx, sqlc.AbortAgentRunWithActivityParams{RunID: l.Guard.RunID, ExecutorBootID: l.Guard.ExecutorBootID, Reason: "abort_requested"})
-		if abortErr != nil {
-			if errors.Is(abortErr, pgx.ErrNoRows) {
-				return ErrLeaseLost
-			}
-			return fmt.Errorf("terminalize aborted AgentRun: %w", abortErr)
-		}
-		_ = l.rememberTerminalLocked(string(runcontrol.OutcomeDiscarded), StatusAborted, "abort_requested")
-		return ErrLeaseLost
-	}
-	if err := l.rememberTerminalLocked(string(runcontrol.OutcomeDelivered), status, reason); err != nil {
+	defer func() { _ = tx.Rollback(opCtx) }()
+	written, err := TerminalTx(opCtx, tx, l.Guard, status, reason)
+	if errors.Is(err, ErrLeaseLost) {
+		// The row is not this owner's to finish any more: another decision (abort,
+		// expiry, a replacement boot) already won. Stop renewing it and report the
+		// same conflict the caller would see from a duplicate call.
+		l.Release()
 		return err
 	}
-	if l.finishedOutcome == runcontrol.OutcomeUnknown {
-		return ErrOutcomeUnknown
+	if err != nil {
+		return err
 	}
+	if before != nil {
+		if err := before(opCtx, tx, written); err != nil {
+			// The caller's own durable handoff did not commit, so this Run must not
+			// be terminalized here. Leaving it running lets the caller record the
+			// failure through the ordinary path or lets expiry recover it.
+			return err
+		}
+	}
+	if err := l.store.requireAdmission(); err != nil {
+		return err
+	}
+	if err := tx.Commit(opCtx); err != nil {
+		return fmt.Errorf("commit AgentRun terminal transition: %w", err)
+	}
+	// Only now is the decision durable; release the local renewal worker.
+	l.Release()
 	return nil
 }
 
-func (l *Lease) rememberTerminalLocked(raw, status, reason string) error {
-	outcome := runcontrol.Outcome(raw)
-	if !outcome.Valid() {
-		if raw == "" {
-			outcome = runcontrol.OutcomeUnknown
-		} else {
-			return ErrCompletionConflict
-		}
+// TerminalTx runs the single execution terminal statement on a caller-owned
+// transaction and returns the status that was actually written, which may be
+// 'aborted' when a durable stop request outranked the caller's status. It
+// deliberately changes no local lifecycle: the caller commits, and then calls
+// Release (or lets reconciliation observe the committed row).
+func TerminalTx(ctx context.Context, tx pgx.Tx, guard Guard, status, reason string) (string, error) {
+	if tx == nil {
+		return "", errors.New("AgentRun terminal transaction is required")
 	}
-	l.finished = true
-	l.finishedOutcome = outcome
-	l.finishedStatus = status
-	l.finishedReason = reason
+	if !validStatus(status) {
+		return "", fmt.Errorf("invalid AgentRun completion status %q", status)
+	}
+	if !guardValid(guard) {
+		return "", ErrInvalidGuard
+	}
+	if value, ok := ctx.Value(guardKey{}).(guardedContext); ok && value.store != nil &&
+		(value.store.closed.Load() || value.store.lifecycleCtx.Err() != nil) {
+		return "", ErrLeaseLost
+	}
+	row, err := sqlc.New(tx).CompleteAgentRunWithActivity(ctx, sqlc.CompleteAgentRunWithActivityParams{
+		RunID: guard.RunID, SessionID: guard.SessionID, ExecutorBootID: guard.ExecutorBootID, Status: status, Reason: reason,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrLeaseLost
+	}
+	if err != nil {
+		return "", fmt.Errorf("complete AgentRun: %w", err)
+	}
+	return row.Status, nil
+}
+
+// Release stops local renewal after the owner's final write attempt. If the
+// database could not record a terminal result, expiry recovers the abandoned
+// execution. It is idempotent and safe to defer at the owning call site.
+func (l *Lease) Release() {
+	if l == nil || l.store == nil {
+		return
+	}
 	l.stopHeartbeat(nil)
-	l.signalTerminal()
-	return nil
-}
-
-func (l *Lease) observeTerminalLocked(raw, status, reason string, wantOutcome runcontrol.Outcome, wantStatus, wantReason string) error {
-	if err := l.rememberTerminalLocked(raw, status, reason); err != nil {
-		return err
-	}
-	if l.finishedOutcome == runcontrol.OutcomeUnknown {
-		if wantOutcome == runcontrol.OutcomeUnknown {
-			return nil
-		}
-		return ErrOutcomeUnknown
-	}
-	if l.finishedOutcome != wantOutcome || l.finishedStatus != wantStatus || l.finishedReason != wantReason {
-		return ErrCompletionConflict
-	}
-	return nil
-}
-
-type leaseCompletion struct{ lease *Lease }
-
-func (c leaseCompletion) Check(ctx context.Context) error {
-	if c.lease == nil {
-		return ErrLeaseLost
-	}
-	return Check(c.lease.ContextWith(ctx))
-}
-
-func (c leaseCompletion) Ack(ctx context.Context, outcome runcontrol.Outcome) error {
-	if c.lease == nil {
-		return ErrLeaseLost
-	}
-	if !outcome.Valid() {
-		return runcontrol.ErrInvalidOutcome
-	}
-	return c.lease.ackWithActivity(ctx, outcome)
-}
-
-func (c leaseCompletion) Done() <-chan struct{} {
-	if c.lease == nil {
-		return nil
-	}
-	return c.lease.terminal
-}
-
-// ContextWith binds this Lease's target guard onto an existing execution
-// context. It deliberately preserves the caller's values, deadline, and
-// cancellation; Lease.Context is the Store-lifetime context for heartbeat
-// ownership, while this method is the normal runtime/admission bridge.
-func (l *Lease) ContextWith(ctx context.Context) context.Context {
-	return withLeaseGuard(ctx, l.Guard, l.store)
-}
-
-func (l *Lease) ackWithActivity(ctx context.Context, outcome runcontrol.Outcome) error {
-	l.transitionMu.Lock()
-	defer l.transitionMu.Unlock()
-	if l.finished {
-		if l.finishedOutcome == runcontrol.OutcomeUnknown {
-			if outcome == runcontrol.OutcomeUnknown {
-				return nil
-			}
-			return ErrOutcomeUnknown
-		}
-		if l.finishedOutcome == outcome {
-			return nil
-		}
-		return ErrCompletionConflict
-	}
-	// Read the durable row with the caller's acknowledgement context first. A
-	// reaper cancels the local heartbeat as soon as it records an unknown
-	// outcome, but the adapter still needs to learn that durable terminal fact
-	// instead of seeing only the local cancellation as ErrLeaseLost.
-	row, err := l.store.q.GetAgentRun(ctx, l.Guard.RunID)
-	if err != nil {
-		return fmt.Errorf("read AgentRun completion before ack: %w", err)
-	}
-	if row.Status != "running" {
-		return l.observeTerminalLocked(row.CompletionOutcome, row.CompletionStatus, row.CompletionReason, outcome, row.CompletionStatus, row.CompletionReason)
-	}
-	if l.ctx.Err() != nil {
-		return ErrLeaseLost
-	}
-	opCtx, release := l.operationContext(ctx)
-	defer release()
-	status := completionStatus(row.CompletionStatus, outcome)
-	result := turnResultForStatus(status)
-	_, err = l.store.q.AckAgentRunCompletionWithActivity(opCtx, sqlc.AckAgentRunCompletionWithActivityParams{
-		RunID: l.Guard.RunID, ExecutorBootID: l.Guard.ExecutorBootID,
-		CompletionOutcome: string(outcome), Status: status,
-		TurnResult: pgtype.Text{String: string(result), Valid: true},
-	})
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("ack AgentRun completion: %w", err)
-	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		return l.completionStateError(opCtx, outcome)
-	}
-	if err := l.rememberTerminalLocked(string(outcome), status, row.CompletionReason); err != nil {
-		return err
-	}
-	// Unknown means the durable acknowledgement was recorded as ambiguous;
-	// recording that fact succeeded, so an identical retry is idempotent.
-	return nil
-}
-
-func turnResultForStatus(status string) turnResult {
-	switch status {
-	case StatusCompleted:
-		return turnResultSuccess
-	case StatusCanceled, StatusAborted:
-		return turnResultCanceled
-	default:
-		return turnResultError
-	}
-}
-
-func completionStatus(prepared string, outcome runcontrol.Outcome) string {
-	switch outcome {
-	case runcontrol.OutcomeFailed:
-		return StatusFailed
-	case runcontrol.OutcomeUnknown:
-		return StatusInterrupted
-	case runcontrol.OutcomeDiscarded:
-		return StatusCanceled
-	}
-	return prepared
-}
-
-func (l *Lease) completionStateError(ctx context.Context, wantOutcome runcontrol.Outcome) error {
-	row, err := l.store.q.GetAgentRun(ctx, l.Guard.RunID)
-	if err != nil {
-		return fmt.Errorf("ack AgentRun completion: %w", err)
-	}
-	if row.Status != "running" {
-		return l.observeTerminalLocked(row.CompletionOutcome, row.CompletionStatus, row.CompletionReason, wantOutcome, row.CompletionStatus, row.CompletionReason)
-	}
-	if row.CompletionState == "unknown" || row.CompletionOutcome == string(runcontrol.OutcomeUnknown) {
-		return ErrOutcomeUnknown
-	}
-	return ErrLeaseLost
-}
-
-// WaitTerminal waits for a durable terminal transition. It is useful to keep
-// the stream owner alive until the adapter has acknowledged its final effect.
-func (l *Lease) WaitTerminal(ctx context.Context) error {
-	if l == nil {
-		return ErrLeaseLost
-	}
-	select {
-	case <-l.terminal:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
 
 func validStatus(status string) bool {
@@ -817,6 +606,9 @@ func guardValid(guard Guard) bool {
 	return guard.RunID != "" && guard.SessionID != "" && guard.ExecutorBootID != ""
 }
 
+// RequestAbort records durable stop intent and cancels local work. It is the
+// only way to ask for a stop: the owner still performs the terminal transition,
+// so the reason and the result come from one serialization order.
 func (s *Store) RequestAbort(ctx context.Context, sessionID, reason string) (string, error) {
 	if reason == "" {
 		reason = "abort_requested"
@@ -835,75 +627,6 @@ func (s *Store) RequestAbort(ctx context.Context, sessionID, reason string) (str
 		lease.cancel(context.Canceled)
 	}
 	return row.ID, nil
-}
-
-// Abort terminalizes the current owner after RequestAbort has durably recorded
-// the stop request. The reason is read from that durable request, so a canceled
-// model turn cannot race the stop path with a different terminal explanation.
-// It binds only the Store lifetime to the database call: the runtime may
-// already have canceled Lease.Context while unwinding the turn.
-func (l *Lease) Abort(ctx context.Context) error {
-	if l == nil || l.store == nil {
-		return errors.New("AgentRun lease is not configured")
-	}
-	l.transitionMu.Lock()
-	defer l.transitionMu.Unlock()
-	if l.finished {
-		if l.finishedStatus == StatusAborted {
-			return nil
-		}
-		if l.finishedOutcome == runcontrol.OutcomeUnknown {
-			return ErrOutcomeUnknown
-		}
-		return ErrCompletionConflict
-	}
-	if l.store.closed.Load() || l.store.lifecycleCtx.Err() != nil {
-		return ErrStoreClosed
-	}
-	opCtx, release := l.store.bindLifecycle(ctx)
-	defer release()
-	row, err := l.store.q.GetAgentRun(opCtx, l.Guard.RunID)
-	if err != nil {
-		return fmt.Errorf("read AgentRun abort request: %w", err)
-	}
-	if row.Status != "running" {
-		return l.observeTerminalLocked(row.CompletionOutcome, row.CompletionStatus, row.CompletionReason, runcontrol.OutcomeDiscarded, row.CompletionStatus, row.CompletionReason)
-	}
-	if !row.AbortRequestedAt.Valid {
-		return ErrLeaseLost
-	}
-	reason := row.AbortReason
-	if reason == "" {
-		reason = "abort_requested"
-	}
-	_, err = l.store.q.AbortAgentRunWithActivity(opCtx, sqlc.AbortAgentRunWithActivityParams{
-		RunID: l.Guard.RunID, ExecutorBootID: l.Guard.ExecutorBootID, Reason: reason,
-	})
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("abort AgentRun: %w", err)
-	}
-	row, getErr := l.store.q.GetAgentRun(opCtx, l.Guard.RunID)
-	if getErr != nil {
-		if errors.Is(err, pgx.ErrNoRows) && errors.Is(getErr, pgx.ErrNoRows) {
-			return ErrLeaseLost
-		}
-		return fmt.Errorf("read aborted AgentRun: %w", getErr)
-	}
-	if row.Status == "running" {
-		// Either the request was not durable yet or the lease expired before
-		// this owner could close it. Reap owns those states.
-		return ErrLeaseLost
-	}
-	if row.Status != StatusAborted {
-		return l.observeTerminalLocked(row.CompletionOutcome, row.CompletionStatus, row.CompletionReason, runcontrol.OutcomeDiscarded, row.CompletionStatus, row.CompletionReason)
-	}
-	if err := l.rememberTerminalLocked(row.CompletionOutcome, row.CompletionStatus, row.CompletionReason); err != nil {
-		return err
-	}
-	if l.finishedOutcome == runcontrol.OutcomeUnknown {
-		return ErrOutcomeUnknown
-	}
-	return nil
 }
 
 func (s *Store) Running(ctx context.Context, sessionID string) (sqlc.AgentRun, bool, error) {
@@ -950,12 +673,11 @@ func (s *Store) Reap(ctx context.Context) error {
 	return nil
 }
 
-// reconcileLocalLeases repairs missed terminal notifications from another
-// executor. Reap's terminalization queries only return rows this invocation
-// changed; a local lease may therefore already be terminal in PostgreSQL while
-// its heartbeat worker is merely canceled. Only a confirmed non-running row
-// may settle the local completion barrier. Query failures and still-running
-// rows remain live so a transient database failure cannot invent a terminal
+// reconcileLocalLeases stops local work whose Run another executor already
+// terminalized. Reap's terminalization queries only return rows this invocation
+// changed, so a local lease may already be terminal in PostgreSQL while its
+// heartbeat worker is merely still running. Query failures and still-running
+// rows remain live: a transient database failure must not invent a terminal
 // outcome.
 func (s *Store) reconcileLocalLeases(ctx context.Context) {
 	s.mu.Lock()
@@ -971,34 +693,28 @@ func (s *Store) reconcileLocalLeases(ctx context.Context) {
 		if err != nil || row.Status == "running" {
 			continue
 		}
-		lease.reconcileTerminal(row)
-	}
-}
-
-func (l *Lease) reconcileTerminal(row sqlc.AgentRun) {
-	l.transitionMu.Lock()
-	defer l.transitionMu.Unlock()
-	if l.finished || row.Status == "running" {
-		return
-	}
-	// AgentRun's CHECK constraint guarantees a valid outcome. If a corrupt or
-	// future row reaches this path, fail closed and leave the lease unsettled;
-	// fabricating an unknown terminal result would let a later Ack(Unknown)
-	// succeed without a durable unknown outcome.
-	if err := l.rememberTerminalLocked(row.CompletionOutcome, row.CompletionStatus, row.CompletionReason); err != nil {
-		return
+		s.reapLease(lease.Guard.RunID)
 	}
 }
 
 func (s *Store) reapLease(id string) {
 	s.mu.Lock()
 	lease := s.local[id]
+	delete(s.local, id)
 	s.mu.Unlock()
 	if lease != nil {
 		lease.cancel(ErrLeaseLost)
-		lease.signalTerminal()
-		s.mu.Lock()
-		delete(s.local, id)
-		s.mu.Unlock()
 	}
+}
+
+// LocalRuns reports the Runs this process still renews. It exists so tests and
+// diagnostics can prove that a settled Run stops being renewed; nothing in the
+// ownership rules depends on it.
+func (s *Store) LocalRuns() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.local)
 }

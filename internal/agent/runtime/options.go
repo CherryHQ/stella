@@ -26,8 +26,7 @@ type chatOptions struct {
 	bindingID           string
 	turnAuthority       authz.Authority
 	hasAuthority        bool
-	completion          *CompletionBarrier
-	completionExternal  bool
+	handoff             *ExecutionHandoff
 	inboxInputPersisted bool
 }
 

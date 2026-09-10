@@ -71,6 +71,9 @@ type publishJob struct {
 	publisher pkgchannel.GroupPublisher
 	response  groupResponse
 	envelope  GroupOutboxEnvelope
+	// exec is the execution ownership of the turn whose reply this attempt
+	// publishes. It is nil on the recovery path, where that Run is long released.
+	exec *groupExecution
 	// acceptedMessageID is the canonical row this publish is rendering. It is
 	// empty on the recovery path, where the row already carries the id.
 	acceptedMessageID string
@@ -91,8 +94,7 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 		return row, nil
 	}
 	if job.publisher == nil {
-		cause := errors.New("publish: publisher unavailable")
-		return row, errors.Join(cause, ackGroupResponse(ctx, job.response, pkgchannel.EgressFailed, cause.Error()))
+		return row, errors.New("publish: publisher unavailable")
 	}
 	// A response carrying acceptedMessageID completed its admission before the
 	// publish call. Let that admitted turn finish under its captured decision;
@@ -101,11 +103,10 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 	if p.coord != nil && job.acceptedMessageID == "" {
 		allowed, err := p.coord.channelListenerAllowed(ctx, job.state.Platform, row.ReplyChannelID)
 		if err != nil {
-			cause := fmt.Errorf("publish channel admission: %w", err)
-			return row, errors.Join(cause, ackGroupResponse(ctx, job.response, pkgchannel.EgressFailed, cause.Error()))
+			return row, fmt.Errorf("publish channel admission: %w", err)
 		}
 		if !allowed {
-			return row, errors.Join(errChannelPluginDisabled, ackGroupResponse(ctx, job.response, pkgchannel.EgressDiscarded, errChannelPluginDisabled.Error()))
+			return row, errChannelPluginDisabled
 		}
 	}
 	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
@@ -117,14 +118,17 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 			// a recoverable duplicate over silently dropping the answer.
 			p.log.Warn("republishing an accepted group reply whose delivery outcome is unknown", "dispatch_id", row.ID, "result_message_id", row.ResultMessageID)
 		} else if _, err := p.q.MarkGroupDispatchPublishStarted(ctx, sqlc.MarkGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
-			cause := fmt.Errorf("mark publish started: %w", err)
-			return row, errors.Join(cause, ackGroupResponse(ctx, job.response, pkgchannel.EgressFailed, cause.Error()))
+			return row, fmt.Errorf("mark publish started: %w", err)
 		}
+	}
+	delivery := newDispatchDelivery(p.q, row.ID, row.AttemptCount)
+	if job.exec != nil && job.exec.delivery != nil {
+		delivery = job.exec.delivery
 	}
 	err := job.publisher.Publish(ctx, pkgchannel.GroupPublishRequest{
 		Platform:        job.state.Platform,
 		PlatformGroupID: job.state.PlatformGroupID, PlatformThreadID: job.state.PlatformThreadID,
-		ReplyTo: nullStringValue(job.trigger.PlatformMessageID), Stream: replayGroupResponse(job.response),
+		ReplyTo: nullStringValue(job.trigger.PlatformMessageID), Stream: replayGroupResponse(job.response, delivery),
 		DeliveryID:  row.ID,
 		RequesterID: job.trigger.ActorID, LifecycleFeedback: job.envelope.LifecycleFeedback,
 		Abort: func() bool { return p.abort(sessionKey) },
@@ -299,15 +303,17 @@ func groupResponseFromMessage(message sqlc.CtxGroupMessage) groupResponse {
 	}
 }
 
-func replayGroupResponse(response groupResponse) *pkgchannel.ChatStream {
+// replayGroupResponse rebuilds the buffered reply for one publish attempt. A
+// live turn's stream carries its dispatch-row authority so every send is checked
+// against the row that owns the reply; a recovery replay has no live execution
+// and is authorized by that same row inside the driver.
+func replayGroupResponse(response groupResponse, delivery *dispatchDelivery) *pkgchannel.ChatStream {
 	events := make(chan pkgchannel.Event, len(response.events))
 	for _, evt := range response.events {
 		events <- evt
 	}
 	close(events)
-	return &pkgchannel.ChatStream{
-		Events:     events,
-		SessionID:  response.sessionID,
-		Completion: response.completion,
-	}
+	stream := &pkgchannel.ChatStream{Events: events, SessionID: response.sessionID}
+	stream.Delivery = delivery
+	return stream
 }

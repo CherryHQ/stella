@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
@@ -17,7 +16,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/runcontrol"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -62,7 +60,7 @@ type Result struct {
 	Decomposition *DecompositionContent // purpose=decomposition only
 	Verdicts      []ReviewVerdict       // purpose=review only
 	Failure       *Failure
-	completion    *agentruntime.CompletionBarrier
+	handoff       *agentruntime.ExecutionHandoff
 	// RepairAttempted is set when a text-only first turn triggered one bounded
 	// repair turn that still produced no terminal action. It only carries
 	// meaning for terminalNone and lets the worker distinguish a silent miss
@@ -75,9 +73,9 @@ type Result struct {
 // them; it does not re-declare them.
 
 type executorTurn struct {
-	events     <-chan agent.Event
-	cancel     context.CancelFunc
-	completion *agentruntime.CompletionBarrier
+	events  <-chan agent.Event
+	cancel  context.CancelFunc
+	handoff *agentruntime.ExecutionHandoff
 }
 
 // terminalRecorder captures the first terminal action declared during an attempt.
@@ -162,12 +160,18 @@ func newWorkerExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools []stri
 //   - runner setup / stream error -> Failed with flaky responsibility
 //   - clean exit without action   -> Failed with model responsibility
 //
+// An error return still carries whatever execution ownership the attempt had
+// admitted: the worker releases the Run the turn was admitted, so losing the
+// handoff on a cancellation would leave it renewing until its lease expires.
+//
 // The agent never mutates durable state — the worker reads this and applies the
 // matching transition through GoalService.
 func (e *workerExecutor) Execute(ctx context.Context, req ExecutorRequest) (ExecutorResult, error) {
 	res, err := e.run(ctx, req)
 	if err != nil {
-		return ExecutorResult{}, err
+		// An errored attempt has no frozen outcome to apply, but the execution
+		// ownership it admitted outlives the failure and must reach the caller.
+		return ExecutorResult{handoff: res.handoff}, err
 	}
 	return foldResult(res, req), nil
 }
@@ -215,24 +219,29 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 
 	turn := func(prompt string) executorTurn {
 		turnCtx, cancel := context.WithCancel(ctx)
-		completion := agentruntime.NewCompletionBarrier()
+		handoff := agentruntime.NewExecutionHandoff()
+		// Keep the handle even if chat panics after binding its Run.
+		if req.OnTurnStarted != nil {
+			req.OnTurnStarted(handoff)
+		}
+		events := e.chat(turnCtx, TaskChatParams{
+			AgentID:          agentID,
+			UserID:           req.Attempt.UserID,
+			SessionID:        req.Attempt.SessionID,
+			ProjectID:        projectID,
+			Prompt:           prompt,
+			RuntimeOpts:      []agentruntime.Option{agentruntime.WithExecutionHandoff(handoff)},
+			ExecutionHandoff: handoff,
+			Decompose:        decompose,
+			ExtraTools:       []tools.Tool{ctTool},
+			ExcludedTools:    append([]string(nil), e.excludedTools...),
+			OnSandboxSession: terminalSubmitSandboxCallback(rec, req.OnSandboxSession),
+			Authority:        authority,
+		})
 		return executorTurn{
-			events: e.chat(turnCtx, TaskChatParams{
-				AgentID:           agentID,
-				UserID:            req.Attempt.UserID,
-				SessionID:         req.Attempt.SessionID,
-				ProjectID:         projectID,
-				Prompt:            prompt,
-				RuntimeOpts:       []agentruntime.Option{agentruntime.WithCompletionBarrier(completion)},
-				CompletionBarrier: completion,
-				Decompose:         decompose,
-				ExtraTools:        []tools.Tool{ctTool},
-				ExcludedTools:     append([]string(nil), e.excludedTools...),
-				OnSandboxSession:  terminalSubmitSandboxCallback(rec, req.OnSandboxSession),
-				Authority:         authority,
-			}),
-			cancel:     cancel,
-			completion: completion,
+			events:  events,
+			cancel:  cancel,
+			handoff: handoff,
 		}
 	}
 
@@ -244,7 +253,10 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 	// First turn against the frozen input context.
 	text, res, done, fail, err := e.runTurn(ctx, turn(firstPrompt), rec)
 	if err != nil {
-		return Result{}, err
+		// Ownership survives a failed turn: the worker still has to release the Run
+		// this turn was admitted, so the handoff travels with the error rather than
+		// leaving the Run renewing until its lease expires.
+		return Result{handoff: res.handoff}, err
 	}
 	if fail != nil {
 		return *fail, nil
@@ -259,19 +271,10 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 	// outcome-unknown stream failure. Acknowledge the first turn before
 	// admitting the repair turn on the same session.
 	if strings.TrimSpace(text) == "" {
-		return Result{Action: terminalNone, completion: res.completion}, nil
+		return Result{Action: terminalNone, handoff: res.handoff}, nil
 	}
-	if res.completion != nil && res.completion.Bound() {
-		// A text-only answer is a known protocol miss, not an uncertain replay.
-		// Close the first AgentRun explicitly before admitting the bounded repair
-		// turn on the same session. There is no Goal transition to fence here;
-		// the final repair result carries the source-domain completion barrier.
-		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), completionAckTimeout)
-		err := res.completion.Ack(ackCtx, runcontrol.OutcomeDelivered)
-		cancelAck()
-		if err != nil {
-			return Result{}, fmt.Errorf("ack text-only goal turn: %w", err)
-		}
+	if err := releaseTurnExecution(ctx, res.handoff, "goal turn ended without a terminal action"); err != nil {
+		return Result{handoff: res.handoff}, err
 	}
 	repairPrompt := func(text string) string { return buildRepairPrompt(text, decompose) }
 	if review {
@@ -279,7 +282,7 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 	}
 	_, res, done, fail, err = e.runTurn(ctx, turn(repairPrompt(text)), rec)
 	if err != nil {
-		return Result{}, err
+		return Result{handoff: res.handoff}, err
 	}
 	if fail != nil {
 		return *fail, nil
@@ -287,12 +290,17 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 	if done {
 		return res, nil
 	}
-	return Result{Action: terminalNone, RepairAttempted: true, completion: res.completion}, nil
+	return Result{Action: terminalNone, RepairAttempted: true, handoff: res.handoff}, nil
 }
 
 // runTurn pumps one chat turn until the event channel closes. Once a terminal
 // action is recorded, it cancels the turn but keeps draining so the one-shot
 // session can run its pre-close sandbox callback and close before Execute returns.
+//
+// An event error does not shorten the drain either. The Runtime publishes the
+// turn's execution outcome (and finishes its own source work) before it closes
+// the stream, so returning early would release the Run while producer cleanup
+// and source writes were still running.
 func (e *workerExecutor) runTurn(ctx context.Context, turn executorTurn, rec *terminalRecorder) (text string, res Result, done bool, fail *Result, err error) {
 	cancelled := false
 	cancelTurn := func() {
@@ -303,52 +311,71 @@ func (e *workerExecutor) runTurn(ctx context.Context, turn executorTurn, rec *te
 	}
 	defer cancelTurn()
 
+	// The turn's execution ownership belongs to every exit path: the caller
+	// releases the Run, and a dropped handoff would leave it renewing until its
+	// lease expires.
+	res.handoff = turn.handoff
+
 	var buf strings.Builder
+	var streamErr error
 	for ev := range turn.events {
 		if ev.Err != nil {
-			if done {
-				e.log.Warn("goal executor cleanup error", "err", ev.Err)
-				failureClass, blockedBy := runnerFailureClass(ev.Err)
-				f := failResult(fmt.Sprintf("runner cleanup error: %v", ev.Err), failureClass, blockedBy)
-				f.completion = turn.completion
-				return buf.String(), Result{}, false, &f, nil
+			if streamErr == nil {
+				streamErr = ev.Err
 			}
-			e.log.Warn("goal executor stream error", "err", ev.Err)
-			failureClass, blockedBy := runnerFailureClass(ev.Err)
-			f := failResult(fmt.Sprintf("runner error: %v", ev.Err), failureClass, blockedBy)
-			f.completion = turn.completion
-			return buf.String(), Result{}, false, &f, nil
+			continue
 		}
 		if ev.Text != "" {
 			buf.WriteString(ev.Text)
 		}
 		if !done && rec.isDone() {
 			res, _ = rec.snapshot()
+			res.handoff = turn.handoff
 			done = true
 			cancelTurn()
 		}
 	}
+	if streamErr != nil {
+		// A failure after the terminal action is a cleanup failure; before it, the
+		// turn itself failed. Either way the attempt cannot report success.
+		cause, label := streamErr, "runner error"
+		if done {
+			label = "runner cleanup error"
+		}
+		e.log.Warn("goal executor stream error", "err", cause, "after_terminal_action", done)
+		failureClass, blockedBy := runnerFailureClass(cause)
+		f := failResult(fmt.Sprintf("%s: %v", label, cause), failureClass, blockedBy)
+		f.handoff = turn.handoff
+		return buf.String(), Result{}, false, &f, nil
+	}
 	if done {
-		res.completion = turn.completion
 		return buf.String(), res, true, nil, nil
 	}
 	if err := ctx.Err(); err != nil {
-		res.completion = turn.completion
-		// The caller canceled before a terminal action. No source-domain result
-		// can prove whether the turn's model/tool effects were observed, so make
-		// the durable completion explicitly unknown before returning the cancel.
-		if turn.completion.Bound() {
-			ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), completionAckTimeout)
-			ackErr := turn.completion.Ack(ackCtx, runcontrol.OutcomeUnknown)
-			cancelAck()
-			if ackErr != nil {
-				return buf.String(), Result{}, false, nil, errors.Join(err, fmt.Errorf("ack canceled goal turn: %w", ackErr))
-			}
-		}
 		return buf.String(), res, false, nil, err
 	}
-	res.completion = turn.completion
 	return buf.String(), res, false, nil, nil
+}
+
+// releaseTurnExecution ends one goal turn's execution before the next turn runs
+// on the same session: a Session admits at most one Run, so an intermediate turn
+// must be released rather than left to expire. The Goal layer has no durable
+// transition for an intermediate turn, so its status comes from the execution
+// outcome alone.
+func releaseTurnExecution(ctx context.Context, handoff *agentruntime.ExecutionHandoff, reason string) error {
+	lease := handoff.Lease()
+	if lease == nil {
+		return nil
+	}
+	defer lease.Release()
+	status, termReason := goalRunTerminal(handoff, nil)
+	if status == agentrun.StatusCompleted {
+		termReason = reason
+	}
+	if err := lease.Finish(ctx, status, termReason); err != nil && !errors.Is(err, agentrun.ErrLeaseLost) {
+		return fmt.Errorf("finish goal turn AgentRun: %w", err)
+	}
+	return nil
 }
 
 // foldResult maps the rich internal Result onto the frozen ExecutorResult the
@@ -357,10 +384,10 @@ func foldResult(res Result, req ExecutorRequest) ExecutorResult {
 	switch res.Action {
 	case terminalSubmit:
 		return ExecutorResult{
-			Submitted:  true,
-			Evidence:   res.Evidence,
-			Output:     res.Output,
-			completion: res.completion,
+			Submitted: true,
+			Evidence:  res.Evidence,
+			Output:    res.Output,
+			handoff:   res.handoff,
 		}
 	case terminalDecompose:
 		return ExecutorResult{
@@ -368,14 +395,14 @@ func foldResult(res Result, req ExecutorRequest) ExecutorResult {
 			Evidence:      res.Evidence,
 			Output:        res.Output,
 			Decomposition: res.Decomposition,
-			completion:    res.completion,
+			handoff:       res.handoff,
 		}
 	case terminalVerdict:
 		return ExecutorResult{
-			Submitted:  true,
-			Evidence:   res.Evidence,
-			Verdicts:   res.Verdicts,
-			completion: res.completion,
+			Submitted: true,
+			Evidence:  res.Evidence,
+			Verdicts:  res.Verdicts,
+			handoff:   res.handoff,
 		}
 	case terminalFail:
 		f := res.Failure
@@ -383,20 +410,22 @@ func foldResult(res Result, req ExecutorRequest) ExecutorResult {
 			f = &Failure{Reason: "agent reported failure"}
 		}
 		failureClass, blockedBy := failureResponsibility(f.FailureClass, f.BlockedBy)
-		return ExecutorResult{Failed: true, FailReason: f.Reason, FailureClass: failureClass, BlockedBy: blockedBy, completion: res.completion}
+		return ExecutorResult{Failed: true, FailReason: f.Reason, FailureClass: failureClass, BlockedBy: blockedBy, handoff: res.handoff}
 	default: // terminalNone — protocol miss
 		reason := "agent ended without a goal_control terminal action"
 		if res.RepairAttempted {
 			reason = "agent failed to call goal_control after one repair turn"
 		}
-		return ExecutorResult{Failed: true, FailReason: reason, FailureClass: FailureClassModel, completion: res.completion}
+		return ExecutorResult{Failed: true, FailReason: reason, FailureClass: FailureClassModel, handoff: res.handoff}
 	}
 }
 
-const completionAckTimeout = 5 * time.Second
-
+// runnerFailureClass classifies a turn-level failure. Losing execution ownership
+// is an environment failure that must not be replayed as an ordinary flaky
+// retry: the platform may already have observed the turn's effects.
 func runnerFailureClass(err error) (string, string) {
-	if errors.Is(err, agentrun.ErrLeaseLost) || errors.Is(err, agentrun.ErrOutcomeUnknown) {
+	if errors.Is(err, agentrun.ErrLeaseLost) || errors.Is(err, agentrun.ErrInvalidGuard) ||
+		errors.Is(err, agentrun.ErrStoreClosed) || errors.Is(err, agentrun.ErrBusy) {
 		return FailureClassEnvironment, BlockEnvUnavailable
 	}
 	return FailureClassFlaky, ""

@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -58,7 +59,7 @@ var groupTurnAccepts = groupBackstop{status: groupTurnAccepted}
 // outcome is a normal result, not an error: the transaction still committed.
 // It takes no caller-side group state on purpose: the only state that may decide
 // anything here is the row this transaction locks itself.
-func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxGroupDispatch, response groupResponse, turn memory.DeferredGroupTurn) (groupAcceptOutcome, error) {
+func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxGroupDispatch, response groupResponse, turn memory.DeferredGroupTurn, exec *groupExecution) (groupAcceptOutcome, error) {
 	if d.db == nil {
 		return groupAcceptOutcome{}, errors.New("dispatcher db not configured")
 	}
@@ -80,7 +81,7 @@ func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxG
 		return groupAcceptOutcome{}, err
 	}
 	if verdict.status != groupTurnAccepted {
-		return d.stopGroupTurn(ctx, tx, q, row, verdict, turn)
+		return d.stopGroupTurn(ctx, tx, q, row, verdict, turn, exec)
 	}
 
 	// Every platform, web included, is born undelivered: web's publisher is a
@@ -115,9 +116,15 @@ func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxG
 	if err := d.committer.CommitGroupTurn(ctx, tx, turn); err != nil {
 		return groupAcceptOutcome{}, fmt.Errorf("commit deferred group turn: %w", err)
 	}
+	// The accepted reply is committed; the execution that produced it is released
+	// in the same transaction, so a terminal Run cannot precede its own decision.
+	if err := d.releaseTurnTx(ctx, tx, exec, agentrun.StatusCompleted, "group reply accepted"); err != nil {
+		return groupAcceptOutcome{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return groupAcceptOutcome{}, fmt.Errorf("accept group response: commit: %w", err)
 	}
+	d.markReleased(exec)
 	if d.events != nil {
 		d.events.Announce(result)
 	}
@@ -190,7 +197,7 @@ func (d *GroupDispatcher) groupBackstopVerdict(ctx context.Context, q *sqlc.Quer
 // exit path. A non-accepted reply is stale, but its tool effects and read cursor
 // are real. Dropping only the final text response keeps that durable history
 // consistent with the group message that was intentionally not published.
-func (d *GroupDispatcher) stopGroupTurn(ctx context.Context, tx pgx.Tx, q *sqlc.Queries, row sqlc.CtxGroupDispatch, verdict groupBackstop, turn memory.DeferredGroupTurn) (groupAcceptOutcome, error) {
+func (d *GroupDispatcher) stopGroupTurn(ctx context.Context, tx pgx.Tx, q *sqlc.Queries, row sqlc.CtxGroupDispatch, verdict groupBackstop, turn memory.DeferredGroupTurn, exec *groupExecution) (groupAcceptOutcome, error) {
 	var (
 		updated int64
 		err     error
@@ -213,8 +220,14 @@ func (d *GroupDispatcher) stopGroupTurn(ctx context.Context, tx pgx.Tx, q *sqlc.
 	if err := d.committer.CommitGroupTurn(ctx, tx, turn); err != nil {
 		return groupAcceptOutcome{}, fmt.Errorf("commit stopped deferred group turn: %w", err)
 	}
+	// The turn produced a durable decision (held or silent), so its execution is
+	// complete even though nothing was published.
+	if err := d.releaseTurnTx(ctx, tx, exec, agentrun.StatusCompleted, "group turn stopped: "+verdict.reason); err != nil {
+		return groupAcceptOutcome{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return groupAcceptOutcome{}, fmt.Errorf("commit %s dispatch (%s): %w", verdict.status, verdict.reason, err)
 	}
+	d.markReleased(exec)
 	return groupAcceptOutcome{Status: verdict.status, Reason: verdict.reason}, nil
 }

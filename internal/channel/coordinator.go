@@ -19,6 +19,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/auth"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -489,7 +490,7 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 			return c.handleAbort(rc), true, nil, nil
 		}
 		if command == "/config" {
-			return c.handleConfigCommand(ctx, rc, args)
+			return c.handleConfigCommand(ctx, rc, args, msg)
 		}
 		// /new runs through the session queue, so it cannot go through the
 		// stateless shared command handler.
@@ -531,7 +532,7 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 	}
 
 	// Not a command or recognized intent — enqueue a chat response for this session.
-	stream, err := c.queuedChat(ctx, rc, msg.Content)
+	stream, err := c.queuedChat(ctx, rc, msg.Content, msg)
 	if err != nil {
 		return "", false, nil, err
 	}
@@ -551,7 +552,7 @@ func textOnly(content []ai.ContentBlock) bool {
 // per-user runners, and resumes the conversation with a sanitized synthetic turn
 // so the model can continue the blocked task without seeing the secret value.
 // On error, returns a plain text error response.
-func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat, args string) (string, bool, *pkgchannel.ChatStream, error) {
+func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat, args string, msg pkgchannel.IncomingMessage) (string, bool, *pkgchannel.ChatStream, error) {
 	resp, ok := handleConfig(ctx, c.vaultSvc, rc.User.ID, args)
 	if !ok {
 		return resp, true, nil, nil
@@ -569,7 +570,7 @@ func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat,
 	synthetic := []ai.ContentBlock{
 		ai.TextContent{Text: "Credential " + key + " was stored successfully; continue with the user's prior task."},
 	}
-	stream, err := c.queuedChat(ctx, rc, synthetic)
+	stream, err := c.queuedChat(ctx, rc, synthetic, msg)
 	if err != nil {
 		return "", false, nil, err
 	}
@@ -609,62 +610,117 @@ func (c *Coordinator) handleAbort(rc *ResolvedChat) string {
 // whose Events channel is a wrapped forwarding channel. The caller must
 // fully drain (or abandon) Events before the queue will dispatch the next
 // request for the same session.
-func (c *Coordinator) queuedChat(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
-	return c.queuedChatWithOptions(ctx, rc, content)
+func (c *Coordinator) queuedChat(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock, msg pkgchannel.IncomingMessage) (*pkgchannel.ChatStream, error) {
+	return c.queuedChatWithOptions(ctx, rc, content, msg)
 }
 
-func (c *Coordinator) queuedChatWithOptions(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock, opts ...agentruntime.Option) (*pkgchannel.ChatStream, error) {
+func (c *Coordinator) queuedChatWithOptions(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock, msg pkgchannel.IncomingMessage, opts ...agentruntime.Option) (*pkgchannel.ChatStream, error) {
 	markIngressQueued(ctx)
-	completion := agentruntime.NewCompletionBarrier()
-	opts = append(opts, agentruntime.WithCompletionBarrier(completion))
-	stream, doneC, err := c.queue.Enqueue(ctx, rc.queueKey(), func(qctx context.Context) (*pkgchannel.ChatStream, error) {
+	target := deliveryTargetFor(rc, msg)
+	turn, doneC, err := c.queue.Enqueue(ctx, rc.queueKey(), func(qctx context.Context) (*queuedTurn, error) {
 		defer finishIngress(qctx)
-		stream, err := c.chatWithRCOptions(qctx, rc, content, opts...)
-		if stream != nil {
-			stream.Completion = completion
-		}
-		return stream, err
+		return c.directChatStream(qctx, rc, content, target, opts...)
 	})
 	if err != nil {
 		return nil, err
 	}
+	// The per-session FIFO slot stays occupied until this turn's delivery attempt
+	// settles. That is a channel ordering guarantee, not a claim on the Run: the
+	// Run is already terminal once the handoff below commits.
+	go func() {
+		<-turn.stream.DeliveryDone()
+		close(doneC)
+	}()
+	return turn.stream, nil
+}
 
-	// Wrap the stream's Events in a forwarding channel that closes doneC once
-	// all events have been forwarded. This releases the queue slot.
+// directChatStream admits one direct channel turn, commits its delivery receipt
+// together with the Run's terminal transition, and returns the adapter-facing
+// stream. The commit happens before EOF reaches the adapter, so a send that
+// outlives the Run is authorized by the committed receipt rather than by a lease
+// the turn no longer holds.
+func (c *Coordinator) directChatStream(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock, target deliveryTarget, opts ...agentruntime.Option) (*queuedTurn, error) {
+	handoff := agentruntime.NewExecutionHandoff()
+	opts = append(opts, agentruntime.WithExecutionHandoff(handoff))
+	inner, err := c.chatWithRCOptions(ctx, rc, content, opts...)
+	if err != nil {
+		return nil, err
+	}
+	// The delivery record exists before any output can leave, and its creation
+	// doubles as the routing check: a turn whose reply has no record has no
+	// authority to send, so a failed record fails the turn instead of streaming a
+	// reply nobody may deliver.
+	delivery, err := createRunDelivery(ctx, c.db, handoff.Lease(), target)
+	if err != nil {
+		if lease := handoff.Lease(); lease != nil {
+			defer lease.Release()
+			failCtx, cancelFail := context.WithTimeout(context.WithoutCancel(ctx), deliveryCommitTimeout)
+			_ = lease.Finish(failCtx, agentrun.StatusFailed, "create delivery record: "+err.Error())
+			cancelFail()
+		}
+		inner.Discard()
+		return nil, err
+	}
 	out := make(chan pkgchannel.Event, 100)
 	go func() {
-		for evt := range stream.Events {
+		var payloadErr error
+		// The turn's own handler always finalizes it: the commit below runs even if
+		// the pump panics, and process loss is covered by lease expiry.
+		defer close(out)
+		defer func() {
+			defer handoff.Lease().Release()
+			outcome, ok := handoff.Outcome()
+			if !ok {
+				outcome = agentruntime.TurnOutcome{Status: agentrun.StatusFailed, Reason: "turn ended before publishing its result"}
+			}
+			if payloadErr != nil {
+				outcome.Status, outcome.Reason, outcome.CommitErr = agentrun.StatusFailed, payloadErr.Error(), payloadErr
+			}
+			commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deliveryCommitTimeout)
+			if err := commitTurnHandoff(commitCtx, handoff.Lease(), outcome, deliverableTurn(outcome, target, delivery)); err != nil {
+				slog.Warn("commit channel delivery handoff failed", "session_id", inner.SessionID, "error", err)
+				select {
+				case out <- pkgchannel.Event{Err: err}:
+				case <-ctx.Done():
+				}
+			}
+			cancel()
+		}()
+		for evt := range inner.Events {
+			if payloadErr != nil {
+				continue
+			}
+			evt, payloadErr = delivery.persistEvent(ctx, evt)
+			if payloadErr != nil {
+				evt = pkgchannel.Event{Err: fmt.Errorf("persist channel output: %w", payloadErr)}
+			}
 			select {
 			case out <- evt:
 			case <-ctx.Done():
 				// Caller stopped reading, just drain the stream to not block the model
 			}
 		}
-		// EOF only says that model events are exhausted. Close the adapter-facing
-		// stream before waiting so the adapter can perform its final sends and Ack.
-		close(out)
-		// EOF only says that model events are exhausted. The platform may still
-		// be sending the final text, images, or files. Keep the per-session FIFO
-		// occupied until the adapter explicitly settles the egress outcome.
-		<-stream.CompletionDone()
-		close(doneC)
 	}()
-
-	return &pkgchannel.ChatStream{
-		Events:     out,
-		SessionID:  stream.SessionID,
-		Completion: completion,
-	}, nil
+	return &queuedTurn{stream: &pkgchannel.ChatStream{
+		Events:    out,
+		SessionID: inner.SessionID,
+		Delivery:  delivery,
+	}}, nil
 }
 
-// chatWithRC streams a chat response using a pre-resolved chat.
-func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
-	completion := agentruntime.NewCompletionBarrier()
-	stream, err := c.chatWithRCOptions(ctx, rc, content, agentruntime.WithCompletionBarrier(completion))
-	if stream != nil {
-		stream.Completion = completion
+// deliveryTargetFor reads the routing this turn's reply needs from the resolved
+// chat and the inbound message. Nothing model-generated participates.
+func deliveryTargetFor(rc *ResolvedChat, msg pkgchannel.IncomingMessage) deliveryTarget {
+	if rc == nil {
+		return deliveryTarget{}
 	}
-	return stream, err
+	return deliveryTarget{
+		Platform:  rc.ChatCtx.Platform,
+		ChannelID: rc.ChatCtx.ChannelID,
+		ChatID:    rc.ChatCtx.ChatID,
+		ThreadID:  msg.ThreadID,
+		ReplyTo:   msg.MessageID,
+	}
 }
 
 func (c *Coordinator) chatWithRCOptions(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock, opts ...agentruntime.Option) (*pkgchannel.ChatStream, error) {

@@ -49,18 +49,18 @@ func (r *groupChatResolver) abort(sessionKey string) bool {
 	return r.queue.Abort(sessionKey)
 }
 
-func (r *groupChatResolver) chatDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+func (r *groupChatResolver) chatDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (groupChatResult, error) {
 	markIngressQueued(ctx)
 	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
-	stream, doneC, err := r.queue.Enqueue(ctx, sessionKey, func(qctx context.Context) (*pkgchannel.ChatStream, error) {
+	turn, doneC, err := r.queue.Enqueue(ctx, sessionKey, func(qctx context.Context) (*queuedTurn, error) {
 		return r.chatDispatchUnqueued(qctx, row, message, state)
 	})
 	if err != nil {
-		return nil, err
+		return groupChatResult{}, err
 	}
 	out := make(chan pkgchannel.Event, 100)
 	go func() {
-		for evt := range stream.Events {
+		for evt := range turn.stream.Events {
 			select {
 			case out <- evt:
 			case <-ctx.Done():
@@ -68,23 +68,26 @@ func (r *groupChatResolver) chatDispatch(ctx context.Context, row sqlc.CtxGroupD
 				case out <- pkgchannel.Event{Err: ctx.Err()}:
 				default:
 				}
-				for range stream.Events {
+				for range turn.stream.Events {
 				}
 			}
 		}
-		// Publish EOF before waiting for adapter settlement. Waiting first would
-		// deadlock because the adapter only Ack's after it sees EOF.
+		// Publish EOF before waiting for settlement. Waiting first would deadlock:
+		// the egress attempt that settles this delivery happens downstream.
 		close(out)
 		// A model EOF is not an egress outcome. Keep the group session slot
-		// occupied until the publisher explicitly acknowledges delivery, failure,
-		// discard, or uncertainty.
-		<-stream.CompletionDone()
+		// occupied until the dispatcher's publish attempt settles, which is a
+		// channel ordering guarantee rather than a claim on the Run.
+		<-turn.stream.DeliveryDone()
 		close(doneC)
 	}()
-	return &pkgchannel.ChatStream{
-		Events:     out,
-		SessionID:  stream.SessionID,
-		Completion: stream.Completion,
+	return groupChatResult{
+		stream: &pkgchannel.ChatStream{
+			Events:    out,
+			SessionID: turn.stream.SessionID,
+			Delivery:  turn.delivery,
+		},
+		exec: &groupExecution{handoff: turn.handoff, delivery: turn.delivery},
 	}, nil
 }
 
@@ -98,7 +101,7 @@ var errGroupTurnSuperseded = errors.New("group turn superseded by the agent's in
 // race that post and announce a second turn that has already become pointless.
 var errGroupNudgeMoot = errors.New("group nudge became moot")
 
-func (r *groupChatResolver) chatDispatchUnqueued(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+func (r *groupChatResolver) chatDispatchUnqueued(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*queuedTurn, error) {
 	defer finishIngress(ctx)
 	if row.Kind == "nudge" {
 		posted, err := r.q.AgentPostedSinceSeq(ctx, sqlc.AgentPostedSinceSeqParams{
@@ -148,6 +151,7 @@ func (r *groupChatResolver) chatDispatchUnqueued(ctx context.Context, row sqlc.C
 	if err := ValidateGroupMembership(ctx, r.coord.store, state.Platform, row.AgentID, row.ReplyChannelID); err != nil {
 		return nil, fmt.Errorf("validate queued group channel: %w", err)
 	}
+	handoff := agentruntime.NewExecutionHandoff()
 	rc, err := r.coord.resolveGroupChat(ctx, pkgchannel.IncomingMessage{
 		Platform:  state.Platform,
 		ChannelID: row.ReplyChannelID,
@@ -164,7 +168,16 @@ func (r *groupChatResolver) chatDispatchUnqueued(ctx context.Context, row sqlc.C
 	}
 	rc.CurrentSpeaker, rc.InputActor = groupMessageProvenance(message, rc.CurrentSpeaker)
 	rc.GroupWake = memory.GroupWakeFromContext(ctx)
-	return r.coord.chatWithRC(ctx, rc, content)
+	stream, err := r.coord.chatWithRCOptions(ctx, rc, content, agentruntime.WithExecutionHandoff(handoff))
+	if err != nil {
+		return nil, err
+	}
+	// The Run behind this reply is the dispatcher's to release: only its accept,
+	// stop, or failure transaction commits the durable decision this output
+	// belongs to.
+	delivery := newDispatchDelivery(r.q, row.ID, row.AttemptCount)
+	stream.Delivery = delivery
+	return &queuedTurn{stream: stream, handoff: handoff, delivery: delivery}, nil
 }
 
 // groupMessageContentBlocks rebuilds the structured blocks persisted for a
@@ -323,7 +336,7 @@ func (r *groupChatResolver) resolveWebGroupChat(ctx context.Context, groupID, ag
 	}, nil
 }
 
-func (r *groupChatResolver) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
+func (r *groupChatResolver) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, content []ai.ContentBlock) (*queuedTurn, error) {
 	// Pool workers begin with a process context, unlike the historical HTTP
 	// request path. Carry the confined group actor before any prompt/skill work.
 	ctx = authz.WithAgentID(authz.WithGroupID(ctx, row.GroupID), row.AgentID)
@@ -351,7 +364,7 @@ func (r *groupChatResolver) chatWeb(ctx context.Context, row sqlc.CtxGroupDispat
 	// The Web group turn does not go through ResolvedChat.Chat, so it attaches
 	// the same durable chat-binding marker here; without it the group turn would
 	// look like a Web send to tools that require a channel-backed chat.
-	completion := agentruntime.NewCompletionBarrier()
+	handoff := agentruntime.NewExecutionHandoff()
 	events := rc.Service.Chat(rc.withChatBinding(ctx), agent.ChatRequest{
 		SessionID:        info.ID,
 		UserID:           row.GroupID,
@@ -366,7 +379,7 @@ func (r *groupChatResolver) chatWeb(ctx context.Context, row sqlc.CtxGroupDispat
 		InputActor:       inputActor,
 		GroupWake:        memory.GroupWakeFromContext(ctx),
 		Authority:        rc.Authority,
-		RuntimeOpts:      []agentruntime.Option{agentruntime.WithCompletionBarrier(completion)},
+		RuntimeOpts:      []agentruntime.Option{agentruntime.WithExecutionHandoff(handoff)},
 	})
 	out := make(chan pkgchannel.Event, 100)
 	go func() {
@@ -382,7 +395,14 @@ func (r *groupChatResolver) chatWeb(ctx context.Context, row sqlc.CtxGroupDispat
 			}
 		}
 	}()
-	return &pkgchannel.ChatStream{Events: out, SessionID: info.ID, Completion: completion}, nil
+	// The same dispatch handle holds the FIFO through acceptance on Web, whose
+	// publisher only projects the canonical transcript.
+	delivery := newDispatchDelivery(r.q, row.ID, row.AttemptCount)
+	return &queuedTurn{
+		stream:   &pkgchannel.ChatStream{Events: out, SessionID: info.ID, Delivery: delivery},
+		handoff:  handoff,
+		delivery: delivery,
+	}, nil
 }
 
 // webGroupSpeaker derives the per-turn speaker for a Web group dispatch. Web

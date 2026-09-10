@@ -111,10 +111,7 @@ func (b *Bot) sendViaStreamChecked(ctx context.Context, stream *channel.ChatStre
 		return false, b.guard.AssertActive()
 	}
 	check := func() error {
-		if stream == nil {
-			return nil
-		}
-		return stream.CheckOperation(ctx)
+		return stream.AuthorizeSend(ctx, channel.SendOutput)
 	}
 	if err := check(); err != nil {
 		return false, err

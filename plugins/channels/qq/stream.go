@@ -67,7 +67,7 @@ func (b *Bot) streamResponse(ctx context.Context, stream *channel.ChatStream, au
 
 		display := buildStreamDisplay(current, currentTool)
 
-		if err := stream.CheckOperation(ctx); err != nil {
+		if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
 			return sb.String(), images, err
 		}
 		newMsgID, err := b.sendStreamChunk(ctx, targetID, msgID, display, streamMsgID, seq, false, scope)
@@ -88,7 +88,7 @@ func (b *Bot) streamResponse(ctx context.Context, stream *channel.ChatStream, au
 		if strings.TrimSpace(final) == "" {
 			final = "(empty response)"
 		}
-		if err := stream.CheckOperation(ctx); err != nil {
+		if err := stream.AuthorizeSend(ctx, channel.SendOutput); err != nil {
 			return sb.String(), images, err
 		}
 		if _, err := b.sendStreamChunk(ctx, targetID, msgID, final, streamMsgID, seq, true, scope); err != nil {

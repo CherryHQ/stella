@@ -11,7 +11,6 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
-	"github.com/CherryHQ/stella/pkg/runcontrol"
 )
 
 // ErrJoinedChatListingUnavailable means the running channel cannot currently
@@ -124,40 +123,99 @@ type ChatStream struct {
 	Events    <-chan Event
 	SessionID string
 
-	// Completion fences every model-derived outbound effect and stays open until
-	// the adapter records the terminal egress outcome. EOF only closes Events;
-	// queue owners wait on Completion.Done before admitting the next turn.
-	Completion runcontrol.Completion
+	// Delivery authorizes every model-derived external send for this turn and
+	// records what became of it. It is present exactly when the turn's committed
+	// output has a durable delivery owner: a Run-output receipt for a direct
+	// channel turn, or the group dispatch row for a published group reply.
+	//
+	// It is nil only for streams with no external delivery claim at all (Web/SSE,
+	// a webhook HTTP response, tests). That is a statement about the stream, not a
+	// global no-op: a stream that can reach a platform always carries one.
+	Delivery Delivery
 }
 
-// EgressOutcome is the terminal result of a channel-side outbound operation.
-// Unknown means the platform may have accepted the bytes and must never be
-// transparently retried by the dispatcher.
-type EgressOutcome = runcontrol.Outcome
+// DeliveryResult is the terminal result of one channel-side delivery attempt.
+// Only DeliveryNotSent proves that no external request was started; DeliveryUnknown
+// means the platform may have accepted the bytes and must never be retried
+// transparently.
+type DeliveryResult string
 
 const (
-	EgressDelivered = runcontrol.OutcomeDelivered
-	EgressFailed    = runcontrol.OutcomeFailed
-	EgressDiscarded = runcontrol.OutcomeDiscarded
-	EgressUnknown   = runcontrol.OutcomeUnknown
+	DeliverySent    DeliveryResult = "sent"
+	DeliveryNotSent DeliveryResult = "not_sent"
+	DeliveryUnknown DeliveryResult = "unknown"
 )
 
-// EgressOutcomeForError classifies a send-path error after an external request
-// may have started. Every non-nil error is unknown: a context timeout or
-// cancellation does not prove that the platform failed to receive the bytes.
-// Callers may use EgressDiscarded only when CheckOperation failed before the
-// corresponding external request was started.
-func EgressOutcomeForError(err error) EgressOutcome {
-	if err == nil {
-		return EgressDelivered
-	}
-	return EgressUnknown
+// SendKind distinguishes what is being sent, because the two are authorized
+// differently and only one of them is model output.
+type SendKind uint8
+
+const (
+	// SendOutput is model-derived reply content: streamed deltas and the final
+	// rendered answer. While the Run executes it needs valid execution ownership;
+	// afterwards it needs the committed output record of that same turn.
+	SendOutput SendKind = iota
+	// SendControl is a message the channel adapter itself composed — an error,
+	// a timeout, or a status notice. It is authorized by this turn's delivery
+	// ownership rather than by committed model output, so a failed or canceled
+	// turn can still tell the user what happened.
+	SendControl
+)
+
+// Delivery authorizes and settles the external delivery of one committed turn.
+type Delivery interface {
+	// Authorize must be called immediately before each external request. It fails
+	// when this stream no longer has authority to send: while the Run is live the
+	// execution fence decides model output, and once it is terminal the committed
+	// output's own delivery record decides. A canceled, expired, or superseded
+	// producer therefore cannot send either way.
+	Authorize(ctx context.Context, kind SendKind) error
+	// Settle records the terminal delivery result exactly once, after the last
+	// external request. Streams whose delivery outcome is owned by a durable
+	// dispatcher row still settle: the call confirms this attempt still owns the
+	// row and releases the source queue slot.
+	Settle(ctx context.Context, result DeliveryResult) error
+	// Done closes once the delivery attempt has settled, which is when a per-chat
+	// FIFO may admit the next turn. It never reports Run execution state.
+	Done() <-chan struct{}
 }
 
-// StreamCompletion is the runtime-to-channel bridge for an admitted turn.
-// Check is called immediately before each external send. Ack is called exactly
-// once after the adapter has finished all text, image, and file sends.
-type StreamCompletion = runcontrol.Completion
+// DeliveryResultForError classifies a send-path error after an external request
+// may have started. Every non-nil error is unknown: a timeout or cancellation
+// does not prove that the platform failed to receive the bytes. Callers use
+// DeliveryNotSent only when they refused to start the request at all.
+func DeliveryResultForError(err error) DeliveryResult {
+	if err == nil {
+		return DeliverySent
+	}
+	return DeliveryUnknown
+}
+
+// AuthorizeSend runs the stream's per-send authority check. A stream with no
+// delivery owner has no external effect to authorize.
+func (s *ChatStream) AuthorizeSend(ctx context.Context, kind SendKind) error {
+	if s == nil || s.Delivery == nil {
+		return nil
+	}
+	return s.Delivery.Authorize(ctx, kind)
+}
+
+// Settle reports the terminal delivery result for this stream.
+func (s *ChatStream) Settle(ctx context.Context, result DeliveryResult) error {
+	if s == nil || s.Delivery == nil {
+		return nil
+	}
+	return s.Delivery.Settle(ctx, result)
+}
+
+// DeliveryDone is the per-chat FIFO release barrier. A stream with no delivery
+// owner released its slot already.
+func (s *ChatStream) DeliveryDone() <-chan struct{} {
+	if s == nil || s.Delivery == nil {
+		return alreadyComplete
+	}
+	return s.Delivery.Done()
+}
 
 var alreadyComplete = func() <-chan struct{} {
 	ch := make(chan struct{})
@@ -165,45 +223,9 @@ var alreadyComplete = func() <-chan struct{} {
 	return ch
 }()
 
-// CheckOperation rejects a model-derived outbound effect after its AgentRun
-// loses ownership. Streams created outside a durable Run retain the historical
-// no-op behavior.
-func (s *ChatStream) CheckOperation(ctx context.Context) error {
-	if s == nil {
-		return nil
-	}
-	if s.Completion != nil {
-		return s.Completion.Check(ctx)
-	}
-	return nil
-}
-
-// Ack records the terminal egress outcome. A stream without a completion
-// handle is intentionally a no-op, which keeps existing plugin tests and
-// non-durable Web responses source-compatible.
-func (s *ChatStream) Ack(ctx context.Context, outcome EgressOutcome) error {
-	if s == nil || s.Completion == nil {
-		return nil
-	}
-	return s.Completion.Ack(ctx, outcome)
-}
-
-// CompletionDone is the release barrier used by local FIFO wrappers. A stream
-// without a handle is already complete because it has no durable owner to
-// retain.
-func (s *ChatStream) CompletionDone() <-chan struct{} {
-	if s == nil {
-		return alreadyComplete
-	}
-	if s.Completion == nil {
-		return alreadyComplete
-	}
-	return s.Completion.Done()
-}
-
 // Discard drains a stream asynchronously after a channel stops publishing it.
 // Model execution must never remain blocked on a full event buffer merely
-// because an outbound effect was rejected or its outcome became unknown.
+// because the outbound path gave up.
 func (s *ChatStream) Discard() {
 	if s == nil || s.Events == nil {
 		return

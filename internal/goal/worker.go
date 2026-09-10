@@ -18,7 +18,6 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/observability"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/runcontrol"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -124,13 +123,24 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 		go w.heartbeatLoop(hbCtx, &hbWG, attemptID)
 	}
 
+	var res ExecutorResult
+	ownership := &turnOwnership{}
+	// Run this after panic recovery records the attempt's failed transition.
+	defer func() {
+		if finishErr := w.finishGoalRun(context.WithoutCancel(ctx), ownership.current, err); finishErr != nil {
+			err = errors.Join(err, finishErr)
+		}
+	}()
 	defer func() {
 		hbCancel()
 		hbWG.Wait()
 		if r := recover(); r != nil {
 			w.log.Error("worker executor panicked", "goal_id", goalID, "attempt_id", attemptID, "error.type", fmt.Sprintf("%T", r), "error.class", "executor_panic")
 			observability.ConsoleOnlyLogger().Error("worker executor panic detail", "goal_id", goalID, "attempt_id", attemptID, "panic", r)
-			_ = w.failAttempt(context.WithoutCancel(ctx), goalID, attemptID, fmt.Sprintf("executor panic: %v", r), FailureClassEnvironment, BlockEnvUnavailable)
+			// The panicking attempt's own write is fenced by the Run it admitted, for
+			// the same reason as every other Goal write here.
+			panicCtx := goalSourceContext(context.WithoutCancel(ctx), ownership.current.Lease())
+			_ = w.failAttempt(panicCtx, goalID, attemptID, fmt.Sprintf("executor panic: %v", r), FailureClassEnvironment, BlockEnvUnavailable)
 			err = fmt.Errorf("executor panic: %v", r)
 		}
 	}()
@@ -141,45 +151,104 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 		Goal:    goal,
 		Attempt: att,
 		Input:   w.attemptInput(att),
+		// The handoff is reported as each turn is admitted, not only via the returned
+		// result, so ownership survives an executor panic.
+		OnTurnStarted: ownership.admit,
 		OnSandboxSession: func(sess sandbox.Session) error {
 			checksRan = true
 			checkErr = w.runChecks(ctx, goal, att, sess)
 			return nil
 		},
 	})
+	ownership.admit(res.handoff)
 	if eerr != nil {
 		if errors.Is(eerr, context.Canceled) || errors.Is(eerr, context.DeadlineExceeded) {
+			// The attempt's verdict belongs to the convergence model, but its
+			// admitted Run is still released above with the canceled outcome.
 			return eerr
 		}
 		w.log.Warn("worker: executor returned error", "goal_id", goalID, "attempt_id", attemptID, "error.type", fmt.Sprintf("%T", eerr), "error.class", "worker_executor_error")
 		failureClass, blockedBy := runnerFailureClass(eerr)
-		res = ExecutorResult{Failed: true, FailReason: fmt.Sprintf("executor error: %v", eerr), FailureClass: failureClass, BlockedBy: blockedBy}
+		res = ExecutorResult{Failed: true, FailReason: fmt.Sprintf("executor error: %v", eerr), FailureClass: failureClass, BlockedBy: blockedBy, handoff: res.handoff}
 	}
 	if att.Purpose == PurposeDecomposition {
-		// A decomposition repair acknowledges one AgentRun before admitting the
-		// next planning turn. Keep the repair loop on the unbound worker context;
-		// each individual result binds its own completion fence below. Otherwise a
-		// failed admission for the next repair would leave the loop carrying the
-		// already-terminal first Run's guard and strand the goal attempt.
-		return w.applyDecompositionResult(context.WithoutCancel(ctx), goal, att, res)
+		return w.applyDecompositionResult(context.WithoutCancel(ctx), goal, att, res, ownership)
 	}
-	applyCtx := context.WithoutCancel(ctx)
-	if res.completion != nil && res.completion.Bound() {
-		var bindErr error
-		applyCtx, bindErr = res.completion.Context(applyCtx)
-		if bindErr != nil {
-			return fmt.Errorf("worker: bind AgentRun completion fence: %w", bindErr)
-		}
-	}
-	applyErr := w.applyResult(applyCtx, goalID, goal, att, actor, res, checksRan, checkErr)
-	if res.completion == nil {
-		return applyErr
-	}
-	ackErr := ackAgentRun(res.completion, applyCtx, completionOutcome(applyErr))
-	if ackErr != nil {
-		return errors.Join(applyErr, fmt.Errorf("ack goal AgentRun completion: %w", ackErr))
-	}
+	applyErr := w.applyResult(goalSourceContext(ctx, ownership.current.Lease()), goalID, goal, att, actor, res, checksRan, checkErr)
+	err = applyErr
 	return applyErr
+}
+
+// goalSourceContext keeps final source writes fenced even after model cancellation.
+func goalSourceContext(ctx context.Context, lease *agentrun.Lease) context.Context {
+	ctx = context.WithoutCancel(ctx)
+	if lease == nil {
+		return ctx
+	}
+	return lease.ContextWith(ctx)
+}
+
+// The executor and repair loop update this handle synchronously. Recording it
+// before chat starts lets the worker finish an admitted Run even after a panic.
+type turnOwnership struct {
+	current *agentruntime.ExecutionHandoff
+}
+
+func (o *turnOwnership) admit(handoff *agentruntime.ExecutionHandoff) {
+	if handoff != nil {
+		o.current = handoff
+	}
+}
+
+// goalRunTerminal maps an attempt's durable source outcome and the turn's own
+// execution outcome onto the Run's terminal status.
+//
+// Neither fact is sufficient alone: a committed Goal transition whose transcript
+// never reached durable storage is not a successful turn, and an ambiguous commit
+// is interrupted — never an ordinary retryable failure — because the effect may
+// already exist.
+func goalRunTerminal(handoff *agentruntime.ExecutionHandoff, applyErr error) (string, string) {
+	switch {
+	case errors.Is(applyErr, errTxCommit):
+		return agentrun.StatusInterrupted, "goal transition commit outcome unknown"
+	case errors.Is(applyErr, context.Canceled), errors.Is(applyErr, context.DeadlineExceeded):
+		return agentrun.StatusCanceled, "goal attempt canceled"
+	case applyErr != nil:
+		return agentrun.StatusFailed, applyErr.Error()
+	}
+	outcome, ok := handoff.Outcome()
+	if !ok {
+		// No execution outcome was ever published for this turn, so this attempt
+		// cannot claim a success it cannot attribute.
+		return agentrun.StatusInterrupted, "goal turn ended without a published execution outcome"
+	}
+	if outcome.CommitErr != nil {
+		return agentrun.StatusInterrupted, "goal turn output commit outcome unknown: " + outcome.CommitErr.Error()
+	}
+	if outcome.Status != agentrun.StatusCompleted {
+		reason := outcome.Reason
+		if reason == "" {
+			reason = "goal turn ended " + outcome.Status
+		}
+		return outcome.Status, reason
+	}
+	return agentrun.StatusCompleted, "goal attempt committed"
+}
+
+// finishGoalRun releases the execution one goal turn owns, after that turn's
+// required durable writes. Losing the lease is not an error here: recovery already
+// decided the Run.
+func (w *Worker) finishGoalRun(ctx context.Context, handoff *agentruntime.ExecutionHandoff, applyErr error) error {
+	lease := handoff.Lease()
+	if lease == nil {
+		return nil
+	}
+	defer lease.Release()
+	status, reason := goalRunTerminal(handoff, applyErr)
+	if err := lease.Finish(ctx, status, reason); err != nil && !errors.Is(err, agentrun.ErrLeaseLost) {
+		return fmt.Errorf("finish goal AgentRun: %w", err)
+	}
+	return nil
 }
 
 // applyResult maps the executor's Result to the SINGLE durable transition. A
@@ -187,13 +256,6 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 // was cancelled (e.g. on shutdown).
 func (w *Worker) applyResult(ctx context.Context, goalID string, goal sqlc.AgentGoal, att sqlc.AgentGoalAttempt, actor Actor, res ExecutorResult, checksRan bool, checkErr error) error {
 	switch {
-	case att.Purpose == PurposeDecomposition:
-		// A planner attempt has a different outcome shape (a plan, not an output)
-		// and never runs deterministic checks, so it is handled wholly apart from
-		// the execution/review fold. Routed by purpose BEFORE the generic submit
-		// case so a decomposition never falls through to the leaf checks.
-		return w.applyDecompositionResult(ctx, goal, att, res)
-
 	case att.Purpose == PurposeReview:
 		// A reviewer attempt's outcome is verdicts, not an output, and runs no
 		// deterministic checks. Routed by purpose BEFORE the generic submit case so
@@ -246,105 +308,65 @@ func (w *Worker) applyResult(ctx context.Context, goalID string, goal sqlc.Agent
 	}
 }
 
-// applyDecompositionResult applies a planner attempt's outcome as the single
-// durable transition. Structural plan errors are fed back to the same planning
-// session for a bounded repair loop; model failures use the planning budget,
-// while flaky/environment/contract failures route by responsibility.
-func (w *Worker) applyDecompositionResult(ctx context.Context, goal sqlc.AgentGoal, att sqlc.AgentGoalAttempt, res ExecutorResult) error {
+// applyDecompositionResult finishes intermediate Runs before repair admission.
+// Worker.Run owns the final Run, including failures and panics in a repair turn.
+func (w *Worker) applyDecompositionResult(ctx context.Context, goal sqlc.AgentGoal, att sqlc.AgentGoalAttempt, res ExecutorResult, ownership *turnOwnership) (err error) {
 	input := w.attemptInput(att)
 	repairMax := plannerRepairMax(goal)
 	for repairs := 0; ; {
-		runCtx := ctx
-		if res.completion != nil && res.completion.Bound() {
-			var err error
-			runCtx, err = res.completion.Context(ctx)
-			if err != nil {
-				return fmt.Errorf("worker: bind planner completion fence: %w", err)
-			}
-		}
+		// Every write this iteration makes is fenced by the Run that owns it.
+		runCtx := goalSourceContext(ctx, ownership.current.Lease())
 		if res.Submitted && res.Decomposition != nil {
 			if err := w.recordRepairRounds(runCtx, goal.ID, att.ID, repairs); err != nil {
-				return w.ackResult(runCtx, res.completion, err)
+				return err
 			}
 			if derr := w.svc.SubmitDecomposition(runCtx, att.ID, res.Evidence, *res.Decomposition); derr != nil {
 				errs := decompositionSubmitErrors(goal, input.MaxDepth, *res.Decomposition, derr)
 				if len(errs) > 0 {
 					if repairs < repairMax {
+						// The plan was structurally invalid and the model gets one more
+						// bounded turn on the same session. The incremented round count is
+						// this attempt's durable write, so it commits under the fence of the
+						// turn that produced the invalid plan, before that turn's Run is
+						// released and the next turn is admitted — a Session admits at most
+						// one Run.
 						repairs++
 						input.PriorErrors = errs
 						if err := w.recordRepairRounds(runCtx, goal.ID, att.ID, repairs); err != nil {
-							return w.ackResult(runCtx, res.completion, err)
+							return err
 						}
-						if ackErr := ackAgentRun(res.completion, runCtx, runcontrol.OutcomeDelivered); ackErr != nil {
-							return fmt.Errorf("ack decomposition repair completion: %w", ackErr)
+						if err := w.finishGoalRun(runCtx, ownership.current, nil); err != nil {
+							return err
 						}
-						next, eerr := w.exec.Execute(ctx, ExecutorRequest{Goal: goal, Attempt: att, Input: input})
+						ownership.current = nil
+						next, eerr := w.exec.Execute(ctx, ExecutorRequest{
+							Goal: goal, Attempt: att, Input: input, OnTurnStarted: ownership.admit,
+						})
 						if eerr != nil {
 							w.log.Warn("worker: planner repair executor returned error", "goal_id", goal.ID, "attempt_id", att.ID, "error.type", fmt.Sprintf("%T", eerr), "error.class", "worker_executor_error")
 							failureClass, blockedBy := runnerFailureClass(eerr)
-							res = ExecutorResult{Failed: true, FailReason: fmt.Sprintf("executor error: %v", eerr), FailureClass: failureClass, BlockedBy: blockedBy}
+							res = ExecutorResult{Failed: true, FailReason: fmt.Sprintf("executor error: %v", eerr), FailureClass: failureClass, BlockedBy: blockedBy, handoff: next.handoff}
 						} else {
 							res = next
 						}
+						ownership.admit(res.handoff)
 						continue
 					}
-					if err := w.recordRepairRounds(runCtx, goal.ID, att.ID, repairs); err != nil {
-						return w.ackResult(runCtx, res.completion, err)
-					}
-					applyErr := w.failAttempt(runCtx, goal.ID, att.ID, "planning invalid:\n"+RenderErrorsText(errs), FailureClassModel)
-					return w.ackResult(runCtx, res.completion, applyErr)
+					return w.failAttempt(runCtx, goal.ID, att.ID, "planning invalid:\n"+RenderErrorsText(errs), FailureClassModel)
 				}
-				if err := w.recordRepairRounds(runCtx, goal.ID, att.ID, repairs); err != nil {
-					return w.ackResult(runCtx, res.completion, err)
-				}
-				applyErr := w.failAttempt(runCtx, goal.ID, att.ID, "apply decomposition: "+derr.Error(), FailureClassFlaky)
-				return w.ackResult(runCtx, res.completion, applyErr)
+				return w.failAttempt(runCtx, goal.ID, att.ID, "apply decomposition: "+derr.Error(), FailureClassFlaky)
 			}
-			return w.ackResult(runCtx, res.completion, nil)
+			return nil
 		}
 		reason := res.FailReason
 		if reason == "" {
 			reason = "decomposition produced no plan"
 		}
 		if err := w.recordRepairRounds(runCtx, goal.ID, att.ID, repairs); err != nil {
-			return w.ackResult(runCtx, res.completion, err)
+			return err
 		}
-		applyErr := w.failAttempt(runCtx, goal.ID, att.ID, reason, failureClassForResult(res), res.BlockedBy)
-		return w.ackResult(runCtx, res.completion, applyErr)
+		return w.failAttempt(runCtx, goal.ID, att.ID, reason, failureClassForResult(res), res.BlockedBy)
 	}
-}
-
-// ackResult closes one Goal-owned AgentRun after its source-domain transition.
-// A commit error leaves the durable result ambiguous, so the run must become
-// unknown and convergence must not replay the model turn automatically.
-func (w *Worker) ackResult(ctx context.Context, completion *agentruntime.CompletionBarrier, applyErr error) error {
-	if completion == nil {
-		return applyErr
-	}
-	ackErr := ackAgentRun(completion, ctx, completionOutcome(applyErr))
-	if ackErr != nil {
-		return errors.Join(applyErr, fmt.Errorf("ack goal AgentRun completion: %w", ackErr))
-	}
-	return applyErr
-}
-
-func ackAgentRun(completion *agentruntime.CompletionBarrier, ctx context.Context, outcome runcontrol.Outcome) error {
-	if completion == nil || !completion.Bound() {
-		return nil
-	}
-	ackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), completionAckTimeout)
-	defer cancel()
-	return completion.Ack(ackCtx, outcome)
-}
-
-func completionOutcome(err error) runcontrol.Outcome {
-	if err == nil {
-		return runcontrol.OutcomeDelivered
-	}
-	if errors.Is(err, errTxCommit) || errors.Is(err, agentrun.ErrLeaseLost) || errors.Is(err, agentrun.ErrOutcomeUnknown) {
-		return runcontrol.OutcomeUnknown
-	}
-	return runcontrol.OutcomeFailed
 }
 
 func (w *Worker) recordRepairRounds(ctx context.Context, goalID, attemptID string, repairs int) error {
