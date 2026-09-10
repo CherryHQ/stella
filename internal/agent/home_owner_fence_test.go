@@ -69,7 +69,7 @@ func TestHomeOwnerDeletionFencesBlockedWorkspaceAdmissionWithoutDeadlock(t *test
 			t.Cleanup(func() { _ = manager.Close() })
 			factoryEntered, releaseFactory := make(chan struct{}), make(chan struct{})
 			var once sync.Once
-			rt, err := agentruntime.New(agentruntime.Config{Memory: memorytest.New(), NewRunner: func(ctx context.Context, _ agentruntime.RunnerParams) (agentruntime.Runner, error) {
+			rt, err := agentruntime.New(agentruntime.Config{LocalOnly: true, Memory: memorytest.New(), NewRunner: func(ctx context.Context, _ agentruntime.RunnerParams) (agentruntime.Runner, error) {
 				once.Do(func() { close(factoryEntered); <-releaseFactory })
 				req := home.WorkspaceRequest{UserID: userID, AgentID: agentID}
 				if kind == home.OwnerGroup {
@@ -83,7 +83,7 @@ func TestHomeOwnerDeletionFencesBlockedWorkspaceAdmissionWithoutDeadlock(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			pm := NewPoolManager(nil, memorytest.New())
+			pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 			svc := &Service{Runtime: rt, AgentID: agentID, lifecycle: pm.lifecycle}
 			pm.services[agentID] = svc
 			fencer := &signalingFenceAcquirer{delegate: pm, entered: make(chan struct{})}
@@ -158,13 +158,13 @@ func TestAgentOwnerDeletionRollbackKeepsExactServiceFreshAdmissible(t *testing.T
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
-	rt, _ := agentruntime.New(agentruntime.Config{Memory: memorytest.New(), NewRunner: func(ctx context.Context, _ agentruntime.RunnerParams) (agentruntime.Runner, error) {
+	rt, _ := agentruntime.New(agentruntime.Config{LocalOnly: true, Memory: memorytest.New(), NewRunner: func(ctx context.Context, _ agentruntime.RunnerParams) (agentruntime.Runner, error) {
 		if _, err := manager.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID}); err != nil {
 			return nil, err
 		}
 		return &ownerFenceRunner{}, nil
 	}})
-	pm := NewPoolManager(nil, memorytest.New())
+	pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 	svc := &Service{Runtime: rt, AgentID: agentID, lifecycle: pm.lifecycle}
 	pm.services[agentID] = svc
 	deletion, _ := home.NewOwnerDeletion(db, manager, pm)
@@ -184,7 +184,7 @@ func TestAgentOwnerDeletionRollbackKeepsExactServiceFreshAdmissible(t *testing.T
 }
 
 func TestAcquireHomeOwnerFenceCancellationDoesNotLeakLifecycleGate(t *testing.T) {
-	pm := NewPoolManager(nil, memorytest.New())
+	pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 	if err := pm.lifecycle.lockShared(t.Context()); err != nil {
 		t.Fatal(err)
 	}

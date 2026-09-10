@@ -192,6 +192,7 @@ func newCompactTestChat(t *testing.T, groupID string, user auth.User) *ResolvedC
 		t.Fatalf("new registry: %v", err)
 	}
 	rt, err := agentruntime.New(agentruntime.Config{
+		LocalOnly: true,
 		Memory:    fake,
 		NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) { return nil, nil },
 	})

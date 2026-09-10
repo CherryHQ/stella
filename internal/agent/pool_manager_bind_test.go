@@ -62,7 +62,7 @@ func newPool(t *testing.T) *PoolManager {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = workspaces.Close() })
-	return NewPoolManager(cfgstore.NewDBStore(db), nil, WithHomeWorkspace(workspaces))
+	return NewPoolManager(cfgstore.NewDBStore(db), nil, WithHomeWorkspace(workspaces), WithLocalExecution())
 }
 
 func startPool(t *testing.T, pm *PoolManager) {

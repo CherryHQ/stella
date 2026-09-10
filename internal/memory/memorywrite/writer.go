@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -48,7 +50,7 @@ func GetConstraints(ctx context.Context, q *sqlc.Queries, userID string, agentID
 // AddConstraint appends a new constraint entry transactionally, bumps version,
 // and records a changelog entry with scope='constraint', action='create'.
 func AddConstraint(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string, text string) ([]memory.ConstraintEntry, error) {
-	tx, err := db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, db)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
@@ -122,7 +124,7 @@ func AddConstraint(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userI
 // RemoveConstraint removes a constraint by ID transactionally, bumps version,
 // and records a changelog entry with scope='constraint', action='delete'.
 func RemoveConstraint(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string, id string) ([]memory.ConstraintEntry, error) {
-	tx, err := db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, db)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}

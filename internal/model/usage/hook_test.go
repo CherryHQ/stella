@@ -11,6 +11,7 @@ import (
 	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/sessionexecution"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -77,5 +78,38 @@ func TestPendingCallCountTracksAcceptedWrites(t *testing.T) {
 	}
 	if got := h.PendingCallCount("other"); got != 0 {
 		t.Fatalf("pending for another session = %d, want 0", got)
+	}
+}
+
+func TestRunUsageCommitsBeforeLeaseEndsAndDoesNotEnterBackgroundQueue(t *testing.T) {
+	db := dbtest.New(t)
+	if err := storepkg.NewDBStore(db).CreateAgent(t.Context(), config.Agent{ID: "agent", Scope: config.AgentScopeSystem, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	id := uuid.Must(uuid.NewV7()).String()
+	if _, err := sqlc.New(db).CreateConversation(t.Context(), sqlc.CreateConversationParams{ID: id, SessionID: id, Kind: "chat", LastActive: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, lease, err := sessionexecution.New(db).Claim(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lease.Finish("error") }()
+	h := New(db)
+	observation := &hooks.PostLLMCallContext{HookMeta: hooks.HookMeta{SessionID: id, AgentID: "agent"}, Provider: "test", Model: "test"}
+	h.OnPostLLMCall(ctx, observation)
+	if h.PendingCallCount(id) != 0 {
+		t.Fatal("run usage entered background queue")
+	}
+	var count int
+	if err := db.QueryRow(t.Context(), "SELECT count(*) FROM agent_llm_call WHERE session_id=$1", id).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("usage before finish=%d err=%v", count, err)
+	}
+	if err := lease.Finish("success"); err != nil {
+		t.Fatal(err)
+	}
+	h.OnPostLLMCall(context.WithoutCancel(ctx), observation)
+	if err := db.QueryRow(t.Context(), "SELECT count(*) FROM agent_llm_call WHERE session_id=$1", id).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("late usage=%d err=%v", count, err)
 	}
 }

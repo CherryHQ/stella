@@ -49,6 +49,7 @@ func TestPrepareChatAdmissionBuildsFreshContextOncePerTurn(t *testing.T) {
 		return &chatFakeRunner{pluginContext: params.PluginContext}, nil
 	}
 	rt, err := New(Config{
+		LocalOnly: true,
 		Memory:    fakeMemory{},
 		NewRunner: factory,
 		PluginContextBuilder: func(context.Context, authz.Authority, string) (PluginContext, error) {
@@ -112,7 +113,8 @@ func TestPrepareChatAdmissionDerivesScopedAuthorityForEachBackgroundTurn(t *test
 		calls  []authz.Authority
 	)
 	rt, err := New(Config{
-		Memory: fakeMemory{},
+		LocalOnly: true,
+		Memory:    fakeMemory{},
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			builds++
 			return &chatFakeRunner{}, nil
@@ -169,6 +171,7 @@ func TestPrepareChatAdmissionDerivesGroupAuthorityAndClearsInheritedUser(t *test
 	}
 	var calls []authz.Authority
 	rt, err := New(Config{
+		LocalOnly: true,
 		Memory:    fakeMemory{},
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) { return &chatFakeRunner{}, nil },
 		PluginContextBuilder: func(ctx context.Context, authority authz.Authority, _ string) (PluginContext, error) {
@@ -211,7 +214,8 @@ func TestPrepareChatAdmissionDerivesGroupAuthorityAndClearsInheritedUser(t *test
 func TestPrepareChatAdmissionLeavesGuestsWithoutResourceAuthority(t *testing.T) {
 	var calls, builds int
 	rt, err := New(Config{
-		Memory: fakeMemory{},
+		LocalOnly: true,
+		Memory:    fakeMemory{},
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			builds++
 			return &chatFakeRunner{}, nil
@@ -242,7 +246,8 @@ func TestPrepareChatAdmissionLeavesGuestsWithoutResourceAuthority(t *testing.T) 
 func TestChatInstallsDerivedAuthorityOnTurnContext(t *testing.T) {
 	var captured context.Context
 	rt, err := New(Config{
-		Memory: fakeMemory{},
+		LocalOnly: true,
+		Memory:    fakeMemory{},
 		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "ok"}}, ctx: &captured}, nil
 		},
@@ -279,7 +284,8 @@ func TestPrepareTurnFailureReleasesReservationWithoutRebuildingRunner(t *testing
 	prepareFailure := errors.New("resource refresh failed")
 	prepareErr := prepareFailure
 	rt, err := New(Config{
-		Memory: fakeMemory{},
+		LocalOnly: true,
+		Memory:    fakeMemory{},
 		NewRunner: func(_ context.Context, params RunnerParams) (Runner, error) {
 			builds++
 			return &preparationFailureRunner{
@@ -317,6 +323,7 @@ func TestPrepareTurnFailureReleasesReservationWithoutRebuildingRunner(t *testing
 func TestDetachRunnersWhereCancelsPreCacheAdmission(t *testing.T) {
 	started := make(chan struct{})
 	rt, err := New(Config{
+		LocalOnly: true,
 		Memory:    fakeMemory{},
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) { return &chatFakeRunner{}, nil },
 		PluginContextBuilder: func(ctx context.Context, _ authz.Authority, _ string) (PluginContext, error) {

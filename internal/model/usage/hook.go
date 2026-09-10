@@ -1,4 +1,4 @@
-// Package usage persists provider-reported LLM usage outside the turn path.
+// Package usage commits run usage before completion and queues independent observations.
 package usage
 
 import (
@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/sessionexecution"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -19,10 +21,11 @@ import (
 
 const queueCapacity = 1024
 
-// Hook accepts observations without waiting for PostgreSQL. The queue bounds
+// Hook commits execution-scoped usage synchronously. For independent calls, its queue bounds
 // shutdown loss to 1024 accepted records. Under sustained database overload,
 // excess observations are deliberately dropped rather than delaying a turn.
 type Hook struct {
+	db  *pgxpool.Pool
 	q   *sqlc.Queries
 	log *slog.Logger
 
@@ -39,6 +42,7 @@ type Hook struct {
 
 func New(db *pgxpool.Pool) *Hook {
 	return &Hook{
+		db:      db,
 		q:       sqlc.New(db),
 		log:     slog.With("hook", "llm_usage"),
 		jobs:    make(chan sqlc.CreateAgentLLMCallParams, queueCapacity),
@@ -81,11 +85,24 @@ func (h *Hook) Start() {
 	})
 }
 
-func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) {
+func (h *Hook) OnPostLLMCall(ctx context.Context, hctx *hooks.PostLLMCallContext) {
 	if hctx.SessionID == "" || hctx.AgentID == "" {
 		return
 	}
 	job := paramsFrom(hctx)
+	if sessionexecution.FromContext(ctx) != nil {
+		_, err := sessionexecution.Write(context.WithoutCancel(ctx), h.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.AgentLlmCall, error) {
+			return q.CreateAgentLLMCall(ctx, job)
+		})
+		if err != nil {
+			sessionexecution.Abort(ctx, err)
+			h.log.Warn("persist run llm usage", "session_id", job.SessionID, "error", err)
+		}
+		return
+	}
+	if err := sessionexecution.Check(ctx); err != nil {
+		return
+	}
 
 	h.mu.Lock()
 	defer h.mu.Unlock()

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"golang.org/x/sync/errgroup"
 
 	"github.com/jackc/pgx/v5"
@@ -390,7 +392,7 @@ func (c *compactionEngine) writeMessageRunSummary(ctx context.Context, convID st
 		return nil
 	}
 
-	tx, err := c.db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, c.db)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -683,7 +685,7 @@ func (c *compactionEngine) writeCondensedRunSummary(ctx context.Context, convID 
 		return nil
 	}
 
-	tx, err := c.db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, c.db)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}

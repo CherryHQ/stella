@@ -16,6 +16,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionexecution"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -103,6 +104,8 @@ func New(db *pgxpool.Pool, summarizerFn func(ctx context.Context, prompt string)
 	}
 	return p, nil
 }
+
+func (p *Provider) SessionExecutionStore() *sessionexecution.Store { return sessionexecution.New(p.db) }
 
 // Name implements memory.Provider.
 func (p *Provider) Name() string { return "lcm" }
@@ -275,7 +278,7 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 			return err
 		}
 
-		tx, err := p.db.Begin(ctx)
+		tx, err := sessionexecution.Begin(ctx, p.db)
 		if err != nil {
 			return fmt.Errorf("begin tx: %w", err)
 		}

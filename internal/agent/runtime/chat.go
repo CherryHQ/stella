@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -137,7 +139,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	// Auto-compact.
 	if rt.needsCompaction(ctx, memSess) {
 		rt.log.Info("auto-compaction triggered", "session_id", info.ID)
-		compactParent := context.WithoutCancel(ctx)
+		compactParent := ctx
 		if _, synchronous := agentctx.SessionCallFromContext(ctx); synchronous {
 			// A Session/delegate call holds its caller and target admission until
 			// completion, so source cancellation must also stop compaction.
@@ -322,7 +324,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 				return
 			}
 		} else if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
-			if hasCanonicalImage {
+			if hasCanonicalImage || errors.Is(err, sessionexecution.ErrLost) {
 				out <- Event{Err: fmt.Errorf("persist canonical user message: %w", err)}
 				return
 			}
@@ -330,6 +332,12 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		}
 	}
 
+	if err := sessionexecution.Check(ctx); err != nil {
+		if ctx.Err() == nil || errors.Is(err, sessionexecution.ErrLost) {
+			out <- Event{Err: err}
+		}
+		return
+	}
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	stream := selection.runner.Chat(context.WithValue(runCtx, groupResultKey{}, false), history, modelMsg)
@@ -372,7 +380,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		if committer, ok := rt.mem.(memory.GroupCursorCommitter); ok {
 			commitCtx := context.WithoutCancel(ctx)
 			if err := committer.CommitGroupCursor(commitCtx, memSess, memory.GroupSeqFromContext(ctx)); err != nil {
-				rt.log.Warn("group cursor commit failed", "session_id", info.ID, "group_id", memSess.GroupID, "error", err)
+				sendEvent(ctx, out, Event{Err: fmt.Errorf("commit group cursor: %w", err)})
 			}
 		}
 	}

@@ -118,7 +118,8 @@ func TestSendSessionMessageAppliesExcludedToolsToOnlyThatRun(t *testing.T) {
 	recorded := make(chan []string, 2)
 	runner := &excludedToolsRecordingRunner{excluded: recorded}
 	run, err := agentruntime.New(agentruntime.Config{
-		Memory: memorytest.New(),
+		LocalOnly: true,
+		Memory:    memorytest.New(),
 		NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
 			return runner, nil
 		},

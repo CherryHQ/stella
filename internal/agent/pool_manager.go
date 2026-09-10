@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
@@ -56,6 +58,15 @@ type (
 
 // PoolManagerOption configures a PoolManager.
 type PoolManagerOption func(*PoolManager)
+
+func WithSessionExecution(store *sessionexecution.Store) PoolManagerOption {
+	return func(pm *PoolManager) { pm.execution = store }
+}
+
+// WithLocalExecution permits in-memory runtimes for tests without a database.
+func WithLocalExecution() PoolManagerOption {
+	return func(pm *PoolManager) { pm.localExecution = true }
+}
 
 // WithCodeToolSurface selects the Code Mode provider-visible treatment. The
 // production default remains the established hot-tool surface.
@@ -205,7 +216,9 @@ func WithGroupRosterLoader(loader func(context.Context, string, string) prompt.G
 // from the config Store and creates a Service (session.Registry + runtime.Runtime)
 // per agent.
 type PoolManager struct {
-	services map[string]*Service
+	execution      *sessionexecution.Store
+	localExecution bool
+	services       map[string]*Service
 	// ownerBlocks is guarded by lifecycle. It remains set from the short
 	// detach boundary through the Home owner transaction, then is cleared on
 	// commit or rollback. Service admission reads it under the shared gate.
@@ -511,6 +524,8 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	pm.mu.RUnlock()
 
 	cfg := agentruntime.Config{
+		Execution:            pm.execution,
+		LocalOnly:            pm.localExecution,
 		NewRunner:            factory,
 		PluginContextBuilder: pluginContextBuilder,
 		Memory:               pm.mem,

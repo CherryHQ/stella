@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/core/agenterr"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionexecution"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -33,6 +34,7 @@ type SessionImages interface {
 type SkillTurnCapture func(context.Context, session.Info, PluginContext) (context.Context, error)
 
 type Runtime struct {
+	execution            *sessionexecution.Store
 	cache                *runnerCache
 	pluginContextBuilder PluginContextBuilder
 	mem                  memory.Provider
@@ -141,6 +143,9 @@ func (c CompactionConfig) WithDefaults() CompactionConfig {
 
 // Config holds all dependencies for a Runtime instance.
 type Config struct {
+	Execution *sessionexecution.Store
+	// LocalOnly permits in-memory runtimes used by tests. Persistent runtimes require Execution.
+	LocalOnly            bool
 	NewRunner            NewRunnerFunc
 	PluginContextBuilder PluginContextBuilder
 	Memory               memory.Provider
@@ -164,6 +169,16 @@ func New(cfg Config) (*Runtime, error) {
 	if cfg.Memory == nil {
 		return nil, fmt.Errorf("runtime.Config.Memory is required")
 	}
+	if cfg.Execution == nil {
+		if source, ok := cfg.Memory.(interface {
+			SessionExecutionStore() *sessionexecution.Store
+		}); ok {
+			cfg.Execution = source.SessionExecutionStore()
+		}
+	}
+	if cfg.Execution == nil && !cfg.LocalOnly {
+		return nil, fmt.Errorf("runtime.Config.Execution is required")
+	}
 	idleTimeout := cfg.IdleTimeout
 	if idleTimeout == 0 {
 		idleTimeout = 10 * time.Minute
@@ -174,6 +189,7 @@ func New(cfg Config) (*Runtime, error) {
 	cache.defaultThinking = cfg.DefaultThinking
 	cache.hooksFn = cfg.HooksFn
 	return &Runtime{
+		execution:            cfg.Execution,
 		cache:                cache,
 		pluginContextBuilder: cfg.PluginContextBuilder,
 		mem:                  cfg.Memory,
@@ -491,8 +507,16 @@ const stopWaitCeiling = 5 * time.Second
 // cancellation is an explicit, authorized action at the Session boundary.
 func (rt *Runtime) StopSession(ctx context.Context, sessionID string) bool {
 	value, ok := rt.active.Load(sessionID)
+	canceled := false
+	if rt.execution != nil {
+		var err error
+		canceled, err = rt.execution.CancelCurrent(ctx, sessionID)
+		if err != nil {
+			rt.log.Warn("cancel session execution", "session_id", sessionID, "error", err)
+		}
+	}
 	if !ok {
-		return false
+		return canceled
 	}
 	turn, ok := value.(*activeTurn)
 	if !ok {

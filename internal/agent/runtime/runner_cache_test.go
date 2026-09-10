@@ -796,7 +796,7 @@ func TestRuntimeResetRunnersKeepsReservedAdmission(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var runners []*fakeRunner
-			rt, err := New(Config{NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			rt, err := New(Config{LocalOnly: true, NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 				r := newFakeRunner()
 				runners = append(runners, r)
 				return r, nil
@@ -840,6 +840,7 @@ func TestAdmittedSelectionKeepsModelThinkingAcrossReset(t *testing.T) {
 		return newRunner(ctx, params)
 	}
 	rt, err := New(Config{
+		LocalOnly:       true,
 		NewRunner:       factory,
 		Memory:          mem,
 		DefaultModel:    "old-model",
@@ -906,6 +907,7 @@ func TestResetDuringReservedFactoryBuildRetriesWithNewSelection(t *testing.T) {
 		mu      sync.Mutex
 	)
 	rt, err := New(Config{
+		LocalOnly: true,
 		NewRunner: func(_ context.Context, p RunnerParams) (Runner, error) {
 			runner := newFakeRunner()
 			mu.Lock()
@@ -984,6 +986,7 @@ func TestCompactionKeepsAdmittedSelectionMetadata(t *testing.T) {
 		return newFakeRunner(), nil
 	}
 	rt, err := New(Config{
+		LocalOnly:       true,
 		NewRunner:       factory,
 		Memory:          mem,
 		DefaultModel:    "old-model",
@@ -1047,7 +1050,7 @@ func TestRunnerCacheResetClosesIdleUnreservedRunner(t *testing.T) {
 }
 
 func TestRuntimeCloseRejectsLaterAdmission(t *testing.T) {
-	rt, err := New(Config{NewRunner: func(context.Context, RunnerParams) (Runner, error) { return newFakeRunner(), nil }, Memory: fakeMemory{}})
+	rt, err := New(Config{LocalOnly: true, NewRunner: func(context.Context, RunnerParams) (Runner, error) { return newFakeRunner(), nil }, Memory: fakeMemory{}})
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
@@ -1061,7 +1064,7 @@ func TestRuntimeCloseRejectsLaterAdmission(t *testing.T) {
 
 func TestChatAdmittedFactoryPanicCleansActiveAndReservation(t *testing.T) {
 	var calls int
-	rt, err := New(Config{NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+	rt, err := New(Config{LocalOnly: true, NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 		calls++
 		if calls == 1 {
 			panic("factory panic")
@@ -1096,7 +1099,7 @@ func TestChatAdmittedFactoryPanicCleansActiveAndReservation(t *testing.T) {
 }
 
 func TestChatAdmittedSynchronousOptionPanicClearsActive(t *testing.T) {
-	rt, err := New(Config{NewRunner: func(context.Context, RunnerParams) (Runner, error) { return newFakeRunner(), nil }, Memory: fakeMemory{}})
+	rt, err := New(Config{LocalOnly: true, NewRunner: func(context.Context, RunnerParams) (Runner, error) { return newFakeRunner(), nil }, Memory: fakeMemory{}})
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
@@ -1115,7 +1118,7 @@ func TestChatAdmittedBootstrapPanicLeavesStaleRunnerForCurrentFactory(t *testing
 		runners []*fakeRunner
 		params  []RunnerParams
 	)
-	rt, err := New(Config{NewRunner: func(_ context.Context, paramsIn RunnerParams) (Runner, error) {
+	rt, err := New(Config{LocalOnly: true, NewRunner: func(_ context.Context, paramsIn RunnerParams) (Runner, error) {
 		r := newFakeRunner()
 		runners = append(runners, r)
 		params = append(params, paramsIn)
@@ -1294,7 +1297,7 @@ func newFailedAdmissionRuntime(t *testing.T, sessionID string) (*Runtime, sessio
 	t.Helper()
 	bad := newFakeRunner()
 	calls := 0
-	rt, err := New(Config{NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+	rt, err := New(Config{LocalOnly: true, NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 		calls++
 		if calls == 1 {
 			return bad, nil
@@ -1349,7 +1352,7 @@ func testChatAdmittedCachedRunnerPanic(t *testing.T, name string, panicRunner fu
 	t.Helper()
 	var calls int
 	bad := newFakeRunner()
-	rt, err := New(Config{NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+	rt, err := New(Config{LocalOnly: true, NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 		calls++
 		if calls == 1 {
 			return bad, nil
@@ -1414,6 +1417,7 @@ func TestRuntimeChat_BeforeRunOverride(t *testing.T) {
 	runner := newFakeRunner()
 	runner.system = "base"
 	rt, err := New(Config{
+		LocalOnly: true,
 		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
 			return runner, nil
 		},

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -66,7 +68,7 @@ func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxG
 	if d.committer == nil {
 		return groupAcceptOutcome{}, errors.New("group dispatcher requires memory.TxGroupCommitter")
 	}
-	tx, err := d.db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, d.db)
 	if err != nil {
 		return groupAcceptOutcome{}, fmt.Errorf("accept group response: begin: %w", err)
 	}

@@ -19,7 +19,7 @@ func (*countingHook) Priority() int  { return 0 }
 func (h *countingHook) Close() error { h.closed.Add(1); return nil }
 
 func TestReloadPluginHooksWithoutAgentsRetiresCachedGeneration(t *testing.T) {
-	pm := NewPoolManager(nil, memorytest.New())
+	pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 	initial := &countingHook{name: "initial"}
 	pm.hookPlugins = []hooks.HookPlugin{initial}
 	pm.pluginHooksBuilder = func(context.Context, string) ([]hooks.HookPlugin, error) {

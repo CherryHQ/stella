@@ -34,11 +34,12 @@ func TestPluginMutationRetiresAllUsersOnlyAfterPossibleCommit(t *testing.T) {
 		{name: "unknown commit", result: plugin.ErrCommitOutcomeUnknown, wantClosed: 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			pm := NewPoolManager(nil, memorytest.New())
+			pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 			var runners []*pluginMutationRunner
 			for _, id := range []string{"first", "second"} {
 				runner := &pluginMutationRunner{}
 				rt, err := agentruntime.New(agentruntime.Config{
+					LocalOnly: true,
 					Memory:    memorytest.New(),
 					NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) { return runner, nil },
 				})
@@ -91,7 +92,7 @@ func TestPluginMutationRetiresAllUsersOnlyAfterPossibleCommit(t *testing.T) {
 }
 
 func TestPluginMutationCanceledFenceDoesNotWrite(t *testing.T) {
-	pm := NewPoolManager(nil, memorytest.New())
+	pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 	if err := pm.lifecycle.lockShared(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +115,7 @@ func TestPluginMutationFenceRejectsAfterPoolManagerStartsClosing(t *testing.T) {
 		{name: "closed", closed: true},
 	} {
 		t.Run(state.name, func(t *testing.T) {
-			pm := NewPoolManager(nil, memorytest.New())
+			pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 			pm.mu.Lock()
 			pm.closing = !state.closed
 			pm.closed = state.closed
@@ -132,11 +133,12 @@ func TestPluginMutationFenceRejectsAfterPoolManagerStartsClosing(t *testing.T) {
 }
 
 func TestPluginMutationCloseFailureKeepsCommittedResult(t *testing.T) {
-	pm := NewPoolManager(nil, memorytest.New())
+	pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 	var builds atomic.Int32
 	first := &pluginMutationRunner{closeErr: errors.New("close failed")}
 	rt, err := agentruntime.New(agentruntime.Config{
-		Memory: memorytest.New(),
+		LocalOnly: true,
+		Memory:    memorytest.New(),
 		NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
 			if builds.Add(1) == 1 {
 				return first, nil
@@ -177,7 +179,7 @@ func TestPluginMutationCloseFailureKeepsCommittedResult(t *testing.T) {
 }
 
 func TestPluginMutationAsyncReturnsBeforeRunnerCloseAndPoolCloseJoins(t *testing.T) {
-	pm := NewPoolManager(nil, memorytest.New())
+	pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 	svc, runner := newBlockingCloseService(t, "agent")
 	svc.lifecycle = pm.lifecycle
 	pm.services[svc.AgentID] = svc
@@ -238,11 +240,12 @@ func (r *heldPluginMutationRunner) Chat(ctx context.Context, _ []ai.Message, _ a
 }
 
 func TestPluginMutationKeepsAdmittedTurnAndRebuildsNext(t *testing.T) {
-	pm := NewPoolManager(nil, memorytest.New())
+	pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 	first := &heldPluginMutationRunner{started: make(chan struct{}), release: make(chan struct{})}
 	var builds atomic.Int32
 	rt, err := agentruntime.New(agentruntime.Config{
-		Memory: memorytest.New(),
+		LocalOnly: true,
+		Memory:    memorytest.New(),
 		NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
 			if builds.Add(1) == 1 {
 				return first, nil

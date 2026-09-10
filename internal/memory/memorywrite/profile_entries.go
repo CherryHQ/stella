@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -33,7 +35,7 @@ func GetProfileEntries(ctx context.Context, q *sqlc.Queries, userID, agentID str
 // column, bumps version, and records a changelog entry. The manual profile
 // content column is never touched.
 func AddProfileEntry(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID, agentID, text string) ([]memory.ProfileEntry, error) {
-	tx, err := db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, db)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}

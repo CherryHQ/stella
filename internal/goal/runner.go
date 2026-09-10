@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -55,6 +57,9 @@ func NewCheckRunner(q *sqlc.Queries, stdoutLimit int) CheckRunner {
 // Pass = (exit == item.expectExit), and truncates stdout. It never writes
 // lifecycle; the service folds the result into an acceptance_event.
 func (r *sandboxCheckRunner) Run(ctx context.Context, item AcceptanceItem, env CheckEnv, sess sandbox.Session) (CheckResult, error) {
+	if err := sessionexecution.Check(ctx); err != nil {
+		return CheckResult{}, err
+	}
 	if item.Kind != ItemDeterministic {
 		return CheckResult{}, fmt.Errorf("%w: check runner got non-deterministic item %q", ErrInvalidContract, item.ID)
 	}

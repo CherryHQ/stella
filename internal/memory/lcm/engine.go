@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -71,7 +73,16 @@ func sessionLockStripe(sessionID string) uint32 {
 
 // getOrCreateConversation retrieves or creates a scoped conversation for the session.
 func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.Session) (string, error) {
-	return p.getOrCreateConversationWithQueries(ctx, p.q, session)
+	id, err := sessionexecution.Write(ctx, p.db, func(ctx context.Context, q *sqlc.Queries) (string, error) {
+		return p.getOrCreateConversationWithQueries(ctx, q, session)
+	})
+	var conflict *pgconn.PgError
+	if errors.As(err, &conflict) && conflict.Code == "23505" && conflict.ConstraintName == "ctx_conversation_session_id_key" {
+		// A failed INSERT aborts its guarded transaction. Re-read only after rollback.
+		conv, readErr := p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
+		return conv.ID, readErr
+	}
+	return id, err
 }
 
 func (p *Provider) getOrCreateConversationWithQueries(ctx context.Context, q *sqlc.Queries, session memory.Session) (string, error) {
@@ -115,6 +126,9 @@ func (p *Provider) getOrCreateConversationWithQueries(ctx context.Context, q *sq
 	// Treating it as a lost race would hide it behind a "no rows" error.
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "ctx_conversation_session_id_key" {
+		if sessionexecution.FromContext(ctx) != nil {
+			return "", err
+		}
 		conv, err = q.GetConversationBySessionID(ctx, conversationScopeParams(session))
 		if err != nil {
 			return "", fmt.Errorf("get conversation after create race: %w", err)

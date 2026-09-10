@@ -146,6 +146,7 @@ func newTestService(t *testing.T, events []agentruntime.Event) (*agent.Service, 
 		return &fakeRunnerSvc{events: events}, nil
 	}
 	rt, err := agentruntime.New(agentruntime.Config{
+		LocalOnly: true,
 		NewRunner: factory,
 		Memory:    mem,
 	})
@@ -219,6 +220,7 @@ func TestServiceGroupTurnPersistsHumanSpeakerAndRendersUnwrapped(t *testing.T) {
 	mem := &groupActorMemory{Fake: memorytest.New()}
 	runner := &inputRecordingRunner{}
 	rt, err := agentruntime.New(agentruntime.Config{
+		LocalOnly: true,
 		NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) { return runner, nil },
 		Memory:    mem,
 	})

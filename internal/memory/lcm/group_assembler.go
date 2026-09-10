@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -288,7 +290,9 @@ func quantizeGroupWindow(window []groupWindowEvent, maxTokens int) []groupWindow
 }
 
 func (p *Provider) CommitGroupCursor(ctx context.Context, session memory.Session, triggerSeq int64) error {
-	return p.commitGroupCursorWithQueries(ctx, p.q, session, triggerSeq)
+	return sessionexecution.Exec(ctx, p.db, func(ctx context.Context, q *sqlc.Queries) error {
+		return p.commitGroupCursorWithQueries(ctx, q, session, triggerSeq)
+	})
 }
 
 func (p *Provider) commitGroupCursorWithQueries(ctx context.Context, q *sqlc.Queries, session memory.Session, triggerSeq int64) error {

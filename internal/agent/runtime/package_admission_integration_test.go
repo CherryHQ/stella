@@ -92,7 +92,8 @@ func (f *packageAdmissionFixture) setCLIReady(ready bool) {
 func (f *packageAdmissionFixture) runtime(t *testing.T) *Runtime {
 	t.Helper()
 	rt, err := New(Config{
-		Memory: fakeMemory{},
+		LocalOnly: true,
+		Memory:    fakeMemory{},
 		NewRunner: func(_ context.Context, params RunnerParams) (Runner, error) {
 			f.mu.Lock()
 			f.builds++

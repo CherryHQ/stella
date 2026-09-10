@@ -81,10 +81,11 @@ func (r *revocationBlockingRunner) Close() error {
 }
 
 func TestApplyUserRevocationCutsOffMatchingTurnsBeforeSlowClose(t *testing.T) {
-	pm := NewPoolManager(nil, memorytest.New())
+	pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 	var runners []*revocationBlockingRunner
 	rt, err := agentruntime.New(agentruntime.Config{
-		Memory: memorytest.New(),
+		LocalOnly: true,
+		Memory:    memorytest.New(),
 		NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
 			runner := &revocationBlockingRunner{closeStarted: make(chan struct{}), releaseClose: make(chan struct{})}
 			runners = append(runners, runner)
@@ -109,8 +110,10 @@ func TestApplyUserRevocationCutsOffMatchingTurnsBeforeSlowClose(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() { done <- pm.ApplyUserRevocation(t.Context(), "user", "", func() error { return nil }) }()
+	// Cache map iteration does not order the two slow closes.
 	select {
 	case <-runners[0].closeStarted:
+	case <-runners[1].closeStarted:
 	case <-time.After(time.Second):
 		t.Fatal("revocation did not begin slow runner close")
 	}
@@ -156,9 +159,9 @@ func TestApplyUserRevocationRollbackKeepsTurnsAndUnknownCutsOff(t *testing.T) {
 		{name: "transport unknown", result: io.EOF, cutoff: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			pm := NewPoolManager(nil, memorytest.New())
+			pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 			runner := &revocationBlockingRunner{closeStarted: make(chan struct{}), releaseClose: make(chan struct{})}
-			rt, err := agentruntime.New(agentruntime.Config{Memory: memorytest.New(), NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
+			rt, err := agentruntime.New(agentruntime.Config{LocalOnly: true, Memory: memorytest.New(), NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
 				return runner, nil
 			}})
 			if err != nil {
@@ -218,7 +221,7 @@ func TestApplyUserRevocationRollbackKeepsTurnsAndUnknownCutsOff(t *testing.T) {
 func TestApplyUserRevocationEmptyIdentifiersSelectDeploymentOrAgent(t *testing.T) {
 	testScope := func(t *testing.T, userID, agentID string, wantClose map[string]bool) {
 		t.Helper()
-		pm := NewPoolManager(nil, memorytest.New())
+		pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 		runners := make(map[string]*revocationBlockingRunner)
 		runtimes := make([]*agentruntime.Runtime, 0, 2)
 		for _, owner := range []struct {
@@ -231,7 +234,8 @@ func TestApplyUserRevocationEmptyIdentifiersSelectDeploymentOrAgent(t *testing.T
 			runner := &revocationBlockingRunner{closeStarted: make(chan struct{}), releaseClose: make(chan struct{})}
 			runners[owner.agent] = runner
 			rt, err := agentruntime.New(agentruntime.Config{
-				Memory: memorytest.New(),
+				LocalOnly: true,
+				Memory:    memorytest.New(),
 				NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
 					return runner, nil
 				},

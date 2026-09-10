@@ -39,7 +39,7 @@ func (r *sandboxRunner) Close() error {
 func TestSandboxResultRunsBeforeCompletionWithExecutionContext(t *testing.T) {
 	runner := &sandboxRunner{sess: sandbox.NopSession()}
 	mem := &activityRecordingMemory{}
-	rt, err := New(Config{Memory: mem, NewRunner: func(context.Context, RunnerParams) (Runner, error) { return runner, nil }})
+	rt, err := New(Config{LocalOnly: true, Memory: mem, NewRunner: func(context.Context, RunnerParams) (Runner, error) { return runner, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestSandboxResultFailureFailsRun(t *testing.T) {
 	boom := errors.New("check failed")
 	runner := &sandboxRunner{sess: sandbox.NopSession()}
 	mem := &activityRecordingMemory{}
-	rt, err := New(Config{Memory: mem, NewRunner: func(context.Context, RunnerParams) (Runner, error) { return runner, nil }})
+	rt, err := New(Config{LocalOnly: true, Memory: mem, NewRunner: func(context.Context, RunnerParams) (Runner, error) { return runner, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func (r *terminalSandboxRunner) Chat(ctx context.Context, _ []ai.Message, _ Mess
 func TestTerminalResultStopsOnlyModelBeforeSandboxCheck(t *testing.T) {
 	runner := &terminalSandboxRunner{sandboxRunner: &sandboxRunner{sess: sandbox.NopSession()}, stopped: make(chan struct{})}
 	mem := &activityRecordingMemory{}
-	rt, err := New(Config{Memory: mem, NewRunner: func(context.Context, RunnerParams) (Runner, error) { return runner, nil }})
+	rt, err := New(Config{LocalOnly: true, Memory: mem, NewRunner: func(context.Context, RunnerParams) (Runner, error) { return runner, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

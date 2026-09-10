@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -67,6 +69,7 @@ type Input struct {
 // metadata row. Blob-first/DB-second leaves only safe unreachable objects if a
 // DB write fails; it never commits a dangling media reference.
 type mediaStore struct {
+	db    *pgxpool.Pool
 	media *asset.SessionMedia
 	q     *sqlc.Queries
 }
@@ -75,7 +78,7 @@ func newMediaStore(media *asset.SessionMedia, db *pgxpool.Pool) (*mediaStore, er
 	if media == nil || db == nil {
 		return nil, fmt.Errorf("session media service: %w", ErrInvalidInput)
 	}
-	return &mediaStore{media: media, q: sqlc.New(db)}, nil
+	return &mediaStore{media: media, db: db, q: sqlc.New(db)}, nil
 }
 
 // Persist writes the verified content-addressed object before inserting metadata.
@@ -94,12 +97,14 @@ func (s *mediaStore) Persist(ctx context.Context, in Input) (string, ai.ImageBas
 	}
 
 	userID, groupID := ownerColumns(in.Owner)
-	created, err := s.q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{
-		UserID:    userID,
-		GroupID:   groupID,
-		Sha256:    digest[:],
-		MimeType:  in.MimeType,
-		SizeBytes: int64(len(in.Data)),
+	created, err := sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.CtxMedium, error) {
+		return q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{
+			UserID:    userID,
+			GroupID:   groupID,
+			Sha256:    digest[:],
+			MimeType:  in.MimeType,
+			SizeBytes: int64(len(in.Data)),
+		})
 	})
 	if err == nil {
 		return created.ID, ai.ImageBaseline{}, nil
@@ -165,11 +170,13 @@ func (s *mediaStore) StoreBaseline(ctx context.Context, owner Owner, mediaID str
 	}
 	ownerKind := pgtype.Text{String: string(owner.Kind), Valid: true}
 	ownerID := pgtype.Text{String: owner.ID.String(), Valid: true}
-	affected, err := s.q.SetMediaBaselineIfAbsent(ctx, sqlc.SetMediaBaselineIfAbsentParams{
-		Baseline:  pgtype.Text{String: baseline.Text, Valid: true},
-		ID:        mediaID,
-		OwnerKind: ownerKind,
-		OwnerID:   ownerID,
+	affected, err := sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (int64, error) {
+		return q.SetMediaBaselineIfAbsent(ctx, sqlc.SetMediaBaselineIfAbsentParams{
+			Baseline:  pgtype.Text{String: baseline.Text, Valid: true},
+			ID:        mediaID,
+			OwnerKind: ownerKind,
+			OwnerID:   ownerID,
+		})
 	})
 	if err != nil {
 		return ai.ImageBaseline{}, fmt.Errorf("store session media baseline: %w", err)

@@ -45,7 +45,8 @@ func newBindingProbeChat(t *testing.T, groupID string, user auth.User, seen *con
 		t.Fatalf("new registry: %v", err)
 	}
 	rt, err := agentruntime.New(agentruntime.Config{
-		Memory: fake,
+		LocalOnly: true,
+		Memory:    fake,
 		NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
 			return bindingProbeRunner{seen: seen}, nil
 		},

@@ -356,7 +356,7 @@ func setupAdmin(t *testing.T) *testEnv {
 				return nil, nil
 			}, nil
 		}),
-	)
+		agent.WithLocalExecution())
 	recallyStore := recally.NewStore(db)
 	assetHome := t.TempDir()
 	assetStore, err := asset.NewStore(assetHome, nil, nil)

@@ -30,6 +30,7 @@ func (panicRunner) Close() error                 { return nil }
 func TestChat_PanicRecovers_FreesSessionAndHub(t *testing.T) {
 	mem := &activityRecordingMemory{}
 	rt, _ := New(Config{
+		LocalOnly: true,
 		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
 			return panicRunner{}, nil
 		},
@@ -79,7 +80,8 @@ func (m *panicOnNthAppendMemory) Append(_ context.Context, _ memory.Session, _ .
 func TestChat_PanicInStreamEvents_NoDoubleClose(t *testing.T) {
 	mem := &panicOnNthAppendMemory{n: 2} // 1: user message in rt.chat; 2: assistant flush in streamEvents
 	rt, _ := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "hi"}}}, nil
 		},

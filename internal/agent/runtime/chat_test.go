@@ -74,7 +74,8 @@ func TestGroupTurnsRebuildResourcesWithoutPersonalSnapshot(t *testing.T) {
 	mem := &snapshotRecordingMemory{recordingMemory: &recordingMemory{}}
 	var promptCalls, builds int
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			builds++
 			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
@@ -152,7 +153,8 @@ func TestChatCapturesAndReleasesTurnContextForEachTurn(t *testing.T) {
 	var captured context.Context
 	var captures int
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "ok"}}, ctx: &captured}, nil
 		},
@@ -212,7 +214,8 @@ func (r chatFakeRunner) Close() error                 { return nil }
 func TestTelemetryChannelDoesNotChangeDurableConversationChannel(t *testing.T) {
 	mem := &recordingMemory{}
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
@@ -242,7 +245,8 @@ func TestRuntimeChatUnionsAncestorExcludedTools(t *testing.T) {
 	mem := &recordingMemory{}
 	var runnerCtx context.Context
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{ctx: &runnerCtx, events: []Event{{Text: "ok"}}}, nil
 		},
@@ -272,7 +276,8 @@ func TestGuestChatCarriesGuestIdentityWithoutUserIdentity(t *testing.T) {
 	var runnerCtx context.Context
 	var params RunnerParams
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(_ context.Context, p RunnerParams) (Runner, error) {
 			params = p
 			return &chatFakeRunner{ctx: &runnerCtx, events: []Event{{Text: "ok"}}}, nil
@@ -313,7 +318,8 @@ func TestChatRebuildsSnapshotPromptAtVersionZero(t *testing.T) {
 	var promptCalls int
 	var beforeRunSystem string
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{system: "live base prompt", events: []Event{{Text: "ok"}}}, nil
 		},
@@ -360,7 +366,8 @@ func TestAdmittedChatKeepsPromptBuilderSnapshot(t *testing.T) {
 	systemsSeen := make(chan string, 2)
 	pluginContext := PluginContext{view: pkgplugins.SessionPluginView{RegisteredPluginIDs: []string{"plugin/a"}, ExposedPluginIDs: []string{"plugin/a"}}}
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{system: "runner prompt", events: []Event{{Text: "ok"}}, pluginContext: pluginContext}, nil
 		},
@@ -433,6 +440,7 @@ func TestChatSnapshotPromptErrorIsTerminalBeforeRunnerChat(t *testing.T) {
 	var calls int
 	want := errors.New("Home unavailable")
 	rt, err := New(Config{
+		LocalOnly: true,
 		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) { return countingChatRunner{calls: &calls}, nil },
 		SnapshotPrompt: func(context.Context, session.Info, memory.SessionSnapshot, PluginContext) (string, error) {
@@ -459,7 +467,8 @@ func TestRuntimeChatEnrichesAndCanonicallyAppendsOrdinaryImages(t *testing.T) {
 	var received []MessageContent
 	ref := ai.ImageRefContent{MediaID: "media-1"}
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		SessionImages: sessionImagesFunc(func(_ context.Context, owner sessionmedia.Owner, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
 			if owner != sessionmedia.UserOwner(uuid.MustParse(imageTestUserID)) || agentID != "agent-1" || !ai.HasImage(blocks) {
 				t.Fatalf("unexpected enrich input: owner=%#v agent=%q blocks=%#v", owner, agentID, blocks)
@@ -495,7 +504,8 @@ func TestRuntimeChatEnrichesSingularImageBeforeCanonicalAppend(t *testing.T) {
 	ref := ai.ImageRefContent{MediaID: "media-1"}
 	enrichCalls := 0
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		SessionImages: sessionImagesFunc(func(_ context.Context, _ sessionmedia.Owner, _ string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
 			enrichCalls++
 			if len(blocks) != 1 {
@@ -525,7 +535,8 @@ func TestRuntimeChatPassesCanonicalImageRefWithoutEnrichment(t *testing.T) {
 	mem := &recordingMemory{}
 	ref := ai.ImageRefContent{MediaID: "media-1"}
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		SessionImages: sessionImagesFunc(func(context.Context, sessionmedia.Owner, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
 			t.Fatal("canonical ImageRef input must not be re-enriched")
 			return nil, nil
@@ -551,7 +562,8 @@ func TestRuntimeChatPassesCanonicalImageRefWithoutEnrichment(t *testing.T) {
 func TestRuntimeGroupImageRefPassesThroughWithoutEnrichment(t *testing.T) {
 	mem := &recordingMemory{}
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		SessionImages: sessionImagesFunc(func(context.Context, sessionmedia.Owner, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
 			t.Fatal("a group trigger is canonical before the runtime sees it")
 			return nil, nil
@@ -577,7 +589,8 @@ func TestRuntimeGroupImageRefPassesThroughWithoutEnrichment(t *testing.T) {
 func TestRuntimeChatFailsClosedWhenCanonicalImageAppendFails(t *testing.T) {
 	mem := &recordingMemory{appendError: errors.New("write failed")}
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		SessionImages: sessionImagesFunc(func(context.Context, sessionmedia.Owner, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
 			return []ai.ContentBlock{ai.ImageRefContent{MediaID: "media-1"}}, nil
 		}),
@@ -624,7 +637,8 @@ func runtimeTestMessageBlocks(msg ai.Message) []ai.ContentBlock {
 func TestRuntimeChatCommitsGroupCursorAfterSuccessfulGroupTurn(t *testing.T) {
 	mem := &recordingMemory{}
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
@@ -655,7 +669,8 @@ func TestRuntimeChatDoesNotCommitGroupCursorOnChatError(t *testing.T) {
 	mem := &recordingMemory{}
 	boom := errors.New("boom")
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Err: boom}}}, nil
 		},
@@ -679,7 +694,8 @@ func TestRuntimeChatDoesNotCommitGroupCursorOnChatError(t *testing.T) {
 func TestRuntimeChatDoesNotCommitGroupCursorWhenContextCanceled(t *testing.T) {
 	mem := &recordingMemory{}
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
@@ -701,7 +717,8 @@ func TestRuntimeChatDoesNotCommitGroupCursorWhenContextCanceled(t *testing.T) {
 func TestRuntimeChatDoesNotPersistGroupPartialOnTimeout(t *testing.T) {
 	mem := &recordingMemory{}
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "partial"}, {Err: ErrChatTimeout}}}, nil
 		},
@@ -726,7 +743,8 @@ func TestRuntimeChatDoesNotPersistGroupStoreBeforeLaterError(t *testing.T) {
 	mem := &recordingMemory{}
 	boom := errors.New("boom")
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Store: ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "stored"}}}}, {Err: boom}}}, nil
 		},
@@ -750,7 +768,8 @@ func TestRuntimeChatDoesNotPersistGroupStoreBeforeLaterError(t *testing.T) {
 func TestRuntimeChatDoesNotCommitGroupCursorWhenStoreFails(t *testing.T) {
 	mem := &recordingMemory{appendError: errors.New("append failed")}
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
@@ -772,7 +791,8 @@ func TestRuntimeChatDoesNotCommitGroupCursorWhenAssembleFails(t *testing.T) {
 	assembleErr := errors.New("assemble failed")
 	mem := &recordingMemory{assembleError: assembleErr}
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
@@ -814,7 +834,7 @@ func TestGroupResultNeverCommitsFailedTurn(t *testing.T) {
 		{"runner panic", &recordingMemory{}, panicRunner{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rt, err := New(Config{Memory: tc.mem, NewRunner: func(context.Context, RunnerParams) (Runner, error) { return tc.runner, nil }})
+			rt, err := New(Config{LocalOnly: true, Memory: tc.mem, NewRunner: func(context.Context, RunnerParams) (Runner, error) { return tc.runner, nil }})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -854,7 +874,8 @@ func (r *testGroupResult) Commit(ctx context.Context, turn memory.DeferredGroupT
 func TestUnmanagedGroupTurnKeepsInlineAssemblerAppendAndCursor(t *testing.T) {
 	mem := &recordingMemory{}
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
@@ -875,7 +896,8 @@ func TestUnmanagedGroupTurnKeepsInlineAssemblerAppendAndCursor(t *testing.T) {
 func TestGroupResultCommitsRowsAndCursorBeforeEOF(t *testing.T) {
 	mem := &recordingMemory{}
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
@@ -1058,7 +1080,7 @@ func (rt *Runtime) streamEventsClosing(
 func TestGroupCommitHoldsRunAndReturnsFailure(t *testing.T) {
 	boom := errors.New("commit rejected")
 	mem := &activityRecordingMemory{}
-	rt, err := New(Config{Memory: mem, NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+	rt, err := New(Config{LocalOnly: true, Memory: mem, NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 		return &chatFakeRunner{events: []Event{{Text: "reply"}}}, nil
 	}})
 	if err != nil {

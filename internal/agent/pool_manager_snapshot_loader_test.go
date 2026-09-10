@@ -22,7 +22,7 @@ func TestPoolManagerSnapshotLoaderWiring(t *testing.T) {
 	st := stubStore{}
 
 	// By default the snapshot loader is the store itself (undecorated behavior).
-	pm := NewPoolManager(st, nil)
+	pm := NewPoolManager(st, nil, WithLocalExecution())
 	if pm.snapshots != config.SnapshotLoader(st) {
 		t.Fatalf("default snapshots loader = %#v, want the store", pm.snapshots)
 	}
@@ -30,7 +30,7 @@ func TestPoolManagerSnapshotLoaderWiring(t *testing.T) {
 	// WithSnapshotLoader routes Snapshot reads through the decorated loader while
 	// leaving the base store (GetAgent, etc.) untouched.
 	loader := recordingLoader{}
-	pm2 := NewPoolManager(st, nil, WithSnapshotLoader(loader))
+	pm2 := NewPoolManager(st, nil, WithSnapshotLoader(loader), WithLocalExecution())
 	if pm2.snapshots != config.SnapshotLoader(loader) {
 		t.Fatal("WithSnapshotLoader did not wire the decorated loader")
 	}
@@ -39,7 +39,7 @@ func TestPoolManagerSnapshotLoaderWiring(t *testing.T) {
 	}
 
 	// A nil loader is ignored so the store fallback stands.
-	pm3 := NewPoolManager(st, nil, WithSnapshotLoader(nil))
+	pm3 := NewPoolManager(st, nil, WithSnapshotLoader(nil), WithLocalExecution())
 	if pm3.snapshots != config.SnapshotLoader(st) {
 		t.Fatal("nil loader should leave the store fallback in place")
 	}

@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"golang.org/x/oauth2"
 
 	"github.com/google/uuid"
@@ -24,6 +26,7 @@ import (
 // OAuth callback / token-refresh paths are trusted internal callers of the raw
 // Service methods.
 type Service struct {
+	pool        *pgxpool.Pool
 	vaultSvc    *vault.Service
 	q           *pkgdb.Queries
 	flowStore   *oauth.FlowStore
@@ -59,7 +62,9 @@ func NewServiceForPool(
 	flowStore *oauth.FlowStore,
 	corsOrigin string,
 ) *Service {
-	return NewService(vaultSvc, pkgdb.New(pool), flowStore, corsOrigin)
+	svc := NewService(vaultSvc, pkgdb.New(pool), flowStore, corsOrigin)
+	svc.pool = pool
+	return svc
 }
 
 // SetRegistry wires the OAuth provider registry used for generic provider operations.
@@ -361,13 +366,15 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 	if scopes == nil {
 		scopes = []string{}
 	}
-	if err := s.q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
-		ID:              uuid.Must(uuid.NewV7()).String(),
-		ProviderID:      cfg.ProviderID,
-		ClientID:        cfg.ClientID,
-		ClientSecretEnc: secretEnc,
-		RedirectUrl:     cfg.RedirectURL,
-		Scopes:          scopes,
+	if err := s.mutateProvider(ctx, func(ctx context.Context, q *pkgdb.Queries) error {
+		return q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
+			ID:              uuid.Must(uuid.NewV7()).String(),
+			ProviderID:      cfg.ProviderID,
+			ClientID:        cfg.ClientID,
+			ClientSecretEnc: secretEnc,
+			RedirectUrl:     cfg.RedirectURL,
+			Scopes:          scopes,
+		})
 	}); err != nil {
 		return err
 	}
@@ -392,7 +399,7 @@ func (s *Service) DeleteOAuthProviderConfig(ctx context.Context, providerID stri
 	if s.q == nil {
 		return fmt.Errorf("database not configured")
 	}
-	return s.q.DeleteAuthOAuthProvider(ctx, providerID)
+	return s.mutateProvider(ctx, func(ctx context.Context, q *pkgdb.Queries) error { return q.DeleteAuthOAuthProvider(ctx, providerID) })
 }
 
 // ProviderClientID returns the effective client_id for the given tool OAuth provider.
@@ -799,4 +806,17 @@ func toFlowStatus(fs oauth.FlowStatus) FlowStatus {
 		Error:           fs.Error,
 		RequestedScopes: append([]string(nil), fs.DesiredScopes...),
 	}
+}
+
+func (s *Service) mutateProvider(ctx context.Context, fn func(context.Context, *pkgdb.Queries) error) error {
+	if s.pool != nil {
+		return sessionexecution.Exec(ctx, s.pool, fn)
+	}
+	if err := sessionexecution.Check(ctx); err != nil {
+		return err
+	}
+	if sessionexecution.FromContext(ctx) != nil {
+		return sessionexecution.ErrLost
+	}
+	return fn(ctx, s.q)
 }

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -103,7 +105,7 @@ func (d *GroupDispatcher) retireModelPass(ctx context.Context, row sqlc.CtxGroup
 		return errors.New("group dispatcher requires memory.TxGroupCommitter")
 	}
 	turn.OwnRows = stripTrailingPass(turn.OwnRows)
-	tx, err := d.db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, d.db)
 	if err != nil {
 		return fmt.Errorf("model pass: begin: %w", err)
 	}

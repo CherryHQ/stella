@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -980,7 +982,9 @@ func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner Workf
 		return err
 	}
 	if result.RootGoalID != "" {
-		if err := s.q.SetSchedJobRunRootGoal(ctx, sqlc.SetSchedJobRunRootGoalParams{RootGoalID: pgtype.Text{String: result.RootGoalID, Valid: true}, ID: runID, JobID: job.ID}); err != nil {
+		if err := sessionexecution.Exec(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) error {
+			return q.SetSchedJobRunRootGoal(ctx, sqlc.SetSchedJobRunRootGoalParams{RootGoalID: pgtype.Text{String: result.RootGoalID, Valid: true}, ID: runID, JobID: job.ID})
+		}); err != nil {
 			return fmt.Errorf("set scheduler run root goal: %w", err)
 		}
 	}

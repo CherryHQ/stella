@@ -94,7 +94,8 @@ func (m *failingInboxMemory) AppendInboxInput(context.Context, memory.Session, s
 func newSessionInboxTestService(t *testing.T, mem memory.Provider, runner agentruntime.Runner, queue *turnqueue.Queue, inbox *recordingSessionInbox) *Service {
 	t.Helper()
 	rt, err := agentruntime.New(agentruntime.Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
 			return runner, nil
 		},

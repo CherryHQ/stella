@@ -54,7 +54,7 @@ func newBarrierService(t *testing.T) (*Service, *agentruntime.Runtime, chan *bar
 			return r, nil
 		}
 	}
-	rt, err := agentruntime.New(agentruntime.Config{NewRunner: factory("old"), Memory: memorytest.New()})
+	rt, err := agentruntime.New(agentruntime.Config{LocalOnly: true, NewRunner: factory("old"), Memory: memorytest.New()})
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestAdmissionBarrierTurnPrecedesPolicyCommitAndFailureDoesNotInvalidate(t *
 // A policy mutation that begins before a Service exists holds a shared lifecycle
 // lease. Publication waits for exclusive ownership, then loads committed state.
 func TestAgentSkillPolicyNoServiceBlocksPublicationUntilCommit(t *testing.T) {
-	pm := NewPoolManager(nil, nil)
+	pm := NewPoolManager(nil, nil, WithLocalExecution())
 	const agentID = "agent"
 	mutationEntered := make(chan struct{})
 	commit := make(chan struct{})
@@ -290,7 +290,7 @@ func TestAgentSkillPolicyNoServiceBlocksPublicationUntilCommit(t *testing.T) {
 
 func TestAgentSkillPolicyUnknownCommitRefreshesBeforeReturning(t *testing.T) {
 	svc, rt, runners := newBarrierService(t)
-	pm := NewPoolManager(nil, nil)
+	pm := NewPoolManager(nil, nil, WithLocalExecution())
 	pm.services[svc.AgentID] = svc
 	refreshed := false
 	err := pm.applyAgentSkillPolicyMutation(svc.AgentID, func() error {
@@ -322,7 +322,7 @@ func TestAgentSkillPolicyUnknownCommitRefreshesBeforeReturning(t *testing.T) {
 }
 
 func TestAgentSkillPolicyKnownMutationFailureDoesNotRefresh(t *testing.T) {
-	pm := NewPoolManager(nil, nil)
+	pm := NewPoolManager(nil, nil, WithLocalExecution())
 	svc := &Service{AgentID: "agent"}
 	pm.services[svc.AgentID] = svc
 	preCommit := errors.New("write failed")
@@ -350,7 +350,7 @@ func TestAgentSkillPolicyUnknownCommitRefreshFailurePoisonsRuntime(t *testing.T)
 	config.ResetStellaHome()
 	t.Cleanup(config.ResetStellaHome)
 	svc, _, runners := newBarrierService(t)
-	pm := NewPoolManager(failingPolicySnapshotStore{err: errors.New("snapshot unavailable")}, memorytest.New())
+	pm := NewPoolManager(failingPolicySnapshotStore{err: errors.New("snapshot unavailable")}, memorytest.New(), WithLocalExecution())
 	pm.services[svc.AgentID] = svc
 
 	oldStream, err := svc.admit(context.Background(), barrierInfo("old-idle"), "turn")

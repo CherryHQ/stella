@@ -198,7 +198,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
-	poolMgr := agent.NewPoolManager(store, mem)
+	poolMgr := agent.NewPoolManager(store, mem, agent.WithLocalExecution())
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	agentAccess := agentaccess.NewService(store, as)
 	homeManager, err := home.NewWorkspaceManager(db, t.TempDir())
