@@ -7,6 +7,24 @@ import (
 	"time"
 )
 
+func TestFactReconciliationPreWriteMarkerPreservesCause(t *testing.T) {
+	cause := errors.New("discovery failed")
+	marked := markFactReconciliationPreWrite(cause)
+
+	if marked.Error() != cause.Error() {
+		t.Fatalf("marked error = %q, want %q", marked, cause)
+	}
+	if !errors.Is(marked, cause) {
+		t.Fatal("marked error does not preserve its cause")
+	}
+	if !isFactReconciliationPreWrite(marked) {
+		t.Fatal("pre-write marker was not detected")
+	}
+	if isFactReconciliationPreWrite(cause) {
+		t.Fatal("unmarked error was classified as pre-write")
+	}
+}
+
 func TestReconciliationPipelineRunsFactAndSkillConcurrently(t *testing.T) {
 	svc, target, _, _ := newCandidatePipelineTestService(t)
 	started := make(chan reflectLine, 2)
