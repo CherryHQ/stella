@@ -345,7 +345,7 @@ func (rt *Runtime) PublishChatAdmission(admission *ChatAdmission) (stream <-chan
 		return nil, fmt.Errorf("chat admission expired: session %s", admission.info.ID)
 	}
 	inner := make(chan Event, 100)
-	producerResult := make(chan memory.SessionTurnResult, 1)
+	producerResult := make(chan error, 1)
 	rt.hub.begin(admission.info.ID)
 	admission.published = true
 	go rt.runChatProducer(admission, inner, producerResult)
@@ -353,36 +353,21 @@ func (rt *Runtime) PublishChatAdmission(admission *ChatAdmission) (stream <-chan
 	return admission.out, nil
 }
 
-func (rt *Runtime) runChatProducer(admission *ChatAdmission, inner chan Event, producerResult chan memory.SessionTurnResult) {
-	result := memory.SessionTurnSuccess
-	defer func() {
-		if p := recover(); p != nil {
-			rt.log.Error("chat turn panicked", "session_id", admission.info.ID, "panic", p)
-			result = memory.SessionTurnError
-			safeClose(inner)
-		}
-		if result != memory.SessionTurnError && admission.ctx.Err() != nil {
-			result = memory.SessionTurnCanceled
-		}
-		producerResult <- result
-	}()
-	rt.chatWithRunner(admission.ctx, inner, admission.info, admission.msg, admission.co, admission.selection)
+func (rt *Runtime) runChatProducer(admission *ChatAdmission, inner chan<- Event, producerResult chan<- error) {
+	defer close(inner)
+	producerResult <- rt.chatWithRunner(admission.ctx, inner, admission.info, admission.msg, admission.co, admission.selection)
 }
 
-func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner chan Event, producerResult chan memory.SessionTurnResult) {
+func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner <-chan Event, producerResult <-chan error) {
 	defer rt.turns.end()
 	defer close(admission.out)
 	defer close(admission.turn.done)
 	defer admission.turn.cancel()
 	defer rt.active.CompareAndDelete(admission.info.ID, admission.turn)
 	defer rt.hub.end(admission.info.ID)
-	result := memory.SessionTurnSuccess
 	deliver := true
 	for event := range inner {
 		rt.hub.publish(admission.info.ID, event)
-		if event.Err != nil {
-			result = memory.SessionTurnError
-		}
 		if !deliver {
 			continue
 		}
@@ -392,9 +377,13 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner chan Event, 
 			deliver = false
 		}
 	}
-	producerOutcome := <-producerResult
-	if result != memory.SessionTurnError {
-		result = producerOutcome
+	terminalErr := <-producerResult
+	result := memory.SessionTurnSuccess
+	switch {
+	case terminalErr != nil:
+		result = memory.SessionTurnError
+	case admission.ctx.Err() != nil:
+		result = memory.SessionTurnCanceled
 	}
 	if admission.lease != nil {
 		cause := context.Cause(admission.ctx)
@@ -402,26 +391,27 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner chan Event, 
 		if errors.Is(cause, sessionexecution.ErrLost) {
 			finishErr = errors.Join(cause, finishErr)
 		}
-		if finishErr != nil {
-			event := Event{Err: finishErr}
-			rt.hub.publish(admission.info.ID, event)
-			select {
-			case admission.out <- event:
-			case <-admission.ctx.Done():
-				// Cancellation can leave a full buffer and no consumer. Keep the
-				// terminal failure by replacing one buffered partial event.
-				select {
-				case admission.out <- event:
-				default:
-					select {
-					case <-admission.out:
-					default:
-					}
-					admission.out <- event
-				}
-			}
-		}
+		terminalErr = errors.Join(terminalErr, finishErr)
 	} else {
 		rt.markSessionTurnCompleted(admission.ctx, admission.activity, result)
+	}
+	if terminalErr != nil {
+		event := Event{Err: terminalErr}
+		rt.hub.publish(admission.info.ID, event)
+		select {
+		case admission.out <- event:
+		case <-admission.ctx.Done():
+			// Cancellation can leave a full buffer and no consumer. Keep the
+			// terminal failure by replacing one buffered partial event.
+			select {
+			case admission.out <- event:
+			default:
+				select {
+				case <-admission.out:
+				default:
+				}
+				admission.out <- event
+			}
+		}
 	}
 }

@@ -270,7 +270,10 @@ func TestStopSessionCancelsOnlyExplicitly(t *testing.T) {
 	if !rt.StopSession(t.Context(), info.ID) {
 		t.Fatal("StopSession reported no active turn")
 	}
-	for range stream {
+	for event := range stream {
+		if event.Err != nil {
+			t.Fatalf("explicit stop emitted a failure: %v", event.Err)
+		}
 	}
 	waitSessionFree(t, rt, info.ID)
 	if rt.StopSession(t.Context(), info.ID) {

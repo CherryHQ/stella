@@ -34,6 +34,8 @@ Responses 适配器将工具参数和文本的流式增量与最终快照核对�
 
 运行层在 runner 停止且本轮结果提交结束后才完成 Run。群聊通过 `GroupResultCommitter` 在这个范围内提交回复、transcript 和消费游标；sandbox 检查通过 `WithSandboxResult` 使用执行 context。提交失败会使本轮失败；流提前出错时，运行层先取消并等待生产者退出，再释放 runner。
 
+Runtime 内部由执行函数直接返回错误，只有 producer 关闭进度流。forwarder 将执行结果与收尾错误合并，在 EOF 前报告一次终态错误，包括已恢复的 panic 和一次性 runner 清理失败，不从进度事件推断成功。正常取消、超时续聊提示和 Goal 主动结束保持原有行为。
+
 Caller 消费流，并负责自己的独立工作：渠道发布、Scheduler 记账及 Goal 状态流转。返回 stream 表示可以开始消费；EOF 表示运行层的结果提交已经结束，不代表平台已经送达。Caller 不需要确认完成或管理运行层的执行权。
 
 ## Session 当前执行权

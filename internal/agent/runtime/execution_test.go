@@ -172,7 +172,7 @@ func TestLeaseLossReachesCallerAndCannotFinishSuccessor(t *testing.T) {
 	}
 }
 
-func TestLeaseLossReachesCallerWithFullOutputBuffer(t *testing.T) {
+func TestTerminalFailuresReachCallerWithFullOutputBuffer(t *testing.T) {
 	db := dbtest.New(t)
 	info := executionFixture(t, db)
 	rt, err := New(Config{Memory: &recordingMemory{}, Execution: sessionexecution.New(db), NewRunner: func(context.Context, RunnerParams) (Runner, error) {
@@ -193,16 +193,49 @@ func TestLeaseLossReachesCallerWithFullOutputBuffer(t *testing.T) {
 	sessionexecution.Abort(admission.ctx, errors.New("database unavailable"))
 	inner := make(chan Event)
 	close(inner)
-	producerResult := make(chan memory.SessionTurnResult, 1)
-	producerResult <- memory.SessionTurnCanceled
+	producerErr := errors.New("result commit failed")
+	producerResult := make(chan error, 1)
+	producerResult <- producerErr
 	admission.published = true
 	rt.hub.begin(info.ID)
 	rt.runChatForwarder(admission, inner, producerResult)
 	var got error
+	failures := 0
 	for event := range admission.out {
 		got = errors.Join(got, event.Err)
+		if event.Err != nil {
+			failures++
+		}
 	}
-	if !errors.Is(got, sessionexecution.ErrLost) {
-		t.Fatalf("full buffer hid terminal loss: %v", got)
+	if failures != 1 || !errors.Is(got, sessionexecution.ErrLost) || !errors.Is(got, producerErr) {
+		t.Fatalf("full buffer lost or duplicated terminal failures: count=%d error=%v", failures, got)
+	}
+}
+
+func TestPanicReportsFailureAndFinishesDatabaseExecution(t *testing.T) {
+	db := dbtest.New(t)
+	info := executionFixture(t, db)
+	rt, err := New(Config{Memory: &recordingMemory{}, Execution: sessionexecution.New(db), NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+		return panicRunner{}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rt.Close() }()
+	failures := 0
+	for event := range rt.Chat(t.Context(), info, "hello") {
+		if event.Err != nil {
+			failures++
+		}
+	}
+	if failures != 1 {
+		t.Fatalf("panic reported %d errors to caller, want 1", failures)
+	}
+	var result string
+	if err := db.QueryRow(t.Context(), "SELECT last_turn_result FROM ctx_conversation WHERE session_id=$1", info.ID).Scan(&result); err != nil || result != "error" {
+		t.Fatalf("panic result=%s err=%v", result, err)
+	}
+	if _, err := sqlc.New(db).GetSessionExecution(t.Context(), info.ID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("panic retained execution: %v", err)
 	}
 }

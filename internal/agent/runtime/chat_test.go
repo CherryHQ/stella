@@ -1034,7 +1034,7 @@ func TestStreamEvents_TimeoutDoesNotForwardError(t *testing.T) {
 	}
 }
 
-func TestStreamEvents_NonTimeoutErrorForwarded(t *testing.T) {
+func TestStreamEvents_ReturnsFailureWithoutErrorEvent(t *testing.T) {
 	mem := &recordingMemory{}
 	rt := &Runtime{mem: mem, log: slog.Default()}
 
@@ -1048,19 +1048,15 @@ func TestStreamEvents_NonTimeoutErrorForwarded(t *testing.T) {
 		t.Fatalf("stream events error = %v, want provider error", err)
 	}
 
-	var gotErr bool
 	for evt := range out {
-		if evt.Err != nil && errors.Is(evt.Err, realErr) {
-			gotErr = true
+		if evt.Err != nil {
+			t.Fatalf("stream emitted an error instead of leaving it to the producer result: %v", evt.Err)
 		}
-	}
-	if !gotErr {
-		t.Fatal("non-timeout errors should be forwarded to caller")
 	}
 }
 
-// streamEventsClosing exercises streamEvents the way chatWithRunner does: the
-// caller owns out and closes it when the stream is finished.
+// streamEventsClosing lets synchronous tests drain progress after collecting
+// the result. Production leaves channel closure to runChatProducer.
 func (rt *Runtime) streamEventsClosing(
 	ctx context.Context,
 	sessionID string,

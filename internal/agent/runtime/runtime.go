@@ -415,23 +415,6 @@ func (rt *Runtime) Memory() memory.Provider {
 // ErrSessionBusy is returned when a session already has an active chat turn.
 var ErrSessionBusy = agenterr.ErrSessionBusy
 
-// Chat executes a user message inside the given session and streams events back.
-// info must have been obtained from session.Registry — this method does not
-// create or repair session metadata.
-//
-// Only one active turn per session is allowed. A second concurrent Chat on the
-// same session returns ErrSessionBusy immediately.
-// safeClose closes ch, tolerating an already-closed channel. The panic-recovery
-// path in Chat cannot know whether rt.chat closed inner before unwinding.
-func safeClose(ch chan Event) {
-	defer func() { _ = recover() }()
-	close(ch)
-}
-
-// ChatAdmitted starts one turn only after synchronously acquiring the session's
-// busy guard. A nil error means the turn is admitted; every later runtime failure
-// is delivered on the returned stream. ErrSessionBusy means no turn was started,
-// so the caller can decide before any run/session/tool side effect is visible.
 type activeTurn struct {
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -445,6 +428,10 @@ type activeTurn struct {
 	ctx context.Context
 }
 
+// ChatAdmitted starts one turn only after synchronously acquiring the session's
+// busy guard. A nil error means the turn is admitted; every later runtime failure
+// is delivered on the returned stream. ErrSessionBusy means no turn was started,
+// so the caller can decide before any run/session/tool side effect is visible.
 func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg MessageContent, opts ...Option) (<-chan Event, error) {
 	return rt.ChatAdmittedControlled(ctx, info, msg, nil, opts...)
 }
