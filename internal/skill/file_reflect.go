@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -195,7 +197,7 @@ func (s *FileStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in Ref
 	if errors.Is(err, pgx.ErrNoRows) || !eligibleFileReflectEvidence(latest, before.Skill) {
 		return Skill{}, ErrSkillUsageChanged
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, s.db)
 	if err != nil {
 		return Skill{}, err
 	}
@@ -257,7 +259,9 @@ func (s *FileStore) TouchReflectSkillRuntimeUseDigest(ctx context.Context, id, u
 	if latest.Writer != ReflectSkillCreatedBy || latest.Action == "delete" || latest.UserID != userID || latest.AgentID != agentID || latest.ContentDigest != digest {
 		return nil
 	}
-	_, err = s.q.TouchReflectSkillRuntimeUse(ctx, sqlc.TouchReflectSkillRuntimeUseParams{SkillID: id, UserID: userID, AgentID: agentID, ContentDigest: pgtype.Text{String: digest, Valid: true}})
+	_, err = sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (int64, error) {
+		return q.TouchReflectSkillRuntimeUse(ctx, sqlc.TouchReflectSkillRuntimeUseParams{SkillID: id, UserID: userID, AgentID: agentID, ContentDigest: pgtype.Text{String: digest, Valid: true}})
+	})
 	return err
 }
 
@@ -277,7 +281,7 @@ func (s *FileStore) ListSkillChangelogBySkill(ctx context.Context, skillID strin
 }
 
 func (s *FileStore) recordFileSkillChange(ctx context.Context, before *Skill, after Skill, action, writer string, metadata json.RawMessage) error {
-	tx, err := s.db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, s.db)
 	if err != nil {
 		return err
 	}

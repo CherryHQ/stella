@@ -52,6 +52,7 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/server"
+	"github.com/CherryHQ/stella/internal/sessionexecution"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/skill/access"
@@ -356,7 +357,7 @@ func setupAdmin(t *testing.T) *testEnv {
 				return nil, nil
 			}, nil
 		}),
-	)
+		agent.WithSessionExecution(sessionexecution.New(db)))
 	recallyStore := recally.NewStore(db)
 	assetHome := t.TempDir()
 	assetStore, err := asset.NewStore(assetHome, nil, nil)
@@ -368,7 +369,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	oauthStore := oauthserver.NewPostgresStore(db)
 	credFrontDoor := credential.NewService(credential.Config{PATs: credPATStore, OAuth: oauthStore, Users: credPATStore, Logger: credLog})
 	oauthAuthServer := oauthserver.NewService(oauthserver.Config{Store: oauthStore, Issuer: credFrontDoor, Logger: credLog})
-	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
+	credSvc := connections.NewServiceForPool(nil, db, oauth.NewFlowStore(), baseURL)
 	agentAccess := agentaccess.NewService(store, as)
 	skillAccess := access.NewService(skillStore, agentAccess)
 	skillManagement := skill.NewManagement(skillStore, skillAccess)
@@ -429,7 +430,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		Webhooks:             webhookSvc,
 		Email:                email.NewService(host.ResolveEmailUser, nil, sqlc.New(db)),
 		EmailConfigValidator: email.ValidateConfigValue,
-		Share:                sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
+		Share:                sharepkg.NewServiceForPool(db, mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
 		Assets:               assetStore,
 		Recally:              recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor:  credFrontDoor,

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/core/providercred"
@@ -53,10 +55,12 @@ func (s *DBStore) GetAgentProviderCredential(ctx context.Context, agentID, provi
 
 // UpsertAgentProviderCredential writes or atomically rotates one credential.
 func (s *DBStore) UpsertAgentProviderCredential(ctx context.Context, agentID string, cred providercred.Encrypted) (providercred.Metadata, error) {
-	row, err := s.q.UpsertAgentProviderCredential(ctx, sqlc.UpsertAgentProviderCredentialParams{
-		AgentID:    agentID,
-		ProviderID: cred.ProviderID,
-		ApiKeyEnc:  cred.APIKeyEnc,
+	row, err := sessionexecution.Write(ctx, s.pool, func(ctx context.Context, q *sqlc.Queries) (sqlc.AgentProviderCredential, error) {
+		return q.UpsertAgentProviderCredential(ctx, sqlc.UpsertAgentProviderCredentialParams{
+			AgentID:    agentID,
+			ProviderID: cred.ProviderID,
+			ApiKeyEnc:  cred.APIKeyEnc,
+		})
 	})
 	if err != nil {
 		return providercred.Metadata{}, fmt.Errorf("upsert agent %q provider credential %q: %w", agentID, cred.ProviderID, err)
@@ -67,9 +71,11 @@ func (s *DBStore) UpsertAgentProviderCredential(ctx context.Context, agentID str
 // DeleteAgentProviderCredential removes one credential. It is idempotent: a
 // DELETE affecting zero rows is not an error.
 func (s *DBStore) DeleteAgentProviderCredential(ctx context.Context, agentID, providerID string) error {
-	if err := s.q.DeleteAgentProviderCredential(ctx, sqlc.DeleteAgentProviderCredentialParams{
-		AgentID:    agentID,
-		ProviderID: providerID,
+	if err := sessionexecution.Exec(ctx, s.pool, func(ctx context.Context, q *sqlc.Queries) error {
+		return q.DeleteAgentProviderCredential(ctx, sqlc.DeleteAgentProviderCredentialParams{
+			AgentID:    agentID,
+			ProviderID: providerID,
+		})
 	}); err != nil {
 		return fmt.Errorf("delete agent %q provider credential %q: %w", agentID, providerID, err)
 	}
@@ -86,7 +92,7 @@ func (s *DBStore) CreateAgentWithCredentials(ctx context.Context, a config.Agent
 		return err
 	}
 
-	tx, err := s.pool.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, s.pool)
 	if err != nil {
 		return fmt.Errorf("create agent %q: begin tx: %w", params.ID, err)
 	}

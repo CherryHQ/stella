@@ -60,6 +60,7 @@ import (
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/resourceupgrade"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	"github.com/CherryHQ/stella/internal/sessionexecution"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skill"
@@ -531,7 +532,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("build session prompt service: %w", err)
 	}
 	usageHook := usage.New(db)
-	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry), sessionaccess.WithUsageProgress(usageHook))
+	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry))
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
@@ -574,12 +575,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	traceHook := tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO,
 		tracehook.WithToolMeta(toolMetaRegistry))
 	traceHook.Start(parent)
-	metricHook := metrichook.New(usageHook, traceHook.ActiveSessions, func(name string) bool {
+	metricHook := metrichook.New(traceHook.ActiveSessions, func(name string) bool {
 		_, ok := toolMetaRegistry.Lookup(name)
 		return ok
 	})
-	usageHook.SetDropObserver(metricHook.RecordQueueDrop)
-	usageHook.Start()
 	coreHooks := []hooks.HookPlugin{traceHook, usageHook, metricHook}
 
 	toolLifecycleBuilder := func(ctx context.Context) (*coreagent.ToolLifecycle, error) {
@@ -632,6 +631,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 				ExtraTools:       p.ExtraTools,
 				ExcludedTools:    p.ExcludedTools,
 				OnSandboxSession: p.OnSandboxSession,
+				StopWhen:         p.StopWhen,
 				Authority:        p.Authority,
 			}
 			// Decomposition runs on the goal's KindDelegate planning session;
@@ -650,12 +650,12 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc})
 
 	// Build the shared credentials/email/share services once, with the final
-	// resolved base URL — no localhost placeholder to mutate later. Each domain
-	// owns its own sqlc query set (the *ForPool constructors), so the composition
-	// root passes only the pool. These same instances back both the agent tools
+	// resolved base URL — no localhost placeholder to mutate later. Domain
+	// services own their access layers; the replaceable email plugin receives
+	// its guarded query adapter here. These instances back both the agent tools
 	// (below) and the HTTP endpoints (via server.Deps).
 	credSvc := connections.NewServiceForPool(vaultSvc, db, oauth.NewFlowStore(), baseURL)
-	emailSvc := email.NewServiceForPool(pluginhost.ResolveEmailUser, emailConfigReader(vaultSvc), db)
+	emailSvc := email.NewService(pluginhost.ResolveEmailUser, emailConfigReader(vaultSvc), cfgstore.NewEmailQueries(db))
 	if ps.oauthRegistry != nil {
 		credSvc.SetRegistry(ps.oauthRegistry)
 		if vaultSvc != nil {
@@ -734,7 +734,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	registeredToolMeta = toolmeta.NewRegistry(registeredSpecs...)
 
+	executions := sessionexecution.New(db)
 	poolMgr = agent.NewPoolManager(store, memProvider,
+		agent.WithSessionExecution(executions),
 		agent.WithSnapshotLoader(snapshotLoader),
 		agent.WithCodeToolSurface(cfg.Agent.CodeToolSurface),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
@@ -820,7 +822,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
-	homeDeletion, err := home.NewOwnerDeletion(db, homeRegistry, poolMgr, home.WithMediaPurger(sessionImages))
+	homeDeletion, err := home.NewOwnerDeletion(db, homeRegistry, poolMgr, home.WithMediaPurger(sessionImages), home.WithDeletionTx(func(ctx context.Context) (pgx.Tx, error) { return sessionexecution.Begin(ctx, db) }))
 	if err != nil {
 		return nil, fmt.Errorf("build Home deletion lifecycle: %w", err)
 	}
@@ -845,6 +847,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 
 	backgroundTasks := &sync.WaitGroup{}
+	backgroundTasks.Go(func() { executions.RunReaper(parent) })
 
 	// Warm the release cache without delaying admission. A session still
 	// publishes only its authorized snapshot, and shutdown cancels and joins us.

@@ -52,7 +52,7 @@ func (e closePathExecutor) Execute(ctx context.Context, req ExecutorRequest) (Ex
 		panic("boom")
 	}
 	if req.OnSandboxSession != nil {
-		if err := req.OnSandboxSession(e.sess); err != nil {
+		if err := req.OnSandboxSession(ctx, e.sess); err != nil {
 			return ExecutorResult{}, err
 		}
 	}

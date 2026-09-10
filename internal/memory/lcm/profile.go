@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -254,11 +256,13 @@ func (p *Provider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID str
 		currentVersion = row.Version
 	}
 
-	created, err := p.q.CreateMemorySnapshot(ctx, sqlc.CreateMemorySnapshotParams{
-		SessionID: sessionID,
-		UserID:    userID,
-		AgentID:   agentID,
-		Version:   currentVersion,
+	created, err := sessionexecution.Write(ctx, p.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.CtxAgentMemorySnapshot, error) {
+		return q.CreateMemorySnapshot(ctx, sqlc.CreateMemorySnapshotParams{
+			SessionID: sessionID,
+			UserID:    userID,
+			AgentID:   agentID,
+			Version:   currentVersion,
+		})
 	})
 	if err != nil {
 		return memory.SessionSnapshot{}, fmt.Errorf("create snapshot: %w", err)
@@ -281,17 +285,21 @@ func (p *Provider) AdvanceSessionSnapshot(ctx context.Context, sessionID string,
 	if row == nil {
 		return nil
 	}
-	return p.q.AdvanceMemorySnapshot(ctx, sqlc.AdvanceMemorySnapshotParams{
-		Version:   row.Version,
-		SessionID: sessionID,
-		UserID:    userID,
-		AgentID:   agentID,
+	return sessionexecution.Exec(ctx, p.db, func(ctx context.Context, q *sqlc.Queries) error {
+		return q.AdvanceMemorySnapshot(ctx, sqlc.AdvanceMemorySnapshotParams{
+			Version:   row.Version,
+			SessionID: sessionID,
+			UserID:    userID,
+			AgentID:   agentID,
+		})
 	})
 }
 
 // WriteChangelog implements memory.ChangelogWriter.
 func (p *Provider) WriteChangelog(ctx context.Context, entry memory.ChangeEntry) error {
-	return p.q.InsertMemoryChangelog(ctx, changeEntryToParams(entry))
+	return sessionexecution.Exec(ctx, p.db, func(ctx context.Context, q *sqlc.Queries) error {
+		return q.InsertMemoryChangelog(ctx, changeEntryToParams(entry))
+	})
 }
 
 // ReadChangelog implements memory.ChangelogReader.

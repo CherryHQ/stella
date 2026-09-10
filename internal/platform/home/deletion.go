@@ -45,11 +45,17 @@ type OwnerDeletion struct {
 	manager        *WorkspaceManager
 	fencer         OwnerFenceAcquirer
 	media          MediaPurger
+	beginTx        func(context.Context) (pgx.Tx, error)
 	commitTx       func(context.Context, pgx.Tx) error
 	reconcileOwner func(context.Context, OwnerKind, string) error
 }
 
 type OwnerDeletionOption func(*OwnerDeletion)
+
+// WithDeletionTx lets the application guard writes before owner row locks.
+func WithDeletionTx(begin func(context.Context) (pgx.Tx, error)) OwnerDeletionOption {
+	return func(d *OwnerDeletion) { d.beginTx = begin }
+}
 
 // WithMediaPurger attaches blob cleanup to owner deletion.
 func WithMediaPurger(media MediaPurger) OwnerDeletionOption {
@@ -60,7 +66,7 @@ func NewOwnerDeletion(db *pgxpool.Pool, manager *WorkspaceManager, fencer OwnerF
 	if db == nil || manager == nil || fencer == nil {
 		return nil, errors.New("home: owner deletion requires database, workspace manager, and fencer")
 	}
-	d := &OwnerDeletion{db: db, manager: manager, fencer: fencer}
+	d := &OwnerDeletion{db: db, manager: manager, fencer: fencer, beginTx: db.Begin}
 	for _, opt := range opts {
 		opt(d)
 	}
@@ -136,7 +142,7 @@ func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor st
 		return err
 	}
 	defer unlock()
-	tx, err := d.db.Begin(ctx)
+	tx, err := d.beginTx(ctx)
 	if err != nil {
 		return err
 	}

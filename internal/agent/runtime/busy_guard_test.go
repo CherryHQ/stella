@@ -35,6 +35,7 @@ func (r *blockingRunner) Close() error                 { return nil }
 func newTestRuntime(gate chan struct{}) *Runtime {
 	mem := &recordingMemory{}
 	rt, _ := New(Config{
+		LocalOnly: true,
 		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
 			return &blockingRunner{gate: gate}, nil
 		},
@@ -89,6 +90,7 @@ func TestChatMarksTurnActivityAroundExecution(t *testing.T) {
 	gate := make(chan struct{})
 	mem := &activityRecordingMemory{}
 	rt, err := New(Config{
+		LocalOnly: true,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &blockingRunner{gate: gate}, nil
 		},
@@ -121,6 +123,7 @@ func TestChatMarksTurnActivityAroundExecution(t *testing.T) {
 func TestChatMarksFailedTurnActivity(t *testing.T) {
 	mem := &activityRecordingMemory{}
 	rt, err := New(Config{
+		LocalOnly: true,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Err: errors.New("model failed")}}}, nil
 		},
@@ -141,6 +144,7 @@ func TestChatAdmittedControlledFenceRejectsBeforeTurnSideEffects(t *testing.T) {
 	gate := make(chan struct{})
 	mem := &activityRecordingMemory{}
 	rt, err := New(Config{
+		LocalOnly: true,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &blockingRunner{gate: gate}, nil
 		},
@@ -243,6 +247,7 @@ func (r *contextRunner) Close() error                 { return nil }
 func TestStopSessionCancelsOnlyExplicitly(t *testing.T) {
 	mem := &activityRecordingMemory{}
 	rt, err := New(Config{
+		LocalOnly: true,
 		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
 			return &contextRunner{}, nil
 		},
@@ -254,14 +259,21 @@ func TestStopSessionCancelsOnlyExplicitly(t *testing.T) {
 	info := session.Info{ID: "sess-stop", UserID: "u1", AgentID: "a1"}
 	stream := rt.Chat(context.Background(), info, "hello")
 
-	deadline := time.Now().Add(time.Second)
-	for !rt.SessionLive(info.ID) && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	select {
+	case event := <-stream:
+		if event.Text != "partial" || event.Err != nil {
+			t.Fatalf("first event = %#v, want partial assistant", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runner did not emit partial output")
 	}
 	if !rt.StopSession(t.Context(), info.ID) {
 		t.Fatal("StopSession reported no active turn")
 	}
-	for range stream {
+	for event := range stream {
+		if event.Err != nil {
+			t.Fatalf("explicit stop emitted a failure: %v", event.Err)
+		}
 	}
 	waitSessionFree(t, rt, info.ID)
 	if rt.StopSession(t.Context(), info.ID) {

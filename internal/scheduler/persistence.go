@@ -8,6 +8,8 @@ import (
 	"maps"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -28,13 +30,17 @@ func (s *Service) loadJobs(ctx context.Context) ([]Job, error) {
 
 // insertJob persists a new job to the database.
 func (s *Service) insertJob(ctx context.Context, job Job) error {
-	_, err := s.q.CreateSchedulerJob(ctx, createSchedulerJobParams(job))
+	_, err := sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.SchedJob, error) {
+		return q.CreateSchedulerJob(ctx, createSchedulerJobParams(job))
+	})
 	return err
 }
 
 // updateJob persists an existing job to the database.
 func (s *Service) updateJob(ctx context.Context, job Job) error {
-	return s.q.UpdateSchedulerJob(ctx, updateSchedulerJobParams(job))
+	return sessionexecution.Exec(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) error {
+		return q.UpdateSchedulerJob(ctx, updateSchedulerJobParams(job))
+	})
 }
 
 // recordJobRun persists execution metadata for a job.
@@ -53,7 +59,7 @@ func (s *Service) recordJobRun(ctx context.Context, id string, ranAt time.Time, 
 
 // deleteJob removes a job from the database.
 func (s *Service) deleteJob(ctx context.Context, id string) error {
-	return s.q.DeleteSchedulerJob(ctx, id)
+	return sessionexecution.Exec(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) error { return q.DeleteSchedulerJob(ctx, id) })
 }
 
 func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
@@ -276,7 +282,7 @@ func nullableTime(t *time.Time) pgtype.Timestamptz {
 // first commits, then sees the running row and bails. Returns errJobAlreadyRunning
 // if a run is already active.
 func (s *Service) tryStartJobRun(ctx context.Context, id, jobID, sessionID string, userID string, startedAt time.Time) error {
-	tx, err := s.db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, s.db)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}

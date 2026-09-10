@@ -41,9 +41,9 @@ const (
 	// webfetch override cleanup, retired tap-web plugin cleanup, and the dropped
 	// plugin scheduler columns are checked explicitly, followed by native Agent
 	// deny admission, plugin tool identity cutover, and file-backed Skill
-	// evidence migrations.
+	// evidence migrations and current Session execution rights.
 	currentMigrationVersion = sequentialAnchor + 40
-	latestMigrationVersion  = sequentialAnchor + 48
+	latestMigrationVersion  = sequentialAnchor + 49
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -944,6 +944,31 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 			AND column_ref.attname = 'server_id'
 	`); got != 0 {
 		t.Fatalf("OAuth catalog foreign keys = %d, want file targets to be independent", got)
+	}
+
+	if got := count("current Session execution", `SELECT count(*) FROM ctx_session_execution`); got != 0 {
+		t.Fatalf("upgrade invented active executions: %d", got)
+	}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `INSERT INTO ctx_conversation (id,session_id) VALUES (uuidv7(),'migration-execution')`); err != nil {
+		t.Fatal(err)
+	}
+	var versionSeven, canceled bool
+	if err := tx.QueryRow(ctx, `INSERT INTO ctx_session_execution(session_id,lease_until)
+        VALUES ('migration-execution',clock_timestamp()+interval '30 seconds')
+        RETURNING uuid_extract_version(token)=7,cancel_requested`).Scan(&versionSeven, &canceled); err != nil || !versionSeven || canceled {
+		t.Fatalf("execution defaults: UUIDv7=%v canceled=%v error=%v", versionSeven, canceled, err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM ctx_conversation WHERE session_id='migration-execution'`); err != nil {
+		t.Fatal(err)
+	}
+	var remaining int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM ctx_session_execution`).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatalf("execution cascade: remaining=%d error=%v", remaining, err)
 	}
 
 	var latest int64

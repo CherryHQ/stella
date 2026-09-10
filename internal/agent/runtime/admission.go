@@ -13,6 +13,7 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/core/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionexecution"
 )
 
 // ChatAdmission is the synchronous lease for one turn. Begin registers the
@@ -25,6 +26,7 @@ type ChatAdmission struct {
 	info                  session.Info
 	msg                   MessageContent
 	co                    chatOptions
+	lease                 *sessionexecution.Lease
 	activity              memory.Session
 	turn                  *activeTurn
 	out                   chan Event
@@ -43,9 +45,13 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 		return nil, err
 	}
 	var turn *activeTurn
+	var lease *sessionexecution.Lease
 	defer func() {
 		if recover() == nil {
 			return
+		}
+		if lease != nil {
+			_ = lease.Finish(string(memory.SessionTurnError))
 		}
 		if turn != nil {
 			turn.cancel()
@@ -85,14 +91,29 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 	}
 	turnCtx = memory.WithSessionID(turnCtx, info.ID)
 	turnCtx = agentctx.WithTurnID(turnCtx, uuid.Must(uuid.NewV7()).String())
+	if rt.execution != nil {
+		var claimErr error
+		turnCtx, lease, claimErr = rt.execution.Claim(turnCtx, info.ID)
+		if claimErr != nil {
+			turn.cancel()
+			rt.active.CompareAndDelete(info.ID, turn)
+			close(turn.done)
+			return nil, claimErr
+		}
+	} else {
+		rt.markSessionTurnStarted(turnCtx, activity)
+	}
+	turn.ctx = turnCtx
 	turnCtx = withSessionIdentity(turnCtx, info)
 	// An adapter context may carry the human authority that admitted a
 	// session. Keep it out of the runtime turn until Prepare derives the
 	// capability appropriate for this exact session, otherwise a cached runner
 	// or a background turn could inherit the wrong principal.
 	turnCtx = authz.ClearAuthority(turnCtx)
+	rt.turns.begin()
 	return &ChatAdmission{
 		rt:       rt,
+		lease:    lease,
 		ctx:      turnCtx,
 		info:     info,
 		msg:      msg,
@@ -187,6 +208,10 @@ func (rt *Runtime) PrepareChatAdmission(admission *ChatAdmission) (err error) {
 				rt.AbortChatAdmission(admission)
 				return errors.New("prepare runner turn returned nil context")
 			}
+			if admission.lease != nil && sessionexecution.FromContext(preparedCtx) != admission.lease {
+				rt.AbortChatAdmission(admission)
+				return errors.New("runner preparation dropped session execution context")
+			}
 			admission.ctx = preparedCtx
 			admission.turn.ctx = preparedCtx
 			selection.pluginContext = preparedPluginContext
@@ -209,6 +234,10 @@ func (rt *Runtime) PrepareChatAdmission(admission *ChatAdmission) (err error) {
 		if captured == nil {
 			rt.AbortChatAdmission(admission)
 			return errors.New("capture skill turn view returned nil context")
+		}
+		if admission.lease != nil && sessionexecution.FromContext(captured) != admission.lease {
+			rt.AbortChatAdmission(admission)
+			return errors.New("skill capture dropped session execution context")
 		}
 		admission.ctx = captured
 		admission.turn.ctx = captured
@@ -251,12 +280,24 @@ func (rt *Runtime) AbortChatAdmission(admission *ChatAdmission) {
 		return
 	}
 	admission.abortOnce.Do(func() {
+		defer rt.turns.end()
 		if admission.prepared || admission.selection.session != nil {
 			if admission.preserveRunnerOnAbort {
 				rt.cache.releaseReservation(admission.selection.session)
 			} else {
 				rt.cache.abortReservedAdmission(admission.selection.session)
 			}
+		}
+		if admission.lease != nil {
+			result := memory.SessionTurnError
+			if admission.ctx.Err() != nil {
+				result = memory.SessionTurnCanceled
+			}
+			if err := admission.lease.Finish(string(result)); err != nil {
+				rt.log.Warn("finish failed admission", "error", err)
+			}
+		} else {
+			rt.markSessionTurnCompleted(admission.ctx, admission.activity, memory.SessionTurnError)
 		}
 		if admission.turn != nil {
 			admission.turn.cancel()
@@ -303,47 +344,30 @@ func (rt *Runtime) PublishChatAdmission(admission *ChatAdmission) (stream <-chan
 		rt.AbortChatAdmission(admission)
 		return nil, fmt.Errorf("chat admission expired: session %s", admission.info.ID)
 	}
-	rt.markSessionTurnStarted(admission.ctx, admission.activity)
 	inner := make(chan Event, 100)
-	producerResult := make(chan memory.SessionTurnResult, 1)
+	producerResult := make(chan error, 1)
 	rt.hub.begin(admission.info.ID)
-	rt.turns.begin()
 	admission.published = true
 	go rt.runChatProducer(admission, inner, producerResult)
 	go rt.runChatForwarder(admission, inner, producerResult)
 	return admission.out, nil
 }
 
-func (rt *Runtime) runChatProducer(admission *ChatAdmission, inner chan Event, producerResult chan memory.SessionTurnResult) {
-	result := memory.SessionTurnSuccess
-	defer rt.turns.end()
-	defer func() {
-		if p := recover(); p != nil {
-			rt.log.Error("chat turn panicked", "session_id", admission.info.ID, "panic", p)
-			result = memory.SessionTurnError
-			safeClose(inner)
-		}
-		if result != memory.SessionTurnError && admission.ctx.Err() != nil {
-			result = memory.SessionTurnCanceled
-		}
-		producerResult <- result
-	}()
-	rt.chatWithRunner(admission.ctx, inner, admission.info, admission.msg, admission.co, admission.selection)
+func (rt *Runtime) runChatProducer(admission *ChatAdmission, inner chan<- Event, producerResult chan<- error) {
+	defer close(inner)
+	producerResult <- rt.chatWithRunner(admission.ctx, inner, admission.info, admission.msg, admission.co, admission.selection)
 }
 
-func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner chan Event, producerResult chan memory.SessionTurnResult) {
+func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner <-chan Event, producerResult <-chan error) {
+	defer rt.turns.end()
 	defer close(admission.out)
 	defer close(admission.turn.done)
 	defer admission.turn.cancel()
 	defer rt.active.CompareAndDelete(admission.info.ID, admission.turn)
 	defer rt.hub.end(admission.info.ID)
-	result := memory.SessionTurnSuccess
 	deliver := true
 	for event := range inner {
 		rt.hub.publish(admission.info.ID, event)
-		if event.Err != nil {
-			result = memory.SessionTurnError
-		}
 		if !deliver {
 			continue
 		}
@@ -353,9 +377,41 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner chan Event, 
 			deliver = false
 		}
 	}
-	producerOutcome := <-producerResult
-	if result != memory.SessionTurnError {
-		result = producerOutcome
+	terminalErr := <-producerResult
+	result := memory.SessionTurnSuccess
+	switch {
+	case terminalErr != nil:
+		result = memory.SessionTurnError
+	case admission.ctx.Err() != nil:
+		result = memory.SessionTurnCanceled
 	}
-	rt.markSessionTurnCompleted(admission.ctx, admission.activity, result)
+	if admission.lease != nil {
+		cause := context.Cause(admission.ctx)
+		finishErr := admission.lease.Finish(string(result))
+		if errors.Is(cause, sessionexecution.ErrLost) {
+			finishErr = errors.Join(cause, finishErr)
+		}
+		terminalErr = errors.Join(terminalErr, finishErr)
+	} else {
+		rt.markSessionTurnCompleted(admission.ctx, admission.activity, result)
+	}
+	if terminalErr != nil {
+		event := Event{Err: terminalErr}
+		rt.hub.publish(admission.info.ID, event)
+		select {
+		case admission.out <- event:
+		case <-admission.ctx.Done():
+			// Cancellation can leave a full buffer and no consumer. Keep the
+			// terminal failure by replacing one buffered partial event.
+			select {
+			case admission.out <- event:
+			default:
+				select {
+				case <-admission.out:
+				default:
+				}
+				admission.out <- event
+			}
+		}
+	}
 }

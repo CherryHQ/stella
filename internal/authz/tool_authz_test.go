@@ -257,7 +257,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 
 	flowStore := credoauth.NewFlowStore()
 	flowStore.Create(credoauth.FlowStatus{Provider: credoauth.ProviderGitHub, FlowID: "owner-flow", UserID: ownerUser, FlowType: "device_code"})
-	oauthSvc := connections.NewService(nil, nil, flowStore, "http://localhost:8080")
+	oauthSvc := connections.NewServiceForPool(nil, nil, flowStore, "http://localhost:8080")
 	registry := credoauth.NewProviderRegistry()
 	registry.Register(credoauth.ProviderConfig{ID: "github", VaultKey: credoauth.VaultKeyGitHub})
 	oauthSvc.SetRegistry(registry)
@@ -296,7 +296,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "report.html"), []byte("<p>ok</p>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(toolAuthzWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))))
+	shareSvc := sharepkg.NewServiceForPool(db, mem, recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(toolAuthzWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))))
 	ownerShare, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: "owner-share-hash", UserID: ownerUser, Title: "owner share", MediaType: "text/html", Content: []byte("owner secret")})
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)

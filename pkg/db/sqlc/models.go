@@ -571,6 +571,15 @@ type CtxMessagePart struct {
 	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
+type CtxSessionExecution struct {
+	SessionID       string    `json:"session_id"`
+	Token           string    `json:"token"`
+	LeaseUntil      time.Time `json:"lease_until"`
+	CancelRequested bool      `json:"cancel_requested"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
 type CtxSessionInbox struct {
 	ID              string             `json:"id"`
 	EnqueueSeq      pgtype.Int8        `json:"enqueue_seq"`

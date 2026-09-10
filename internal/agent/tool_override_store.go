@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -29,13 +31,14 @@ const ToolOverrideAbsentVersion = "absent"
 // ToolOverrideStore reads persisted tool-visibility overrides for an
 // agent+user context. Its Fetch method satisfies ToolOverrideFetcher.
 type ToolOverrideStore struct {
+	db    *pgxpool.Pool
 	q     *sqlc.Queries
 	files *internalplugin.FileService
 }
 
 // NewToolOverrideStore builds a ToolOverrideStore over the given pool.
 func NewToolOverrideStore(db *pgxpool.Pool, files ...*internalplugin.FileService) *ToolOverrideStore {
-	store := &ToolOverrideStore{q: sqlc.New(db)}
+	store := &ToolOverrideStore{db: db, q: sqlc.New(db)}
 	if len(files) > 0 {
 		store.files = files[0]
 	}
@@ -199,13 +202,17 @@ func (s *ToolOverrideStore) Set(ctx context.Context, w ToolOverrideWrite) error 
 		return err
 	}
 	if identity.isPlugin() {
-		_, err = s.q.UpsertPluginToolOverride(ctx, sqlc.UpsertPluginToolOverrideParams{
-			PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: w.Scope,
-			UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), Enabled: w.Enabled,
+		_, err = sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.ToolOverride, error) {
+			return q.UpsertPluginToolOverride(ctx, sqlc.UpsertPluginToolOverrideParams{
+				PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: w.Scope,
+				UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), Enabled: w.Enabled,
+			})
 		})
 	} else {
-		_, err = s.q.UpsertCoreToolOverride(ctx, sqlc.UpsertCoreToolOverrideParams{
-			ToolName: pgnull.Text(identity.CoreToolName), Scope: w.Scope, UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), Enabled: w.Enabled,
+		_, err = sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.ToolOverride, error) {
+			return q.UpsertCoreToolOverride(ctx, sqlc.UpsertCoreToolOverrideParams{
+				ToolName: pgnull.Text(identity.CoreToolName), Scope: w.Scope, UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), Enabled: w.Enabled,
+			})
 		})
 	}
 	return err
@@ -228,13 +235,17 @@ func (s *ToolOverrideStore) SetIfVersion(ctx context.Context, w ToolOverrideWrit
 	if expected == ToolOverrideAbsentVersion {
 		var row sqlc.ToolOverride
 		if identity.isPlugin() {
-			row, err = s.q.InsertPluginToolOverrideIfAbsent(ctx, sqlc.InsertPluginToolOverrideIfAbsentParams{
-				PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: w.Scope,
-				UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), Enabled: w.Enabled,
+			row, err = sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.ToolOverride, error) {
+				return q.InsertPluginToolOverrideIfAbsent(ctx, sqlc.InsertPluginToolOverrideIfAbsentParams{
+					PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: w.Scope,
+					UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), Enabled: w.Enabled,
+				})
 			})
 		} else {
-			row, err = s.q.InsertCoreToolOverrideIfAbsent(ctx, sqlc.InsertCoreToolOverrideIfAbsentParams{
-				ToolName: pgnull.Text(identity.CoreToolName), Scope: w.Scope, UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), Enabled: w.Enabled,
+			row, err = sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.ToolOverride, error) {
+				return q.InsertCoreToolOverrideIfAbsent(ctx, sqlc.InsertCoreToolOverrideIfAbsentParams{
+					ToolName: pgnull.Text(identity.CoreToolName), Scope: w.Scope, UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), Enabled: w.Enabled,
+				})
 			})
 		}
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -251,13 +262,17 @@ func (s *ToolOverrideStore) SetIfVersion(ctx context.Context, w ToolOverrideWrit
 	}
 	var row sqlc.ToolOverride
 	if identity.isPlugin() {
-		row, err = s.q.UpdatePluginToolOverrideIfVersion(ctx, sqlc.UpdatePluginToolOverrideIfVersionParams{
-			Enabled: w.Enabled, PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: w.Scope,
-			UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), ExpectedUpdatedAt: expectedAt,
+		row, err = sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.ToolOverride, error) {
+			return q.UpdatePluginToolOverrideIfVersion(ctx, sqlc.UpdatePluginToolOverrideIfVersionParams{
+				Enabled: w.Enabled, PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: w.Scope,
+				UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), ExpectedUpdatedAt: expectedAt,
+			})
 		})
 	} else {
-		row, err = s.q.UpdateCoreToolOverrideIfVersion(ctx, sqlc.UpdateCoreToolOverrideIfVersionParams{
-			Enabled: w.Enabled, ToolName: pgnull.Text(identity.CoreToolName), Scope: w.Scope, UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), ExpectedUpdatedAt: expectedAt,
+		row, err = sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.ToolOverride, error) {
+			return q.UpdateCoreToolOverrideIfVersion(ctx, sqlc.UpdateCoreToolOverrideIfVersionParams{
+				Enabled: w.Enabled, ToolName: pgnull.Text(identity.CoreToolName), Scope: w.Scope, UserID: pgnull.Text(w.UserID), AgentID: pgnull.Text(w.AgentID), ExpectedUpdatedAt: expectedAt,
+			})
 		})
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -283,13 +298,17 @@ func (s *ToolOverrideStore) Clear(ctx context.Context, k ToolOverrideKey) error 
 		return err
 	}
 	if identity.isPlugin() {
-		return s.q.DeletePluginToolOverride(ctx, sqlc.DeletePluginToolOverrideParams{
-			PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: k.Scope,
-			UserID: pgnull.Text(k.UserID), AgentID: pgnull.Text(k.AgentID),
+		return sessionexecution.Exec(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) error {
+			return q.DeletePluginToolOverride(ctx, sqlc.DeletePluginToolOverrideParams{
+				PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: k.Scope,
+				UserID: pgnull.Text(k.UserID), AgentID: pgnull.Text(k.AgentID),
+			})
 		})
 	}
-	return s.q.DeleteCoreToolOverride(ctx, sqlc.DeleteCoreToolOverrideParams{
-		ToolName: pgnull.Text(identity.CoreToolName), Scope: k.Scope, UserID: pgnull.Text(k.UserID), AgentID: pgnull.Text(k.AgentID),
+	return sessionexecution.Exec(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) error {
+		return q.DeleteCoreToolOverride(ctx, sqlc.DeleteCoreToolOverrideParams{
+			ToolName: pgnull.Text(identity.CoreToolName), Scope: k.Scope, UserID: pgnull.Text(k.UserID), AgentID: pgnull.Text(k.AgentID),
+		})
 	})
 }
 
@@ -311,13 +330,17 @@ func (s *ToolOverrideStore) ClearIfVersion(ctx context.Context, k ToolOverrideKe
 		return config.ErrAgentVersionConflict
 	}
 	if identity.isPlugin() {
-		_, err = s.q.DeletePluginToolOverrideIfVersion(ctx, sqlc.DeletePluginToolOverrideIfVersionParams{
-			PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: k.Scope,
-			UserID: pgnull.Text(k.UserID), AgentID: pgnull.Text(k.AgentID), ExpectedUpdatedAt: expectedAt,
+		_, err = sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.ToolOverride, error) {
+			return q.DeletePluginToolOverrideIfVersion(ctx, sqlc.DeletePluginToolOverrideIfVersionParams{
+				PluginID: pgnull.Text(identity.PluginID), ServerKey: pgnull.Text(identity.ServerKey), LocalToolName: pgnull.Text(identity.LocalToolName), Scope: k.Scope,
+				UserID: pgnull.Text(k.UserID), AgentID: pgnull.Text(k.AgentID), ExpectedUpdatedAt: expectedAt,
+			})
 		})
 	} else {
-		_, err = s.q.DeleteCoreToolOverrideIfVersion(ctx, sqlc.DeleteCoreToolOverrideIfVersionParams{
-			ToolName: pgnull.Text(identity.CoreToolName), Scope: k.Scope, UserID: pgnull.Text(k.UserID), AgentID: pgnull.Text(k.AgentID), ExpectedUpdatedAt: expectedAt,
+		_, err = sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.ToolOverride, error) {
+			return q.DeleteCoreToolOverrideIfVersion(ctx, sqlc.DeleteCoreToolOverrideIfVersionParams{
+				ToolName: pgnull.Text(identity.CoreToolName), Scope: k.Scope, UserID: pgnull.Text(k.UserID), AgentID: pgnull.Text(k.AgentID), ExpectedUpdatedAt: expectedAt,
+			})
 		})
 	}
 	if errors.Is(err, pgx.ErrNoRows) {

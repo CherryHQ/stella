@@ -200,7 +200,8 @@ type TaskChatParams struct {
 	Decompose        bool
 	ExtraTools       []tools.Tool
 	ExcludedTools    []string
-	OnSandboxSession func(sandbox.Session) error
+	OnSandboxSession func(context.Context, sandbox.Session) error
+	StopWhen         func() bool
 	Authority        authz.Authority
 }
 

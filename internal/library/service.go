@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -365,7 +367,7 @@ func (s *Service) beginBoundedTx(ctx context.Context) (pgx.Tx, *sqlc.Queries, er
 	if err != nil {
 		return nil, nil, err
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, s.db)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -387,6 +389,9 @@ func (s *Service) databaseTimeouts(ctx context.Context) (time.Duration, time.Dur
 	// Keep PostgreSQL's independent limits at their configured values. Clamping
 	// them to an earlier request deadline makes the server timeout race the Go
 	// context and can leak SQLSTATE 57014 instead of the caller's context error.
+	if sessionexecution.FromContext(ctx) != nil {
+		return min(s.databaseStatementTimeout, sessionexecution.OperationTimeout), min(s.databaseLockTimeout, sessionexecution.OperationTimeout), nil
+	}
 	return s.databaseStatementTimeout, s.databaseLockTimeout, nil
 }
 

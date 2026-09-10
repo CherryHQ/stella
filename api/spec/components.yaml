@@ -5542,7 +5542,7 @@ components:
         pending_call_count:
           type: integer
           format: int64
-          description: Accepted usage observations still being persisted. Totals are complete only when this is zero.
+          description: Always zero, retained for compatibility after synchronous usage persistence. A running session may still make more model calls.
         call_count:
           type: integer
           format: int64

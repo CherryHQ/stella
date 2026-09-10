@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -45,11 +47,12 @@ type Message struct {
 
 // Store owns durable inbox state transitions, not Agent execution.
 type Store struct {
-	q *sqlc.Queries
+	db *pgxpool.Pool
+	q  *sqlc.Queries
 }
 
 func New(db *pgxpool.Pool) *Store {
-	return &Store{q: sqlc.New(db)}
+	return &Store{db: db, q: sqlc.New(db)}
 }
 
 // Enqueue persists one runtime-authored Agent input before it enters the
@@ -65,12 +68,14 @@ func (s *Store) Enqueue(ctx context.Context, input Input) (Message, error) {
 		return Message{}, errors.New("session inbox requires trusted source Agent provenance")
 	}
 	id := uuid.Must(uuid.NewV7()).String()
-	row, err := s.q.EnqueueSessionInbox(ctx, sqlc.EnqueueSessionInboxParams{
-		ID:              id,
-		SourceSessionID: input.SourceSessionID,
-		TargetSessionID: input.TargetSessionID,
-		ActorID:         input.Actor.ID,
-		Content:         input.Content,
+	row, err := sessionexecution.Write(ctx, s.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.CtxSessionInbox, error) {
+		return q.EnqueueSessionInbox(ctx, sqlc.EnqueueSessionInboxParams{
+			ID:              id,
+			SourceSessionID: input.SourceSessionID,
+			TargetSessionID: input.TargetSessionID,
+			ActorID:         input.Actor.ID,
+			Content:         input.Content,
+		})
 	})
 	if err != nil {
 		// Return the client-generated ID so the caller can run a mandatory

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -38,10 +40,15 @@ type BeforeRunFunc func(ctx context.Context, info session.Info, model, msgText, 
 // and the plugin context captured with the admitted runner.
 type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory.SessionSnapshot, pluginContext PluginContext) (string, error)
 
-// chatWithRunner is the goroutine body for Runtime.Chat. The runner was selected and
-// reserved synchronously by ChatAdmitted, so a policy invalidation cannot slip
-// between admission and runner selection.
-func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions, selection runnerSelection) {
+// chatWithRunner keeps the admission-selected runner reserved through result
+// commits and cleanup. Runtime failures return directly; its producer closes out.
+func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions, selection runnerSelection) (resultErr error) {
+	defer func() {
+		if p := recover(); p != nil {
+			rt.log.Error("chat turn panicked", "session_id", info.ID, "panic", p)
+			resultErr = errors.Join(resultErr, errors.New("chat turn panicked"))
+		}
+	}()
 	defer rt.cache.releaseReservation(selection.session)
 
 	isGuest := info.GuestID != ""
@@ -85,27 +92,23 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 
 	memSess, err := info.MemoryScope()
 	if err != nil {
-		out <- Event{Err: fmt.Errorf("session scope: %w", err)}
-		close(out)
-		return
+		return fmt.Errorf("session scope: %w", err)
 	}
-	groupSink, hasGroupSink := memory.GroupTurnSinkFrom(ctx)
-	// A sink only owns this turn when the turn really is a group turn; a stray
-	// sink on a direct session must not swallow the ordinary persist path.
-	deferredGroupTurn := hasGroupSink && memSess.GroupID != ""
+	groupCommitter, hasGroupCommitter := GroupResultCommitterFrom(ctx)
+	// Only group sessions defer their transcript to the accept transaction.
+	deferredGroupTurn := hasGroupCommitter && memSess.GroupID != ""
 	deferred := memory.DeferredGroupTurn{
 		Session:              memSess,
 		TriggerSeq:           memory.GroupSeqFromContext(ctx),
 		OriginGroupMessageID: memory.GroupMessageIDFromContext(ctx),
 	}
-	// This is the only owner of out for a valid turn. Deliver before close gives
-	// the dispatcher a happens-before edge after it finishes draining the stream.
-	defer func() {
-		if deferredGroupTurn {
-			groupSink.Deliver(deferred)
-		}
-		close(out)
-	}()
+	if co.closeAfterRun {
+		defer func() {
+			if err := rt.cache.close(info.ID); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("close worker runner: %w", err))
+			}
+		}()
+	}
 
 	msgText := MessageText(msg)
 	rt.log.Debug("chat started", "session_id", info.ID, "message_len", len(msgText))
@@ -138,7 +141,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	// Auto-compact.
 	if rt.needsCompaction(ctx, memSess) {
 		rt.log.Info("auto-compaction triggered", "session_id", info.ID)
-		compactParent := context.WithoutCancel(ctx)
+		compactParent := ctx
 		if _, synchronous := agentctx.SessionCallFromContext(ctx); synchronous {
 			// A Session/delegate call holds its caller and target admission until
 			// completion, so source cancellation must also stop compaction.
@@ -194,8 +197,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	if err != nil {
 		rt.log.Warn("memory assemble failed", "session_id", info.ID, "error", err)
 		if memSess.GroupID != "" {
-			out <- Event{Err: fmt.Errorf("assemble group memory: %w", err)}
-			return
+			return fmt.Errorf("assemble group memory: %w", err)
 		}
 	} else {
 		history = assembled
@@ -225,8 +227,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 			}
 		}
 		if rebuilt, err := selection.snapshotPrompt(ctx, info, snap, selection.pluginContext); err != nil {
-			out <- Event{Err: fmt.Errorf("snapshot prompt: %w", err)}
-			return
+			return fmt.Errorf("snapshot prompt: %w", err)
 		} else {
 			baseSystem = rebuilt
 		}
@@ -234,8 +235,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	if !isGuest && selection.beforeRun != nil {
 		systemOut, err := selection.beforeRun(ctx, info, selection.model, msgText, baseSystem, history, selection.pluginContext)
 		if err != nil {
-			out <- Event{Err: fmt.Errorf("before run: %w", err)}
-			return
+			return fmt.Errorf("before run: %w", err)
 		}
 		if systemOut != "" {
 			baseSystem = systemOut
@@ -292,18 +292,15 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		if blocks != nil && !isGuest {
 			if ai.HasImage(blocks) {
 				if rt.sessionImages == nil {
-					out <- Event{Err: errors.New("session image enrichment is not configured")}
-					return
+					return errors.New("session image enrichment is not configured")
 				}
 				owner, err := sessionmedia.SessionOwner(info.UserID, info.GroupID)
 				if err != nil {
-					out <- Event{Err: fmt.Errorf("resolve session media owner: %w", err)}
-					return
+					return fmt.Errorf("resolve session media owner: %w", err)
 				}
 				enriched, err := rt.sessionImages.Enrich(ctx, owner, info.AgentID, blocks)
 				if err != nil {
-					out <- Event{Err: fmt.Errorf("enrich user images: %w", err)}
-					return
+					return fmt.Errorf("enrich user images: %w", err)
 				}
 				blocks = enriched
 			}
@@ -315,37 +312,76 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		if co.inboxID != "" {
 			appender, ok := rt.mem.(memory.InboxAppender)
 			if !ok {
-				out <- Event{Err: errors.New("memory provider does not support durable Session inbox")}
-				return
+				return errors.New("memory provider does not support durable Session inbox")
 			}
 			if err := appender.AppendInboxInput(ctx, memSess, co.inboxID, userMsg); err != nil {
-				out <- Event{Err: fmt.Errorf("persist Session inbox input: %w", err)}
-				return
+				return fmt.Errorf("persist Session inbox input: %w", err)
 			}
 		} else if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
-			if hasCanonicalImage {
-				out <- Event{Err: fmt.Errorf("persist canonical user message: %w", err)}
-				return
+			if hasCanonicalImage || errors.Is(err, sessionexecution.ErrLost) {
+				return fmt.Errorf("persist canonical user message: %w", err)
 			}
 			rt.log.Warn("memory append user message failed", "session_id", info.ID, "error", err)
 		}
 	}
 
-	stream := selection.runner.Chat(ctx, history, modelMsg)
-	ownRows, chatErr := rt.streamEvents(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
+	if err := sessionexecution.Check(ctx); err != nil {
+		if ctx.Err() == nil || errors.Is(err, sessionexecution.ErrLost) {
+			return err
+		}
+		return nil
+	}
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	stream := selection.runner.Chat(context.WithValue(runCtx, groupResultKey{}, false), history, modelMsg)
+	stopped := false
+	stopModel := func() {
+		if co.stopWhen != nil && co.stopWhen() {
+			stopped = true
+			cancelRun()
+		}
+	}
+	ownRows, chatErr := rt.streamEvents(runCtx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, stopModel, storePrefix...)
+	// An observer or persistence failure may leave the runner producing events.
+	// Cancel and join it before releasing its reservation or reporting completion.
+	cancelRun()
+	for range stream {
+	}
+	if stopped && ctx.Err() == nil && errors.Is(chatErr, context.Canceled) {
+		chatErr = nil
+	}
+	if chatErr != nil {
+		// Timeout already produced its continuation notice. Ordinary cancellation
+		// is recorded from the owning context; neither is an in-band failure.
+		if errors.Is(chatErr, ErrChatTimeout) || (ctx.Err() != nil && errors.Is(chatErr, ctx.Err())) {
+			return nil
+		}
+		return chatErr
+	}
+	if assembledOK && ctx.Err() == nil && co.sandboxResult != nil {
+		if err := commitSandboxResult(ctx, selection.runner, co.sandboxResult); err != nil {
+			return err
+		}
+	}
 	if deferredGroupTurn {
 		deferred.OwnRows = ownRows
-		deferred.Complete = chatErr == nil && assembledOK && ctx.Err() == nil
-		return
+		deferred.Complete = assembledOK && ctx.Err() == nil
+		if deferred.Complete {
+			if err := groupCommitter.Commit(ctx, deferred); err != nil {
+				return fmt.Errorf("commit group result: %w", err)
+			}
+		}
+		return nil
 	}
-	if chatErr == nil && assembledOK && ctx.Err() == nil && memSess.GroupID != "" {
+	if assembledOK && ctx.Err() == nil && memSess.GroupID != "" {
 		if committer, ok := rt.mem.(memory.GroupCursorCommitter); ok {
 			commitCtx := context.WithoutCancel(ctx)
 			if err := committer.CommitGroupCursor(commitCtx, memSess, memory.GroupSeqFromContext(ctx)); err != nil {
-				rt.log.Warn("group cursor commit failed", "session_id", info.ID, "group_id", memSess.GroupID, "error", err)
+				return fmt.Errorf("commit group cursor: %w", err)
 			}
 		}
 	}
+	return nil
 }
 
 func (rt *Runtime) getOrCreateReservedRunner(ctx context.Context, info session.Info, model string, extraTools []tools.Tool, generation uint64) (runnerSelection, error) {
@@ -471,6 +507,7 @@ func (rt *Runtime) streamEvents(
 	hs *hooks.HookSet,
 	hookMeta hooks.HookMeta,
 	chatStart time.Time,
+	stopModel func(),
 	storePrefix ...ai.Message,
 ) ([]ai.Message, error) {
 	persistCtx := context.WithoutCancel(ctx)
@@ -515,6 +552,11 @@ func (rt *Runtime) streamEvents(
 	}()
 
 	for evt := range stream {
+		if committer, ok := GroupResultCommitterFrom(ctx); isGroup && ok && evt.Err == nil {
+			if err := committer.Observe(evt); err != nil {
+				return nil, fmt.Errorf("buffer group result: %w", err)
+			}
+		}
 		if evt.Err != nil {
 			chatErr = evt.Err
 			flushInterruptedAssistant()
@@ -534,7 +576,6 @@ func (rt *Runtime) streamEvents(
 				sendEvent(ctx, out, Event{Text: notice})
 				return nil, chatErr
 			}
-			sendEvent(ctx, out, evt)
 			return nil, chatErr
 		}
 
@@ -563,6 +604,9 @@ func (rt *Runtime) streamEvents(
 				flushInterruptedAssistant()
 				return nil, chatErr
 			}
+			if stopModel != nil {
+				stopModel()
+			}
 			continue
 		}
 
@@ -577,6 +621,9 @@ func (rt *Runtime) streamEvents(
 			flushInterruptedAssistant()
 			return nil, chatErr
 		}
+		if stopModel != nil {
+			stopModel()
+		}
 	}
 
 	if ctx.Err() != nil {
@@ -587,7 +634,7 @@ func (rt *Runtime) streamEvents(
 		pendingStores = append(pendingStores, bufferedAssistantMessage(textBuf.String(), reasoningBuf.String()))
 	}
 	if isGroup {
-		if _, deferred := memory.GroupTurnSinkFrom(ctx); deferred {
+		if _, deferred := GroupResultCommitterFrom(ctx); deferred {
 			ownRows := make([]ai.Message, 0, len(storePrefix)+len(pendingStores))
 			ownRows = append(ownRows, storePrefix...)
 			ownRows = append(ownRows, pendingStores...)

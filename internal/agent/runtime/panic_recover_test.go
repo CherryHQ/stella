@@ -30,6 +30,7 @@ func (panicRunner) Close() error                 { return nil }
 func TestChat_PanicRecovers_FreesSessionAndHub(t *testing.T) {
 	mem := &activityRecordingMemory{}
 	rt, _ := New(Config{
+		LocalOnly: true,
 		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
 			return panicRunner{}, nil
 		},
@@ -37,8 +38,15 @@ func TestChat_PanicRecovers_FreesSessionAndHub(t *testing.T) {
 	})
 
 	info := session.Info{ID: "sess-1", UserID: "u1", AgentID: "a1"}
-	ch := rt.Chat(context.Background(), info, "hi")
-	for range ch { //nolint:revive // drain until the forwarder closes out
+	ch := rt.Chat(t.Context(), info, "hi")
+	failures := 0
+	for event := range ch {
+		if event.Err != nil {
+			failures++
+		}
+	}
+	if failures != 1 {
+		t.Fatalf("panic reported %d errors to caller, want 1", failures)
 	}
 
 	waitSessionFree(t, rt, info.ID)
@@ -71,23 +79,27 @@ func (m *panicOnNthAppendMemory) Append(_ context.Context, _ memory.Session, _ .
 	return nil
 }
 
-// A panic raised inside streamEvents unwinds through its defer, which closes
-// inner. The Chat wrapper's recover must NOT blindly close inner again — a
-// second close of the same channel panics in a goroutine and crashes the
-// process. This guards that the recovery path tolerates an already-closed
-// channel while still freeing the session and hub.
+// A persistence panic must still report failure and close the stream once.
 func TestChat_PanicInStreamEvents_NoDoubleClose(t *testing.T) {
 	mem := &panicOnNthAppendMemory{n: 2} // 1: user message in rt.chat; 2: assistant flush in streamEvents
 	rt, _ := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "hi"}}}, nil
 		},
 	})
 
 	info := session.Info{ID: "sess-1", UserID: "u1", AgentID: "a1"}
-	ch := rt.Chat(context.Background(), info, "hi")
-	for range ch { //nolint:revive // drain until the forwarder closes out
+	ch := rt.Chat(t.Context(), info, "hi")
+	failures := 0
+	for event := range ch {
+		if event.Err != nil {
+			failures++
+		}
+	}
+	if failures != 1 {
+		t.Fatalf("persistence panic reported %d errors to caller, want 1", failures)
 	}
 
 	waitSessionFree(t, rt, info.ID)

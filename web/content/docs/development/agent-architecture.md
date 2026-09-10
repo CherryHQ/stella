@@ -32,6 +32,22 @@ The Responses adapter reconciles streamed tool arguments and text with final sna
 
 Ordinary chats retain the 30-minute default. A trusted sandbox may supply an absolute turn deadline; the Harbor bridge uses this to carry the original task budget through HTTP into model execution. An explicit chat timeout or earlier parent deadline still caps the turn. The budget begins before bridge discovery and is not restarted when the server accepts the request. Externally timed turns receive the remaining budget on their first model turn; the existing elapsed-time reminders remain.
 
+Runtime completes a turn after its runner stops and all agent-owned results commit. Group acceptance commits the reply, transcript, and consumed cursor inside this boundary through `GroupResultCommitter`; sandbox checks run through `WithSandboxResult` using the execution context. Commit failures fail the turn. An early stream failure cancels and drains the runner before releasing its reservation.
+
+Inside Runtime, execution returns its failure directly and the producer alone closes the progress stream. The forwarder combines that result with finalization errors and reports one terminal error before EOF, including recovered panics and one-shot runner cleanup failures. It does not infer success from progress events. Normal cancellation, timeout continuation notices, and Goal terminal stops retain their existing behavior.
+
+Callers consume the stream and retain their independent work: channel publication, scheduler bookkeeping, and Goal state transitions. Returning a stream means execution has started; EOF means runtime has finished its result commits, not that a platform delivered the reply. Callers do not acknowledge completion or manage runtime ownership.
+
+## Current Session execution
+
+`internal/sessionexecution` claims one row in `ctx_session_execution` before slow runner preparation. Claim and Session started activity commit together. Each claim gets a new UUIDv7 token and a 30-second lease, measured by PostgreSQL. Runtime renews and checks cancellation every 5 seconds; a failed renewal cancels the local execution. Database operations have a 5-second limit. A process-wide reaper checks every 10 seconds and removes up to 100 expired rows, completing unfinished Session activity as canceled or error.
+
+Run-owned writes validate the token, expiration, and cancellation flag under `FOR SHARE` in the same short transaction as their mutation. Takeover waits for an already admitted writer; after takeover commits, the old token cannot write, renew, or remove its successor. `WithoutCancel` preserves this guard. Usage commits synchronously before completion, with no background usage queue. Child Session executions claim their own token. User APIs, caller bookkeeping, and accepted background jobs keep their own authorization and business claims.
+
+Runtime commits the final Session activity and deletes its execution row together, after result commits and sandbox checks finish. Cancellation targets the selected token, does not undo committed work, and reaches another process on its next 5-second poll plus database response time. A lost completion acknowledgment is an uncertain result, never a reason to repeat the model or tools. Inbox recovery only projects accepted input through its existing receipt CAS; it does not acquire a token or start a model.
+
+This protocol fences database writes. It cannot retract external calls already sent, provide exactly-once delivery, or safely mix old code that lacks guards with new code. Stop old executions before switching versions. The existing multiple-replica deployment restriction remains in force.
+
 ## Module responsibilities
 
 ### `agent.Service`

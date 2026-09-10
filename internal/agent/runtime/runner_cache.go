@@ -13,7 +13,6 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
-	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -881,12 +880,6 @@ func (c *runnerCache) closeRetiredBatchFiltered(include func(*retiredRunner) boo
 
 // close shuts down the runner for a single session.
 func (c *runnerCache) close(sessionID string) error {
-	return c.closeWithSandbox(sessionID, nil)
-}
-
-// closeWithSandbox invokes cb with the live runner-owned sandbox, when present,
-// immediately before closing the runner. Close still runs if cb fails.
-func (c *runnerCache) closeWithSandbox(sessionID string, cb SandboxSessionCallback) error {
 	c.mu.Lock()
 	cs := c.sessions[sessionID]
 	if cs != nil {
@@ -896,12 +889,12 @@ func (c *runnerCache) closeWithSandbox(sessionID string, cb SandboxSessionCallba
 	if cs == nil {
 		return nil
 	}
-	return c.terminalCloseSession(cs, cb)
+	return c.terminalCloseSession(cs)
 }
 
 // terminalCloseSession joins construction and earlier Close attempts before
 // acquiring the slot. Failed resources remain reachable and block admission.
-func (c *runnerCache) terminalCloseSession(cs *cachedSession, cb SandboxSessionCallback) error {
+func (c *runnerCache) terminalCloseSession(cs *cachedSession) error {
 	c.mu.Lock()
 	for {
 		if c.sessions[cs.info.ID] != cs {
@@ -933,25 +926,11 @@ func (c *runnerCache) terminalCloseSession(cs *cachedSession, cb SandboxSessionC
 	cs.unusable = true
 	c.mu.Unlock()
 	defer c.finishOperation(cs)
-	var cbErr error
+	var closeErr error
 	if owner != nil {
-		if cb != nil {
-			func() {
-				defer func() {
-					if recover() != nil {
-						cbErr = errors.New("sandbox close callback failed")
-					}
-				}()
-				if sr, ok := owner.runner.(interface{ SandboxSession() pkgsandbox.Session }); ok {
-					if sess := sr.SandboxSession(); sess != nil {
-						cbErr = cb(sess)
-					}
-				}
-			}()
-		}
-		cbErr = errors.Join(cbErr, c.closeRetiredEntry(owner))
+		closeErr = c.closeRetiredEntry(owner)
 	}
-	err := errors.Join(cbErr, c.closeRetiredBatchFiltered(func(entry *retiredRunner) bool { return entry.session == cs && entry != owner }))
+	err := errors.Join(closeErr, c.closeRetiredBatchFiltered(func(entry *retiredRunner) bool { return entry.session == cs && entry != owner }))
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.hasRetiredSessionLocked(cs) || cs.building != nil {
@@ -1155,7 +1134,7 @@ func (c *runnerCache) detachWhereWithIDs(include func(*cachedSession) bool) ([]s
 	return ids, func() error {
 		var errs []error
 		for _, cs := range sessions {
-			errs = append(errs, c.terminalCloseSession(cs, nil))
+			errs = append(errs, c.terminalCloseSession(cs))
 		}
 		// Older detached failures remain owned even if their cache slot is gone.
 		return errors.Join(append(errs, c.closeRetiredBatchNonTerminal())...)

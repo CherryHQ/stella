@@ -14,7 +14,6 @@ import (
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/internal/platform/home"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 type recordingShareRootOpener struct {
@@ -69,7 +68,7 @@ func TestShareArtifactUsesReadOnlyWorkspaceRoots(t *testing.T) {
 				t.Fatal(err)
 			}
 			viewer := &recordingShareRootOpener{view: view}
-			svc := sharepkg.NewService(sqlc.New(db), mem, recally.NewStore(db), t.TempDir(), "http://stella.test", sharepkg.WithHomeWorkspace(viewer), sharepkg.WithAgentAccess(allowAgentRead{}))
+			svc := sharepkg.NewServiceForPool(db, mem, recally.NewStore(db), t.TempDir(), "http://stella.test", sharepkg.WithHomeWorkspace(viewer), sharepkg.WithAgentAccess(allowAgentRead{}))
 			created, err := mustAccess(t, svc, agentAuthority(t, userID, agentID)).ShareArtifact(ctx, "session", "artifact.html", tt.scope, agentID, "7d")
 			if err != nil {
 				t.Fatalf("ShareArtifact: %v", err)
@@ -98,7 +97,7 @@ func TestShareArtifactWorkspaceRootFailuresAndGroupSessionsFailClosed(t *testing
 	}
 	want := errors.New("home unavailable")
 	viewer := &recordingShareRootOpener{err: want}
-	svc := sharepkg.NewService(sqlc.New(db), mem, recally.NewStore(db), t.TempDir(), "http://stella.test", sharepkg.WithHomeWorkspace(viewer), sharepkg.WithAgentAccess(allowAgentRead{}))
+	svc := sharepkg.NewServiceForPool(db, mem, recally.NewStore(db), t.TempDir(), "http://stella.test", sharepkg.WithHomeWorkspace(viewer), sharepkg.WithAgentAccess(allowAgentRead{}))
 	acc := mustAccess(t, svc, agentAuthority(t, userID, agentID))
 	if _, err := acc.ShareArtifact(ctx, "user-session", "artifact.html", "agent", agentID, "7d"); !errors.Is(err, want) {
 		t.Fatalf("workspace failure = %v, want viewer error", err)

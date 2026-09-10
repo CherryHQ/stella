@@ -3,7 +3,6 @@ package memory
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -11,61 +10,14 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-type groupTurnSinkKey struct{}
-
-// DeferredGroupTurn is the uncommitted group-turn state handed to the
-// dispatcher. It is intentionally separate from ChatStream: stream rebuilding
-// must never lose the transaction payload.
+// DeferredGroupTurn is the group transcript committed with its accepted reply
+// before runtime reports completion.
 type DeferredGroupTurn struct {
 	Session              Session
 	OwnRows              []ai.Message
 	TriggerSeq           int64
 	OriginGroupMessageID string
 	Complete             bool
-}
-
-// GroupTurnSink is a one-shot, non-blocking turn finalization record.
-type GroupTurnSink struct {
-	once      sync.Once
-	mu        sync.RWMutex
-	result    DeferredGroupTurn
-	delivered bool
-}
-
-func NewGroupTurnSink() *GroupTurnSink {
-	return &GroupTurnSink{}
-}
-
-// Deliver records the first terminal result without blocking the producer.
-func (s *GroupTurnSink) Deliver(turn DeferredGroupTurn) {
-	if s == nil {
-		return
-	}
-	s.once.Do(func() {
-		s.mu.Lock()
-		s.result = turn
-		s.delivered = true
-		s.mu.Unlock()
-	})
-}
-
-// Result returns the delivered result, and whether the producer delivered one.
-func (s *GroupTurnSink) Result() (DeferredGroupTurn, bool) {
-	if s == nil {
-		return DeferredGroupTurn{}, false
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.result, s.delivered
-}
-
-func WithGroupTurnSink(ctx context.Context, sink *GroupTurnSink) context.Context {
-	return context.WithValue(ctx, groupTurnSinkKey{}, sink)
-}
-
-func GroupTurnSinkFrom(ctx context.Context) (*GroupTurnSink, bool) {
-	sink, ok := ctx.Value(groupTurnSinkKey{}).(*GroupTurnSink)
-	return sink, ok && sink != nil
 }
 
 // TxGroupCommitter commits a deferred turn into the dispatcher's outer tx.

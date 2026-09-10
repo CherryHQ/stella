@@ -35,7 +35,7 @@ func newSyncLifecyclePool(t *testing.T, agentID string) (*PoolManager, *cfgstore
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = workspaces.Close() })
-	pm := NewPoolManager(store, memorytest.New(), WithHomeWorkspace(workspaces))
+	pm := NewPoolManager(store, memorytest.New(), WithHomeWorkspace(workspaces), WithLocalExecution())
 	if err := pm.BindSessionAccess(fakePoolSessionAccess{}); err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestConcurrentSyncAgentPublishesOneService(t *testing.T) {
 	if err := sqlc.New(db).SeedAgent(ctx, sqlc.SeedAgentParams{ID: agentID, Name: "agent", Model: "test", SystemPrompt: "newest", Sandbox: []byte(`{}`), Scope: "system", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	pm := NewPoolManager(cfgstore.NewDBStore(db), memorytest.New(), WithHomeWorkspace(lifecycleWorkspace(t, db)))
+	pm := NewPoolManager(cfgstore.NewDBStore(db), memorytest.New(), WithHomeWorkspace(lifecycleWorkspace(t, db)), WithLocalExecution())
 	if err := pm.BindSessionAccess(fakePoolSessionAccess{}); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestStartAgentAndCloseSerializeLifecycle(t *testing.T) {
 	if err := sqlc.New(db).SeedAgent(ctx, sqlc.SeedAgentParams{ID: agentID, Name: "agent", Model: "test", Sandbox: []byte(`{}`), Scope: "system", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	pm := NewPoolManager(cfgstore.NewDBStore(db), memorytest.New(), WithHomeWorkspace(lifecycleWorkspace(t, db)))
+	pm := NewPoolManager(cfgstore.NewDBStore(db), memorytest.New(), WithHomeWorkspace(lifecycleWorkspace(t, db)), WithLocalExecution())
 	if err := pm.BindSessionAccess(fakePoolSessionAccess{}); err != nil {
 		t.Fatal(err)
 	}

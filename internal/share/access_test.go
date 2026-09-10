@@ -13,7 +13,6 @@ import (
 	"github.com/CherryHQ/stella/internal/library/recally"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // saveArticle stores a recally article for userID and returns its id.
@@ -53,7 +52,7 @@ func TestShareOwnerRoundTrip(t *testing.T) {
 	db := dbtest.New(t)
 	store := recally.NewStore(db)
 	home := t.TempDir()
-	svc := sharepkg.NewService(sqlc.New(db), memorytest.New(), store, home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
+	svc := sharepkg.NewServiceForPool(db, memorytest.New(), store, home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
 	userID := seedShareUser(t, db, "owner")
 	articleID := saveArticle(t, db, store, home, userID)
 
@@ -84,7 +83,7 @@ func TestShareForeignUserIsolated(t *testing.T) {
 	db := dbtest.New(t)
 	store := recally.NewStore(db)
 	home := t.TempDir()
-	svc := sharepkg.NewService(sqlc.New(db), memorytest.New(), store, home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
+	svc := sharepkg.NewServiceForPool(db, memorytest.New(), store, home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
 	ownerID := seedShareUser(t, db, "owner")
 	foreignID := seedShareUser(t, db, "foreign")
 	articleID := saveArticle(t, db, store, home, ownerID)
@@ -110,7 +109,7 @@ func TestShareArticleForeignArticleHidden(t *testing.T) {
 	db := dbtest.New(t)
 	store := recally.NewStore(db)
 	home := t.TempDir()
-	svc := sharepkg.NewService(sqlc.New(db), memorytest.New(), store, home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
+	svc := sharepkg.NewServiceForPool(db, memorytest.New(), store, home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
 	ownerID := seedShareUser(t, db, "owner")
 	foreignID := seedShareUser(t, db, "foreign")
 	articleID := saveArticle(t, db, store, home, ownerID)

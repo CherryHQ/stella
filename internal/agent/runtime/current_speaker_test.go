@@ -42,7 +42,8 @@ func TestRuntimeChatInjectsCurrentSpeakerIntoGroupTurnMessage(t *testing.T) {
 	var beforeRunSystems []string
 
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return runner, nil
 		},

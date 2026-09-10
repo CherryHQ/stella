@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -55,7 +57,7 @@ type ExecutorRequest struct {
 	Goal             sqlc.AgentGoal
 	Attempt          sqlc.AgentGoalAttempt
 	Input            AttemptInput
-	OnSandboxSession func(sandbox.Session) error
+	OnSandboxSession func(context.Context, sandbox.Session) error
 }
 
 // ExecutorResult is the executor's declared outcome for one attempt. Exactly
@@ -277,7 +279,7 @@ func (s *GoalService) withTx(ctx context.Context, fn func(*sqlc.Queries) error) 
 // lifecycle) and must NOT retain it past return (it is invalid after commit) —
 // the tx is an escape hatch for one in-transaction insert, not a general handle.
 func (s *GoalService) withTxRaw(ctx context.Context, fn func(*sqlc.Queries, pgx.Tx) error) (err error) {
-	tx, err := s.db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, s.db)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}

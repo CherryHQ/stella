@@ -40,7 +40,7 @@ func (r *blockingCloseRunner) Close() error {
 func newBlockingCloseService(t *testing.T, id string) (*Service, *blockingCloseRunner) {
 	t.Helper()
 	runner := &blockingCloseRunner{closeEntered: make(chan struct{}), releaseClose: make(chan struct{})}
-	rt, err := agentruntime.New(agentruntime.Config{Memory: memorytest.New(), NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
+	rt, err := agentruntime.New(agentruntime.Config{LocalOnly: true, Memory: memorytest.New(), NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
 		return runner, nil
 	}})
 	if err != nil {
@@ -57,7 +57,7 @@ func newBlockingCloseService(t *testing.T, id string) (*Service, *blockingCloseR
 }
 
 func TestRemoveAgentKeepsLiveRuntimeVisibleUntilCloseCompletes(t *testing.T) {
-	pm := NewPoolManager(nil, memorytest.New())
+	pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 	svc, runner := newBlockingCloseService(t, "agent")
 	svc.lifecycle = pm.lifecycle
 	pm.services[svc.AgentID] = svc
@@ -106,7 +106,7 @@ func TestRemoveAgentKeepsLiveRuntimeVisibleUntilCloseCompletes(t *testing.T) {
 }
 
 func TestPoolManagerCloseKeepsLiveRuntimeVisibleAndRejectsStartState(t *testing.T) {
-	pm := NewPoolManager(nil, memorytest.New())
+	pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 	svc, runner := newBlockingCloseService(t, "agent")
 	svc.lifecycle = pm.lifecycle
 	pm.services[svc.AgentID] = svc
@@ -157,10 +157,10 @@ func TestPoolManagerCloseKeepsLiveRuntimeVisibleAndRejectsStartState(t *testing.
 }
 
 func TestPoolManagerCloseKeepsFailedServiceForRetry(t *testing.T) {
-	pm := NewPoolManager(nil, memorytest.New())
+	pm := NewPoolManager(nil, memorytest.New(), WithLocalExecution())
 	want := errors.New("close failed")
 	runner := &blockingCloseRunner{closeEntered: make(chan struct{}), releaseClose: make(chan struct{}), closeErr: want}
-	rt, err := agentruntime.New(agentruntime.Config{Memory: memorytest.New(), NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
+	rt, err := agentruntime.New(agentruntime.Config{LocalOnly: true, Memory: memorytest.New(), NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
 		return runner, nil
 	}})
 	if err != nil {

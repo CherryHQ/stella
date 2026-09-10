@@ -16,6 +16,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionexecution"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -275,7 +276,7 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 			return err
 		}
 
-		tx, err := p.db.Begin(ctx)
+		tx, err := sessionexecution.Begin(ctx, p.db)
 		if err != nil {
 			return fmt.Errorf("begin tx: %w", err)
 		}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -12,10 +14,12 @@ import (
 // for manual, deprecated, or non-world facts.
 func (p *Provider) TouchKnowledgeUsage(ctx context.Context, userID string, agentID string, factIDs []string) error {
 	for _, factID := range factIDs {
-		if err := p.q.TouchKnowledgeUsage(ctx, sqlc.TouchKnowledgeUsageParams{
-			FactID:  factID,
-			UserID:  userID,
-			AgentID: agentID,
+		if err := sessionexecution.Exec(ctx, p.db, func(ctx context.Context, q *sqlc.Queries) error {
+			return q.TouchKnowledgeUsage(ctx, sqlc.TouchKnowledgeUsageParams{
+				FactID:  factID,
+				UserID:  userID,
+				AgentID: agentID,
+			})
 		}); err != nil {
 			return fmt.Errorf("touch knowledge usage %s: %w", factID, err)
 		}

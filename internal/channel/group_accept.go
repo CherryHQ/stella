@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -65,7 +68,7 @@ func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxG
 	if d.committer == nil {
 		return groupAcceptOutcome{}, errors.New("group dispatcher requires memory.TxGroupCommitter")
 	}
-	tx, err := d.db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, d.db)
 	if err != nil {
 		return groupAcceptOutcome{}, fmt.Errorf("accept group response: begin: %w", err)
 	}
@@ -217,4 +220,35 @@ func (d *GroupDispatcher) stopGroupTurn(ctx context.Context, tx pgx.Tx, q *sqlc.
 		return groupAcceptOutcome{}, fmt.Errorf("commit %s dispatch (%s): %w", verdict.status, verdict.reason, err)
 	}
 	return groupAcceptOutcome{Status: verdict.status, Reason: verdict.reason}, nil
+}
+
+// dispatchResult is used serially by runtime, then read by the dispatcher after
+// EOF. It owns only acceptance; the existing publish driver owns delivery.
+type dispatchResult struct {
+	dispatcher *GroupDispatcher
+	row        sqlc.CtxGroupDispatch
+	response   groupResponse
+	outcome    groupAcceptOutcome
+	used       int
+	committed  bool
+}
+
+func (r *dispatchResult) Observe(event agentruntime.Event) error {
+	return r.response.append(convertEvent(event), &r.used)
+}
+
+func (r *dispatchResult) Commit(ctx context.Context, turn memory.DeferredGroupTurn) error {
+	if !turn.Complete {
+		return errors.New("cannot commit an incomplete group turn")
+	}
+	r.response.sessionID = turn.Session.ID
+	var err error
+	if isModelPass(r.response.text) {
+		err = r.dispatcher.retireModelPass(ctx, r.row, turn)
+		r.outcome = groupAcceptOutcome{Status: groupTurnSilent, Reason: groupSilentModelPass}
+	} else {
+		r.outcome, err = r.dispatcher.acceptGroupResponse(ctx, r.row, r.response, turn)
+	}
+	r.committed = err == nil
+	return err
 }

@@ -138,9 +138,9 @@ func (w *Worker) Run(ctx context.Context, goalID, attemptID string, actor Actor)
 		Goal:    goal,
 		Attempt: att,
 		Input:   w.attemptInput(att),
-		OnSandboxSession: func(sess sandbox.Session) error {
+		OnSandboxSession: func(runCtx context.Context, sess sandbox.Session) error {
 			checksRan = true
-			checkErr = w.runChecks(ctx, goal, att, sess)
+			checkErr = w.runChecks(runCtx, goal, att, sess)
 			return nil
 		},
 	})

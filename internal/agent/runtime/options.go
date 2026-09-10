@@ -11,6 +11,9 @@ import (
 type Option func(*chatOptions)
 
 type chatOptions struct {
+	sandboxResult   SandboxResultCallback
+	stopWhen        func() bool
+	closeAfterRun   bool
 	model           string
 	systemOverride  string
 	excludedTools   []string
@@ -113,10 +116,22 @@ func WithAllowedTools(names ...string) Option {
 
 // WithExtraTools binds additional tools to the runner for this Chat call.
 // The runner is rebuilt for the call (per-call tools defeat the session
-// cache), so callers should evict the session runner afterwards via
-// CloseSession to avoid the tools leaking into later tool-less turns.
+// cache). Use WithOneShotRunner for worker turns so their tools never reach a
+// later tool-less turn.
 func WithExtraTools(ts ...tools.Tool) Option {
 	return func(o *chatOptions) {
 		o.extraTools = append(o.extraTools, ts...)
 	}
+}
+
+// WithStopWhen ends the model loop after a terminal tool result, while keeping
+// the execution context alive for result checks and commits.
+func WithStopWhen(done func() bool) Option {
+	return func(o *chatOptions) { o.stopWhen = done }
+}
+
+// WithOneShotRunner closes this turn's runner before releasing admission, so a
+// caller cannot accidentally close the next turn's runner after receiving EOF.
+func WithOneShotRunner() Option {
+	return func(o *chatOptions) { o.closeAfterRun = true }
 }

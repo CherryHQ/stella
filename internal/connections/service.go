@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"golang.org/x/oauth2"
 
 	"github.com/google/uuid"
@@ -24,6 +26,7 @@ import (
 // OAuth callback / token-refresh paths are trusted internal callers of the raw
 // Service methods.
 type Service struct {
+	pool        *pgxpool.Pool
 	vaultSvc    *vault.Service
 	q           *pkgdb.Queries
 	flowStore   *oauth.FlowStore
@@ -34,32 +37,26 @@ type Service struct {
 	log         *slog.Logger
 }
 
-// NewService creates a credentials service. vaultSvc and q may be nil if the
+// NewServiceForPool creates a credentials service. vaultSvc and pool may be nil if the
 // vault / DB is not yet configured (methods that need them return errors).
-func NewService(
-	vaultSvc *vault.Service,
-	q *pkgdb.Queries,
-	flowStore *oauth.FlowStore,
-	corsOrigin string,
-) *Service {
-	return &Service{
-		vaultSvc:   vaultSvc,
-		q:          q,
-		flowStore:  flowStore,
-		corsOrigin: corsOrigin,
-		log:        slog.With("component", "credentials"),
-	}
-}
-
-// NewServiceForPool creates a credentials service that owns the sqlc query set
-// for the connections tables, so callers pass only the pgx pool.
 func NewServiceForPool(
 	vaultSvc *vault.Service,
 	pool *pgxpool.Pool,
 	flowStore *oauth.FlowStore,
 	corsOrigin string,
 ) *Service {
-	return NewService(vaultSvc, pkgdb.New(pool), flowStore, corsOrigin)
+	var q *pkgdb.Queries
+	if pool != nil {
+		q = pkgdb.New(pool)
+	}
+	return &Service{
+		pool:       pool,
+		vaultSvc:   vaultSvc,
+		q:          q,
+		flowStore:  flowStore,
+		corsOrigin: corsOrigin,
+		log:        slog.With("component", "credentials"),
+	}
 }
 
 // SetRegistry wires the OAuth provider registry used for generic provider operations.
@@ -361,13 +358,15 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 	if scopes == nil {
 		scopes = []string{}
 	}
-	if err := s.q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
-		ID:              uuid.Must(uuid.NewV7()).String(),
-		ProviderID:      cfg.ProviderID,
-		ClientID:        cfg.ClientID,
-		ClientSecretEnc: secretEnc,
-		RedirectUrl:     cfg.RedirectURL,
-		Scopes:          scopes,
+	if err := sessionexecution.Exec(ctx, s.pool, func(ctx context.Context, q *pkgdb.Queries) error {
+		return q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
+			ID:              uuid.Must(uuid.NewV7()).String(),
+			ProviderID:      cfg.ProviderID,
+			ClientID:        cfg.ClientID,
+			ClientSecretEnc: secretEnc,
+			RedirectUrl:     cfg.RedirectURL,
+			Scopes:          scopes,
+		})
 	}); err != nil {
 		return err
 	}
@@ -392,7 +391,7 @@ func (s *Service) DeleteOAuthProviderConfig(ctx context.Context, providerID stri
 	if s.q == nil {
 		return fmt.Errorf("database not configured")
 	}
-	return s.q.DeleteAuthOAuthProvider(ctx, providerID)
+	return sessionexecution.Exec(ctx, s.pool, func(ctx context.Context, q *pkgdb.Queries) error { return q.DeleteAuthOAuthProvider(ctx, providerID) })
 }
 
 // ProviderClientID returns the effective client_id for the given tool OAuth provider.

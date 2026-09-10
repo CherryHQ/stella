@@ -91,7 +91,7 @@ func NewService(db DB, masterIdentityStr string, agents *agentaccess.Service) (*
 // variable).
 func NewServiceForPool(pool *pgxpool.Pool, masterIdentityStr string, agents *agentaccess.Service) (*Service, error) {
 	queries := sqlc.New(pool)
-	svc, err := NewService(queries, masterIdentityStr, agents)
+	svc, err := NewService(executionDB{DB: queries, pool: pool}, masterIdentityStr, agents)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func (s *Service) WithTx(tx pgx.Tx) *Service {
 	}
 	queries := s.queries.WithTx(tx)
 	return &Service{
-		db:                    queries,
+		db:                    executionDB{DB: queries, tx: tx},
 		queries:               queries,
 		masterIdentity:        s.masterIdentity,
 		masterRecipient:       s.masterRecipient,

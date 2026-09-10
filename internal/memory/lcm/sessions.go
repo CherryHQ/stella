@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -74,19 +76,21 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		if kind == "" {
 			kind = "chat"
 		}
-		_, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
-			ID:         uuid.Must(uuid.NewV7()).String(),
-			SessionID:  info.ID,
-			Title:      pgtype.Text{String: info.Title, Valid: info.Title != ""},
-			Channel:    info.Channel,
-			Kind:       kind,
-			ProjectID:  pgtype.Text{String: info.ProjectID, Valid: info.ProjectID != ""},
-			Archived:   info.Archived,
-			LastActive: lastActive.UTC(),
-			AgentID:    pgnull.Text(info.AgentID),
-			UserID:     pgtype.Text{String: info.UserID, Valid: true},
-			GroupID:    pgnull.Text(info.GroupID),
-			GuestID:    pgnull.Text(info.GuestID),
+		_, err = sessionexecution.Write(ctx, p.db, func(ctx context.Context, q *sqlc.Queries) (sqlc.CtxConversation, error) {
+			return q.CreateConversation(ctx, sqlc.CreateConversationParams{
+				ID:         uuid.Must(uuid.NewV7()).String(),
+				SessionID:  info.ID,
+				Title:      pgtype.Text{String: info.Title, Valid: info.Title != ""},
+				Channel:    info.Channel,
+				Kind:       kind,
+				ProjectID:  pgtype.Text{String: info.ProjectID, Valid: info.ProjectID != ""},
+				Archived:   info.Archived,
+				LastActive: lastActive.UTC(),
+				AgentID:    pgnull.Text(info.AgentID),
+				UserID:     pgtype.Text{String: info.UserID, Valid: true},
+				GroupID:    pgnull.Text(info.GroupID),
+				GuestID:    pgnull.Text(info.GuestID),
+			})
 		})
 		if err != nil {
 			return fmt.Errorf("create conversation: %w", err)
@@ -97,16 +101,18 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		return fmt.Errorf("get conversation: %w", err)
 	}
 
-	rows, err := p.q.UpdateConversationInfoBySessionID(ctx, sqlc.UpdateConversationInfoBySessionIDParams{
-		Title:     pgnull.Text(info.Title),
-		Kind:      pgnull.Text(info.Kind),
-		Channel:   pgnull.Text(info.Channel),
-		ProjectID: pgnull.Text(info.ProjectID),
-		GroupID:   pgnull.Text(info.GroupID),
-		GuestID:   pgnull.Text(info.GuestID),
-		SessionID: info.ID,
-		UserID:    pgtype.Text{String: info.UserID, Valid: true},
-		AgentID:   pgnull.Text(info.AgentID),
+	rows, err := sessionexecution.Write(ctx, p.db, func(ctx context.Context, q *sqlc.Queries) (int64, error) {
+		return q.UpdateConversationInfoBySessionID(ctx, sqlc.UpdateConversationInfoBySessionIDParams{
+			Title:     pgnull.Text(info.Title),
+			Kind:      pgnull.Text(info.Kind),
+			Channel:   pgnull.Text(info.Channel),
+			ProjectID: pgnull.Text(info.ProjectID),
+			GroupID:   pgnull.Text(info.GroupID),
+			GuestID:   pgnull.Text(info.GuestID),
+			SessionID: info.ID,
+			UserID:    pgtype.Text{String: info.UserID, Valid: true},
+			AgentID:   pgnull.Text(info.AgentID),
+		})
 	})
 	if err != nil {
 		return fmt.Errorf("update conversation info: %w", err)
@@ -125,10 +131,12 @@ func (p *Provider) ArchiveInfo(ctx context.Context, info memory.SessionInfo) (bo
 	if err != nil {
 		return false, err
 	}
-	rows, err := p.q.ArchiveConversationBySessionID(ctx, sqlc.ArchiveConversationBySessionIDParams{
-		SessionID: info.ID,
-		UserID:    pgtype.Text{String: userID, Valid: true},
-		AgentID:   pgnull.Text(agentID),
+	rows, err := sessionexecution.Write(ctx, p.db, func(ctx context.Context, q *sqlc.Queries) (int64, error) {
+		return q.ArchiveConversationBySessionID(ctx, sqlc.ArchiveConversationBySessionIDParams{
+			SessionID: info.ID,
+			UserID:    pgtype.Text{String: userID, Valid: true},
+			AgentID:   pgnull.Text(agentID),
+		})
 	})
 	if err != nil {
 		return false, fmt.Errorf("archive conversation: %w", err)
@@ -144,14 +152,16 @@ func (p *Provider) TouchActiveInfo(ctx context.Context, info memory.SessionInfo)
 	if err != nil {
 		return false, err
 	}
-	rows, err := p.q.UpdateConversationTurnMetaBySessionID(ctx, sqlc.UpdateConversationTurnMetaBySessionIDParams{
-		Title:     pgnull.Text(info.Title),
-		Channel:   pgnull.Text(info.Channel),
-		GroupID:   pgnull.Text(info.GroupID),
-		GuestID:   pgnull.Text(info.GuestID),
-		SessionID: info.ID,
-		UserID:    pgtype.Text{String: userID, Valid: true},
-		AgentID:   pgnull.Text(agentID),
+	rows, err := sessionexecution.Write(ctx, p.db, func(ctx context.Context, q *sqlc.Queries) (int64, error) {
+		return q.UpdateConversationTurnMetaBySessionID(ctx, sqlc.UpdateConversationTurnMetaBySessionIDParams{
+			Title:     pgnull.Text(info.Title),
+			Channel:   pgnull.Text(info.Channel),
+			GroupID:   pgnull.Text(info.GroupID),
+			GuestID:   pgnull.Text(info.GuestID),
+			SessionID: info.ID,
+			UserID:    pgtype.Text{String: userID, Valid: true},
+			AgentID:   pgnull.Text(agentID),
+		})
 	})
 	if err != nil {
 		return false, fmt.Errorf("touch conversation: %w", err)
@@ -165,10 +175,12 @@ func (p *Provider) MarkSessionTurnStarted(ctx context.Context, session memory.Se
 	if err != nil {
 		return false, err
 	}
-	rows, err := p.q.MarkConversationTurnStarted(ctx, sqlc.MarkConversationTurnStartedParams{
-		SessionID: session.ID,
-		UserID:    pgtype.Text{String: session.UserID, Valid: true},
-		AgentID:   pgnull.Text(session.AgentID),
+	rows, err := sessionexecution.Write(ctx, p.db, func(ctx context.Context, q *sqlc.Queries) (int64, error) {
+		return q.MarkConversationTurnStarted(ctx, sqlc.MarkConversationTurnStartedParams{
+			SessionID: session.ID,
+			UserID:    pgtype.Text{String: session.UserID, Valid: true},
+			AgentID:   pgnull.Text(session.AgentID),
+		})
 	})
 	if err != nil {
 		return false, fmt.Errorf("mark session turn started: %w", err)
@@ -185,11 +197,13 @@ func (p *Provider) MarkSessionTurnCompleted(ctx context.Context, session memory.
 	if err != nil {
 		return false, err
 	}
-	rows, err := p.q.MarkConversationTurnCompleted(ctx, sqlc.MarkConversationTurnCompletedParams{
-		SessionID: session.ID,
-		UserID:    pgtype.Text{String: session.UserID, Valid: true},
-		AgentID:   pgnull.Text(session.AgentID),
-		Result:    pgtype.Text{String: string(result), Valid: true},
+	rows, err := sessionexecution.Write(ctx, p.db, func(ctx context.Context, q *sqlc.Queries) (int64, error) {
+		return q.MarkConversationTurnCompleted(ctx, sqlc.MarkConversationTurnCompletedParams{
+			SessionID: session.ID,
+			UserID:    pgtype.Text{String: session.UserID, Valid: true},
+			AgentID:   pgnull.Text(session.AgentID),
+			Result:    pgtype.Text{String: string(result), Valid: true},
+		})
 	})
 	if err != nil {
 		return false, fmt.Errorf("mark session turn completed: %w", err)
@@ -237,7 +251,7 @@ func (p *Provider) RotateInfo(ctx context.Context, expectedSessionID string, suc
 		successor.LastActive = time.Now().UTC()
 	}
 
-	tx, err := p.db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, p.db)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}

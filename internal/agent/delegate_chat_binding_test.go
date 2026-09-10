@@ -42,7 +42,8 @@ func (r *ctxCapturingRunner) Close() error { return nil }
 func newBoundaryTestService(t *testing.T, mem memory.Provider, runner agentruntime.Runner) *agent.Service {
 	t.Helper()
 	rt, err := agentruntime.New(agentruntime.Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
 			return runner, nil
 		},

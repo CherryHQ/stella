@@ -94,6 +94,8 @@ LOG_LEVEL_RIVER=DEBUG stellad server
 | `stella.llm_usage.queue.depth`   | gauge，observation   | 无                                                                                                   |
 | `stella.trace.sessions.active`   | gauge，session       | 无                                                                                                   |
 
+用量现在同步保存。两个 `stella.llm_usage.queue.*` 指标保留并始终为零，兼容已有仪表盘。
+
 在开发环境中，请在 `~/.stella-dev/.env` 设置 `OTEL_METRICS_EXPORTER=otlp` 以导出这些指标。`stella` 不会修改该文件。
 
 `model`、`provider`、`tool`、`channel`、`op`、`error_kind` 和 `stop_reason` 是有界的运维维度。`channel` 使用 `web`、`telegram`、`feishu`、`discord`、`qq`、`wechat`、`scheduler`、`goal` 等传输名称。
@@ -195,7 +197,7 @@ stellad server
 
 `GET /api/agents/{agentId}/sessions/{sessionId}/usage` 按服务商和模型分组，返回服务商实际报告的输入、输出、缓存读取、缓存写入 token 以及美元成本。它不会使用消息长度估算 token。四类 token 互不重叠：输入只统计未命中缓存的部分，因此每一类都按各自的价格计费。
 
-响应包含全部调用次数。任一次调用未报告用量时，token 总计为 `null`；任一次调用未报告用量或模型没有配置费率时，成本为 `null`。这样不会把服务商未报告的数据误读为免费。用量写入不在聊天路径上，而是在有界内存队列中运行：正常关闭会排空队列；进程丢失最多会丢失 1,024 条已接受的观测；数据库持续过载时会丢弃新观测，而不会拖慢用户回合。
+响应包含全部调用次数。任一次调用未报告用量时，token 总计为 `null`；任一次调用未报告用量或模型没有配置费率时，成本为 `null`。这样不会把服务商未报告的数据误读为免费。用量在回合完成前同步保存；保存失败会停止当前回合。`pending_call_count` 字段保留并始终为零，兼容已有客户端；仍在运行的会话可能继续产生用量。
 
 ### LLM 调用
 

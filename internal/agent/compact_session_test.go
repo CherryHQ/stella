@@ -31,6 +31,7 @@ func (s *compactSpy) Compact(ctx context.Context, session memory.Session, _ memo
 func newCompactService(t *testing.T, mem memory.Provider) *Service {
 	t.Helper()
 	rt, err := agentruntime.New(agentruntime.Config{
+		LocalOnly: true,
 		Memory:    mem,
 		NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) { return nil, nil },
 	})

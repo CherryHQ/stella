@@ -30,19 +30,19 @@ type scriptedExecutor struct {
 	fn func(ExecutorRequest) (ExecutorResult, error)
 }
 
-func (e *scriptedExecutor) Execute(_ context.Context, req ExecutorRequest) (ExecutorResult, error) {
+func (e *scriptedExecutor) Execute(ctx context.Context, req ExecutorRequest) (ExecutorResult, error) {
 	if e.fn != nil {
 		res, err := e.fn(req)
 		if err != nil || !res.Submitted || req.OnSandboxSession == nil {
 			return res, err
 		}
-		if err := req.OnSandboxSession(sandbox.NopSession()); err != nil {
+		if err := req.OnSandboxSession(ctx, sandbox.NopSession()); err != nil {
 			return ExecutorResult{}, err
 		}
 		return res, nil
 	}
 	if req.OnSandboxSession != nil {
-		if err := req.OnSandboxSession(sandbox.NopSession()); err != nil {
+		if err := req.OnSandboxSession(ctx, sandbox.NopSession()); err != nil {
 			return ExecutorResult{}, err
 		}
 	}

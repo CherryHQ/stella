@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -49,7 +51,7 @@ func (s *AuthStore) withAgentAssignmentLock(ctx context.Context, userID, agentID
 	if s.rawDB == nil {
 		return fmt.Errorf("agent assignment %q for user %s: root database is unavailable", agentID, userID)
 	}
-	tx, err := s.rawDB.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, s.rawDB)
 	if err != nil {
 		return fmt.Errorf("begin agent assignment %q for user %s: %w", agentID, userID, err)
 	}

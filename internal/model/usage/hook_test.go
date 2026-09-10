@@ -11,6 +11,7 @@ import (
 	storepkg "github.com/CherryHQ/stella/cmd/stellad/store"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/platform/config"
+	"github.com/CherryHQ/stella/internal/sessionexecution"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -34,7 +35,6 @@ func TestHookPersistsReportedUsageAndLeavesMissingUsageEmpty(t *testing.T) {
 	}
 
 	h := New(db)
-	h.Start()
 	h.OnPostLLMCall(ctx, &hooks.PostLLMCallContext{
 		HookMeta: hooks.HookMeta{SessionID: "reported", AgentID: "agent-1"}, Provider: "provider", Model: "model",
 		Usage:    ai.Usage{Reported: true, InputTokens: 10, OutputTokens: 5, CacheRead: 3, CacheWrite: 2, CostConfigured: true, Cost: ai.UsageCost{Total: 0.0125}},
@@ -43,9 +43,6 @@ func TestHookPersistsReportedUsageAndLeavesMissingUsageEmpty(t *testing.T) {
 	h.OnPostLLMCall(ctx, &hooks.PostLLMCallContext{
 		HookMeta: hooks.HookMeta{SessionID: "missing", AgentID: "agent-1"}, Provider: "provider", Model: "model", Duration: time.Second,
 	})
-	if err := h.Close(); err != nil {
-		t.Fatal(err)
-	}
 
 	var reported, missing struct {
 		UsageReported bool
@@ -66,16 +63,34 @@ func TestHookPersistsReportedUsageAndLeavesMissingUsageEmpty(t *testing.T) {
 	}
 }
 
-func TestPendingCallCountTracksAcceptedWrites(t *testing.T) {
+func TestRunUsageSurvivesModelCancellationAndRejectsLateWrites(t *testing.T) {
 	db := dbtest.New(t)
-	h := New(db)
-	h.OnPostLLMCall(t.Context(), &hooks.PostLLMCallContext{
-		HookMeta: hooks.HookMeta{SessionID: "session", AgentID: "agent"},
-	})
-	if got := h.PendingCallCount("session"); got != 1 {
-		t.Fatalf("pending before writer starts = %d, want 1", got)
+	if err := storepkg.NewDBStore(db).CreateAgent(t.Context(), config.Agent{ID: "agent", Scope: config.AgentScopeSystem, Enabled: true}); err != nil {
+		t.Fatal(err)
 	}
-	if got := h.PendingCallCount("other"); got != 0 {
-		t.Fatalf("pending for another session = %d, want 0", got)
+	id := uuid.Must(uuid.NewV7()).String()
+	if _, err := sqlc.New(db).CreateConversation(t.Context(), sqlc.CreateConversationParams{ID: id, SessionID: id, Kind: "chat", LastActive: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, lease, err := sessionexecution.New(db).Claim(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lease.Finish("error") }()
+	h := New(db)
+	observation := &hooks.PostLLMCallContext{HookMeta: hooks.HookMeta{SessionID: id, AgentID: "agent"}, Provider: "test", Model: "test"}
+	modelCtx, cancelModel := context.WithCancel(ctx)
+	cancelModel()
+	h.OnPostLLMCall(modelCtx, observation)
+	var count int
+	if err := db.QueryRow(t.Context(), "SELECT count(*) FROM agent_llm_call WHERE session_id=$1", id).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("usage before finish=%d err=%v", count, err)
+	}
+	if err := lease.Finish("success"); err != nil {
+		t.Fatal(err)
+	}
+	h.OnPostLLMCall(context.WithoutCancel(ctx), observation)
+	if err := db.QueryRow(t.Context(), "SELECT count(*) FROM agent_llm_call WHERE session_id=$1", id).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("late usage=%d err=%v", count, err)
 	}
 }

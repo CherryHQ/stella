@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -52,7 +54,7 @@ func SetSingletonFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, in
 		return memory.Fact{}, fmt.Errorf("world facts are not singleton facts")
 	}
 
-	tx, err := db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, db)
 	if err != nil {
 		return memory.Fact{}, fmt.Errorf("begin tx: %w", err)
 	}
@@ -96,7 +98,7 @@ func SetSingletonFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, in
 // version clock stays monotonic; deleting it would restart versions at 1 and
 // let frozen sessions replay stale fact changelog state.
 func ResetUserAgentMemory(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string) error {
-	tx, err := db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, db)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -247,7 +249,7 @@ func ApplyFactBatch(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, user
 			return nil, fmt.Errorf("fact batch operation %d: %w", index+1, err)
 		}
 	}
-	tx, err := db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, db)
 	if err != nil {
 		return nil, fmt.Errorf("begin fact batch: %w", err)
 	}
@@ -411,7 +413,7 @@ func singleFactResult(fact memory.Fact, err error) ([]memory.Fact, error) {
 }
 
 func writeFact(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, plan factWritePlan) (memory.Fact, error) {
-	tx, err := db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, db)
 	if err != nil {
 		return memory.Fact{}, fmt.Errorf("begin tx: %w", err)
 	}

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
@@ -309,6 +311,34 @@ func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model 
 }
 
 func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolSet coreagent.ToolSet, toolDefs []tools.Definition, codeToolSurface coreagent.CodeToolSurface) (*coreagent.Runner, error) {
+	rawStream := stream
+	stream = func(ctx context.Context, model ai.Model, aiCtx ai.Context, opts ai.StreamOptions) (providers.AssistantEventStream, error) {
+		if err := sessionexecution.Check(ctx); err != nil {
+			return nil, err
+		}
+		return rawStream(ctx, model, aiCtx, opts)
+	}
+	priorLifecycle := toolLifecycle
+	toolLifecycle = &coreagent.ToolLifecycle{
+		BeforeCall: func(ctx context.Context, call coreagent.ToolCallContext) (coreagent.ToolCallMutation, error) {
+			if err := sessionexecution.Check(ctx); err != nil {
+				return coreagent.ToolCallMutation{}, err
+			}
+			if priorLifecycle != nil && priorLifecycle.BeforeCall != nil {
+				return priorLifecycle.BeforeCall(ctx, call)
+			}
+			return coreagent.ToolCallMutation{}, nil
+		},
+		AfterCall: func(ctx context.Context, result coreagent.ToolResultContext) (coreagent.ToolResultMutation, error) {
+			if err := sessionexecution.Check(ctx); err != nil {
+				return coreagent.ToolResultMutation{}, err
+			}
+			if priorLifecycle != nil && priorLifecycle.AfterCall != nil {
+				return priorLifecycle.AfterCall(ctx, result)
+			}
+			return coreagent.ToolResultMutation{}, nil
+		},
+	}
 	opts := []coreagent.Option{
 		coreagent.WithStreamOptions(streamOptions),
 		coreagent.WithSystem(system),

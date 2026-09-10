@@ -32,6 +32,22 @@ Responses 适配器将工具参数和文本的流式增量与最终快照核对�
 
 普通对话保留默认 30 分钟时限。可信沙箱可以提供绝对截止时间；Harbor bridge 用它将原始任务预算跨 HTTP 传入模型执行。显式对话时限和更早的父上下文截止时间仍会限制回合。预算从 bridge 发现前开始计算，服务端接受请求时不会重新计时。外部计时回合会在首次模型调用时收到剩余预算，已有的按耗时提醒继续生效。
 
+运行层在 runner 停止且本轮结果提交结束后才完成 Run。群聊通过 `GroupResultCommitter` 在这个范围内提交回复、transcript 和消费游标；sandbox 检查通过 `WithSandboxResult` 使用执行 context。提交失败会使本轮失败；流提前出错时，运行层先取消并等待生产者退出，再释放 runner。
+
+Runtime 内部由执行函数直接返回错误，只有 producer 关闭进度流。forwarder 将执行结果与收尾错误合并，在 EOF 前报告一次终态错误，包括已恢复的 panic 和一次性 runner 清理失败，不从进度事件推断成功。正常取消、超时续聊提示和 Goal 主动结束保持原有行为。
+
+Caller 消费流，并负责自己的独立工作：渠道发布、Scheduler 记账及 Goal 状态流转。返回 stream 表示可以开始消费；EOF 表示运行层的结果提交已经结束，不代表平台已经送达。Caller 不需要确认完成或管理运行层的执行权。
+
+## Session 当前执行权
+
+`internal/sessionexecution` 在慢速 runner 准备前领取 `ctx_session_execution` 的一行记录，领取与 Session started 活动状态在同一事务提交。每次生成新的 UUIDv7 token，租约为 30 秒，使用 PostgreSQL 时钟。Runtime 每 5 秒续租并检查取消；续租失败就取消本地执行。数据库操作期限为 5 秒。进程级回收每 10 秒运行一次，每批最多删除 100 条过期记录，将尚未完成的 Session 活动补为 canceled 或 error。
+
+本轮写入在业务事务内通过 `FOR SHARE` 校验 token、租约和取消标记。接管必须等待已经获准的短写事务；接管提交后，旧 token 不能再写入、续租或删除后继执行。`WithoutCancel` 保留这项校验。usage 在本轮完成前同步提交，不再经过后台用量队列。子 Session 领取自己的 token；用户 API、caller 记账和已接受的后台任务保留各自的授权与业务 claim。
+
+结果提交与 sandbox 检查结束后，Runtime 在同一事务写入 Session 最终活动状态并删除执行权记录。取消只针对选中的 token，不撤回已提交事实；其他进程在下一次 5 秒轮询加数据库响应时间后发现取消。完成提交的应答丢失属于结果不确定，不能据此重跑模型或工具。Inbox 恢复仅通过原有回执 CAS 补录输入，不领取 token，也不启动模型。
+
+该协议只阻止失权后的数据库写入，不能撤回已发出的外部调用，也不保证消息恰好送达一次。旧代码没有写入校验，切换版本前必须停止旧执行。现有多副本部署限制保持不变。
+
 ## Module 职责
 
 ### `agent.Service`

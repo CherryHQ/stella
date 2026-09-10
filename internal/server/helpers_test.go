@@ -36,6 +36,7 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/plugin/host"
+	"github.com/CherryHQ/stella/internal/sessionexecution"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/skill/access"
@@ -198,8 +199,8 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
-	poolMgr := agent.NewPoolManager(store, mem)
-	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
+	poolMgr := agent.NewPoolManager(store, mem, agent.WithSessionExecution(sessionexecution.New(db)))
+	credSvc := connections.NewServiceForPool(nil, db, oauth.NewFlowStore(), baseURL)
 	agentAccess := agentaccess.NewService(store, as)
 	homeManager, err := home.NewWorkspaceManager(db, t.TempDir())
 	if err != nil {
@@ -264,7 +265,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		ControlPlane:         controlplane.NewService(store, phost, testProviderRegistry(t), poolMgr, credSvc, slog.With("component", "controlplane-test")),
 		Email:                email.NewService(host.ResolveEmailUser, nil, sqlc.New(db)),
 		EmailConfigValidator: email.ValidateConfigValue,
-		Share:                sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
+		Share:                sharepkg.NewServiceForPool(db, mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
 		Recally:              recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor:  credFrontDoor,
 		OAuthAuthServer:      oauthAuthServer,

@@ -16,13 +16,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
-type QueueStats interface {
-	QueueDepth() int
-	DroppedCount() int64
-}
-
 type Hook struct {
-	queue     QueueStats
 	active    func() int64
 	knownTool func(string) bool
 	mu        sync.Mutex
@@ -34,17 +28,16 @@ type metrics struct {
 	llmDuration, llmTTFT, toolDuration, turnDuration, memoryDuration metric.Float64Histogram
 	llmTokens, llmCalls, llmAttempts, toolCalls, agentTurns          metric.Int64Counter
 	llmCost                                                          metric.Float64Counter
-	queueDropped                                                     metric.Int64Counter
 	queueDepth, activeSessions                                       metric.Int64ObservableGauge
 	callback                                                         metric.Registration
 }
 
-func New(queue QueueStats, activeSessions func() int64, knownTool ...func(string) bool) *Hook {
+func New(activeSessions func() int64, knownTool ...func(string) bool) *Hook {
 	var known func(string) bool
 	if len(knownTool) > 0 {
 		known = knownTool[0]
 	}
-	return &Hook{queue: queue, active: activeSessions, knownTool: known}
+	return &Hook{active: activeSessions, knownTool: known}
 }
 
 func (h *Hook) Name() string  { return "metrics" }
@@ -99,11 +92,13 @@ func (h *Hook) Bind(meter metric.Meter) error {
 	h.metrics.llmAttempts = newCounter("stella.llm.attempts", "{attempt}")
 	h.metrics.toolCalls = newCounter("stella.tool.calls", "{call}")
 	h.metrics.agentTurns = newCounter("stella.agent.turns", "{turn}")
-	h.metrics.queueDropped = newCounter("stella.llm_usage.queue.dropped", "{observation}")
+	queueDropped := newCounter("stella.llm_usage.queue.dropped", "{observation}")
 	h.metrics.llmCost = newFloatCounter("stella.llm.cost", "USD")
 	if err != nil {
 		return err
 	}
+	// Preserve the published queue metrics after synchronous usage removed the queue.
+	queueDropped.Add(context.Background(), 0)
 	var gaugeErr error
 	h.metrics.queueDepth, gaugeErr = meter.Int64ObservableGauge("stella.llm_usage.queue.depth", metric.WithUnit("{observation}"))
 	if gaugeErr != nil {
@@ -114,9 +109,7 @@ func (h *Hook) Bind(meter metric.Meter) error {
 		return gaugeErr
 	}
 	h.metrics.callback, gaugeErr = meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
-		if h.queue != nil {
-			o.ObserveInt64(h.metrics.queueDepth, int64(h.queue.QueueDepth()))
-		}
+		o.ObserveInt64(h.metrics.queueDepth, 0)
 		if h.active != nil {
 			o.ObserveInt64(h.metrics.activeSessions, h.active())
 		}
@@ -136,19 +129,6 @@ func (h *Hook) ready() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.bound
-}
-
-func (h *Hook) RecordQueueDrop() {
-	if h == nil {
-		return
-	}
-	h.mu.Lock()
-	bound := h.bound
-	counter := h.metrics.queueDropped
-	h.mu.Unlock()
-	if bound {
-		counter.Add(context.Background(), 1)
-	}
 }
 
 func attrs(values ...attribute.KeyValue) metric.MeasurementOption {

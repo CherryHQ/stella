@@ -19,7 +19,8 @@ func TestRuntimeChatGroupSpeakerContextNoUserPromotion(t *testing.T) {
 	var gotCtxUserIDs []string
 
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
 		},
@@ -66,7 +67,8 @@ func TestRuntimeChatGroupSpeakerContextInjectedIntoModelMessageOnly(t *testing.T
 	var modelMessages []MessageContent
 
 	rt, err := New(Config{
-		Memory: mem,
+		LocalOnly: true,
+		Memory:    mem,
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return &chatFakeRunner{events: []Event{{Text: "ok"}}, messages: &modelMessages}, nil
 		},
@@ -119,7 +121,8 @@ func TestRuntimeGroupRunnerBuildContextCarriesConfinedActor(t *testing.T) {
 	const group = "11111111-1111-4111-8111-111111111111"
 	var buildCtx context.Context
 	rt, err := New(Config{
-		Memory: &recordingMemory{},
+		LocalOnly: true,
+		Memory:    &recordingMemory{},
 		NewRunner: func(ctx context.Context, _ RunnerParams) (Runner, error) {
 			buildCtx = ctx
 			return &chatFakeRunner{events: []Event{{Text: "ok"}}}, nil

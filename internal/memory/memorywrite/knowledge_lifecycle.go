@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -340,7 +342,7 @@ func beginKnowledgeMutation(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queri
 	if db == nil || q == nil {
 		return nil, fmt.Errorf("knowledge mutation: db and sql queries are required")
 	}
-	tx, err := db.Begin(ctx)
+	tx, err := sessionexecution.Begin(ctx, db)
 	if err != nil {
 		return nil, fmt.Errorf("begin knowledge mutation: %w", err)
 	}
