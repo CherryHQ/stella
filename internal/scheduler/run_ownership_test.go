@@ -371,7 +371,8 @@ func TestRunBookkeepingWritesRequireTheLiveFence(t *testing.T) {
 	}
 	job := addTestJob(t, svc, "fenced", "hello", Schedule{Every: "24h"}, SessionReuse)
 	runID := uuid.NewString()
-	startedAt := time.Now().UTC()
+	// Keep the fixture within PostgreSQL timestamp precision on every host.
+	startedAt := time.Now().UTC().Truncate(time.Microsecond)
 	if err := svc.tryStartJobRun(ctx, runID, job.ID, sessionID, "user-1", startedAt); err != nil {
 		t.Fatalf("tryStartJobRun: %v", err)
 	}
@@ -396,7 +397,7 @@ func TestRunBookkeepingWritesRequireTheLiveFence(t *testing.T) {
 		t.Fatalf("recordJobRun under a live fence: %v", err)
 	}
 	if got := durableJob(t, svc, job.ID).LastRunAt; !got.Valid || !got.Time.UTC().Equal(startedAt.UTC()) {
-		t.Fatalf("job last run = %v, want the live-fence write to stand", got)
+		t.Fatalf("job last run = %v, want %v from the live-fence write", got, startedAt)
 	}
 
 	// Take the ownership away and repeat: both writes must now be refused.
