@@ -69,7 +69,7 @@ func TestWorkerRealRuntimeFinalReply(t *testing.T) {
 	hookReply := "never-called"
 	w := run.NewWorker(db, "review-worker", reviewRuntimeExecutor{rt: rt, info: info}, func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result, reply string) error {
 		hookReply = reply
-		if result != "ok" || reply == "" {
+		if result != "success" || reply == "" {
 			return nil
 		}
 		ops, err := outbox.ReplyOps(r.ID, outbox.DeliveryKeyForRun(r.ID), "ch-review", "bot", outbox.Address{V: 1, ChatKey: "chat"}, reply, 4000)

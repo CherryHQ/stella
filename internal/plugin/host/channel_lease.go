@@ -176,9 +176,14 @@ func (t *ChannelLeases) renewHeld(ctx context.Context) {
 		row, err := t.q.RenewChannelRuntime(ctx, sqlc.RenewChannelRuntimeParams{ChannelID: id, Token: pgtype.Text{String: token, Valid: true}})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				// Lease already moved — drop and reconcile immediately.
+				// Lease already moved — stop the local ingress before
+				// reconciling: the reconcile may itself fail on a DB read,
+				// and a lost owner must not keep receiving either way.
 				t.drop(id)
 				t.log.InfoContext(ctx, "channel lease lost", "channel", id)
+				if t.stopLocal != nil {
+					t.stopLocal(ctx, id)
+				}
 				if t.reconcile != nil {
 					t.reconcile(ctx, id)
 				}
