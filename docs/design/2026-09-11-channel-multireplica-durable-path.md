@@ -1,7 +1,7 @@
 # Channel durable path (multi-replica)
 
-Status: implemented behind `STELLA_CHANNEL_DURABLE_INGRESS` (default off; the
-legacy in-process pipeline still runs when the flag is unset).
+Status: the durable path is the only channel pipeline; there is no legacy
+in-process fallback.
 
 ## Goal
 
@@ -26,10 +26,10 @@ adapter -> channel_inbox --route--> agent_run --worker--> channel_outbox --dispa
 - `agent_run`: a run is claimed by whichever replica's worker gets there
   first; claim links the run to a `ctx_session_execution` lease atomically,
   and the finish transaction commits result, history, and reply ops together.
-- `channel_outbox`: one row per platform operation (`send_text`, …) with a
-  stable `delivery_key`, ordered dependencies, and classified outcomes —
-  `sent` / `failed` / `unknown`. A transport failure after a possibly-landed
-  request is never blind-retried.
+- `channel_outbox`: one row per platform operation (`send_text`,
+  `draft_update`, …) with a stable `delivery_key`, ordered dependencies, and
+  classified outcomes — `sent` / `failed` / `unknown`. A transport failure
+  after a possibly-landed request is never blind-retried.
 - `channel` runtime lease: only the lease holder starts the adapter and
   dispatches its outbox; tokens fence every state mutation.
 - `ctx_session_event`: every published turn event with a session-scoped
@@ -38,8 +38,27 @@ adapter -> channel_inbox --route--> agent_run --worker--> channel_outbox --dispa
   behind the retained window answers 409 so the client rebuilds from the
   transcript.
 
+## Live progress
+
+The channel lease holder tails `ctx_session_event` for runs whose reply
+address lands on its channel and folds committed events into a
+`draft_update` op per run (`delivery_key = live:<run-id>`). Pending drafts
+for the same run coalesce in place; once one is `sending`/`sent`, later
+snapshots queue behind it, so the platform sees one message edited in
+place. `LatestSentDraftMessageID` lets a new owner recover the platform
+message id after handoff, and a seq fence cancels drafts that can no
+longer add anything. `ListPendingChannelOutbox` holds a run's terminal
+ops behind any in-flight draft for the same run, so a stale edit can
+never overwrite the final reply.
+
 ## Platform notes
 
+- Draft-capable adapters implement `channel.DraftSender`: Telegram edits
+  via `Bot.Edit` (treating "message is not modified" as success), Discord
+  reuses its stream/edit machinery and clears components on finalize,
+  Feishu patches the reply card, and testchan posts `message_id` edits to
+  the fake platform. Adapters without it drop drafts and send only the
+  terminal reply.
 - Telegram/Discord: `send_text` returns a platform message id.
 - Feishu: durable ops send the card form; the op's idempotency key is passed
   as Feishu's create `uuid`, so a replayed attempt cannot duplicate.
@@ -54,12 +73,17 @@ adapter -> channel_inbox --route--> agent_run --worker--> channel_outbox --dispa
 The janitor sweep in `RunDurableLoops` expires stale outbox attempts to
 `unknown` for probe/operator requeue, prunes `ctx_session_event` past
 retention, and the run reaper interrupts runs whose execution lease died.
+`STELLA_RUN_WORKER=off` pins a replica out of run claiming (observe/send
+only). Graceful drain joins the worker `Run` loop so a committed claim is
+executed and finished inside the drain budget before teardown.
 
 ## Known limits
 
-- Web sends still execute synchronously on the receiving replica (the
-  durable observe path works; enqueue-then-observe is future work).
-- Group chat and scheduler/goal/notify senders still use the legacy publish
-  path.
-- DingTalk replies cannot be sent after the session webhook expires.
+- Group chat still publishes through the group dispatcher rather than
+  per-run drafts.
+- Draft updates are sent only by adapters implementing `DraftSender`;
+  QQ/Weixin/DingTalk show the final reply only.
+- Real-platform credential paths (Telegram/Discord/Feishu/QQ/Weixin/
+  DingTalk) are exercised only by their adapters' unit surfaces plus
+  testchan end-to-end; no live-platform soak yet.
 - No backlog metrics yet.

@@ -1816,10 +1816,21 @@ func (s *Server) sendSessionMessageDurable(w http.ResponseWriter, r *http.Reques
 		requestKey = uuid.Must(uuid.NewV7()).String()
 	}
 	input := agentrun.Input{V: agentrun.EnvelopeVersion, Kind: "message", ExcludedTools: excludedTools}
-	if text, ok := message.(string); ok {
-		input.Text = text
-	} else if raw, merr := json.Marshal(message); merr == nil {
+	switch m := message.(type) {
+	case string:
+		input.Text = m
+	case []ai.ContentBlock:
+		// The kind-tagged transport encoding keeps raw image bytes for the
+		// executing replica; a plain json.Marshal drops every block silently.
+		raw, merr := ai.MarshalTransportBlocks(m)
+		if merr != nil {
+			writeError(w, http.StatusInternalServerError, "encode message content")
+			return
+		}
 		input.Content = raw
+	default:
+		writeError(w, http.StatusBadRequest, "unsupported message content")
+		return
 	}
 	run, _, err := s.durableRuns.EnqueueDirect(r.Context(), agentrun.EnqueueParams{
 		SessionID:  info.ID,

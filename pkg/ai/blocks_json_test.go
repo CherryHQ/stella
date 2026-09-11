@@ -195,3 +195,32 @@ func TestUnmarshalContentBlocksSkipsUnusableImageRef(t *testing.T) {
 		t.Fatalf("blocks = %#v, want only the text block", blocks)
 	}
 }
+
+// Transport encoding must round-trip raw images: a web send hands the blocks
+// to whichever replica claims the run, and that replica canonicalizes them.
+// MarshalContentBlocks drops ImageContent by contract, so this is the codec
+// run input must use.
+func TestMarshalTransportBlocksKeepsRawImages(t *testing.T) {
+	data, err := MarshalTransportBlocks([]ContentBlock{
+		TextContent{Text: "look"},
+		ImageContent{Data: "aGVsbG8=", MimeType: "image/png"},
+		ImageRefContent{MediaID: "media-1"},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	blocks, err := UnmarshalContentBlocks(data)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(blocks) != 3 {
+		t.Fatalf("blocks = %#v, want text + image + ref", blocks)
+	}
+	img, ok := blocks[1].(ImageContent)
+	if !ok || img.Data != "aGVsbG8=" || img.MimeType != "image/png" {
+		t.Fatalf("image block = %#v, want raw bytes preserved", blocks[1])
+	}
+	if _, err := MarshalTransportBlocks([]ContentBlock{ThinkingContent{Thinking: "x"}}); err == nil {
+		t.Fatal("transport marshal accepted an unstorable block kind")
+	}
+}
