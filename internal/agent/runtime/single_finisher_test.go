@@ -256,9 +256,9 @@ func TestWorkerDeferredHistoryFailureBlocksCompletion(t *testing.T) {
 	}
 }
 
-// D4 rollback proof: the history append SUCCEEDS but a later finish step
-// (the outbox hook) fails — the whole transaction must roll back so no
-// final history, run state, or outbox row is visible.
+// D4 rollback proof: the history append AND the outbox write both succeed
+// inside the finish transaction, then a later failure rolls the whole thing
+// back — no run state, no committed history, no outbox row is visible.
 func TestWorkerOutboxFailureRollsBackCommittedHistory(t *testing.T) {
 	db := dbtest.New(t)
 	ctx := t.Context()
@@ -294,8 +294,18 @@ func TestWorkerOutboxFailureRollsBackCommittedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := run.NewWorker(db, "d4r-worker", reviewRuntimeExecutor{rt: rt, info: info},
-		func(context.Context, pgx.Tx, sqlc.AgentRun, string, string) error {
-			return errors.New("outbox append failed")
+		func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result, reply string) error {
+			if result != "success" || reply == "" {
+				return nil
+			}
+			ops, err := outbox.ReplyOps(r.ID, outbox.DeliveryKeyForRun(r.ID), "ch-d4r", "bot", outbox.Address{V: 1, ChatKey: "chat"}, reply, 4000)
+			if err != nil {
+				return err
+			}
+			if err := outbox.New(db).Append(ctx, tx, ops); err != nil {
+				return err
+			}
+			return errors.New("finish failed after real outbox write")
 		},
 		run.WithTurnAppender(func(ctx context.Context, tx pgx.Tx, sess memory.Session, msgs []ai.Message) error {
 			return lcmP.AppendSessionTurn(ctx, sqlc.New(tx), sess, msgs...)
@@ -317,5 +327,102 @@ func TestWorkerOutboxFailureRollsBackCommittedHistory(t *testing.T) {
 	}
 	if got.State == "completed" || msgs > 0 || outboxCount > 0 {
 		t.Fatalf("outbox failure must roll back the history it committed: run=%s history=%d outbox=%d", got.State, msgs, outboxCount)
+	}
+}
+
+// countingExecutor wraps the real-Runtime executor and records invocations so
+// the test can prove an already-finished run is never executed twice.
+type countingExecutor struct {
+	inner reviewRuntimeExecutor
+	calls int
+}
+
+func (e *countingExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (string, error) {
+	e.calls++
+	return e.inner.Execute(ctx, r)
+}
+
+// D4 uncertain commit: the finish transaction committed but the worker never
+// learned the outcome (lost response, process kill, conn drop after commit).
+// Durable state is the truth: the run reads back completed with its history
+// and outbox row, and a later ProcessOnce must not execute the turn again —
+// recovery converges by read-back, not by redo.
+func TestWorkerUncertainCommitReadsBackCompleted(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := t.Context()
+	q := sqlc.New(db)
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: "d4u-agent", Name: "d4u", Scope: "system", Enabled: true, Workspace: t.TempDir(), Sandbox: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{ID: uuid.Must(uuid.NewV7()).String(), SessionID: "d4u-session", Kind: "chat", AgentID: pgtype.Text{String: "d4u-agent", Valid: true}, UserID: pgtype.Text{String: "d4u-user", Valid: true}, LastActive: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	info := session.Info{ID: "d4u-session", AgentID: "d4u-agent", UserID: "d4u-user", Kind: "chat"}
+	rt, err := New(Config{Memory: &recordingMemory{}, Execution: sessionexecution.New(db), NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+		return &chatFakeRunner{events: []Event{{Text: "committed reply"}}}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = rt.Close() })
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _, err := run.New(db).Enqueue(ctx, tx, run.EnqueueParams{SessionID: info.ID, AgentID: info.AgentID, RequestKey: "d4u-request", Actor: run.Actor{V: 1, Kind: "user", UserID: info.UserID}, Input: run.Input{V: 1, Text: "hello"}, ReplyAddress: run.ReplyAddress{V: 1, ChannelID: "ch-d4u", AccountKey: "bot", ChatKey: "chat"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	lcmP, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec := &countingExecutor{inner: reviewRuntimeExecutor{rt: rt, info: info}}
+	finish := func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result, reply string) error {
+		if result != "success" || reply == "" {
+			return nil
+		}
+		ops, err := outbox.ReplyOps(r.ID, outbox.DeliveryKeyForRun(r.ID), "ch-d4u", "bot", outbox.Address{V: 1, ChatKey: "chat"}, reply, 4000)
+		if err != nil {
+			return err
+		}
+		return outbox.New(db).Append(ctx, tx, ops)
+	}
+	appendHistory := func(ctx context.Context, tx pgx.Tx, sess memory.Session, msgs []ai.Message) error {
+		return lcmP.AppendSessionTurn(ctx, sqlc.New(tx), sess, msgs...)
+	}
+	w := run.NewWorker(db, "d4u-worker", exec, finish, run.WithTurnAppender(appendHistory))
+	if _, err := w.ProcessOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The commit outcome is now uncertain to the caller. A fresh worker —
+	// the recovering replica — reads the committed state and must find the
+	// run already finished, with nothing to redo.
+	recovery := run.NewWorker(db, "d4u-recovery", exec, finish, run.WithTurnAppender(appendHistory))
+	claimed, err := recovery.ProcessOnce(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := run.New(db).Get(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var msgs, outboxCount int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM ctx_message m JOIN ctx_conversation c ON c.id=m.conversation_id WHERE c.session_id='d4u-session'`).Scan(&msgs); err != nil {
+		t.Fatal(err)
+	}
+	var pendingOutbox int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE run_id=$1 AND state='pending'", r.ID).Scan(&pendingOutbox); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE run_id=$1", r.ID).Scan(&outboxCount); err != nil {
+		t.Fatal(err)
+	}
+	if claimed || exec.calls != 1 || got.State != "completed" || msgs == 0 || outboxCount != 1 || pendingOutbox != 1 {
+		t.Fatalf("uncertain commit must converge by read-back: claimed=%v exec_calls=%d run=%s history=%d outbox=%d pending=%d", claimed, exec.calls, got.State, msgs, outboxCount, pendingOutbox)
 	}
 }
