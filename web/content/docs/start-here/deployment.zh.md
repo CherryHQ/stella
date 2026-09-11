@@ -279,6 +279,7 @@ Docker 镜像设置了 `STELLA_REQUIRE_EXTERNAL_DB=1`：当 `STELLA_DATABASE_URL
 - 平台边界是 at-least-once：副本若在"平台已受理"与"回执落库"之间宕机，回复可能重发。具备原生幂等键的平台（QQ `client_id`、DingTalk 投递 id）会去重，其余平台在极小概率下可能看到重复消息。
 - 没有任何副本持有可用适配器时到达的频道事件会留在 durable 队列里重试，不会丢失。
 - 队列深度以 OTel gauge 导出：`stella.channel.inbox.pending`、`stella.agent.run.open`、`stella.channel.outbox.pending`、`stella.channel.outbox.unknown`（最后一项表示"已发送但结果未确认"，需要人工关注，绝不自动重发）。
+- 集群内所有副本必须运行同一版本。早于 durable 流水线的旧二进制没有租约与隔离语义，会重复消费入站事件，绝不能加入集群。回滚意味着整套副本一起回到旧版本——没有可重新打开的旧入口开关，新流水线已写入的运行记录与发件操作原样保留，不做降级迁移。
 
 loopback base URL 永远不是启动错误——通过 `localhost` 或 `kubectl port-forward` 访问 Stella 时它是合法的——但当配置了 OAuth/OIDC 登录时 Stella 会发出响亮警告，因为登录跳转会指回 pod 自身。部署 chart 应将 `STELLA_BASE_URL` 作为必填值：那一层才知道自己位于 ingress 之后。
 

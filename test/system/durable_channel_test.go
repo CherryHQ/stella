@@ -1141,6 +1141,9 @@ func TestDurableAttachmentSharedHome(t *testing.T) {
 	b := startReplicaHome(t, d, sharedHome, map[string]string{
 		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off",
 	})
+	c := startReplicaHome(t, d, sharedHome, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off",
+	})
 
 	// Upload through A — the bytes land in the shared home's user assets.
 	content := "asset-bytes-" + h.runID
@@ -1198,6 +1201,24 @@ func TestDurableAttachmentSharedHome(t *testing.T) {
 	}
 	if string(got) != content {
 		t.Fatalf("B read %q, want %q", got, content)
+	}
+
+	// Read through C — the third replica serves the same bytes from the
+	// shared home, which is what an attachment-bearing outbox send relies on.
+	readCURL := fmt.Sprintf("%s/api/agents/%s/sessions/%s/workspace/file-content?path=%s&scope=%s&raw=true",
+		c.BaseURL(), agentID, sessionID, url.QueryEscape(uploaded.RelativePath), uploaded.Scope)
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, readCURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err = h.client.Do(req)
+	if err != nil {
+		t.Fatalf("read via C: %v", err)
+	}
+	got, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(got) != content {
+		t.Fatalf("C read = %d %q, want 200 %q", resp.StatusCode, got, content)
 	}
 
 	// A different registered user must not read another user's asset scope.

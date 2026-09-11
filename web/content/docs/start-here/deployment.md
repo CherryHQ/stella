@@ -291,6 +291,7 @@ Requirements and caveats for `>1` replicas:
 - Delivery is at-least-once at the platform boundary: a replica that dies between "platform accepted" and "receipt committed" may redeliver a reply. Platforms with native idempotency keys (QQ `client_id`, DingTalk delivery ids) dedup; others can see a rare duplicate message.
 - Channel events that arrive while no replica holds a working adapter are retried from the durable queue rather than lost.
 - Queue depths are exported as OTel gauges: `stella.channel.inbox.pending`, `stella.agent.run.open`, `stella.channel.outbox.pending`, `stella.channel.outbox.unknown` (the last is "sent but outcome unconfirmed" — needs operator attention, never auto-resent).
+- Every replica in the set must run the same release. A binary older than the durable-pipeline release has no lease or fencing support and would double-consume inbound events; never add one to the set. Rolling back means moving the whole set to the previous release at once — there is no legacy ingress switch to re-enable, and rows already written by the new pipeline (runs, outbox operations) are left in place, not down-migrated.
 
 A loopback base URL is never a startup error — it is legitimate when you reach Stella via `localhost` or `kubectl port-forward` — but Stella logs a loud warning when OAuth/OIDC login is configured against one, because login redirects would point back at the pod. Deployment charts should make `STELLA_BASE_URL` a required value; that layer knows it sits behind an ingress.
 

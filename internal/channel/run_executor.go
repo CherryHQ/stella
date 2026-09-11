@@ -158,7 +158,7 @@ func (c *Coordinator) replyTextLimit(channelID string) int {
 // runFinishHook appends the final reply's outbox operation inside the
 // execution-finish transaction — the reply is durable before any send attempt.
 func (c *Coordinator) runFinishHook(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result, reply string) error {
-	if result != "success" || reply == "" {
+	if result != "success" {
 		return nil
 	}
 	var addr agentrun.ReplyAddress
@@ -180,13 +180,18 @@ func (c *Coordinator) runFinishHook(ctx context.Context, tx pgx.Tx, r sqlc.Agent
 	}
 	// The reply op carries the recorded turn events so the owning adapter can
 	// replay them through its draft/edit surface and deliver attachments —
-	// the same replay-at-send contract group replies already use.
-	if events, ok := c.replyEvents(ctx, tx, r); ok {
+	// the same replay-at-send contract group replies already use. An
+	// attachment-only turn (no final text) still delivers through this path;
+	// a turn with nothing deliverable keeps the old send-nothing behavior.
+	if events, ok := c.replyEvents(ctx, tx, r); ok && deliverable(events, reply) {
 		op, err := choutbox.ReplyOp(choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey, outAddr, r.SessionID, events)
 		if err != nil {
 			return err
 		}
 		return c.outboxStore().Append(ctx, tx, []choutbox.Op{op})
+	}
+	if reply == "" {
+		return nil
 	}
 	ops, err := choutbox.ReplyOps(r.ID, choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey, outAddr, reply, c.replyTextLimit(addr.ChannelID))
 	if err != nil {
@@ -239,4 +244,19 @@ func (c *Coordinator) replyEvents(ctx context.Context, tx pgx.Tx, r sqlc.AgentRu
 		}
 	}
 	return events, len(events) > 0
+}
+
+// deliverable reports whether a completed turn produced user-visible output:
+// final text, an image, or a file. Tool events and reasoning alone are not a
+// reply worth a platform send.
+func deliverable(events []pkgchannel.Event, reply string) bool {
+	if reply != "" {
+		return true
+	}
+	for _, evt := range events {
+		if evt.Text != "" || evt.Image != nil || evt.File != nil {
+			return true
+		}
+	}
+	return false
 }
