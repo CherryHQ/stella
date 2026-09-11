@@ -7,5 +7,6 @@ import (
 	_ "github.com/CherryHQ/stella/plugins/channels/feishu"
 	_ "github.com/CherryHQ/stella/plugins/channels/qq"
 	_ "github.com/CherryHQ/stella/plugins/channels/telegram"
+	_ "github.com/CherryHQ/stella/plugins/channels/testchan"
 	_ "github.com/CherryHQ/stella/plugins/channels/weixin"
 )

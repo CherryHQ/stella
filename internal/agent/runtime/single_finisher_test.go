@@ -255,3 +255,67 @@ func TestWorkerDeferredHistoryFailureBlocksCompletion(t *testing.T) {
 		t.Fatalf("failed finish must leave nothing visible: run=%s history=%d outbox=%d", got.State, msgs, outboxCount)
 	}
 }
+
+// D4 rollback proof: the history append SUCCEEDS but a later finish step
+// (the outbox hook) fails — the whole transaction must roll back so no
+// final history, run state, or outbox row is visible.
+func TestWorkerOutboxFailureRollsBackCommittedHistory(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := t.Context()
+	q := sqlc.New(db)
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: "d4r-agent", Name: "d4r", Scope: "system", Enabled: true, Workspace: t.TempDir(), Sandbox: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{ID: uuid.Must(uuid.NewV7()).String(), SessionID: "d4r-session", Kind: "chat", AgentID: pgtype.Text{String: "d4r-agent", Valid: true}, UserID: pgtype.Text{String: "d4r-user", Valid: true}, LastActive: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	info := session.Info{ID: "d4r-session", AgentID: "d4r-agent", UserID: "d4r-user", Kind: "chat"}
+	rt, err := New(Config{Memory: &recordingMemory{}, Execution: sessionexecution.New(db), NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+		return &chatFakeRunner{events: []Event{{Text: "rolled back reply"}}}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = rt.Close() })
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _, err := run.New(db).Enqueue(ctx, tx, run.EnqueueParams{SessionID: info.ID, AgentID: info.AgentID, RequestKey: "d4r-request", Actor: run.Actor{V: 1, Kind: "user", UserID: info.UserID}, Input: run.Input{V: 1, Text: "hello"}, ReplyAddress: run.ReplyAddress{V: 1, ChannelID: "ch-d4r", AccountKey: "bot", ChatKey: "chat"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	lcmP, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := run.NewWorker(db, "d4r-worker", reviewRuntimeExecutor{rt: rt, info: info},
+		func(context.Context, pgx.Tx, sqlc.AgentRun, string, string) error {
+			return errors.New("outbox append failed")
+		},
+		run.WithTurnAppender(func(ctx context.Context, tx pgx.Tx, sess memory.Session, msgs []ai.Message) error {
+			return lcmP.AppendSessionTurn(ctx, sqlc.New(tx), sess, msgs...)
+		}))
+	_, err = w.ProcessOnce(ctx)
+	if err == nil {
+		t.Fatal("finish must surface the outbox failure")
+	}
+	got, err := run.New(db).Get(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var msgs, outboxCount int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM ctx_message m JOIN ctx_conversation c ON c.id=m.conversation_id WHERE c.session_id='d4r-session'`).Scan(&msgs); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE run_id=$1", r.ID).Scan(&outboxCount); err != nil {
+		t.Fatal(err)
+	}
+	if got.State == "completed" || msgs > 0 || outboxCount > 0 {
+		t.Fatalf("outbox failure must roll back the history it committed: run=%s history=%d outbox=%d", got.State, msgs, outboxCount)
+	}
+}
