@@ -554,3 +554,67 @@ func TestWorkerTakeoverWaitsForWriterExit(t *testing.T) {
 		t.Fatalf("run2 state = %s, want completed", r2.State)
 	}
 }
+
+// TestWorkerDrainJoinsClaimedRunThroughFinish pins the interleaving a
+// claim counter cannot express: the claim commits its run row before any
+// counter could be incremented, so a drain that waits on the counter can
+// observe zero while a claimed run is mid-execute — teardown then cancels
+// the turn and finish commits 'canceled'. WaitInFlight joins the Run loop
+// instead: while a gated executor still holds the turn, stopping the loop
+// must not release the wait; releasing the gate lets finish commit
+// 'completed' before the drain returns.
+func TestWorkerDrainJoinsClaimedRunThroughFinish(t *testing.T) {
+	db := dbtest.New(t)
+	createAgent(t, db, "agent-1")
+	createSession(t, db, "sess-1", "agent-1")
+	ctx := t.Context()
+	runID := enqueueForTest(t, db, "sess-1", "req-1")
+
+	exec := &fakeExecutor{reply: "done", gate: make(chan struct{})}
+	// execCtx decouples the adopted turn from the loop stop — production
+	// passes the work context here so the drain budget covers the turn.
+	w := NewWorker(db, "w1", exec, replyHook(t), WithExecContext(context.Background()))
+	loopCtx, stop := context.WithCancel(ctx)
+	go w.Run(loopCtx)
+
+	// The claim has committed: the run row is 'running'. Whether the
+	// executor has entered yet or not, Run is inside ProcessOnce.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var state string
+		if err := db.QueryRow(ctx, "SELECT state FROM agent_run WHERE id=$1", runID).Scan(&state); err == nil && state == "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("claim never committed")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// Drain start: no new claims, and the in-flight one must finish first.
+	stop()
+
+	drainDone := make(chan error, 1)
+	go func() { drainDone <- w.WaitInFlight(ctx) }()
+	select {
+	case err := <-drainDone:
+		t.Fatalf("drain returned %v while the claimed turn was still executing", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(exec.gate)
+	select {
+	case err := <-drainDone:
+		if err != nil {
+			t.Fatalf("WaitInFlight: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("drain did not join after the turn finished")
+	}
+	r, err := New(db).Get(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.State != string(StateCompleted) {
+		t.Fatalf("run state = %s, want completed", r.State)
+	}
+}

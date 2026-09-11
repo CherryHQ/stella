@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,11 +53,13 @@ type Worker struct {
 	// a graceful drain stops new claims without cancelling a turn the drain
 	// budget is still waiting on; it must end no later than final teardown.
 	execCtx context.Context
-	// inflight spans one claim's execute-and-finish: the runtime's own turn
-	// tracking ends when the event stream closes, but the finish transaction
-	// still has to commit — a drain that only waits for turns would tear the
-	// process down mid-commit and orphan the run as 'running'.
-	inflight sync.WaitGroup
+	// runDone closes when Run returns. The drain joins the loop rather than
+	// counting in-flight claims: a claim commits its run row before any
+	// counter could be incremented, so a count observed at zero can still
+	// have a committed claim about to execute. Run drives ProcessOnce
+	// synchronously, so once Run returns no claim can still be mid-flight
+	// and no new claim can begin — that is the authoritative idle point.
+	runDone chan struct{}
 }
 
 func NewWorker(db *pgxpool.Pool, workerID string, executor Executor, onFinish FinishHook, opts ...func(*Worker)) *Worker {
@@ -70,6 +71,7 @@ func NewWorker(db *pgxpool.Pool, workerID string, executor Executor, onFinish Fi
 		executor: executor,
 		onFinish: onFinish,
 		poll:     500 * time.Millisecond,
+		runDone:  make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(w)
@@ -91,8 +93,11 @@ func WithExecContext(ctx context.Context) func(*Worker) {
 }
 
 // Run is the polling loop: claim-and-execute until ctx ends, reaping expired
-// leases on the way so dead workers' runs become 'interrupted' promptly.
+// leases on the way so dead workers' runs become 'interrupted' promptly. Run
+// returns only after an in-flight ProcessOnce has committed its finish —
+// callers needing "no claimed work remains" join on runDone via WaitInFlight.
 func (w *Worker) Run(ctx context.Context) {
+	defer close(w.runDone)
 	reap := time.NewTicker(10 * time.Second)
 	defer reap.Stop()
 	poll := time.NewTicker(w.poll)
@@ -125,8 +130,6 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	if err != nil || lease == nil {
 		return false, err
 	}
-	w.inflight.Add(1)
-	defer w.inflight.Done()
 	outcome.run = run
 	done := make(chan struct{})
 	go func() {
@@ -160,17 +163,15 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-// WaitInFlight blocks until every claimed run's execute-and-finish span has
-// ended, or ctx expires. The drain hooks it into the accepted-work wait so a
-// claimed turn commits its finish transaction before teardown closes the pool.
+// WaitInFlight joins the Run loop: it returns once Run has exited, which by
+// construction means the claim→execute→finish span of every claimed run has
+// committed and no further claim can start. A counter on ProcessOnce cannot
+// express this — a claim commits its run row before any increment, so a
+// zero count can hide a claim mid-flight. Run must be started first; without
+// it this blocks until ctx expires.
 func (w *Worker) WaitInFlight(ctx context.Context) error {
-	done := make(chan struct{})
-	go func() {
-		w.inflight.Wait()
-		close(done)
-	}()
 	select {
-	case <-done:
+	case <-w.runDone:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

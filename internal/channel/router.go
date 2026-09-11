@@ -538,9 +538,12 @@ func (c *Coordinator) EnqueueNotify(ctx context.Context, channelID string, n pkg
 // with it. execCtx parents claimed turns — the composition root passes the
 // work context so a graceful drain stops new claims while an in-flight turn
 // still finishes inside the drain budget, exactly like HTTP-accepted turns.
-// The returned wait blocks until every claimed run's finish transaction has
-// committed (nil when the worker role is off); the drain must call it inside
-// the accepted-work budget, before work contexts are cancelled.
+// The returned wait joins the worker's Run loop (nil when the worker role is
+// off): Run only exits after an in-flight claim has committed its finish, so
+// a closed loop is the authoritative "no accepted work remains" point — a
+// counter cannot express it, since a claim's commit lands before any counter
+// could be incremented. The drain calls it inside the accepted-work budget,
+// before work contexts are cancelled.
 func (c *Coordinator) RunDurableLoops(ctx, execCtx context.Context, runWorker bool) func(context.Context) error {
 	go c.runBacklogMetrics(ctx, c.db)
 	if c.db == nil || c.sessionAccess == nil {
