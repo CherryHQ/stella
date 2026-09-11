@@ -39,7 +39,7 @@ SET token = EXCLUDED.token,
     cancel_requested = false,
     created_at = clock_timestamp(), updated_at = clock_timestamp()
 WHERE ctx_session_execution.lease_until <= clock_timestamp()
-RETURNING session_id, token, lease_until, cancel_requested, created_at, updated_at
+RETURNING session_id, token, lease_until, cancel_requested, created_at, updated_at, run_id
 `
 
 type ClaimSessionExecutionParams struct {
@@ -57,6 +57,7 @@ func (q *Queries) ClaimSessionExecution(ctx context.Context, arg ClaimSessionExe
 		&i.CancelRequested,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RunID,
 	)
 	return i, err
 }
@@ -95,7 +96,7 @@ func (q *Queries) FinishSessionExecutionActivity(ctx context.Context, arg Finish
 }
 
 const getSessionExecution = `-- name: GetSessionExecution :one
-SELECT session_id, token, lease_until, cancel_requested, created_at, updated_at FROM ctx_session_execution WHERE session_id = $1
+SELECT session_id, token, lease_until, cancel_requested, created_at, updated_at, run_id FROM ctx_session_execution WHERE session_id = $1
 `
 
 func (q *Queries) GetSessionExecution(ctx context.Context, sessionID string) (CtxSessionExecution, error) {
@@ -108,12 +109,13 @@ func (q *Queries) GetSessionExecution(ctx context.Context, sessionID string) (Ct
 		&i.CancelRequested,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RunID,
 	)
 	return i, err
 }
 
 const listExpiredSessionExecutions = `-- name: ListExpiredSessionExecutions :many
-SELECT session_id, token, lease_until, cancel_requested, created_at, updated_at FROM ctx_session_execution
+SELECT session_id, token, lease_until, cancel_requested, created_at, updated_at, run_id FROM ctx_session_execution
 WHERE lease_until <= clock_timestamp()
 ORDER BY lease_until, session_id
 LIMIT 100
@@ -136,6 +138,7 @@ func (q *Queries) ListExpiredSessionExecutions(ctx context.Context) ([]CtxSessio
 			&i.CancelRequested,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RunID,
 		); err != nil {
 			return nil, err
 		}
@@ -148,7 +151,7 @@ func (q *Queries) ListExpiredSessionExecutions(ctx context.Context) ([]CtxSessio
 }
 
 const lockSessionExecutionForFinish = `-- name: LockSessionExecutionForFinish :one
-SELECT session_id, token, lease_until, cancel_requested, created_at, updated_at FROM ctx_session_execution
+SELECT session_id, token, lease_until, cancel_requested, created_at, updated_at, run_id FROM ctx_session_execution
 WHERE session_id = $1 AND token = $2
 FOR UPDATE
 `
@@ -168,6 +171,7 @@ func (q *Queries) LockSessionExecutionForFinish(ctx context.Context, arg LockSes
 		&i.CancelRequested,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RunID,
 	)
 	return i, err
 }
@@ -211,6 +215,28 @@ func (q *Queries) SessionExecutionValid(ctx context.Context, arg SessionExecutio
 	var valid pgtype.Bool
 	err := row.Scan(&valid)
 	return valid, err
+}
+
+const setSessionExecutionRun = `-- name: SetSessionExecutionRun :execrows
+UPDATE ctx_session_execution
+SET run_id = $1, updated_at = clock_timestamp()
+WHERE session_id = $2 AND token = $3
+  AND lease_until > clock_timestamp()
+`
+
+type SetSessionExecutionRunParams struct {
+	RunID     pgtype.Text `json:"run_id"`
+	SessionID string      `json:"session_id"`
+	Token     string      `json:"token"`
+}
+
+// Link the lease to the run it covers; fenced by token.
+func (q *Queries) SetSessionExecutionRun(ctx context.Context, arg SetSessionExecutionRunParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setSessionExecutionRun, arg.RunID, arg.SessionID, arg.Token)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const startSessionExecutionActivity = `-- name: StartSessionExecutionActivity :execrows

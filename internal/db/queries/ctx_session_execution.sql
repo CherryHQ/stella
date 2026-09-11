@@ -60,3 +60,10 @@ FOR UPDATE SKIP LOCKED;
 SELECT (lease_until > clock_timestamp() AND (NOT cancel_requested OR sqlc.arg(allow_cancel)::boolean)) AS valid
 FROM ctx_session_execution
 WHERE session_id = sqlc.arg(session_id) AND token = sqlc.arg(token);
+
+-- name: SetSessionExecutionRun :execrows
+-- Link the lease to the run it covers; fenced by token.
+UPDATE ctx_session_execution
+SET run_id = sqlc.arg(run_id), updated_at = clock_timestamp()
+WHERE session_id = sqlc.arg(session_id) AND token = sqlc.arg(token)
+  AND lease_until > clock_timestamp();
