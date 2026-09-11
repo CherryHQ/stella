@@ -388,6 +388,20 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// senders exist; with the flag on, inbound events land in channel_inbox
 	// and replies flow through channel_outbox instead of the live stream.
 	coordOpts = append(coordOpts, channel.WithDurableIngress(os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") != ""))
+	// Outbox ops reach the platform through the running adapter instance this
+	// replica owns; a replica hosting no channels resolves to nothing and its
+	// dispatch sweep becomes a no-op.
+	coordOpts = append(coordOpts, channel.WithChannelResolver(func(channelID string) (pkgchannel.OperationSender, bool) {
+		if s.notifier == nil {
+			return nil, false
+		}
+		ch, ok := s.notifier.Lookup(channelID)
+		if !ok {
+			return nil, false
+		}
+		sender, ok := ch.(pkgchannel.OperationSender)
+		return sender, ok
+	}))
 	coordOpts = append(coordOpts, channel.WithGuestStore(channel.NewGuestStore(s.db)))
 	// Group event ingestion canonicalizes its images through the very pipeline
 	// ordinary sessions use, with the group as the media owner.

@@ -54,7 +54,7 @@ func replyHook(t *testing.T) FinishHook {
 			return err
 		}
 		ops, err := choutbox.ReplyOps(r.ID, choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey,
-			choutbox.Address{V: choutbox.AddressVersion, ChatKey: addr.ChatKey, ThreadKey: addr.ThreadKey, ReplyToKey: addr.ReplyToKey}, reply)
+			choutbox.Address{V: choutbox.AddressVersion, ChatKey: addr.ChatKey, ThreadKey: addr.ThreadKey, ReplyToKey: addr.ReplyToKey}, reply, 0)
 		if err != nil {
 			return err
 		}

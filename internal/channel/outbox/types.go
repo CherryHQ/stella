@@ -28,28 +28,42 @@ type TextPayload struct {
 	Text string `json:"text"`
 }
 
-// ReplyOps builds the standard "one text reply" delivery for an inbound event.
+// ReplyOps builds the standard text reply delivery for an inbound event.
 // deliveryKey must stay stable across retries so a re-appended completion can
-// never double-send.
-func ReplyOps(runID, deliveryKey, channelID, accountKey string, addr Address, text string) ([]Op, error) {
+// never double-send. When maxLen > 0 the text is split into one op per chunk,
+// each chained on its predecessor so a retried middle chunk never lets a
+// later chunk overtake it.
+func ReplyOps(runID, deliveryKey, channelID, accountKey string, addr Address, text string, maxLen int) ([]Op, error) {
 	a, err := json.Marshal(addr)
 	if err != nil {
 		return nil, err
 	}
-	p, err := json.Marshal(TextPayload{V: PayloadVersion, Text: text})
-	if err != nil {
-		return nil, err
+	chunks := []string{text}
+	if maxLen > 0 {
+		chunks = pkgchannel.SplitMessage(text, maxLen)
 	}
-	return []Op{{
-		RunID:       runID,
-		DeliveryKey: deliveryKey,
-		Index:       0,
-		Kind:        OpSendText,
-		ChannelID:   channelID,
-		AccountKey:  accountKey,
-		Address:     a,
-		Payload:     p,
-	}}, nil
+	ops := make([]Op, 0, len(chunks))
+	for i, chunk := range chunks {
+		p, err := json.Marshal(TextPayload{V: PayloadVersion, Text: chunk})
+		if err != nil {
+			return nil, err
+		}
+		op := Op{
+			RunID:       runID,
+			DeliveryKey: deliveryKey,
+			Index:       i,
+			Kind:        OpSendText,
+			ChannelID:   channelID,
+			AccountKey:  accountKey,
+			Address:     a,
+			Payload:     p,
+		}
+		if i > 0 {
+			op.DependsOn = []int{i - 1}
+		}
+		ops = append(ops, op)
+	}
+	return ops, nil
 }
 
 // CommandReplyKey names the delivery that carries a command's immediate reply.

@@ -84,6 +84,9 @@ type Coordinator struct {
 	// gates the channel_inbox receive path on HandleIncoming.
 	sessionAccess  agent.SessionAccessService
 	durableIngress bool
+	// channelResolver reaches the running adapter instance for outbox
+	// dispatch; nil on replicas with no local channels.
+	channelResolver ChannelResolver
 }
 
 // GroupImagePipeline canonicalizes group images. It is the same pipeline

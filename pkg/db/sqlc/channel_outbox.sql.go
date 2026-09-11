@@ -246,14 +246,24 @@ func (q *Queries) ListExpiredChannelOutboxAttempts(ctx context.Context) ([]Chann
 
 const listPendingChannelOutbox = `-- name: ListPendingChannelOutbox :many
 SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at FROM channel_outbox
-WHERE channel_id = $1 AND state = 'pending'
+WHERE channel_outbox.channel_id = $1 AND channel_outbox.state = 'pending'
   AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
+  AND NOT EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements_text(channel_outbox.depends_on) AS dep(dep_idx)
+    JOIN channel_outbox AS d
+      ON d.delivery_key = channel_outbox.delivery_key
+     AND d.operation_index = dep.dep_idx::int
+    WHERE d.state != 'sent'
+  )
 ORDER BY delivery_key, operation_index
 LIMIT 100
 FOR UPDATE SKIP LOCKED
 `
 
-// Owner send loop: due pending ops for channels it currently owns.
+// Owner send loop: due pending ops for channels it currently owns. An op is
+// not due while any same-delivery dependency it names is unsent — split
+// replies keep platform order and a blocked head never lets a tail jump past.
 func (q *Queries) ListPendingChannelOutbox(ctx context.Context, channelID string) ([]ChannelOutbox, error) {
 	rows, err := q.db.Query(ctx, listPendingChannelOutbox, channelID)
 	if err != nil {

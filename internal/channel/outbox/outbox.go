@@ -89,6 +89,9 @@ func (s *Store) Append(ctx context.Context, tx pgx.Tx, ops []Op) error {
 		if err != nil {
 			return err
 		}
+		if string(deps) == "null" {
+			deps = json.RawMessage(`[]`)
+		}
 		var notBefore pgtype.Timestamptz
 		if op.NotBefore != nil {
 			notBefore = pgtype.Timestamptz{Time: op.NotBefore.UTC(), Valid: true}
@@ -140,7 +143,7 @@ func (s *Store) ClaimAttempt(ctx context.Context, tx pgx.Tx, id, ownerToken stri
 	n, err := sqlc.New(tx).ClaimChannelOutboxAttempt(ctx, sqlc.ClaimChannelOutboxAttemptParams{
 		ID:           id,
 		AttemptToken: pgtype.Text{String: attempt, Valid: true},
-		OwnerToken:   pgtype.Text{String: ownerToken, Valid: true},
+		OwnerToken:   textOrNull(ownerToken),
 	})
 	if err != nil {
 		return "", false, err
@@ -164,9 +167,14 @@ type Outcome struct {
 // fence rejected the write.
 func (s *Store) CompleteAttempt(ctx context.Context, tx pgx.Tx, id, attemptToken string, o Outcome) (bool, error) {
 	switch o.State {
-	case StateSent, StateFailed, StateUnknown:
+	// StatePending here means "attempt failed retryably, re-scheduled": the
+	// row returns to pending with NextAttemptAt instead of terminating.
+	case StateSent, StateFailed, StateUnknown, StatePending:
 	default:
-		return false, fmt.Errorf("outbox: outcome must be sent/failed/unknown, got %q", o.State)
+		return false, fmt.Errorf("outbox: outcome must be sent/failed/unknown/pending, got %q", o.State)
+	}
+	if o.State == StatePending && o.NextAttemptAt == nil {
+		return false, fmt.Errorf("outbox: retry outcome requires next_attempt_at")
 	}
 	var next pgtype.Timestamptz
 	if o.NextAttemptAt != nil {

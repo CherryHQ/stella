@@ -27,11 +27,22 @@ import (
 // the local session queue, or any publisher: a replica with no in-process
 // agent services can still route.
 //
-// Lock order follows the plan: channel row (GetChannelForUpdate, serializes
-// routing per channel) -> binding advisory lock (txlock) -> session row ->
-// agent_run. Session resolution itself runs on the session-access service's
-// own connections; the advisory lock is what makes that resolution
-// cross-replica safe.
+// Lock order follows the plan: channel advisory lock (serializes routing per
+// channel across replicas) -> binding advisory lock (txlock) -> session
+// advisory lock (enqueue ordering) -> agent_run. Row locks are avoided on
+// purpose: the route transaction calls into session/guest resolution that
+// inserts FK children of the channel/session rows on other connections, and
+// a held FOR UPDATE deadlocks against their FOR KEY SHARE.
+
+// ChannelResolver maps a channel id to its running adapter's send capability
+// on this replica. Absence is not an error — a replica that owns no channels
+// simply does not dispatch outbox ops.
+type ChannelResolver func(channelID string) (pkgchannel.OperationSender, bool)
+
+// WithChannelResolver binds the live-adapter lookup for outbox dispatch.
+func WithChannelResolver(r ChannelResolver) CoordinatorOption {
+	return func(c *Coordinator) { c.channelResolver = r }
+}
 
 // WithSessionAccess binds the Session PEP the router resolves bindings and
 // rotates sessions through. Without it durable routing is unavailable.
@@ -249,7 +260,7 @@ func (c *Coordinator) replyText(ctx context.Context, tx pgx.Tx, ev sqlc.ChannelI
 			ChatKey:    ev.ChatKey,
 			ThreadKey:  env.ThreadID,
 			ReplyToKey: env.MessageID,
-		}, text)
+		}, text, c.replyTextLimit(ev.ChannelID))
 	if err != nil {
 		return err
 	}
@@ -442,6 +453,13 @@ func (c *Coordinator) RunDurableLoops(ctx context.Context) {
 			for _, ch := range channels {
 				if _, rerr := c.RoutePending(ctx, ch.ID); rerr != nil {
 					slog.WarnContext(ctx, "channel route sweep failed", "channel_id", ch.ID, "error", rerr)
+				}
+				if c.channelResolver != nil {
+					if sender, ok := c.channelResolver(ch.ID); ok {
+						if _, derr := c.outboxStore().ProcessDue(ctx, ch.ID, "", sender); derr != nil {
+							slog.WarnContext(ctx, "channel outbox dispatch failed", "channel_id", ch.ID, "error", derr)
+						}
+					}
 				}
 			}
 		} else if ctx.Err() == nil {

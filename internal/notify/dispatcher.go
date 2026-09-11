@@ -60,6 +60,20 @@ func (d *Dispatcher) Register(ch pkgchannel.Channel) {
 	d.mu.Unlock()
 }
 
+// Lookup returns the registered channel with the given instance name, or
+// (nil, false) when no such channel is running on this replica. Durable
+// channel senders use it to reach the live adapter for outbox operations.
+func (d *Dispatcher) Lookup(name string) (pkgchannel.Channel, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	for _, e := range d.channels {
+		if channelMatches(e.channel, name) {
+			return e.channel, true
+		}
+	}
+	return nil, false
+}
+
 // Unregister removes all channels with the given name from the dispatcher.
 func (d *Dispatcher) Unregister(name string) {
 	d.mu.Lock()

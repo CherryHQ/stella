@@ -13,10 +13,20 @@ WHERE delivery_key = $1
 ORDER BY operation_index;
 
 -- name: ListPendingChannelOutbox :many
--- Owner send loop: due pending ops for channels it currently owns.
+-- Owner send loop: due pending ops for channels it currently owns. An op is
+-- not due while any same-delivery dependency it names is unsent — split
+-- replies keep platform order and a blocked head never lets a tail jump past.
 SELECT * FROM channel_outbox
-WHERE channel_id = $1 AND state = 'pending'
+WHERE channel_outbox.channel_id = $1 AND channel_outbox.state = 'pending'
   AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
+  AND NOT EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements_text(channel_outbox.depends_on) AS dep(dep_idx)
+    JOIN channel_outbox AS d
+      ON d.delivery_key = channel_outbox.delivery_key
+     AND d.operation_index = dep.dep_idx::int
+    WHERE d.state != 'sent'
+  )
 ORDER BY delivery_key, operation_index
 LIMIT 100
 FOR UPDATE SKIP LOCKED;

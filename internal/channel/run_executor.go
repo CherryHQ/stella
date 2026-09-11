@@ -15,7 +15,6 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
-	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -119,7 +118,23 @@ func actorAuthority(actor agentrun.Actor) (authz.Authority, error) {
 	}
 }
 
-var _ = agentaccess.ErrForbidden // referenced by callers via mapPublicAccessError
+// replyTextLimit maps the channel's platform to its message length budget so
+// reply ops are produced already split. Unknown platforms get no split — the
+// adapter reports a permanent failure instead of silently truncating.
+func (c *Coordinator) replyTextLimit(channelID string) int {
+	ch, err := c.store.GetChannel(context.Background(), channelID)
+	if err != nil {
+		return 0
+	}
+	switch ch.Type {
+	case "telegram":
+		return 4000
+	case "discord", "qq", "feishu", "dingtalk", "weixin":
+		return 2000
+	default:
+		return 0
+	}
+}
 
 // runFinishHook appends the final reply's outbox operation inside the
 // execution-finish transaction — the reply is durable before any send attempt.
@@ -137,7 +152,7 @@ func (c *Coordinator) runFinishHook(ctx context.Context, tx pgx.Tx, r sqlc.Agent
 			ChatKey:    addr.ChatKey,
 			ThreadKey:  addr.ThreadKey,
 			ReplyToKey: addr.ReplyToKey,
-		}, reply)
+		}, reply, c.replyTextLimit(addr.ChannelID))
 	if err != nil {
 		return err
 	}
