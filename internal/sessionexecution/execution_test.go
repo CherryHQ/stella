@@ -322,6 +322,59 @@ func TestFinishLostCommitAcknowledgmentDoesNotRepeat(t *testing.T) {
 	}
 }
 
+// The finish transaction's commit lands on the server but the caller loses
+// the response (conn drop, EOF after commit). The lease reports
+// ErrOutcomeUnknown, the finish payload's durable writes are committed
+// anyway, and a retried Finish must observe the lost lease without re-running
+// the payload.
+func TestFinishLostCommitAcknowledgmentCommitsExtra(t *testing.T) {
+	db := dbtest.New(t)
+	store := sessionexecution.New(db)
+	id := seedSession(t, db)
+	extraCalls := 0
+	_, lease, err := store.ClaimWith(t.Context(), id, func(ctx context.Context, tx pgx.Tx, result string) error {
+		extraCalls++
+		// The worker's finish payload in miniature — a durable outbox write
+		// that must commit atomically with the finish, or not at all.
+		_, err := tx.Exec(ctx, `INSERT INTO channel_outbox (delivery_key, operation_index, operation_kind, channel_id, source_account_key) VALUES ($1, 0, 'send_text', 'ch-x', 'bot')`, "dk-"+id)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits := 0
+	sessionexecution.SetFinishCommitForTest(store, func(ctx context.Context, tx pgx.Tx) error {
+		commits++
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		return io.EOF // the commit landed; its acknowledgment did not
+	})
+	if err := lease.Finish("success"); !errors.Is(err, sessionexecution.ErrOutcomeUnknown) {
+		t.Fatalf("commit result: %v", err)
+	}
+	var outcome string
+	if err := db.QueryRow(t.Context(), "SELECT last_turn_result FROM ctx_conversation WHERE session_id=$1", id).Scan(&outcome); err != nil || outcome != "success" {
+		t.Fatalf("outcome=%q err=%v", outcome, err)
+	}
+	var ops int
+	if err := db.QueryRow(t.Context(), "SELECT count(*) FROM channel_outbox WHERE delivery_key=$1", "dk-"+id).Scan(&ops); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlc.New(db).GetSessionExecution(t.Context(), id); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("execution row survived commit: %v", err)
+	}
+	if extraCalls != 1 || commits != 1 || ops != 1 {
+		t.Fatalf("extra=%d commits=%d outbox=%d, want 1/1/1", extraCalls, commits, ops)
+	}
+	if err := lease.Finish("success"); !errors.Is(err, sessionexecution.ErrLost) {
+		t.Fatalf("retry result: %v", err)
+	}
+	if extraCalls != 1 {
+		t.Fatalf("finish payload re-ran: extra=%d", extraCalls)
+	}
+}
+
 func TestLeaseValidityIsCheckedAfterRowLockWait(t *testing.T) {
 	for _, operation := range []string{"renew", "write", "finish"} {
 		t.Run(operation, func(t *testing.T) {

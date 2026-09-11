@@ -695,6 +695,13 @@ func TestDurableChannelSameEventHandoff(t *testing.T) {
 	if err := db.QueryRow(ctx, "SELECT inbox_id FROM agent_run WHERE id=$1", runID).Scan(&inboxID); err != nil {
 		t.Fatal(err)
 	}
+	// Pin the fault point: 'running' alone does not prove B is inside the
+	// model call — wait until the fake confirms the gated turn is parked.
+	select {
+	case <-gate.Entered:
+	case <-ctx.Done():
+		t.Fatal("gated model call never parked inside the gate")
+	}
 
 	// A dies while B's turn is in flight; C inherits the channel.
 	if err := a.Kill(); err != nil {
@@ -735,9 +742,26 @@ func TestDurableChannelSameEventHandoff(t *testing.T) {
 			t.Fatal("dead owner A sent a post-handoff operation")
 		}
 	}
-	_ = sends
-	if runs != 1 {
-		t.Fatalf("runs for inbox event = %d, want 1", runs)
+	sends = fp.sendCount()
+	if runs != 1 || sends != 1 {
+		t.Fatalf("runs=%d sends=%d for the inbox event, want 1/1", runs, sends)
+	}
+	// The original run carries exactly one sent receipt, and the turn's
+	// history landed once — a replayed finish would double both.
+	var sentOps, userMsgs, replyMsgs int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE run_id=$1 AND state='sent'", runID).Scan(&sentOps); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM ctx_message m JOIN ctx_conversation c ON c.id=m.conversation_id
+		WHERE c.session_id=(SELECT session_id FROM agent_run WHERE id=$1) AND m.role='user' AND m.content LIKE '%hand me off%'`, runID).Scan(&userMsgs); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM ctx_message m JOIN ctx_conversation c ON c.id=m.conversation_id
+		WHERE c.session_id=(SELECT session_id FROM agent_run WHERE id=$1) AND m.role='assistant' AND m.content LIKE '%HANDOFF '||$2||'%'`, runID, h.runID).Scan(&replyMsgs); err != nil {
+		t.Fatal(err)
+	}
+	if sentOps != 1 || userMsgs != 1 || replyMsgs != 1 {
+		t.Fatalf("sent_ops=%d user_msgs=%d reply_msgs=%d, want 1/1/1", sentOps, userMsgs, replyMsgs)
 	}
 }
 

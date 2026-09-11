@@ -342,12 +342,14 @@ func (e *countingExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (string
 	return e.inner.Execute(ctx, r)
 }
 
-// D4 uncertain commit: the finish transaction committed but the worker never
-// learned the outcome (lost response, process kill, conn drop after commit).
-// Durable state is the truth: the run reads back completed with its history
-// and outbox row, and a later ProcessOnce must not execute the turn again —
-// recovery converges by read-back, not by redo.
-func TestWorkerUncertainCommitReadsBackCompleted(t *testing.T) {
+// A committed finish is the durable truth: a recovering worker (fresh
+// instance) reclaims nothing and never re-executes a completed turn — the
+// run reads back completed with its history and pending outbox row. This is
+// not commit-fault injection: the real lost-commit-acknowledgment case lives
+// at the lease layer (sessionexecution's commit seam is package-internal and
+// NewWorker owns its store, so injecting here would widen the production
+// API). See TestFinishLostCommitAcknowledgmentCommitsExtra.
+func TestWorkerCompletedRunIsNotReexecuted(t *testing.T) {
 	db := dbtest.New(t)
 	ctx := t.Context()
 	q := sqlc.New(db)
@@ -399,9 +401,8 @@ func TestWorkerUncertainCommitReadsBackCompleted(t *testing.T) {
 	if _, err := w.ProcessOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	// The commit outcome is now uncertain to the caller. A fresh worker —
-	// the recovering replica — reads the committed state and must find the
-	// run already finished, with nothing to redo.
+	// A fresh worker — the recovering replica — reads the committed state
+	// and must find the run already finished, with nothing to redo.
 	recovery := run.NewWorker(db, "d4u-recovery", exec, finish, run.WithTurnAppender(appendHistory))
 	claimed, err := recovery.ProcessOnce(ctx)
 	if err != nil {
@@ -423,6 +424,6 @@ func TestWorkerUncertainCommitReadsBackCompleted(t *testing.T) {
 		t.Fatal(err)
 	}
 	if claimed || exec.calls != 1 || got.State != "completed" || msgs == 0 || outboxCount != 1 || pendingOutbox != 1 {
-		t.Fatalf("uncertain commit must converge by read-back: claimed=%v exec_calls=%d run=%s history=%d outbox=%d pending=%d", claimed, exec.calls, got.State, msgs, outboxCount, pendingOutbox)
+		t.Fatalf("a committed run must never re-execute: claimed=%v exec_calls=%d run=%s history=%d outbox=%d pending=%d", claimed, exec.calls, got.State, msgs, outboxCount, pendingOutbox)
 	}
 }
