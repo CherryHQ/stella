@@ -1,10 +1,12 @@
 package testchan
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
 
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -83,6 +85,24 @@ func init() {
 					"allow_unlinked_dm": map[string]any{"type": "boolean", "default": true},
 				},
 				"required": []any{"endpoint"},
+			},
+			GuestPolicy: func(raw string) (pkgchannel.GuestConfig, error) {
+				var cfg Config
+				if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+					return pkgchannel.GuestConfig{}, err
+				}
+				var aux struct {
+					AllowDM         bool `json:"allow_dm"`
+					AllowUnlinkedDM bool `json:"allow_unlinked_dm"`
+				}
+				_ = json.Unmarshal([]byte(raw), &aux)
+				return pkgchannel.GuestConfig{
+					AllowDM:                    aux.AllowDM,
+					AllowUnlinkedDM:            aux.AllowUnlinkedDM,
+					GuestMessageLimitPerMinute: pkgchannel.DefaultGuestMessageLimitPerMinute,
+					GuestMaxPerChannel:         pkgchannel.DefaultGuestMaxPerChannel,
+					GuestRetentionDays:         pkgchannel.DefaultGuestRetentionDays,
+				}, nil
 			},
 			Validate: func(raw map[string]any) error {
 				cfg, err := DecodeConfig(raw)

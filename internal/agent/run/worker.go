@@ -293,7 +293,15 @@ func (w *Worker) completeExtra(o *runOutcome) sessionexecution.FinishExtra {
 				if err := json.Unmarshal(o.run.Actor, &actor); err != nil {
 					return fmt.Errorf("run actor for history: %w", err)
 				}
-				sess := memory.Session{ID: o.run.SessionID, UserID: actor.UserID, AgentID: o.run.AgentID}
+				sess := memory.Session{ID: o.run.SessionID, UserID: actor.UserID, AgentID: o.run.AgentID, GroupID: actor.GroupID, GuestID: actor.GuestID}
+				if sess.UserID == "" {
+					// Guest and group turns persist under their compatibility
+					// owner key — mirror ScopeUserIDFromContext precedence.
+					sess.UserID = actor.GuestID
+				}
+				if sess.UserID == "" {
+					sess.UserID = actor.GroupID
+				}
 				if err := w.turnAppender(ctx, tx, sess, rows); err != nil {
 					return fmt.Errorf("append deferred turn history: %w", err)
 				}

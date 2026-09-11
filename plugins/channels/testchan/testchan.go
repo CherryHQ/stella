@@ -204,7 +204,7 @@ func (c *Channel) deliver(ctx context.Context, ev pollEvent) {
 
 // SendOperation implements pkgchannel.OperationSender.
 func (c *Channel) SendOperation(ctx context.Context, op pkgchannel.OutboundOp) (pkgchannel.SendResult, error) {
-	if op.Kind != "text" {
+	if op.Kind != "send_text" {
 		return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: unsupported op kind %q", op.Kind)
 	}
 	var payload struct {
