@@ -25,7 +25,9 @@ func TestGroupAcceptRejectsOldSessionExecutionBeforeBusinessWrites(t *testing.T)
 		t.Fatal(err)
 	}
 	defer func() { _ = old.Finish("error") }()
-	if _, err := fx.db.Exec(t.Context(), "UPDATE ctx_session_execution SET lease_until=clock_timestamp()-interval '1 second' WHERE session_id=$1", id); err != nil {
+	// Model a crashed writer: expired lease plus a dead recorded owner pid, so
+	// the liveness fence allows the takeover this test exercises.
+	if _, err := fx.db.Exec(t.Context(), "UPDATE ctx_session_execution SET lease_until=clock_timestamp()-interval '1 second', owner_pid=1073741824 WHERE session_id=$1", id); err != nil {
 		t.Fatal(err)
 	}
 	_, next, err := store.Claim(t.Context(), id)

@@ -26,6 +26,7 @@ import (
 // classify (sent / definitely-not-executed / permanent failure / unknown).
 const (
 	OpSendText       = "send_text"
+	OpSendReply      = "send_reply"
 	OpNotify         = "notify"
 	OpSendGroupReply = "send_group_reply"
 	OpEditText       = "edit_text"

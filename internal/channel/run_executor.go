@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentrun "github.com/CherryHQ/stella/internal/agent/run"
@@ -17,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
 	"github.com/CherryHQ/stella/pkg/ai"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -168,17 +170,73 @@ func (c *Coordinator) runFinishHook(ctx context.Context, tx pgx.Tx, r sqlc.Agent
 		// the durable session event stream instead of an outbox send.
 		return nil
 	}
-	ops, err := choutbox.ReplyOps(r.ID, choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey,
-		choutbox.Address{
-			V:          choutbox.AddressVersion,
-			ChatKey:    addr.ChatKey,
-			ThreadKey:  addr.ThreadKey,
-			ReplyToKey: addr.ReplyToKey,
-			Scope:      addr.Scope,
-			Token:      addr.Token,
-		}, reply, c.replyTextLimit(addr.ChannelID))
+	outAddr := choutbox.Address{
+		V:          choutbox.AddressVersion,
+		ChatKey:    addr.ChatKey,
+		ThreadKey:  addr.ThreadKey,
+		ReplyToKey: addr.ReplyToKey,
+		Scope:      addr.Scope,
+		Token:      addr.Token,
+	}
+	// The reply op carries the recorded turn events so the owning adapter can
+	// replay them through its draft/edit surface and deliver attachments —
+	// the same replay-at-send contract group replies already use.
+	if events, ok := c.replyEvents(ctx, tx, r); ok {
+		op, err := choutbox.ReplyOp(choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey, outAddr, r.SessionID, events)
+		if err != nil {
+			return err
+		}
+		return c.outboxStore().Append(ctx, tx, []choutbox.Op{op})
+	}
+	ops, err := choutbox.ReplyOps(r.ID, choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey, outAddr, reply, c.replyTextLimit(addr.ChannelID))
 	if err != nil {
 		return err
 	}
 	return c.outboxStore().Append(ctx, tx, ops)
+}
+
+// replyEvents reads the run's persisted event stream inside the finish
+// transaction and converts it to the channel-facing shape. False means the
+// log is empty or the payload exceeds the reply buffer — the caller falls
+// back to a plain send_text delivery of the final text.
+func (c *Coordinator) replyEvents(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun) ([]pkgchannel.Event, bool) {
+	q := sqlc.New(tx)
+	var events []pkgchannel.Event
+	var seq int64
+	used := 0
+	for {
+		rows, err := q.ReadSessionEventsForRun(ctx, sqlc.ReadSessionEventsForRunParams{
+			SessionID: r.SessionID,
+			RunID:     pgtype.Text{String: r.ID, Valid: true},
+			Seq:       seq,
+			Limit:     500,
+		})
+		if err != nil {
+			return nil, false
+		}
+		if len(rows) == 0 {
+			break
+		}
+		for _, row := range rows {
+			evt, err := agentruntime.DecodeEvent(row.Event)
+			if err != nil {
+				continue
+			}
+			conv := convertEvent(evt)
+			enc, err := json.Marshal(conv)
+			if err != nil {
+				continue
+			}
+			used += len(enc)
+			if used > defaultGroupReplyBufferBytes {
+				return nil, false
+			}
+			events = append(events, conv)
+			seq = row.Seq
+		}
+		if len(rows) < 500 {
+			break
+		}
+	}
+	return events, len(events) > 0
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -37,6 +38,9 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "feishu: notify send: %v", err)
 		}
 		return channel.SendResult{}, nil
+	}
+	if op.Kind == "send_reply" {
+		return b.sendReplyOp(ctx, op)
 	}
 	if op.Kind != "send_text" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: unsupported op kind %q", op.Kind)
@@ -96,4 +100,45 @@ func classifyFeishuSend(err error) error {
 // OwnsAccount checks the bot identity captured at receive time.
 func (b *Bot) OwnsAccount(accountKey string) bool {
 	return b.registeredBotID != "" && b.registeredBotID == accountKey
+}
+
+// sendReplyOp replays a completed turn's recorded events through the card
+// stream machinery: the progress card is created, updated through the
+// recorded events, and finalized — one op identity, one terminal version.
+// isGroup stays false; the reply anchor and thread come from the op address.
+func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload channel.ReplyOpPayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: bad send_reply payload: %v", err)
+	}
+	chatID := strings.TrimPrefix(op.Address.ChatKey, "feishu:")
+	if chatID == "" {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: empty chat key")
+	}
+	deliveryKey := op.DeliveryKey + ":" + fmt.Sprint(op.OperationIndex)
+	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, payload.ReplayStream().Events, chatID, op.Address.ReplyToKey, op.Address.ThreadKey, deliveryKey)
+	if err := ctx.Err(); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "feishu: reply dispatch cancelled: %v", err)
+	}
+	if streamErr != nil {
+		return channel.SendResult{}, classifyFeishuSend(streamErr)
+	}
+	if strings.TrimSpace(response) == "" {
+		response = "(empty response)"
+	}
+	finalResponse := response + elapsedFooter(elapsed)
+	if err := b.sendFinalResponseInThreadWithOptions(ctx, chatID, op.Address.ReplyToKey, op.Address.ThreadKey, sentMsgID, finalResponse, refs, false, false, cardStatusCompleted, deliveryKey); err != nil {
+		return channel.SendResult{}, classifyFeishuSend(err)
+	}
+	for _, img := range images {
+		if err := b.sendImageInThread(chatID, op.Address.ReplyToKey, op.Address.ThreadKey, img); err != nil {
+			return channel.SendResult{}, classifyFeishuSend(err)
+		}
+	}
+	for _, file := range files {
+		if err := b.sendFileInThread(chatID, op.Address.ReplyToKey, op.Address.ThreadKey, file); err != nil {
+			return channel.SendResult{}, classifyFeishuSend(err)
+		}
+	}
+	return channel.SendResult{PlatformMessageID: sentMsgID}, nil
 }

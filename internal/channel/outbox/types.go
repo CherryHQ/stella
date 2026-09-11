@@ -117,6 +117,34 @@ func NotifyOp(deliveryKey, channelID, accountKey string, n pkgchannel.Notificati
 	}, nil
 }
 
+// ReplyPayload is the frozen body of a send_reply op; the shared definition
+// lives in pkg/channel so adapters decode the same shape.
+type ReplyPayload = pkgchannel.ReplyOpPayload
+
+// ReplyOp serializes a completed turn's recorded events into one durable
+// reply operation: the owning adapter replays the stream through its
+// draft/edit surface or flattens it to text plus attachments. A single op
+// keeps create/edit identity stable — one claim, one send, one final version.
+func ReplyOp(deliveryKey, channelID, accountKey string, addr Address, sessionID string, events []pkgchannel.Event) (Op, error) {
+	payload, err := json.Marshal(ReplyPayload{V: PayloadVersion, SessionID: sessionID, Events: events})
+	if err != nil {
+		return Op{}, err
+	}
+	rawAddr, err := json.Marshal(addr)
+	if err != nil {
+		return Op{}, err
+	}
+	return Op{
+		DeliveryKey: deliveryKey,
+		Index:       0,
+		Kind:        OpSendReply,
+		ChannelID:   channelID,
+		AccountKey:  accountKey,
+		Address:     rawAddr,
+		Payload:     payload,
+	}, nil
+}
+
 // GroupReplyPayload is the frozen body of a send_group_reply op; the shared
 // definition lives in pkg/channel so adapters decode the same shape.
 type GroupReplyPayload = pkgchannel.GroupReplyOpPayload

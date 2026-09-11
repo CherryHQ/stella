@@ -261,6 +261,52 @@ func TestDispatchSplitReplyRetriesOnlyFailedChunk(t *testing.T) {
 
 // A notify op skips the source-account fence — the notification has no
 // triggering account, so the channel's current bot identity is the sender.
+// accountFenceSender reports that the configured account no longer owns the
+// account key the op was enqueued under — the channel's platform account was
+// swapped after enqueue.
+type accountFenceSender struct {
+	fakeSender
+	owns bool
+}
+
+func (f *accountFenceSender) OwnsAccount(string) bool { return f.owns }
+
+func TestDispatchAccountMismatchFailsWithoutSend(t *testing.T) {
+	db := dbtest.New(t)
+	createChannel(t, db, "ch-1")
+	s := New(db)
+	ctx := t.Context()
+
+	appendOps(t, s, db, []Op{op("d-1", 0)})
+
+	// The channel now runs under a different platform account: the queued op
+	// must fail account_mismatch without reaching the SDK.
+	sender := &accountFenceSender{owns: false}
+	n, err := s.ProcessDue(ctx, "ch-1", "", sender)
+	if err != nil || n != 1 {
+		t.Fatalf("ProcessDue: n=%d err=%v", n, err)
+	}
+	if len(sender.calls) != 0 {
+		t.Fatalf("stale-account op reached the adapter: %d calls", len(sender.calls))
+	}
+	rows, _ := s.ListByDelivery(ctx, "d-1")
+	if rows[0].State != StateFailed || !rows[0].ErrorCode.Valid || rows[0].ErrorCode.String != ErrCodeAccountMismatch {
+		t.Fatalf("op = %s code=%v, want failed/account_mismatch", rows[0].State, rows[0].ErrorCode)
+	}
+
+	// Rotating credentials on the same account keeps the key: the same fence
+	// passes and the op sends.
+	sender2 := &accountFenceSender{owns: true}
+	sender2.results = []sendResult{{receipt: pkgchannel.SendResult{PlatformMessageID: "m-1"}}}
+	appendOps(t, s, db, []Op{op("d-2", 0)})
+	if n, err := s.ProcessDue(ctx, "ch-1", "", sender2); err != nil || n != 1 {
+		t.Fatalf("same-account ProcessDue: n=%d err=%v", n, err)
+	}
+	if len(sender2.calls) != 1 {
+		t.Fatal("same-account op did not reach the adapter")
+	}
+}
+
 func TestDispatchNotifySkipsAccountFence(t *testing.T) {
 	db := dbtest.New(t)
 	createChannel(t, db, "ch-1")

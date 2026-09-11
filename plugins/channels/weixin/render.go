@@ -144,7 +144,7 @@ func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 
 // sendFile encrypts and uploads a file to CDN, then sends it as a message.
 //
-//nolint:unused // kept for future agent media sending
+
 func (b *Bot) sendFile(msg WeixinMessage, fileName string, data []byte) {
 	if err := b.guard.AssertActive(); err != nil {
 		logger().Warn("sendFile skipped: session paused", "user_id", msg.FromUserID, "error", err)

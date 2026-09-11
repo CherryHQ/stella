@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"strings"
 
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/errs"
@@ -37,6 +38,9 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "qq: notify send: %v", err)
 		}
 		return channel.SendResult{}, nil
+	}
+	if op.Kind == "send_reply" {
+		return b.sendReplyOp(ctx, op)
 	}
 	if op.Kind != "send_text" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "qq: unsupported op kind %q", op.Kind)
@@ -107,4 +111,50 @@ func classifyQQSend(err error) error {
 // OwnsAccount checks the app id captured at receive time.
 func (b *Bot) OwnsAccount(accountKey string) bool {
 	return b.cfg.AppID != "" && b.cfg.AppID == accountKey
+}
+
+// sendReplyOp replays a completed turn's recorded events through the QQ
+// Stream API, then posts the terminal text as ordinary messages — the same
+// two-phase delivery the live path used. Images stay skipped: QQ rich media
+// needs a public URL the events do not carry.
+func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload channel.ReplyOpPayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "qq: bad send_reply payload: %v", err)
+	}
+	targetID := op.Address.ChatKey
+	if targetID == "" || b.api == nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "qq: empty chat key or api down")
+	}
+	scope := scopeC2C
+	authorID, groupID := targetID, ""
+	if op.Address.Scope == "group" {
+		scope, authorID, groupID = scopeGroup, "", targetID
+	}
+	response, _, streamErr := b.streamResponse(payload.ReplayStream().Events, authorID, groupID, op.Address.ReplyToKey, scope)
+	if streamErr != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "qq: recorded turn error: %v", streamErr)
+	}
+	if strings.TrimSpace(response) == "" {
+		response = "(empty response)"
+	}
+	var firstID string
+	for i, chunk := range channel.SplitMessage(response, qqMaxMessageLen) {
+		msg := dto.MessageToCreate{Content: chunk, MsgType: dto.TextMsg, MsgID: op.Address.ReplyToKey, MsgSeq: uint32(100 + i)}
+		var sent *dto.Message
+		var err error
+		switch scope {
+		case scopeC2C:
+			sent, err = b.api.PostC2CMessage(ctx, targetID, msg)
+		case scopeGroup:
+			sent, err = b.api.PostGroupMessage(ctx, targetID, msg)
+		}
+		if err != nil {
+			return channel.SendResult{}, classifyQQSend(err)
+		}
+		if i == 0 && sent != nil {
+			firstID = sent.ID
+		}
+	}
+	return channel.SendResult{PlatformMessageID: firstID}, nil
 }

@@ -37,6 +37,23 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		}
 		return channel.SendResult{}, nil
 	}
+	if op.Kind == "send_reply" {
+		var payload channel.ReplyOpPayload
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: bad send_reply payload: %v", err)
+		}
+		if op.Address.ChatKey == "" {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: empty chat key")
+		}
+		// Replay the recorded turn through the draft/edit path: the draft is
+		// created, ticked through the recorded progress, and finalized — one
+		// op identity, one terminal version. No cancel control: the run has
+		// already finished when the op dispatches.
+		if err := b.deliverReplay(ctx, op.Address.ChatKey, op.Address.ReplyToKey, payload.ReplayStream(), nil, true); err != nil {
+			return channel.SendResult{}, classifyDiscordSend(err)
+		}
+		return channel.SendResult{}, nil
+	}
 	if op.Kind != "send_text" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: unsupported op kind %q", op.Kind)
 	}

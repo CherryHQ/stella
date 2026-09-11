@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 
 	tele "gopkg.in/telebot.v4"
 
@@ -39,6 +40,9 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "telegram: notify send: %v", err)
 		}
 		return channel.SendResult{}, nil
+	}
+	if op.Kind == "send_reply" {
+		return b.sendReplyOp(ctx, op)
 	}
 	if op.Kind != "send_text" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: unsupported op kind %q", op.Kind)
@@ -141,4 +145,67 @@ func unwrapDNSError(err error) (*net.DNSError, bool) {
 // old account's replies.
 func (b *Bot) OwnsAccount(accountKey string) bool {
 	return b.bot != nil && b.bot.Me != nil && b.bot.Me.Username == accountKey
+}
+
+// sendReplyOp delivers a completed turn's recorded events: flattened text in
+// message-sized chunks, then attachments — the same contract group publish
+// uses. Telegram's live DM draft surface needs the inbound tele.Context; a
+// cross-replica replay has none, so the op sends the terminal content only.
+func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload channel.ReplyOpPayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: bad send_reply payload: %v", err)
+	}
+	chat := teleChatForKey(op.Address.ChatKey)
+	if chat == nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: empty chat key")
+	}
+	opts := &tele.SendOptions{}
+	if op.Address.ThreadKey != "" {
+		if id, err := strconv.Atoi(op.Address.ThreadKey); err == nil {
+			opts.ThreadID = id
+		}
+	}
+	if op.Address.ReplyToKey != "" {
+		if id, err := strconv.Atoi(op.Address.ReplyToKey); err == nil {
+			opts.ReplyTo = &tele.Message{ID: id, Chat: &tele.Chat{ID: mustChatID(chat)}}
+		}
+	}
+
+	text, images, files := channel.CollectReplyEvents(payload.Events)
+	if strings.TrimSpace(text) == "" {
+		text = "(empty response)"
+	}
+	var firstID string
+	for i, chunk := range channel.SplitMessage(text, telegramMaxMessageLen) {
+		if err := ctx.Err(); err != nil {
+			return channel.SendResult{}, classifySend(err)
+		}
+		msg, err := b.sendTelegramMarkdown(ctx, chat, chunk, opts)
+		if err != nil {
+			return channel.SendResult{}, classifySend(err)
+		}
+		if i == 0 && msg != nil {
+			firstID = strconv.Itoa(msg.ID)
+		}
+		opts = &tele.SendOptions{} // only the first chunk replies to the prompt
+	}
+	for _, img := range images {
+		if err := b.sendGroupImage(ctx, chat, img, opts); err != nil {
+			return channel.SendResult{}, classifySend(err)
+		}
+	}
+	for _, file := range files {
+		if err := b.sendGroupFile(ctx, chat, file, opts); err != nil {
+			return channel.SendResult{}, classifySend(err)
+		}
+	}
+	return channel.SendResult{PlatformMessageID: firstID}, nil
+}
+
+func mustChatID(chat tele.Recipient) int64 {
+	if c, ok := chat.(*tele.Chat); ok {
+		return c.ID
+	}
+	return 0
 }

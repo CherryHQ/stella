@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // OutboundAddress fixes where one durable outbound operation lands: the
@@ -111,6 +112,55 @@ type GroupReplyOpPayload struct {
 	RequesterID      string  `json:"requester_id,omitempty"`
 	SessionID        string  `json:"session_id,omitempty"`
 	Events           []Event `json:"events"`
+}
+
+// ReplyOpPayload is the frozen body of the "send_reply" outbox op — the whole
+// recorded turn event list, so the owning adapter can replay it through its
+// draft/edit machinery (or flatten it to text plus attachments) on whichever
+// replica holds the channel lease.
+type ReplyOpPayload struct {
+	V         int     `json:"v"`
+	SessionID string  `json:"session_id,omitempty"`
+	Events    []Event `json:"events"`
+}
+
+// ReplayStream rebuilds a completed turn as a ChatStream. Abort cannot cross
+// a process boundary: the turn has already ended when the op dispatches.
+func (p ReplyOpPayload) ReplayStream() *ChatStream {
+	events := make(chan Event, len(p.Events))
+	for _, evt := range p.Events {
+		events <- evt
+	}
+	close(events)
+	return &ChatStream{Events: events, SessionID: p.SessionID}
+}
+
+// CollectReplyEvents folds a completed turn's events into the deliverable
+// body for adapters without a draft surface: final text (with the tool
+// history rendered, matching the live stream's tail), plus attachments.
+func CollectReplyEvents(events []Event) (string, []ImageEvent, []FileEvent) {
+	var text strings.Builder
+	var tracker ToolTracker
+	var images []ImageEvent
+	var files []FileEvent
+	for _, evt := range events {
+		switch {
+		case evt.Image != nil:
+			images = append(images, *evt.Image)
+		case evt.File != nil:
+			files = append(files, *evt.File)
+		default:
+			if evt.ToolUse != nil {
+				tracker.Handle(evt.ToolUse)
+			}
+			text.WriteString(evt.Text)
+		}
+	}
+	response := text.String()
+	if tracker.HasHistory() {
+		response += tracker.RenderFinal()
+	}
+	return response, images, files
 }
 
 // ReplayChatStream rebuilds a GroupPublishRequest stream from a persisted op.

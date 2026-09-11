@@ -218,14 +218,24 @@ func (c *Channel) SendOperation(ctx context.Context, op pkgchannel.OutboundOp) (
 		}
 		return pkgchannel.SendResult{}, nil
 	}
-	if op.Kind != "send_text" {
+	var text string
+	switch op.Kind {
+	case "send_text":
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: decode payload: %s", err)
+		}
+		text = payload.Text
+	case "send_reply":
+		var payload pkgchannel.ReplyOpPayload
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: decode send_reply payload: %s", err)
+		}
+		text, _, _ = pkgchannel.CollectReplyEvents(payload.Events)
+	default:
 		return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: unsupported op kind %q", op.Kind)
-	}
-	var payload struct {
-		Text string `json:"text"`
-	}
-	if err := json.Unmarshal(op.Payload, &payload); err != nil {
-		return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: decode payload: %s", err)
 	}
 	req := sendRequest{
 		Tag:        os.Getenv("STELLA_TESTCHAN_TAG"),
@@ -234,7 +244,7 @@ func (c *Channel) SendOperation(ctx context.Context, op pkgchannel.OutboundOp) (
 		ChatKey:    op.Address.ChatKey,
 		ThreadKey:  op.Address.ThreadKey,
 		ReplyToKey: op.Address.ReplyToKey,
-		Text:       payload.Text,
+		Text:       text,
 		Account:    op.SourceAccountKey,
 	}
 	data, err := json.Marshal(req)

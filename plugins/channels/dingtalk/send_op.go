@@ -36,6 +36,27 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		}
 		return channel.SendResult{}, nil
 	}
+	if op.Kind == "send_reply" {
+		var payload channel.ReplyOpPayload
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "dingtalk: bad send_reply payload: %v", err)
+		}
+		if op.Address.Token == "" {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "dingtalk: no session webhook for op")
+		}
+		// Session webhooks take text only — attachments have no webhook path,
+		// same as the group publish surface.
+		text, _, _ := channel.CollectReplyEvents(payload.Events)
+		if strings.TrimSpace(text) == "" {
+			text = "(empty response)"
+		}
+		for _, chunk := range channel.SplitMessage(text, dingTalkMaxMessageLen) {
+			if err := sendWebhookText(ctx, op.Address.Token, chunk); err != nil {
+				return channel.SendResult{}, classifyDingTalkSend(err)
+			}
+		}
+		return channel.SendResult{}, nil
+	}
 	if op.Kind != "send_text" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "dingtalk: unsupported op kind %q", op.Kind)
 	}

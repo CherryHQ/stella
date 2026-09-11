@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"os"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -28,6 +30,57 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "weixin: notify send: %v", err)
 		}
 		return channel.SendResult{}, nil
+	}
+	if op.Kind == "send_reply" {
+		var payload channel.ReplyOpPayload
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "weixin: bad send_reply payload: %v", err)
+		}
+		if op.Address.ChatKey == "" || b.client == nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "weixin: empty chat key or client down")
+		}
+		text, images, files := channel.CollectReplyEvents(payload.Events)
+		if strings.TrimSpace(text) == "" {
+			text = "(empty response)"
+		}
+		var firstID string
+		for i, chunk := range channel.SplitMessage(text, weixinMaxMessageLen) {
+			msg := WeixinMessage{
+				ToUserID:     op.Address.ChatKey,
+				ClientID:     deterministicClientID(op.DeliveryKey, i),
+				MessageType:  MessageTypeBot,
+				MessageState: MessageStateFinish,
+				ContextToken: op.Address.Token,
+				ItemList: []MessageItem{{
+					Type:     ItemTypeText,
+					TextItem: &TextItem{Text: chunk},
+				}},
+			}
+			if err := b.client.SendMessage(msg); err != nil {
+				return channel.SendResult{}, classifyWeixinSend(err)
+			}
+			if i == 0 {
+				firstID = msg.ClientID
+			}
+		}
+		// Attachments go through the CDN upload helpers; the op address token
+		// re-seeds the reply credential on a replica that never saw inbound.
+		if op.Address.Token != "" {
+			b.contextTokens.Store(op.Address.ChatKey, op.Address.Token)
+		}
+		msg := WeixinMessage{FromUserID: op.Address.ChatKey}
+		for _, img := range images {
+			b.sendImage(msg, img)
+		}
+		for _, file := range files {
+			data, err := os.ReadFile(file.Path)
+			if err != nil {
+				logger().Warn("sendReplyOp: attachment unreadable on this replica", "path", file.Path, "error", err)
+				continue
+			}
+			b.sendFile(msg, file.Name, data)
+		}
+		return channel.SendResult{PlatformMessageID: firstID}, nil
 	}
 	if op.Kind != "send_text" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "weixin: unsupported op kind %q", op.Kind)
