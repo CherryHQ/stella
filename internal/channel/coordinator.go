@@ -79,6 +79,11 @@ type Coordinator struct {
 	listenerCap       ListenerCap
 	guestLimiter      *guestRateLimiter
 	sessionImages     GroupImagePipeline
+	// sessionAccess is the Session PEP for the durable router: binding
+	// resolution and rotation without a local agent.Service. durableIngress
+	// gates the channel_inbox receive path on HandleIncoming.
+	sessionAccess  agent.SessionAccessService
+	durableIngress bool
 }
 
 // GroupImagePipeline canonicalizes group images. It is the same pipeline
@@ -445,6 +450,10 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 
 	if msg.IsGroup && c.eventLog != nil {
 		return c.handleGroupIncoming(ctx, msg, command, args)
+	}
+
+	if c.durableIngress {
+		return c.receiveDurable(ctx, msg, command, args)
 	}
 
 	rc, err := c.resolve(ctx, msg)

@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/db/txlock"
 )
 
 // State is the agent_run lifecycle. Valid values are enforced here at the
@@ -143,6 +144,13 @@ type EnqueueParams struct {
 func (s *Store) Enqueue(ctx context.Context, tx pgx.Tx, p EnqueueParams) (sqlc.AgentRun, bool, error) {
 	if p.SessionID == "" || p.AgentID == "" || p.RequestKey == "" {
 		return sqlc.AgentRun{}, false, fmt.Errorf("run: session, agent and request key are required")
+	}
+	// enqueue_seq is allocated under a transaction-scoped advisory lock on the
+	// session id rather than a row lock: a rotation must be able to archive the
+	// session row on another connection while an earlier run for it is being
+	// enqueued inside the routing transaction.
+	if err := txlock.AdvisoryXactLock(ctx, tx, "agent-run-enqueue:"+p.SessionID); err != nil {
+		return sqlc.AgentRun{}, false, err
 	}
 	q := sqlc.New(tx)
 	seq, err := q.NextSessionEnqueueSeq(ctx, p.SessionID)

@@ -25,6 +25,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
@@ -382,6 +383,11 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	botRegistry := channel.NewBotIdentityRegistry()
 	publisherRegistry := channel.NewPublisherRegistry()
 	coordOpts = append(coordOpts, channel.WithDB(s.db))
+	coordOpts = append(coordOpts, channel.WithSessionAccess(sessionaccess.NewAgentSessionAccess(s.sessionAccess)))
+	// Durable channel ingress is opt-in until the run workers and outbox
+	// senders exist; with the flag on, inbound events land in channel_inbox
+	// and replies flow through channel_outbox instead of the live stream.
+	coordOpts = append(coordOpts, channel.WithDurableIngress(os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") != ""))
 	coordOpts = append(coordOpts, channel.WithGuestStore(channel.NewGuestStore(s.db)))
 	// Group event ingestion canonicalizes its images through the very pipeline
 	// ordinary sessions use, with the group as the media owner.
