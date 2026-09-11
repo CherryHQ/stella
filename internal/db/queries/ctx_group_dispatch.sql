@@ -456,3 +456,13 @@ SELECT DISTINCT agent_id FROM ctx_group_dispatch
 WHERE group_id = sqlc.arg(group_id)
   AND status = 'running'
 ORDER BY agent_id;
+
+-- name: LatestTerminalGroupDispatchStates :many
+-- The newest terminal dispatch per agent — lets a replica that never ran the
+-- turn project the real terminal frame (done/held/silent/failed) onto its SSE.
+SELECT DISTINCT ON (agent_id) agent_id, status
+FROM ctx_group_dispatch
+WHERE group_id = $1
+  AND agent_id = ANY($2::text[])
+  AND status IN ('held', 'silent', 'failed', 'completed')
+ORDER BY agent_id, updated_at DESC;

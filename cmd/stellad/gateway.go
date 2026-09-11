@@ -28,6 +28,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	agentrun "github.com/CherryHQ/stella/internal/agent/run"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
@@ -559,7 +560,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		OAuthAuthServer:      oauthAuthServer,
 		Group:                groupSvc,
 		SessionEvents:        sessionEventsForGateway(s.db),
-		RunDB:                runDBForGateway(s.db),
+		DurableRuns:          durableRunsForGateway(s.db),
 		Vault:                s.vaultSvc,
 		VaultRecipient:       vaultRecipient,
 		MCP:                  s.mcpSvc,
@@ -1092,11 +1093,11 @@ func intentClassifierStreamFuncBuilder(registry *providers.Registry) channel.Str
 
 // sessionEventsForGateway binds the durable turn-event log only under the
 // durable channel flag; otherwise SSE replay stays hub-local.
-func runDBForGateway(db *pgxpool.Pool) *pgxpool.Pool {
+func durableRunsForGateway(db *pgxpool.Pool) *agentrun.Store {
 	if os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") == "" {
 		return nil
 	}
-	return db
+	return agentrun.New(db)
 }
 
 func sessionEventsForGateway(db *pgxpool.Pool) *sessionevent.Store {

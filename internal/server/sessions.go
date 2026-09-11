@@ -161,7 +161,7 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 	if body.ExcludedTools != nil {
 		excludedTools = *body.ExcludedTools
 	}
-	if s.runDB != nil && s.sessionEvents != nil {
+	if s.durableRuns != nil && s.sessionEvents != nil {
 		s.sendSessionMessageDurable(w, r, flusher, authority, agentID, sessionID, message, excludedTools)
 		return
 	}
@@ -214,7 +214,7 @@ func (s *Server) StopSession(w http.ResponseWriter, r *http.Request, agentID str
 		s.writeSessionAccessError(w, err)
 		return
 	}
-	if s.runDB != nil {
+	if s.durableRuns != nil {
 		// The turn may execute on another replica: flag the durable execution
 		// lease and drop still-queued runs so a remote worker aborts/never
 		// starts. Local StopSession above covers the single-process case.
@@ -229,7 +229,7 @@ func (s *Server) StopSession(w http.ResponseWriter, r *http.Request, agentID str
 // worker aborts at its next lease check) and cancels queued runs so a worker
 // elsewhere never starts them.
 func (s *Server) cancelDurableTurn(ctx context.Context, sessionID string) error {
-	return agentrun.New(s.runDB).CancelSessionTurn(ctx, sessionID)
+	return s.durableRuns.CancelSessionTurn(ctx, sessionID)
 }
 
 func (s *Server) MarkSessionViewed(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
@@ -1821,13 +1821,7 @@ func (s *Server) sendSessionMessageDurable(w http.ResponseWriter, r *http.Reques
 	} else if raw, merr := json.Marshal(message); merr == nil {
 		input.Content = raw
 	}
-	tx, err := s.runDB.Begin(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "enqueue failed")
-		return
-	}
-	defer func() { _ = tx.Rollback(r.Context()) }()
-	run, _, err := agentrun.New(s.runDB).Enqueue(r.Context(), tx, agentrun.EnqueueParams{
+	run, _, err := s.durableRuns.EnqueueDirect(r.Context(), agentrun.EnqueueParams{
 		SessionID:  info.ID,
 		AgentID:    info.AgentID,
 		RequestKey: agentrun.RequestKeyRequest(requestKey),
@@ -1842,10 +1836,6 @@ func (s *Server) sendSessionMessageDurable(w http.ResponseWriter, r *http.Reques
 		Input: input,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "enqueue failed")
-		return
-	}
-	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "enqueue failed")
 		return
 	}

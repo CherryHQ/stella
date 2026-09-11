@@ -488,6 +488,47 @@ func (q *Queries) GetGroupDispatch(ctx context.Context, id string) (CtxGroupDisp
 	return i, err
 }
 
+const latestTerminalGroupDispatchStates = `-- name: LatestTerminalGroupDispatchStates :many
+SELECT DISTINCT ON (agent_id) agent_id, status
+FROM ctx_group_dispatch
+WHERE group_id = $1
+  AND agent_id = ANY($2::text[])
+  AND status IN ('held', 'silent', 'failed', 'completed')
+ORDER BY agent_id, updated_at DESC
+`
+
+type LatestTerminalGroupDispatchStatesParams struct {
+	GroupID string   `json:"group_id"`
+	Column2 []string `json:"column_2"`
+}
+
+type LatestTerminalGroupDispatchStatesRow struct {
+	AgentID string `json:"agent_id"`
+	Status  string `json:"status"`
+}
+
+// The newest terminal dispatch per agent — lets a replica that never ran the
+// turn project the real terminal frame (done/held/silent/failed) onto its SSE.
+func (q *Queries) LatestTerminalGroupDispatchStates(ctx context.Context, arg LatestTerminalGroupDispatchStatesParams) ([]LatestTerminalGroupDispatchStatesRow, error) {
+	rows, err := q.db.Query(ctx, latestTerminalGroupDispatchStates, arg.GroupID, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LatestTerminalGroupDispatchStatesRow{}
+	for rows.Next() {
+		var i LatestTerminalGroupDispatchStatesRow
+		if err := rows.Scan(&i.AgentID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listExpiredRunningGroupDispatch = `-- name: ListExpiredRunningGroupDispatch :many
 SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, publish_started_at, published_at FROM ctx_group_dispatch
 WHERE status = 'running'

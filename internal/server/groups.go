@@ -222,6 +222,60 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 	}
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
+	// The in-process hub only carries events that pass through this replica.
+	// When a group turn executes elsewhere its accepted message and turn frames
+	// land in the event log but never reach this hub — converge through a DB
+	// poll so observers on any replica see the same stream.
+	poll := time.NewTicker(1500 * time.Millisecond)
+	defer poll.Stop()
+	knownRunning := map[string]bool{}
+	for _, agentID := range running {
+		knownRunning[agentID] = true
+	}
+	pollOnce := func() bool {
+		rows, err := acc.MessagesAfterSeq(r.Context(), groupId, replayedThrough)
+		if err == nil {
+			for _, row := range rows {
+				if !write("message", groupMessageToAPI(row)) {
+					return false
+				}
+				replayedThrough = max(replayedThrough, int64(row.Seq))
+			}
+		}
+		current, err := acc.RunningTurnAgents(r.Context(), groupId)
+		if err != nil {
+			return true
+		}
+		now := map[string]bool{}
+		for _, agentID := range current {
+			now[agentID] = true
+			if !knownRunning[agentID] {
+				if !write("turn", apitypes.GroupTurnEvent{AgentId: agentID, State: apitypes.GroupTurnEventStateRunning}) {
+					return false
+				}
+			}
+		}
+		var ended []string
+		for agentID := range knownRunning {
+			if !now[agentID] {
+				ended = append(ended, agentID)
+			}
+		}
+		// Resolve the real terminal outcome from the dispatch row: the turn may
+		// have executed on another replica, where the hub frame can't reach.
+		states, _ := acc.LatestTurnStates(r.Context(), groupId, ended)
+		for _, agentID := range ended {
+			state := states[agentID]
+			if state == "" {
+				state = "done"
+			}
+			if !write("turn", apitypes.GroupTurnEvent{AgentId: agentID, State: apitypes.GroupTurnEventState(state)}) {
+				return false
+			}
+		}
+		knownRunning = now
+		return true
+	}
 	for {
 		select {
 		case <-r.Context().Done():
@@ -231,6 +285,7 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 				return
 			}
 			if event.Turn != nil {
+				knownRunning[event.Turn.AgentID] = event.Turn.State == "running"
 				if !write("turn", groupTurnToAPI(*event.Turn)) {
 					return
 				}
@@ -239,7 +294,12 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 			if event.Seq <= replayedThrough {
 				continue
 			}
+			replayedThrough = event.Seq
 			if !write("message", groupMessageToAPI(channel.GroupMessageItem{ID: event.Message.ID, GroupID: event.GroupID, Seq: int(event.Seq), ActorType: event.Message.ActorType, ActorID: event.Message.ActorID, Content: event.Message.Content, DeliveryState: event.Message.DeliveryState, CreatedAt: event.Message.CreatedAt.UTC()})) {
+				return
+			}
+		case <-poll.C:
+			if !pollOnce() {
 				return
 			}
 		case <-heartbeat.C:

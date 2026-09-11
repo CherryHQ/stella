@@ -279,6 +279,24 @@ func (s *Store) CancelQueued(ctx context.Context, tx pgx.Tx, id string) (bool, e
 	return n > 0, err
 }
 
+// EnqueueDirect wraps Enqueue in its own transaction for callers that have no
+// outer unit of work to join (web sends; channel routing holds a route tx).
+func (s *Store) EnqueueDirect(ctx context.Context, p EnqueueParams) (sqlc.AgentRun, bool, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return sqlc.AgentRun{}, false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	run, created, err := s.Enqueue(ctx, tx, p)
+	if err != nil {
+		return sqlc.AgentRun{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return sqlc.AgentRun{}, false, err
+	}
+	return run, created, nil
+}
+
 // CancelSessionTurn cancels a session's queued runs and flags its live
 // execution lease in one transaction — the cross-replica /abort equivalent.
 // A running worker observes cancel_requested at its next lease check.

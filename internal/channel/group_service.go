@@ -213,6 +213,32 @@ func (a *GroupAccess) RunningTurnAgents(ctx context.Context, groupID string) ([]
 	return agents, nil
 }
 
+// LatestTurnStates resolves the real terminal state for agents that just left
+// the running set — the cross-replica SSE poll fallback needs the dispatcher's
+// persisted outcome, not a guess.
+func (a *GroupAccess) LatestTurnStates(ctx context.Context, groupID string, agentIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(agentIDs) == 0 {
+		return out, nil
+	}
+	if _, err := a.requireOwner(ctx, groupID); err != nil {
+		return nil, err
+	}
+	rows, err := a.q().LatestTerminalGroupDispatchStates(ctx, sqlc.LatestTerminalGroupDispatchStatesParams{GroupID: groupID, Column2: agentIDs})
+	if err != nil {
+		return nil, fmt.Errorf("list terminal group turns: %w", err)
+	}
+	for _, row := range rows {
+		switch row.Status {
+		case "completed":
+			out[row.AgentID] = "done"
+		case "held", "silent", "failed":
+			out[row.AgentID] = row.Status
+		}
+	}
+	return out, nil
+}
+
 // MessagesAfterSeq replays the newest window of canonical rows, in ascending
 // sequence order. A group longer than the window drops its oldest messages from
 // the replay, never its newest: the stream exists to show what just happened.

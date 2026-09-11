@@ -250,7 +250,23 @@ func (d *GroupDispatcher) AbortGroupTurn(groupID, agentID string) bool {
 	if d == nil || groupID == "" || agentID == "" {
 		return false
 	}
-	return d.chats.abort(agent.BuildGroupSessionKey(agentID, groupID))
+	sessionID := agent.BuildGroupSessionKey(agentID, groupID)
+	aborted := d.chats.abort(sessionID)
+	// The turn may execute on another replica: flag the durable execution
+	// lease so its worker aborts at the next lease check.
+	if d.db != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		q := sqlc.New(d.db)
+		if row, err := q.GetSessionExecution(ctx, sessionID); err == nil {
+			if _, err := q.CancelSessionExecution(ctx, sqlc.CancelSessionExecutionParams{SessionID: sessionID, Token: row.Token}); err != nil {
+				d.log.Warn("group turn durable cancel failed", "session", sessionID, "error", err)
+			} else {
+				aborted = true
+			}
+		}
+	}
+	return aborted
 }
 
 func (d *GroupDispatcher) poll(ctx context.Context) error {
