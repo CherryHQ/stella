@@ -15,6 +15,7 @@ import (
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	chinbox "github.com/CherryHQ/stella/internal/channel/inbox"
 	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
+	"github.com/CherryHQ/stella/internal/sessionevent"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/db/txlock"
@@ -464,8 +465,11 @@ func (c *Coordinator) RunDurableLoops(ctx context.Context) {
 	// the sweep covers every enabled channel, not just locally owned ones.
 	// Sending is different: only the lease holder dispatches outbox ops.
 	q := sqlc.New(c.db)
+	events := sessionevent.New(c.db)
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
+	janitor := time.NewTicker(30 * time.Second)
+	defer janitor.Stop()
 	for {
 		channels, err := q.ListChannels(ctx)
 		if err == nil {
@@ -485,6 +489,17 @@ func (c *Coordinator) RunDurableLoops(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-janitor.C:
+			// Attempts that outlived their deadline can no longer report
+			// cleanly: expire them to 'unknown' for a probe, never resend.
+			if n, err := c.outboxStore().ExpireAttempts(ctx); err != nil {
+				slog.WarnContext(ctx, "outbox attempt expiry failed", "error", err)
+			} else if n > 0 {
+				slog.InfoContext(ctx, "outbox attempts expired to unknown", "count", n)
+			}
+			if _, err := events.Prune(ctx); err != nil {
+				slog.WarnContext(ctx, "session event prune failed", "error", err)
+			}
 		}
 	}
 }
