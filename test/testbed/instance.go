@@ -39,6 +39,11 @@ type Options struct {
 	DatabaseURL string
 	// ExtraEnv adds process env vars (e.g. feature flags).
 	ExtraEnv map[string]string
+	// Home overrides the instance's STELLA_HOME. Replicas that share one Home
+	// approximate the shared, strongly consistent POSIX namespace multi-replica
+	// deployments require — same-host coverage of the asset/workspace path,
+	// not a network-filesystem check.
+	Home string
 }
 
 // Instance owns the stellad process, its embedded database, temporary home,
@@ -133,7 +138,10 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 			return nil, err
 		}
 	}
-	instance.home = filepath.Join(root, "home")
+	instance.home = opts.Home
+	if instance.home == "" {
+		instance.home = filepath.Join(root, "home")
+	}
 	if err := os.MkdirAll(instance.home, 0o700); err != nil {
 		cleanup()
 		return nil, err
@@ -268,6 +276,25 @@ func (i *Instance) LogTail(n int) string {
 	return "server log tail:\n" + strings.Join(lines, "\n")
 }
 func (i *Instance) Done() <-chan struct{} { return i.done }
+
+// StopDatabase halts this instance's embedded PostgreSQL while leaving stellad
+// (and every other replica sharing the DSN) running — a real DB outage seam.
+// Only instances that own their cluster support it.
+func (i *Instance) StopDatabase() error {
+	if i.db == nil {
+		return errors.New("instance does not own a database")
+	}
+	return i.db.StopKeepData()
+}
+
+// StartDatabase restarts a cluster stopped by StopDatabase on the same data
+// dir and port, so the shared DSN stays valid for all replicas.
+func (i *Instance) StartDatabase() error {
+	if i.db == nil {
+		return errors.New("instance does not own a database")
+	}
+	return i.db.Start()
+}
 
 // PID exposes the stellad process id so multi-replica tests can match
 // worker/owner identities recorded in the database back to a real process.

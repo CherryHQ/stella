@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -446,6 +449,31 @@ func startReplica(t *testing.T, first *testbed.Instance, extra map[string]string
 	return inst
 }
 
+// startReplicaHome is startReplica with a caller-owned STELLA_HOME so two
+// replicas can share one POSIX namespace — the deployment requirement the
+// attachment assertions exercise.
+func startReplicaHome(t *testing.T, first *testbed.Instance, home string, extra map[string]string) *testbed.Instance {
+	t.Helper()
+	inst, err := testbed.Start(context.Background(), testbed.Options{
+		RepoRoot:    repoRoot(t),
+		DatabaseURL: first.DatabaseURL(),
+		VaultKey:    first.VaultKey(),
+		Home:        home,
+		Bootstrap:   false,
+		Managed:     false,
+		ExtraEnv:    extra,
+	})
+	if err != nil {
+		t.Fatalf("start replica: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := inst.Stop(); err != nil {
+			t.Errorf("stop replica: %v", err)
+		}
+	})
+	return inst
+}
+
 func replicaIDOf(t *testing.T, inst *testbed.Instance) string {
 	t.Helper()
 	log := inst.LogTail(200)
@@ -798,6 +826,265 @@ func TestDurableChannelStaleOwnerPaused(t *testing.T) {
 		if s["tag"] == "A" {
 			t.Fatal("resumed stale owner A sent an operation")
 		}
+	}
+}
+
+// M2 fault row: the shared database disappears while a run is in flight and
+// while a second event waits at the platform. Assertions: no send can happen
+// without the DB (the in-flight turn's reply is lost, not faked), the un-acked
+// event is received exactly once after recovery, and no run is re-executed.
+func TestDurableChannelDBOutageRecovery(t *testing.T) {
+	skipUnsupportedHost(t)
+	fp := newFakePlatform(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	baseEnv := map[string]string{
+		"STELLA_TEST_CHANNELS": "1",
+	}
+	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "D",
+	})})
+	if err != nil {
+		t.Fatalf("start D: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Stop() })
+	sharedFake = d
+	fake := newFakeAnthropic(t)
+	h := &harness{owner: t, runID: newRunID(t), baseURL: d.BaseURL(), client: mustCookieClient(t), proc: d}
+	h.registerBootstrapUser(t, ctx)
+	db, err := pgxpool.New(ctx, d.DatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.db = db
+	t.Cleanup(db.Close)
+
+	const modelID = "claude-sonnet-4-6"
+	gate := fake.EnqueueGatedText("", "GONE "+h.runID)
+	fake.enqueueText("AFTER " + h.runID)
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "-dbout")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/"+modelID, "-dbout")
+	botName := "testbot-" + h.runID
+	channelID := h.createTestChannel(t, ctx, agentID, fp.endpoint(), botName)
+
+	a := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "A",
+	}))
+	aID := replicaIDOf(t, a)
+	waitForCond(t, 60*time.Second, "A owns the channel", func() bool {
+		var owner string
+		return db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&owner) == nil && owner == aID
+	})
+	b := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_TESTCHAN_TAG": "B",
+	}))
+	_ = startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "C",
+	}))
+
+	// E1: B claims the run and blocks inside the gated model call.
+	fp.push(map[string]string{
+		"id": "m2-db1-" + h.runID, "chat_id": "chat-db", "sender_id": "user-1", "sender_name": "U", "text": "first",
+	})
+	var run1ID, workerID string
+	waitForCond(t, 90*time.Second, "B claims run1", func() bool {
+		return db.QueryRow(ctx, "SELECT id, COALESCE(worker_id,'') FROM agent_run WHERE state='running'").Scan(&run1ID, &workerID) == nil
+	})
+	if bpid := b.PID(); bpid == 0 || !strings.Contains(workerID, fmt.Sprintf("-%d-", bpid)) {
+		t.Fatalf("run1 worker_id=%q does not name B (pid %d)", workerID, bpid)
+	}
+
+	// DB outage: stop the shared cluster while every stellad stays alive. E2
+	// is pushed while down — the poller can read it but cannot ingest, so it
+	// stays un-acked at the platform.
+	if err := d.StopDatabase(); err != nil {
+		t.Fatalf("stop database: %v", err)
+	}
+	fp.push(map[string]string{
+		"id": "m2-db2-" + h.runID, "chat_id": "chat-db", "sender_id": "user-1", "sender_name": "U", "text": "second",
+	})
+	// Span at least two execution-lease renew ticks (5s apart): B's renew
+	// fails while the DB is down, its run context is cancelled, and the
+	// in-flight turn cannot finish — whatever the lease row still says.
+	// Stay under the fake gate's 30s deadlock fuse.
+	time.Sleep(12 * time.Second)
+	if err := d.StartDatabase(); err != nil {
+		t.Fatalf("start database: %v", err)
+	}
+	gate.Release() // B already abandoned the request; unblock the fake handler.
+
+	// Post-recovery: E2 flows end to end exactly once. The sender is whoever
+	// holds the channel lease after reconnect (A or C) — the tag only must
+	// not be B (worker never sends) or D.
+	waitForCond(t, 150*time.Second, "E2 reply sent after recovery", func() bool {
+		for _, s := range fp.sendsAll() {
+			if s["text"] == "AFTER "+h.runID && (s["tag"] == "A" || s["tag"] == "C") {
+				return true
+			}
+		}
+		return false
+	})
+
+	// The in-flight run1 must end interrupted/failed — never completed, and
+	// its reply must never have been sent.
+	waitForCond(t, 90*time.Second, "run1 reaches a terminal non-completed state", func() bool {
+		var state string
+		if err := db.QueryRow(ctx, "SELECT state FROM agent_run WHERE id=$1", run1ID).Scan(&state); err != nil {
+			return false
+		}
+		return state == "interrupted" || state == "failed" || state == "canceled"
+	})
+	for _, s := range fp.sendsAll() {
+		if s["text"] == "GONE "+h.runID {
+			t.Fatal("run1 reply was sent although its execution lease was lost in the outage")
+		}
+		if s["tag"] == "B" || s["tag"] == "D" {
+			t.Fatalf("non-owner replica %v sent an operation", s["tag"])
+		}
+	}
+	// Exactly-once across redelivery + outage: two inbox facts, two runs,
+	// two model requests, one sent reply.
+	var inboxN, runsN int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_inbox").Scan(&inboxN); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM agent_run").Scan(&runsN); err != nil {
+		t.Fatal(err)
+	}
+	if inboxN != 2 || runsN != 2 {
+		t.Fatalf("inbox=%d runs=%d, want 2/2", inboxN, runsN)
+	}
+	if got := len(fake.requests()); got != 2 {
+		t.Fatalf("model requests = %d, want 2 (no replayed execution)", got)
+	}
+	var sentOps int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE state='sent'").Scan(&sentOps); err != nil {
+		t.Fatal(err)
+	}
+	if sentOps != 1 {
+		t.Fatalf("sent outbox ops = %d, want 1 (only E2)", sentOps)
+	}
+}
+
+// Phase 7 acceptance row: replicas sharing one STELLA_HOME see the same
+// asset bytes — upload lands through A's HTTP port, B serves the same file,
+// and an unrelated user is denied. Same-host shared dir approximates the
+// required shared POSIX namespace; NFS-style semantics are a deployment
+// precondition, not something this test can prove.
+func TestDurableAttachmentSharedHome(t *testing.T) {
+	skipUnsupportedHost(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: map[string]string{
+		"LOCAL_PASSWORD_ALLOW_REGISTRATION": "1",
+		"STELLA_CHANNEL_LEASE":              "off", "STELLA_RUN_WORKER": "off",
+	}})
+	if err != nil {
+		t.Fatalf("start D: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Stop() })
+	sharedFake = d
+	h := &harness{owner: t, runID: newRunID(t), baseURL: d.BaseURL(), client: mustCookieClient(t), proc: d}
+	h.registerBootstrapUser(t, ctx)
+	fake := newFakeAnthropic(t)
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "-att")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/claude-sonnet-4-6", "-att")
+	sessionID := h.createSession(t, ctx, agentID)
+
+	sharedHome := filepath.Join(t.TempDir(), "shared-home")
+	a := startReplicaHome(t, d, sharedHome, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off",
+	})
+	b := startReplicaHome(t, d, sharedHome, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off",
+	})
+
+	// Upload through A — the bytes land in the shared home's user assets.
+	content := "asset-bytes-" + h.runID
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, err := mw.CreateFormFile("file", "note-"+h.runID+".txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	uploadURL := fmt.Sprintf("%s/api/agents/%s/sessions/%s/workspace/upload", a.BaseURL(), agentID, sessionID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := h.client.Do(req)
+	if err != nil {
+		t.Fatalf("upload via A: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("upload via A = %d, want 201: %s", resp.StatusCode, raw)
+	}
+	var uploaded struct {
+		Path         string `json:"path"`
+		RelativePath string `json:"relative_path"`
+		Scope        string `json:"scope"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&uploaded); err != nil {
+		t.Fatalf("decode upload response: %v", err)
+	}
+
+	// Read through B — the file must be there and identical.
+	readURL := fmt.Sprintf("%s/api/agents/%s/sessions/%s/workspace/file-content?path=%s&scope=%s&raw=true",
+		b.BaseURL(), agentID, sessionID, url.QueryEscape(uploaded.RelativePath), uploaded.Scope)
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, readURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err = h.client.Do(req)
+	if err != nil {
+		t.Fatalf("read via B: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	got, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("read via B = %d, want 200: %s", resp.StatusCode, got)
+	}
+	if string(got) != content {
+		t.Fatalf("B read %q, want %q", got, content)
+	}
+
+	// A different registered user must not read another user's asset scope.
+	stranger := mustCookieClient(t)
+	reg := map[string]string{
+		"name": "Stranger " + h.runID, "email": "stranger-" + h.runID + "@system.test",
+		"password": "stranger-" + h.runID, "confirm_password": "stranger-" + h.runID,
+	}
+	payload, _ := json.Marshal(reg)
+	regResp, err := stranger.Post(d.BaseURL()+"/api/auth/local/register", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("register stranger: %v", err)
+	}
+	_ = regResp.Body.Close()
+	if regResp.StatusCode != http.StatusOK {
+		t.Fatalf("stranger register = %d, want 200", regResp.StatusCode)
+	}
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, readURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err = stranger.Do(req)
+	if err != nil {
+		t.Fatalf("stranger read: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Fatal("cross-user read of another user's asset succeeded")
 	}
 }
 

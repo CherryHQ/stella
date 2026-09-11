@@ -317,7 +317,8 @@ func TestStableStartDoesNotCreateEphemeralOwnership(t *testing.T) {
 
 type fakeEmbeddedServer struct{ err error }
 
-func (s fakeEmbeddedServer) Stop() error { return s.err }
+func (s fakeEmbeddedServer) Stop() error  { return s.err }
+func (s fakeEmbeddedServer) Start() error { return s.err }
 
 func TestEmbeddedStopRetainsRootOnFailureAndRemovesAfterSuccess(t *testing.T) {
 	owner, err := createEphemeralOwner()
