@@ -6,6 +6,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// stillActive is the Win32 STILL_ACTIVE pseudo exit code (STATUS_PENDING);
+// x/sys/windows does not export it.
+const stillActive = 259
+
 // pidAlive reports whether pid currently names a live process: the handle must
 // open AND the process must still be running (a lingering handle can keep a
 // dead pid openable).
@@ -19,5 +23,5 @@ func pidAlive(pid int) bool {
 	if err := windows.GetExitCodeProcess(h, &code); err != nil {
 		return false
 	}
-	return code == windows.STILL_ACTIVE
+	return code == stillActive
 }
