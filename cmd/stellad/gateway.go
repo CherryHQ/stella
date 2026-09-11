@@ -424,14 +424,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// receives only the narrow group-dispatch port (Deps.GroupDispatcher).
 	coordination := channel.NewCoordination(s.db, s.poolManager, s.store, listFn, switchFn, coordOpts...)
 	coordinator := coordination.Coordinator
-	if os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") != "" {
-		if coordinator != nil {
-			go coordinator.RunDurableLoops(gctx)
-		}
-		if leases := s.pluginHost.ChannelLeases(); leases != nil {
-			go leases.Run(gctx)
-		}
-	}
 	groupDispatcher := coordination.GroupDispatcher
 	groupTurnCommitter, ok := s.mem.(memory.TxGroupCommitter)
 	if !ok {
@@ -762,6 +754,17 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	if _, err := applyManagedChannelPlugins(ingressCtx, s.pluginHost); err != nil {
 		_ = ln.Close()
 		return fmt.Errorf("start managed channel runtimes: %w", err)
+	}
+	if os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") != "" {
+		// Durable ingress loops are ingress-adjacent: they must start only
+		// after backends AND after managed channel runtimes exist (the outbox
+		// dispatcher resolves senders through them).
+		if coordinator != nil {
+			go coordinator.RunDurableLoops(ingressCtx)
+		}
+		if leases := s.pluginHost.ChannelLeases(); leases != nil {
+			go leases.Run(ingressCtx)
+		}
 	}
 	// HTTP serve — the final ingress source to come up.
 	g.Go(func() error { return normalizeServeErr(httpSrv.Serve(ln)) })
