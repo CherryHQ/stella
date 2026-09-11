@@ -10,6 +10,7 @@ import (
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 // Two classifiers in this package run one JSON completion on an agent's fast
@@ -88,4 +89,19 @@ func firstSystemScopeMember(ctx context.Context, q *sqlc.Queries, members []sqlc
 		}
 	}
 	return ""
+}
+
+type (
+	SnapshotLoader    func(context.Context, string) (*config.Snapshot, error)
+	StreamFuncBuilder func(context.Context, string, config.ProviderCreds) (providers.StreamFunc, error)
+	CompleteFunc      func(context.Context, ai.Model, ai.Context, ai.CompleteOptions, providers.StreamFunc) (ai.AssistantMessage, error)
+)
+
+// classifierProviderType names the wire protocol to build the stream with: the
+// creds' explicit type wins over the provider id.
+func classifierProviderType(providerID string, creds config.ProviderCreds) string {
+	if t := strings.TrimSpace(creds.Type); t != "" {
+		return t
+	}
+	return providerID
 }

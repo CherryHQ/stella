@@ -587,13 +587,13 @@ SELECT id
 FROM ctx_group_dispatch
 WHERE status = 'running'
   AND publish_started_at IS NOT NULL
-  AND published_at IS NULL
   AND result_message_id <> ''
 LIMIT 64
 `
 
-// Accepted replies whose send is a pending durable outbox op: publish_started
-// set, published_at not yet. The outcome poller drives their terminal state.
+// Accepted replies whose send is a pending durable outbox op, or whose send
+// already landed but finalization has not completed (running + published but
+// not yet completed). The outcome poller drives their terminal state.
 func (q *Queries) ListGroupDispatchesAwaitingPublish(ctx context.Context) ([]string, error) {
 	rows, err := q.db.Query(ctx, listGroupDispatchesAwaitingPublish)
 	if err != nil {

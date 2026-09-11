@@ -79,9 +79,8 @@ func CommandReplyKey(inboxID string) string { return "reply:" + inboxID }
 // DeliveryKeyForRun names the final-reply delivery of a run.
 func DeliveryKeyForRun(runID string) string { return "run:" + runID }
 
-// ChatKeyFor derives the physical chat coordinate the same way
-// messageDeliveryCoordinates does: platform chat id, falling back to the
-// sender id for DMs on platforms that leave ChatID empty.
+// ChatKeyFor derives the physical chat coordinate: platform chat id, falling
+// back to the sender id for DMs on platforms that leave ChatID empty.
 func ChatKeyFor(msg pkgchannel.IncomingMessage) string {
 	if msg.ChatID != "" {
 		return msg.ChatID

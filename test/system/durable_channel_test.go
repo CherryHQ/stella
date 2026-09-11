@@ -120,8 +120,7 @@ func newDurableHarness(t *testing.T) *harness {
 		FakeModel: true,
 		Bootstrap: false,
 		ExtraEnv: map[string]string{
-			"STELLA_TEST_CHANNELS":           "1",
-			"STELLA_CHANNEL_DURABLE_INGRESS": "1",
+			"STELLA_TEST_CHANNELS": "1",
 		},
 	})
 	if err != nil {
@@ -471,8 +470,7 @@ func TestDurableChannelThreeReplicas(t *testing.T) {
 	defer cancel()
 
 	baseEnv := map[string]string{
-		"STELLA_TEST_CHANNELS":           "1",
-		"STELLA_CHANNEL_DURABLE_INGRESS": "1",
+		"STELLA_TEST_CHANNELS": "1",
 	}
 	// D: database owner + API + bootstrap, never a channel owner or worker.
 	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
@@ -611,8 +609,7 @@ func TestDurableChannelSameEventHandoff(t *testing.T) {
 	defer cancel()
 
 	baseEnv := map[string]string{
-		"STELLA_TEST_CHANNELS":           "1",
-		"STELLA_CHANNEL_DURABLE_INGRESS": "1",
+		"STELLA_TEST_CHANNELS": "1",
 	}
 	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
 		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "D",
@@ -725,8 +722,7 @@ func TestDurableChannelStaleOwnerPaused(t *testing.T) {
 	defer cancel()
 
 	baseEnv := map[string]string{
-		"STELLA_TEST_CHANNELS":           "1",
-		"STELLA_CHANNEL_DURABLE_INGRESS": "1",
+		"STELLA_TEST_CHANNELS": "1",
 	}
 	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
 		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "D",
@@ -813,7 +809,7 @@ func TestDurableWebSend(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
-	baseEnv := map[string]string{"STELLA_CHANNEL_DURABLE_INGRESS": "1"}
+	baseEnv := map[string]string{}
 	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
 		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off",
 	})})
@@ -929,7 +925,7 @@ func TestDurableWebCancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
-	baseEnv := map[string]string{"STELLA_CHANNEL_DURABLE_INGRESS": "1"}
+	baseEnv := map[string]string{}
 	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
 		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off",
 	})})

@@ -278,7 +278,19 @@ Binding to `0.0.0.0` (`HOST`) does **not** give you a public URL: with `STELLA_B
 
 The Docker image sets `STELLA_REQUIRE_EXTERNAL_DB=1`: startup fails with an actionable error when `STELLA_DATABASE_URL` is unset, instead of silently starting the embedded PostgreSQL cluster on the container's ephemeral filesystem — with multiple replicas, each pod would even create its own database. Point `STELLA_DATABASE_URL` at an external PostgreSQL with `pgvector` and `pg_search`. To deliberately run embedded PostgreSQL in a single container backed by a persistent volume, set `STELLA_REQUIRE_EXTERNAL_DB=0`.
 
-Uploaded user assets need durable POSIX storage under `STELLA_HOME`; S3 configuration does not mirror or recover this mutable tree. Stella currently supports only a single server replica. Future replicas will require one shared, strongly consistent POSIX namespace. `STELLA_BLOB_S3_*` is optional and serves separate immutable BlobStore data such as content-addressed session media.
+Uploaded user assets need durable POSIX storage under `STELLA_HOME`; S3 configuration does not mirror or recover this mutable tree. `STELLA_BLOB_S3_*` is optional and serves separate immutable BlobStore data such as content-addressed session media.
+
+#### Multi-replica deployments
+
+Channel traffic runs on the durable pipeline: inbound events, agent runs, and outbound sends are committed to PostgreSQL before any side effect, so replicas may share work — one replica can receive a message, another execute the agent turn, and whichever replica holds the channel lease sends the reply. Web sends are idempotent enqueue-then-observe: a retried `POST .../messages` with the same `Idempotency-Key` reattaches to the same turn instead of running twice.
+
+Requirements and caveats for `>1` replicas:
+
+- `STELLA_DATABASE_URL` is mandatory (external PostgreSQL).
+- `STELLA_HOME` must be one shared, strongly consistent POSIX namespace across replicas — inbound attachments and sandbox workspaces live there.
+- Delivery is at-least-once at the platform boundary: a replica that dies between "platform accepted" and "receipt committed" may redeliver a reply. Platforms with native idempotency keys (QQ `client_id`, DingTalk delivery ids) dedup; others can see a rare duplicate message.
+- Channel events that arrive while no replica holds a working adapter are retried from the durable queue rather than lost.
+- Queue depths are exported as OTel gauges: `stella.channel.inbox.pending`, `stella.agent.run.open`, `stella.channel.outbox.pending`, `stella.channel.outbox.unknown` (the last is "sent but outcome unconfirmed" — needs operator attention, never auto-resent).
 
 A loopback base URL is never a startup error — it is legitimate when you reach Stella via `localhost` or `kubectl port-forward` — but Stella logs a loud warning when OAuth/OIDC login is configured against one, because login redirects would point back at the pod. Deployment charts should make `STELLA_BASE_URL` a required value; that layer knows it sits behind an ingress.
 

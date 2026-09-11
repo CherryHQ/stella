@@ -47,7 +47,7 @@ type Envelope struct {
 	// reply path (e.g. weixin context_token).
 	AccountKey string            `json:"account_key,omitempty"` // receiving bot's platform identity
 	Extras     map[string]string `json:"extras,omitempty"`
-	Timestamp  time.Time         `json:"timestamp,omitempty"`
+	Timestamp  time.Time         `json:"timestamp"`
 }
 
 // MarshalIncoming converts a live IncomingMessage into the storable envelope.

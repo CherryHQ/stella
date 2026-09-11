@@ -30,45 +30,10 @@ type recordingGroupPublisher struct {
 	deliveryIDs []string
 }
 
-type eventRecordingGroupPublisher struct {
-	calls  int
-	events []pkgchannel.Event
-}
-
-func (p *eventRecordingGroupPublisher) Publish(_ context.Context, req pkgchannel.GroupPublishRequest) error {
-	p.calls++
-	if req.Stream == nil {
-		return nil
-	}
-	for event := range req.Stream.Events {
-		p.events = append(p.events, event)
-	}
-	return nil
-}
-
 type groupTurnCommitterFunc func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error
 
 func (f groupTurnCommitterFunc) CommitGroupTurn(ctx context.Context, q *sqlc.Queries, turn memory.DeferredGroupTurn) error {
 	return f(ctx, q, turn)
-}
-
-type blockingGroupPublisher struct {
-	started chan struct{}
-	release chan struct{}
-}
-
-func (p *blockingGroupPublisher) Publish(ctx context.Context, req pkgchannel.GroupPublishRequest) error {
-	close(p.started)
-	select {
-	case <-p.release:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	if req.Stream != nil {
-		for range req.Stream.Events {
-		}
-	}
-	return nil
 }
 
 func (p *recordingGroupPublisher) Publish(ctx context.Context, req pkgchannel.GroupPublishRequest) error {
@@ -1165,43 +1130,46 @@ func TestGroupDispatcherExistingDispatchSkipsEnvelopeDecode(t *testing.T) {
 	}
 }
 
+// A failed platform send leaves the reply as a pending outbox op: the
+// accepted result stays recorded, the dispatch stays running until the op
+// resolves, and the owner's retry — not a re-dispatch — delivers it.
 func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	boom := errors.New("boom")
-	publisher := &recordingGroupPublisher{err: boom}
-	fx.d.publish.publishers.Register("ch-1", publisher)
+	fx := newDispatcherFixture(t, "telegram", `{}`)
+	sender := &failingSender{err: pkgchannel.SendErrorf(pkgchannel.SendRetryable, "boom")}
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, "11111111-1111-1111-1111-111111111111", "agent-1", "pending", 0, pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
-	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err == nil {
-		t.Fatal("expected publisher error")
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err != nil {
+		t.Fatalf("execute dispatch: %v", err)
 	}
+	driveOutboxSend(t, fx, sender)
 	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch after failure: %v", err)
 	}
-	if dispatch.Status != "pending" || dispatch.ResultMessageID == "" || dispatch.PublishedAt.Valid {
-		t.Fatalf("dispatch status/result/published = %q/%q/%v, want pending accepted-unpublished result", dispatch.Status, dispatch.ResultMessageID, dispatch.PublishedAt.Valid)
+	if dispatch.Status != "running" || dispatch.ResultMessageID == "" || dispatch.PublishedAt.Valid {
+		t.Fatalf("dispatch status/result/published = %q/%q/%v, want running accepted-unpublished result", dispatch.Status, dispatch.ResultMessageID, dispatch.PublishedAt.Valid)
 	}
 	if got := countAgentGroupMessages(t, fx.db); got != 1 {
 		t.Fatalf("agent messages = %d, want accepted result", got)
 	}
 
-	publisher.err = nil
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'd15a0000-0000-0000-0000-000000000001'`); err != nil {
-		t.Fatalf("make dispatch due: %v", err)
+	sender.err = nil
+	if _, err := fx.db.Exec(context.Background(), `UPDATE channel_outbox SET next_attempt_at = NULL`); err != nil {
+		t.Fatalf("make op due: %v", err)
 	}
+	driveOutboxSend(t, fx, sender)
 	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
-		t.Fatalf("get dispatch before retry: %v", err)
+		t.Fatalf("get dispatch after retry: %v", err)
 	}
-	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err != nil {
-		t.Fatalf("retry dispatch: %v", err)
+	if sender.calls != 2 {
+		t.Fatalf("send calls = %d, want retry to resend", sender.calls)
 	}
-	if publisher.calls != 2 {
-		t.Fatalf("publisher calls = %d, want retry to republish", publisher.calls)
+	if dispatch.Status != "completed" || !dispatch.PublishedAt.Valid {
+		t.Fatalf("dispatch = %q published=%v, want completed", dispatch.Status, dispatch.PublishedAt.Valid)
 	}
 }
 
@@ -1210,37 +1178,32 @@ func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T)
 // silent, leaving a reply that peers can read and humans never receive.
 func TestGroupDispatcherRepublishesAcceptedResultDespiteHardCap(t *testing.T) {
 	ctx := context.Background()
-	fx := newDispatcherFixture(t, "web", `{}`)
-	boom := errors.New("boom")
-	publisher := &recordingGroupPublisher{err: boom}
-	fx.d.publish.publishers.Register("ch-1", publisher)
+	fx := newDispatcherFixture(t, "telegram", `{}`)
+	sender := &failingSender{err: pkgchannel.SendErrorf(pkgchannel.SendRetryable, "boom")}
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000031", fx.message.ID, fx.groupID, "agent-1", "pending", 0, pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000031")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
-	if err := fx.d.ExecuteDispatch(ctx, dispatch); err == nil {
-		t.Fatal("expected publisher error")
+	if err := fx.d.ExecuteDispatch(ctx, dispatch); err != nil {
+		t.Fatalf("execute dispatch: %v", err)
+	}
+	driveOutboxSend(t, fx, sender)
+	dispatch, _ = fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000031")
+	if dispatch.Status != "running" {
+		t.Fatalf("dispatch after send failure = %q, want running (send retries via outbox)", dispatch.Status)
 	}
 
-	publisher.err = nil
-	// Any triage branch would refuse now; the accepted post itself is what the
-	// cap counts.
+	sender.err = nil
 	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_state SET max_replies_per_human_trigger = 0 WHERE id = $1`, fx.groupID); err != nil {
 		t.Fatalf("tighten cap: %v", err)
 	}
-	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'd15a0000-0000-0000-0000-000000000031'`); err != nil {
-		t.Fatalf("make dispatch due: %v", err)
+	if _, err := fx.db.Exec(ctx, `UPDATE channel_outbox SET next_attempt_at = NULL`); err != nil {
+		t.Fatalf("make op due: %v", err)
 	}
-	dispatch, err = fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000031")
-	if err != nil {
-		t.Fatalf("get dispatch before retry: %v", err)
-	}
-	if err := fx.d.ExecuteDispatch(ctx, dispatch); err != nil {
-		t.Fatalf("retry dispatch: %v", err)
-	}
-	if publisher.calls != 2 {
-		t.Fatalf("publisher calls = %d, want the accepted reply republished", publisher.calls)
+	driveOutboxSend(t, fx, sender)
+	if sender.calls != 2 {
+		t.Fatalf("send calls = %d, want the accepted reply resent", sender.calls)
 	}
 	dispatch, err = fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000031")
 	if err != nil {
@@ -1251,41 +1214,35 @@ func TestGroupDispatcherRepublishesAcceptedResultDespiteHardCap(t *testing.T) {
 	}
 }
 
-// A publisher that returns an error told us the outcome; a crash does not. The
-// start marker is what separates the two on recovery, so it must be cleared on
-// the first and survive the second.
-func TestPublishStartMarkerClearedOnReturnedError(t *testing.T) {
+// The start marker and the send op commit together: a failed send leaves the
+// marker set (the op exists and owns retry), and delivery lands the published
+// marker through the outcome poll.
+func TestPublishStartMarkerPersistsAcrossSendError(t *testing.T) {
 	ctx := context.Background()
-	fx := newDispatcherFixture(t, "web", `{}`)
-	publisher := &recordingGroupPublisher{err: errors.New("boom")}
-	fx.d.publish.publishers.Register("ch-1", publisher)
+	fx := newDispatcherFixture(t, "telegram", `{}`)
+	sender := &failingSender{err: pkgchannel.SendErrorf(pkgchannel.SendRetryable, "boom")}
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000041", fx.message.ID, fx.groupID, "agent-1", "pending", 0, pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000041")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fx.d.ExecuteDispatch(ctx, dispatch); err == nil {
-		t.Fatal("expected publisher error")
+	if err := fx.d.ExecuteDispatch(ctx, dispatch); err != nil {
+		t.Fatalf("execute dispatch: %v", err)
 	}
+	driveOutboxSend(t, fx, sender)
 	dispatch, err = fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000041")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatch.PublishStartedAt.Valid {
-		t.Fatalf("publish_started_at = %v, want cleared after a returned error", dispatch.PublishStartedAt)
+	if !dispatch.PublishStartedAt.Valid || dispatch.PublishedAt.Valid {
+		t.Fatalf("started=%v published=%v, want started-only while the op retries", dispatch.PublishStartedAt.Valid, dispatch.PublishedAt.Valid)
 	}
 
-	publisher.err = nil
-	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = $1`, dispatch.ID); err != nil {
+	sender.err = nil
+	if _, err := fx.db.Exec(ctx, `UPDATE channel_outbox SET next_attempt_at = NULL`); err != nil {
 		t.Fatal(err)
 	}
-	dispatch, err = fx.q.GetGroupDispatch(ctx, dispatch.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := fx.d.ExecuteDispatch(ctx, dispatch); err != nil {
-		t.Fatalf("retry dispatch: %v", err)
-	}
+	driveOutboxSend(t, fx, sender)
 	dispatch, err = fx.q.GetGroupDispatch(ctx, dispatch.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -1391,9 +1348,8 @@ func TestGroupDispatcherSupersededTriggerCompletesWithoutChat(t *testing.T) {
 }
 
 func TestGroupDispatcherAcceptedResultSkipsChatAndReplaysPublish(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	publisher := &recordingGroupPublisher{}
-	fx.d.publish.publishers.Register("ch-1", publisher)
+	fx := newDispatcherFixture(t, "telegram", `{}`)
+	sender := &scriptedSender{}
 	chatCalls := 0
 	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		chatCalls++
@@ -1414,32 +1370,29 @@ func TestGroupDispatcherAcceptedResultSkipsChatAndReplaysPublish(t *testing.T) {
 	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err != nil {
 		t.Fatalf("execute dispatch: %v", err)
 	}
+	driveOutboxSend(t, fx, sender)
 	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch after execute: %v", err)
 	}
-	if dispatch.Status != "completed" || chatCalls != 0 || publisher.calls != 1 {
-		t.Fatalf("status/chat/publish = %q/%d/%d, want completed/0/1", dispatch.Status, chatCalls, publisher.calls)
-	}
-	if len(publisher.deliveryIDs) != 1 || publisher.deliveryIDs[0] != dispatch.ID {
-		t.Fatalf("delivery IDs = %v, want [%s]", publisher.deliveryIDs, dispatch.ID)
+	if dispatch.Status != "completed" || chatCalls != 0 || len(sender.calls) != 1 {
+		t.Fatalf("status/chat/send = %q/%d/%d, want completed/0/1", dispatch.Status, chatCalls, len(sender.calls))
 	}
 	if got := countAgentGroupMessages(t, fx.db); got != 1 {
 		t.Fatalf("agent messages = %d, want accepted result only", got)
 	}
 }
 
+// After a restart the in-memory event envelope is gone: the re-enqueued op's
+// payload is rebuilt from the committed canonical row — the accepted text and
+// reasoning, not a fresh model turn.
 func TestRepublishAfterRestartUsesCanonicalTextOnly(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	publisher := &eventRecordingGroupPublisher{}
-	// A fresh dispatcher has no retained event envelope. It must re-publish the
-	// committed canonical row without starting another model turn.
+	fx := newDispatcherFixture(t, "telegram", `{}`)
 	restarted := NewGroupDispatcher(fx.db, fx.d.coord, NewPublisherRegistry())
 	restarted.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error {
 		t.Fatal("restart replay must not commit another group turn")
 		return nil
 	}))
-	restarted.publish.publishers.Register("ch-1", publisher)
 	restarted.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		t.Fatal("restart replay must not run chat")
 		return nil, nil
@@ -1464,13 +1417,21 @@ func TestRepublishAfterRestartUsesCanonicalTextOnly(t *testing.T) {
 	if err := restarted.ExecuteDispatch(context.Background(), dispatch); err != nil {
 		t.Fatalf("replay after restart: %v", err)
 	}
-	if publisher.calls != 1 || len(publisher.events) != 2 {
-		t.Fatalf("publisher calls/events = %d/%d, want 1/2 canonical events", publisher.calls, len(publisher.events))
+	ops, err := restarted.publish.outbox.ListByDelivery(context.Background(), "group:"+"d15a0000-0000-0000-0000-000000000001")
+	if err != nil || len(ops) != 1 {
+		t.Fatalf("ops = %d, err = %v, want one send op", len(ops), err)
 	}
-	if got := publisher.events[0].Reasoning; got != "canonical reasoning" {
+	var payload pkgchannel.GroupReplyOpPayload
+	if err := json.Unmarshal(ops[0].Payload, &payload); err != nil {
+		t.Fatalf("decode op payload: %v", err)
+	}
+	if len(payload.Events) != 2 {
+		t.Fatalf("payload events = %d, want 2 canonical events", len(payload.Events))
+	}
+	if got := payload.Events[0].Reasoning; got != "canonical reasoning" {
 		t.Fatalf("first replay event reasoning = %q", got)
 	}
-	if got := publisher.events[1].Text; got != "canonical text" {
+	if got := payload.Events[1].Text; got != "canonical text" {
 		t.Fatalf("second replay event text = %q", got)
 	}
 }
@@ -1496,20 +1457,21 @@ func TestGroupDispatcherWebWriteErrorStillRecordsResult(t *testing.T) {
 	}
 }
 
+// A permanently rejected send op fails the dispatch and marks the accepted
+// result undelivered — the reply peers can read never reaches the platform.
 func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	fx.d.maxAttempts = 1
-	boom := errors.New("boom")
-	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{err: boom})
+	fx := newDispatcherFixture(t, "telegram", `{}`)
+	sender := &failingSender{err: pkgchannel.SendErrorf(pkgchannel.SendPermanent, "boom")}
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, "11111111-1111-1111-1111-111111111111", "agent-1", "pending", 0, pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
 
-	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err == nil {
-		t.Fatal("expected publisher error")
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err != nil {
+		t.Fatalf("execute dispatch: %v", err)
 	}
+	driveOutboxSend(t, fx, sender)
 	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch after failure: %v", err)
@@ -1677,35 +1639,31 @@ func TestGroupDispatcherHeartbeatCancelsBeforeUnconfirmedLeaseExpires(t *testing
 	}
 }
 
+// Ownership loss must stop the send commit: the publish-started marker CASes
+// on the claiming attempt_count, so a row reclaimed by another replica fails
+// the stale owner's enqueue instead of committing its op.
 func TestGroupDispatcherCancelsDispatchAfterOwnershipLoss(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	fx.d.leaseDuration = 2 * time.Second
-	publisher := &blockingGroupPublisher{started: make(chan struct{}), release: make(chan struct{})}
-	fx.d.publish.publishers.Register("ch-1", publisher)
-	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, "11111111-1111-1111-1111-111111111111", "agent-1", "pending", 0, pgtype.Timestamptz{})
+	fx := newDispatcherFixture(t, "telegram", `{}`)
+	// An already-running, already-accepted row whose publish has not started:
+	// the stale owner's enqueue CASes on its claiming attempt_count.
+	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, "11111111-1111-1111-1111-111111111111", "agent-1", "running", 1, pgtype.Timestamptz{})
+	result, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-1", Content: "accepted"})
+	if err != nil {
+		t.Fatalf("append accepted result: %v", err)
+	}
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = $1 WHERE id = 'd15a0000-0000-0000-0000-000000000001'`, result.Message.ID); err != nil {
+		t.Fatalf("set result marker: %v", err)
+	}
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
-	errC := make(chan error, 1)
-	go func() { errC <- fx.d.ExecuteDispatch(context.Background(), dispatch) }()
-	select {
-	case <-publisher.started:
-	case err := <-errC:
-		t.Fatalf("execute dispatch returned before publisher started: %v", err)
-	case <-time.After(time.Second):
-		t.Fatal("publisher did not start")
-	}
+	// Another replica reclaimed the row between claim and publish commit.
 	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET attempt_count = attempt_count + 1 WHERE id = $1`, "d15a0000-0000-0000-0000-000000000001"); err != nil {
 		t.Fatalf("simulate dispatch ownership loss: %v", err)
 	}
-	select {
-	case err := <-errC:
-		if err == nil {
-			t.Fatal("execute dispatch succeeded after ownership loss")
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("execute dispatch did not stop after ownership loss")
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err == nil {
+		t.Fatal("execute dispatch succeeded after ownership loss")
 	}
 	current, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
@@ -1714,54 +1672,54 @@ func TestGroupDispatcherCancelsDispatchAfterOwnershipLoss(t *testing.T) {
 	if current.Status == "completed" {
 		t.Fatal("stale owner marked dispatch completed after ownership loss")
 	}
+	ops, err := fx.d.publish.outbox.ListByDelivery(context.Background(), "group:"+"d15a0000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ops) != 0 {
+		t.Fatalf("stale owner committed %d send ops", len(ops))
+	}
 }
 
-func TestGroupDispatcherExtendsDispatchLeaseWhilePublishing(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	fx.d.leaseDuration = 2 * time.Second
-	publisher := &blockingGroupPublisher{started: make(chan struct{}), release: make(chan struct{})}
-	fx.d.publish.publishers.Register("ch-1", publisher)
+// An expired awaiting-publish row is re-executed, not resent: the committed op
+// dedups on the dispatch-scoped delivery key, so takeover publishes once.
+func TestGroupDispatcherRepublishAfterExpiryDedupsSendOp(t *testing.T) {
+	ctx := context.Background()
+	fx := newDispatcherFixture(t, "telegram", `{}`)
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, "11111111-1111-1111-1111-111111111111", "agent-1", "pending", 0, pgtype.Timestamptz{})
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
+	dispatch, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
-
-	errC := make(chan error, 1)
-	go func() { errC <- fx.d.ExecuteDispatch(context.Background(), dispatch) }()
-	select {
-	case <-publisher.started:
-	case err := <-errC:
-		t.Fatalf("execute dispatch returned before publisher started: %v", err)
-	case <-time.After(time.Second):
-		t.Fatal("publisher did not start")
+	if err := fx.d.ExecuteDispatch(ctx, dispatch); err != nil {
+		t.Fatalf("execute dispatch: %v", err)
 	}
-	running, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
+	// Lease expires mid-publish; another replica requeues and re-executes.
+	past := time.Now().UTC().Add(-time.Minute)
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET lease_until = $1, next_attempt_at = NULL WHERE id = $2`, past, "d15a0000-0000-0000-0000-000000000001"); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.d.reapExpired(ctx); err != nil {
+		t.Fatalf("reap expired: %v", err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = $1`, "d15a0000-0000-0000-0000-000000000001"); err != nil {
+		t.Fatal(err)
+	}
+	dispatch, err = fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
-		t.Fatalf("get running dispatch: %v", err)
+		t.Fatal(err)
 	}
-	initialLease := running.LeaseUntil.Time
-	deadline := time.After(3 * time.Second)
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-deadline:
-			close(publisher.release)
-			t.Fatalf("dispatch lease was not extended; initial lease %q", initialLease)
-		case <-ticker.C:
-			current, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
-			if err != nil {
-				t.Fatalf("get dispatch while waiting heartbeat: %v", err)
-			}
-			if !current.LeaseUntil.Time.IsZero() && !current.LeaseUntil.Time.Equal(initialLease) {
-				close(publisher.release)
-				if err := <-errC; err != nil {
-					t.Fatalf("execute dispatch after heartbeat: %v", err)
-				}
-				return
-			}
-		}
+	if err := fx.d.ExecuteDispatch(ctx, dispatch); err != nil {
+		t.Fatalf("re-execute after expiry: %v", err)
+	}
+	ops, err := fx.d.publish.outbox.ListByDelivery(ctx, "group:"+"d15a0000-0000-0000-0000-000000000001")
+	if err != nil || len(ops) != 1 {
+		t.Fatalf("ops = %d, err = %v, want exactly one send op after takeover", len(ops), err)
+	}
+	driveOutboxSend(t, fx, &scriptedSender{})
+	dispatch, err = fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000001")
+	if err != nil || dispatch.Status != "completed" {
+		t.Fatalf("dispatch = %q, err = %v, want completed", dispatch.Status, err)
 	}
 }
 
@@ -2038,15 +1996,18 @@ func TestFinalFailureOnAcceptedRowReleasesHeldPeers(t *testing.T) {
 	peerOutcome, err := fx.d.acceptGroupResponse(ctx, peer, groupResponse{text: "peer reply"}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, peerOutcome, err, groupTurnHeld, "freshness")
 
-	// The reply channel is gone by the time egress is retried: publisherFor
-	// fails before the accepted result can be replayed.
+	// The accepted reply's platform send is permanently rejected: the outbox
+	// op fails, the outcome poll fails the dispatch, and the held peer
+	// releases.
 	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET status = 'pending', attempt_count = 1 WHERE id = $1`, post.ID); err != nil {
 		t.Fatal(err)
 	}
 	post, _ = fx.q.GetGroupDispatch(ctx, post.ID)
-	if err := fx.d.ExecuteDispatch(ctx, post); err == nil {
-		t.Fatal("missing publisher must be reported")
+	if err := fx.d.ExecuteDispatch(ctx, post); err != nil {
+		t.Fatalf("enqueue reply op: %v", err)
 	}
+	sender := &failingSender{err: pkgchannel.SendErrorf(pkgchannel.SendPermanent, "channel gone")}
+	driveOutboxSend(t, fx, sender)
 	post, _ = fx.q.GetGroupDispatch(ctx, post.ID)
 	if post.Status != "failed" {
 		t.Fatalf("dispatch status = %q, want failed", post.Status)
@@ -2144,13 +2105,16 @@ func TestPreTurnFailureAnnouncesTerminalFrame(t *testing.T) {
 	fx.d.SetGroupEventHub(hub)
 	follow, cancel := hub.Subscribe(fx.groupID)
 	defer cancel()
+	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		return nil, errors.New("chat boom")
+	}
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000110", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000110")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err == nil {
-		t.Fatal("missing publisher must fail the dispatch")
+		t.Fatal("pre-turn failure must fail the dispatch")
 	}
 	if got := drainTurnStates(t, follow); len(got) != 1 || got[0] != "failed" {
 		t.Fatalf("turn states = %v, want [failed]", got)
@@ -2356,12 +2320,12 @@ func TestFailAcceptedPublishRequeuesOnlyCausallyHeldPeers(t *testing.T) {
 	}
 }
 
+// The platform send already landed, so a finalization failure retries the
+// bookkeeping only — the sent op is never replayed.
 func TestPublishSuccessFinalizationFailureDoesNotRepublishOrFail(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", "{}")
+	fx := newDispatcherFixture(t, "telegram", "{}")
 	ctx := context.Background()
-	fx.d.maxAttempts = 1
-	publisher := &recordingGroupPublisher{}
-	fx.d.publish.publishers.Register("ch-1", publisher)
+	sender := &scriptedSender{}
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000208", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
 	if _, err := fx.db.Exec(ctx, `CREATE FUNCTION fail_reply_outbox_fn() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'fail reply outbox'; END; $$ LANGUAGE plpgsql;`); err != nil {
 		t.Fatal(err)
@@ -2370,26 +2334,28 @@ func TestPublishSuccessFinalizationFailureDoesNotRepublishOrFail(t *testing.T) {
 		t.Fatal(err)
 	}
 	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000208")
-	if err := fx.d.ExecuteDispatch(ctx, row); err == nil {
+	if err := fx.d.ExecuteDispatch(ctx, row); err != nil {
+		t.Fatalf("execute dispatch: %v", err)
+	}
+	if _, err := fx.d.publish.outbox.ProcessDue(ctx, "ch-1", "", sender); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if err := fx.d.pollPublishOutcomes(ctx); err == nil {
 		t.Fatal("finalization failure must surface for retry")
 	}
 	row, _ = fx.q.GetGroupDispatch(ctx, row.ID)
-	if row.Status != "pending" || !row.PublishedAt.Valid || publisher.calls != 1 {
-		t.Fatalf("after bookkeeping failure status/published/calls = %q/%v/%d, want pending/true/1", row.Status, row.PublishedAt.Valid, publisher.calls)
+	if row.Status != "running" || !row.PublishedAt.Valid {
+		t.Fatalf("after bookkeeping failure status/published = %q/%v, want running/true", row.Status, row.PublishedAt.Valid)
 	}
 	if _, err := fx.db.Exec(ctx, `DROP TRIGGER fail_reply_outbox ON ctx_group_outbox`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = $1`, row.ID); err != nil {
-		t.Fatal(err)
-	}
-	row, _ = fx.q.GetGroupDispatch(ctx, row.ID)
-	if err := fx.d.ExecuteDispatch(ctx, row); err != nil {
+	if err := fx.d.pollPublishOutcomes(ctx); err != nil {
 		t.Fatalf("finalization repair: %v", err)
 	}
 	row, _ = fx.q.GetGroupDispatch(ctx, row.ID)
-	if row.Status != "completed" || publisher.calls != 1 {
-		t.Fatalf("after repair status/calls = %q/%d, want completed/1", row.Status, publisher.calls)
+	if row.Status != "completed" || len(sender.calls) != 1 {
+		t.Fatalf("after repair status/sends = %q/%d, want completed/1", row.Status, len(sender.calls))
 	}
 }
 
@@ -2457,12 +2423,12 @@ func TestExpiredAcceptedFailureDoesNotOverrideRenewedLease(t *testing.T) {
 	}
 }
 
-func TestPublishMarkerBookkeepingUnknownUsesRecoveryCeiling(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", "{}")
+// A failed published-marker write after a confirmed send is bookkeeping, not
+// a send outcome: the outcome poll retries it without touching the platform.
+func TestPublishMarkerBookkeepingRetriesWithoutResend(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", "{}")
 	ctx := context.Background()
-	fx.d.maxAttempts = 1
-	publisher := &recordingGroupPublisher{}
-	fx.d.publish.publishers.Register("ch-1", publisher)
+	sender := &scriptedSender{}
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000211", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
 	if _, err := fx.db.Exec(ctx, `CREATE FUNCTION fail_published_marker_fn() RETURNS trigger AS $$ BEGIN IF NEW.published_at IS NOT NULL THEN RAISE EXCEPTION 'published marker outcome unknown'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql;`); err != nil {
 		t.Fatal(err)
@@ -2471,12 +2437,28 @@ func TestPublishMarkerBookkeepingUnknownUsesRecoveryCeiling(t *testing.T) {
 		t.Fatal(err)
 	}
 	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000211")
-	if err := fx.d.ExecuteDispatch(ctx, row); err == nil {
+	if err := fx.d.ExecuteDispatch(ctx, row); err != nil {
+		t.Fatalf("execute dispatch: %v", err)
+	}
+	if _, err := fx.d.publish.outbox.ProcessDue(ctx, "ch-1", "", sender); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if err := fx.d.pollPublishOutcomes(ctx); err == nil {
 		t.Fatal("unknown marker outcome must surface for recovery")
 	}
 	row, _ = fx.q.GetGroupDispatch(ctx, row.ID)
-	if row.Status != "pending" || !isAcceptedPublishRecovery(row, nil) || publisher.calls != 1 {
-		t.Fatalf("marker failure status/class/calls = %q/%v/%d, want pending/recovery/1", row.Status, isAcceptedPublishRecovery(row, nil), publisher.calls)
+	if row.Status != "running" || row.PublishedAt.Valid {
+		t.Fatalf("marker failure status/published = %q/%v, want running/false", row.Status, row.PublishedAt.Valid)
+	}
+	if _, err := fx.db.Exec(ctx, `DROP TRIGGER fail_published_marker ON ctx_group_dispatch`); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.d.pollPublishOutcomes(ctx); err != nil {
+		t.Fatalf("marker repair: %v", err)
+	}
+	row, _ = fx.q.GetGroupDispatch(ctx, row.ID)
+	if row.Status != "completed" || len(sender.calls) != 1 {
+		t.Fatalf("after repair status/sends = %q/%d, want completed/1", row.Status, len(sender.calls))
 	}
 }
 
@@ -2614,5 +2596,31 @@ type scriptedSender struct {
 
 func (s *scriptedSender) SendOperation(_ context.Context, op pkgchannel.OutboundOp) (pkgchannel.SendResult, error) {
 	s.calls = append(s.calls, op)
+	return pkgchannel.SendResult{PlatformMessageID: "sent-1"}, nil
+}
+
+// driveOutboxSend runs the lease-owner side of a group reply: one ProcessDue
+// pass over ch-1's pending ops, then the dispatcher's outcome poll.
+func driveOutboxSend(t *testing.T, fx dispatcherFixture, sender pkgchannel.OperationSender) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := fx.d.publish.outbox.ProcessDue(ctx, "ch-1", "", sender); err != nil {
+		t.Fatalf("ProcessDue: %v", err)
+	}
+	if err := fx.d.pollPublishOutcomes(ctx); err != nil {
+		t.Fatalf("pollPublishOutcomes: %v", err)
+	}
+}
+
+type failingSender struct {
+	calls int
+	err   *pkgchannel.SendError
+}
+
+func (s *failingSender) SendOperation(_ context.Context, _ pkgchannel.OutboundOp) (pkgchannel.SendResult, error) {
+	s.calls++
+	if s.err != nil {
+		return pkgchannel.SendResult{}, s.err
+	}
 	return pkgchannel.SendResult{PlatformMessageID: "sent-1"}, nil
 }

@@ -1275,11 +1275,6 @@ func (s *setupResult) waitBackgroundTasks() {
 	}
 }
 
-// eventSinkOption binds the durable session event log only when the durable
-// channel path is enabled; legacy mode keeps events process-local.
 func eventSinkOption(db *pgxpool.Pool) agent.PoolManagerOption {
-	if os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") == "" {
-		return agent.WithEventSink(nil)
-	}
 	return agent.WithEventSink(sessionevent.New(db))
 }

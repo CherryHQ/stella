@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -65,13 +66,6 @@ func WithOwnerTokenSource(src OwnerTokenSource) CoordinatorOption {
 // rotates sessions through. Without it durable routing is unavailable.
 func WithSessionAccess(svc agent.SessionAccessService) CoordinatorOption {
 	return func(c *Coordinator) { c.sessionAccess = svc }
-}
-
-// WithDurableIngress switches HandleIncoming to write channel_inbox instead of
-// resolving+chatting synchronously. Off by default: production entry keeps the
-// old path until the run workers and outbox senders are live (Phase 3/4).
-func WithDurableIngress(on bool) CoordinatorOption {
-	return func(c *Coordinator) { c.durableIngress = on }
 }
 
 // WithTurnAppender binds the tx-scoped session transcript writer used by the
@@ -202,6 +196,22 @@ func (c *Coordinator) routeSession(ctx context.Context, tx pgx.Tx, rc *ResolvedC
 }
 
 func (c *Coordinator) routeMessage(ctx context.Context, tx pgx.Tx, ev sqlc.ChannelInbox, env *chinbox.Envelope) error {
+	return c.routeMessageContent(ctx, tx, ev, env, env.Content)
+}
+
+// routeConfigContinuation queues the sanitized follow-up turn for /config: the
+// raw secret text stays out of the model-visible input entirely.
+func (c *Coordinator) routeConfigContinuation(ctx context.Context, tx pgx.Tx, ev sqlc.ChannelInbox, env *chinbox.Envelope, key string) error {
+	content, err := ai.MarshalContentBlocks([]ai.ContentBlock{
+		ai.TextContent{Text: "Credential " + key + " was stored successfully; continue with the user's prior task."},
+	})
+	if err != nil {
+		return err
+	}
+	return c.routeMessageContent(ctx, tx, ev, env, content)
+}
+
+func (c *Coordinator) routeMessageContent(ctx context.Context, tx pgx.Tx, ev sqlc.ChannelInbox, env *chinbox.Envelope, content json.RawMessage) error {
 	rc, err := c.routeResolve(ctx, env, ev.ChannelID)
 	if err != nil {
 		return err
@@ -242,7 +252,7 @@ func (c *Coordinator) routeMessage(ctx context.Context, tx pgx.Tx, ev sqlc.Chann
 		Input: agentrun.Input{
 			V:       agentrun.EnvelopeVersion,
 			Kind:    "message",
-			Content: env.Content,
+			Content: content,
 		},
 		ReplyAddress: agentrun.ReplyAddress{
 			V:          agentrun.EnvelopeVersion,
@@ -315,9 +325,31 @@ func (c *Coordinator) routeCommand(ctx context.Context, tx pgx.Tx, ev sqlc.Chann
 		return c.routeNew(ctx, tx, ev, env, rc)
 	case "/abort":
 		return c.routeAbort(ctx, tx, ev, env, rc)
+	case "/start", "/help":
+		return c.replyText(ctx, tx, ev, env, pkgchannel.WelcomeMessage)
+	case "/whoami":
+		return c.replyText(ctx, tx, ev, env, fmt.Sprintf("Your ID: %s", env.SenderID))
+	case "/compact":
+		if _, err := rc.CompactSession(ctx); err != nil {
+			if errors.Is(err, agent.ErrGroupCompactionUnsupported) {
+				return c.replyText(ctx, tx, ev, env, pkgchannel.GroupCompactUnsupportedMessage)
+			}
+			return c.replyText(ctx, tx, ev, env, fmt.Sprintf("Compaction failed: %v", err))
+		}
+		return c.replyText(ctx, tx, ev, env, "Session compacted.")
+	case "/config":
+		resp, ok := handleConfig(ctx, c.vaultSvc, rc.User.ID, env.Args)
+		if !ok {
+			return c.replyText(ctx, tx, ev, env, resp)
+		}
+		if err := c.invalidator.InvalidateUser(rc.User.ID); err != nil {
+			_ = err
+		}
+		// The secret never reaches the model: queue a sanitized synthetic turn
+		// so the agent can continue the blocked task, same as the legacy path.
+		key := strings.ToUpper(strings.Fields(env.Args)[0])
+		return c.routeConfigContinuation(ctx, tx, ev, env, key)
 	default:
-		// Read-only and config commands are not yet served by the durable path;
-		// reject explicitly rather than silently dropping them.
 		_, err := c.inboxStore().Transition(ctx, tx, ev.ID, chinbox.StateRejected, "command_unsupported", nil)
 		return err
 	}
@@ -427,7 +459,7 @@ func (c *Coordinator) routeAbort(ctx context.Context, tx pgx.Tx, ev sqlc.Channel
 	return c.replyText(ctx, tx, ev, env, "Aborted.")
 }
 
-// receiveDurable is the flag-gated HandleIncoming path: it lands the event in
+// receiveDurable is the HandleIncoming path: it lands the event in
 // channel_inbox and acknowledges, returning no stream — the reply arrives
 // later through channel_outbox. A platform redelivery attaches silently.
 func (c *Coordinator) receiveDurable(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
@@ -497,15 +529,17 @@ func (c *Coordinator) EnqueueNotify(ctx context.Context, channelID string, n pkg
 }
 
 // RunDurableLoops drives the durable channel pipeline on this replica: a
-// routing sweep over claimable channels plus the run worker (claim, execute,
-// atomic finish) and its reaper. Callers start it only when durable ingress
-// is enabled.
-func (c *Coordinator) RunDurableLoops(ctx context.Context) {
+// routing sweep over claimable channels plus, when runWorker is set, the run
+// worker (claim, execute, atomic finish) and its reaper. The composition root
+// decides the worker role (STELLA_RUN_WORKER); routing and outbox dispatch
+// always run because they are claim-fenced.
+func (c *Coordinator) RunDurableLoops(ctx context.Context, runWorker bool) {
+	go c.runBacklogMetrics(ctx, c.db)
 	if c.db == nil || c.sessionAccess == nil {
 		slog.WarnContext(ctx, "durable channel loops unavailable: missing db or session access")
 		return
 	}
-	if os.Getenv("STELLA_RUN_WORKER") != "off" {
+	if runWorker {
 		host, _ := os.Hostname()
 		workerID := fmt.Sprintf("worker-%s-%d-%s", host, os.Getpid(), uuid.Must(uuid.NewV7()).String()[:8])
 		worker := agentrun.NewWorker(c.db, workerID, c.runExecutor(), c.runFinishHook,

@@ -40,16 +40,15 @@ func setupRouter(t *testing.T) (*Coordinator, testStores) {
 		t.Fatal(err)
 	}
 	c := &Coordinator{
-		db:             ts.db,
-		store:          ts.store,
-		auth:           ts.authStore,
-		agentAccess:    agentAccess,
-		sessionAccess:  access.NewAgentSessionAccess(sessSvc),
-		durableIngress: true,
-		queue:          newSessionQueue(),
-		guestLimiter:   newGuestRateLimiter(),
-		guests:         NewGuestStore(ts.db),
-		guestPolicy:    fixedGuestPolicy,
+		db:            ts.db,
+		store:         ts.store,
+		auth:          ts.authStore,
+		agentAccess:   agentAccess,
+		sessionAccess: access.NewAgentSessionAccess(sessSvc),
+		queue:         newSessionQueue(),
+		guestLimiter:  newGuestRateLimiter(),
+		guests:        NewGuestStore(ts.db),
+		guestPolicy:   fixedGuestPolicy,
 	}
 	return c, ts
 }
@@ -190,16 +189,15 @@ func setupRouterOn(t *testing.T, ts testStores) (*Coordinator, testStores) {
 		t.Fatal(err)
 	}
 	c := &Coordinator{
-		db:             ts.db,
-		store:          ts.store,
-		auth:           ts.authStore,
-		agentAccess:    agentAccess,
-		sessionAccess:  access.NewAgentSessionAccess(sessSvc),
-		durableIngress: true,
-		queue:          newSessionQueue(),
-		guestLimiter:   newGuestRateLimiter(),
-		guests:         NewGuestStore(ts.db),
-		guestPolicy:    fixedGuestPolicy,
+		db:            ts.db,
+		store:         ts.store,
+		auth:          ts.authStore,
+		agentAccess:   agentAccess,
+		sessionAccess: access.NewAgentSessionAccess(sessSvc),
+		queue:         newSessionQueue(),
+		guestLimiter:  newGuestRateLimiter(),
+		guests:        NewGuestStore(ts.db),
+		guestPolicy:   fixedGuestPolicy,
 	}
 	return c, ts
 }

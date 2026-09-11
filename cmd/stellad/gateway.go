@@ -381,9 +381,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	}
 	slog.Info("oidc: authentication configured")
 
-	intentClassifier := newIntentClassifier(s.snapshotLoader, s.providerRegistry)
-	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
-
 	elStore := eventlog.NewStore(s.db)
 	groupEvents := channel.NewGroupEventHub()
 	elStore.OnCommitted(groupEvents.Announce)
@@ -394,7 +391,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// Durable channel ingress is opt-in until the run workers and outbox
 	// senders exist; with the flag on, inbound events land in channel_inbox
 	// and replies flow through channel_outbox instead of the live stream.
-	coordOpts = append(coordOpts, channel.WithDurableIngress(os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") != ""))
 	if turnAppender, ok := memory.Unwrap(s.mem).(memory.TxSessionTurnAppender); ok {
 		coordOpts = append(coordOpts, channel.WithTurnAppender(func(ctx context.Context, tx pgx.Tx, session memory.Session, msgs []ai.Message) error {
 			return turnAppender.AppendSessionTurn(ctx, sqlc.New(tx), session, msgs...)
@@ -765,17 +761,17 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		_ = ln.Close()
 		return fmt.Errorf("start managed channel runtimes: %w", err)
 	}
-	if os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") != "" {
-		// Durable ingress loops are ingress-adjacent: they must start only
-		// after backends AND after managed channel runtimes exist (the outbox
-		// dispatcher resolves senders through them).
-		if coordinator != nil {
-			go coordinator.RunDurableLoops(ingressCtx)
-			// Scheduler/goal/notify sends become durable outbox ops; the channel
-			// lease owner performs the platform send.
-			if s.notifier != nil {
-				s.notifier.SetDurableSend(coordinator.EnqueueNotify)
-			}
+	// Durable ingress loops are ingress-adjacent: they must start only
+	// after backends AND after managed channel runtimes exist (the outbox
+	// dispatcher resolves senders through them).
+	if coordinator != nil {
+		// STELLA_RUN_WORKER=off pins this replica out of run execution
+		// (testbed role pinning, dedicated ingress/send replicas).
+		go coordinator.RunDurableLoops(ingressCtx, os.Getenv("STELLA_RUN_WORKER") != "off")
+		// Scheduler/goal/notify sends become durable outbox ops; the channel
+		// lease owner performs the platform send.
+		if s.notifier != nil {
+			s.notifier.SetDurableSend(coordinator.EnqueueNotify)
 		}
 		if leases := s.pluginHost.ChannelLeases(); leases != nil {
 			go leases.Run(ingressCtx)
@@ -1078,36 +1074,16 @@ func hostFromAddr(addr string) string {
 	return host
 }
 
-func newIntentClassifier(snapshots config.SnapshotLoader, registry *providers.Registry) *channel.LLMIntentClassifier {
-	if snapshots == nil || registry == nil {
-		return nil
-	}
-	return channel.NewLLMIntentClassifier(
-		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
-			return snapshots.Snapshot(ctx, agentID)
-		},
-		intentClassifierStreamFuncBuilder(registry),
-	)
-}
-
 func intentClassifierStreamFuncBuilder(registry *providers.Registry) channel.StreamFuncBuilder {
 	return func(_ context.Context, providerType string, creds config.ProviderCreds) (providers.StreamFunc, error) {
 		return registry.BuildStream(providerType, providers.Config{APIKey: creds.APIKey, BaseURL: creds.BaseURL})
 	}
 }
 
-// sessionEventsForGateway binds the durable turn-event log only under the
-// durable channel flag; otherwise SSE replay stays hub-local.
 func durableRunsForGateway(db *pgxpool.Pool) *agentrun.Store {
-	if os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") == "" {
-		return nil
-	}
 	return agentrun.New(db)
 }
 
 func sessionEventsForGateway(db *pgxpool.Pool) *sessionevent.Store {
-	if os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") == "" {
-		return nil
-	}
 	return sessionevent.New(db)
 }

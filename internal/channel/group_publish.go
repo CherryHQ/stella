@@ -100,8 +100,12 @@ func (p *groupPublishDriver) enqueueAccepted(ctx context.Context, job publishJob
 		return fmt.Errorf("enqueue group publish: append: %w", err)
 	}
 	if !row.PublishStartedAt.Valid {
-		if _, err := p.q.WithTx(tx).MarkGroupDispatchPublishStarted(ctx, sqlc.MarkGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
+		affected, err := p.q.WithTx(tx).MarkGroupDispatchPublishStarted(ctx, sqlc.MarkGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount})
+		if err != nil {
 			return fmt.Errorf("mark publish started: %w", err)
+		}
+		if affected == 0 {
+			return errors.New("lost dispatch ownership")
 		}
 	}
 	return tx.Commit(ctx)

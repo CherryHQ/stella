@@ -468,12 +468,12 @@ WHERE group_id = $1
 ORDER BY agent_id, updated_at DESC;
 
 -- name: ListGroupDispatchesAwaitingPublish :many
--- Accepted replies whose send is a pending durable outbox op: publish_started
--- set, published_at not yet. The outcome poller drives their terminal state.
+-- Accepted replies whose send is a pending durable outbox op, or whose send
+-- already landed but finalization has not completed (running + published but
+-- not yet completed). The outcome poller drives their terminal state.
 SELECT id
 FROM ctx_group_dispatch
 WHERE status = 'running'
   AND publish_started_at IS NOT NULL
-  AND published_at IS NULL
   AND result_message_id <> ''
 LIMIT 64;

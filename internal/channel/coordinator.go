@@ -68,7 +68,6 @@ type Coordinator struct {
 	listFn            func() []pkgchannel.ModelOption
 	switchFn          func(provider, model string) error
 	queue             *sessionQueue
-	intentClassifier  IntentClassifier
 	groupResolver     GroupResolver
 	eventLog          *eventlog.Store
 	botRegistry       *BotIdentityRegistry
@@ -82,10 +81,8 @@ type Coordinator struct {
 	guestLimiter      *guestRateLimiter
 	sessionImages     GroupImagePipeline
 	// sessionAccess is the Session PEP for the durable router: binding
-	// resolution and rotation without a local agent.Service. durableIngress
-	// gates the channel_inbox receive path on HandleIncoming.
-	sessionAccess  agent.SessionAccessService
-	durableIngress bool
+	// resolution and rotation without a local agent.Service.
+	sessionAccess agent.SessionAccessService
 	// channelResolver reaches the running adapter instance for outbox
 	// dispatch; nil on replicas with no local channels.
 	channelResolver ChannelResolver
@@ -187,12 +184,6 @@ func NewCoordinator(
 func WithVaultService(svc *vault.Service) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.vaultSvc = svc
-	}
-}
-
-func WithIntentClassifier(classifier IntentClassifier) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.intentClassifier = classifier
 	}
 }
 
@@ -383,16 +374,6 @@ func (c *Coordinator) UnregisterGroupPublisher(channelID string) {
 	c.publisherRegistry.Unregister(channelID)
 }
 
-// resolve performs the full user -> agent -> pool -> session key resolution.
-func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessage) (*ResolvedChat, error) {
-	channelID := msg.ChannelID
-	if channelID == "" {
-		channelID = msg.Platform
-	}
-
-	return ResolveWithChannel(ctx, c.serviceManager, c.store, c.auth, c.agentAccess, c.groupResolver, c.guests, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.ThreadID, msg.IsGroup, c.guestPolicy)
-}
-
 var errChannelPluginDisabled = errors.New("channel plugin disabled for actor")
 
 // channelPluginAllowed applies the published system/system-agent ceiling after
@@ -464,200 +445,7 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 		return c.handleGroupIncoming(ctx, msg, command, args)
 	}
 
-	if c.durableIngress {
-		return c.receiveDurable(ctx, msg, command, args)
-	}
-
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return "", false, nil, err
-	}
-	allowed, err := c.channelPluginAllowed(ctx, rc)
-	if err != nil {
-		return "", false, nil, err
-	}
-	if !allowed {
-		return "", false, nil, errChannelPluginDisabled
-	}
-	if rc.GuestID != "" && !c.guestLimiter.allow(rc.GuestID, rc.GuestMessageLimitPerMinute) {
-		return "Guest message rate limit exceeded. Try again in a minute.", true, nil, nil
-	}
-
-	plain, handled, stream, err := c.handleResolvedIncoming(ctx, rc, msg, command, args)
-	if stream != nil {
-		handoff = true
-	}
-	return plain, handled, stream, err
-}
-
-func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
-	if rc.GuestID != "" {
-		if !textOnly(msg.Content) {
-			return "Guest chat currently supports text messages only.", true, nil, nil
-		}
-		switch strings.ToLower(command) {
-		case "", "/new", "/abort", "/help", "/compact":
-		default:
-			return "This command is not available in guest chat.", true, nil, nil
-		}
-	}
-	// Try shared commands.
-	if command != "" {
-		command = strings.ToLower(command)
-		// /abort is handled here directly so it can cancel the active message.
-		if command == "/abort" {
-			return c.handleAbort(rc), true, nil, nil
-		}
-		if command == "/config" {
-			return c.handleConfigCommand(ctx, rc, args)
-		}
-		// /new runs through the session queue, so it cannot go through the
-		// stateless shared command handler.
-		if command == "/new" {
-			return c.handleNewSessionCommand(ctx, rc, msg), true, nil, nil
-		}
-		if command == "/compact" {
-			if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
-				return fmt.Sprintf("Compaction failed: %v", err), true, nil, nil
-			}
-		}
-		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
-			return resp, true, nil, nil
-		}
-	}
-
-	if rc.GuestID == "" && c.intentClassifier != nil {
-		intent := c.intentClassifier.Classify(ctx, rc.AgentID, msg.Content)
-		switch intent {
-		case IntentAbort:
-			return c.handleAbort(rc), true, nil, nil
-		case IntentNew:
-			// Deliberately not executed here. Typing `/new` is consent; guessing
-			// "新会话" from a short phrase is not, and a wrong guess throws away the
-			// user's context. The message falls through to a normal turn, where the
-			// agent answers in words and points the user at the explicit command.
-		case IntentCompact:
-			if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
-				return fmt.Sprintf("Compaction failed: %v", err), true, nil, nil
-			}
-			if resp, ok := HandleCommand(ctx, rc, IntentToCommand(intent), msg.SenderID); ok {
-				return resp, true, nil, nil
-			}
-		case IntentHelp:
-			if resp, ok := HandleCommand(ctx, rc, IntentToCommand(intent), msg.SenderID); ok {
-				return resp, true, nil, nil
-			}
-		}
-	}
-
-	// Not a command or recognized intent — enqueue a chat response for this session.
-	stream, err := c.queuedChat(ctx, rc, msg.Content)
-	if err != nil {
-		return "", false, nil, err
-	}
-	return "", false, stream, nil
-}
-
-func textOnly(content []ai.ContentBlock) bool {
-	for _, block := range content {
-		if _, ok := block.(ai.TextContent); !ok {
-			return false
-		}
-	}
-	return true
-}
-
-// handleConfigCommand handles /config KEY VALUE: writes to vault, invalidates
-// per-user runners, and resumes the conversation with a sanitized synthetic turn
-// so the model can continue the blocked task without seeing the secret value.
-// On error, returns a plain text error response.
-func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat, args string) (string, bool, *pkgchannel.ChatStream, error) {
-	resp, ok := handleConfig(ctx, c.vaultSvc, rc.User.ID, args)
-	if !ok {
-		return resp, true, nil, nil
-	}
-
-	// Extract key for synthetic message (handleConfig already validated len >= 2).
-	key := strings.ToUpper(strings.Fields(args)[0])
-
-	// Invalidate all live runners for this user so fresh env is used next turn.
-	if err := c.invalidator.InvalidateUser(rc.User.ID); err != nil {
-		_ = err
-	}
-
-	// Replace the raw /config turn with a sanitized synthetic continuation.
-	synthetic := []ai.ContentBlock{
-		ai.TextContent{Text: "Credential " + key + " was stored successfully; continue with the user's prior task."},
-	}
-	stream, err := c.queuedChat(ctx, rc, synthetic)
-	if err != nil {
-		return "", false, nil, err
-	}
-	return "", false, stream, nil
-}
-
-// handleNewSessionCommand starts a fresh session for this chat. The rotation is
-// queued behind any in-flight turn on the same session: aborting the user's
-// running work on a reset request would be surprising, and rotating underneath it
-// would land its reply in a session the user already left.
-func (c *Coordinator) handleNewSessionCommand(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage) string {
-	receipt := chatReceiptForMessage(c.receiptQueries(), rc, msg, newSessionCommand)
-	return rotateChatSession(ctx, rc, receipt, c.queue, func(authCtx context.Context) error {
-		return rc.AuthorizeUse(authCtx, c.agentAccess)
-	})
-}
-
-// receiptQueries returns the store backing command receipts, or nil when the
-// coordinator runs without a database (tests); a nil store makes every receipt
-// inert, which degrades to the unguarded pre-receipt behavior.
-func (c *Coordinator) receiptQueries() *sqlc.Queries {
-	if c.db == nil {
-		return nil
-	}
-	return sqlc.New(c.db)
-}
-
-// handleAbort cancels the currently-running request for the resolved session.
-func (c *Coordinator) handleAbort(rc *ResolvedChat) string {
-	if c.queue.Abort(rc.queueKey()) {
-		return "Aborted."
-	}
-	return "No active message to abort."
-}
-
-// queuedChat enqueues a chat request for the session and returns a ChatStream
-// whose Events channel is a wrapped forwarding channel. The caller must
-// fully drain (or abandon) Events before the queue will dispatch the next
-// request for the same session.
-func (c *Coordinator) queuedChat(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
-	markIngressQueued(ctx)
-	stream, doneC, err := c.queue.Enqueue(ctx, rc.queueKey(), func(qctx context.Context) (*pkgchannel.ChatStream, error) {
-		defer finishIngress(qctx)
-		return c.chatWithRC(qctx, rc, content)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Wrap the stream's Events in a forwarding channel that closes doneC once
-	// all events have been forwarded. This releases the queue slot.
-	out := make(chan pkgchannel.Event, 100)
-	go func() {
-		defer close(doneC)
-		defer close(out)
-		for evt := range stream.Events {
-			select {
-			case out <- evt:
-			case <-ctx.Done():
-				// Caller stopped reading, just drain the stream to not block the model
-			}
-		}
-	}()
-
-	return &pkgchannel.ChatStream{
-		Events:    out,
-		SessionID: stream.SessionID,
-	}, nil
+	return c.receiveDurable(ctx, msg, command, args)
 }
 
 // chatWithRC streams a chat response using a pre-resolved chat.

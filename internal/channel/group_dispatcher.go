@@ -114,11 +114,9 @@ func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator, publishers *Publis
 	}
 	d.chats = newGroupChatResolver(d.q, coord)
 	d.publish = newGroupPublishDriver(db, d.q, publishers, coord, d.log, d.Wake, d.chats.abort)
-	if coord != nil && coord.durableIngress {
-		// Durable ingress: group replies publish through the shared outbox
-		// ledger so the channel's lease owner performs the send.
-		d.publish.outbox = choutbox.New(db)
-	}
+	// Group replies publish through the shared outbox ledger so the
+	// channel's lease owner performs the send on any replica.
+	d.publish.outbox = choutbox.New(db)
 	d.chat = d.chats.chatDispatch
 	return d
 }
@@ -272,33 +270,35 @@ func (d *GroupDispatcher) pollPublishOutcomes(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if len(ops) == 0 {
-			continue
-		}
-		allSent, anyFailed := true, false
-		var failErr string
-		for _, op := range ops {
-			switch op.State {
-			case choutbox.StateSent:
-			case choutbox.StateFailed:
-				anyFailed = true
-				failErr = op.ErrorCode.String
-			default:
-				allSent = false
+		if !row.PublishedAt.Valid {
+			if len(ops) == 0 {
+				continue
 			}
+			allSent, anyFailed := true, false
+			var failErr string
+			for _, op := range ops {
+				switch op.State {
+				case choutbox.StateSent:
+				case choutbox.StateFailed:
+					anyFailed = true
+					failErr = op.ErrorCode.String
+				default:
+					allSent = false
+				}
+			}
+			if anyFailed {
+				cause := fmt.Errorf("group reply send failed: %s", failErr)
+				_ = d.publish.failAcceptedPublishWithExpiryFence(ctx, row, cause, time.Time{})
+				continue
+			}
+			if !allSent {
+				continue
+			}
+			if err := d.publish.markPublished(ctx, row); err != nil {
+				return err
+			}
+			row.PublishedAt = nullTime(time.Now().UTC())
 		}
-		if anyFailed {
-			cause := fmt.Errorf("group reply send failed: %s", failErr)
-			_ = d.publish.failAcceptedPublishWithExpiryFence(ctx, row, cause, time.Time{})
-			continue
-		}
-		if !allSent {
-			continue
-		}
-		if err := d.publish.markPublished(ctx, row); err != nil {
-			return err
-		}
-		row.PublishedAt = nullTime(time.Now().UTC())
 		if err := d.publish.finalizeAcceptedPublished(ctx, row); err != nil {
 			return err
 		}
@@ -650,7 +650,10 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	// A published marker means egress already succeeded. Its retry only runs
 	// idempotent DB finalization, so a missing publisher must not block it.
 	var publisher pkgchannel.GroupPublisher
-	if claimed.ResultMessageID == "" || !claimed.PublishedAt.Valid {
+	if d.publish.outbox == nil && (claimed.ResultMessageID == "" || !claimed.PublishedAt.Valid) {
+		// In-process publish only: a missing publisher fails the send here.
+		// With the durable outbox the lease owner's adapter performs the send,
+		// so this replica needs no publisher at all.
 		publisher, err = d.publish.publisherFor(state, claimed)
 		if err != nil {
 			return d.failDispatch(ctx, claimed, err)

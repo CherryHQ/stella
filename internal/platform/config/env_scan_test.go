@@ -31,13 +31,21 @@ var envReadAllowlist = map[string]map[string]bool{
 	// value to the (now pure) ParseLogLevel.
 	"cmd/stellad/main.go": {"LOG_LEVEL": true},
 
-	// STELLA_CHANNEL_DURABLE_INGRESS is a rollout switch consulted in the
-	// composition root (gateway/commands/setup_plugins) where the runtime is
-	// assembled — before ServerConfig fields can reach those constructors.
-	// Default-off; removing it is the plan's final cleanup step.
-	"cmd/stellad/commands.go":      {"STELLA_CHANNEL_DURABLE_INGRESS": true},
-	"cmd/stellad/gateway.go":       {"STELLA_CHANNEL_DURABLE_INGRESS": true},
-	"cmd/stellad/setup_plugins.go": {"STELLA_CHANNEL_DURABLE_INGRESS": true},
+	// Replica role pinning for the durable pipeline, read at the composition
+	// root where the runtime is assembled. STELLA_RUN_WORKER=off excludes a
+	// replica from run execution; STELLA_CHANNEL_LEASE=off keeps fencing but
+	// opts it out of channel ownership. Both exist so a multi-replica testbed
+	// can force ingress/worker/owner roles onto separate processes.
+	"cmd/stellad/gateway.go":       {"STELLA_RUN_WORKER": true},
+	"cmd/stellad/setup_plugins.go": {"STELLA_CHANNEL_LEASE": true},
+
+	// The test channel adapter exists only for process-boundary multi-replica
+	// verification. STELLA_TEST_CHANNELS gates its registration at two
+	// composition points; STELLA_TESTCHAN_TAG stamps each send with the
+	// sending replica's identity so tests can assert who delivered.
+	"internal/platform/config/plugin.go":    {"STELLA_TEST_CHANNELS": true},
+	"plugins/channels/testchan/plugin.go":   {"STELLA_TEST_CHANNELS": true},
+	"plugins/channels/testchan/testchan.go": {"STELLA_TESTCHAN_TAG": true},
 
 	// The evaluation driver is a standalone operator tool. Its provisioning
 	// credential deliberately never accepts a flag, preventing shell history
