@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -476,11 +477,25 @@ func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, age
 	// connection open. In durable mode a turn may execute on another replica —
 	// check the durable run/event log before answering 204.
 	if !attach.Live {
-		if s.sessionEvents != nil && s.streamDurableTurn(r.Context(), w, flusher, agentID, sessionID, attach) {
+		// A reconnecting watcher supplies Last-Event-ID (the SSE standard).
+		// A non-integer value is not a cursor we can honor — treat as 0 and
+		// replay the whole turn.
+		var cursor int64
+		if h := r.Header.Get("Last-Event-ID"); h != "" {
+			cursor, _ = strconv.ParseInt(h, 10, 64)
+		}
+		switch ok, truncated := s.streamDurableTurn(r.Context(), w, flusher, agentID, sessionID, attach, cursor); {
+		case ok:
+			return
+		case truncated:
+			// The cursor fell behind the log's retained window: 409 makes the
+			// client rebuild from the transcript instead of silently skipping.
+			writeError(w, http.StatusConflict, "event cursor expired; reload session")
+			return
+		default:
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		w.WriteHeader(http.StatusNoContent)
-		return
 	}
 
 	sctx, cancel := s.readiness.streamContext(r.Context())
@@ -1631,10 +1646,18 @@ const durablePollInterval = 250 * time.Millisecond
 // streamDurableTurn tails ctx_session_event for the session's open run when
 // the turn executes on another replica. Returns false (caller answers 204)
 // when no open run exists.
-func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, attach sessionaccess.AttachResult) bool {
+func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, attach sessionaccess.AttachResult, cursor int64) (ok, truncated bool) {
 	runID, err := s.sessionEvents.OpenRunID(ctx, sessionID)
 	if err != nil || runID == "" {
-		return false
+		return false, false
+	}
+	if cursor > 0 {
+		// Truncation check: the client's cursor must reach the oldest event
+		// still held for this run, otherwise events were pruned underneath it.
+		minSeq, err := s.sessionEvents.MinSeqForRun(ctx, sessionID, runID)
+		if err == nil && minSeq > cursor+1 {
+			return false, true
+		}
 	}
 	sctx, cancel := s.readiness.streamContext(ctx)
 	defer cancel()
@@ -1642,7 +1665,6 @@ func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, f
 	events := make(chan agent.Event, 64)
 	go func() {
 		defer close(events)
-		var cursor int64
 		for {
 			page, err := s.sessionEvents.ReadForRun(sctx, sessionID, runID, cursor, 256)
 			if err != nil {
@@ -1679,5 +1701,5 @@ func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, f
 	streamAgentEvents(sctx, w, flusher, agentID, sessionID, events, func() error {
 		return attach.BeforeProtectedEvent(sctx)
 	})
-	return true
+	return true, false
 }

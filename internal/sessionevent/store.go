@@ -119,6 +119,14 @@ func (s *Store) ReadForRun(ctx context.Context, sessionID, runID string, afterSe
 	return out, nil
 }
 
+// MinSeqForRun returns the earliest stored seq for the run (0 when none).
+func (s *Store) MinSeqForRun(ctx context.Context, sessionID, runID string) (int64, error) {
+	return sqlc.New(s.db).MinSessionEventSeqForRun(ctx, sqlc.MinSessionEventSeqForRunParams{
+		SessionID: sessionID,
+		RunID:     pgtype.Text{String: runID, Valid: runID != ""},
+	})
+}
+
 // OpenRunID returns the newest open (queued/running) run on the session, or
 // "" when none — a watcher uses it to decide whether there is a live turn to
 // tail and, combined with ReadForRun draining to the cursor, when to stop.

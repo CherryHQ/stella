@@ -45,6 +45,25 @@ func (q *Queries) LatestSessionEventSeq(ctx context.Context, sessionID string) (
 	return column_1, err
 }
 
+const minSessionEventSeqForRun = `-- name: MinSessionEventSeqForRun :one
+SELECT COALESCE(MIN(seq), 0)::bigint FROM ctx_session_event
+WHERE session_id = $1 AND run_id = $2
+`
+
+type MinSessionEventSeqForRunParams struct {
+	SessionID string      `json:"session_id"`
+	RunID     pgtype.Text `json:"run_id"`
+}
+
+// Earliest surviving seq for a run: a reconnecting watcher compares its
+// cursor against this to detect truncation and rebuild from transcript.
+func (q *Queries) MinSessionEventSeqForRun(ctx context.Context, arg MinSessionEventSeqForRunParams) (int64, error) {
+	row := q.db.QueryRow(ctx, minSessionEventSeqForRun, arg.SessionID, arg.RunID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const nextSessionEventSeq = `-- name: NextSessionEventSeq :one
 SELECT COALESCE(MAX(seq), 0) + 1::bigint FROM ctx_session_event WHERE session_id = $1
 `
