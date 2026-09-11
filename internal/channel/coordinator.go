@@ -87,6 +87,9 @@ type Coordinator struct {
 	// channelResolver reaches the running adapter instance for outbox
 	// dispatch; nil on replicas with no local channels.
 	channelResolver ChannelResolver
+	// ownerTokens, when bound, returns the channel lease token this replica
+	// holds; outbox dispatch only proceeds for owned channels.
+	ownerTokens OwnerTokenSource
 }
 
 // GroupImagePipeline canonicalizes group images. It is the same pipeline

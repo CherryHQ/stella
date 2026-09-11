@@ -33,6 +33,12 @@ type Options struct {
 	// VaultKey is test-only injection for startup-failure coverage. Empty uses a generated identity.
 	VaultKey     string
 	OmitVaultKey bool
+	// DatabaseURL runs stellad against an existing PostgreSQL instead of a
+	// per-instance embedded cluster — the multi-replica seam: a ReplicaSet
+	// shares one DSN (and one VaultKey) across sibling instances.
+	DatabaseURL string
+	// ExtraEnv adds process env vars (e.g. feature flags).
+	ExtraEnv map[string]string
 }
 
 // Instance owns the stellad process, its embedded database, temporary home,
@@ -59,6 +65,7 @@ type Instance struct {
 	managed         bool
 	stateFile       string
 	state           supervisorState
+	extraEnv        map[string]string
 }
 
 // Start boots an isolated testbed and waits until stellad is ready and fixture
@@ -84,7 +91,7 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create temporary test root: %w", err)
 	}
-	instance := &Instance{repoRoot: opts.RepoRoot, port: opts.Port, root: root, done: make(chan struct{}), managed: opts.Managed}
+	instance := &Instance{repoRoot: opts.RepoRoot, port: opts.Port, root: root, done: make(chan struct{}), managed: opts.Managed, extraEnv: opts.ExtraEnv}
 	if opts.FakeModel {
 		instance.fake = fakeanthropic.New()
 		instance.modelServer = httptest.NewServer(fakeanthropic.MessageHandlerWithOptions(fakeanthropic.MessageHandlerOptions{StreamChunks: opts.FakeStreamChunks, StreamIntervalMS: opts.FakeStreamIntervalMS}))
@@ -131,12 +138,16 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 		cleanup()
 		return nil, err
 	}
-	instance.db, err = appdb.StartEmbedded("", 0)
-	if err != nil {
-		cleanup()
-		return nil, fmt.Errorf("start embedded postgres: %w", err)
+	if opts.DatabaseURL != "" {
+		instance.dsn = opts.DatabaseURL
+	} else {
+		instance.db, err = appdb.StartEmbedded("", 0)
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("start embedded postgres: %w", err)
+		}
+		instance.dsn = instance.db.DSN()
 	}
-	instance.dsn = instance.db.DSN()
 	instance.vaultKey = opts.VaultKey
 	if instance.vaultKey == "" {
 		instance.vaultKey, err = vault.GenerateMasterIdentity()
@@ -159,6 +170,9 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 	instance.cmd = exec.Command(binaryPath(opts.RepoRoot), "server")
 	instance.cmd.Dir, instance.cmd.Stdout, instance.cmd.Stderr = opts.RepoRoot, logFile, logFile
 	instance.cmd.Env = serverEnvironment(instance.home, instance.dsn, instance.vaultKey, opts.Port)
+	for k, v := range opts.ExtraEnv {
+		instance.cmd.Env = append(instance.cmd.Env, k+"="+v)
+	}
 	if opts.OmitVaultKey {
 		filtered := instance.cmd.Env[:0]
 		for _, value := range instance.cmd.Env {
@@ -307,6 +321,9 @@ func (i *Instance) Restart(ctx context.Context) error {
 	}
 	i.cmd.Stdout, i.cmd.Stderr = logFile, logFile
 	i.cmd.Env = serverEnvironment(i.home, i.dsn, i.vaultKey, i.port)
+	for k, v := range i.extraEnv {
+		i.cmd.Env = append(i.cmd.Env, k+"="+v)
+	}
 	setProcessGroup(i.cmd)
 	i.done = make(chan struct{})
 	if err := i.cmd.Start(); err != nil {

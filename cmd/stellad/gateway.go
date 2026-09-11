@@ -402,6 +402,12 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		sender, ok := ch.(pkgchannel.OperationSender)
 		return sender, ok
 	}))
+	coordOpts = append(coordOpts, channel.WithOwnerTokenSource(func(channelID string) string {
+		if leases := s.pluginHost.ChannelLeases(); leases != nil {
+			return leases.Token(channelID)
+		}
+		return ""
+	}))
 	coordOpts = append(coordOpts, channel.WithGuestStore(channel.NewGuestStore(s.db)))
 	// Group event ingestion canonicalizes its images through the very pipeline
 	// ordinary sessions use, with the group as the media owner.
@@ -415,8 +421,13 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// receives only the narrow group-dispatch port (Deps.GroupDispatcher).
 	coordination := channel.NewCoordination(s.db, s.poolManager, s.store, listFn, switchFn, coordOpts...)
 	coordinator := coordination.Coordinator
-	if coordinator != nil && os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") != "" {
-		go coordinator.RunDurableLoops(gctx)
+	if os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") != "" {
+		if coordinator != nil {
+			go coordinator.RunDurableLoops(gctx)
+		}
+		if leases := s.pluginHost.ChannelLeases(); leases != nil {
+			go leases.Run(gctx)
+		}
 	}
 	groupDispatcher := coordination.GroupDispatcher
 	groupTurnCommitter, ok := s.mem.(memory.TxGroupCommitter)

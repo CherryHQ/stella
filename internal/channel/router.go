@@ -39,9 +39,21 @@ import (
 // simply does not dispatch outbox ops.
 type ChannelResolver func(channelID string) (pkgchannel.OperationSender, bool)
 
+// OwnerTokenSource returns the fencing token this replica holds for a
+// channel, or "" when unowned — outbox dispatch must not send without it
+// when leases are enabled.
+type OwnerTokenSource func(channelID string) string
+
 // WithChannelResolver binds the live-adapter lookup for outbox dispatch.
 func WithChannelResolver(r ChannelResolver) CoordinatorOption {
 	return func(c *Coordinator) { c.channelResolver = r }
+}
+
+// WithOwnerTokenSource binds the channel-lease token lookup for outbox
+// fencing. nil means the pre-lease mode: dispatch does not stamp an owner
+// token.
+func WithOwnerTokenSource(src OwnerTokenSource) CoordinatorOption {
+	return func(c *Coordinator) { c.ownerTokens = src }
 }
 
 // WithSessionAccess binds the Session PEP the router resolves bindings and
@@ -444,23 +456,23 @@ func (c *Coordinator) RunDurableLoops(ctx context.Context) {
 	worker := agentrun.NewWorker(c.db, "worker-"+uuid.Must(uuid.NewV7()).String()[:8], c.runExecutor(), c.runFinishHook)
 	go worker.Run(ctx)
 
+	// Routing is claim-based work: any replica may drain a channel's inbox —
+	// the sweep covers every enabled channel, not just locally owned ones.
+	// Sending is different: only the lease holder dispatches outbox ops.
 	q := sqlc.New(c.db)
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		channels, err := q.ListClaimableChannels(ctx)
+		channels, err := q.ListChannels(ctx)
 		if err == nil {
 			for _, ch := range channels {
+				if !ch.Enabled {
+					continue
+				}
 				if _, rerr := c.RoutePending(ctx, ch.ID); rerr != nil {
 					slog.WarnContext(ctx, "channel route sweep failed", "channel_id", ch.ID, "error", rerr)
 				}
-				if c.channelResolver != nil {
-					if sender, ok := c.channelResolver(ch.ID); ok {
-						if _, derr := c.outboxStore().ProcessDue(ctx, ch.ID, "", sender); derr != nil {
-							slog.WarnContext(ctx, "channel outbox dispatch failed", "channel_id", ch.ID, "error", derr)
-						}
-					}
-				}
+				c.dispatchDue(ctx, ch.ID)
 			}
 		} else if ctx.Err() == nil {
 			slog.WarnContext(ctx, "channel sweep failed", "error", err)
@@ -470,5 +482,26 @@ func (c *Coordinator) RunDurableLoops(ctx context.Context) {
 			return
 		case <-ticker.C:
 		}
+	}
+}
+
+// dispatchDue sends due outbox ops through the running adapter — only when
+// leases are off (legacy mode) or this replica holds the channel lease.
+func (c *Coordinator) dispatchDue(ctx context.Context, channelID string) {
+	if c.channelResolver == nil {
+		return
+	}
+	sender, ok := c.channelResolver(channelID)
+	if !ok {
+		return
+	}
+	ownerToken := ""
+	if c.ownerTokens != nil {
+		if ownerToken = c.ownerTokens(channelID); ownerToken == "" {
+			return // lease mode: not ours
+		}
+	}
+	if _, err := c.outboxStore().ProcessDue(ctx, channelID, ownerToken, sender); err != nil {
+		slog.WarnContext(ctx, "channel outbox dispatch failed", "channel_id", channelID, "error", err)
 	}
 }

@@ -46,6 +46,10 @@ type RuntimeHost struct {
 	// follow-up for the same row.
 	channelLocksMu sync.Mutex
 	channelLocks   map[string]*sync.Mutex
+
+	// channelLeases, when bound, makes durable channel start conditional on
+	// holding the DB lease; nil keeps the legacy unconditional start.
+	channelLeases *ChannelLeases
 }
 
 func NewRuntimeHost(host *Host) *RuntimeHost {
@@ -202,6 +206,21 @@ func (h *RuntimeHost) applyChannel(ctx context.Context, channel config.Channel) 
 	if !allowed {
 		channel.Enabled = false
 	}
+	if leases := h.channelLeases; leases != nil {
+		if channel.Enabled {
+			if leased, ok := leases.Ensure(ctx, channel.ID); ok {
+				// We own the lease: stamp the revision this replica applies.
+				leases.MarkApplied(ctx, channel.ID, "running", "", leased.ConfigRevision)
+			} else {
+				// Another replica owns it, or the DB is unreachable — either
+				// way this replica must not run the poller.
+				channel.Enabled = false
+			}
+		} else {
+			// Disabled or deleted intent releases any lease we still hold.
+			leases.Release(ctx, channel.ID)
+		}
+	}
 	regs := h.registrations(pluginID)
 	desired := pkgplugins.PluginState{
 		ID:      channel.ID,
@@ -220,6 +239,9 @@ func (h *RuntimeHost) applyChannel(ctx context.Context, channel config.Channel) 
 // ID. Runtime apply code may observe the eviction and perform its own cleanup;
 // Stop is therefore deliberately idempotent at this boundary.
 func (h *RuntimeHost) stopChannel(ctx context.Context, channelID string) error {
+	if h.channelLeases != nil {
+		h.channelLeases.Release(ctx, channelID)
+	}
 	h.applyMu.Lock()
 	h.mu.Lock()
 	entries := make([]*runtimeEntry, 0)
