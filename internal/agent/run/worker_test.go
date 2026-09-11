@@ -274,6 +274,99 @@ func TestWorkerCancelRequestedCancelsRun(t *testing.T) {
 	}
 }
 
+// Drain decoupling: cancelling the loop ctx (stopIngress) must not cancel a
+// turn the drain budget is still waiting on — the claimed turn runs under
+// execCtx until it finishes or the final teardown cancels execCtx.
+func TestWorkerDrainKeepsInflightTurn(t *testing.T) {
+	db := dbtest.New(t)
+	createAgent(t, db, "agent-1")
+	createSession(t, db, "sess-1", "agent-1")
+	runID := enqueueForTest(t, db, "sess-1", "req-1")
+
+	loopCtx, stopClaims := context.WithCancel(context.Background())
+	execCtx := t.Context()
+	gate := make(chan struct{})
+	exec := &fakeExecutor{reply: "drained reply", gate: gate}
+	w := NewWorker(db, "w1", exec, replyHook(t), WithExecContext(execCtx))
+	done := make(chan error, 1)
+	go func() { _, err := w.ProcessOnce(loopCtx); done <- err }()
+
+	for range 100 {
+		if exec.called.Load() > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if exec.called.Load() == 0 {
+		t.Fatal("executor never ran")
+	}
+
+	// Graceful drain begins: claiming stops, but the gated turn must survive.
+	stopClaims()
+	select {
+	case <-done:
+		t.Fatal("worker returned while the turn was still gated — the loop ctx cancelled the in-flight turn")
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(gate)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("worker: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("worker did not return after gate release")
+	}
+	r, err := New(db).Get(t.Context(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.State != string(StateCompleted) {
+		t.Fatalf("run state = %s, want completed — drain must not cancel the in-flight turn", r.State)
+	}
+	if countOutboxOps(t, db) != 1 {
+		t.Fatal("drained worker's completed turn must still commit its reply op")
+	}
+}
+
+// The execCtx bound is the teardown backstop: cancelling it mid-turn cancels
+// the turn like any other lost-execution path.
+func TestWorkerExecContextCancelBoundsTurn(t *testing.T) {
+	db := dbtest.New(t)
+	createAgent(t, db, "agent-1")
+	createSession(t, db, "sess-1", "agent-1")
+	runID := enqueueForTest(t, db, "sess-1", "req-1")
+
+	execCtx, teardown := context.WithCancel(context.Background())
+	exec := &fakeExecutor{gate: make(chan struct{})} // never released; only ctx ends it
+	w := NewWorker(db, "w1", exec, replyHook(t), WithExecContext(execCtx))
+	done := make(chan error, 1)
+	go func() { _, err := w.ProcessOnce(t.Context()); done <- err }()
+
+	for range 100 {
+		if exec.called.Load() > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	teardown()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("worker: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("worker did not return after teardown")
+	}
+	r, err := New(db).Get(t.Context(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.State != string(StateCanceled) {
+		t.Fatalf("run state = %s, want canceled", r.State)
+	}
+}
+
 func countOutboxOps(t *testing.T, db *pgxpool.Pool) int {
 	t.Helper()
 	var n int

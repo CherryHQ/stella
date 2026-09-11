@@ -533,7 +533,12 @@ func (c *Coordinator) EnqueueNotify(ctx context.Context, channelID string, n pkg
 // worker (claim, execute, atomic finish) and its reaper. The composition root
 // decides the worker role (STELLA_RUN_WORKER); routing and outbox dispatch
 // always run because they are claim-fenced.
-func (c *Coordinator) RunDurableLoops(ctx context.Context, runWorker bool) {
+//
+// ctx is the ingress stop signal: routing, dispatch and new run claims end
+// with it. execCtx parents claimed turns — the composition root passes the
+// work context so a graceful drain stops new claims while an in-flight turn
+// still finishes inside the drain budget, exactly like HTTP-accepted turns.
+func (c *Coordinator) RunDurableLoops(ctx, execCtx context.Context, runWorker bool) {
 	go c.runBacklogMetrics(ctx, c.db)
 	if c.db == nil || c.sessionAccess == nil {
 		slog.WarnContext(ctx, "durable channel loops unavailable: missing db or session access")
@@ -543,7 +548,7 @@ func (c *Coordinator) RunDurableLoops(ctx context.Context, runWorker bool) {
 		host, _ := os.Hostname()
 		workerID := fmt.Sprintf("worker-%s-%d-%s", host, os.Getpid(), uuid.Must(uuid.NewV7()).String()[:8])
 		worker := agentrun.NewWorker(c.db, workerID, c.runExecutor(), c.runFinishHook,
-			agentrun.WithTurnAppender(c.turnAppender))
+			agentrun.WithTurnAppender(c.turnAppender), agentrun.WithExecContext(execCtx))
 		go worker.Run(ctx)
 	}
 

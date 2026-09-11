@@ -48,6 +48,10 @@ type Worker struct {
 	// turnAppender, when bound, writes the run's deferred transcript rows
 	// inside the finish transaction (plan D4 single committer).
 	turnAppender func(ctx context.Context, tx pgx.Tx, session memory.Session, msgs []ai.Message) error
+	// execCtx parents the adopted lease context. It outlives the loop ctx so
+	// a graceful drain stops new claims without cancelling a turn the drain
+	// budget is still waiting on; it must end no later than final teardown.
+	execCtx context.Context
 }
 
 func NewWorker(db *pgxpool.Pool, workerID string, executor Executor, onFinish FinishHook, opts ...func(*Worker)) *Worker {
@@ -70,6 +74,13 @@ func NewWorker(db *pgxpool.Pool, workerID string, executor Executor, onFinish Fi
 // transaction — the app's lcm provider implements it.
 func WithTurnAppender(fn func(ctx context.Context, tx pgx.Tx, session memory.Session, msgs []ai.Message) error) func(*Worker) {
 	return func(w *Worker) { w.turnAppender = fn }
+}
+
+// WithExecContext parents claimed turns under ctx instead of the loop's stop
+// context, decoupling drain lifecycles: the loop ctx ends new claims while
+// the in-flight turn keeps running under the drain budget.
+func WithExecContext(ctx context.Context) func(*Worker) {
+	return func(w *Worker) { w.execCtx = ctx }
 }
 
 // Run is the polling loop: claim-and-execute until ctx ends, reaping expired
@@ -242,7 +253,11 @@ func (w *Worker) claimCandidate(opCtx, ctx context.Context, cand sqlc.AgentRun, 
 	}
 	outcome.run = cand
 	outcome.turn = &agentsession.DeferredTurnStore{}
-	runCtx, lease := w.exec.Adopt(ctx, cand.SessionID, token, w.completeExtra(outcome))
+	execCtx := w.execCtx
+	if execCtx == nil {
+		execCtx = ctx
+	}
+	runCtx, lease := w.exec.Adopt(execCtx, cand.SessionID, token, w.completeExtra(outcome))
 	runCtx = agentsession.WithDeferredTurnStore(runCtx, outcome.turn)
 	return cand, runCtx, lease, true, nil
 }

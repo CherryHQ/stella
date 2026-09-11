@@ -767,7 +767,9 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	if coordinator != nil {
 		// STELLA_RUN_WORKER=off pins this replica out of run execution
 		// (testbed role pinning, dedicated ingress/send replicas).
-		go coordinator.RunDurableLoops(ingressCtx, os.Getenv("STELLA_RUN_WORKER") != "off")
+		// ingressCtx ends claiming/routing at drain start; gctx parents claimed
+		// turns so they finish inside the drain budget like HTTP-accepted work.
+		go coordinator.RunDurableLoops(ingressCtx, gctx, os.Getenv("STELLA_RUN_WORKER") != "off")
 		// Scheduler/goal/notify sends become durable outbox ops; the channel
 		// lease owner performs the platform send.
 		if s.notifier != nil {
