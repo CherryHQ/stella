@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -81,6 +82,7 @@ type pollEvent struct {
 
 // sendRequest is what the adapter posts for one outbound operation.
 type sendRequest struct {
+	Tag        string `json:"tag,omitempty"`
 	OpKey      string `json:"op_key"`
 	OpIndex    int    `json:"op_index"`
 	ChatKey    string `json:"chat_key"`
@@ -214,6 +216,7 @@ func (c *Channel) SendOperation(ctx context.Context, op pkgchannel.OutboundOp) (
 		return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: decode payload: %s", err)
 	}
 	req := sendRequest{
+		Tag:        os.Getenv("STELLA_TESTCHAN_TAG"),
 		OpKey:      op.DeliveryKey,
 		OpIndex:    op.OperationIndex,
 		ChatKey:    op.Address.ChatKey,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -478,9 +479,13 @@ func (c *Coordinator) RunDurableLoops(ctx context.Context) {
 		slog.WarnContext(ctx, "durable channel loops unavailable: missing db or session access")
 		return
 	}
-	worker := agentrun.NewWorker(c.db, "worker-"+uuid.Must(uuid.NewV7()).String()[:8], c.runExecutor(), c.runFinishHook,
-		agentrun.WithTurnAppender(c.turnAppender))
-	go worker.Run(ctx)
+	if os.Getenv("STELLA_RUN_WORKER") != "off" {
+		host, _ := os.Hostname()
+		workerID := fmt.Sprintf("worker-%s-%d-%s", host, os.Getpid(), uuid.Must(uuid.NewV7()).String()[:8])
+		worker := agentrun.NewWorker(c.db, workerID, c.runExecutor(), c.runFinishHook,
+			agentrun.WithTurnAppender(c.turnAppender))
+		go worker.Run(ctx)
+	}
 
 	// Routing is claim-based work: any replica may drain a channel's inbox —
 	// the sweep covers every enabled channel, not just locally owned ones.

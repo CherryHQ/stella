@@ -7,9 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -417,4 +419,183 @@ func (h *harness) patchJSON(t *testing.T, ctx context.Context, path string, body
 		t.Fatalf("PATCH %s: %v", path, err)
 	}
 	return resp
+}
+
+// startReplica boots an extra replica sharing the first instance's embedded
+// cluster — same DSN + vault key, like StartReplicas but ordered so the test
+// can pin roles deterministically.
+func startReplica(t *testing.T, first *testbed.Instance, extra map[string]string) *testbed.Instance {
+	t.Helper()
+	opts := testbed.Options{
+		RepoRoot:    repoRoot(t),
+		DatabaseURL: first.DatabaseURL(),
+		VaultKey:    first.VaultKey(),
+		Bootstrap:   false,
+		Managed:     false,
+		ExtraEnv:    extra,
+	}
+	inst, err := testbed.Start(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("start replica: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := inst.Stop(); err != nil {
+			t.Errorf("stop replica: %v", err)
+		}
+	})
+	return inst
+}
+
+func replicaIDOf(t *testing.T, inst *testbed.Instance) string {
+	t.Helper()
+	log := inst.LogTail(200)
+	idx := strings.LastIndex(log, "replica_id=")
+	if idx < 0 {
+		t.Fatalf("replica identity not logged\n%s", log)
+	}
+	rest := log[idx+len("replica_id="):]
+	if cut := strings.IndexAny(rest, " \n"); cut >= 0 {
+		rest = rest[:cut]
+	}
+	return rest
+}
+
+// M2: four real processes share one database — D hosts it (and the API),
+// A owns the channel, B runs the only worker, C waits for the lease.
+// Assertions bind roles to actual process identities, not store instances.
+func TestDurableChannelThreeReplicas(t *testing.T) {
+	skipUnsupportedHost(t)
+	fp := newFakePlatform(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	baseEnv := map[string]string{
+		"STELLA_TEST_CHANNELS":           "1",
+		"STELLA_CHANNEL_DURABLE_INGRESS": "1",
+	}
+	// D: database owner + API + bootstrap, never a channel owner or worker.
+	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "D",
+	})})
+	if err != nil {
+		t.Fatalf("start D: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Stop() })
+	sharedFake = d
+	fake := newFakeAnthropic(t)
+	h := &harness{owner: t, runID: newRunID(t), baseURL: d.BaseURL(), client: mustCookieClient(t), proc: d}
+	h.registerBootstrapUser(t, ctx)
+	db, err := pgxpool.New(ctx, d.DatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.db = db
+	t.Cleanup(db.Close)
+
+	const modelID = "claude-sonnet-4-6"
+	fake.enqueueText("ONE " + h.runID)
+	fake.enqueueText("TWO " + h.runID)
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "-m2")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/"+modelID, "-m2")
+	botName := "testbot-" + h.runID
+	channelID := h.createTestChannel(t, ctx, agentID, fp.endpoint(), botName)
+
+	// A: channel owner + receiver, no worker.
+	a := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "A",
+	}))
+	aID := replicaIDOf(t, a)
+	waitForCond(t, 60*time.Second, "A owns the channel", func() bool {
+		var owner string
+		return db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&owner) == nil && owner == aID
+	})
+
+	// B: the only worker. C: lease contender but no worker.
+	b := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_TESTCHAN_TAG": "B",
+	}))
+	c := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "C",
+	}))
+	cID := replicaIDOf(t, c)
+
+	// Event 1: A polls it in, B executes it, A sends the reply.
+	fp.push(map[string]string{
+		"id": "m2-e1-" + h.runID, "chat_id": "chat-m2", "sender_id": "user-1", "sender_name": "U", "text": "first",
+	})
+	waitForCond(t, 120*time.Second, "first reply sent by A", func() bool {
+		s := fp.lastSend()
+		return s != nil && s["tag"] == "A"
+	})
+	var workerID string
+	if err := db.QueryRow(ctx, "SELECT COALESCE(worker_id,'') FROM agent_run WHERE state='completed'").Scan(&workerID); err != nil {
+		t.Fatal(err)
+	}
+	if bpid := b.PID(); bpid == 0 || !strings.Contains(workerID, fmt.Sprintf("-%d-", bpid)) {
+		t.Fatalf("run worker_id=%q does not name B's process (pid %d)", workerID, bpid)
+	}
+	if got := len(fake.requests()); got != 1 {
+		t.Fatalf("model requests = %d, want 1", got)
+	}
+	fp.ack("m2-e1-" + h.runID)
+
+	// Kill A mid-flight setup: C is the only lease participant left and must
+	// take ownership, then receive and send the next event.
+	if err := a.Kill(); err != nil {
+		t.Fatalf("kill A: %v", err)
+	}
+	waitForCond(t, 90*time.Second, "C takes over the channel lease", func() bool {
+		var owner string
+		return db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&owner) == nil && owner == cID
+	})
+	fp.push(map[string]string{
+		"id": "m2-e2-" + h.runID, "chat_id": "chat-m2", "sender_id": "user-1", "sender_name": "U", "text": "second",
+	})
+	waitForCond(t, 120*time.Second, "second reply sent by C", func() bool {
+		s := fp.lastSend()
+		return s != nil && s["tag"] == "C" && s["text"] == "TWO "+h.runID
+	})
+
+	// Old owner resumes: it must never own or send again while C's lease lives.
+	if err := a.Restart(ctx); err != nil {
+		t.Fatalf("restart A: %v", err)
+	}
+	time.Sleep(4 * time.Second)
+	var ownerNow string
+	if err := db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&ownerNow); err != nil {
+		t.Fatal(err)
+	}
+	if ownerNow != cID {
+		t.Fatalf("old owner took the lease back: owner=%q, want %q", ownerNow, cID)
+	}
+	for _, s := range fp.sendsAll() {
+		if s["tag"] == "A" && s["text"] == "TWO "+h.runID {
+			t.Fatal("stale owner A sent a post-takeover operation")
+		}
+	}
+	if got := len(fake.requests()); got != 2 {
+		t.Fatalf("model requests = %d, want 2 (no replayed execution)", got)
+	}
+}
+
+func mergeEnvs(base, extra map[string]string) map[string]string {
+	out := map[string]string{}
+	maps.Copy(out, base)
+	maps.Copy(out, extra)
+	return out
+}
+
+func mustCookieClient(t *testing.T) *http.Client {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &http.Client{Jar: jar}
+}
+
+func (fp *fakePlatform) sendsAll() []map[string]any {
+	fp.mu.Lock()
+	defer fp.mu.Unlock()
+	return append([]map[string]any(nil), fp.sends...)
 }

@@ -246,6 +246,11 @@ func freePort() int {
 }
 func (i *Instance) BaseURL() string     { return i.baseURL }
 func (i *Instance) DatabaseURL() string { return i.dsn }
+
+// VaultKey returns the generated vault key sibling replicas must share to
+// decrypt the same secrets.
+func (i *Instance) VaultKey() string { return i.vaultKey }
+
 func (i *Instance) Credentials() (Credentials, error) {
 	return loadCredentialsPublic(i.credentialsPath)
 }
@@ -263,7 +268,16 @@ func (i *Instance) LogTail(n int) string {
 	return "server log tail:\n" + strings.Join(lines, "\n")
 }
 func (i *Instance) Done() <-chan struct{} { return i.done }
-func (i *Instance) WaitErr() error        { return i.waitErr }
+
+// PID exposes the stellad process id so multi-replica tests can match
+// worker/owner identities recorded in the database back to a real process.
+func (i *Instance) PID() int {
+	if i.cmd == nil || i.cmd.Process == nil {
+		return 0
+	}
+	return i.cmd.Process.Pid
+}
+func (i *Instance) WaitErr() error { return i.waitErr }
 func (i *Instance) Terminate() error {
 	if i.cmd == nil || i.cmd.Process == nil {
 		return errors.New("stellad is not running")

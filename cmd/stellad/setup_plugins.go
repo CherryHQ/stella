@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/google/uuid"
@@ -74,7 +75,11 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 	if os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") != "" {
 		// Durable channel path: replicas compete for channel ownership through
 		// the DB lease; only the holder runs the poller and sends.
-		phostOpts = append(phostOpts, pluginhost.WithChannelLeases(db, replicaID()))
+		// STELLA_CHANNEL_LEASE=off keeps fencing but opts the replica out of
+		// the ownership race (testbed role pinning, observer deployments).
+		id := replicaID()
+		slog.Info("replica identity", "replica_id", id)
+		phostOpts = append(phostOpts, pluginhost.WithChannelLeases(db, id, os.Getenv("STELLA_CHANNEL_LEASE") != "off"))
 	}
 	phost := pluginhost.New(store, phostOpts...)
 

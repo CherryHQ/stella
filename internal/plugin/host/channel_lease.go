@@ -39,7 +39,10 @@ type ChannelLeases struct {
 
 	// reconcile is called when a held lease is lost or a claimable channel
 	// appears — the host's per-channel reconcile re-evaluates ownership.
-	reconcile func(ctx context.Context, channelID string)
+	// participating=false keeps fencing semantics but never owns a channel —
+	// the testbed uses it to pin a replica out of the ownership race.
+	participating bool
+	reconcile     func(ctx context.Context, channelID string)
 	// runtimeErrored reports a channel's runtime error snapshot (async Start
 	// failures land there after Apply returns nil).
 	runtimeErrored func(channelID string) bool
@@ -51,10 +54,11 @@ type ChannelLeases struct {
 
 func NewChannelLeases(db *pgxpool.Pool, ownerID string) *ChannelLeases {
 	return &ChannelLeases{
-		q:       sqlc.New(db),
-		ownerID: ownerID,
-		log:     slog.With("component", "channel_leases", "owner", ownerID),
-		held:    map[string]string{},
+		q:             sqlc.New(db),
+		ownerID:       ownerID,
+		log:           slog.With("component", "channel_leases", "owner", ownerID),
+		held:          map[string]string{},
+		participating: true,
 	}
 }
 
@@ -73,6 +77,9 @@ func (t *ChannelLeases) bindStopLocal(fn func(context.Context, string)) { t.stop
 // run here — either another replica owns it or the DB is unreachable, in
 // which case we fail closed.
 func (t *ChannelLeases) Ensure(ctx context.Context, channelID string) (sqlc.Channel, bool) {
+	if !t.participating {
+		return sqlc.Channel{}, false
+	}
 	t.mu.Lock()
 	token, ok := t.held[channelID]
 	if !ok {
@@ -242,12 +249,15 @@ func (t *ChannelLeases) sweep(ctx context.Context) {
 // WithChannelLeases makes durable channel start conditional on the DB lease:
 // this replica reconciles enabled channels only while it holds the token.
 // Pass nil db to keep the legacy unconditional-start behavior.
-func WithChannelLeases(db *pgxpool.Pool, ownerID string) Option {
+func WithChannelLeases(db *pgxpool.Pool, ownerID string, participate ...bool) Option {
 	return func(h *Host) {
 		if db == nil {
 			return
 		}
 		leases := NewChannelLeases(db, ownerID)
+		if len(participate) > 0 {
+			leases.participating = participate[0]
+		}
 		leases.bindReconcile(func(ctx context.Context, channelID string) {
 			if err := h.runtimes.ReconcileChannel(ctx, channelID); err != nil {
 				h.log.WarnContext(ctx, "lease-triggered reconcile failed", "channel", channelID, "error", err)
