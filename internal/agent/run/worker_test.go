@@ -46,7 +46,7 @@ func (f *fakeExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (string, er
 func replyHook(t *testing.T) FinishHook {
 	t.Helper()
 	return func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result, reply string) error {
-		if result != "ok" || reply == "" {
+		if result != "success" || reply == "" {
 			return nil
 		}
 		var addr ReplyAddress
@@ -114,7 +114,7 @@ func TestWorkerClaimExecuteFinish(t *testing.T) {
 	if err := db.QueryRow(ctx, "SELECT last_turn_result FROM ctx_conversation WHERE session_id='sess-1'").Scan(&result); err != nil {
 		t.Fatal(err)
 	}
-	if !result.Valid || result.String != "ok" {
+	if !result.Valid || result.String != "success" {
 		t.Fatalf("last_turn_result = %v", result)
 	}
 	// Reply op landed in the same transaction.
@@ -372,5 +372,25 @@ func TestWorkerSkippedFIFOCandidateLeavesNoLease(t *testing.T) {
 	}
 	if _, err := sqlc.New(db).GetSessionExecution(t.Context(), "fifo"); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("skipped candidate left an unadopted lease, err=%v", err)
+	}
+}
+
+// The finished activity must use the success/error vocabulary the session API
+// understands — a "ok" result renders as unexplained idle.
+func TestWorkerSuccessWritesActivitySuccess(t *testing.T) {
+	db := dbtest.New(t)
+	createAgent(t, db, "agent-1")
+	createSession(t, db, "sess-1", "agent-1")
+	enqueueForTest(t, db, "sess-1", "req-1")
+	w := NewWorker(db, "w1", &fakeExecutor{reply: "done"}, replyHook(t))
+	if ok, err := w.ProcessOnce(t.Context()); err != nil || !ok {
+		t.Fatalf("claimed=%v err=%v", ok, err)
+	}
+	var result string
+	if err := db.QueryRow(t.Context(), "SELECT last_turn_result FROM ctx_conversation WHERE session_id='sess-1'").Scan(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result != "success" {
+		t.Fatalf("last_turn_result=%q, want success", result)
 	}
 }

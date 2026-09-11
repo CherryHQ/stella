@@ -43,6 +43,10 @@ type ChannelLeases struct {
 	// runtimeErrored reports a channel's runtime error snapshot (async Start
 	// failures land there after Apply returns nil).
 	runtimeErrored func(channelID string) bool
+	// stopLocal is the DB-free local teardown used when ownership can no
+	// longer be verified: it evicts the running runtime before any reconcile
+	// is attempted, so a failed DB read cannot strand a live ingress.
+	stopLocal func(ctx context.Context, channelID string)
 }
 
 func NewChannelLeases(db *pgxpool.Pool, ownerID string) *ChannelLeases {
@@ -60,6 +64,9 @@ func (t *ChannelLeases) bindReconcile(fn func(context.Context, string)) { t.reco
 // a runtime sitting in an error snapshot is re-evaluated instead of renewing
 // a dead owner forever.
 func (t *ChannelLeases) bindRuntimeErrored(fn func(string) bool) { t.runtimeErrored = fn }
+
+// bindStopLocal sets the DB-free local teardown for unverifiable leases.
+func (t *ChannelLeases) bindStopLocal(fn func(context.Context, string)) { t.stopLocal = fn }
 
 // Ensure returns the claimed channel row when this replica holds (or just
 // acquired) the lease, plus true. A false return means the channel must not
@@ -178,13 +185,15 @@ func (t *ChannelLeases) renewHeld(ctx context.Context) {
 				continue
 			}
 			// Fail closed: an unverifiable token must not keep sending AND
-			// must not keep receiving. Dropping the token blocks sends; the
-			// reconcile re-evaluates ownership — another owner's live lease or
-			// an unreachable DB both stop the local poller. A transient error
-			// costs one restart, which is cheaper than a zombie ingress.
+			// must not keep receiving. Stop the local runtime FIRST — the
+			// reconcile that follows may itself fail while the DB is down,
+			// and it must not find a live ingress to leave behind.
 			t.drop(id)
 			if ctx.Err() == nil {
 				t.log.WarnContext(ctx, "channel lease renew failed", "channel", id, "error", err)
+			}
+			if t.stopLocal != nil {
+				t.stopLocal(ctx, id)
 			}
 			if t.reconcile != nil {
 				t.reconcile(ctx, id)
@@ -240,6 +249,11 @@ func WithChannelLeases(db *pgxpool.Pool, ownerID string) Option {
 			}
 		})
 		leases.bindRuntimeErrored(h.runtimes.ChannelRuntimeErrored)
+		leases.bindStopLocal(func(ctx context.Context, channelID string) {
+			if err := h.runtimes.stopChannel(ctx, channelID); err != nil {
+				h.log.WarnContext(ctx, "local channel stop failed", "channel", channelID, "error", err)
+			}
+		})
 		h.runtimes.channelLeases = leases
 		h.channelLeases = leases
 	}

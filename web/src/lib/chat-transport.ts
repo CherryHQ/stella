@@ -17,12 +17,17 @@ import type {
 // skip events.
 function cursorFetch(storageKey: string): typeof fetch {
   return async (input, init) => {
-    const res = await fetch(input, init);
-    // 409 = the saved cursor fell behind the retained log. Drop it so the
-    // next reconnect replays from the run start instead of 409-ing forever.
+    let res = await fetch(input, init);
+    // 409 = the saved cursor fell behind the retained log. Clear it and
+    // retry once without the cursor so a fresh-resume 409 still reconnects
+    // instead of parking the chat in error with no auto-retry.
     if (res.status === 409) {
       sessionStorage.removeItem(storageKey);
-      return res;
+      if (init?.headers) {
+        const headers = new Headers(init.headers);
+        headers.delete("Last-Event-ID");
+        res = await fetch(input, { ...init, headers });
+      }
     }
     if (!res.body) return res;
     const [forClient, forCursor] = res.body.tee();

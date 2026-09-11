@@ -152,7 +152,7 @@ func (c *Coordinator) replyTextLimit(channelID string) int {
 // runFinishHook appends the final reply's outbox operation inside the
 // execution-finish transaction — the reply is durable before any send attempt.
 func (c *Coordinator) runFinishHook(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result, reply string) error {
-	if result != "ok" || reply == "" {
+	if result != "success" || reply == "" {
 		return nil
 	}
 	var addr agentrun.ReplyAddress

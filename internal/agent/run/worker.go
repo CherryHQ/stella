@@ -103,7 +103,10 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 		<-done
 	case <-done:
 	}
-	result := "ok"
+	// The activity contract only understands success/canceled/error — the
+	// same vocabulary the API maps to activity_status; anything else reads
+	// as an unexplained idle.
+	result := "success"
 	switch {
 	case errors.Is(outcome.err, context.Canceled):
 		result = "canceled"
@@ -236,7 +239,7 @@ func (w *Worker) completeExtra(o *runOutcome) sessionexecution.FinishExtra {
 	return func(ctx context.Context, tx pgx.Tx, result string) error {
 		state := StateCompleted
 		switch result {
-		case "ok":
+		case "success":
 		case "canceled":
 			state = StateCanceled
 		default:
