@@ -23,6 +23,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
@@ -49,7 +50,9 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/sessionevent"
+	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/plugins/email"
 )
@@ -391,6 +394,11 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// senders exist; with the flag on, inbound events land in channel_inbox
 	// and replies flow through channel_outbox instead of the live stream.
 	coordOpts = append(coordOpts, channel.WithDurableIngress(os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") != ""))
+	if turnAppender, ok := memory.Unwrap(s.mem).(memory.TxSessionTurnAppender); ok {
+		coordOpts = append(coordOpts, channel.WithTurnAppender(func(ctx context.Context, tx pgx.Tx, session memory.Session, msgs []ai.Message) error {
+			return turnAppender.AppendSessionTurn(ctx, sqlc.New(tx), session, msgs...)
+		}))
+	}
 	// Outbox ops reach the platform through the running adapter instance this
 	// replica owns; a replica hosting no channels resolves to nothing and its
 	// dispatch sweep becomes a no-op.

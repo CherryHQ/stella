@@ -25,6 +25,14 @@ type TxGroupCommitter interface {
 	CommitGroupTurn(context.Context, *sqlc.Queries, DeferredGroupTurn) error
 }
 
+// TxSessionTurnAppender commits a deferred direct-session transcript into the
+// caller's outer transaction — the durable run worker uses it so the final
+// assistant message lands in the same commit as the run's terminal state and
+// its outbox reply (plan D4: single committer, atomic boundary).
+type TxSessionTurnAppender interface {
+	AppendSessionTurn(context.Context, *sqlc.Queries, Session, ...ai.Message) error
+}
+
 // ScopeUserIDFromContext returns the user_id this turn's conversation rows are
 // keyed by. A group turn carries no user identity — runtime identity stays the
 // group (D9) — and guest turns likewise carry no Stella user identity. Their

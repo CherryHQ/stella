@@ -13,6 +13,7 @@ import (
 	"filippo.io/age"
 	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/google/uuid"
@@ -21,6 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
 	"github.com/CherryHQ/stella/internal/platform/home"
 	"github.com/CherryHQ/stella/internal/platform/observability"
@@ -87,6 +89,10 @@ type Coordinator struct {
 	// channelResolver reaches the running adapter instance for outbox
 	// dispatch; nil on replicas with no local channels.
 	channelResolver ChannelResolver
+	// turnAppender commits a run's deferred transcript inside the execution
+	// finish transaction (plan D4); nil only in tests without a memory
+	// provider, where the deferred store is simply not consulted.
+	turnAppender func(ctx context.Context, tx pgx.Tx, session memory.Session, msgs []ai.Message) error
 	// ownerTokens, when bound, returns the channel lease token this replica
 	// holds; outbox dispatch only proceeds for owned channels.
 	ownerTokens OwnerTokenSource

@@ -516,13 +516,18 @@ func (rt *Runtime) streamEvents(
 	var pendingStores []ai.Message
 	var textBuf strings.Builder
 	var reasoningBuf strings.Builder
+	deferred, _ := session.DeferredTurnStoreFrom(ctx)
 	appendWithPrefix := func(msgs ...ai.Message) error {
 		storeMessages := make([]ai.Message, 0, len(storePrefix)+len(msgs))
 		storeMessages = append(storeMessages, storePrefix...)
 		storeMessages = append(storeMessages, msgs...)
 		storePrefix = nil
-		if isGroup {
-			return rt.mem.Append(persistCtx, memSess, storeMessages...)
+		if deferred != nil && !isGroup {
+			// The worker's finish transaction owns this turn's history: every
+			// durable append joins the run/outbox commit (plan D4) instead of
+			// being visible while the run can still fail.
+			deferred.Append(storeMessages...)
+			return nil
 		}
 		return rt.mem.Append(persistCtx, memSess, storeMessages...)
 	}
@@ -569,7 +574,7 @@ func (rt *Runtime) streamEvents(
 				notice := "I've been working on this for a while and have reached the time limit. Here's where things stand — feel free to send a message to continue or change direction."
 				if !isGroup {
 					noticeMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: notice}}}
-					if err := rt.mem.Append(persistCtx, memSess, noticeMsg); err != nil {
+					if err := appendWithPrefix(noticeMsg); err != nil {
 						rt.log.Warn("memory append timeout notice failed", "session_id", sessionID, "error", err)
 					}
 				}

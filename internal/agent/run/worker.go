@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,7 +13,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/sessionexecution"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -41,10 +45,13 @@ type Worker struct {
 	executor Executor
 	onFinish FinishHook
 	poll     time.Duration
+	// turnAppender, when bound, writes the run's deferred transcript rows
+	// inside the finish transaction (plan D4 single committer).
+	turnAppender func(ctx context.Context, tx pgx.Tx, session memory.Session, msgs []ai.Message) error
 }
 
-func NewWorker(db *pgxpool.Pool, workerID string, executor Executor, onFinish FinishHook) *Worker {
-	return &Worker{
+func NewWorker(db *pgxpool.Pool, workerID string, executor Executor, onFinish FinishHook, opts ...func(*Worker)) *Worker {
+	w := &Worker{
 		db:       db,
 		runs:     New(db),
 		exec:     sessionexecution.New(db),
@@ -53,6 +60,16 @@ func NewWorker(db *pgxpool.Pool, workerID string, executor Executor, onFinish Fi
 		onFinish: onFinish,
 		poll:     500 * time.Millisecond,
 	}
+	for _, opt := range opts {
+		opt(w)
+	}
+	return w
+}
+
+// WithTurnAppender commits the run's deferred transcript inside the finish
+// transaction — the app's lcm provider implements it.
+func WithTurnAppender(fn func(ctx context.Context, tx pgx.Tx, session memory.Session, msgs []ai.Message) error) func(*Worker) {
+	return func(w *Worker) { w.turnAppender = fn }
 }
 
 // Run is the polling loop: claim-and-execute until ctx ends, reaping expired
@@ -224,13 +241,16 @@ func (w *Worker) claimCandidate(opCtx, ctx context.Context, cand sqlc.AgentRun, 
 		return sqlc.AgentRun{}, nil, nil, false, fmt.Errorf("claim run %s (outcome unknown): %w", cand.ID, err)
 	}
 	outcome.run = cand
+	outcome.turn = &agentsession.DeferredTurnStore{}
 	runCtx, lease := w.exec.Adopt(ctx, cand.SessionID, token, w.completeExtra(outcome))
+	runCtx = agentsession.WithDeferredTurnStore(runCtx, outcome.turn)
 	return cand, runCtx, lease, true, nil
 }
 
 // runOutcome carries what the executor produced into the finish transaction.
 type runOutcome struct {
 	run   sqlc.AgentRun
+	turn  *agentsession.DeferredTurnStore
 	reply string
 	err   error
 }
@@ -266,6 +286,18 @@ func (w *Worker) completeExtra(o *runOutcome) sessionexecution.FinishExtra {
 		}
 		if n != 1 {
 			return fmt.Errorf("finish run %s fenced out", o.run.ID)
+		}
+		if o.turn != nil && w.turnAppender != nil {
+			if rows := o.turn.Rows(); len(rows) > 0 {
+				var actor Actor
+				if err := json.Unmarshal(o.run.Actor, &actor); err != nil {
+					return fmt.Errorf("run actor for history: %w", err)
+				}
+				sess := memory.Session{ID: o.run.SessionID, UserID: actor.UserID, AgentID: o.run.AgentID}
+				if err := w.turnAppender(ctx, tx, sess, rows); err != nil {
+					return fmt.Errorf("append deferred turn history: %w", err)
+				}
+			}
 		}
 		if w.onFinish != nil {
 			return w.onFinish(ctx, tx, o.run, result, o.reply)

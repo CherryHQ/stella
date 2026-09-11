@@ -16,7 +16,9 @@ import (
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	chinbox "github.com/CherryHQ/stella/internal/channel/inbox"
 	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/sessionevent"
+	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/db/txlock"
@@ -69,6 +71,12 @@ func WithSessionAccess(svc agent.SessionAccessService) CoordinatorOption {
 // old path until the run workers and outbox senders are live (Phase 3/4).
 func WithDurableIngress(on bool) CoordinatorOption {
 	return func(c *Coordinator) { c.durableIngress = on }
+}
+
+// WithTurnAppender binds the tx-scoped session transcript writer used by the
+// run worker's finish transaction.
+func WithTurnAppender(fn func(ctx context.Context, tx pgx.Tx, session memory.Session, msgs []ai.Message) error) CoordinatorOption {
+	return func(c *Coordinator) { c.turnAppender = fn }
 }
 
 func (c *Coordinator) inboxStore() *chinbox.Store   { return chinbox.New(c.db) }
@@ -470,7 +478,8 @@ func (c *Coordinator) RunDurableLoops(ctx context.Context) {
 		slog.WarnContext(ctx, "durable channel loops unavailable: missing db or session access")
 		return
 	}
-	worker := agentrun.NewWorker(c.db, "worker-"+uuid.Must(uuid.NewV7()).String()[:8], c.runExecutor(), c.runFinishHook)
+	worker := agentrun.NewWorker(c.db, "worker-"+uuid.Must(uuid.NewV7()).String()[:8], c.runExecutor(), c.runFinishHook,
+		agentrun.WithTurnAppender(c.turnAppender))
 	go worker.Run(ctx)
 
 	// Routing is claim-based work: any replica may drain a channel's inbox —
