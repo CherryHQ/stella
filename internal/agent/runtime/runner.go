@@ -57,10 +57,12 @@ type Event struct {
 	Step       *StepEvent
 	Store      ai.Message // non-nil → append to session history
 	Err        error
-	// Seq is the durable ctx_session_event sequence, set only for events
-	// replayed from the durable log — the SSE transport emits it as the
-	// standard `id:` line so reconnect cursors are stable across replicas.
-	Seq int64
+	// Seq is the durable ctx_session_event sequence and DurableID its
+	// run-scoped cursor ("runID:seq"), set only for events replayed from the
+	// durable log — the SSE transport emits DurableID as the `id:` line so a
+	// reconnect cursor unambiguously names which run it belongs to.
+	Seq       int64
+	DurableID string
 }
 
 // MessageContent is a user message: string (text) or []ai.ContentBlock (multimodal).

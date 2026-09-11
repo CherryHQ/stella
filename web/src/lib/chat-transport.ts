@@ -18,6 +18,12 @@ import type {
 function cursorFetch(storageKey: string): typeof fetch {
   return async (input, init) => {
     const res = await fetch(input, init);
+    // 409 = the saved cursor fell behind the retained log. Drop it so the
+    // next reconnect replays from the run start instead of 409-ing forever.
+    if (res.status === 409) {
+      sessionStorage.removeItem(storageKey);
+      return res;
+    }
     if (!res.body) return res;
     const [forClient, forCursor] = res.body.tee();
     void (async () => {

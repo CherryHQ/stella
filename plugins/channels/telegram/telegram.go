@@ -400,13 +400,16 @@ func (b *Bot) incomingMsg(c tele.Context, content []ai.ContentBlock) channel.Inc
 		}
 	}
 	im := channel.IncomingMessage{
-		Platform:   channel.PlatformTelegram,
-		ChannelID:  b.Name(),
-		SenderID:   senderID,
-		SenderName: senderName,
-		ChatID:     fmt.Sprintf("%d", c.Chat().ID),
-		IsGroup:    isGroup(c),
-		Content:    content,
+		Platform:  channel.PlatformTelegram,
+		ChannelID: b.Name(),
+		// The bot's own username is the account identity — set it once here so
+		// commands, photos, and documents all carry it, not just text.
+		BotAccountKey: b.bot.Me.Username,
+		SenderID:      senderID,
+		SenderName:    senderName,
+		ChatID:        fmt.Sprintf("%d", c.Chat().ID),
+		IsGroup:       isGroup(c),
+		Content:       content,
 	}
 	if m := c.Message(); m != nil {
 		im.MessageID = fmt.Sprintf("%d", m.ID)

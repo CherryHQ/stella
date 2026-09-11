@@ -245,17 +245,21 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	// pendingSeq tags the next data block with the durable event's seq as an
-	// SSE id — the reconnect cursor survives replica changes.
-	var pendingSeq int64
+	// pendingCursor is emitted as an `id:` line only after the durable event's
+	// frames are fully flushed — a disconnect mid-event must not advance the
+	// cursor past data the client never received.
+	var pendingCursor string
 	writeData := func(v any) {
 		data, _ := json.Marshal(v)
-		if pendingSeq > 0 {
-			_, _ = fmt.Fprintf(w, "id: %d\n", pendingSeq)
-			pendingSeq = 0
-		}
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
+	}
+	emitCursor := func() {
+		if pendingCursor != "" {
+			_, _ = fmt.Fprintf(w, "id: %s\n\n", pendingCursor)
+			flusher.Flush()
+			pendingCursor = ""
+		}
 	}
 	writeDone := func() {
 		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
@@ -308,11 +312,12 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 				writeDone()
 				return
 			}
-			pendingSeq = evt.Seq
+			pendingCursor = evt.DurableID
 
 			// A combined Store+ToolUse is one atomic loop event. Pure persistence is
 			// transport-internal, but its paired tool progress must reach SSE.
 			if evt.Store != nil && evt.ToolUse == nil {
+				emitCursor()
 				continue
 			}
 			// Attach subscriptions must re-authorize at delivery time. A denial
@@ -333,6 +338,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 				}
 				writeData(map[string]string{"type": "finish"})
 				writeDone()
+				emitCursor()
 				return
 			}
 
@@ -354,6 +360,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 						stepOpen = false
 					}
 				}
+				emitCursor()
 				continue
 			}
 
@@ -365,6 +372,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 					inReasoning = true
 				}
 				writeData(map[string]any{"type": "reasoning-delta", "id": reasoningID, "delta": evt.Reasoning})
+				emitCursor()
 				continue
 			}
 
@@ -376,6 +384,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 					inText = true
 				}
 				writeData(map[string]any{"type": "text-delta", "id": textID, "delta": evt.Text})
+				emitCursor()
 				continue
 			}
 
@@ -422,6 +431,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 						"errorText":  tu.Content,
 					})
 				}
+				emitCursor()
 				continue
 			}
 
@@ -434,6 +444,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 					"url":       dataURI,
 					"mediaType": evt.Image.MimeType,
 				})
+				emitCursor()
 				continue
 			}
 
@@ -448,6 +459,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 					"url":       fileURL,
 					"mediaType": mediaType,
 				})
+				emitCursor()
 				continue
 			}
 		}
@@ -490,12 +502,12 @@ func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, age
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		// A reconnecting watcher supplies Last-Event-ID (the SSE standard).
-		// A non-integer value is not a cursor we can honor — treat as 0 and
-		// replay the whole turn.
-		var cursor int64
+		// A reconnecting watcher supplies Last-Event-ID — the durable cursor
+		// is "runID:seq"; anything else (legacy numeric, foreign) parses as
+		// seq-less and is honored positionally only.
+		var cursor string
 		if h := r.Header.Get("Last-Event-ID"); h != "" {
-			cursor, _ = strconv.ParseInt(h, 10, 64)
+			cursor = h
 		}
 		switch ok, truncated := s.streamDurableTurn(r.Context(), w, flusher, agentID, sessionID, attach, cursor); {
 		case ok:
@@ -1659,13 +1671,24 @@ const durablePollInterval = 250 * time.Millisecond
 // streamDurableTurn tails ctx_session_event for the session's open run when
 // the turn executes on another replica. Returns false (caller answers 204)
 // when no open run exists.
-func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, attach sessionaccess.AttachResult, cursor int64) (ok, truncated bool) {
+func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, attach sessionaccess.AttachResult, lastEventID string) (ok, truncated bool) {
 	if s.sessionEvents == nil {
 		return false, false
 	}
 	runID, err := s.sessionEvents.OpenRunID(ctx, sessionID)
 	if err != nil || runID == "" {
 		return false, false
+	}
+	// The cursor is run-scoped ("runID:seq"). A cursor from a previous run
+	// names a different sequence space: replay this run from its start — the
+	// seq gap between runs is not truncation.
+	var cursor int64
+	if run, seqStr, found := strings.Cut(lastEventID, ":"); found {
+		if run == runID {
+			cursor, _ = strconv.ParseInt(seqStr, 10, 64)
+		}
+	} else {
+		cursor, _ = strconv.ParseInt(lastEventID, 10, 64)
 	}
 	if cursor > 0 {
 		// Truncation check: the client's cursor must reach the oldest event
@@ -1696,6 +1719,7 @@ func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, f
 					continue
 				}
 				ev.Seq = row.Seq
+				ev.DurableID = runID + ":" + strconv.FormatInt(row.Seq, 10)
 				select {
 				case events <- ev:
 				case <-sctx.Done():
@@ -1704,9 +1728,22 @@ func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, f
 			}
 			// Our run reached a terminal state and its log is drained: the
 			// turn is over for every replica — regardless of what queued or
-			// started behind it.
+			// started behind it. If the run died without a persisted error
+			// event (admission failure, lost lease, interrupted), emit one so
+			// watchers see the real terminal instead of a clean finish.
 			done, derr := s.sessionEvents.RunDone(sctx, runID)
 			if derr == nil && done && len(page) == 0 {
+				state, code, serr := s.sessionEvents.RunState(sctx, runID)
+				if serr == nil && state != "completed" {
+					msg := state
+					if code != "" {
+						msg += ": " + code
+					}
+					select {
+					case events <- agent.Event{Err: errors.New("run " + msg)}:
+					case <-sctx.Done():
+					}
+				}
 				return
 			}
 			select {

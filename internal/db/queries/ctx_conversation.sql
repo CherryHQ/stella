@@ -332,3 +332,11 @@ WHERE session_id = sqlc.arg(session_id) AND user_id = sqlc.arg(user_id) AND agen
 -- of this conversation's slot in the shared 64-bit lock space.
 -- name: LockConversationForWrite :exec
 SELECT pg_advisory_xact_lock(hashtextextended('ctxconv:' || sqlc.arg(conversation_id)::text, 0));
+
+-- name: SessionTargetExecutable :one
+-- A queued run's target must exist and be unarchived; checked before the
+-- worker takes any lease so a dead target fails without side effects.
+SELECT EXISTS(
+  SELECT 1 FROM ctx_conversation
+  WHERE session_id = $1 AND archived = false
+) AS ok;

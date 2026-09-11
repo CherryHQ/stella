@@ -96,7 +96,6 @@ func (b *Bot) handleText(c tele.Context) error {
 	}
 
 	msg := b.incomingMsg(c, channel.TextContent(text))
-	msg.BotAccountKey = b.bot.Me.Username
 
 	// Parse command if present.
 	var cmd, args string
@@ -111,6 +110,9 @@ func (b *Bot) handleText(c tele.Context) error {
 		return c.Send(fmt.Sprintf("Error: %v", err))
 	}
 	if handled {
+		if resp == "" {
+			return nil
+		}
 		return c.Send(resp)
 	}
 	if stream == nil {

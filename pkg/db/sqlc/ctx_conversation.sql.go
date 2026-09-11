@@ -1033,6 +1033,22 @@ func (q *Queries) MarkConversationViewed(ctx context.Context, arg MarkConversati
 	return result.RowsAffected(), nil
 }
 
+const sessionTargetExecutable = `-- name: SessionTargetExecutable :one
+SELECT EXISTS(
+  SELECT 1 FROM ctx_conversation
+  WHERE session_id = $1 AND archived = false
+) AS ok
+`
+
+// A queued run's target must exist and be unarchived; checked before the
+// worker takes any lease so a dead target fails without side effects.
+func (q *Queries) SessionTargetExecutable(ctx context.Context, sessionID string) (bool, error) {
+	row := q.db.QueryRow(ctx, sessionTargetExecutable, sessionID)
+	var ok bool
+	err := row.Scan(&ok)
+	return ok, err
+}
+
 const updateConversationBootstrapped = `-- name: UpdateConversationBootstrapped :exec
 UPDATE ctx_conversation SET bootstrapped_at = now(), updated_at = now()
 WHERE id = $1 AND user_id = $2 AND agent_id IS NOT DISTINCT FROM $3

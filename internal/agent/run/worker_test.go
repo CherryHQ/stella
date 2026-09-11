@@ -304,3 +304,73 @@ func TestWorkerTargetGoneMarksFailed(t *testing.T) {
 		t.Fatalf("run = %s/%s", r.State, r.ErrorCode.String)
 	}
 }
+
+// An archived target alone in the queue must reach a terminal state in its own
+// committed transaction — and take no lease on the way.
+func TestWorkerArchivedOnlyRunFailsAndCommits(t *testing.T) {
+	db := dbtest.New(t)
+	createAgent(t, db, "agent-1")
+	createSession(t, db, "archived", "agent-1")
+	runID := enqueueForTest(t, db, "archived", "only")
+	if _, err := db.Exec(t.Context(), "UPDATE ctx_conversation SET archived=true WHERE session_id='archived'"); err != nil {
+		t.Fatal(err)
+	}
+	w := NewWorker(db, "w1", &fakeExecutor{reply: "reply"}, replyHook(t))
+	claimed, err := w.ProcessOnce(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed {
+		t.Fatal("archived target must not be claimed")
+	}
+	r, err := New(db).Get(t.Context(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.State != string(StateFailed) || r.ErrorCode.String != ErrCodeTargetGone {
+		t.Fatalf("run = %s/%s, want failed/target_gone", r.State, r.ErrorCode.String)
+	}
+	if _, err := sqlc.New(db).GetSessionExecution(t.Context(), "archived"); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("skipped candidate must not leave an execution lease, err=%v", err)
+	}
+}
+
+// A candidate skipped by the FIFO head check must not leave a committed lease
+// when a later healthy candidate in the same sweep commits.
+func TestWorkerSkippedFIFOCandidateLeavesNoLease(t *testing.T) {
+	db := dbtest.New(t)
+	createAgent(t, db, "agent-1")
+	createSession(t, db, "fifo", "agent-1")
+	createSession(t, db, "healthy", "agent-1")
+	first := enqueueForTest(t, db, "fifo", "first")
+	second := enqueueForTest(t, db, "fifo", "second")
+	enqueueForTest(t, db, "healthy", "healthy")
+
+	// Lock the head so the scan still lists it but the successor is skipped by
+	// the earlier-queued check rather than leapfrogging.
+	tx, err := db.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(t.Context()) }()
+	if _, err := tx.Exec(t.Context(), "SELECT id FROM agent_run WHERE id=$1 FOR UPDATE", first); err != nil {
+		t.Fatal(err)
+	}
+
+	exec := &fakeExecutor{reply: "reply"}
+	w := NewWorker(db, "w1", exec, replyHook(t))
+	claimed, err := w.ProcessOnce(t.Context())
+	if err != nil || !claimed {
+		t.Fatalf("healthy successor claim: claimed=%v err=%v", claimed, err)
+	}
+	r2, err := New(db).Get(t.Context(), second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r2.State != string(StateQueued) {
+		t.Fatalf("skipped FIFO run state=%q, want queued", r2.State)
+	}
+	if _, err := sqlc.New(db).GetSessionExecution(t.Context(), "fifo"); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("skipped candidate left an unadopted lease, err=%v", err)
+	}
+}

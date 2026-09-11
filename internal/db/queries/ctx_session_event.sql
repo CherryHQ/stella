@@ -1,7 +1,10 @@
 -- name: NextSessionEventSeq :one
--- Contiguous per-session sequence, allocated under the session advisory lock
--- the caller already holds.
-SELECT COALESCE(MAX(seq), 0) + 1::bigint FROM ctx_session_event WHERE session_id = $1;
+-- Contiguous per-session sequence from the session row's monotonic counter —
+-- pruning ctx_session_event can never rewind it. Allocated under the
+-- conversation write lock the caller already holds.
+UPDATE ctx_conversation SET event_seq = event_seq + 1
+WHERE session_id = $1
+RETURNING event_seq;
 
 -- name: InsertSessionEvent :exec
 INSERT INTO ctx_session_event (session_id, run_id, seq, event)

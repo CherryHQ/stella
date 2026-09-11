@@ -53,20 +53,21 @@ func (s *Store) AppendBatch(ctx context.Context, sessionID, runID string, payloa
 	if err := q.LockConversationForWrite(ctx, sessionID); err != nil {
 		return fmt.Errorf("sessionevent: lock session: %w", err)
 	}
-	seq, err := q.NextSessionEventSeq(ctx, sessionID)
-	if err != nil {
-		return err
-	}
 	for _, payload := range payloads {
+		// Each call increments the session-row counter, so seqs survive a
+		// prune of the log itself.
+		seq, err := q.NextSessionEventSeq(ctx, sessionID)
+		if err != nil {
+			return err
+		}
 		if err := q.InsertSessionEvent(ctx, sqlc.InsertSessionEventParams{
 			SessionID: sessionID,
 			RunID:     pgtype.Text{String: runID, Valid: runID != ""},
-			Seq:       int64(seq),
+			Seq:       seq,
 			Event:     payload,
 		}); err != nil {
 			return err
 		}
-		seq++
 	}
 	return tx.Commit(ctx)
 }
@@ -134,6 +135,17 @@ func (s *Store) RunDone(ctx context.Context, runID string) (bool, error) {
 	}
 }
 
+// RunState returns a run's terminal/queue state and error code — the durable
+// watcher uses it to emit a terminal error instead of a clean finish when the
+// run died without a persisted terminal event.
+func (s *Store) RunState(ctx context.Context, runID string) (state, errorCode string, err error) {
+	r, err := sqlc.New(s.db).GetAgentRun(ctx, runID)
+	if err != nil {
+		return "", "", err
+	}
+	return r.State, r.ErrorCode.String, nil
+}
+
 // MinSeqForRun returns the earliest stored seq for the run (0 when none).
 func (s *Store) MinSeqForRun(ctx context.Context, sessionID, runID string) (int64, error) {
 	return sqlc.New(s.db).MinSessionEventSeqForRun(ctx, sqlc.MinSessionEventSeqForRunParams{
@@ -150,15 +162,16 @@ func (s *Store) OpenRunID(ctx context.Context, sessionID string) (string, error)
 	if err != nil || len(runs) == 0 {
 		return "", err
 	}
-	// Only the running run is a live turn — queued runs must not shadow its
-	// events, and a queued-only session has nothing live yet (204 is honest;
-	// the sender's own request stream covers that run when it starts).
+	// The running run is the live turn — later queued runs must not shadow its
+	// events. Queued-only still returns the earliest queued run: its events
+	// attach to this same run id once it starts, and a 204 here would leave an
+	// observer's one-shot history check racing a fast turn.
 	for _, r := range runs {
 		if r.State == "running" {
 			return r.ID, nil
 		}
 	}
-	return "", nil
+	return runs[0].ID, nil
 }
 
 // LatestSeq reports the highest stored sequence (0 when empty) — a watcher

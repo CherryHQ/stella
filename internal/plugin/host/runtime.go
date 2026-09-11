@@ -250,6 +250,29 @@ func (h *RuntimeHost) applyChannel(ctx context.Context, channel config.Channel) 
 	return applyErr
 }
 
+// ChannelRuntimeErrored reports whether any managed runtime of the channel
+// currently sits in an error snapshot — the lease tracker uses it to turn an
+// asynchronously failed Start into a reconcile instead of a zombie owner.
+func (h *RuntimeHost) ChannelRuntimeErrored(channelID string) bool {
+	h.mu.RLock()
+	entries := make([]*runtimeEntry, 0)
+	for key, entry := range h.rt {
+		if key.RuntimeID == channelID && entry.managed != nil {
+			entries = append(entries, entry)
+		}
+	}
+	h.mu.RUnlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, entry := range entries {
+		snap, err := entry.managed.Snapshot(ctx)
+		if err == nil && snap.State == pkgplugins.RuntimeStateError {
+			return true
+		}
+	}
+	return false
+}
+
 // stopChannel evicts and stops every runtime belonging to one durable channel
 // ID. Runtime apply code may observe the eviction and perform its own cleanup;
 // Stop is therefore deliberately idempotent at this boundary.
@@ -372,6 +395,12 @@ func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.Runtim
 	}
 	if err := managed.Apply(ctx, desired.Clone()); err != nil {
 		return fmt.Errorf("apply runtime %s/%s: %w", runtimeID, reg.Name, err)
+	}
+	// Apply reports nil for config-validation and empty-name failures — the
+	// snapshot carries the real state. An error snapshot must surface as an
+	// apply failure or the owner stamps 'running' on a dead channel.
+	if snap, err := managed.Snapshot(ctx); err == nil && snap.State == pkgplugins.RuntimeStateError {
+		return fmt.Errorf("runtime %s/%s failed to start: %s", runtimeID, reg.Name, snap.Message)
 	}
 
 	// Stop may replace the runtime table while Apply performs platform I/O.

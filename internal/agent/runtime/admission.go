@@ -411,8 +411,10 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner <-chan Event
 		// it calls Finish once the executor has drained the stream, folding run
 		// terminal state and reply ops into the same transaction. Finishing
 		// here would commit an empty reply and a misread result value, then the
-		// worker's Finish would fail ErrLost. Session bookkeeping is still ours.
-		rt.markSessionTurnCompleted(admission.ctx, admission.activity, result)
+		// worker's Finish would fail ErrLost. Session bookkeeping is also the
+		// worker's — FinishSessionExecutionActivity writes last_turn_result
+		// inside that same transaction; marking success early would leave a
+		// stale 'success' if the run is later interrupted.
 	case admission.lease != nil:
 		cause := context.Cause(admission.ctx)
 		finishErr := admission.lease.Finish(string(result))

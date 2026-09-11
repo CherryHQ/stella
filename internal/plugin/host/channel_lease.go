@@ -40,6 +40,9 @@ type ChannelLeases struct {
 	// reconcile is called when a held lease is lost or a claimable channel
 	// appears — the host's per-channel reconcile re-evaluates ownership.
 	reconcile func(ctx context.Context, channelID string)
+	// runtimeErrored reports a channel's runtime error snapshot (async Start
+	// failures land there after Apply returns nil).
+	runtimeErrored func(channelID string) bool
 }
 
 func NewChannelLeases(db *pgxpool.Pool, ownerID string) *ChannelLeases {
@@ -52,6 +55,11 @@ func NewChannelLeases(db *pgxpool.Pool, ownerID string) *ChannelLeases {
 }
 
 func (t *ChannelLeases) bindReconcile(fn func(context.Context, string)) { t.reconcile = fn }
+
+// bindRuntimeErrored lets the renew loop see asynchronously failed starts:
+// a runtime sitting in an error snapshot is re-evaluated instead of renewing
+// a dead owner forever.
+func (t *ChannelLeases) bindRuntimeErrored(fn func(string) bool) { t.runtimeErrored = fn }
 
 // Ensure returns the claimed channel row when this replica holds (or just
 // acquired) the lease, plus true. A false return means the channel must not
@@ -169,19 +177,32 @@ func (t *ChannelLeases) renewHeld(ctx context.Context) {
 				}
 				continue
 			}
-			// Fail closed: an unverifiable token must not keep sending. Drop
-			// it locally — the next claimable sweep re-claims if we still own
-			// it. No reconcile here: transient errors must not restart the
-			// runtime; send admission already fails closed without a token.
+			// Fail closed: an unverifiable token must not keep sending AND
+			// must not keep receiving. Dropping the token blocks sends; the
+			// reconcile re-evaluates ownership — another owner's live lease or
+			// an unreachable DB both stop the local poller. A transient error
+			// costs one restart, which is cheaper than a zombie ingress.
 			t.drop(id)
 			if ctx.Err() == nil {
 				t.log.WarnContext(ctx, "channel lease renew failed", "channel", id, "error", err)
+			}
+			if t.reconcile != nil {
+				t.reconcile(ctx, id)
 			}
 			continue
 		}
 		// Desired-state drift: disabled or a newer config_revision than we
 		// applied means our running runtime is stale — re-evaluate now.
 		if !row.Enabled || !row.AppliedRevision.Valid || row.ConfigRevision != row.AppliedRevision.Int64 {
+			if t.reconcile != nil {
+				t.reconcile(ctx, id)
+			}
+			continue
+		}
+		// Async start failure: the runtime's snapshot went error after Apply
+		// returned. Reconcile re-applies (a retry when Ensure still wins) or
+		// releases the lease through applyChannel's failure path.
+		if t.runtimeErrored != nil && t.runtimeErrored(id) {
 			if t.reconcile != nil {
 				t.reconcile(ctx, id)
 			}
@@ -218,6 +239,7 @@ func WithChannelLeases(db *pgxpool.Pool, ownerID string) Option {
 				h.log.WarnContext(ctx, "lease-triggered reconcile failed", "channel", channelID, "error", err)
 			}
 		})
+		leases.bindRuntimeErrored(h.runtimes.ChannelRuntimeErrored)
 		h.runtimes.channelLeases = leases
 		h.channelLeases = leases
 	}

@@ -65,16 +65,19 @@ func (q *Queries) MinSessionEventSeqForRun(ctx context.Context, arg MinSessionEv
 }
 
 const nextSessionEventSeq = `-- name: NextSessionEventSeq :one
-SELECT COALESCE(MAX(seq), 0) + 1::bigint FROM ctx_session_event WHERE session_id = $1
+UPDATE ctx_conversation SET event_seq = event_seq + 1
+WHERE session_id = $1
+RETURNING event_seq
 `
 
-// Contiguous per-session sequence, allocated under the session advisory lock
-// the caller already holds.
-func (q *Queries) NextSessionEventSeq(ctx context.Context, sessionID string) (int32, error) {
+// Contiguous per-session sequence from the session row's monotonic counter —
+// pruning ctx_session_event can never rewind it. Allocated under the
+// conversation write lock the caller already holds.
+func (q *Queries) NextSessionEventSeq(ctx context.Context, sessionID string) (int64, error) {
 	row := q.db.QueryRow(ctx, nextSessionEventSeq, sessionID)
-	var column_1 int32
-	err := row.Scan(&column_1)
-	return column_1, err
+	var event_seq int64
+	err := row.Scan(&event_seq)
+	return event_seq, err
 }
 
 const pruneSessionEvents = `-- name: PruneSessionEvents :execrows

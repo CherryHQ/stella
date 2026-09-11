@@ -98,3 +98,37 @@ func TestReadForRunAndOpenRun(t *testing.T) {
 		t.Fatalf("after cursor = %d", len(evs))
 	}
 }
+
+// Sequence numbers come from the session row's counter: pruning the log must
+// never rewind them or an old cursor goes blind to new events.
+func TestSequenceSurvivesPrune(t *testing.T) {
+	db := dbtest.New(t)
+	createSession(t, db, "prune-session")
+	s := New(db)
+	ctx := t.Context()
+	for range 3 {
+		if err := s.Append(ctx, "prune-session", "", json.RawMessage(`{"text":"old"}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := s.LatestSeq(ctx, "prune-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, "UPDATE ctx_session_event SET created_at=clock_timestamp()-interval '25 hours' WHERE session_id='prune-session'"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.Prune(ctx); err != nil || n != 3 {
+		t.Fatalf("prune=%d err=%v", n, err)
+	}
+	if err := s.Append(ctx, "prune-session", "", json.RawMessage(`{"text":"new"}`)); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.ReadSince(ctx, "prune-session", before, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatal("retention rewound the sequence; the old cursor cannot see the new event")
+	}
+}

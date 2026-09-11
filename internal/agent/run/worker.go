@@ -125,80 +125,104 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 func (w *Worker) claim(ctx context.Context, outcome *runOutcome) (sqlc.AgentRun, context.Context, *sessionexecution.Lease, error) {
 	opCtx, cancel := context.WithTimeout(ctx, sessionexecution.OperationTimeout)
 	defer cancel()
-	tx, err := w.db.Begin(opCtx)
-	if err != nil {
-		return sqlc.AgentRun{}, nil, nil, err
-	}
-	defer func() { _ = tx.Rollback(opCtx) }()
-	q := sqlc.New(tx)
-	cands, err := q.ListQueuedAgentRuns(opCtx)
+	cands, err := sqlc.New(w.db).ListQueuedAgentRuns(opCtx)
 	if err != nil {
 		return sqlc.AgentRun{}, nil, nil, err
 	}
 	for _, cand := range cands {
-		token := uuid.Must(uuid.NewV7()).String()
-		if _, err := q.ClaimSessionExecution(opCtx, sqlc.ClaimSessionExecutionParams{
-			SessionID: cand.SessionID,
-			Token:     token,
-		}); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				// Another worker holds a live lease for this session; try the
-				// next queued run instead of failing the sweep.
-				continue
-			}
-			return sqlc.AgentRun{}, nil, nil, err
+		run, runCtx, lease, ok, err := w.claimCandidate(opCtx, ctx, cand, outcome)
+		if err != nil || ok {
+			return run, runCtx, lease, err
 		}
-		// The lease was dead or absent, so any 'running' row for the session is
-		// orphaned; interrupt it so the one-running index admits this run.
-		if _, err := q.InterruptStaleRunningAgentRuns(opCtx, cand.SessionID); err != nil {
-			return sqlc.AgentRun{}, nil, nil, err
-		}
-		// Per-session FIFO: a candidate that is not its session's head must
-		// not leapfrog a queued predecessor (locked by another worker's scan
-		// or just earlier). A still-running predecessor can't exist here —
-		// its live lease would have failed the claim above; a dead one was
-		// just interrupted (CR-013).
-		earlier, err := q.EarlierOpenAgentRunExists(opCtx, sqlc.EarlierOpenAgentRunExistsParams{
-			SessionID:  cand.SessionID,
-			EnqueueSeq: cand.EnqueueSeq,
-		})
-		if err != nil {
-			return sqlc.AgentRun{}, nil, nil, err
-		}
-		if earlier {
-			continue
-		}
-		if rows, err := q.StartSessionExecutionActivity(opCtx, cand.SessionID); err != nil || rows != 1 {
-			// Target gone or archived: a queued run that can never execute must
-			// reach a terminal state here instead of wedging the sweep head
-			// forever (CR-009).
-			if _, ferr := q.FailQueuedAgentRun(opCtx, sqlc.FailQueuedAgentRunParams{
-				ID: cand.ID, ErrorCode: pgtype.Text{String: ErrCodeTargetGone, Valid: true},
-			}); ferr != nil {
-				return sqlc.AgentRun{}, nil, nil, ferr
-			}
-			continue
-		}
-		if _, err := q.SetSessionExecutionRun(opCtx, sqlc.SetSessionExecutionRunParams{SessionID: cand.SessionID, Token: token, RunID: textOrNull(cand.ID)}); err != nil {
-			return sqlc.AgentRun{}, nil, nil, err
-		}
-		n, err := q.StartAgentRun(opCtx, sqlc.StartAgentRunParams{ID: cand.ID, WorkerID: textOrNull(w.id)})
-		if err != nil {
-			return sqlc.AgentRun{}, nil, nil, err
-		}
-		if n != 1 {
-			// Lost the run race to another worker's claim; roll back and let
-			// the next sweep pick up whatever remains queued.
-			return sqlc.AgentRun{}, nil, nil, nil
-		}
-		if err := tx.Commit(opCtx); err != nil {
-			return sqlc.AgentRun{}, nil, nil, fmt.Errorf("claim run %s (outcome unknown): %w", cand.ID, err)
-		}
-		outcome.run = cand
-		runCtx, lease := w.exec.Adopt(ctx, cand.SessionID, token, w.completeExtra(outcome))
-		return cand, runCtx, lease, nil
 	}
 	return sqlc.AgentRun{}, nil, nil, nil
+}
+
+// claimCandidate evaluates one queued run in its own short transaction:
+// cheap head-of-line and target checks run before any lease is taken, so a
+// skipped or dead candidate leaves no side effects; a dead target fails
+// terminally inside its own commit.
+func (w *Worker) claimCandidate(opCtx, ctx context.Context, cand sqlc.AgentRun, outcome *runOutcome) (sqlc.AgentRun, context.Context, *sessionexecution.Lease, bool, error) {
+	tx, err := w.db.Begin(opCtx)
+	if err != nil {
+		return sqlc.AgentRun{}, nil, nil, false, err
+	}
+	defer func() { _ = tx.Rollback(opCtx) }()
+	q := sqlc.New(tx)
+
+	// Per-session FIFO: never leapfrog an earlier queued predecessor, whether
+	// it is locked by another worker's scan or simply earlier (CR-013).
+	earlier, err := q.EarlierOpenAgentRunExists(opCtx, sqlc.EarlierOpenAgentRunExistsParams{
+		SessionID:  cand.SessionID,
+		EnqueueSeq: cand.EnqueueSeq,
+	})
+	if err != nil {
+		return sqlc.AgentRun{}, nil, nil, false, err
+	}
+	if earlier {
+		return sqlc.AgentRun{}, nil, nil, false, nil
+	}
+	// Target check before the lease: an archived/gone session can never run —
+	// fail the run terminally and commit it, or it wedges the queue head
+	// forever (CR-009).
+	ok, err := q.SessionTargetExecutable(opCtx, cand.SessionID)
+	if err != nil {
+		return sqlc.AgentRun{}, nil, nil, false, err
+	}
+	if !ok {
+		if _, ferr := q.FailQueuedAgentRun(opCtx, sqlc.FailQueuedAgentRunParams{
+			ID: cand.ID, ErrorCode: pgtype.Text{String: ErrCodeTargetGone, Valid: true},
+		}); ferr != nil {
+			return sqlc.AgentRun{}, nil, nil, false, ferr
+		}
+		if err := tx.Commit(opCtx); err != nil {
+			return sqlc.AgentRun{}, nil, nil, false, err
+		}
+		return sqlc.AgentRun{}, nil, nil, false, nil
+	}
+
+	token := uuid.Must(uuid.NewV7()).String()
+	if _, err := q.ClaimSessionExecution(opCtx, sqlc.ClaimSessionExecutionParams{
+		SessionID: cand.SessionID,
+		Token:     token,
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Another worker holds a live lease for this session; roll back
+			// (nothing written yet) and try the next queued run.
+			return sqlc.AgentRun{}, nil, nil, false, nil
+		}
+		return sqlc.AgentRun{}, nil, nil, false, err
+	}
+	// The lease was dead or absent, so any 'running' row for the session is
+	// orphaned; interrupt it so the one-running index admits this run.
+	if _, err := q.InterruptStaleRunningAgentRuns(opCtx, cand.SessionID); err != nil {
+		return sqlc.AgentRun{}, nil, nil, false, err
+	}
+	if rows, err := q.StartSessionExecutionActivity(opCtx, cand.SessionID); err != nil || rows != 1 {
+		// The session went away between the pre-check and the claim: roll back
+		// so the freshly claimed lease row dies with this tx — a lease nobody
+		// adopts would block the session head for its full TTL (CR-020). The
+		// target-gone mark lands on the next sweep's pre-check.
+		return sqlc.AgentRun{}, nil, nil, false, nil
+	}
+	if _, err := q.SetSessionExecutionRun(opCtx, sqlc.SetSessionExecutionRunParams{SessionID: cand.SessionID, Token: token, RunID: textOrNull(cand.ID)}); err != nil {
+		return sqlc.AgentRun{}, nil, nil, false, err
+	}
+	n, err := q.StartAgentRun(opCtx, sqlc.StartAgentRunParams{ID: cand.ID, WorkerID: textOrNull(w.id)})
+	if err != nil {
+		return sqlc.AgentRun{}, nil, nil, false, err
+	}
+	if n != 1 {
+		// Lost the run race to another worker's claim; roll back and let the
+		// next sweep pick up whatever remains queued.
+		return sqlc.AgentRun{}, nil, nil, false, nil
+	}
+	if err := tx.Commit(opCtx); err != nil {
+		return sqlc.AgentRun{}, nil, nil, false, fmt.Errorf("claim run %s (outcome unknown): %w", cand.ID, err)
+	}
+	outcome.run = cand
+	runCtx, lease := w.exec.Adopt(ctx, cand.SessionID, token, w.completeExtra(outcome))
+	return cand, runCtx, lease, true, nil
 }
 
 // runOutcome carries what the executor produced into the finish transaction.
