@@ -310,6 +310,12 @@ func (i *Instance) Stop() error {
 	return os.RemoveAll(i.root)
 }
 
+// Pause freezes the process group (SIGSTOP): the replica keeps its in-memory
+// state and lease tokens but cannot renew — the pause-then-resume seam for
+// stale-owner fencing tests. Resume (SIGCONT) thaws it.
+func (i *Instance) Pause() error  { return pauseProcessGroup(i.cmd) }
+func (i *Instance) Resume() error { return resumeProcessGroup(i.cmd) }
+
 func (i *Instance) Kill() error {
 	if i.cmd == nil || i.cmd.Process == nil {
 		return nil

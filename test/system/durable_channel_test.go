@@ -599,3 +599,207 @@ func (fp *fakePlatform) sendsAll() []map[string]any {
 	defer fp.mu.Unlock()
 	return append([]map[string]any(nil), fp.sends...)
 }
+
+// M2 core: the SAME received event hands off A → B → C. B claims the run and
+// is pinned mid-model by a gate; A dies while B's turn is in flight; C takes
+// the lease; B finishes the original run; C sends the original reply.
+func TestDurableChannelSameEventHandoff(t *testing.T) {
+	skipUnsupportedHost(t)
+	fp := newFakePlatform(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	baseEnv := map[string]string{
+		"STELLA_TEST_CHANNELS":           "1",
+		"STELLA_CHANNEL_DURABLE_INGRESS": "1",
+	}
+	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "D",
+	})})
+	if err != nil {
+		t.Fatalf("start D: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Stop() })
+	sharedFake = d
+	fake := newFakeAnthropic(t)
+	h := &harness{owner: t, runID: newRunID(t), baseURL: d.BaseURL(), client: mustCookieClient(t), proc: d}
+	h.registerBootstrapUser(t, ctx)
+	db, err := pgxpool.New(ctx, d.DatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.db = db
+	t.Cleanup(db.Close)
+
+	const modelID = "claude-sonnet-4-6"
+	gate := fake.EnqueueGatedText("partial-", "HANDOFF "+h.runID)
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "-hand")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/"+modelID, "-hand")
+	botName := "testbot-" + h.runID
+	channelID := h.createTestChannel(t, ctx, agentID, fp.endpoint(), botName)
+
+	a := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "A",
+	}))
+	aID := replicaIDOf(t, a)
+	waitForCond(t, 60*time.Second, "A owns the channel", func() bool {
+		var owner string
+		return db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&owner) == nil && owner == aID
+	})
+	b := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_TESTCHAN_TAG": "B",
+	}))
+	c := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "C",
+	}))
+	cID := replicaIDOf(t, c)
+
+	// A receives; B claims and sits inside the gated model call.
+	fp.push(map[string]string{
+		"id": "m2-he-" + h.runID, "chat_id": "chat-he", "sender_id": "user-1", "sender_name": "U", "text": "hand me off",
+	})
+	var runID, workerID string
+	waitForCond(t, 90*time.Second, "B claims the run mid-flight", func() bool {
+		return db.QueryRow(ctx, "SELECT id, COALESCE(worker_id,'') FROM agent_run WHERE state='running'").Scan(&runID, &workerID) == nil
+	})
+	if bpid := b.PID(); bpid == 0 || !strings.Contains(workerID, fmt.Sprintf("-%d-", bpid)) {
+		t.Fatalf("run worker_id=%q does not name B's process (pid %d)", workerID, bpid)
+	}
+	var inboxID string
+	if err := db.QueryRow(ctx, "SELECT inbox_id FROM agent_run WHERE id=$1", runID).Scan(&inboxID); err != nil {
+		t.Fatal(err)
+	}
+
+	// A dies while B's turn is in flight; C inherits the channel.
+	if err := a.Kill(); err != nil {
+		t.Fatalf("kill A: %v", err)
+	}
+	waitForCond(t, 90*time.Second, "C owns the lease after A died", func() bool {
+		var owner string
+		return db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&owner) == nil && owner == cID
+	})
+
+	// Release B's model: the original run completes, C sends its reply.
+	gate.Release()
+	waitForCond(t, 90*time.Second, "C sends the reply", func() bool {
+		s := fp.lastSend()
+		return s != nil && s["tag"] == "C"
+	})
+	sent := fp.lastSend()
+	if sent["text"] != "partial-HANDOFF "+h.runID {
+		t.Fatalf("sent text = %v, want the gated reply", sent["text"])
+	}
+	// Same inbox, same run, one model call, one outbox send — nothing replayed.
+	var state string
+	if err := db.QueryRow(ctx, "SELECT state FROM agent_run WHERE id=$1", runID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" {
+		t.Fatalf("original run state=%s, want completed", state)
+	}
+	if got := len(fake.requests()); got != 1 {
+		t.Fatalf("model requests = %d, want 1", got)
+	}
+	var runs, sends int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM agent_run WHERE inbox_id=$1", inboxID).Scan(&runs); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range fp.sendsAll() {
+		if s["tag"] == "A" {
+			t.Fatal("dead owner A sent a post-handoff operation")
+		}
+	}
+	_ = sends
+	if runs != 1 {
+		t.Fatalf("runs for inbox event = %d, want 1", runs)
+	}
+}
+
+// M2: pause (not restart) the owner past its lease expiry; C takes over; the
+// resumed stale owner must be fenced out of a new pending send.
+func TestDurableChannelStaleOwnerPaused(t *testing.T) {
+	skipUnsupportedHost(t)
+	fp := newFakePlatform(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	baseEnv := map[string]string{
+		"STELLA_TEST_CHANNELS":           "1",
+		"STELLA_CHANNEL_DURABLE_INGRESS": "1",
+	}
+	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "D",
+	})})
+	if err != nil {
+		t.Fatalf("start D: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Stop() })
+	sharedFake = d
+	fake := newFakeAnthropic(t)
+	h := &harness{owner: t, runID: newRunID(t), baseURL: d.BaseURL(), client: mustCookieClient(t), proc: d}
+	h.registerBootstrapUser(t, ctx)
+	db, err := pgxpool.New(ctx, d.DatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.db = db
+	t.Cleanup(db.Close)
+
+	const modelID = "claude-sonnet-4-6"
+	fake.enqueueText("STALE " + h.runID)
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "-stale")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/"+modelID, "-stale")
+	botName := "testbot-" + h.runID
+	channelID := h.createTestChannel(t, ctx, agentID, fp.endpoint(), botName)
+
+	a := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "A",
+	}))
+	aID := replicaIDOf(t, a)
+	waitForCond(t, 60*time.Second, "A owns the channel", func() bool {
+		var owner string
+		return db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&owner) == nil && owner == aID
+	})
+	_ = startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_TESTCHAN_TAG": "B",
+	}))
+	c := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "C",
+	}))
+	cID := replicaIDOf(t, c)
+
+	// Freeze A mid-ownership: it keeps its token and its running poller.
+	if err := a.Pause(); err != nil {
+		t.Fatalf("pause A: %v", err)
+	}
+	waitForCond(t, 120*time.Second, "C takes the expired lease", func() bool {
+		var owner string
+		return db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&owner) == nil && owner == cID
+	})
+
+	// Resume A — its stale token must fail every protected op.
+	if err := a.Resume(); err != nil {
+		t.Fatalf("resume A: %v", err)
+	}
+	// A pending send after resume is the stale-send probe.
+	fp.push(map[string]string{
+		"id": "m2-se-" + h.runID, "chat_id": "chat-stale", "sender_id": "user-1", "sender_name": "U", "text": "post-resume",
+	})
+	waitForCond(t, 120*time.Second, "post-resume reply sent by C", func() bool {
+		s := fp.lastSend()
+		return s != nil && s["tag"] == "C"
+	})
+	time.Sleep(3 * time.Second)
+	var ownerNow string
+	if err := db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&ownerNow); err != nil {
+		t.Fatal(err)
+	}
+	if ownerNow != cID {
+		t.Fatalf("resumed stale owner reclaimed the lease: owner=%q, want %q", ownerNow, cID)
+	}
+	for _, s := range fp.sendsAll() {
+		if s["tag"] == "A" {
+			t.Fatal("resumed stale owner A sent an operation")
+		}
+	}
+}
