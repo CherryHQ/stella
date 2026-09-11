@@ -81,3 +81,8 @@ func classifyQQSend(err error) error {
 	}
 	return &channel.SendError{Class: channel.SendUnknown, Err: err}
 }
+
+// OwnsAccount checks the app id captured at receive time.
+func (b *Bot) OwnsAccount(accountKey string) bool {
+	return b.cfg.AppID != "" && b.cfg.AppID == accountKey
+}

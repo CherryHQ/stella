@@ -59,12 +59,15 @@ WHERE id = sqlc.arg(channel_id)
        OR runtime_token = sqlc.arg(token))
 RETURNING *;
 
--- name: RenewChannelRuntime :execrows
+-- name: RenewChannelRuntime :one
+-- Returns the row so the owner can compare desired config_revision/enabled
+-- with what it applied; empty result = lease already lost.
 UPDATE channel
 SET runtime_lease_until = clock_timestamp() + interval '30 seconds',
     runtime_observed_at = clock_timestamp(), updated_at = clock_timestamp()
 WHERE id = sqlc.arg(channel_id) AND runtime_token = sqlc.arg(token)
-  AND runtime_lease_until > clock_timestamp();
+  AND runtime_lease_until > clock_timestamp()
+RETURNING *;
 
 -- name: ReleaseChannelRuntime :execrows
 UPDATE channel
@@ -88,3 +91,13 @@ UPDATE channel
 SET receive_checkpoint = sqlc.arg(checkpoint), updated_at = clock_timestamp()
 WHERE id = sqlc.arg(channel_id) AND runtime_token = sqlc.arg(token)
   AND runtime_lease_until > clock_timestamp();
+
+-- name: ChannelSendAdmission :one
+-- The channel's current owner token must match and be unexpired and enabled —
+-- checked inside the outbox claim tx and again before every SDK call, so a
+-- fenced-out owner never performs a send.
+SELECT EXISTS(
+  SELECT 1 FROM channel
+  WHERE id = $1 AND runtime_token = $2
+    AND runtime_lease_until > clock_timestamp() AND enabled
+) AS ok;

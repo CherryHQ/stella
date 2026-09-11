@@ -119,6 +119,21 @@ func (s *Store) ReadForRun(ctx context.Context, sessionID, runID string, afterSe
 	return out, nil
 }
 
+// RunDone reports whether the run reached a terminal state — the watcher
+// drains the log and exits, independent of what other runs may open next.
+func (s *Store) RunDone(ctx context.Context, runID string) (bool, error) {
+	r, err := sqlc.New(s.db).GetAgentRun(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+	switch r.State {
+	case "queued", "running":
+		return false, nil
+	default:
+		return true, nil
+	}
+}
+
 // MinSeqForRun returns the earliest stored seq for the run (0 when none).
 func (s *Store) MinSeqForRun(ctx context.Context, sessionID, runID string) (int64, error) {
 	return sqlc.New(s.db).MinSessionEventSeqForRun(ctx, sqlc.MinSessionEventSeqForRunParams{
@@ -135,7 +150,15 @@ func (s *Store) OpenRunID(ctx context.Context, sessionID string) (string, error)
 	if err != nil || len(runs) == 0 {
 		return "", err
 	}
-	return runs[len(runs)-1].ID, nil
+	// Only the running run is a live turn — queued runs must not shadow its
+	// events, and a queued-only session has nothing live yet (204 is honest;
+	// the sender's own request stream covers that run when it starts).
+	for _, r := range runs {
+		if r.State == "running" {
+			return r.ID, nil
+		}
+	}
+	return "", nil
 }
 
 // LatestSeq reports the highest stored sequence (0 when empty) — a watcher

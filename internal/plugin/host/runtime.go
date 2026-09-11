@@ -206,11 +206,12 @@ func (h *RuntimeHost) applyChannel(ctx context.Context, channel config.Channel) 
 	if !allowed {
 		channel.Enabled = false
 	}
+	var leasedRevision int64
+	leased := false
 	if leases := h.channelLeases; leases != nil {
 		if channel.Enabled {
-			if leased, ok := leases.Ensure(ctx, channel.ID); ok {
-				// We own the lease: stamp the revision this replica applies.
-				leases.MarkApplied(ctx, channel.ID, "running", "", leased.ConfigRevision)
+			if l, ok := leases.Ensure(ctx, channel.ID); ok {
+				leased, leasedRevision = true, l.ConfigRevision
 			} else {
 				// Another replica owns it, or the DB is unreachable — either
 				// way this replica must not run the poller.
@@ -227,12 +228,26 @@ func (h *RuntimeHost) applyChannel(ctx context.Context, channel config.Channel) 
 		Enabled: channel.Enabled,
 		Config:  configMapFromJSON(channel.Config),
 	}
+	var applyErr error
 	for _, reg := range regs {
 		if err := h.applyOneWithKey(ctx, reg, channel.ID, desired); err != nil {
-			return err
+			applyErr = err
+			break
 		}
 	}
-	return nil
+	if h.channelLeases != nil && leased {
+		if applyErr != nil {
+			// Mark failure and release so the sweep can re-home the channel
+			// instead of a dead owner renewing forever.
+			h.channelLeases.MarkApplied(ctx, channel.ID, "error", "apply_failed", 0)
+			h.channelLeases.Release(ctx, channel.ID)
+		} else {
+			// Only a successful apply earns the running stamp — a failed start
+			// must not look applied.
+			h.channelLeases.MarkApplied(ctx, channel.ID, "running", "", leasedRevision)
+		}
+	}
+	return applyErr
 }
 
 // stopChannel evicts and stops every runtime belonging to one durable channel

@@ -58,3 +58,12 @@ func classifyDingTalkSend(err error) error {
 	}
 	return &channel.SendError{Class: channel.SendUnknown, Err: err}
 }
+
+// OwnsAccount checks the callback's chatbot user id against the bots this
+// instance has registered (DingTalk may expose several).
+func (b *Bot) OwnsAccount(accountKey string) bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	_, ok := b.registeredBots[accountKey]
+	return ok
+}

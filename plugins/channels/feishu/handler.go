@@ -553,7 +553,9 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	if handled {
 		defer cancel()
 		b.removeReaction(messageID, ackReactionID)
-		replyFn(resp)
+		if resp != "" {
+			replyFn(resp)
+		}
 		return
 	}
 	if stream == nil {

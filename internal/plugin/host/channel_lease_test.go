@@ -61,7 +61,7 @@ func TestChannelLeaseTakeoverAfterExpiry(t *testing.T) {
 		t.Fatal("B should take over the expired lease")
 	}
 	// A's stale token can no longer renew or write.
-	if n, err := sqlc.New(db).RenewChannelRuntime(ctx, sqlc.RenewChannelRuntimeParams{ChannelID: "ch-1", Token: pgtype.Text{String: a.Token("ch-1"), Valid: true}}); err == nil && n != 0 {
+	if _, err := sqlc.New(db).RenewChannelRuntime(ctx, sqlc.RenewChannelRuntimeParams{ChannelID: "ch-1", Token: pgtype.Text{String: a.Token("ch-1"), Valid: true}}); err == nil {
 		// A still thinks it holds the lease — its token must not match.
 		t.Fatal("stale token renewed")
 	}

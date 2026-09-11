@@ -231,7 +231,8 @@ func (b *Bot) onMessage(_ context.Context, data *chatbot.BotCallbackDataModel) (
 		// The session webhook is the only send credential — the durable reply
 		// path replays it from the outbox address on any replica. It expires,
 		// so a stale token classifies permanent rather than retrying forever.
-		Extras: map[string]string{"session_webhook": data.SessionWebhook},
+		BotAccountKey: data.ChatbotUserId,
+		Extras:        map[string]string{"session_webhook": data.SessionWebhook},
 	}
 	go b.handleIncoming(msg, data.SessionWebhook)
 	return nil, nil
@@ -274,7 +275,9 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, webhook string) {
 		return
 	}
 	if handled {
-		_ = b.reply(ctx, webhook, resp)
+		if resp != "" {
+			_ = b.reply(ctx, webhook, resp)
+		}
 		return
 	}
 	if stream == nil {

@@ -79,6 +79,10 @@ func (b *Bot) handleSharedCommand(c tele.Context, cmd string) error {
 		return c.Send(fmt.Sprintf("Error: %v", err))
 	}
 	if handled {
+		// An empty response is a durable-ingress ack — nothing to send.
+		if resp == "" {
+			return nil
+		}
 		return c.Send(resp)
 	}
 	return nil
@@ -92,6 +96,7 @@ func (b *Bot) handleText(c tele.Context) error {
 	}
 
 	msg := b.incomingMsg(c, channel.TextContent(text))
+	msg.BotAccountKey = b.bot.Me.Username
 
 	// Parse command if present.
 	var cmd, args string

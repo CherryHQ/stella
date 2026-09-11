@@ -11,10 +11,47 @@ import type {
   ToolResult,
 } from "./types";
 
+// cursorFetch wraps fetch to observe SSE `id:` lines on session streams and
+// stash the last seen durable event seq per session. The reconnect prepare
+// then sends it as Last-Event-ID so a cross-replica resume does not replay or
+// skip events.
+function cursorFetch(storageKey: string): typeof fetch {
+  return async (input, init) => {
+    const res = await fetch(input, init);
+    if (!res.body) return res;
+    const [forClient, forCursor] = res.body.tee();
+    void (async () => {
+      const reader = forCursor.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let i: number;
+          while ((i = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, i);
+            buf = buf.slice(i + 1);
+            if (line.startsWith("id:")) {
+              sessionStorage.setItem(storageKey, line.slice(3).trim());
+            }
+          }
+        }
+      } catch {
+        // Cursor capture is best-effort; a lost update only replays events.
+      }
+    })();
+    return new Response(forClient, res);
+  };
+}
+
 export function createSessionTransport(agentId: string, sessionId: string) {
   const base = `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}`;
+  const cursorKey = `stella:event-cursor:${agentId}:${sessionId}`;
   return new DefaultChatTransport({
     api: `${base}/messages`,
+    fetch: cursorFetch(cursorKey),
     prepareSendMessagesRequest: ({ messages }) => {
       const last = messages[messages.length - 1];
       const parts = last.parts
@@ -33,7 +70,13 @@ export function createSessionTransport(agentId: string, sessionId: string) {
     // scheduler/task/delegate turns, or another tab) via the events SSE
     // endpoint. It answers 204 when no turn is in flight, which the SDK treats
     // as "nothing to resume".
-    prepareReconnectToStreamRequest: () => ({ api: `${base}/events` }),
+    prepareReconnectToStreamRequest: () => {
+      const cursor = sessionStorage.getItem(cursorKey);
+      return {
+        api: `${base}/events`,
+        headers: cursor ? { "Last-Event-ID": cursor } : undefined,
+      };
+    },
   });
 }
 

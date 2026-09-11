@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/sessionexecution"
@@ -104,6 +105,8 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	}
 	result := "ok"
 	switch {
+	case errors.Is(outcome.err, context.Canceled):
+		result = "canceled"
 	case outcome.err != nil:
 		result = "error"
 	case errors.Is(context.Cause(runCtx), sessionexecution.ErrLost):
@@ -150,8 +153,31 @@ func (w *Worker) claim(ctx context.Context, outcome *runOutcome) (sqlc.AgentRun,
 		if _, err := q.InterruptStaleRunningAgentRuns(opCtx, cand.SessionID); err != nil {
 			return sqlc.AgentRun{}, nil, nil, err
 		}
+		// Per-session FIFO: a candidate that is not its session's head must
+		// not leapfrog a queued predecessor (locked by another worker's scan
+		// or just earlier). A still-running predecessor can't exist here —
+		// its live lease would have failed the claim above; a dead one was
+		// just interrupted (CR-013).
+		earlier, err := q.EarlierOpenAgentRunExists(opCtx, sqlc.EarlierOpenAgentRunExistsParams{
+			SessionID:  cand.SessionID,
+			EnqueueSeq: cand.EnqueueSeq,
+		})
+		if err != nil {
+			return sqlc.AgentRun{}, nil, nil, err
+		}
+		if earlier {
+			continue
+		}
 		if rows, err := q.StartSessionExecutionActivity(opCtx, cand.SessionID); err != nil || rows != 1 {
-			return sqlc.AgentRun{}, nil, nil, fmt.Errorf("session %s unavailable for run %s", cand.SessionID, cand.ID)
+			// Target gone or archived: a queued run that can never execute must
+			// reach a terminal state here instead of wedging the sweep head
+			// forever (CR-009).
+			if _, ferr := q.FailQueuedAgentRun(opCtx, sqlc.FailQueuedAgentRunParams{
+				ID: cand.ID, ErrorCode: pgtype.Text{String: ErrCodeTargetGone, Valid: true},
+			}); ferr != nil {
+				return sqlc.AgentRun{}, nil, nil, ferr
+			}
+			continue
 		}
 		if _, err := q.SetSessionExecutionRun(opCtx, sqlc.SetSessionExecutionRunParams{SessionID: cand.SessionID, Token: token, RunID: textOrNull(cand.ID)}); err != nil {
 			return sqlc.AgentRun{}, nil, nil, err

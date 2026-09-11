@@ -6,6 +6,9 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -25,6 +28,31 @@ func (s *Store) ProcessDue(ctx context.Context, channelID, ownerToken string, se
 	}
 	attempted := 0
 	for _, c := range claimed {
+		// Re-admit before every external call: the lease may have moved to
+		// another replica between the claim batch and this op. A fenced-out
+		// owner leaves the op claimed-but-unsent for the reaper to expire to
+		// 'unknown', which is safer than a stale-owner send.
+		if ownerToken != "" {
+			ok, err := sqlc.New(s.db).ChannelSendAdmission(ctx, sqlc.ChannelSendAdmissionParams{
+				ID:           channelID,
+				RuntimeToken: pgtype.Text{String: ownerToken, Valid: true},
+			})
+			if err != nil {
+				return attempted, err
+			}
+			if !ok {
+				break
+			}
+		}
+		if checker, ok := sender.(pkgchannel.AccountChecker); ok && c.op.SourceAccountKey != "" && !checker.OwnsAccount(c.op.SourceAccountKey) {
+			// The channel now speaks for a different bot — this op's reply
+			// must not go out under the new account.
+			attempted++
+			if _, err := s.complete(ctx, c.row.ID, c.attemptToken, Outcome{State: StateFailed, ErrorCode: ErrCodeAccountMismatch}); err != nil {
+				slog.WarnContext(ctx, "outbox complete failed", "op", c.row.ID, "error", err)
+			}
+			continue
+		}
 		attempted++
 		res, sendErr := sender.SendOperation(ctx, c.op)
 		outcome := classifyOutcome(res, sendErr)
@@ -35,6 +63,18 @@ func (s *Store) ProcessDue(ctx context.Context, channelID, ownerToken string, se
 		}
 	}
 	return attempted, nil
+}
+
+// admitForSend verifies inside the claim transaction that ownerToken still
+// holds the channel lease; legacy mode (empty token) skips the check.
+func admitForSend(ctx context.Context, tx pgx.Tx, channelID, ownerToken string) (bool, error) {
+	if ownerToken == "" {
+		return true, nil
+	}
+	return sqlc.New(tx).ChannelSendAdmission(ctx, sqlc.ChannelSendAdmissionParams{
+		ID:           channelID,
+		RuntimeToken: pgtype.Text{String: ownerToken, Valid: true},
+	})
 }
 
 type claimedOp struct {
@@ -49,6 +89,11 @@ func (s *Store) claimDue(ctx context.Context, channelID, ownerToken string) ([]c
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if ok, err := admitForSend(ctx, tx, channelID, ownerToken); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, nil
+	}
 	rows, err := s.ListDue(ctx, tx, channelID)
 	if err != nil {
 		return nil, err
@@ -104,9 +149,10 @@ func decodeOp(row sqlc.ChannelOutbox) (pkgchannel.OutboundOp, error) {
 		return pkgchannel.OutboundOp{}, err
 	}
 	return pkgchannel.OutboundOp{
-		Kind:           row.OperationKind,
-		DeliveryKey:    row.DeliveryKey,
-		OperationIndex: int(row.OperationIndex),
+		Kind:             row.OperationKind,
+		DeliveryKey:      row.DeliveryKey,
+		OperationIndex:   int(row.OperationIndex),
+		SourceAccountKey: row.SourceAccountKey,
 		Address: pkgchannel.OutboundAddress{
 			ChatKey:    addr.ChatKey,
 			ThreadKey:  addr.ThreadKey,

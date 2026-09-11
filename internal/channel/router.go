@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -429,19 +430,30 @@ func (c *Coordinator) receiveDurable(ctx context.Context, msg pkgchannel.Incomin
 	if err != nil {
 		return "", false, nil, err
 	}
+	// Adapters pass the first word as a command candidate even for plain text;
+	// only a real slash command routes as a command. "hello world" must stay a
+	// message (legacy parity), while unknown "/foo" still lands as a command
+	// and fails loudly as unsupported.
 	kind := chinbox.KindMessage
-	if command != "" {
+	if strings.HasPrefix(command, "/") {
 		kind = chinbox.KindCommand
+	}
+	accountKey := msg.BotAccountKey
+	if accountKey == "" {
+		accountKey = channelID
 	}
 	_, _, err = c.inboxStore().Receive(ctx, chinbox.ReceiveParams{
 		ChannelID:        channelID,
-		SourceAccountKey: channelID,
-		EventKey:         msg.MessageID,
-		EventKind:        kind,
-		PayloadVersion:   chinbox.EnvelopeVersion,
-		Payload:          env,
-		ChatKey:          choutbox.ChatKeyFor(msg),
-		Ready:            true, // adapters pre-stage media via SaveAsset; unstaged platform handles arrive as envelope attachments later
+		SourceAccountKey: accountKey,
+		// Platform event ids are only unique inside their real scope —
+		// Telegram's message_id is per-chat. Scope the dedup key by chat (and
+		// thread) so two chats' message #1 don't collapse into one event.
+		EventKey:       eventKeyFor(msg),
+		EventKind:      kind,
+		PayloadVersion: chinbox.EnvelopeVersion,
+		Payload:        env,
+		ChatKey:        choutbox.ChatKeyFor(msg),
+		Ready:          true, // adapters pre-stage media via SaveAsset; unstaged platform handles arrive as envelope attachments later
 	})
 	if err != nil {
 		return "", false, nil, err
@@ -541,4 +553,15 @@ func chatScope(isGroup bool) string {
 		return "group"
 	}
 	return "c2c"
+}
+
+// eventKeyFor builds the dedup key inside the event's real uniqueness scope:
+// channel + chat + thread + platform id. Platforms whose ids are globally
+// unique (WeChat client ids) are unaffected; the prefix is just redundant.
+func eventKeyFor(msg pkgchannel.IncomingMessage) string {
+	parts := []string{choutbox.ChatKeyFor(msg)}
+	if msg.ThreadID != "" {
+		parts = append(parts, msg.ThreadID)
+	}
+	return strings.Join(append(parts, msg.MessageID), ":")
 }

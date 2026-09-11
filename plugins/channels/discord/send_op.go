@@ -68,3 +68,8 @@ func classifyDiscordSend(err error) error {
 	}
 	return &channel.SendError{Class: channel.SendUnknown, Err: err}
 }
+
+// OwnsAccount checks the bot identity captured at receive time.
+func (b *Bot) OwnsAccount(accountKey string) bool {
+	return b.botID != "" && b.botID == accountKey
+}

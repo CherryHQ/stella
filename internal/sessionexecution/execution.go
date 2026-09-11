@@ -65,6 +65,12 @@ func FromContext(ctx context.Context) *Lease {
 	return lease
 }
 
+// SessionID is the session this lease fences. An adoption check must compare
+// it to the admission target — a lease inherited from a parent turn's context
+// belongs to the parent session and must never substitute for the child's own
+// claim.
+func (l *Lease) SessionID() string { return l.sessionID }
+
 // FinishExtra runs inside the lease-finish transaction after the token
 // validates and before commit. It is where a run worker folds its own durable
 // completion (run state, reply ops) into the same atomic unit as the lease's
@@ -338,6 +344,14 @@ func (s *Store) Reap(ctx context.Context) error {
 		}
 		if err := q.FinishSessionExecutionActivity(ctx, sqlc.FinishSessionExecutionActivityParams{SessionID: row.SessionID, Result: pgtype.Text{String: result, Valid: true}}); err != nil {
 			return err
+		}
+		// A linked durable run shares this execution's fate: terminating it in
+		// the same transaction keeps run state from orphaning as 'running'
+		// after the execution row is gone.
+		if row.RunID.Valid {
+			if _, err := q.MarkAgentRunInterrupted(ctx, row.RunID.String); err != nil {
+				return err
+			}
 		}
 		if _, err := q.DeleteSessionExecution(ctx, sqlc.DeleteSessionExecutionParams{SessionID: row.SessionID, Token: row.Token}); err != nil {
 			return err

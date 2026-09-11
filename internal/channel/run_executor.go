@@ -38,7 +38,7 @@ func (e runExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (string, erro
 	if err := json.Unmarshal(r.Input, &input); err != nil {
 		return "", fmt.Errorf("run input: %w", err)
 	}
-	authority, err := actorAuthority(actor)
+	authority, err := e.actorAuthority(ctx, actor)
 	if err != nil {
 		return "", err
 	}
@@ -101,14 +101,25 @@ func (e runExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (string, erro
 // actorAuthority rebuilds the execution capability from persisted identity
 // facts — the same constructors the ingress resolver used, so a worker on a
 // different replica mints the same authority the receiver would have.
-func actorAuthority(actor agentrun.Actor) (authz.Authority, error) {
+//
+// The persisted Role is provenance only: a user actor's current role and
+// activation are reloaded here, so a queued run cannot execute under a role
+// that was revoked or downgraded while it waited.
+func (e runExecutor) actorAuthority(ctx context.Context, actor agentrun.Actor) (authz.Authority, error) {
 	switch actor.Kind {
 	case "guest":
 		return authz.NewGuestAuthority(authz.GuestID(actor.GuestID), actor.ChannelBindingID)
 	case "system":
 		return authz.NewSystemAuthority("channel-run-worker")
 	default:
-		role := actor.Role
+		user, err := sqlc.New(e.c.db).GetAuthUser(ctx, actor.UserID)
+		if err != nil {
+			return authz.Authority{}, fmt.Errorf("%w: user %s unreadable", agentrun.ErrTargetGone, actor.UserID)
+		}
+		if !user.IsActive {
+			return authz.Authority{}, fmt.Errorf("%w: user %s deactivated", agentrun.ErrTargetGone, actor.UserID)
+		}
+		role := user.Role
 		if role == "" {
 			role = auth.RoleUser
 		}

@@ -158,16 +158,30 @@ func (t *ChannelLeases) renewHeld(ctx context.Context) {
 	maps.Copy(pairs, t.held)
 	t.mu.Unlock()
 	for id, token := range pairs {
-		n, err := t.q.RenewChannelRuntime(ctx, sqlc.RenewChannelRuntimeParams{ChannelID: id, Token: pgtype.Text{String: token, Valid: true}})
+		row, err := t.q.RenewChannelRuntime(ctx, sqlc.RenewChannelRuntimeParams{ChannelID: id, Token: pgtype.Text{String: token, Valid: true}})
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				// Lease already moved — drop and reconcile immediately.
+				t.drop(id)
+				t.log.InfoContext(ctx, "channel lease lost", "channel", id)
+				if t.reconcile != nil {
+					t.reconcile(ctx, id)
+				}
+				continue
+			}
+			// Fail closed: an unverifiable token must not keep sending. Drop
+			// it locally — the next claimable sweep re-claims if we still own
+			// it. No reconcile here: transient errors must not restart the
+			// runtime; send admission already fails closed without a token.
+			t.drop(id)
 			if ctx.Err() == nil {
 				t.log.WarnContext(ctx, "channel lease renew failed", "channel", id, "error", err)
 			}
 			continue
 		}
-		if n != 1 {
-			t.drop(id)
-			t.log.InfoContext(ctx, "channel lease lost", "channel", id)
+		// Desired-state drift: disabled or a newer config_revision than we
+		// applied means our running runtime is stale — re-evaluate now.
+		if !row.Enabled || !row.AppliedRevision.Valid || row.ConfigRevision != row.AppliedRevision.Int64 {
 			if t.reconcile != nil {
 				t.reconcile(ctx, id)
 			}

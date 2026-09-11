@@ -135,7 +135,7 @@ func TestRouterRoutesMessageWithoutLocalService(t *testing.T) {
 		t.Fatalf("receive: handled=%v stream=%v err=%v", handled, stream, err)
 	}
 	var inboxID string
-	if err := c.db.QueryRow(ctx, "SELECT id FROM channel_inbox WHERE event_key='m1'").Scan(&inboxID); err != nil {
+	if err := c.db.QueryRow(ctx, "SELECT id FROM channel_inbox WHERE event_key='tg-route:m1'").Scan(&inboxID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -219,7 +219,7 @@ func TestRouterNewSessionOrdering(t *testing.T) {
 			t.Fatal(err)
 		}
 		var inboxID string
-		if err := c.db.QueryRow(ctx, "SELECT id FROM channel_inbox WHERE event_key=$1", id).Scan(&inboxID); err != nil {
+		if err := c.db.QueryRow(ctx, "SELECT id FROM channel_inbox WHERE event_key='tg-new:' || $1", id).Scan(&inboxID); err != nil {
 			t.Fatal(err)
 		}
 		return inboxID
@@ -233,7 +233,7 @@ func TestRouterNewSessionOrdering(t *testing.T) {
 			t.Fatal(err)
 		}
 		var inboxID string
-		if err := c.db.QueryRow(ctx, "SELECT id FROM channel_inbox WHERE event_key=$1", id).Scan(&inboxID); err != nil {
+		if err := c.db.QueryRow(ctx, "SELECT id FROM channel_inbox WHERE event_key='tg-new:' || $1", id).Scan(&inboxID); err != nil {
 			t.Fatal(err)
 		}
 		return inboxID

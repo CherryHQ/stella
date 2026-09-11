@@ -12,6 +12,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const channelSendAdmission = `-- name: ChannelSendAdmission :one
+SELECT EXISTS(
+  SELECT 1 FROM channel
+  WHERE id = $1 AND runtime_token = $2
+    AND runtime_lease_until > clock_timestamp() AND enabled
+) AS ok
+`
+
+type ChannelSendAdmissionParams struct {
+	ID           string      `json:"id"`
+	RuntimeToken pgtype.Text `json:"runtime_token"`
+}
+
+// The channel's current owner token must match and be unexpired and enabled —
+// checked inside the outbox claim tx and again before every SDK call, so a
+// fenced-out owner never performs a send.
+func (q *Queries) ChannelSendAdmission(ctx context.Context, arg ChannelSendAdmissionParams) (bool, error) {
+	row := q.db.QueryRow(ctx, channelSendAdmission, arg.ID, arg.RuntimeToken)
+	var ok bool
+	err := row.Scan(&ok)
+	return ok, err
+}
+
 const claimChannelRuntime = `-- name: ClaimChannelRuntime :one
 UPDATE channel
 SET runtime_owner_id = $1,
@@ -339,12 +362,13 @@ func (q *Queries) ReleaseChannelRuntime(ctx context.Context, arg ReleaseChannelR
 	return result.RowsAffected(), nil
 }
 
-const renewChannelRuntime = `-- name: RenewChannelRuntime :execrows
+const renewChannelRuntime = `-- name: RenewChannelRuntime :one
 UPDATE channel
 SET runtime_lease_until = clock_timestamp() + interval '30 seconds',
     runtime_observed_at = clock_timestamp(), updated_at = clock_timestamp()
 WHERE id = $1 AND runtime_token = $2
   AND runtime_lease_until > clock_timestamp()
+RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at
 `
 
 type RenewChannelRuntimeParams struct {
@@ -352,12 +376,31 @@ type RenewChannelRuntimeParams struct {
 	Token     pgtype.Text `json:"token"`
 }
 
-func (q *Queries) RenewChannelRuntime(ctx context.Context, arg RenewChannelRuntimeParams) (int64, error) {
-	result, err := q.db.Exec(ctx, renewChannelRuntime, arg.ChannelID, arg.Token)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+// Returns the row so the owner can compare desired config_revision/enabled
+// with what it applied; empty result = lease already lost.
+func (q *Queries) RenewChannelRuntime(ctx context.Context, arg RenewChannelRuntimeParams) (Channel, error) {
+	row := q.db.QueryRow(ctx, renewChannelRuntime, arg.ChannelID, arg.Token)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Type,
+		&i.AgentID,
+		&i.Enabled,
+		&i.Config,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RuntimeOwnerID,
+		&i.RuntimeToken,
+		&i.RuntimeLeaseUntil,
+		&i.ReceiveCheckpoint,
+		&i.ConfigRevision,
+		&i.AppliedRevision,
+		&i.RuntimeState,
+		&i.RuntimeErrorCode,
+		&i.RuntimeObservedAt,
+	)
+	return i, err
 }
 
 const updateChannel = `-- name: UpdateChannel :one

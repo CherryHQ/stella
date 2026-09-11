@@ -71,3 +71,8 @@ func classifyWeixinSend(err error) error {
 	}
 	return &channel.SendError{Class: channel.SendUnknown, Err: err}
 }
+
+// OwnsAccount checks the ilink bot id captured at receive time.
+func (b *Bot) OwnsAccount(accountKey string) bool {
+	return b.cfg.BotID != "" && b.cfg.BotID == accountKey
+}

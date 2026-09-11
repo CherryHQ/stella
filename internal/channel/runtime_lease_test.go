@@ -55,10 +55,10 @@ func TestChannelRuntimeLeaseLifecycle(t *testing.T) {
 	if err != nil || n != 1 {
 		t.Fatalf("owner checkpoint write: n=%d err=%v", n, err)
 	}
-	if n, _ := q.RenewChannelRuntime(ctx, sqlc.RenewChannelRuntimeParams{
+	if _, err := q.RenewChannelRuntime(ctx, sqlc.RenewChannelRuntimeParams{
 		ChannelID: "ch-1", Token: pgtype.Text{String: "11111111-1111-4111-8111-111111111111", Valid: true},
-	}); n != 1 {
-		t.Fatalf("renew: n=%d", n)
+	}); err != nil {
+		t.Fatalf("renew: %v", err)
 	}
 
 	// Claimable scan skips the live lease; backdating expiry opens takeover.

@@ -102,6 +102,11 @@ type IncomingMessage struct {
 	ReplyTo           string    // platform message ID this message replies to, empty if none
 	Mentions          []Mention // @-mentions, normalized; AgentID is resolved later by the dispatcher
 	LifecycleFeedback bool      // platform adapter should show addressed-turn completion feedback
+	// BotAccountKey is the receiving bot's stable platform identity (its own
+	// account id/username). The durable path pins it as the op's
+	// source_account_key so a reply can never be sent by a different bot
+	// after the channel's credentials change.
+	BotAccountKey string
 	// Extras carries platform-specific facts the durable reply path must keep
 	// (e.g. Weixin context_token). Adapters populate only what they need;
 	// it is stored verbatim in the inbox envelope and outbox address.

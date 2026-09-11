@@ -245,8 +245,15 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
+	// pendingSeq tags the next data block with the durable event's seq as an
+	// SSE id — the reconnect cursor survives replica changes.
+	var pendingSeq int64
 	writeData := func(v any) {
 		data, _ := json.Marshal(v)
+		if pendingSeq > 0 {
+			_, _ = fmt.Fprintf(w, "id: %d\n", pendingSeq)
+			pendingSeq = 0
+		}
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
 	}
@@ -301,6 +308,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 				writeDone()
 				return
 			}
+			pendingSeq = evt.Seq
 
 			// A combined Store+ToolUse is one atomic loop event. Pure persistence is
 			// transport-internal, but its paired tool progress must reach SSE.
@@ -477,6 +485,11 @@ func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, age
 	// connection open. In durable mode a turn may execute on another replica —
 	// check the durable run/event log before answering 204.
 	if !attach.Live {
+		if s.sessionEvents == nil {
+			// Legacy mode: no durable log exists; 204 is the whole answer.
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		// A reconnecting watcher supplies Last-Event-ID (the SSE standard).
 		// A non-integer value is not a cursor we can honor — treat as 0 and
 		// replay the whole turn.
@@ -1647,6 +1660,9 @@ const durablePollInterval = 250 * time.Millisecond
 // the turn executes on another replica. Returns false (caller answers 204)
 // when no open run exists.
 func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, attach sessionaccess.AttachResult, cursor int64) (ok, truncated bool) {
+	if s.sessionEvents == nil {
+		return false, false
+	}
 	runID, err := s.sessionEvents.OpenRunID(ctx, sessionID)
 	if err != nil || runID == "" {
 		return false, false
@@ -1679,16 +1695,18 @@ func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, f
 				if derr != nil {
 					continue
 				}
+				ev.Seq = row.Seq
 				select {
 				case events <- ev:
 				case <-sctx.Done():
 					return
 				}
 			}
-			// The run left the open set and the log is drained: the turn is
-			// over for every replica.
-			open, oerr := s.sessionEvents.OpenRunID(sctx, sessionID)
-			if oerr == nil && open == "" && len(page) == 0 {
+			// Our run reached a terminal state and its log is drained: the
+			// turn is over for every replica — regardless of what queued or
+			// started behind it.
+			done, derr := s.sessionEvents.RunDone(sctx, runID)
+			if derr == nil && done && len(page) == 0 {
 				return
 			}
 			select {

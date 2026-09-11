@@ -113,3 +113,10 @@ func unwrapDNSError(err error) (*net.DNSError, bool) {
 	var dnsErr *net.DNSError
 	return dnsErr, errors.As(err, &dnsErr)
 }
+
+// OwnsAccount reports whether this bot still speaks for the op's source
+// account — a credential swap to another Telegram bot must not deliver the
+// old account's replies.
+func (b *Bot) OwnsAccount(accountKey string) bool {
+	return b.bot != nil && b.bot.Me != nil && b.bot.Me.Username == accountKey
+}

@@ -73,3 +73,18 @@ FOR UPDATE OF r SKIP LOCKED;
 UPDATE agent_run
 SET state = 'interrupted', finished_at = clock_timestamp(), updated_at = clock_timestamp()
 WHERE id = $1 AND state = 'running';
+
+-- name: EarlierOpenAgentRunExists :one
+-- Per-session head-of-line: a queued candidate may not claim while an
+-- earlier non-terminal run for the same session exists.
+SELECT EXISTS(
+  SELECT 1 FROM agent_run
+  WHERE session_id = $1 AND enqueue_seq < $2
+    AND state = 'queued'
+) AS exists;
+
+-- name: FailQueuedAgentRun :execrows
+-- Terminal failure at claim time (target gone/archived) — never executed.
+UPDATE agent_run
+SET state = 'failed', error_code = $2, finished_at = clock_timestamp(), updated_at = clock_timestamp()
+WHERE id = $1 AND state = 'queued';

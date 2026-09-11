@@ -45,8 +45,9 @@ type Envelope struct {
 	Attachments []Attachment    `json:"attachments,omitempty"`
 	// Extras persists adapter-supplied platform facts needed by the durable
 	// reply path (e.g. weixin context_token).
-	Extras    map[string]string `json:"extras,omitempty"`
-	Timestamp time.Time         `json:"timestamp,omitempty"`
+	AccountKey string            `json:"account_key,omitempty"` // receiving bot's platform identity
+	Extras     map[string]string `json:"extras,omitempty"`
+	Timestamp  time.Time         `json:"timestamp,omitempty"`
 }
 
 // MarshalIncoming converts a live IncomingMessage into the storable envelope.
@@ -67,6 +68,7 @@ func MarshalIncoming(msg pkgchannel.IncomingMessage, command, args string) (json
 		ReplyTo:    msg.ReplyTo,
 		Command:    command,
 		Args:       args,
+		AccountKey: msg.BotAccountKey,
 		Extras:     msg.Extras,
 		Timestamp:  msg.Timestamp.UTC(),
 	}

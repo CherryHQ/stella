@@ -491,6 +491,7 @@ type CtxConversation struct {
 	LastTurnCompletedAt pgtype.Timestamptz `json:"last_turn_completed_at"`
 	LastTurnResult      pgtype.Text        `json:"last_turn_result"`
 	LastViewedAt        pgtype.Timestamptz `json:"last_viewed_at"`
+	EventSeq            int64              `json:"event_seq"`
 }
 
 type CtxGroupDispatch struct {

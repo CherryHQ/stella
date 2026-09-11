@@ -31,6 +31,9 @@ type OutboundOp struct {
 	OperationIndex int
 	Address        OutboundAddress
 	Payload        json.RawMessage
+	// SourceAccountKey is the bot account that received the triggering event;
+	// an adapter whose credentials changed must not send it (account_mismatch).
+	SourceAccountKey string
 }
 
 // SendResult is the confirmed platform receipt of one operation.
@@ -84,4 +87,13 @@ func SendClassify(err error) SendClass {
 // platform receipt or a classified SendError.
 type OperationSender interface {
 	SendOperation(ctx context.Context, op OutboundOp) (SendResult, error)
+}
+
+// AccountChecker is an optional OperationSender capability: report whether
+// this adapter instance still speaks for the op's source account. When the
+// channel's credentials were swapped to a different bot after the op was
+// produced, OwnsAccount returns false and the op fails account_mismatch —
+// the new bot must never send another account's replies.
+type AccountChecker interface {
+	OwnsAccount(accountKey string) bool
 }

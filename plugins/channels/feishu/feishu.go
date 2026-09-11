@@ -502,13 +502,14 @@ func (b *Bot) incomingMsg(senderIDs []string, chatID string, chatType string, co
 		senderID = senderIDs[0]
 	}
 	return channel.IncomingMessage{
-		Platform:  channel.PlatformFeishu,
-		ChannelID: b.Name(),
-		SenderID:  senderID,
-		SenderIDs: append([]string(nil), senderIDs...),
-		ChatID:    chatID,
-		IsGroup:   chatType == "group",
-		Content:   content,
+		Platform:      channel.PlatformFeishu,
+		BotAccountKey: b.registeredBotID,
+		ChannelID:     b.Name(),
+		SenderID:      senderID,
+		SenderIDs:     append([]string(nil), senderIDs...),
+		ChatID:        chatID,
+		IsGroup:       chatType == "group",
+		Content:       content,
 	}
 }
 

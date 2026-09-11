@@ -184,7 +184,10 @@ func incomingMsg(authorID, groupID string, content []ai.ContentBlock) channel.In
 
 // incomingMsg builds an IncomingMessage from QQ message context.
 func (b *Bot) incomingMsg(authorID, groupID string, content []ai.ContentBlock) channel.IncomingMessage {
-	return incomingMsgForChannel(b.Name(), authorID, groupID, content)
+	msg := incomingMsgForChannel(b.Name(), authorID, groupID, content)
+	// The app id is the bot's account identity — replies must come from it.
+	msg.BotAccountKey = b.cfg.AppID
+	return msg
 }
 
 func incomingMsgForChannel(channelID, authorID, groupID string, content []ai.ContentBlock) channel.IncomingMessage {

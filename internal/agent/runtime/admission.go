@@ -21,12 +21,15 @@ import (
 // lifecycle locks, and Publish starts the asynchronous turn after a short
 // publication recheck.
 type ChatAdmission struct {
-	rt                    *Runtime
-	ctx                   context.Context
-	info                  session.Info
-	msg                   MessageContent
-	co                    chatOptions
-	lease                 *sessionexecution.Lease
+	rt    *Runtime
+	ctx   context.Context
+	info  session.Info
+	msg   MessageContent
+	co    chatOptions
+	lease *sessionexecution.Lease
+	// adoptedLease marks a worker-owned lease: the worker is the single
+	// completer (D4), so the forwarder must not Finish it.
+	adoptedLease          bool
 	activity              memory.Session
 	turn                  *activeTurn
 	out                   chan Event
@@ -46,6 +49,7 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 	}
 	var turn *activeTurn
 	var lease *sessionexecution.Lease
+	var admissionAdopted bool
 	defer func() {
 		if recover() == nil {
 			return
@@ -92,11 +96,14 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 	turnCtx = memory.WithSessionID(turnCtx, info.ID)
 	turnCtx = agentctx.WithTurnID(turnCtx, uuid.Must(uuid.NewV7()).String())
 	if rt.execution != nil {
-		if existing := sessionexecution.FromContext(turnCtx); existing != nil {
+		if existing := sessionexecution.FromContext(turnCtx); existing != nil && existing.SessionID() == info.ID {
 			// A run worker claimed this session's execution lease inside its
 			// run-claim transaction; the turn runs under that same fence and
-			// Finish stays atomic with the run's durable completion.
+			// Finish stays atomic with the run's durable completion. A lease
+			// for a different session is a parent's — adopting it would finish
+			// the wrong execution, so the turn claims its own instead.
 			lease = existing
+			admissionAdopted = true
 		} else {
 			var claimErr error
 			turnCtx, lease, claimErr = rt.execution.Claim(turnCtx, info.ID)
@@ -119,15 +126,16 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 	turnCtx = authz.ClearAuthority(turnCtx)
 	rt.turns.begin()
 	return &ChatAdmission{
-		rt:       rt,
-		lease:    lease,
-		ctx:      turnCtx,
-		info:     info,
-		msg:      msg,
-		co:       co,
-		activity: activity,
-		turn:     turn,
-		out:      make(chan Event, 100),
+		rt:           rt,
+		lease:        lease,
+		adoptedLease: admissionAdopted,
+		ctx:          turnCtx,
+		info:         info,
+		msg:          msg,
+		co:           co,
+		activity:     activity,
+		turn:         turn,
+		out:          make(chan Event, 100),
 	}, nil
 }
 
@@ -397,19 +405,32 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner <-chan Event
 	case admission.ctx.Err() != nil:
 		result = memory.SessionTurnCanceled
 	}
-	if admission.lease != nil {
+	switch {
+	case admission.adoptedLease:
+		// The run worker is the single completer for adopted leases (plan D4):
+		// it calls Finish once the executor has drained the stream, folding run
+		// terminal state and reply ops into the same transaction. Finishing
+		// here would commit an empty reply and a misread result value, then the
+		// worker's Finish would fail ErrLost. Session bookkeeping is still ours.
+		rt.markSessionTurnCompleted(admission.ctx, admission.activity, result)
+	case admission.lease != nil:
 		cause := context.Cause(admission.ctx)
 		finishErr := admission.lease.Finish(string(result))
 		if errors.Is(cause, sessionexecution.ErrLost) {
 			finishErr = errors.Join(cause, finishErr)
 		}
 		terminalErr = errors.Join(terminalErr, finishErr)
-	} else {
+	default:
 		rt.markSessionTurnCompleted(admission.ctx, admission.activity, result)
 	}
 	if terminalErr != nil {
 		event := Event{Err: terminalErr}
 		rt.hub.publish(admission.info.ID, event)
+		if rt.eventSink != nil {
+			if err := rt.eventSink.Append(admission.ctx, admission.info.ID, admission.co.runID, EncodeEvent(event)); err != nil {
+				rt.log.WarnContext(admission.ctx, "session terminal event append failed", "session", admission.info.ID, "error", err)
+			}
+		}
 		select {
 		case admission.out <- event:
 		case <-admission.ctx.Done():

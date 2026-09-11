@@ -83,6 +83,48 @@ func (q *Queries) CreateAgentRun(ctx context.Context, arg CreateAgentRunParams) 
 	return i, err
 }
 
+const earlierOpenAgentRunExists = `-- name: EarlierOpenAgentRunExists :one
+SELECT EXISTS(
+  SELECT 1 FROM agent_run
+  WHERE session_id = $1 AND enqueue_seq < $2
+    AND state = 'queued'
+) AS exists
+`
+
+type EarlierOpenAgentRunExistsParams struct {
+	SessionID  string `json:"session_id"`
+	EnqueueSeq int64  `json:"enqueue_seq"`
+}
+
+// Per-session head-of-line: a queued candidate may not claim while an
+// earlier non-terminal run for the same session exists.
+func (q *Queries) EarlierOpenAgentRunExists(ctx context.Context, arg EarlierOpenAgentRunExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, earlierOpenAgentRunExists, arg.SessionID, arg.EnqueueSeq)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const failQueuedAgentRun = `-- name: FailQueuedAgentRun :execrows
+UPDATE agent_run
+SET state = 'failed', error_code = $2, finished_at = clock_timestamp(), updated_at = clock_timestamp()
+WHERE id = $1 AND state = 'queued'
+`
+
+type FailQueuedAgentRunParams struct {
+	ID        string      `json:"id"`
+	ErrorCode pgtype.Text `json:"error_code"`
+}
+
+// Terminal failure at claim time (target gone/archived) — never executed.
+func (q *Queries) FailQueuedAgentRun(ctx context.Context, arg FailQueuedAgentRunParams) (int64, error) {
+	result, err := q.db.Exec(ctx, failQueuedAgentRun, arg.ID, arg.ErrorCode)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const finishAgentRun = `-- name: FinishAgentRun :execrows
 UPDATE agent_run
 SET state = $1, error_code = $2,
