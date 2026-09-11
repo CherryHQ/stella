@@ -401,6 +401,9 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// receives only the narrow group-dispatch port (Deps.GroupDispatcher).
 	coordination := channel.NewCoordination(s.db, s.poolManager, s.store, listFn, switchFn, coordOpts...)
 	coordinator := coordination.Coordinator
+	if coordinator != nil && os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") != "" {
+		go coordinator.RunDurableLoops(gctx)
+	}
 	groupDispatcher := coordination.GroupDispatcher
 	groupTurnCommitter, ok := s.mem.(memory.TxGroupCommitter)
 	if !ok {

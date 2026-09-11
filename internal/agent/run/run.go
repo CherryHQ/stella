@@ -62,6 +62,9 @@ const (
 	// while running: the reaper cannot prove what the worker did, so the run
 	// is interrupted, never silently re-queued.
 	ErrCodeWorkerLost = "worker_lost"
+	// ErrCodeTurnFailed marks a run whose turn returned an error or whose
+	// executor aborted without a more specific code.
+	ErrCodeTurnFailed = "turn_failed"
 	// ErrCodeTargetGone marks a run whose session/binding was archived,
 	// deleted, or unauthorized between routing and execution.
 	ErrCodeTargetGone = "target_gone"
@@ -71,15 +74,20 @@ const (
 // shape change; readers must tolerate older versions.
 const EnvelopeVersion = 1
 
-// Actor is a snapshot of who requested the run — identity identifiers only,
-// never an authority object, context, or credential.
+// Actor is a snapshot of who requested the run — the persisted identity facts
+// a worker re-derives authority from, never an authority object, context, or
+// credential.
 type Actor struct {
-	V           int    `json:"v"`
-	Kind        string `json:"kind"` // user / guest / system
-	UserID      string `json:"user_id,omitempty"`
-	Platform    string `json:"platform,omitempty"`
-	PlatformID  string `json:"platform_id,omitempty"`
-	DisplayName string `json:"display_name,omitempty"`
+	V                int    `json:"v"`
+	Kind             string `json:"kind"` // user / guest / system
+	UserID           string `json:"user_id,omitempty"`
+	Role             string `json:"role,omitempty"`               // user kind only
+	GuestID          string `json:"guest_id,omitempty"`           // guest kind only
+	GroupID          string `json:"group_id,omitempty"`           // group authority only
+	ChannelBindingID string `json:"channel_binding_id,omitempty"` // dedicated channel grant
+	Platform         string `json:"platform,omitempty"`
+	PlatformID       string `json:"platform_id,omitempty"`
+	DisplayName      string `json:"display_name,omitempty"`
 }
 
 // Input is the normalized request payload. Content carries the normalized
@@ -109,6 +117,10 @@ type ReplyAddress struct {
 func RequestKeyInbox(inboxID string) string { return "inbox:" + inboxID }
 
 var (
+	// ErrTargetGone marks executor failures where the run's durable target
+	// (session/binding/agent grant) no longer exists; mapped to
+	// ErrCodeTargetGone at finish.
+	ErrTargetGone = errors.New("agent run target gone")
 	// ErrNotFound reports a missing run.
 	ErrNotFound = errors.New("agent run not found")
 	// ErrConflict reports a lost fencing race: the run moved past the state
@@ -259,9 +271,11 @@ func (s *Store) CancelQueued(ctx context.Context, tx pgx.Tx, id string) (bool, e
 }
 
 // ReapExpired marks running runs whose linked session execution lease died as
-// interrupted (ErrCodeWorkerLost). It never re-queues: an unknown in-flight
-// turn is safer reported interrupted than executed twice. Returns the number
-// of runs interrupted.
+// interrupted (ErrCodeWorkerLost) and terminates that lease in the same
+// transaction — activity finish plus execution-row delete, exactly as
+// Lease.Finish would. It never re-queues: an unknown in-flight turn is safer
+// reported interrupted than executed twice. Returns the number of runs
+// interrupted.
 func (s *Store) ReapExpired(ctx context.Context) (int, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -275,6 +289,18 @@ func (s *Store) ReapExpired(ctx context.Context) (int, error) {
 	}
 	for _, r := range rows {
 		if _, err := q.MarkAgentRunInterrupted(ctx, r.ID); err != nil {
+			return 0, err
+		}
+		if err := q.FinishSessionExecutionActivity(ctx, sqlc.FinishSessionExecutionActivityParams{
+			SessionID: r.SessionID,
+			Result:    pgtype.Text{String: "interrupted", Valid: true},
+		}); err != nil {
+			return 0, err
+		}
+		if _, err := q.DeleteSessionExecution(ctx, sqlc.DeleteSessionExecutionParams{
+			SessionID: r.SessionID,
+			Token:     r.LeaseToken,
+		}); err != nil {
 			return 0, err
 		}
 	}

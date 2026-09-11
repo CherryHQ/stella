@@ -43,6 +43,7 @@ type Lease struct {
 	store     *Store
 	sessionID string
 	token     string
+	extra     FinishExtra
 	ctx       context.Context
 	cancel    context.CancelCauseFunc
 	stop      chan struct{}
@@ -64,7 +65,34 @@ func FromContext(ctx context.Context) *Lease {
 	return lease
 }
 
+// FinishExtra runs inside the lease-finish transaction after the token
+// validates and before commit. It is where a run worker folds its own durable
+// completion (run state, reply ops) into the same atomic unit as the lease's
+// activity finish and execution-row delete.
+type FinishExtra func(ctx context.Context, tx pgx.Tx, result string) error
+
+// ClaimWith is Claim plus a finish-transaction callback.
+func (s *Store) ClaimWith(ctx context.Context, sessionID string, extra FinishExtra) (context.Context, *Lease, error) {
+	return s.claim(ctx, sessionID, extra)
+}
+
 func (s *Store) Claim(ctx context.Context, sessionID string) (context.Context, *Lease, error) {
+	return s.claim(ctx, sessionID, nil)
+}
+
+// Adopt wraps a token the caller already claimed inside its own transaction —
+// the run worker claims run and session execution in one commit, then adopts
+// the lease here so renewal, cancellation and Finish behave exactly like a
+// locally claimed lease.
+func (s *Store) Adopt(ctx context.Context, sessionID, token string, extra FinishExtra) (context.Context, *Lease) {
+	runCtx, cancelRun := context.WithCancelCause(Require(ctx))
+	lease := &Lease{store: s, sessionID: sessionID, token: token, extra: extra, ctx: runCtx, cancel: cancelRun, stop: make(chan struct{}), done: make(chan struct{})}
+	runCtx = context.WithValue(runCtx, executionKey{}, lease)
+	go lease.maintain()
+	return runCtx, lease
+}
+
+func (s *Store) claim(ctx context.Context, sessionID string, extra FinishExtra) (context.Context, *Lease, error) {
 	opCtx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
 	tx, err := s.db.Begin(opCtx)
@@ -92,7 +120,7 @@ func (s *Store) Claim(ctx context.Context, sessionID string) (context.Context, *
 		return nil, nil, fmt.Errorf("claim session execution (outcome unknown): %w", err)
 	}
 	runCtx, cancelRun := context.WithCancelCause(Require(ctx))
-	lease := &Lease{store: s, sessionID: sessionID, token: token, ctx: runCtx, cancel: cancelRun, stop: make(chan struct{}), done: make(chan struct{})}
+	lease := &Lease{store: s, sessionID: sessionID, token: token, extra: extra, ctx: runCtx, cancel: cancelRun, stop: make(chan struct{}), done: make(chan struct{})}
 	runCtx = context.WithValue(runCtx, executionKey{}, lease)
 	go lease.maintain()
 	return runCtx, lease, nil
@@ -240,6 +268,11 @@ func (l *Lease) Finish(result string) error {
 	}
 	if err := q.FinishSessionExecutionActivity(ctx, sqlc.FinishSessionExecutionActivityParams{SessionID: l.sessionID, Result: pgtype.Text{String: result, Valid: true}}); err != nil {
 		return err
+	}
+	if l.extra != nil {
+		if err := l.extra(ctx, tx, result); err != nil {
+			return err
+		}
 	}
 	if _, err := q.DeleteSessionExecution(ctx, sqlc.DeleteSessionExecutionParams{SessionID: l.sessionID, Token: l.token}); err != nil {
 		return err

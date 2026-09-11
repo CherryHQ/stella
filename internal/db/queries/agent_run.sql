@@ -51,9 +51,18 @@ UPDATE agent_run
 SET state = 'canceled', finished_at = clock_timestamp(), updated_at = clock_timestamp()
 WHERE id = $1 AND state = 'queued';
 
+-- name: InterruptStaleRunningAgentRuns :execrows
+-- A successful execution claim proves the previous owner is gone: any run
+-- still 'running' for the session is orphaned and must not block the
+-- one-running-per-session index. Done inside the claim transaction.
+UPDATE agent_run
+SET state = 'interrupted', finished_at = clock_timestamp(), updated_at = clock_timestamp()
+WHERE session_id = $1 AND state = 'running';
+
 -- name: ListExpiredRunningAgentRuns :many
 -- Reaper scan: running runs whose linked session execution lease died.
-SELECT r.* FROM agent_run r
+-- r.* plus the lease token so the same transaction can delete the lease row.
+SELECT r.*, e.token AS lease_token FROM agent_run r
 JOIN ctx_session_execution e ON e.session_id = r.session_id AND e.run_id = r.id
 WHERE r.state = 'running' AND e.lease_until <= clock_timestamp()
 ORDER BY r.enqueue_seq

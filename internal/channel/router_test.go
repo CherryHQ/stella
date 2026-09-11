@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -402,5 +403,78 @@ func TestRouterRejectsUnknownKind(t *testing.T) {
 	}
 	if state != "rejected" || code != "unsupported_kind" {
 		t.Fatalf("state=%s code=%s", state, code)
+	}
+}
+
+// fakeRunExecutor is the Phase-2/3 "假的执行消费者": it never touches a real
+// agent Service, just proves the run carries enough durable facts to execute
+// and that the reply lands in the outbox inside the finish transaction.
+type fakeRunExecutor struct {
+	reply string
+	got   atomic.Int32
+}
+
+func (f *fakeRunExecutor) Execute(_ context.Context, r sqlc.AgentRun) (string, error) {
+	f.got.Add(1)
+	return f.reply, nil
+}
+
+func TestDurablePathEndToEnd(t *testing.T) {
+	c, ts := setupRouter(t)
+	ctx := context.Background()
+	linkTelegramUser(t, ts, "e2e@example.com", "tg-e2e")
+	if err := ts.store.CreateChannel(ctx, config.Channel{ID: "tg-e2e", Type: "telegram", Enabled: true, Config: `{}`}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := c.HandleIncoming(ctx, textMsg("telegram", "tg-e2e", "tg-e2e", "m1", "question"), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := c.RoutePending(ctx, "tg-e2e"); err != nil || n != 1 {
+		t.Fatalf("route: n=%d err=%v", n, err)
+	}
+
+	exec := &fakeRunExecutor{reply: "answer"}
+	w := agentrun.NewWorker(c.db, "w-test", exec, c.runFinishHook)
+	ok, err := w.ProcessOnce(ctx)
+	if err != nil || !ok {
+		t.Fatalf("worker: ok=%v err=%v", ok, err)
+	}
+	if exec.got.Load() != 1 {
+		t.Fatal("executor not called")
+	}
+	var state string
+	if err := c.db.QueryRow(ctx, "SELECT state FROM agent_run").Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" {
+		t.Fatalf("run state = %s", state)
+	}
+	var opKind string
+	var payload json.RawMessage
+	if err := c.db.QueryRow(ctx, "SELECT operation_kind, payload FROM channel_outbox").Scan(&opKind, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if opKind != "send_text" {
+		t.Fatalf("outbox kind = %s", opKind)
+	}
+	var addr struct {
+		ChatKey string `json:"chat_key"`
+	}
+	var text struct {
+		Text string `json:"text"`
+	}
+	if err := c.db.QueryRow(ctx, "SELECT address FROM channel_outbox").Scan(&addr); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(payload, &text); err != nil || text.Text != "answer" {
+		t.Fatalf("payload = %s", payload)
+	}
+	if addr.ChatKey != "tg-e2e" {
+		t.Fatalf("address chat_key = %s", addr.ChatKey)
+	}
+	// Execution lease released.
+	var n int
+	if err := c.db.QueryRow(ctx, "SELECT count(*) FROM ctx_session_execution").Scan(&n); err != nil || n != 0 {
+		t.Fatalf("execution rows left: %d", n)
 	}
 }

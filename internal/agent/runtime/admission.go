@@ -92,13 +92,20 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 	turnCtx = memory.WithSessionID(turnCtx, info.ID)
 	turnCtx = agentctx.WithTurnID(turnCtx, uuid.Must(uuid.NewV7()).String())
 	if rt.execution != nil {
-		var claimErr error
-		turnCtx, lease, claimErr = rt.execution.Claim(turnCtx, info.ID)
-		if claimErr != nil {
-			turn.cancel()
-			rt.active.CompareAndDelete(info.ID, turn)
-			close(turn.done)
-			return nil, claimErr
+		if existing := sessionexecution.FromContext(turnCtx); existing != nil {
+			// A run worker claimed this session's execution lease inside its
+			// run-claim transaction; the turn runs under that same fence and
+			// Finish stays atomic with the run's durable completion.
+			lease = existing
+		} else {
+			var claimErr error
+			turnCtx, lease, claimErr = rt.execution.Claim(turnCtx, info.ID)
+			if claimErr != nil {
+				turn.cancel()
+				rt.active.CompareAndDelete(info.ID, turn)
+				close(turn.done)
+				return nil, claimErr
+			}
 		}
 	} else {
 		rt.markSessionTurnStarted(turnCtx, activity)

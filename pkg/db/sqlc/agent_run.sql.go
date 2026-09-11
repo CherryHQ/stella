@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -169,8 +170,25 @@ func (q *Queries) GetAgentRunByRequestKey(ctx context.Context, requestKey string
 	return i, err
 }
 
+const interruptStaleRunningAgentRuns = `-- name: InterruptStaleRunningAgentRuns :execrows
+UPDATE agent_run
+SET state = 'interrupted', finished_at = clock_timestamp(), updated_at = clock_timestamp()
+WHERE session_id = $1 AND state = 'running'
+`
+
+// A successful execution claim proves the previous owner is gone: any run
+// still 'running' for the session is orphaned and must not block the
+// one-running-per-session index. Done inside the claim transaction.
+func (q *Queries) InterruptStaleRunningAgentRuns(ctx context.Context, sessionID string) (int64, error) {
+	result, err := q.db.Exec(ctx, interruptStaleRunningAgentRuns, sessionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listExpiredRunningAgentRuns = `-- name: ListExpiredRunningAgentRuns :many
-SELECT r.id, r.inbox_id, r.session_id, r.agent_id, r.request_key, r.actor, r.input, r.reply_address, r.enqueue_seq, r.state, r.worker_id, r.error_code, r.retry_of_run_id, r.started_at, r.finished_at, r.created_at, r.updated_at FROM agent_run r
+SELECT r.id, r.inbox_id, r.session_id, r.agent_id, r.request_key, r.actor, r.input, r.reply_address, r.enqueue_seq, r.state, r.worker_id, r.error_code, r.retry_of_run_id, r.started_at, r.finished_at, r.created_at, r.updated_at, e.token AS lease_token FROM agent_run r
 JOIN ctx_session_execution e ON e.session_id = r.session_id AND e.run_id = r.id
 WHERE r.state = 'running' AND e.lease_until <= clock_timestamp()
 ORDER BY r.enqueue_seq
@@ -178,16 +196,38 @@ LIMIT 100
 FOR UPDATE OF r SKIP LOCKED
 `
 
+type ListExpiredRunningAgentRunsRow struct {
+	ID           string             `json:"id"`
+	InboxID      pgtype.Text        `json:"inbox_id"`
+	SessionID    string             `json:"session_id"`
+	AgentID      string             `json:"agent_id"`
+	RequestKey   string             `json:"request_key"`
+	Actor        json.RawMessage    `json:"actor"`
+	Input        json.RawMessage    `json:"input"`
+	ReplyAddress json.RawMessage    `json:"reply_address"`
+	EnqueueSeq   int64              `json:"enqueue_seq"`
+	State        string             `json:"state"`
+	WorkerID     pgtype.Text        `json:"worker_id"`
+	ErrorCode    pgtype.Text        `json:"error_code"`
+	RetryOfRunID pgtype.Text        `json:"retry_of_run_id"`
+	StartedAt    pgtype.Timestamptz `json:"started_at"`
+	FinishedAt   pgtype.Timestamptz `json:"finished_at"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+	LeaseToken   string             `json:"lease_token"`
+}
+
 // Reaper scan: running runs whose linked session execution lease died.
-func (q *Queries) ListExpiredRunningAgentRuns(ctx context.Context) ([]AgentRun, error) {
+// r.* plus the lease token so the same transaction can delete the lease row.
+func (q *Queries) ListExpiredRunningAgentRuns(ctx context.Context) ([]ListExpiredRunningAgentRunsRow, error) {
 	rows, err := q.db.Query(ctx, listExpiredRunningAgentRuns)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []AgentRun{}
+	items := []ListExpiredRunningAgentRunsRow{}
 	for rows.Next() {
-		var i AgentRun
+		var i ListExpiredRunningAgentRunsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.InboxID,
@@ -206,6 +246,7 @@ func (q *Queries) ListExpiredRunningAgentRuns(ctx context.Context) ([]AgentRun, 
 			&i.FinishedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.LeaseToken,
 		); err != nil {
 			return nil, err
 		}

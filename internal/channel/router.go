@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/agent"
@@ -192,12 +194,16 @@ func (c *Coordinator) routeMessage(ctx context.Context, tx pgx.Tx, ev sqlc.Chann
 		AgentID:    rc.AgentID,
 		RequestKey: agentrun.RequestKeyInbox(ev.ID),
 		Actor: agentrun.Actor{
-			V:           agentrun.EnvelopeVersion,
-			Kind:        actorKind(rc),
-			UserID:      rc.User.ID,
-			Platform:    env.Platform,
-			PlatformID:  env.SenderID,
-			DisplayName: env.SenderName,
+			V:                agentrun.EnvelopeVersion,
+			Kind:             actorKind(rc),
+			UserID:           rc.User.ID,
+			Role:             rc.User.Role,
+			GuestID:          rc.GuestID,
+			GroupID:          rc.GroupID,
+			ChannelBindingID: rc.DedicatedChannelID,
+			Platform:         env.Platform,
+			PlatformID:       env.SenderID,
+			DisplayName:      env.SenderName,
 		},
 		Input: agentrun.Input{
 			V:       agentrun.EnvelopeVersion,
@@ -413,4 +419,38 @@ func (c *Coordinator) receiveDurable(ctx context.Context, msg pkgchannel.Incomin
 		return "", false, nil, err
 	}
 	return "", true, nil, nil
+}
+
+// RunDurableLoops drives the durable channel pipeline on this replica: a
+// routing sweep over claimable channels plus the run worker (claim, execute,
+// atomic finish) and its reaper. Callers start it only when durable ingress
+// is enabled.
+func (c *Coordinator) RunDurableLoops(ctx context.Context) {
+	if c.db == nil || c.sessionAccess == nil {
+		slog.WarnContext(ctx, "durable channel loops unavailable: missing db or session access")
+		return
+	}
+	worker := agentrun.NewWorker(c.db, "worker-"+uuid.Must(uuid.NewV7()).String()[:8], c.runExecutor(), c.runFinishHook)
+	go worker.Run(ctx)
+
+	q := sqlc.New(c.db)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		channels, err := q.ListClaimableChannels(ctx)
+		if err == nil {
+			for _, ch := range channels {
+				if _, rerr := c.RoutePending(ctx, ch.ID); rerr != nil {
+					slog.WarnContext(ctx, "channel route sweep failed", "channel_id", ch.ID, "error", rerr)
+				}
+			}
+		} else if ctx.Err() == nil {
+			slog.WarnContext(ctx, "channel sweep failed", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
