@@ -11,6 +11,8 @@ import (
 
 	"filippo.io/age"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
@@ -107,6 +109,8 @@ type Server struct {
 	// sessionEvents is the durable turn-event log used by durable-mode SSE
 	// replay; nil disables it.
 	sessionEvents *sessionevent.Store
+	// runDB is the durable run enqueue pool — nil in legacy mode.
+	runDB *pgxpool.Pool
 	// groupSvc owns the Web group/channel application boundary (CRUD, membership,
 	// messages, send). Its send path degrades to 503 when the event log or group
 	// dispatcher is absent; the read/CRUD path stays available.
@@ -233,6 +237,9 @@ type Deps struct {
 	// SessionEvents is the durable turn-event log (ctx_session_event) used for
 	// cross-replica SSE replay when the durable channel path is enabled.
 	SessionEvents *sessionevent.Store
+	// RunDB enqueues durable agent_run rows for web sends when set (durable
+	// mode only). Nil keeps the synchronous in-process turn path.
+	RunDB *pgxpool.Pool
 	// Assets provides immutable content-addressed session media. Mutable Workspace
 	// and user-data handlers use Home rooted POSIX capabilities instead.
 	Assets *asset.Store
@@ -387,6 +394,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		agentSkillPolicy:     deps.AgentSkillPolicy,
 		groupSvc:             deps.Group,
 		sessionEvents:        deps.SessionEvents,
+		runDB:                deps.RunDB,
 		assets:               deps.Assets,
 		authProviders:        deps.OIDC.Providers,
 		authSvc:              deps.OIDC.AuthSvc,

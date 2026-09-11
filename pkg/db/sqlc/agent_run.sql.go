@@ -27,6 +27,20 @@ func (q *Queries) CancelQueuedAgentRun(ctx context.Context, id string) (int64, e
 	return result.RowsAffected(), nil
 }
 
+const cancelQueuedAgentRunsBySession = `-- name: CancelQueuedAgentRunsBySession :execrows
+UPDATE agent_run
+SET state = 'canceled', finished_at = clock_timestamp(), updated_at = clock_timestamp()
+WHERE session_id = $1 AND state = 'queued'
+`
+
+func (q *Queries) CancelQueuedAgentRunsBySession(ctx context.Context, sessionID string) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelQueuedAgentRunsBySession, sessionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createAgentRun = `-- name: CreateAgentRun :one
 INSERT INTO agent_run (inbox_id, session_id, agent_id, request_key, actor, input, reply_address, enqueue_seq, retry_of_run_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)

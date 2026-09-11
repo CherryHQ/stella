@@ -98,6 +98,8 @@ type Input struct {
 	Kind    string          `json:"kind"` // message / command / notification
 	Text    string          `json:"text,omitempty"`
 	Content json.RawMessage `json:"content,omitempty"`
+	// ExcludedTools carries a per-turn tool allowlist delta for web sends.
+	ExcludedTools []string `json:"excluded_tools,omitempty"`
 }
 
 // ReplyAddress fixes where the final answer goes at enqueue time, so a later
@@ -117,6 +119,11 @@ type ReplyAddress struct {
 // same channel event mints at most one run no matter how often it is
 // redelivered or retried.
 func RequestKeyInbox(inboxID string) string { return "inbox:" + inboxID }
+
+// RequestKeyRequest namespaces run idempotency to a caller-supplied request
+// id: a retried web/API send with the same key attaches to the existing run
+// instead of executing twice.
+func RequestKeyRequest(key string) string { return "request:" + key }
 
 var (
 	// ErrTargetGone marks executor failures where the run's durable target
@@ -270,6 +277,29 @@ func (s *Store) Finish(ctx context.Context, tx pgx.Tx, id, workerID string, stat
 func (s *Store) CancelQueued(ctx context.Context, tx pgx.Tx, id string) (bool, error) {
 	n, err := sqlc.New(tx).CancelQueuedAgentRun(ctx, id)
 	return n > 0, err
+}
+
+// CancelSessionTurn cancels a session's queued runs and flags its live
+// execution lease in one transaction — the cross-replica /abort equivalent.
+// A running worker observes cancel_requested at its next lease check.
+func (s *Store) CancelSessionTurn(ctx context.Context, sessionID string) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := sqlc.New(tx)
+	if _, err := q.CancelQueuedAgentRunsBySession(ctx, sessionID); err != nil {
+		return err
+	}
+	if row, err := q.GetSessionExecution(ctx, sessionID); err == nil {
+		if _, err := q.CancelSessionExecution(ctx, sqlc.CancelSessionExecutionParams{SessionID: sessionID, Token: row.Token}); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // ReapExpired marks running runs whose linked session execution lease died as

@@ -22,6 +22,7 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
+	agentrun "github.com/CherryHQ/stella/internal/agent/run"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
@@ -160,6 +161,10 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 	if body.ExcludedTools != nil {
 		excludedTools = *body.ExcludedTools
 	}
+	if s.runDB != nil && s.sessionEvents != nil {
+		s.sendSessionMessageDurable(w, r, flusher, authority, agentID, sessionID, message, excludedTools)
+		return
+	}
 	result, err := s.sessionAccess.Send(r.Context(), s.turnContext(r.Context()), sessionaccess.SendInput{
 		Authority:     authority,
 		AgentID:       agentID,
@@ -209,7 +214,22 @@ func (s *Server) StopSession(w http.ResponseWriter, r *http.Request, agentID str
 		s.writeSessionAccessError(w, err)
 		return
 	}
+	if s.runDB != nil {
+		// The turn may execute on another replica: flag the durable execution
+		// lease and drop still-queued runs so a remote worker aborts/never
+		// starts. Local StopSession above covers the single-process case.
+		if err := s.cancelDurableTurn(r.Context(), sessionID); err != nil {
+			slog.WarnContext(r.Context(), "durable turn cancel failed", "session", sessionID, "error", err)
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// cancelDurableTurn flags the session's live execution lease (a running
+// worker aborts at its next lease check) and cancels queued runs so a worker
+// elsewhere never starts them.
+func (s *Server) cancelDurableTurn(ctx context.Context, sessionID string) error {
+	return agentrun.New(s.runDB).CancelSessionTurn(ctx, sessionID)
 }
 
 func (s *Server) MarkSessionViewed(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
@@ -1679,6 +1699,13 @@ func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, f
 	if err != nil || runID == "" {
 		return false, false
 	}
+	return s.streamDurableRun(ctx, w, flusher, agentID, sessionID, attach, runID, lastEventID)
+}
+
+// streamDurableRun tails the event log of one known run. Split from
+// streamDurableTurn so a web send can observe the run it just enqueued even
+// when a fast worker already marked it terminal.
+func (s *Server) streamDurableRun(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, attach sessionaccess.AttachResult, runID, lastEventID string) (bool, bool) {
 	// The cursor is run-scoped ("runID:seq"). A cursor from a previous run
 	// names a different sequence space: replay this run from its start — the
 	// seq gap between runs is not truncation.
@@ -1757,4 +1784,80 @@ func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, f
 		return attach.BeforeProtectedEvent(sctx)
 	})
 	return true, false
+}
+
+// sendSessionMessageDurable turns a web send into a durable run enqueue plus
+// an observe-only SSE attach: any replica may execute the turn, and this
+// replica streams the persisted events. The session record itself is the
+// dedup point — a client-supplied Idempotency-Key maps onto request_key.
+func (s *Server) sendSessionMessageDurable(w http.ResponseWriter, r *http.Request, flusher http.Flusher, authority authz.Authority, agentID, sessionID string, message agent.MessageContent, excludedTools []string) {
+	prepared, err := s.sessionAccess.PrepareDurableSend(r.Context(), sessionaccess.SendInput{
+		Authority:     authority,
+		AgentID:       agentID,
+		SessionID:     sessionID,
+		Message:       message,
+		ExcludedTools: excludedTools,
+	})
+	if err != nil {
+		if errors.Is(err, session.ErrArchived) {
+			writeError(w, http.StatusConflict, "session is archived; start a new session")
+			return
+		}
+		s.writeSessionAccessError(w, err)
+		return
+	}
+	if prepared.PlainReply != "" {
+		streamPlainReply(w, flusher, prepared.PlainReply)
+		return
+	}
+	info := prepared.Info
+	requestKey := r.Header.Get("Idempotency-Key")
+	if requestKey == "" {
+		requestKey = uuid.Must(uuid.NewV7()).String()
+	}
+	input := agentrun.Input{V: agentrun.EnvelopeVersion, Kind: "message", ExcludedTools: excludedTools}
+	if text, ok := message.(string); ok {
+		input.Text = text
+	} else if raw, merr := json.Marshal(message); merr == nil {
+		input.Content = raw
+	}
+	tx, err := s.runDB.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "enqueue failed")
+		return
+	}
+	defer func() { _ = tx.Rollback(r.Context()) }()
+	run, _, err := agentrun.New(s.runDB).Enqueue(r.Context(), tx, agentrun.EnqueueParams{
+		SessionID:  info.ID,
+		AgentID:    info.AgentID,
+		RequestKey: agentrun.RequestKeyRequest(requestKey),
+		Actor: agentrun.Actor{
+			V:        agentrun.EnvelopeVersion,
+			Kind:     "user",
+			UserID:   info.UserID,
+			GroupID:  info.GroupID,
+			GuestID:  info.GuestID,
+			Platform: "web",
+		},
+		Input: input,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "enqueue failed")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "enqueue failed")
+		return
+	}
+	// Observe: attach returns non-live (the run executes wherever a worker
+	// claims it) and the durable tail streams the persisted run events.
+	attach, err := s.sessionAccess.Attach(r.Context(), sessionaccess.AttachInput{Authority: authority, AgentID: agentID, SessionID: sessionID})
+	if err != nil {
+		s.writeSessionAccessError(w, err)
+		return
+	}
+	defer attach.Cancel()
+	if ok, _ := s.streamDurableRun(r.Context(), w, flusher, agentID, sessionID, attach, run.ID, ""); !ok {
+		w.WriteHeader(http.StatusNoContent)
+	}
 }

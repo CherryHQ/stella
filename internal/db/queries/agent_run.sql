@@ -88,3 +88,8 @@ SELECT EXISTS(
 UPDATE agent_run
 SET state = 'failed', error_code = $2, finished_at = clock_timestamp(), updated_at = clock_timestamp()
 WHERE id = $1 AND state = 'queued';
+
+-- name: CancelQueuedAgentRunsBySession :execrows
+UPDATE agent_run
+SET state = 'canceled', finished_at = clock_timestamp(), updated_at = clock_timestamp()
+WHERE session_id = $1 AND state = 'queued';

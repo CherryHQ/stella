@@ -247,6 +247,39 @@ type StopInput struct {
 	SessionID string
 }
 
+// DurableSendResult is PrepareDurableSend's answer: either a synchronous
+// command reply the caller streams directly, or the validated session facts to
+// enqueue a durable run against.
+type DurableSendResult struct {
+	Info       agentsession.Info
+	PlainReply string
+}
+
+// PrepareDurableSend authorizes the web send the same way Send does — exact
+// session access check, command interception, archived rejection — but returns
+// the session for the caller to enqueue instead of starting a local turn.
+func (s *Service) PrepareDurableSend(ctx context.Context, in SendInput) (DurableSendResult, error) {
+	access, err := s.Begin(ctx, in.Authority)
+	if err != nil {
+		return DurableSendResult{}, err
+	}
+	info, err := access.Use(ctx, in.AgentID, in.SessionID)
+	if err != nil {
+		return DurableSendResult{}, err
+	}
+	if text, ok := in.Message.(string); ok {
+		if runtime, rerr := s.runtimeFor(info.AgentID); rerr == nil {
+			if reply, handled := handleCommand(ctx, runtime, info, text); handled {
+				return DurableSendResult{PlainReply: reply}, nil
+			}
+		}
+	}
+	if info.Archived {
+		return DurableSendResult{}, fmt.Errorf("%w: %s", agentsession.ErrArchived, in.SessionID)
+	}
+	return DurableSendResult{Info: info}, nil
+}
+
 // Stop authorizes use of a session and explicitly cancels its active turn. It
 // is idempotent: stopping an idle session succeeds without inventing state.
 func (s *Service) Stop(ctx context.Context, in StopInput) error {

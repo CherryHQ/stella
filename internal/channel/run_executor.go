@@ -73,6 +73,10 @@ func (e runExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (string, erro
 	} else {
 		content = input.Text
 	}
+	var runtimeOpts []agentruntime.Option
+	if len(input.ExcludedTools) > 0 {
+		runtimeOpts = append(runtimeOpts, agentruntime.WithExcludedTools(input.ExcludedTools...))
+	}
 	stream := svc.Chat(ctx, agent.ChatRequest{
 		SessionID:        info.ID,
 		UserID:           info.UserID,
@@ -85,7 +89,7 @@ func (e runExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (string, erro
 		BindingID:        info.Channel,
 		Message:          content,
 		Authority:        authority,
-		RuntimeOpts:      []agentruntime.Option{agentruntime.WithRunID(r.ID)},
+		RuntimeOpts:      append(runtimeOpts, agentruntime.WithRunID(r.ID)),
 	})
 	var reply strings.Builder
 	var firstErr error
@@ -158,6 +162,11 @@ func (c *Coordinator) runFinishHook(ctx context.Context, tx pgx.Tx, r sqlc.Agent
 	var addr agentrun.ReplyAddress
 	if err := json.Unmarshal(r.ReplyAddress, &addr); err != nil {
 		return fmt.Errorf("run reply address: %w", err)
+	}
+	if addr.ChannelID == "" {
+		// Web/API runs have no channel target — the reply is observed through
+		// the durable session event stream instead of an outbox send.
+		return nil
 	}
 	ops, err := choutbox.ReplyOps(r.ID, choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey,
 		choutbox.Address{

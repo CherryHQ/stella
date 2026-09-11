@@ -559,6 +559,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		OAuthAuthServer:      oauthAuthServer,
 		Group:                groupSvc,
 		SessionEvents:        sessionEventsForGateway(s.db),
+		RunDB:                runDBForGateway(s.db),
 		Vault:                s.vaultSvc,
 		VaultRecipient:       vaultRecipient,
 		MCP:                  s.mcpSvc,
@@ -1091,6 +1092,13 @@ func intentClassifierStreamFuncBuilder(registry *providers.Registry) channel.Str
 
 // sessionEventsForGateway binds the durable turn-event log only under the
 // durable channel flag; otherwise SSE replay stays hub-local.
+func runDBForGateway(db *pgxpool.Pool) *pgxpool.Pool {
+	if os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") == "" {
+		return nil
+	}
+	return db
+}
+
 func sessionEventsForGateway(db *pgxpool.Pool) *sessionevent.Store {
 	if os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") == "" {
 		return nil

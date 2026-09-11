@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/cookiejar"
@@ -801,5 +802,190 @@ func TestDurableChannelStaleOwnerPaused(t *testing.T) {
 		if s["tag"] == "A" {
 			t.Fatal("resumed stale owner A sent an operation")
 		}
+	}
+}
+
+// Phase 6: web send is idempotent enqueue-then-observe. The message POST
+// lands on the API replica while a worker on another process executes; the
+// SSE response streams the persisted run events.
+func TestDurableWebSend(t *testing.T) {
+	skipUnsupportedHost(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	baseEnv := map[string]string{"STELLA_CHANNEL_DURABLE_INGRESS": "1"}
+	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off",
+	})})
+	if err != nil {
+		t.Fatalf("start D: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Stop() })
+	sharedFake = d
+	fake := newFakeAnthropic(t)
+	h := &harness{owner: t, runID: newRunID(t), baseURL: d.BaseURL(), client: mustCookieClient(t), proc: d}
+	h.registerBootstrapUser(t, ctx)
+	db, err := pgxpool.New(ctx, d.DatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.db = db
+	t.Cleanup(db.Close)
+
+	fake.enqueueText("WEB " + h.runID)
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "-web")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/claude-sonnet-4-6", "-web")
+	sessionID := h.createSession(t, ctx, agentID)
+
+	b := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{"STELLA_CHANNEL_LEASE": "off"}))
+
+	idemKey := "web-send-1-" + h.runID
+	events, text := h.streamChatTurnKeyed(t, ctx, agentID, sessionID, "hello durable web", idemKey)
+	_ = events
+	if text != "WEB "+h.runID {
+		t.Fatalf("streamed reply = %q, want %q", text, "WEB "+h.runID)
+	}
+	var workerID, state string
+	if err := db.QueryRow(ctx, "SELECT state, COALESCE(worker_id,'') FROM agent_run WHERE session_id=$1", sessionID).Scan(&state, &workerID); err != nil {
+		t.Fatalf("no durable run for web send: %v", err)
+	}
+	if state != "completed" {
+		t.Fatalf("web run state=%s, want completed", state)
+	}
+	if bpid := b.PID(); bpid == 0 || !strings.Contains(workerID, fmt.Sprintf("-%d-", bpid)) {
+		t.Fatalf("web run worker_id=%q does not name B's process (pid %d)", workerID, bpid)
+	}
+	if got := len(fake.requests()); got != 1 {
+		t.Fatalf("model requests = %d, want 1", got)
+	}
+
+	// Idempotent resend: same key attaches to the same run, no second turn.
+	fake.enqueueText("SHOULD-NOT-RUN " + h.runID)
+	events2, text2 := h.streamChatTurnKeyed(t, ctx, agentID, sessionID, "hello durable web", idemKey)
+	_ = events2
+	if text2 != "WEB "+h.runID {
+		t.Fatalf("idempotent resend streamed %q, want the original reply %q", text2, "WEB "+h.runID)
+	}
+
+	var runCount int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM agent_run WHERE session_id=$1", sessionID).Scan(&runCount); err != nil {
+		t.Fatal(err)
+	}
+	if runCount != 1 {
+		t.Fatalf("runs for session = %d, want 1 (idempotent resend must not enqueue)", runCount)
+	}
+	// The enqueued second script must stay unconsumed — the resend never
+	// became a turn. Discard it so the fake's cleanup assertion passes.
+	fake.DiscardScripts()
+}
+
+// streamChatTurnKeyed is streamChatTurn plus an Idempotency-Key header so the
+// durable enqueue path can dedup a retried send.
+func (h *harness) streamChatTurnKeyed(t *testing.T, ctx context.Context, agentID, sessionID, message, key string) ([]turnEvent, string) {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"parts": []map[string]any{{"type": "text", "text": message}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/api/agents/%s/sessions/%s/messages", agentID, sessionID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.baseURL+path, bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	if key != "" {
+		req.Header.Set("Idempotency-Key", key)
+	}
+	resp, err := h.client.Do(req)
+	if err != nil {
+		t.Fatalf("POST send message: %v\n%s", err, h.proc.LogTail(40))
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		drainBody(resp.Body)
+		t.Fatalf("send message = %d, want 200", resp.StatusCode)
+	}
+	var events []turnEvent
+	var reply strings.Builder
+	scanner := newSSEScanner(resp)
+	for {
+		ev, done := scanTurnEvent(t, scanner)
+		if done {
+			break
+		}
+		events = append(events, ev)
+		if ev.Type == "text-delta" {
+			reply.WriteString(ev.Delta)
+		}
+	}
+	return events, reply.String()
+}
+
+// Phase 6: /stop from the API replica cancels a turn executing on another
+// process — the run ends 'canceled' and the model turn aborts.
+func TestDurableWebCancel(t *testing.T) {
+	skipUnsupportedHost(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	baseEnv := map[string]string{"STELLA_CHANNEL_DURABLE_INGRESS": "1"}
+	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off",
+	})})
+	if err != nil {
+		t.Fatalf("start D: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Stop() })
+	sharedFake = d
+	fake := newFakeAnthropic(t)
+	h := &harness{owner: t, runID: newRunID(t), baseURL: d.BaseURL(), client: mustCookieClient(t), proc: d}
+	h.registerBootstrapUser(t, ctx)
+	db, err := pgxpool.New(ctx, d.DatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.db = db
+	t.Cleanup(db.Close)
+
+	gate := fake.EnqueueGatedText("hold-", "NEVER "+h.runID)
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "-cancel")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/claude-sonnet-4-6", "-cancel")
+	sessionID := h.createSession(t, ctx, agentID)
+
+	b := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{"STELLA_CHANNEL_LEASE": "off"}))
+	_ = b
+
+	// Start the send in the background; it blocks inside the gated model call.
+	sendDone := make(chan struct{})
+	go func() {
+		defer close(sendDone)
+		payload, _ := json.Marshal(map[string]any{"parts": []map[string]any{{"type": "text", "text": "cancel me"}}})
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+			fmt.Sprintf("%s/api/agents/%s/sessions/%s/messages", h.baseURL, agentID, sessionID), bytes.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := h.client.Do(req)
+		if err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+	}()
+	var runID string
+	waitForCond(t, 90*time.Second, "run claimed by remote worker", func() bool {
+		return db.QueryRow(ctx, "SELECT id FROM agent_run WHERE session_id=$1 AND state='running'", sessionID).Scan(&runID) == nil
+	})
+
+	// Cancel from D — B's worker must abort through the execution lease flag.
+	resp := h.postJSON(t, ctx, fmt.Sprintf("/api/agents/%s/sessions/%s/stop", agentID, sessionID), nil)
+	_ = resp.Body.Close()
+	gate.Release() // free the model so the canceled turn can wind down
+	waitForCond(t, 60*time.Second, "run canceled", func() bool {
+		var state string
+		return db.QueryRow(ctx, "SELECT state FROM agent_run WHERE id=$1", runID).Scan(&state) == nil && state == "canceled"
+	})
+	select {
+	case <-sendDone:
+	case <-time.After(30 * time.Second):
+		t.Log("send SSE still open after cancel; acceptable if run canceled")
 	}
 }

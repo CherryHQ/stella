@@ -357,6 +357,14 @@ func (f *Fake) SetTrailingTextForModel(model, text string) {
 	f.modelTrailing[model] = response{text: text}
 }
 
+// DiscardScripts drops pending FIFO scripted responses the test deliberately
+// left unconsumed — e.g. an idempotency tripwire that must never run.
+func (f *Fake) DiscardScripts() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.scripts = nil
+}
+
 // DiscardModelScripts closes the mutually-exclusive branch of a concurrent
 // journey after its observable outcome has selected the winning agent.
 func (f *Fake) DiscardModelScripts() {
