@@ -206,6 +206,18 @@ func (c *Channel) deliver(ctx context.Context, ev pollEvent) {
 
 // SendOperation implements pkgchannel.OperationSender.
 func (c *Channel) SendOperation(ctx context.Context, op pkgchannel.OutboundOp) (pkgchannel.SendResult, error) {
+	if op.Kind == "notify" {
+		var payload struct {
+			Notification pkgchannel.Notification `json:"notification"`
+		}
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: bad notify payload: %v", err)
+		}
+		if err := c.Notify(ctx, payload.Notification); err != nil {
+			return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendUnknown, "testchan: notify send: %v", err)
+		}
+		return pkgchannel.SendResult{}, nil
+	}
 	if op.Kind != "send_text" {
 		return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: unsupported op kind %q", op.Kind)
 	}

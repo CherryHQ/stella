@@ -470,6 +470,32 @@ func (c *Coordinator) receiveDurable(ctx context.Context, msg pkgchannel.Incomin
 	return "", true, nil, nil
 }
 
+// EnqueueNotify routes a platform-neutral Notification through the durable
+// outbox: this replica commits the op; whichever replica owns the channel
+// lease performs the send. Bound to notify.Dispatcher in durable mode.
+func (c *Coordinator) EnqueueNotify(ctx context.Context, channelID string, n pkgchannel.Notification) error {
+	if c.db == nil {
+		return errors.New("channel: notify enqueue requires db")
+	}
+	deliveryKey := n.DedupKey
+	if deliveryKey == "" {
+		deliveryKey = uuid.Must(uuid.NewV7()).String()
+	}
+	op, err := choutbox.NotifyOp("notify:"+deliveryKey, channelID, channelID, n)
+	if err != nil {
+		return err
+	}
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := c.outboxStore().Append(ctx, tx, []choutbox.Op{op}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // RunDurableLoops drives the durable channel pipeline on this replica: a
 // routing sweep over claimable channels plus the run worker (claim, execute,
 // atomic finish) and its reaper. Callers start it only when durable ingress

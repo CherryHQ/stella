@@ -771,6 +771,11 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		// dispatcher resolves senders through them).
 		if coordinator != nil {
 			go coordinator.RunDurableLoops(ingressCtx)
+			// Scheduler/goal/notify sends become durable outbox ops; the channel
+			// lease owner performs the platform send.
+			if s.notifier != nil {
+				s.notifier.SetDurableSend(coordinator.EnqueueNotify)
+			}
 		}
 		if leases := s.pluginHost.ChannelLeases(); leases != nil {
 			go leases.Run(ingressCtx)

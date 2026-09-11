@@ -2,6 +2,7 @@ package outbox
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -255,5 +256,31 @@ func TestDispatchSplitReplyRetriesOnlyFailedChunk(t *testing.T) {
 		if st != StateSent {
 			t.Fatalf("op %d = %s", i, st)
 		}
+	}
+}
+
+// A notify op skips the source-account fence — the notification has no
+// triggering account, so the channel's current bot identity is the sender.
+func TestDispatchNotifySkipsAccountFence(t *testing.T) {
+	db := dbtest.New(t)
+	createChannel(t, db, "ch-1")
+	s := New(db)
+	ctx := t.Context()
+
+	payload, _ := json.Marshal(NotifyPayload{V: PayloadVersion, Notification: pkgchannel.Notification{ChatID: "chat-a", Text: "hi"}})
+	addr, _ := json.Marshal(Address{V: AddressVersion, ChatKey: "chat-a"})
+	appendOps(t, s, db, []Op{{DeliveryKey: "notify:1", Index: 0, Kind: OpNotify, ChannelID: "ch-1", AccountKey: "ch-1", Address: addr, Payload: payload}})
+
+	sender := &fakeSender{results: []sendResult{{receipt: pkgchannel.SendResult{PlatformMessageID: "n-1"}}}}
+	n, err := s.ProcessDue(ctx, "ch-1", "", sender)
+	if err != nil || n != 1 {
+		t.Fatalf("ProcessDue: n=%d err=%v", n, err)
+	}
+	if sender.calls[0].Kind != OpNotify {
+		t.Fatalf("op kind = %s", sender.calls[0].Kind)
+	}
+	rows, _ := s.ListByDelivery(ctx, "notify:1")
+	if rows[0].State != StateSent {
+		t.Fatalf("notify op = %s, want sent", rows[0].State)
 	}
 }

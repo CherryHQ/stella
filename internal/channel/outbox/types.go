@@ -88,3 +88,32 @@ func ChatKeyFor(msg pkgchannel.IncomingMessage) string {
 	}
 	return msg.SenderID
 }
+
+// NotifyPayload is the frozen body of a notify op — the platform-neutral
+// Notification an adapter's Notify already renders.
+type NotifyPayload struct {
+	V            int                     `json:"v"`
+	Notification pkgchannel.Notification `json:"notification"`
+}
+
+// NotifyOps builds a notification delivery for one channel instance. The
+// delivery key is caller-chosen so a retried notification never double-sends.
+func NotifyOp(deliveryKey, channelID, accountKey string, n pkgchannel.Notification) (Op, error) {
+	payload, err := json.Marshal(NotifyPayload{V: PayloadVersion, Notification: n})
+	if err != nil {
+		return Op{}, err
+	}
+	addr, err := json.Marshal(Address{V: AddressVersion, ChatKey: n.ChatID})
+	if err != nil {
+		return Op{}, err
+	}
+	return Op{
+		DeliveryKey: deliveryKey,
+		Index:       0,
+		Kind:        "notify",
+		ChannelID:   channelID,
+		AccountKey:  accountKey,
+		Address:     addr,
+		Payload:     payload,
+	}, nil
+}

@@ -177,6 +177,10 @@ type Notification struct {
 	AgentID     string // optional: agent that produced the notification
 	Text        string // markdown content
 	Silent      bool   // send without notification sound
+	// DedupKey, when set, makes the durable outbox enqueue idempotent: a
+	// retried notify with the same key reuses the queued op. Empty means
+	// every call is a distinct send.
+	DedupKey string
 }
 
 // AgentInfo is agent metadata for display in channel UIs.

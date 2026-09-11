@@ -44,7 +44,9 @@ func (s *Store) ProcessDue(ctx context.Context, channelID, ownerToken string, se
 				break
 			}
 		}
-		if checker, ok := sender.(pkgchannel.AccountChecker); ok && c.op.SourceAccountKey != "" && !checker.OwnsAccount(c.op.SourceAccountKey) {
+		// notify ops carry no triggering account — the channel's current bot
+		// identity is always the right sender, so skip the account fence.
+		if checker, ok := sender.(pkgchannel.AccountChecker); ok && c.op.Kind != OpNotify && c.op.SourceAccountKey != "" && !checker.OwnsAccount(c.op.SourceAccountKey) {
 			// The channel now speaks for a different bot — this op's reply
 			// must not go out under the new account.
 			attempted++

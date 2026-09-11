@@ -26,6 +26,7 @@ import (
 // classify (sent / definitely-not-executed / permanent failure / unknown).
 const (
 	OpSendText       = "send_text"
+	OpNotify         = "notify"
 	OpEditText       = "edit_text"
 	OpSendAttachment = "send_attachment"
 	OpDelete         = "delete"

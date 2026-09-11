@@ -15,6 +15,18 @@ import (
 // to one Discord REST call. ChatKey is the Discord channel id (guild or DM),
 // ReplyToKey the platform message id to soft-reference.
 func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	if op.Kind == "notify" {
+		var payload struct {
+			Notification channel.Notification `json:"notification"`
+		}
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: bad notify payload: %v", err)
+		}
+		if err := b.Notify(ctx, payload.Notification); err != nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "discord: notify send: %v", err)
+		}
+		return channel.SendResult{}, nil
+	}
 	if op.Kind != "send_text" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: unsupported op kind %q", op.Kind)
 	}
