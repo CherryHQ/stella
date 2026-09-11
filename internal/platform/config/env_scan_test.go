@@ -31,6 +31,14 @@ var envReadAllowlist = map[string]map[string]bool{
 	// value to the (now pure) ParseLogLevel.
 	"cmd/stellad/main.go": {"LOG_LEVEL": true},
 
+	// STELLA_CHANNEL_DURABLE_INGRESS is a rollout switch consulted in the
+	// composition root (gateway/commands/setup_plugins) where the runtime is
+	// assembled — before ServerConfig fields can reach those constructors.
+	// Default-off; removing it is the plan's final cleanup step.
+	"cmd/stellad/commands.go":      {"STELLA_CHANNEL_DURABLE_INGRESS": true},
+	"cmd/stellad/gateway.go":       {"STELLA_CHANNEL_DURABLE_INGRESS": true},
+	"cmd/stellad/setup_plugins.go": {"STELLA_CHANNEL_DURABLE_INGRESS": true},
+
 	// The evaluation driver is a standalone operator tool. Its provisioning
 	// credential deliberately never accepts a flag, preventing shell history
 	// and process listings from exposing it. The other input is only the path to
