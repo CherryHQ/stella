@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -53,6 +54,11 @@ type Worker struct {
 	// a graceful drain stops new claims without cancelling a turn the drain
 	// budget is still waiting on; it must end no later than final teardown.
 	execCtx context.Context
+	// inflight spans one claim's execute-and-finish: the runtime's own turn
+	// tracking ends when the event stream closes, but the finish transaction
+	// still has to commit — a drain that only waits for turns would tear the
+	// process down mid-commit and orphan the run as 'running'.
+	inflight sync.WaitGroup
 }
 
 func NewWorker(db *pgxpool.Pool, workerID string, executor Executor, onFinish FinishHook, opts ...func(*Worker)) *Worker {
@@ -119,6 +125,8 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	if err != nil || lease == nil {
 		return false, err
 	}
+	w.inflight.Add(1)
+	defer w.inflight.Done()
 	outcome.run = run
 	done := make(chan struct{})
 	go func() {
@@ -150,6 +158,23 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 		return true, fmt.Errorf("finish run %s: %w", run.ID, err)
 	}
 	return true, nil
+}
+
+// WaitInFlight blocks until every claimed run's execute-and-finish span has
+// ended, or ctx expires. The drain hooks it into the accepted-work wait so a
+// claimed turn commits its finish transaction before teardown closes the pool.
+func (w *Worker) WaitInFlight(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		w.inflight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // claimTransaction is the atomic claim: lock the run's session execution row,

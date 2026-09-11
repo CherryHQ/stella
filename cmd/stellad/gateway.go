@@ -23,7 +23,6 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
@@ -51,9 +50,7 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/sessionevent"
-	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/plugins/email"
 )
@@ -391,10 +388,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// Durable channel ingress is opt-in until the run workers and outbox
 	// senders exist; with the flag on, inbound events land in channel_inbox
 	// and replies flow through channel_outbox instead of the live stream.
-	if turnAppender, ok := memory.Unwrap(s.mem).(memory.TxSessionTurnAppender); ok {
-		coordOpts = append(coordOpts, channel.WithTurnAppender(func(ctx context.Context, tx pgx.Tx, session memory.Session, msgs []ai.Message) error {
-			return turnAppender.AppendSessionTurn(ctx, sqlc.New(tx), session, msgs...)
-		}))
+	if turnAppender := memory.NewTxSessionTurnAppender(s.mem); turnAppender != nil {
+		coordOpts = append(coordOpts, channel.WithTurnAppender(turnAppender))
 	}
 	// Outbox ops reach the platform through the running adapter instance this
 	// replica owns; a replica hosting no channels resolves to nothing and its
@@ -764,12 +759,20 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// Durable ingress loops are ingress-adjacent: they must start only
 	// after backends AND after managed channel runtimes exist (the outbox
 	// dispatcher resolves senders through them).
+	// waitDurableRuns, when bound, blocks the accepted-work drain step until a
+	// claimed run's finish transaction has committed — the runtime's own turn
+	// tracking ends when the event stream closes, before the finish lands.
+	var waitDurableRuns func(context.Context) error
 	if coordinator != nil {
 		// STELLA_RUN_WORKER=off pins this replica out of run execution
 		// (testbed role pinning, dedicated ingress/send replicas).
-		// ingressCtx ends claiming/routing at drain start; gctx parents claimed
-		// turns so they finish inside the drain budget like HTTP-accepted work.
-		go coordinator.RunDurableLoops(ingressCtx, gctx, os.Getenv("STELLA_RUN_WORKER") != "off")
+		// ingressCtx ends claiming/routing at drain start; workCtx parents
+		// claimed turns so they finish inside the drain budget like
+		// HTTP-accepted work. gctx is the wrong parent: errgroup cancels it the
+		// moment g.Wait returns — mid-drain, once Serve and the dispatch loop
+		// have exited — which would kill an adopted turn before the
+		// accepted-work wait below ever lets the budget run out.
+		waitDurableRuns = coordinator.RunDurableLoops(ingressCtx, workCtx, os.Getenv("STELLA_RUN_WORKER") != "off")
 		// Scheduler/goal/notify sends become durable outbox ops; the channel
 		// lease owner performs the platform send.
 		if s.notifier != nil {
@@ -816,6 +819,11 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		waitAccepted: func(ctx context.Context) {
 			if err := s.poolManager.WaitInFlight(ctx); err != nil {
 				slog.Warn("graceful drain: accepted agent turns still in flight when the budget expired", "error.type", fmt.Sprintf("%T", err), "error.class", "drain_wait_failed")
+			}
+			if waitDurableRuns != nil {
+				if err := waitDurableRuns(ctx); err != nil {
+					slog.Warn("graceful drain: claimed channel runs still finishing when the budget expired", "error.type", fmt.Sprintf("%T", err), "error.class", "drain_wait_failed")
+				}
 			}
 		},
 		cancelWork: workCancel,

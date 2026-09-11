@@ -538,23 +538,33 @@ func (c *Coordinator) EnqueueNotify(ctx context.Context, channelID string, n pkg
 // with it. execCtx parents claimed turns — the composition root passes the
 // work context so a graceful drain stops new claims while an in-flight turn
 // still finishes inside the drain budget, exactly like HTTP-accepted turns.
-func (c *Coordinator) RunDurableLoops(ctx, execCtx context.Context, runWorker bool) {
+// The returned wait blocks until every claimed run's finish transaction has
+// committed (nil when the worker role is off); the drain must call it inside
+// the accepted-work budget, before work contexts are cancelled.
+func (c *Coordinator) RunDurableLoops(ctx, execCtx context.Context, runWorker bool) func(context.Context) error {
 	go c.runBacklogMetrics(ctx, c.db)
 	if c.db == nil || c.sessionAccess == nil {
 		slog.WarnContext(ctx, "durable channel loops unavailable: missing db or session access")
-		return
+		return nil
 	}
+	var waitRuns func(context.Context) error
 	if runWorker {
 		host, _ := os.Hostname()
 		workerID := fmt.Sprintf("worker-%s-%d-%s", host, os.Getpid(), uuid.Must(uuid.NewV7()).String()[:8])
 		worker := agentrun.NewWorker(c.db, workerID, c.runExecutor(), c.runFinishHook,
 			agentrun.WithTurnAppender(c.turnAppender), agentrun.WithExecContext(execCtx))
 		go worker.Run(ctx)
+		waitRuns = worker.WaitInFlight
 	}
+	go c.durableSweep(ctx)
+	return waitRuns
+}
 
-	// Routing is claim-based work: any replica may drain a channel's inbox —
-	// the sweep covers every enabled channel, not just locally owned ones.
-	// Sending is different: only the lease holder dispatches outbox ops.
+// durableSweep is the claim-based routing and dispatch loop: any replica may
+// drain a channel's inbox — the sweep covers every enabled channel, not just
+// locally owned ones. Sending is different: only the lease holder dispatches
+// outbox ops.
+func (c *Coordinator) durableSweep(ctx context.Context) {
 	q := sqlc.New(c.db)
 	events := sessionevent.New(c.db)
 	ticker := time.NewTicker(500 * time.Millisecond)

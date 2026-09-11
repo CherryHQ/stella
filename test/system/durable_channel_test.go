@@ -14,6 +14,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -762,6 +763,127 @@ func TestDurableChannelSameEventHandoff(t *testing.T) {
 	}
 	if sentOps != 1 || userMsgs != 1 || replyMsgs != 1 {
 		t.Fatalf("sent_ops=%d user_msgs=%d reply_msgs=%d, want 1/1/1", sentOps, userMsgs, replyMsgs)
+	}
+}
+
+// Graceful drain on the WORKER replica: SIGTERM while a run is parked inside
+// the model call. The drain budget must let the in-flight turn commit run +
+// history + outbox instead of interrupting it; the process then exits 0 and
+// the channel owner sends the reply — no replay, no lost work.
+func TestDurableChannelGracefulDrain(t *testing.T) {
+	skipUnsupportedHost(t)
+	fp := newFakePlatform(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	baseEnv := map[string]string{
+		"STELLA_TEST_CHANNELS": "1",
+	}
+	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "D",
+	})})
+	if err != nil {
+		t.Fatalf("start D: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Stop() })
+	sharedFake = d
+	fake := newFakeAnthropic(t)
+	h := &harness{owner: t, runID: newRunID(t), baseURL: d.BaseURL(), client: mustCookieClient(t), proc: d}
+	h.registerBootstrapUser(t, ctx)
+	db, err := pgxpool.New(ctx, d.DatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.db = db
+	t.Cleanup(db.Close)
+
+	const modelID = "claude-sonnet-4-6"
+	gate := fake.EnqueueGatedText("drain-one-", "DRAINED "+h.runID)
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "-drain")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/"+modelID, "-drain")
+	botName := "testbot-" + h.runID
+	channelID := h.createTestChannel(t, ctx, agentID, fp.endpoint(), botName)
+
+	a := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "A",
+	}))
+	aID := replicaIDOf(t, a)
+	waitForCond(t, 60*time.Second, "A owns the channel", func() bool {
+		var owner string
+		return db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&owner) == nil && owner == aID
+	})
+	b := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_TESTCHAN_TAG": "B",
+	}))
+
+	fp.push(map[string]string{
+		"id": "m2-gd-" + h.runID, "chat_id": "chat-gd", "sender_id": "user-1", "sender_name": "U", "text": "drain me",
+	})
+	var runID, workerID string
+	waitForCond(t, 90*time.Second, "B claims the run", func() bool {
+		return db.QueryRow(ctx, "SELECT id, COALESCE(worker_id,'') FROM agent_run WHERE state='running'").Scan(&runID, &workerID) == nil
+	})
+	if bpid := b.PID(); bpid == 0 || !strings.Contains(workerID, fmt.Sprintf("-%d-", bpid)) {
+		t.Fatalf("run worker_id=%q does not name B's process (pid %d)", workerID, bpid)
+	}
+	// Pin B inside the gated model call, then SIGTERM it mid-turn.
+	select {
+	case <-gate.Entered:
+	case <-ctx.Done():
+		t.Fatal("gated model call never parked inside the gate")
+	}
+	if err := b.Terminate(); err != nil {
+		t.Fatalf("SIGTERM B: %v", err)
+	}
+	// Release inside the drain budget: the detached turn must finish and
+	// commit before the worker's process is allowed to exit.
+	gate.Release()
+	select {
+	case <-b.Done():
+		if err := b.WaitErr(); err != nil {
+			t.Fatalf("B exited non-zero after drain: %v", err)
+		}
+	case <-time.After(gracefulTimeout):
+		t.Fatal("B did not exit within the graceful drain budget")
+	}
+
+	// The in-flight turn survived the drain: run completed, reply op committed.
+	var state string
+	if err := db.QueryRow(ctx, "SELECT state FROM agent_run WHERE id=$1", runID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" {
+		logtail, lerr := os.ReadFile(b.LogPath())
+		if lerr != nil {
+			t.Logf("read B log: %v", lerr)
+		}
+		t.Logf("B log tail:\n%s", logtail)
+		t.Fatalf("run state=%s after drained worker, want completed", state)
+	}
+	var ops int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE run_id=$1", runID).Scan(&ops); err != nil {
+		t.Fatal(err)
+	}
+	if ops != 1 {
+		t.Fatalf("outbox ops=%d for the drained run, want 1", ops)
+	}
+	// The channel owner picks up the committed reply — no re-execution.
+	waitForCond(t, 90*time.Second, "A sends the drained turn's reply", func() bool {
+		s := fp.lastSend()
+		return s != nil && s["tag"] == "A"
+	})
+	if got := fp.lastSend()["text"]; got != "drain-one-DRAINED "+h.runID {
+		t.Fatalf("sent text = %v, want the gated reply", got)
+	}
+	if got := len(fake.requests()); got != 1 {
+		t.Fatalf("model requests = %d, want 1 — drain must not replay the turn", got)
+	}
+	var sentOps int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE run_id=$1 AND state='sent'", runID).Scan(&sentOps); err != nil {
+		t.Fatal(err)
+	}
+	if sentOps != 1 || fp.sendCount() != 1 {
+		t.Fatalf("sent_ops=%d sends=%d, want 1/1", sentOps, fp.sendCount())
 	}
 }
 
