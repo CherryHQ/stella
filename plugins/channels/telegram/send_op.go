@@ -18,6 +18,16 @@ import (
 // ledger — sent only on a real platform receipt, retryable when Telegram
 // provably rejected it, unknown when the response never arrived.
 func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	if op.Kind == "send_group_reply" {
+		var payload channel.GroupReplyOpPayload
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: bad send_group_reply payload: %v", err)
+		}
+		if err := b.Publish(ctx, payload.PublishRequest()); err != nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "telegram: group reply publish: %v", err)
+		}
+		return channel.SendResult{}, nil
+	}
 	if op.Kind == "notify" {
 		var payload struct {
 			Notification channel.Notification `json:"notification"`

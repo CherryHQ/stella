@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -51,6 +52,10 @@ type groupPublishDriver struct {
 	coord      *Coordinator
 	events     *GroupEventHub
 	log        *slog.Logger
+	// outbox, when set, routes the platform send through the durable
+	// channel_outbox ledger: this replica commits the op and the channel's
+	// lease owner performs the send. Nil keeps the in-process publisher path.
+	outbox *choutbox.Store
 	// wake re-polls the dispatcher after a successor outbox is committed.
 	wake func()
 	// abort stops the turn still running behind a session key, for publishers
@@ -60,6 +65,46 @@ type groupPublishDriver struct {
 
 func newGroupPublishDriver(db *pgxpool.Pool, q *sqlc.Queries, publishers *PublisherRegistry, coord *Coordinator, log *slog.Logger, wake func(), abort func(string) bool) *groupPublishDriver {
 	return &groupPublishDriver{db: db, q: q, publishers: publishers, coord: coord, log: log, wake: wake, abort: abort}
+}
+
+// errPublishEnqueued tells publishAccepted the send became a durable outbox op:
+// the row stays 'running' until pollPublishOutcomes observes the op's state.
+var errPublishEnqueued = errors.New("group publish: enqueued to durable outbox")
+
+// enqueueAccepted commits the reply's send op and the publish-started marker in
+// one transaction — a crash between them can only ever produce both or neither.
+// Re-enqueue after a crash dedups on the dispatch-scoped delivery key.
+func (p *groupPublishDriver) enqueueAccepted(ctx context.Context, job publishJob) error {
+	row := job.row
+	payload := choutbox.GroupReplyPayload{
+		V:                choutbox.PayloadVersion,
+		Platform:         job.state.Platform,
+		PlatformGroupID:  job.state.PlatformGroupID,
+		PlatformThreadID: job.state.PlatformThreadID,
+		ReplyTo:          nullStringValue(job.trigger.PlatformMessageID),
+		DeliveryID:       row.ID,
+		RequesterID:      job.trigger.ActorID,
+		SessionID:        job.response.sessionID,
+		Events:           job.response.events,
+	}
+	op, err := choutbox.GroupReplyOp("group:"+row.ID, row.ReplyChannelID, row.ReplyChannelID, payload)
+	if err != nil {
+		return err
+	}
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("enqueue group publish: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := p.outbox.Append(ctx, tx, []choutbox.Op{op}); err != nil {
+		return fmt.Errorf("enqueue group publish: append: %w", err)
+	}
+	if !row.PublishStartedAt.Valid {
+		if _, err := p.q.WithTx(tx).MarkGroupDispatchPublishStarted(ctx, sqlc.MarkGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
+			return fmt.Errorf("mark publish started: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // publishJob is one egress attempt: the accepted reply, the trigger it answers,
@@ -89,6 +134,25 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 			return row, &acceptedPublishBookkeepingError{err: err}
 		}
 		return row, nil
+	}
+	if p.outbox != nil {
+		// Durable mode: the platform send is an outbox op executed by the
+		// channel's lease owner. Web replies carry no platform send — the
+		// event log is their egress — so they publish 'noop' immediately.
+		if job.state.Platform == webGroupPlatform {
+			if err := p.markPublished(ctx, row); err != nil {
+				return row, &acceptedPublishBookkeepingError{err: err}
+			}
+			row.PublishedAt = nullTime(time.Now().UTC())
+			if err := p.finalizeAcceptedPublished(ctx, row); err != nil {
+				return row, &acceptedPublishBookkeepingError{err: err}
+			}
+			return row, nil
+		}
+		if err := p.enqueueAccepted(ctx, job); err != nil {
+			return row, err
+		}
+		return row, errPublishEnqueued
 	}
 	if job.publisher == nil {
 		return row, errors.New("publish: publisher unavailable")

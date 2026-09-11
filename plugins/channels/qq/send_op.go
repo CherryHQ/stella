@@ -16,6 +16,16 @@ import (
 // QQ open-api post. The outbox Scope picks C2C vs group because QQ routes the
 // two through different endpoints with the same open-id shape.
 func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	if op.Kind == "send_group_reply" {
+		var payload channel.GroupReplyOpPayload
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "qq: bad send_group_reply payload: %v", err)
+		}
+		if err := b.Publish(ctx, payload.PublishRequest()); err != nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "qq: group reply publish: %v", err)
+		}
+		return channel.SendResult{}, nil
+	}
 	if op.Kind == "notify" {
 		var payload struct {
 			Notification channel.Notification `json:"notification"`

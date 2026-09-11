@@ -27,6 +27,7 @@ import (
 const (
 	OpSendText       = "send_text"
 	OpNotify         = "notify"
+	OpSendGroupReply = "send_group_reply"
 	OpEditText       = "edit_text"
 	OpSendAttachment = "send_attachment"
 	OpDelete         = "delete"

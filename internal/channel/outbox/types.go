@@ -117,3 +117,29 @@ func NotifyOp(deliveryKey, channelID, accountKey string, n pkgchannel.Notificati
 		Payload:     payload,
 	}, nil
 }
+
+// GroupReplyPayload is the frozen body of a send_group_reply op; the shared
+// definition lives in pkg/channel so adapters decode the same shape.
+type GroupReplyPayload = pkgchannel.GroupReplyOpPayload
+
+// GroupReplyOp serializes one accepted group reply for cross-replica send.
+// deliveryKey is the dispatch row id so a retried enqueue is a no-op.
+func GroupReplyOp(deliveryKey, channelID, accountKey string, p GroupReplyPayload) (Op, error) {
+	payload, err := json.Marshal(p)
+	if err != nil {
+		return Op{}, err
+	}
+	addr, err := json.Marshal(Address{V: AddressVersion, ChatKey: p.PlatformGroupID, ThreadKey: p.PlatformThreadID, ReplyToKey: p.ReplyTo, Scope: "group"})
+	if err != nil {
+		return Op{}, err
+	}
+	return Op{
+		DeliveryKey: deliveryKey,
+		Index:       0,
+		Kind:        OpSendGroupReply,
+		ChannelID:   channelID,
+		AccountKey:  accountKey,
+		Address:     addr,
+		Payload:     payload,
+	}, nil
+}

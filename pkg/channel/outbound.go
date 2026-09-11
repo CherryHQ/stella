@@ -97,3 +97,39 @@ type OperationSender interface {
 type AccountChecker interface {
 	OwnsAccount(accountKey string) bool
 }
+
+// GroupReplyOpPayload is the frozen body of the "send_group_reply" outbox op —
+// everything a GroupPublisher needs to replay an accepted group reply on the
+// replica that owns the channel lease.
+type GroupReplyOpPayload struct {
+	V                int     `json:"v"`
+	Platform         string  `json:"platform"`
+	PlatformGroupID  string  `json:"platform_group_id"`
+	PlatformThreadID string  `json:"platform_thread_id,omitempty"`
+	ReplyTo          string  `json:"reply_to,omitempty"`
+	DeliveryID       string  `json:"delivery_id"`
+	RequesterID      string  `json:"requester_id,omitempty"`
+	SessionID        string  `json:"session_id,omitempty"`
+	Events           []Event `json:"events"`
+}
+
+// ReplayChatStream rebuilds a GroupPublishRequest stream from a persisted op.
+// Abort cannot cross a process boundary, so the reconstructed affordance is a
+// no-op — publish happens after the turn ends regardless.
+func (p GroupReplyOpPayload) PublishRequest() GroupPublishRequest {
+	events := make(chan Event, len(p.Events))
+	for _, evt := range p.Events {
+		events <- evt
+	}
+	close(events)
+	return GroupPublishRequest{
+		Platform:         p.Platform,
+		PlatformGroupID:  p.PlatformGroupID,
+		PlatformThreadID: p.PlatformThreadID,
+		ReplyTo:          p.ReplyTo,
+		Stream:           &ChatStream{Events: events, SessionID: p.SessionID},
+		DeliveryID:       p.DeliveryID,
+		RequesterID:      p.RequesterID,
+		Abort:            func() bool { return false },
+	}
+}

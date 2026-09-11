@@ -16,6 +16,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -113,6 +114,11 @@ func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator, publishers *Publis
 	}
 	d.chats = newGroupChatResolver(d.q, coord)
 	d.publish = newGroupPublishDriver(db, d.q, publishers, coord, d.log, d.Wake, d.chats.abort)
+	if coord != nil && coord.durableIngress {
+		// Durable ingress: group replies publish through the shared outbox
+		// ledger so the channel's lease owner performs the send.
+		d.publish.outbox = choutbox.New(db)
+	}
 	d.chat = d.chats.chatDispatch
 	return d
 }
@@ -244,6 +250,65 @@ func (d *GroupDispatcher) runWorker(ctx context.Context) {
 	}
 }
 
+// pollPublishOutcomes finishes dispatch rows whose platform send is a durable
+// outbox op: all ops sent -> mark published + finalize + complete; any
+// permanently failed -> the accepted-publish failure path. Pending, claimed,
+// and unknown states simply wait — the owning replica and the unknown-attempt
+// janitor move them.
+func (d *GroupDispatcher) pollPublishOutcomes(ctx context.Context) error {
+	if d.publish.outbox == nil {
+		return nil
+	}
+	rows, err := d.q.ListGroupDispatchesAwaitingPublish(ctx)
+	if err != nil {
+		return err
+	}
+	for _, id := range rows {
+		row, err := d.q.GetGroupDispatch(ctx, id)
+		if err != nil {
+			continue
+		}
+		ops, err := d.publish.outbox.ListByDelivery(ctx, "group:"+row.ID)
+		if err != nil {
+			return err
+		}
+		if len(ops) == 0 {
+			continue
+		}
+		allSent, anyFailed := true, false
+		var failErr string
+		for _, op := range ops {
+			switch op.State {
+			case choutbox.StateSent:
+			case choutbox.StateFailed:
+				anyFailed = true
+				failErr = op.ErrorCode.String
+			default:
+				allSent = false
+			}
+		}
+		if anyFailed {
+			cause := fmt.Errorf("group reply send failed: %s", failErr)
+			_ = d.publish.failAcceptedPublishWithExpiryFence(ctx, row, cause, time.Time{})
+			continue
+		}
+		if !allSent {
+			continue
+		}
+		if err := d.publish.markPublished(ctx, row); err != nil {
+			return err
+		}
+		row.PublishedAt = nullTime(time.Now().UTC())
+		if err := d.publish.finalizeAcceptedPublished(ctx, row); err != nil {
+			return err
+		}
+		if err := d.completeDispatch(ctx, row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // AbortGroupTurn stops the active turn for one group member. It is intentionally
 // idempotent: a completed or unknown turn has nothing left to cancel.
 func (d *GroupDispatcher) AbortGroupTurn(groupID, agentID string) bool {
@@ -270,6 +335,9 @@ func (d *GroupDispatcher) AbortGroupTurn(groupID, agentID string) bool {
 }
 
 func (d *GroupDispatcher) poll(ctx context.Context) error {
+	if err := d.pollPublishOutcomes(ctx); err != nil {
+		d.log.Warn("group publish outcome poll failed", "error", err)
+	}
 	if err := d.reapExpired(ctx); err != nil {
 		return err
 	}
@@ -728,6 +796,11 @@ func (d *GroupDispatcher) markAndAnnounce(ctx context.Context, row sqlc.CtxGroup
 // applies the row's terminal state. Retry policy stays with the row's owner.
 func (d *GroupDispatcher) publishAccepted(ctx context.Context, job publishJob) error {
 	row, err := d.publish.run(ctx, job)
+	if errors.Is(err, errPublishEnqueued) {
+		// The send became a durable outbox op; pollPublishOutcomes owns the row
+		// from here — it stays 'running' until the op reaches a terminal state.
+		return nil
+	}
 	if err != nil {
 		return d.failDispatch(ctx, row, err)
 	}

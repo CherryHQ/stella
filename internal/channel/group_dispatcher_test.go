@@ -14,6 +14,7 @@ import (
 
 	cfgstore "github.com/CherryHQ/stella/cmd/stellad/store"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -2535,4 +2536,83 @@ func committedTestStream(ctx context.Context, text string, turn memory.DeferredG
 		return nil, err
 	}
 	return textStream(text), nil
+}
+
+// Durable publish: the reply becomes an outbox op; only after the owning
+// replica's send lands does the dispatch complete and the message deliver.
+func TestGroupPublishThroughOutbox(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", `{}`)
+	fx.d.publish.outbox = choutbox.New(fx.db)
+	ctx := context.Background()
+
+	dispatchID := "d15a0000-0000-0000-0000-00000000000a"
+	insertGroupDispatch(t, fx.db, dispatchID, fx.message.ID, fx.groupID, "agent-1", "running", 0, nullTime(time.Now().UTC().Add(time.Minute)))
+	resultMsg := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000099", 2, eventlog.ActorAgent, "agent-1", "group reply")
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET result_message_id = $1 WHERE id = $2`, resultMsg.ID, dispatchID); err != nil {
+		t.Fatal(err)
+	}
+	row, err := fx.q.GetGroupDispatch(ctx, dispatchID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Enqueue: op committed, publish_started set, row still running.
+	err = fx.d.publish.enqueueAccepted(ctx, publishJob{
+		row:      row,
+		trigger:  fx.message,
+		state:    sqlc.CtxGroupState{Platform: "telegram", PlatformGroupID: "physical-group-1"},
+		response: groupResponse{text: "group reply", events: []pkgchannel.Event{{Text: "group reply"}}},
+	})
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	ops, err := fx.d.publish.outbox.ListByDelivery(ctx, "group:"+dispatchID)
+	if err != nil || len(ops) != 1 {
+		t.Fatalf("ops = %d, err = %v", len(ops), err)
+	}
+	if ops[0].OperationKind != choutbox.OpSendGroupReply {
+		t.Fatalf("op kind = %s", ops[0].OperationKind)
+	}
+	row, _ = fx.q.GetGroupDispatch(ctx, dispatchID)
+	if row.Status != "running" || !row.PublishStartedAt.Valid {
+		t.Fatalf("dispatch = %s started=%v", row.Status, row.PublishStartedAt.Valid)
+	}
+
+	// Re-enqueue dedups on the delivery key (crash between commit and finalize).
+	if err := fx.d.publish.enqueueAccepted(ctx, publishJob{
+		row: row, trigger: fx.message,
+		state:    sqlc.CtxGroupState{Platform: "telegram", PlatformGroupID: "physical-group-1"},
+		response: groupResponse{text: "group reply", events: []pkgchannel.Event{{Text: "group reply"}}},
+	}); err != nil {
+		t.Fatalf("re-enqueue: %v", err)
+	}
+	if ops, _ := fx.d.publish.outbox.ListByDelivery(ctx, "group:"+dispatchID); len(ops) != 1 {
+		t.Fatalf("re-enqueued ops = %d, want 1", len(ops))
+	}
+
+	// The owner sends; the outcome poll completes the dispatch.
+	sender := &scriptedSender{}
+	if n, err := fx.d.publish.outbox.ProcessDue(ctx, "ch-1", "", sender); err != nil || n != 1 {
+		t.Fatalf("ProcessDue: n=%d err=%v", n, err)
+	}
+	if err := fx.d.pollPublishOutcomes(ctx); err != nil {
+		t.Fatalf("poll outcomes: %v", err)
+	}
+	row, _ = fx.q.GetGroupDispatch(ctx, dispatchID)
+	if row.Status != "completed" || !row.PublishedAt.Valid {
+		t.Fatalf("dispatch = %s published=%v", row.Status, row.PublishedAt.Valid)
+	}
+	msg, _ := fx.q.GetGroupMessage(ctx, resultMsg.ID)
+	if msg.DeliveryState != "delivered" {
+		t.Fatalf("message delivery = %s", msg.DeliveryState)
+	}
+}
+
+type scriptedSender struct {
+	calls []pkgchannel.OutboundOp
+}
+
+func (s *scriptedSender) SendOperation(_ context.Context, op pkgchannel.OutboundOp) (pkgchannel.SendResult, error) {
+	s.calls = append(s.calls, op)
+	return pkgchannel.SendResult{PlatformMessageID: "sent-1"}, nil
 }

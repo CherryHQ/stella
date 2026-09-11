@@ -466,3 +466,14 @@ WHERE group_id = $1
   AND agent_id = ANY($2::text[])
   AND status IN ('held', 'silent', 'failed', 'completed')
 ORDER BY agent_id, updated_at DESC;
+
+-- name: ListGroupDispatchesAwaitingPublish :many
+-- Accepted replies whose send is a pending durable outbox op: publish_started
+-- set, published_at not yet. The outcome poller drives their terminal state.
+SELECT id
+FROM ctx_group_dispatch
+WHERE status = 'running'
+  AND publish_started_at IS NOT NULL
+  AND published_at IS NULL
+  AND result_message_id <> ''
+LIMIT 64;

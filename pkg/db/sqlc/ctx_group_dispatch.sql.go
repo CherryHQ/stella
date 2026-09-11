@@ -582,6 +582,38 @@ func (q *Queries) ListExpiredRunningGroupDispatch(ctx context.Context, arg ListE
 	return items, nil
 }
 
+const listGroupDispatchesAwaitingPublish = `-- name: ListGroupDispatchesAwaitingPublish :many
+SELECT id
+FROM ctx_group_dispatch
+WHERE status = 'running'
+  AND publish_started_at IS NOT NULL
+  AND published_at IS NULL
+  AND result_message_id <> ''
+LIMIT 64
+`
+
+// Accepted replies whose send is a pending durable outbox op: publish_started
+// set, published_at not yet. The outcome poller drives their terminal state.
+func (q *Queries) ListGroupDispatchesAwaitingPublish(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listGroupDispatchesAwaitingPublish)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPendingGroupNudges = `-- name: ListPendingGroupNudges :many
 SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, publish_started_at, published_at
 FROM ctx_group_dispatch
