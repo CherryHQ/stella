@@ -184,7 +184,7 @@ func (c *Coordinator) runFinishHook(ctx context.Context, tx pgx.Tx, r sqlc.Agent
 	// attachment-only turn (no final text) still delivers through this path;
 	// a turn with nothing deliverable keeps the old send-nothing behavior.
 	if events, ok := c.replyEvents(ctx, tx, r); ok && deliverable(events, reply) {
-		op, err := choutbox.ReplyOp(choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey, outAddr, r.SessionID, events)
+		op, err := choutbox.ReplyOp(r.ID, choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey, outAddr, r.SessionID, events)
 		if err != nil {
 			return err
 		}

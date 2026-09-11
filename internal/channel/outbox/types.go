@@ -125,7 +125,7 @@ type ReplyPayload = pkgchannel.ReplyOpPayload
 // reply operation: the owning adapter replays the stream through its
 // draft/edit surface or flattens it to text plus attachments. A single op
 // keeps create/edit identity stable — one claim, one send, one final version.
-func ReplyOp(deliveryKey, channelID, accountKey string, addr Address, sessionID string, events []pkgchannel.Event) (Op, error) {
+func ReplyOp(runID, deliveryKey, channelID, accountKey string, addr Address, sessionID string, events []pkgchannel.Event) (Op, error) {
 	payload, err := json.Marshal(ReplyPayload{V: PayloadVersion, SessionID: sessionID, Events: events})
 	if err != nil {
 		return Op{}, err
@@ -135,6 +135,7 @@ func ReplyOp(deliveryKey, channelID, accountKey string, addr Address, sessionID 
 		return Op{}, err
 	}
 	return Op{
+		RunID:       runID,
 		DeliveryKey: deliveryKey,
 		Index:       0,
 		Kind:        OpSendReply,
