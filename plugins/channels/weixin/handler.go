@@ -98,6 +98,11 @@ func (b *Bot) incomingMsg(msg WeixinMessage, content []ai.ContentBlock) channel.
 		IsGroup:    false, // DM only for v1
 		Content:    content,
 	}
+	// The context token authorizes replies to this conversation — the durable
+	// reply path replays it from the outbox address on any replica.
+	if msg.ContextToken != "" {
+		im.Extras = map[string]string{"context_token": msg.ContextToken}
+	}
 	if msg.MessageID != 0 {
 		im.MessageID = strconv.FormatInt(msg.MessageID, 10)
 	}

@@ -102,6 +102,10 @@ type IncomingMessage struct {
 	ReplyTo           string    // platform message ID this message replies to, empty if none
 	Mentions          []Mention // @-mentions, normalized; AgentID is resolved later by the dispatcher
 	LifecycleFeedback bool      // platform adapter should show addressed-turn completion feedback
+	// Extras carries platform-specific facts the durable reply path must keep
+	// (e.g. Weixin context_token). Adapters populate only what they need;
+	// it is stored verbatim in the inbox envelope and outbox address.
+	Extras map[string]string
 }
 
 // Mention is a normalized @-mention. Adapters fill Raw and PlatformID; the

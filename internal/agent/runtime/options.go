@@ -26,6 +26,7 @@ type chatOptions struct {
 	inboxID         string
 	groupWake       memory.GroupWake
 	channel         string
+	runID           string
 	bindingID       string
 	turnAuthority   authz.Authority
 	hasAuthority    bool
@@ -134,4 +135,12 @@ func WithStopWhen(done func() bool) Option {
 // caller cannot accidentally close the next turn's runner after receiving EOF.
 func WithOneShotRunner() Option {
 	return func(o *chatOptions) { o.closeAfterRun = true }
+}
+
+// WithRunID links the turn's durable events to the agent_run row that drove
+// it. Set only by the durable run worker; zero for synchronous turns.
+func WithRunID(id string) Option {
+	return func(o *chatOptions) {
+		o.runID = id
+	}
 }

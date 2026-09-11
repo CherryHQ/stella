@@ -11,6 +11,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentrun "github.com/CherryHQ/stella/internal/agent/run"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -84,6 +85,7 @@ func (e runExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (string, erro
 		BindingID:        info.Channel,
 		Message:          content,
 		Authority:        authority,
+		RuntimeOpts:      []agentruntime.Option{agentruntime.WithRunID(r.ID)},
 	})
 	var reply strings.Builder
 	var firstErr error
@@ -152,6 +154,8 @@ func (c *Coordinator) runFinishHook(ctx context.Context, tx pgx.Tx, r sqlc.Agent
 			ChatKey:    addr.ChatKey,
 			ThreadKey:  addr.ThreadKey,
 			ReplyToKey: addr.ReplyToKey,
+			Scope:      addr.Scope,
+			Token:      addr.Token,
 		}, reply, c.replyTextLimit(addr.ChannelID))
 	if err != nil {
 		return err

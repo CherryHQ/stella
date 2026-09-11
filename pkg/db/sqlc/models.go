@@ -641,6 +641,15 @@ type CtxMessagePart struct {
 	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
+type CtxSessionEvent struct {
+	ID        string          `json:"id"`
+	SessionID string          `json:"session_id"`
+	RunID     pgtype.Text     `json:"run_id"`
+	Seq       int64           `json:"seq"`
+	Event     json.RawMessage `json:"event"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
 type CtxSessionExecution struct {
 	SessionID       string      `json:"session_id"`
 	Token           string      `json:"token"`

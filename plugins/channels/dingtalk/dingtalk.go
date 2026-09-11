@@ -228,6 +228,10 @@ func (b *Bot) onMessage(_ context.Context, data *chatbot.BotCallbackDataModel) (
 		Timestamp:  dingTalkEventTime(data.CreateAt),
 		Content:    channel.TextContent(strings.TrimSpace(data.Text.Content)),
 		Mentions:   dingTalkMentions(data.AtUsers),
+		// The session webhook is the only send credential — the durable reply
+		// path replays it from the outbox address on any replica. It expires,
+		// so a stale token classifies permanent rather than retrying forever.
+		Extras: map[string]string{"session_webhook": data.SessionWebhook},
 	}
 	go b.handleIncoming(msg, data.SessionWebhook)
 	return nil, nil

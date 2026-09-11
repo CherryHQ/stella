@@ -43,7 +43,10 @@ type Envelope struct {
 	Args        string          `json:"args,omitempty"`
 	Content     json.RawMessage `json:"content,omitempty"` // ai.MarshalContentBlocks output
 	Attachments []Attachment    `json:"attachments,omitempty"`
-	Timestamp   time.Time       `json:"timestamp,omitempty"`
+	// Extras persists adapter-supplied platform facts needed by the durable
+	// reply path (e.g. weixin context_token).
+	Extras    map[string]string `json:"extras,omitempty"`
+	Timestamp time.Time         `json:"timestamp,omitempty"`
 }
 
 // MarshalIncoming converts a live IncomingMessage into the storable envelope.
@@ -64,6 +67,7 @@ func MarshalIncoming(msg pkgchannel.IncomingMessage, command, args string) (json
 		ReplyTo:    msg.ReplyTo,
 		Command:    command,
 		Args:       args,
+		Extras:     msg.Extras,
 		Timestamp:  msg.Timestamp.UTC(),
 	}
 	if len(msg.Content) > 0 {

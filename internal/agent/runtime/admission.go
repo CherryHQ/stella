@@ -375,6 +375,11 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner <-chan Event
 	deliver := true
 	for event := range inner {
 		rt.hub.publish(admission.info.ID, event)
+		if rt.eventSink != nil {
+			if err := rt.eventSink.Append(admission.ctx, admission.info.ID, admission.co.runID, EncodeEvent(event)); err != nil {
+				rt.log.WarnContext(admission.ctx, "session event append failed", "session", admission.info.ID, "error", err)
+			}
+		}
 		if !deliver {
 			continue
 		}

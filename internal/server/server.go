@@ -35,6 +35,7 @@ import (
 	"github.com/CherryHQ/stella/internal/plugin/host"
 	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	"github.com/CherryHQ/stella/internal/sessionevent"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skill"
 	"github.com/CherryHQ/stella/internal/skill/access"
@@ -103,6 +104,9 @@ type Server struct {
 	localAuth     *local.Service
 	// baseURL is the public URL for this instance (from STELLA_BASE_URL).
 	baseURL string
+	// sessionEvents is the durable turn-event log used by durable-mode SSE
+	// replay; nil disables it.
+	sessionEvents *sessionevent.Store
 	// groupSvc owns the Web group/channel application boundary (CRUD, membership,
 	// messages, send). Its send path degrades to 503 when the event log or group
 	// dispatcher is absent; the read/CRUD path stays available.
@@ -226,6 +230,9 @@ type Deps struct {
 	// It holds the event log and group dispatcher internally, so the transport no
 	// longer reaches the query layer or sqlc for groups.
 	Group *channel.GroupService
+	// SessionEvents is the durable turn-event log (ctx_session_event) used for
+	// cross-replica SSE replay when the durable channel path is enabled.
+	SessionEvents *sessionevent.Store
 	// Assets provides immutable content-addressed session media. Mutable Workspace
 	// and user-data handlers use Home rooted POSIX capabilities instead.
 	Assets *asset.Store
@@ -379,6 +386,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		librarySvc:           deps.Library,
 		agentSkillPolicy:     deps.AgentSkillPolicy,
 		groupSvc:             deps.Group,
+		sessionEvents:        deps.SessionEvents,
 		assets:               deps.Assets,
 		authProviders:        deps.OIDC.Providers,
 		authSvc:              deps.OIDC.AuthSvc,

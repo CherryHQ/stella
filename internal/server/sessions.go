@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"mime"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -471,8 +473,12 @@ func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, age
 
 	// No turn in flight: 204 tells the AI-SDK resume client there is nothing to
 	// reconnect to, so it stays on the static transcript instead of holding the
-	// connection open.
+	// connection open. In durable mode a turn may execute on another replica —
+	// check the durable run/event log before answering 204.
 	if !attach.Live {
+		if s.sessionEvents != nil && s.streamDurableTurn(r.Context(), w, flusher, agentID, sessionID, attach) {
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -1616,4 +1622,62 @@ func streamPlainReply(w http.ResponseWriter, flusher http.Flusher, text string) 
 	write(map[string]string{"type": "finish"})
 	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
+}
+
+// durablePollInterval paces the durable turn tail; the event log is read
+// cross-process so a hot poll would only burn queries.
+const durablePollInterval = 250 * time.Millisecond
+
+// streamDurableTurn tails ctx_session_event for the session's open run when
+// the turn executes on another replica. Returns false (caller answers 204)
+// when no open run exists.
+func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, attach sessionaccess.AttachResult) bool {
+	runID, err := s.sessionEvents.OpenRunID(ctx, sessionID)
+	if err != nil || runID == "" {
+		return false
+	}
+	sctx, cancel := s.readiness.streamContext(ctx)
+	defer cancel()
+
+	events := make(chan agent.Event, 64)
+	go func() {
+		defer close(events)
+		var cursor int64
+		for {
+			page, err := s.sessionEvents.ReadForRun(sctx, sessionID, runID, cursor, 256)
+			if err != nil {
+				if sctx.Err() != nil {
+					return
+				}
+				slog.WarnContext(sctx, "durable turn replay read failed", "session", sessionID, "error", err)
+			}
+			for _, row := range page {
+				cursor = row.Seq
+				ev, derr := agentruntime.DecodeEvent(row.Payload)
+				if derr != nil {
+					continue
+				}
+				select {
+				case events <- ev:
+				case <-sctx.Done():
+					return
+				}
+			}
+			// The run left the open set and the log is drained: the turn is
+			// over for every replica.
+			open, oerr := s.sessionEvents.OpenRunID(sctx, sessionID)
+			if oerr == nil && open == "" && len(page) == 0 {
+				return
+			}
+			select {
+			case <-sctx.Done():
+				return
+			case <-time.After(durablePollInterval):
+			}
+		}
+	}()
+	streamAgentEvents(sctx, w, flusher, agentID, sessionID, events, func() error {
+		return attach.BeforeProtectedEvent(sctx)
+	})
+	return true
 }

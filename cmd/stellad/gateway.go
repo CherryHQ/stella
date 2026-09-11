@@ -23,6 +23,8 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
@@ -46,6 +48,7 @@ import (
 	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
+	"github.com/CherryHQ/stella/internal/sessionevent"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/plugins/email"
@@ -555,6 +558,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		CredentialFrontDoor:  credFrontDoor,
 		OAuthAuthServer:      oauthAuthServer,
 		Group:                groupSvc,
+		SessionEvents:        sessionEventsForGateway(s.db),
 		Vault:                s.vaultSvc,
 		VaultRecipient:       vaultRecipient,
 		MCP:                  s.mcpSvc,
@@ -1072,4 +1076,13 @@ func intentClassifierStreamFuncBuilder(registry *providers.Registry) channel.Str
 	return func(_ context.Context, providerType string, creds config.ProviderCreds) (providers.StreamFunc, error) {
 		return registry.BuildStream(providerType, providers.Config{APIKey: creds.APIKey, BaseURL: creds.BaseURL})
 	}
+}
+
+// sessionEventsForGateway binds the durable turn-event log only under the
+// durable channel flag; otherwise SSE replay stays hub-local.
+func sessionEventsForGateway(db *pgxpool.Pool) *sessionevent.Store {
+	if os.Getenv("STELLA_CHANNEL_DURABLE_INGRESS") == "" {
+		return nil
+	}
+	return sessionevent.New(db)
 }

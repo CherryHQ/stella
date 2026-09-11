@@ -97,6 +97,8 @@ func decodeOp(row sqlc.ChannelOutbox) (pkgchannel.OutboundOp, error) {
 		ChatKey    string `json:"chat_key"`
 		ThreadKey  string `json:"thread_key"`
 		ReplyToKey string `json:"reply_to_key"`
+		Scope      string `json:"scope"`
+		Token      string `json:"token"`
 	}
 	if err := json.Unmarshal(row.Address, &addr); err != nil {
 		return pkgchannel.OutboundOp{}, err
@@ -109,6 +111,8 @@ func decodeOp(row sqlc.ChannelOutbox) (pkgchannel.OutboundOp, error) {
 			ChatKey:    addr.ChatKey,
 			ThreadKey:  addr.ThreadKey,
 			ReplyToKey: addr.ReplyToKey,
+			Scope:      addr.Scope,
+			Token:      addr.Token,
 		},
 		Payload: row.Payload,
 	}, nil

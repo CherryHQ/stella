@@ -20,6 +20,12 @@ type Address struct {
 	ChatKey    string `json:"chat_key"`
 	ThreadKey  string `json:"thread_key,omitempty"`
 	ReplyToKey string `json:"reply_to_key,omitempty"`
+	// Token carries the platform reply credential when one is required —
+	// Weixin's context_token authorizes a reply to a conversation.
+	Token string `json:"token,omitempty"`
+	// Scope marks the platform conversation kind when the chat key alone is
+	// ambiguous — QQ needs "group"/"c2c" to pick the API endpoint.
+	Scope string `json:"scope,omitempty"`
 }
 
 // TextPayload is the frozen body of a send_text op.

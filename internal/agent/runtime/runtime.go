@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -48,6 +49,7 @@ type Runtime struct {
 	active               sync.Map // session ID → *activeTurn, tracks in-flight turns
 	turns                turnTracker
 	hub                  *SessionHub
+	eventSink            EventSink
 	closed               atomic.Bool
 }
 
@@ -159,6 +161,10 @@ type Config struct {
 	SnapshotPrompt       SnapshotPromptFunc
 	SessionImages        SessionImages
 	SkillTurnCapture     SkillTurnCapture
+	// EventSink, when set, durably records every published turn event into
+	// ctx_session_event so watchers on other replicas can replay or tail.
+	// Nil keeps events process-local (the legacy hub-only path).
+	EventSink EventSink
 }
 
 // New creates a Runtime from the given config.
@@ -193,7 +199,15 @@ func New(cfg Config) (*Runtime, error) {
 		sessionImages:        cfg.SessionImages,
 		skillTurnCapture:     cfg.SkillTurnCapture,
 		hub:                  NewSessionHub(),
+		eventSink:            cfg.EventSink,
 	}, nil
+}
+
+// EventSink durably records turn events. Implemented by sessionevent.Store;
+// errors are logged, never propagated — a durable-log outage must not wedge a
+// live turn.
+type EventSink interface {
+	Append(ctx context.Context, sessionID, runID string, payload json.RawMessage) error
 }
 
 // Subscribe registers a read-only listener for a session's live turn events.

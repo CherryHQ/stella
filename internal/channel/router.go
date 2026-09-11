@@ -240,6 +240,8 @@ func (c *Coordinator) routeMessage(ctx context.Context, tx pgx.Tx, ev sqlc.Chann
 			ChatKey:    ev.ChatKey,
 			ThreadKey:  env.ThreadID,
 			ReplyToKey: env.MessageID,
+			Scope:      chatScope(env.IsGroup),
+			Token:      replyCredential(env.Extras),
 		},
 	})
 	if err != nil {
@@ -272,6 +274,8 @@ func (c *Coordinator) replyText(ctx context.Context, tx pgx.Tx, ev sqlc.ChannelI
 			ChatKey:    ev.ChatKey,
 			ThreadKey:  env.ThreadID,
 			ReplyToKey: env.MessageID,
+			Scope:      chatScope(env.IsGroup),
+			Token:      replyCredential(env.Extras),
 		}, text, c.replyTextLimit(ev.ChannelID))
 	if err != nil {
 		return err
@@ -504,4 +508,22 @@ func (c *Coordinator) dispatchDue(ctx context.Context, channelID string) {
 	if _, err := c.outboxStore().ProcessDue(ctx, channelID, ownerToken, sender); err != nil {
 		slog.WarnContext(ctx, "channel outbox dispatch failed", "channel_id", channelID, "error", err)
 	}
+}
+
+// chatScope names the platform conversation kind for the outbox address: some
+// platforms (QQ) select the send endpoint by scope, not by id shape.
+// replyCredential picks the platform reply credential out of the envelope
+// extras — weixin's context_token or dingtalk's session webhook.
+func replyCredential(extras map[string]string) string {
+	if t := extras["context_token"]; t != "" {
+		return t
+	}
+	return extras["session_webhook"]
+}
+
+func chatScope(isGroup bool) string {
+	if isGroup {
+		return "group"
+	}
+	return "c2c"
 }

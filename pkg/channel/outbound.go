@@ -14,6 +14,12 @@ type OutboundAddress struct {
 	ChatKey    string `json:"chat_key"`
 	ThreadKey  string `json:"thread_key,omitempty"`
 	ReplyToKey string `json:"reply_to_key,omitempty"`
+	// Token carries the platform reply credential when one is required —
+	// Weixin's context_token authorizes a reply to a conversation.
+	Token string `json:"token,omitempty"`
+	// Scope marks the platform conversation kind when the chat key alone is
+	// ambiguous (e.g. QQ "group"/"c2c").
+	Scope string `json:"scope,omitempty"`
 }
 
 // OutboundOp is one channel_outbox row handed to the owning adapter. Payload

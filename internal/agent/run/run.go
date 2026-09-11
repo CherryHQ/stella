@@ -109,6 +109,8 @@ type ReplyAddress struct {
 	ChatKey    string `json:"chat_key"`
 	ThreadKey  string `json:"thread_key,omitempty"`
 	ReplyToKey string `json:"reply_to_key,omitempty"`
+	Scope      string `json:"scope,omitempty"` // platform conversation kind (e.g. qq "group"/"c2c")
+	Token      string `json:"token,omitempty"` // platform reply credential (e.g. weixin context_token)
 }
 
 // RequestKeyInbox namespaces run idempotency to one accepted inbox event: the
