@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/core/agenterr"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/sessionexecution"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -213,15 +214,14 @@ func (w *Worker) claimCandidate(opCtx, ctx context.Context, cand sqlc.AgentRun, 
 	}
 
 	token := uuid.Must(uuid.NewV7()).String()
-	if _, err := q.ClaimSessionExecution(opCtx, sqlc.ClaimSessionExecutionParams{
-		SessionID: cand.SessionID,
-		Token:     token,
-	}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Another worker holds a live lease for this session; roll back
-			// (nothing written yet) and try the next queued run.
-			return sqlc.AgentRun{}, nil, nil, false, nil
-		}
+	// Takeover of an expired lease demands proof the previous writer exited
+	// (plan D9): a live or unverifiable owner denies the claim and the run
+	// stays queued — resource unavailable, not a blind dual-writer.
+	err = sessionexecution.ClaimSessionTx(opCtx, tx, cand.SessionID, token, sessionexecution.ProcessOwner(w.id))
+	if errors.Is(err, agenterr.ErrSessionBusy) {
+		return sqlc.AgentRun{}, nil, nil, false, nil
+	}
+	if err != nil {
 		return sqlc.AgentRun{}, nil, nil, false, err
 	}
 	// The lease was dead or absent, so any 'running' row for the session is

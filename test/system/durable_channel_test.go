@@ -967,6 +967,147 @@ func TestDurableChannelDBOutageRecovery(t *testing.T) {
 	}
 }
 
+// D9 at process level: pause the WORKER (not the channel owner) past its
+// execution lease. The surviving worker must refuse the session's next run —
+// the previous writer is provably alive — until the paused worker resumes,
+// observes the loss, unwinds, and clears its own tombstone. Then the queued
+// run proceeds exactly once and the channel owner sends its reply.
+func TestDurableChannelPausedWorkerFencing(t *testing.T) {
+	skipUnsupportedHost(t)
+	fp := newFakePlatform(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	baseEnv := map[string]string{"STELLA_TEST_CHANNELS": "1"}
+	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "D",
+	})})
+	if err != nil {
+		t.Fatalf("start D: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Stop() })
+	sharedFake = d
+	fake := newFakeAnthropic(t)
+	h := &harness{owner: t, runID: newRunID(t), baseURL: d.BaseURL(), client: mustCookieClient(t), proc: d}
+	h.registerBootstrapUser(t, ctx)
+	db, err := pgxpool.New(ctx, d.DatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.db = db
+	t.Cleanup(db.Close)
+
+	gate := fake.EnqueueGatedText("", "STUCK "+h.runID)
+	fake.enqueueText("SECOND " + h.runID)
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "-pwf")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/claude-sonnet-4-6", "-pwf")
+	channelID := h.createTestChannel(t, ctx, agentID, fp.endpoint(), "testbot-"+h.runID)
+
+	a := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "A",
+	}))
+	aID := replicaIDOf(t, a)
+	waitForCond(t, 60*time.Second, "A owns the channel", func() bool {
+		var owner string
+		return db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&owner) == nil && owner == aID
+	})
+	b := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_TESTCHAN_TAG": "B",
+	}))
+	c := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_TESTCHAN_TAG": "C",
+	}))
+
+	fp.push(map[string]string{
+		"id": "m2-pw1-" + h.runID, "chat_id": "chat-pw", "sender_id": "user-1", "sender_name": "U", "text": "one",
+	})
+	var run1ID, workerID string
+	waitForCond(t, 90*time.Second, "a worker claims run1", func() bool {
+		return db.QueryRow(ctx, "SELECT id, COALESCE(worker_id,'') FROM agent_run WHERE state='running'").Scan(&run1ID, &workerID) == nil
+	})
+	// Freeze whichever worker claimed run1 — the writer stays alive but cannot
+	// renew, exactly the "old writer may still be writing" case D9 fences.
+	var w *testbed.Instance
+	switch {
+	case strings.Contains(workerID, fmt.Sprintf("-%d-", b.PID())):
+		w = b
+	case strings.Contains(workerID, fmt.Sprintf("-%d-", c.PID())):
+		w = c
+	default:
+		t.Fatalf("run1 worker_id=%q matches neither B (pid %d) nor C (pid %d)", workerID, b.PID(), c.PID())
+	}
+	if err := w.Pause(); err != nil {
+		t.Fatalf("pause worker: %v", err)
+	}
+	t.Cleanup(func() { _ = w.Resume() })
+
+	// The frozen worker cannot renew, so its lease is exactly what expiry
+	// produces — set the same state directly rather than waiting out the TTL
+	// (the fake model's 30s gate backstop bounds a real wait anyway).
+	if _, err := db.Exec(ctx, "UPDATE ctx_session_execution SET lease_until = clock_timestamp() - interval '1 second' WHERE session_id = (SELECT session_id FROM agent_run WHERE id=$1)", run1ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Push the second message while the writer is frozen; the surviving
+	// worker's takeover must be refused — run2 stays queued, no second model
+	// call, no dual execution.
+	fp.push(map[string]string{
+		"id": "m2-pw2-" + h.runID, "chat_id": "chat-pw", "sender_id": "user-1", "sender_name": "U", "text": "two",
+	})
+	var run2ID string
+	waitForCond(t, 60*time.Second, "run2 enqueued", func() bool {
+		return db.QueryRow(ctx, "SELECT id FROM agent_run WHERE state='queued' AND id<>$1", run1ID).Scan(&run2ID) == nil
+	})
+	// The surviving worker retries the claim every sweep — over ~10s it must
+	// keep losing to the live-writer fence.
+	time.Sleep(10 * time.Second)
+	var state2 string
+	if err := db.QueryRow(ctx, "SELECT state FROM agent_run WHERE id=$1", run2ID).Scan(&state2); err != nil {
+		t.Fatal(err)
+	}
+	if state2 != "queued" {
+		t.Fatalf("run2 state = %s while writer paused, want queued", state2)
+	}
+	if got := len(fake.requests()); got != 1 {
+		t.Fatalf("model requests = %d during writer pause, want 1", got)
+	}
+
+	// Resume: the fenced-out worker observes the loss, unwinds, and clears its
+	// own expired row; the queued run then executes once on any worker and A
+	// (still channel owner) sends the reply.
+	if err := w.Resume(); err != nil {
+		t.Fatalf("resume worker: %v", err)
+	}
+	gate.Release()
+	waitForCond(t, 90*time.Second, "run2 completes after writer exit", func() bool {
+		var st string
+		return db.QueryRow(ctx, "SELECT state FROM agent_run WHERE id=$1", run2ID).Scan(&st) == nil && st == "completed"
+	})
+	waitForCond(t, 60*time.Second, "A sends run2 reply", func() bool {
+		s := fp.lastSend()
+		return s != nil && s["text"] == "SECOND "+h.runID
+	})
+	var state1 string
+	if err := db.QueryRow(ctx, "SELECT state FROM agent_run WHERE id=$1", run1ID).Scan(&state1); err != nil {
+		t.Fatal(err)
+	}
+	if state1 == "completed" || state1 == "running" {
+		t.Fatalf("run1 state = %s, want interrupted/canceled — a fenced writer must not commit", state1)
+	}
+	if got := len(fake.requests()); got != 2 {
+		t.Fatalf("model requests = %d, want 2", got)
+	}
+	var run2Count int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM agent_run WHERE inbox_id=(SELECT inbox_id FROM agent_run WHERE id=$1)", run2ID).Scan(&run2Count); err != nil {
+		t.Fatal(err)
+	}
+	if run2Count != 1 {
+		t.Fatalf("runs for second event = %d, want 1", run2Count)
+	}
+}
+
+// Phase 7 acceptance row: replicas sharing one STELLA_HOME
+
 // Phase 7 acceptance row: replicas sharing one STELLA_HOME see the same
 // asset bytes — upload lands through A's HTTP port, B serves the same file,
 // and an unrelated user is denied. Same-host shared dir approximates the

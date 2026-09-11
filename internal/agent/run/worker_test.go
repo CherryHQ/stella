@@ -487,3 +487,70 @@ func TestWorkerSuccessWritesActivitySuccess(t *testing.T) {
 		t.Fatalf("last_turn_result=%q, want success", result)
 	}
 }
+
+// D9 end-to-end at the worker seam: while the previous writer's process is
+// verifiably alive, a second worker must not claim the session's queued run —
+// the session's writable environment stays unavailable. Once the fenced-out
+// writer finishes unwinding and clears its expired row, the queued run
+// proceeds and completes exactly once.
+func TestWorkerTakeoverWaitsForWriterExit(t *testing.T) {
+	db := dbtest.New(t)
+	createAgent(t, db, "agent-1")
+	createSession(t, db, "sess-1", "agent-1")
+	ctx := t.Context()
+	enqueueForTest(t, db, "sess-1", "req-1")
+
+	gate := make(chan struct{})
+	exec1 := &fakeExecutor{gate: gate}
+	w1 := NewWorker(db, "w1", exec1, replyHook(t))
+	done := make(chan error, 1)
+	go func() { _, err := w1.ProcessOnce(ctx); done <- err }()
+
+	for range 100 {
+		if exec1.called.Load() > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if exec1.called.Load() == 0 {
+		t.Fatal("w1 never started the turn")
+	}
+
+	// The lease lapses while w1's process is still alive (partitioned, not
+	// dead): expire it, enqueue the next turn, and another worker must be
+	// fenced out — the run stays queued rather than dual-writing.
+	if _, err := db.Exec(ctx, "UPDATE ctx_session_execution SET lease_until = clock_timestamp() - interval '1 second' WHERE session_id='sess-1'"); err != nil {
+		t.Fatal(err)
+	}
+	run2 := enqueueForTest(t, db, "sess-1", "req-2")
+	w2 := NewWorker(db, "w2", &fakeExecutor{reply: "second"}, replyHook(t))
+	if ok, err := w2.ProcessOnce(ctx); err != nil || ok {
+		t.Fatalf("w2 claimed while writer alive: ok=%v err=%v", ok, err)
+	}
+	var state2 string
+	if err := db.QueryRow(ctx, "SELECT state FROM agent_run WHERE id=$1", run2).Scan(&state2); err != nil {
+		t.Fatal(err)
+	}
+	if state2 != string(StateQueued) {
+		t.Fatalf("run2 state = %s, want queued (resource unavailable)", state2)
+	}
+
+	// w1's turn ends: its lease was fenced, so Finish reports ErrLost and
+	// clears its own expired row — the exit attest.
+	close(gate)
+	if err := <-done; err == nil {
+		t.Fatal("w1 ProcessOnce returned nil despite a fenced lease")
+	}
+
+	// Now the writer is proven gone: w2 claims and completes run2 once.
+	if ok, err := w2.ProcessOnce(ctx); err != nil || !ok {
+		t.Fatalf("w2 could not claim after writer exit: ok=%v err=%v", ok, err)
+	}
+	r2, err := New(db).Get(ctx, run2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r2.State != string(StateCompleted) {
+		t.Fatalf("run2 state = %s, want completed", r2.State)
+	}
+}

@@ -244,9 +244,9 @@ func (q *Queries) InterruptStaleRunningAgentRuns(ctx context.Context, sessionID 
 }
 
 const listExpiredRunningAgentRuns = `-- name: ListExpiredRunningAgentRuns :many
-SELECT r.id, r.inbox_id, r.session_id, r.agent_id, r.request_key, r.actor, r.input, r.reply_address, r.enqueue_seq, r.state, r.worker_id, r.error_code, r.retry_of_run_id, r.started_at, r.finished_at, r.created_at, r.updated_at, e.token AS lease_token FROM agent_run r
-JOIN ctx_session_execution e ON e.session_id = r.session_id AND e.run_id = r.id
-WHERE r.state = 'running' AND e.lease_until <= clock_timestamp()
+SELECT r.id, r.inbox_id, r.session_id, r.agent_id, r.request_key, r.actor, r.input, r.reply_address, r.enqueue_seq, r.state, r.worker_id, r.error_code, r.retry_of_run_id, r.started_at, r.finished_at, r.created_at, r.updated_at, COALESCE(e.token::text, '')::text AS lease_token, e.owner_id, e.owner_host, e.owner_pid FROM agent_run r
+LEFT JOIN ctx_session_execution e ON e.session_id = r.session_id AND e.run_id = r.id
+WHERE r.state = 'running' AND (e.run_id IS NULL OR e.lease_until <= clock_timestamp())
 ORDER BY r.enqueue_seq
 LIMIT 100
 FOR UPDATE OF r SKIP LOCKED
@@ -271,10 +271,17 @@ type ListExpiredRunningAgentRunsRow struct {
 	CreatedAt    time.Time          `json:"created_at"`
 	UpdatedAt    time.Time          `json:"updated_at"`
 	LeaseToken   string             `json:"lease_token"`
+	OwnerID      pgtype.Text        `json:"owner_id"`
+	OwnerHost    pgtype.Text        `json:"owner_host"`
+	OwnerPid     pgtype.Int4        `json:"owner_pid"`
 }
 
-// Reaper scan: running runs whose linked session execution lease died.
-// r.* plus the lease token so the same transaction can delete the lease row.
+// Reaper scan: running runs whose execution lease died or vanished — a row
+// deleted by a fenced-out writer's exit attest (or stolen by a later claim)
+// orphans the run all the same.
+// r.* plus the lease token and owner so the same transaction can delete the
+// lease row — but only when the recorded writer is confirmed dead; a live or
+// unverifiable owner keeps its tombstone so takeover stays fenced (plan D9).
 func (q *Queries) ListExpiredRunningAgentRuns(ctx context.Context) ([]ListExpiredRunningAgentRunsRow, error) {
 	rows, err := q.db.Query(ctx, listExpiredRunningAgentRuns)
 	if err != nil {
@@ -303,6 +310,9 @@ func (q *Queries) ListExpiredRunningAgentRuns(ctx context.Context) ([]ListExpire
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LeaseToken,
+			&i.OwnerID,
+			&i.OwnerHost,
+			&i.OwnerPid,
 		); err != nil {
 			return nil, err
 		}

@@ -659,6 +659,9 @@ type CtxSessionExecution struct {
 	CreatedAt       time.Time   `json:"created_at"`
 	UpdatedAt       time.Time   `json:"updated_at"`
 	RunID           pgtype.Text `json:"run_id"`
+	OwnerID         pgtype.Text `json:"owner_id"`
+	OwnerHost       pgtype.Text `json:"owner_host"`
+	OwnerPid        pgtype.Int4 `json:"owner_pid"`
 }
 
 type CtxSessionInbox struct {

@@ -51,6 +51,20 @@ func expire(t *testing.T, db *pgxpool.Pool, lease *sessionexecution.Lease) {
 	}
 }
 
+// deadWriterPID is a pid far above every supported platform's pid range, so
+// pidAlive reports it dead on unix, Windows, and conservative platforms.
+const deadWriterPID = 1 << 30
+
+// expireDead models a crashed writer: the lease expired and the recorded
+// owner process no longer exists, so takeover must be allowed.
+func expireDead(t *testing.T, db *pgxpool.Pool, lease *sessionexecution.Lease) {
+	t.Helper()
+	expire(t, db, lease)
+	if _, err := db.Exec(t.Context(), "UPDATE ctx_session_execution SET owner_pid=$1 WHERE session_id=$2", deadWriterPID, sessionexecution.LeaseSessionIDForTest(lease)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestIndependentPoolsCompeteAndStaleTokenCannotWrite(t *testing.T) {
 	db := dbtest.New(t)
 	other, err := pgxpool.NewWithConfig(t.Context(), db.Config())
@@ -93,7 +107,7 @@ func TestIndependentPoolsCompeteAndStaleTokenCannotWrite(t *testing.T) {
 		t.Fatalf("winner=%v busy=%d", winner.lease, busy)
 	}
 	defer func() { _ = winner.lease.Finish("error") }()
-	expire(t, db, winner.lease)
+	expireDead(t, db, winner.lease)
 	_, next := claim(t, sessionexecution.New(other), id)
 	if sessionexecution.LeaseTokenForTest(next) == sessionexecution.LeaseTokenForTest(winner.lease) {
 		t.Fatal("successor reused token")
@@ -135,7 +149,7 @@ func TestGuardedTransactionBlocksTakeoverButNotOtherSessions(t *testing.T) {
 	defer func() { _ = tx.Rollback(t.Context()) }()
 	// Expire within the already admitted writer. The takeover must wait for
 	// this transaction, then recheck the committed expiration under its lock.
-	if _, err := tx.Exec(ctx, "UPDATE ctx_session_execution SET lease_until=clock_timestamp()-interval '1 second' WHERE session_id=$1", sessionexecution.LeaseSessionIDForTest(lease)); err != nil {
+	if _, err := tx.Exec(ctx, "UPDATE ctx_session_execution SET lease_until=clock_timestamp()-interval '1 second', owner_pid=1073741824 WHERE session_id=$1", sessionexecution.LeaseSessionIDForTest(lease)); err != nil {
 		t.Fatal(err)
 	}
 	type result struct {
@@ -258,7 +272,7 @@ func TestRenewCannotResurrectAndReapPreservesCompletedActivity(t *testing.T) {
 	if _, err := store.CancelCurrent(t.Context(), sessionexecution.LeaseSessionIDForTest(canceled)); err != nil {
 		t.Fatal(err)
 	}
-	expire(t, db, canceled)
+	expireDead(t, db, canceled)
 	if err := canceled.Renew(t.Context()); !errors.Is(err, sessionexecution.ErrLost) {
 		t.Fatalf("expired renew: %v", err)
 	}
@@ -266,7 +280,7 @@ func TestRenewCannotResurrectAndReapPreservesCompletedActivity(t *testing.T) {
 	if _, err := db.Exec(t.Context(), "UPDATE ctx_conversation SET last_turn_result='success', last_turn_completed_at=clock_timestamp() WHERE session_id=$1", sessionexecution.LeaseSessionIDForTest(completed)); err != nil {
 		t.Fatal(err)
 	}
-	expire(t, db, completed)
+	expireDead(t, db, completed)
 	if err := store.Reap(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -377,5 +391,100 @@ func TestChildClaimUsesOwnTokenAndPreservesParent(t *testing.T) {
 	}
 	if err := parent.Renew(t.Context()); err != nil {
 		t.Fatalf("child completion stopped parent: %v", err)
+	}
+}
+
+// D9: an expired lease with a verifiably live owner denies takeover — the
+// session's writable environment stays unavailable instead of risking two
+// writers.
+func TestTakeoverDeniedWhileWriterAlive(t *testing.T) {
+	db := dbtest.New(t)
+	store := sessionexecution.New(db)
+	_, lease := claim(t, store, seedSession(t, db))
+	expire(t, db, lease) // lease lapsed but owner_pid is this live process
+
+	_, next, err := store.Claim(t.Context(), sessionexecution.LeaseSessionIDForTest(lease))
+	if !errors.Is(err, sessionexecution.ErrWriterAlive) || !errors.Is(err, agenterr.ErrSessionBusy) {
+		t.Fatalf("claim err = %v, want ErrWriterAlive wrapped as busy", err)
+	}
+	if next != nil {
+		t.Fatal("takeover succeeded against a live writer")
+	}
+}
+
+// D9: a foreign-host or ownerless tombstone cannot be verified — deny.
+func TestTakeoverDeniedWhenWriterUnverifiable(t *testing.T) {
+	db := dbtest.New(t)
+	store := sessionexecution.New(db)
+
+	_, foreign := claim(t, store, seedSession(t, db))
+	expire(t, db, foreign)
+	if _, err := db.Exec(t.Context(), "UPDATE ctx_session_execution SET owner_host='other-host' WHERE session_id=$1", sessionexecution.LeaseSessionIDForTest(foreign)); err != nil {
+		t.Fatal(err)
+	}
+	_, next, err := store.Claim(t.Context(), sessionexecution.LeaseSessionIDForTest(foreign))
+	if !errors.Is(err, sessionexecution.ErrWriterUnverifiable) {
+		t.Fatalf("foreign host claim err = %v, want ErrWriterUnverifiable", err)
+	}
+	if next != nil {
+		t.Fatal("takeover succeeded against an unverifiable writer")
+	}
+
+	_, ownerless := claim(t, store, seedSession(t, db))
+	expire(t, db, ownerless)
+	if _, err := db.Exec(t.Context(), "UPDATE ctx_session_execution SET owner_pid=NULL, owner_host=NULL WHERE session_id=$1", sessionexecution.LeaseSessionIDForTest(ownerless)); err != nil {
+		t.Fatal(err)
+	}
+	if _, next, err := store.Claim(t.Context(), sessionexecution.LeaseSessionIDForTest(ownerless)); !errors.Is(err, sessionexecution.ErrWriterUnverifiable) || next != nil {
+		t.Fatalf("ownerless claim err = %v, want ErrWriterUnverifiable", err)
+	}
+}
+
+// D9: the fenced-out writer attests its own exit — Finish on a lost lease
+// clears the still-expired row so the session frees without operator action.
+func TestFencedWriterClearsOwnExpiredRow(t *testing.T) {
+	db := dbtest.New(t)
+	store := sessionexecution.New(db)
+	id := seedSession(t, db)
+	_, lease := claim(t, store, id)
+	expire(t, db, lease)
+
+	if err := lease.Finish("success"); !errors.Is(err, sessionexecution.ErrLost) {
+		t.Fatalf("stale finish = %v, want ErrLost", err)
+	}
+	if _, err := sqlc.New(db).GetSessionExecution(t.Context(), id); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("expired row not cleared by fenced writer: %v", err)
+	}
+	// The session is claimable again once the old writer attested its exit.
+	ctx2, lease2, err := store.Claim(t.Context(), id)
+	if err != nil {
+		t.Fatalf("claim after writer exit attest: %v", err)
+	}
+	_ = ctx2
+	defer func() { _ = lease2.Finish("error") }()
+}
+
+// D9: the reaper interrupts the run's durable state but keeps the lease row
+// while the recorded writer is still alive.
+func TestReapKeepsTombstoneForLiveWriter(t *testing.T) {
+	db := dbtest.New(t)
+	store := sessionexecution.New(db)
+	id := seedSession(t, db)
+	_, lease := claim(t, store, id)
+	expire(t, db, lease)
+
+	if err := store.Reap(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlc.New(db).GetSessionExecution(t.Context(), id); err != nil {
+		t.Fatalf("tombstone deleted while writer alive: %v", err)
+	}
+
+	expireDead(t, db, lease)
+	if err := store.Reap(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlc.New(db).GetSessionExecution(t.Context(), id); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("dead writer's tombstone survived reap: %v", err)
 	}
 }

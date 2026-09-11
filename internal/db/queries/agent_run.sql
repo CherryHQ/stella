@@ -60,11 +60,15 @@ SET state = 'interrupted', finished_at = clock_timestamp(), updated_at = clock_t
 WHERE session_id = $1 AND state = 'running';
 
 -- name: ListExpiredRunningAgentRuns :many
--- Reaper scan: running runs whose linked session execution lease died.
--- r.* plus the lease token so the same transaction can delete the lease row.
-SELECT r.*, e.token AS lease_token FROM agent_run r
-JOIN ctx_session_execution e ON e.session_id = r.session_id AND e.run_id = r.id
-WHERE r.state = 'running' AND e.lease_until <= clock_timestamp()
+-- Reaper scan: running runs whose execution lease died or vanished — a row
+-- deleted by a fenced-out writer's exit attest (or stolen by a later claim)
+-- orphans the run all the same.
+-- r.* plus the lease token and owner so the same transaction can delete the
+-- lease row — but only when the recorded writer is confirmed dead; a live or
+-- unverifiable owner keeps its tombstone so takeover stays fenced (plan D9).
+SELECT r.*, COALESCE(e.token::text, '')::text AS lease_token, e.owner_id, e.owner_host, e.owner_pid FROM agent_run r
+LEFT JOIN ctx_session_execution e ON e.session_id = r.session_id AND e.run_id = r.id
+WHERE r.state = 'running' AND (e.run_id IS NULL OR e.lease_until <= clock_timestamp())
 ORDER BY r.enqueue_seq
 LIMIT 100
 FOR UPDATE OF r SKIP LOCKED;

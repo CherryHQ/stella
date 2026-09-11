@@ -14,12 +14,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/sessionexecution"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/db/txlock"
 )
@@ -347,11 +349,21 @@ func (s *Store) ReapExpired(ctx context.Context) (int, error) {
 		}); err != nil {
 			return 0, err
 		}
-		if _, err := q.DeleteSessionExecution(ctx, sqlc.DeleteSessionExecutionParams{
-			SessionID: r.SessionID,
-			Token:     r.LeaseToken,
-		}); err != nil {
-			return 0, err
+		// The lease row doubles as the dead writer's tombstone: delete it only
+		// when the recorded owner is confirmed gone. A live or unverifiable
+		// owner keeps the row so session takeover stays fenced (plan D9) —
+		// the fenced-out writer clears it itself when its turn unwinds.
+		// An orphaned run has no row left to delete.
+		if r.LeaseToken != "" && !sessionexecution.WriterExited(r.OwnerHost, r.OwnerPid) {
+			slog.WarnContext(ctx, "execution lease kept: previous writer not proven dead",
+				"session", r.SessionID, "run", r.ID, "owner", r.OwnerID.String)
+		} else if r.LeaseToken != "" {
+			if _, err := q.DeleteSessionExecution(ctx, sqlc.DeleteSessionExecutionParams{
+				SessionID: r.SessionID,
+				Token:     r.LeaseToken,
+			}); err != nil {
+				return 0, err
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
