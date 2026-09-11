@@ -49,10 +49,13 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		// created, ticked through the recorded progress, and finalized — one
 		// op identity, one terminal version. No cancel control: the run has
 		// already finished when the op dispatches.
-		if err := b.deliverReplay(ctx, op.Address.ChatKey, op.Address.ReplyToKey, payload.ReplayStream(), nil, true); err != nil {
+		if err := b.deliverReplay(ctx, op.Address.ChatKey, op.Address.ReplyToKey, payload.ReplayStream(), nil, true, op.DraftMessageID); err != nil {
 			return channel.SendResult{}, classifyDiscordSend(err)
 		}
 		return channel.SendResult{}, nil
+	}
+	if op.Kind == "draft_update" {
+		return b.SendDraftUpdate(ctx, op)
 	}
 	if op.Kind != "send_text" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: unsupported op kind %q", op.Kind)
@@ -72,6 +75,44 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 	msg := &discordgo.MessageSend{Content: payload.Text, AllowedMentions: noMentions()}
 	msg.Reference = softReference(op.Address.ChatKey, op.Address.ReplyToKey)
 	sent, err := b.rest.ChannelMessageSendComplex(op.Address.ChatKey, msg, discordgo.WithContext(ctx))
+	if err != nil {
+		return channel.SendResult{}, classifyDiscordSend(err)
+	}
+	id := ""
+	if sent != nil {
+		id = sent.ID
+	}
+	return channel.SendResult{PlatformMessageID: id}, nil
+}
+
+// SendDraftUpdate implements channel.DraftSender: one message edited in
+// place while the run executes — the same draft/edit pair deliverReplay
+// uses, minus the Cancel control (the outbox carries no requester binding).
+func (b *Bot) SendDraftUpdate(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	if b.rest == nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendRetryable, "discord: REST client unavailable")
+	}
+	var payload channel.DraftUpdatePayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: bad draft payload: %v", err)
+	}
+	if op.Address.ChatKey == "" {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: empty chat key")
+	}
+	display := buildDraftDisplay(payload.Text, &channel.ToolTracker{})
+	if op.DraftMessageID != "" {
+		edit := discordgo.NewMessageEdit(op.Address.ChatKey, op.DraftMessageID).SetContent(display)
+		edit.AllowedMentions = noMentions()
+		if _, err := b.rest.ChannelMessageEditComplex(edit, discordgo.WithContext(ctx)); err != nil {
+			return channel.SendResult{}, classifyDiscordSend(err)
+		}
+		return channel.SendResult{PlatformMessageID: op.DraftMessageID}, nil
+	}
+	sent, err := b.rest.ChannelMessageSendComplex(op.Address.ChatKey, &discordgo.MessageSend{
+		Content:         display,
+		AllowedMentions: noMentions(),
+		Reference:       softReference(op.Address.ChatKey, op.Address.ReplyToKey),
+	}, discordgo.WithContext(ctx))
 	if err != nil {
 		return channel.SendResult{}, classifyDiscordSend(err)
 	}

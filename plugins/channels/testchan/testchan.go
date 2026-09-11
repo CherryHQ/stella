@@ -8,10 +8,12 @@ package testchan
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -80,16 +82,25 @@ type pollEvent struct {
 	Args       string `json:"args,omitempty"`
 }
 
+// sendFile is one staged attachment delivered with an operation.
+type sendFile struct {
+	Name string `json:"name"`
+	Data string `json:"data"` // base64
+}
+
 // sendRequest is what the adapter posts for one outbound operation.
 type sendRequest struct {
-	Tag        string `json:"tag,omitempty"`
-	OpKey      string `json:"op_key"`
-	OpIndex    int    `json:"op_index"`
-	ChatKey    string `json:"chat_key"`
-	ThreadKey  string `json:"thread_key,omitempty"`
-	ReplyToKey string `json:"reply_to_key,omitempty"`
-	Text       string `json:"text"`
-	Account    string `json:"account"`
+	Tag        string     `json:"tag,omitempty"`
+	OpKey      string     `json:"op_key"`
+	OpIndex    int        `json:"op_index"`
+	ChatKey    string     `json:"chat_key"`
+	ThreadKey  string     `json:"thread_key,omitempty"`
+	ReplyToKey string     `json:"reply_to_key,omitempty"`
+	Text       string     `json:"text"`
+	Account    string     `json:"account"`
+	Draft      bool       `json:"draft,omitempty"`
+	MessageID  string     `json:"message_id,omitempty"`
+	Files      []sendFile `json:"files,omitempty"`
 }
 
 // Channel is the test adapter.
@@ -219,6 +230,7 @@ func (c *Channel) SendOperation(ctx context.Context, op pkgchannel.OutboundOp) (
 		return pkgchannel.SendResult{}, nil
 	}
 	var text string
+	var files []sendFile
 	switch op.Kind {
 	case "send_text":
 		var payload struct {
@@ -233,7 +245,19 @@ func (c *Channel) SendOperation(ctx context.Context, op pkgchannel.OutboundOp) (
 		if err := json.Unmarshal(op.Payload, &payload); err != nil {
 			return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: decode send_reply payload: %s", err)
 		}
-		text, _, _ = pkgchannel.CollectReplyEvents(payload.Events)
+		var images []pkgchannel.ImageEvent
+		var fileEvents []pkgchannel.FileEvent
+		text, images, fileEvents = pkgchannel.CollectReplyEvents(payload.Events)
+		for _, img := range images {
+			files = append(files, sendFile{Name: "image." + imageExt(img.MimeType), Data: img.Data})
+		}
+		for _, f := range fileEvents {
+			data, err := os.ReadFile(f.Path)
+			if err != nil {
+				return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: read attachment %s: %s", f.Path, err)
+			}
+			files = append(files, sendFile{Name: f.Name, Data: base64.StdEncoding.EncodeToString(data)})
+		}
 	default:
 		return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: unsupported op kind %q", op.Kind)
 	}
@@ -246,6 +270,8 @@ func (c *Channel) SendOperation(ctx context.Context, op pkgchannel.OutboundOp) (
 		ReplyToKey: op.Address.ReplyToKey,
 		Text:       text,
 		Account:    op.SourceAccountKey,
+		MessageID:  op.DraftMessageID,
+		Files:      files,
 	}
 	data, err := json.Marshal(req)
 	if err != nil {
@@ -274,6 +300,59 @@ func (c *Channel) SendOperation(ctx context.Context, op pkgchannel.OutboundOp) (
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&receipt)
 	return pkgchannel.SendResult{PlatformMessageID: receipt.PlatformMessageID}, nil
+}
+
+// SendDraftUpdate implements pkgchannel.DraftSender: the fake platform keeps
+// one message per draft identity — first call creates it, later calls edit.
+func (c *Channel) SendDraftUpdate(ctx context.Context, op pkgchannel.OutboundOp) (pkgchannel.SendResult, error) {
+	var payload pkgchannel.DraftUpdatePayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: decode draft payload: %s", err)
+	}
+	req := sendRequest{
+		Tag:        os.Getenv("STELLA_TESTCHAN_TAG"),
+		OpKey:      op.DeliveryKey,
+		OpIndex:    op.OperationIndex,
+		ChatKey:    op.Address.ChatKey,
+		ThreadKey:  op.Address.ThreadKey,
+		ReplyToKey: op.Address.ReplyToKey,
+		Text:       payload.Text,
+		Account:    op.SourceAccountKey,
+		Draft:      true,
+		MessageID:  op.DraftMessageID,
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		return pkgchannel.SendResult{}, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.Endpoint+"/send", bytes.NewReader(data))
+	if err != nil {
+		return pkgchannel.SendResult{}, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendUnknown, "testchan: %s", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == 429 || resp.StatusCode >= 500 {
+		return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendRetryable, "testchan: status %d", resp.StatusCode)
+	}
+	if resp.StatusCode >= 400 {
+		return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: status %d", resp.StatusCode)
+	}
+	var receipt struct {
+		PlatformMessageID string `json:"platform_message_id"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&receipt)
+	return pkgchannel.SendResult{PlatformMessageID: receipt.PlatformMessageID}, nil
+}
+
+func imageExt(mime string) string {
+	if _, after, ok := strings.Cut(mime, "/"); ok {
+		return after
+	}
+	return "bin"
 }
 
 // OwnsAccount implements pkgchannel.AccountChecker.

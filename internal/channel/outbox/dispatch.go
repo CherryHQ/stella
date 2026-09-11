@@ -44,6 +44,21 @@ func (s *Store) ProcessDue(ctx context.Context, channelID, ownerToken string, se
 				break
 			}
 		}
+		// Draft ops are fenced twice before the platform call: the run must
+		// still be live and no newer snapshot may have been sent already.
+		// Either check failing cancels the op without a send — a stale edit
+		// must never overwrite the terminal reply.
+		if c.op.Kind == OpDraftUpdate {
+			if superseded, err := s.draftSuperseded(ctx, c.row.RunID.String, c.op); err != nil {
+				return attempted, err
+			} else if superseded {
+				attempted++
+				if _, err := s.complete(ctx, c.row.ID, c.attemptToken, Outcome{State: StateCanceled, ErrorCode: "superseded"}); err != nil {
+					slog.WarnContext(ctx, "outbox complete failed", "op", c.row.ID, "error", err)
+				}
+				continue
+			}
+		}
 		// notify ops carry no triggering account — the channel's current bot
 		// identity is always the right sender, so skip the account fence.
 		if checker, ok := sender.(pkgchannel.AccountChecker); ok && c.op.Kind != OpNotify && c.op.SourceAccountKey != "" && !checker.OwnsAccount(c.op.SourceAccountKey) {
@@ -56,7 +71,19 @@ func (s *Store) ProcessDue(ctx context.Context, channelID, ownerToken string, se
 			continue
 		}
 		attempted++
-		res, sendErr := sender.SendOperation(ctx, c.op)
+		var res pkgchannel.SendResult
+		var sendErr error
+		if c.op.Kind == OpDraftUpdate {
+			if ds, ok := sender.(pkgchannel.DraftSender); ok {
+				res, sendErr = ds.SendDraftUpdate(ctx, c.op)
+			} else {
+				// The producer only enqueues draft ops for draft-capable
+				// adapters; reaching this is a configuration swap mid-run.
+				sendErr = pkgchannel.SendErrorf(pkgchannel.SendPermanent, "draft_update unsupported by adapter")
+			}
+		} else {
+			res, sendErr = sender.SendOperation(ctx, c.op)
+		}
 		outcome := classifyOutcome(res, sendErr)
 		if _, err := s.complete(ctx, c.row.ID, c.attemptToken, outcome); err != nil {
 			// The completion write is fenced: a stale attempt loses silently,
@@ -65,6 +92,32 @@ func (s *Store) ProcessDue(ctx context.Context, channelID, ownerToken string, se
 		}
 	}
 	return attempted, nil
+}
+
+// draftSuperseded fences a claimed draft op: the run must still be live
+// (a terminal run's reply owns the message now) and the op's snapshot must
+// be newer than anything already sent (a requeued 'unknown' can never land
+// an older version over a newer one).
+func (s *Store) draftSuperseded(ctx context.Context, runID string, op pkgchannel.OutboundOp) (bool, error) {
+	sent, err := sqlc.New(s.db).MaxSentDraftSeq(ctx, op.DeliveryKey)
+	if err != nil {
+		return false, err
+	}
+	if snapshotSuperseded(op.Payload, sent) {
+		return true, nil
+	}
+	run, err := sqlc.New(s.db).GetAgentRun(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+	return run.State != "queued" && run.State != "running", nil
+}
+
+// snapshotSuperseded reports whether a draft snapshot can no longer add
+// anything: undecodable, or at or below the newest version already sent.
+func snapshotSuperseded(raw []byte, sentSeq int64) bool {
+	var payload pkgchannel.DraftUpdatePayload
+	return json.Unmarshal(raw, &payload) != nil || payload.Seq <= sentSeq
 }
 
 // admitForSend verifies inside the claim transaction that ownerToken still
@@ -117,6 +170,13 @@ func (s *Store) claimDue(ctx context.Context, channelID, ownerToken string) ([]c
 				return nil, cerr
 			}
 			continue
+		}
+		// Hand the adapter the run's stable draft identity so create/edit
+		// operations and the terminal reply all target one platform message.
+		if row.RunID.Valid && (op.Kind == OpDraftUpdate || op.Kind == OpSendReply) {
+			if msgID, derr := sqlc.New(tx).LatestSentDraftMessageID(ctx, row.RunID); derr == nil {
+				op.DraftMessageID = msgID
+			}
 		}
 		claimed = append(claimed, claimedOp{row: row, attemptToken: token, op: op})
 	}

@@ -29,6 +29,9 @@ const (
 	OpSendReply      = "send_reply"
 	OpNotify         = "notify"
 	OpSendGroupReply = "send_group_reply"
+	// OpDraftUpdate edits the run's live platform message in place: create on
+	// first send, edit afterwards, superseded by the terminal send_reply.
+	OpDraftUpdate    = "draft_update"
 	OpEditText       = "edit_text"
 	OpSendAttachment = "send_attachment"
 	OpDelete         = "delete"
@@ -172,7 +175,9 @@ func (s *Store) CompleteAttempt(ctx context.Context, tx pgx.Tx, id, attemptToken
 	switch o.State {
 	// StatePending here means "attempt failed retryably, re-scheduled": the
 	// row returns to pending with NextAttemptAt instead of terminating.
-	case StateSent, StateFailed, StateUnknown, StatePending:
+	// StateCanceled is the superseded-outcome for draft ops: claimed but no
+	// longer deliverable (run terminal or a newer snapshot already sent).
+	case StateSent, StateFailed, StateUnknown, StatePending, StateCanceled:
 	default:
 		return false, fmt.Errorf("outbox: outcome must be sent/failed/unknown/pending, got %q", o.State)
 	}
@@ -232,6 +237,46 @@ func (s *Store) Requeue(ctx context.Context, tx pgx.Tx, id string, nextAttemptAt
 		NextAttemptAt: next,
 	})
 	return n > 0, err
+}
+
+// UpsertDraft merges a newer progress snapshot into the run's live delivery:
+// a still-pending latest op is rewritten in place (unsent intermediate
+// versions are never sent), a sent/sending predecessor gets an ordered
+// append, and a terminally finished predecessor starts the next index free
+// of ordering deps. Returns true when a send was scheduled or merged.
+func (s *Store) UpsertDraft(ctx context.Context, tx pgx.Tx, op Op, seq int64) (bool, error) {
+	q := sqlc.New(tx)
+	latest, err := q.GetLatestChannelOutboxOp(ctx, op.DeliveryKey)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return true, s.Append(ctx, tx, []Op{op})
+	case err != nil:
+		return false, err
+	}
+	if latest.State == StatePending {
+		// Same-position merge: keep the op identity, replace the snapshot.
+		// Skip the write when the stored snapshot already covers this seq.
+		var stored struct {
+			Seq int64 `json:"seq"`
+		}
+		if err := json.Unmarshal(latest.Payload, &stored); err == nil && stored.Seq >= seq {
+			return false, nil
+		}
+		op.Index = int(latest.OperationIndex)
+		n, err := q.UpdatePendingChannelOutboxPayload(ctx, sqlc.UpdatePendingChannelOutboxPayloadParams{
+			ID:      latest.ID,
+			Payload: op.Payload,
+		})
+		return n > 0, err
+	}
+	op.Index = int(latest.OperationIndex) + 1
+	if latest.State == StateSending {
+		// Keep edit order: this snapshot may only send after the in-flight
+		// one resolves. A failed predecessor parks the draft — the terminal
+		// reply still lands on its own delivery.
+		op.DependsOn = []int{int(latest.OperationIndex)}
+	}
+	return true, s.Append(ctx, tx, []Op{op})
 }
 
 // CancelByRun drops every still-deliverable op of a run (session teardown,

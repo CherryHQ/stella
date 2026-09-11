@@ -44,6 +44,9 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 	if op.Kind == "send_reply" {
 		return b.sendReplyOp(ctx, op)
 	}
+	if op.Kind == "draft_update" {
+		return b.SendDraftUpdate(ctx, op)
+	}
 	if op.Kind != "send_text" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: unsupported op kind %q", op.Kind)
 	}
@@ -147,6 +150,65 @@ func (b *Bot) OwnsAccount(accountKey string) bool {
 	return b.bot != nil && b.bot.Me != nil && b.bot.Me.Username == accountKey
 }
 
+// SendDraftUpdate implements channel.DraftSender: one message edited in
+// place while the run executes. Drafts send as plain text — mid-turn
+// markdown is half-formed — and the reply op finalizes the same message.
+func (b *Bot) SendDraftUpdate(_ context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload channel.DraftUpdatePayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: bad draft payload: %v", err)
+	}
+	text := tailRunes(payload.Text, telegramMaxMessageLen)
+	if strings.TrimSpace(text) == "" {
+		text = "…"
+	}
+	chat := teleChatForKey(op.Address.ChatKey)
+	if chat == nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: empty chat key")
+	}
+	if op.DraftMessageID != "" {
+		editable := tele.StoredMessage{MessageID: op.DraftMessageID, ChatID: mustChatID(chat)}
+		_, err := b.bot.Edit(editable, text)
+		if err == nil || isNotModified(err) {
+			return channel.SendResult{PlatformMessageID: op.DraftMessageID}, nil
+		}
+		return channel.SendResult{}, classifySend(err)
+	}
+	opts := &tele.SendOptions{}
+	if op.Address.ThreadKey != "" {
+		if id, err := strconv.Atoi(op.Address.ThreadKey); err == nil {
+			opts.ThreadID = id
+		}
+	}
+	if op.Address.ReplyToKey != "" {
+		if id, err := strconv.Atoi(op.Address.ReplyToKey); err == nil {
+			opts.ReplyTo = &tele.Message{ID: id, Chat: &tele.Chat{ID: mustChatID(chat)}}
+		}
+	}
+	msg, err := b.bot.Send(chat, text, opts)
+	if err != nil {
+		return channel.SendResult{}, classifySend(err)
+	}
+	return channel.SendResult{PlatformMessageID: strconv.Itoa(msg.ID)}, nil
+}
+
+// isNotModified is Telegram's no-op edit receipt: the snapshot is already on
+// the message, so the attempt is confirmed, not a failure.
+func isNotModified(err error) bool {
+	var apiErr *tele.Error
+	return errors.As(err, &apiErr) && strings.Contains(apiErr.Description, "message is not modified")
+}
+
+// tailRunes keeps the last max runes so a progress message stays inside the
+// platform limit without cutting mid-token in the head.
+func tailRunes(text string, max int) string {
+	runes := []rune(text)
+	if len(runes) <= max {
+		return text
+	}
+	return string(runes[len(runes)-max:])
+}
+
 // sendReplyOp delivers a completed turn's recorded events: flattened text in
 // message-sized chunks, then attachments — the same contract group publish
 // uses. Telegram's live DM draft surface needs the inbound tele.Context; a
@@ -177,7 +239,24 @@ func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.S
 		text = "(empty response)"
 	}
 	var firstID string
-	for i, chunk := range channel.SplitMessage(text, telegramMaxMessageLen) {
+	chunks := channel.SplitMessage(text, telegramMaxMessageLen)
+	if op.DraftMessageID != "" && len(chunks) > 0 {
+		// The live draft becomes the reply's first chunk — the message the
+		// user watched during the turn is the final reply, not a sibling.
+		editable := tele.StoredMessage{MessageID: op.DraftMessageID, ChatID: mustChatID(chat)}
+		_, err := b.bot.Edit(editable, renderMarkdown(b.md, chunks[0]), tele.ModeMarkdownV2)
+		var apiErr *tele.Error
+		if errors.As(err, &apiErr) && apiErr.Code >= 400 && apiErr.Code < 500 {
+			_, err = b.bot.Edit(editable, chunks[0])
+		}
+		if err != nil && !isNotModified(err) {
+			return channel.SendResult{}, classifySend(err)
+		}
+		firstID = op.DraftMessageID
+		chunks = chunks[1:]
+		opts = &tele.SendOptions{}
+	}
+	for i, chunk := range chunks {
 		if err := ctx.Err(); err != nil {
 			return channel.SendResult{}, classifySend(err)
 		}
@@ -185,7 +264,7 @@ func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.S
 		if err != nil {
 			return channel.SendResult{}, classifySend(err)
 		}
-		if i == 0 && msg != nil {
+		if i == 0 && firstID == "" && msg != nil {
 			firstID = strconv.Itoa(msg.ID)
 		}
 		opts = &tele.SendOptions{} // only the first chunk replies to the prompt

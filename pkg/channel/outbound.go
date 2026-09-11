@@ -35,6 +35,12 @@ type OutboundOp struct {
 	// SourceAccountKey is the bot account that received the triggering event;
 	// an adapter whose credentials changed must not send it (account_mismatch).
 	SourceAccountKey string
+	// DraftMessageID is the platform message id of the run's live draft,
+	// recorded by the newest sent draft_update. The dispatcher populates it on
+	// draft_update and send_reply ops so progress edits and the final version
+	// all land on one platform message — create identity stays stable across
+	// retries and owner handoffs.
+	DraftMessageID string
 }
 
 // SendResult is the confirmed platform receipt of one operation.
@@ -97,6 +103,25 @@ type OperationSender interface {
 // the new bot must never send another account's replies.
 type AccountChecker interface {
 	OwnsAccount(accountKey string) bool
+}
+
+// DraftSender is an optional OperationSender capability: the platform can
+// maintain one message in place while the run is still executing. The first
+// call has an empty op.DraftMessageID and creates the draft; later calls edit
+// that message. The terminal send_reply op carries the same DraftMessageID
+// and must land the final version on it, so a stale draft edit can never
+// outlive the reply.
+type DraftSender interface {
+	SendDraftUpdate(ctx context.Context, op OutboundOp) (SendResult, error)
+}
+
+// DraftUpdatePayload is the frozen body of a "draft_update" op — the
+// coalesced progress snapshot: full rendered text so far plus the event
+// sequence it covers. Snapshots are self-contained, never deltas.
+type DraftUpdatePayload struct {
+	V    int    `json:"v"`
+	Seq  int64  `json:"seq"`
+	Text string `json:"text"`
 }
 
 // GroupReplyOpPayload is the frozen body of the "send_group_reply" outbox op —

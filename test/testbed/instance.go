@@ -205,7 +205,7 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 		return nil, fmt.Errorf("%w\nserver log: %s\n%s", err, instance.logPath, instance.LogTail(40))
 	}
 	if opts.Bootstrap {
-		if _, _, err := bootstrap(ctx, bootstrapConfig{BaseURL: instance.baseURL, Home: instance.home, DatabaseURL: instance.dsn}); err != nil {
+		if _, _, err := bootstrap(ctx, bootstrapConfig{BaseURL: instance.baseURL, Home: instance.home, DatabaseURL: instance.dsn, VaultKey: instance.vaultKey}); err != nil {
 			cleanup()
 			return nil, fmt.Errorf("bootstrap test identities: %w", err)
 		}

@@ -415,6 +415,53 @@ func (q *Queries) ListQueuedAgentRuns(ctx context.Context) ([]AgentRun, error) {
 	return items, nil
 }
 
+const listRunningRunsByReplyChannel = `-- name: ListRunningRunsByReplyChannel :many
+SELECT id, inbox_id, session_id, agent_id, request_key, actor, input, reply_address, enqueue_seq, state, worker_id, error_code, retry_of_run_id, started_at, finished_at, created_at, updated_at FROM agent_run
+WHERE state = 'running' AND reply_address->>'channel_id' = $1::text
+ORDER BY enqueue_seq
+LIMIT 50
+`
+
+// Live-draft tailer scan: running runs whose frozen reply address targets
+// this channel. jsonb extraction, no index — the running set is tiny.
+func (q *Queries) ListRunningRunsByReplyChannel(ctx context.Context, channelID string) ([]AgentRun, error) {
+	rows, err := q.db.Query(ctx, listRunningRunsByReplyChannel, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentRun{}
+	for rows.Next() {
+		var i AgentRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.InboxID,
+			&i.SessionID,
+			&i.AgentID,
+			&i.RequestKey,
+			&i.Actor,
+			&i.Input,
+			&i.ReplyAddress,
+			&i.EnqueueSeq,
+			&i.State,
+			&i.WorkerID,
+			&i.ErrorCode,
+			&i.RetryOfRunID,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markAgentRunInterrupted = `-- name: MarkAgentRunInterrupted :execrows
 UPDATE agent_run
 SET state = 'interrupted', finished_at = clock_timestamp(), updated_at = clock_timestamp()

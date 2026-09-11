@@ -5,6 +5,7 @@ package system
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,18 +24,27 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/sessionevent"
 	"github.com/CherryHQ/stella/test/testbed"
 )
 
 // fakePlatform is the test-controlled platform endpoint the testchan adapter
 // talks to: /poll hands out pending events (non-destructive, so the adapter's
 // re-poll exercises durable dedup), /send records every outbound operation.
+// A send carrying "message_id" edits that message in place — the draft
+// contract — and every call (create or edit) lands in the sends log while
+// messages holds the current content per platform id.
 type fakePlatform struct {
 	srv    *httptest.Server
 	mu     sync.Mutex
 	events []map[string]string
 	acked  map[string]bool
 	sends  []map[string]any
+	// messages maps platform_message_id to its current content — creates and
+	// in-place edits share the log, so messageCount proves identity stability.
+	messages map[string]map[string]any
+	nextID   int
 	// failOps lists delivery keys whose /send must return 500 until cleared —
 	// used to hold a send open across a replica crash.
 	failOps map[string]bool
@@ -42,7 +52,7 @@ type fakePlatform struct {
 
 func newFakePlatform(t *testing.T) *fakePlatform {
 	t.Helper()
-	fp := &fakePlatform{acked: map[string]bool{}, failOps: map[string]bool{}}
+	fp := &fakePlatform{acked: map[string]bool{}, failOps: map[string]bool{}, messages: map[string]map[string]any{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/poll", func(w http.ResponseWriter, _ *http.Request) {
 		fp.mu.Lock()
@@ -65,7 +75,19 @@ func newFakePlatform(t *testing.T) *fakePlatform {
 			return
 		}
 		fp.sends = append(fp.sends, body)
-		_ = json.NewEncoder(w).Encode(map[string]any{"platform_message_id": fmt.Sprintf("pm-%d", len(fp.sends))})
+		if editID, _ := body["message_id"].(string); editID != "" {
+			if msg, ok := fp.messages[editID]; ok {
+				maps.Copy(msg, body)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"platform_message_id": editID})
+			return
+		}
+		fp.nextID++
+		id := fmt.Sprintf("pm-%d", fp.nextID)
+		msg := map[string]any{}
+		maps.Copy(msg, body)
+		fp.messages[id] = msg
+		_ = json.NewEncoder(w).Encode(map[string]any{"platform_message_id": id})
 	})
 	fp.srv = httptest.NewServer(mux)
 	t.Cleanup(fp.srv.Close)
@@ -628,6 +650,32 @@ func (fp *fakePlatform) sendsAll() []map[string]any {
 	return append([]map[string]any(nil), fp.sends...)
 }
 
+// messageCount is the number of distinct platform messages created — edits
+// under a message_id reuse the id, so this proves create/edit identity.
+func (fp *fakePlatform) messageCount() int {
+	fp.mu.Lock()
+	defer fp.mu.Unlock()
+	return len(fp.messages)
+}
+
+// message returns the current content of one platform message.
+func (fp *fakePlatform) message(id string) map[string]any {
+	fp.mu.Lock()
+	defer fp.mu.Unlock()
+	return fp.messages[id]
+}
+
+// messageIDs lists every created platform message id.
+func (fp *fakePlatform) messageIDs() []string {
+	fp.mu.Lock()
+	defer fp.mu.Unlock()
+	ids := make([]string, 0, len(fp.messages))
+	for id := range fp.messages {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // M2 core: the SAME received event hands off A → B → C. B claims the run and
 // is pinned mid-model by a gate; A dies while B's turn is in flight; C takes
 // the lease; B finishes the original run; C sends the original reply.
@@ -766,7 +814,149 @@ func TestDurableChannelSameEventHandoff(t *testing.T) {
 	}
 }
 
-// Graceful drain on the WORKER replica: SIGTERM while a run is parked inside
+// M2 attachment delivery: a File event committed to the run's durable log is
+// carried inside the reply op to the channel owner and delivered as bytes by
+// a replica that neither received the message nor executed the turn. The fake
+// platform asserts the decoded payload, not just a readable path.
+func TestDurableChannelAttachmentDelivery(t *testing.T) {
+	skipUnsupportedHost(t)
+	fp := newFakePlatform(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	baseEnv := map[string]string{
+		"STELLA_TEST_CHANNELS": "1",
+	}
+	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "D",
+	})})
+	if err != nil {
+		t.Fatalf("start D: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Stop() })
+	sharedFake = d
+	fake := newFakeAnthropic(t)
+	h := &harness{owner: t, runID: newRunID(t), baseURL: d.BaseURL(), client: mustCookieClient(t), proc: d}
+	h.registerBootstrapUser(t, ctx)
+	db, err := pgxpool.New(ctx, d.DatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.db = db
+	t.Cleanup(db.Close)
+
+	const modelID = "claude-sonnet-4-6"
+	gate := fake.EnqueueGatedText("file coming: ", "done "+h.runID)
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "-att")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/"+modelID, "-att")
+	botName := "testbot-" + h.runID
+	channelID := h.createTestChannel(t, ctx, agentID, fp.endpoint(), botName)
+
+	a := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "A",
+	}))
+	aID := replicaIDOf(t, a)
+	waitForCond(t, 60*time.Second, "A owns the channel", func() bool {
+		var owner string
+		return db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&owner) == nil && owner == aID
+	})
+	b := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_TESTCHAN_TAG": "B",
+	}))
+	c := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "C",
+	}))
+	cID := replicaIDOf(t, c)
+
+	// A receives; B claims and sits inside the gated model call.
+	fp.push(map[string]string{
+		"id": "m2-at-" + h.runID, "chat_id": "chat-att", "sender_id": "user-1", "sender_name": "U", "text": "send me a file",
+	})
+	var runID, workerID, sessionID string
+	waitForCond(t, 90*time.Second, "B claims the run mid-flight", func() bool {
+		return db.QueryRow(ctx, "SELECT id, COALESCE(worker_id,''), session_id FROM agent_run WHERE state='running'").Scan(&runID, &workerID, &sessionID) == nil
+	})
+	if bpid := b.PID(); bpid == 0 || !strings.Contains(workerID, fmt.Sprintf("-%d-", bpid)) {
+		t.Fatalf("run worker_id=%q does not name B's process (pid %d)", workerID, bpid)
+	}
+	select {
+	case <-gate.Entered:
+	case <-ctx.Done():
+		t.Fatal("gated model call never parked inside the gate")
+	}
+
+	// Stage the attachment on the shared filesystem and commit a File event to
+	// the run's durable log — the same record the finish hook reads.
+	attachment := []byte("attachment-bytes-" + h.runID)
+	path := filepath.Join(t.TempDir(), "report-"+h.runID+".bin")
+	if err := os.WriteFile(path, attachment, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	events := sessionevent.New(db)
+	if err := events.Append(ctx, sessionID, runID, agentruntime.EncodeEvent(agentruntime.Event{
+		File: &agentruntime.FileEvent{Path: path, Name: filepath.Base(path)},
+	})); err != nil {
+		t.Fatalf("append file event: %v", err)
+	}
+
+	// A dies while B's turn is in flight; C inherits the channel lease and
+	// becomes the sender of record for the run's reply — including the file.
+	if err := a.Kill(); err != nil {
+		t.Fatalf("kill A: %v", err)
+	}
+	waitForCond(t, 90*time.Second, "C owns the lease after A died", func() bool {
+		var owner string
+		return db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&owner) == nil && owner == cID
+	})
+
+	gate.Release()
+	waitForCond(t, 90*time.Second, "C sends the reply with the attachment", func() bool {
+		for _, s := range fp.sendsAll() {
+			if s["tag"] == "C" {
+				if files, ok := s["files"].([]any); ok && len(files) > 0 {
+					return true
+				}
+			}
+		}
+		return false
+	})
+
+	// The delivered payload is the file's bytes, base64 on the wire — a path
+	// that merely resolved on the sender would not prove delivery.
+	var delivered []map[string]any
+	for _, s := range fp.sendsAll() {
+		if s["tag"] != "C" {
+			continue
+		}
+		files, _ := s["files"].([]any)
+		for _, f := range files {
+			if m, ok := f.(map[string]any); ok {
+				delivered = append(delivered, m)
+			}
+		}
+	}
+	if len(delivered) != 1 {
+		t.Fatalf("attachment files on C's sends = %d, want 1", len(delivered))
+	}
+	if delivered[0]["name"] != filepath.Base(path) {
+		t.Fatalf("attachment name = %v, want %s", delivered[0]["name"], filepath.Base(path))
+	}
+	raw, err := base64.StdEncoding.DecodeString(fmt.Sprint(delivered[0]["data"]))
+	if err != nil {
+		t.Fatalf("attachment data is not base64: %v", err)
+	}
+	if !bytes.Equal(raw, attachment) {
+		t.Fatalf("attachment bytes = %q, want %q", raw, attachment)
+	}
+	var state string
+	if err := db.QueryRow(ctx, "SELECT state FROM agent_run WHERE id=$1", runID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" {
+		t.Fatalf("run state=%s, want completed", state)
+	}
+}
+
 // the model call. The drain budget must let the in-flight turn commit run +
 // history + outbox instead of interrupting it; the process then exits 0 and
 // the channel owner sends the reply — no replay, no lost work.
@@ -1579,4 +1769,335 @@ func TestDurableWebCancel(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Log("send SSE still open after cancel; acceptable if run canceled")
 	}
+}
+
+// Phase 6: in-flight channel progress across replicas. B executes a gated
+// turn; the channel owner A edits ONE platform draft message with committed
+// increments while the model call is still parked. The terminal reply edits
+// the same message — draft identity is stable and a stale draft op can never
+// overwrite the final version.
+func TestDurableChannelLiveProgress(t *testing.T) {
+	skipUnsupportedHost(t)
+	fp := newFakePlatform(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	baseEnv := map[string]string{"STELLA_TEST_CHANNELS": "1"}
+	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "D",
+	})})
+	if err != nil {
+		t.Fatalf("start D: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Stop() })
+	sharedFake = d
+	fake := newFakeAnthropic(t)
+	h := &harness{owner: t, runID: newRunID(t), baseURL: d.BaseURL(), client: mustCookieClient(t), proc: d}
+	h.registerBootstrapUser(t, ctx)
+	db, err := pgxpool.New(ctx, d.DatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.db = db
+	t.Cleanup(db.Close)
+
+	const modelID = "claude-sonnet-4-6"
+	gate := fake.EnqueueGatedText("partial-", "LIVE "+h.runID)
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "-live")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/"+modelID, "-live")
+	botName := "testbot-" + h.runID
+	channelID := h.createTestChannel(t, ctx, agentID, fp.endpoint(), botName)
+
+	a := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_RUN_WORKER": "off", "STELLA_TESTCHAN_TAG": "A",
+	}))
+	aID := replicaIDOf(t, a)
+	waitForCond(t, 60*time.Second, "A owns the channel", func() bool {
+		var owner string
+		return db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&owner) == nil && owner == aID
+	})
+	b := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_TESTCHAN_TAG": "B",
+	}))
+
+	fp.push(map[string]string{
+		"id": "live-e1-" + h.runID, "chat_id": "chat-live", "sender_id": "user-1", "sender_name": "U", "text": "show progress",
+	})
+	var runID string
+	waitForCond(t, 90*time.Second, "B claims the run", func() bool {
+		return db.QueryRow(ctx, "SELECT id FROM agent_run WHERE state='running'").Scan(&runID) == nil
+	})
+	select {
+	case <-gate.Entered:
+	case <-ctx.Done():
+		t.Fatal("gated model call never parked inside the gate")
+	}
+
+	// While B is still parked in the gate, the owner must have created the
+	// platform draft from the committed "partial-" increment — the platform
+	// sees in-flight progress before the run completes.
+	var draftID string
+	waitForCond(t, 60*time.Second, "A creates the live draft mid-gate", func() bool {
+		for _, s := range fp.sendsAll() {
+			if s["draft"] == true && s["tag"] == "A" && strings.Contains(fmt.Sprint(s["text"]), "partial-") {
+				for _, id := range fp.messageIDs() {
+					draftID = id
+				}
+				return true
+			}
+		}
+		return false
+	})
+	if draftID == "" {
+		t.Fatal("draft send recorded but no platform message was created")
+	}
+	if msg := fp.message(draftID); msg == nil || !strings.Contains(fmt.Sprint(msg["text"]), "partial-") {
+		t.Fatalf("draft message text = %v, want the committed partial", msg)
+	}
+	// The run is still executing — no terminal send may have landed yet.
+	for _, s := range fp.sendsAll() {
+		if s["draft"] != true {
+			t.Fatalf("non-draft send landed while the run was gated: %v", s)
+		}
+	}
+
+	// Release the model: the terminal reply must EDIT the same message, not
+	// create a second one.
+	gate.Release()
+	finalText := "partial-LIVE " + h.runID
+	waitForCond(t, 90*time.Second, "final version lands on the draft message", func() bool {
+		msg := fp.message(draftID)
+		return msg != nil && fmt.Sprint(msg["text"]) == finalText
+	})
+	if got := fp.messageCount(); got != 1 {
+		t.Fatalf("platform messages = %d, want 1 (create/edit identity must be stable)", got)
+	}
+	var finalEdit bool
+	for _, s := range fp.sendsAll() {
+		if s["draft"] != true && s["message_id"] == draftID {
+			finalEdit = true
+		}
+	}
+	if !finalEdit {
+		t.Fatal("terminal reply did not edit the live draft message")
+	}
+	var state, workerID string
+	if err := db.QueryRow(ctx, "SELECT state, COALESCE(worker_id,'') FROM agent_run WHERE id=$1", runID).Scan(&state, &workerID); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" {
+		t.Fatalf("run state=%s, want completed", state)
+	}
+	if bpid := b.PID(); bpid == 0 || !strings.Contains(workerID, fmt.Sprintf("-%d-", bpid)) {
+		t.Fatalf("run worker_id=%q does not name B's process (pid %d)", workerID, bpid)
+	}
+	sendsAfterFinal := fp.sendCount()
+
+	// Stale-edit fence: a pending draft op appearing after the terminal send
+	// (a requeue, a lagging producer, a replayed append) must be canceled
+	// without touching the platform — the final version is sealed.
+	if _, err := db.Exec(ctx, `INSERT INTO channel_outbox
+		(run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload)
+		VALUES ($1, $2, 999, 'draft_update', $3, $4, '{}', $5)`,
+		runID, "live:"+runID, channelID, botName,
+		`{"v":1,"seq":9999,"text":"STALE OVERWRITE"}`); err != nil {
+		t.Fatalf("inject stale draft op: %v", err)
+	}
+	waitForCond(t, 30*time.Second, "stale draft op canceled", func() bool {
+		var st string
+		return db.QueryRow(ctx, "SELECT state FROM channel_outbox WHERE delivery_key=$1 AND operation_index=999", "live:"+runID).Scan(&st) == nil && st == "canceled"
+	})
+	time.Sleep(2 * time.Second)
+	if got := fp.sendCount(); got != sendsAfterFinal {
+		t.Fatalf("stale draft op reached the platform: sends %d -> %d", sendsAfterFinal, got)
+	}
+	if msg := fp.message(draftID); fmt.Sprint(msg["text"]) != finalText {
+		t.Fatalf("final text overwritten by stale edit: %v", msg["text"])
+	}
+}
+
+// Phase 6: cross-replica web observation of committed increments. The send
+// lands on D, the run executes on B parked in the model gate; a watcher on C
+// (no local hub, no session lease) tails the durable event log and sees the
+// partial text before release — plus a mid-gate reconnect from a cursor.
+func TestDurableWebObserveLive(t *testing.T) {
+	skipUnsupportedHost(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+
+	baseEnv := map[string]string{}
+	d, err := testbed.Start(ctx, testbed.Options{RepoRoot: repoRoot(t), FakeModel: true, Bootstrap: false, ExtraEnv: mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off",
+	})})
+	if err != nil {
+		t.Fatalf("start D: %v", err)
+	}
+	t.Cleanup(func() { _ = d.Stop() })
+	sharedFake = d
+	fake := newFakeAnthropic(t)
+	h := &harness{owner: t, runID: newRunID(t), baseURL: d.BaseURL(), client: mustCookieClient(t), proc: d}
+	h.registerBootstrapUser(t, ctx)
+	db, err := pgxpool.New(ctx, d.DatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.db = db
+	t.Cleanup(db.Close)
+
+	gate := fake.EnqueueGatedText("partial-", "OBSERVED "+h.runID)
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "-obs")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/claude-sonnet-4-6", "-obs")
+	sessionID := h.createSession(t, ctx, agentID)
+
+	b := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{"STELLA_CHANNEL_LEASE": "off"}))
+	c := startReplica(t, d, mergeEnvs(baseEnv, map[string]string{
+		"STELLA_CHANNEL_LEASE": "off", "STELLA_RUN_WORKER": "off",
+	}))
+	cClient := h.loginReplica(t, ctx, c)
+
+	// Send on D in the background; B claims and parks in the gate.
+	sendDone := make(chan string, 1)
+	go func() {
+		_, text := h.streamChatTurnKeyed(t, ctx, agentID, sessionID, "watch me live", "obs-"+h.runID)
+		sendDone <- text
+	}()
+	var runID string
+	waitForCond(t, 90*time.Second, "B claims the web run", func() bool {
+		return db.QueryRow(ctx, "SELECT id FROM agent_run WHERE session_id=$1 AND state='running'", sessionID).Scan(&runID) == nil
+	})
+	select {
+	case <-gate.Entered:
+	case <-ctx.Done():
+		t.Fatal("gated model call never parked inside the gate")
+	}
+
+	// C attaches mid-gate and must see the committed partial increment while
+	// the turn still runs — plus run-scoped id: cursors.
+	partial, cursor, _ := h.watchEventsUntil(t, ctx, cClient, c.BaseURL(), agentID, sessionID, "", "partial-")
+	if !partial {
+		t.Fatal("C did not observe committed partial events while B was gated")
+	}
+	if cursor == "" {
+		t.Fatal("durable stream emitted no id: cursor")
+	}
+
+	// Reconnect from the cursor mid-gate: resume must deliver the remaining
+	// events without replaying what the cursor already covered — while the
+	// run is still open the attach stays live instead of answering 204.
+	gate.Release()
+	done, _, finalText := h.watchEventsUntil(t, ctx, cClient, c.BaseURL(), agentID, sessionID, cursor, "OBSERVED "+h.runID)
+	if !done {
+		t.Fatal("C's resumed stream never observed the terminal events")
+	}
+	if !strings.Contains(finalText, "OBSERVED "+h.runID) {
+		t.Fatalf("resumed stream text = %q, want tail containing OBSERVED", finalText)
+	}
+
+	select {
+	case text := <-sendDone:
+		if text != "partial-OBSERVED "+h.runID {
+			t.Fatalf("D's send stream text = %q, want the gated reply", text)
+		}
+	case <-ctx.Done():
+		t.Fatal("send stream never completed")
+	}
+	var state, workerID string
+	if err := db.QueryRow(ctx, "SELECT state, COALESCE(worker_id,'') FROM agent_run WHERE id=$1", runID).Scan(&state, &workerID); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" {
+		t.Fatalf("run state=%s, want completed", state)
+	}
+	if bpid := b.PID(); bpid == 0 || !strings.Contains(workerID, fmt.Sprintf("-%d-", bpid)) {
+		t.Fatalf("run worker_id=%q does not name B's process (pid %d)", workerID, bpid)
+	}
+}
+
+// loginReplica returns a cookie client authenticated on a replica's own base
+// URL — the shared cluster makes D's bootstrap credentials valid everywhere.
+func (h *harness) loginReplica(t *testing.T, ctx context.Context, inst *testbed.Instance) *http.Client {
+	t.Helper()
+	client := mustCookieClient(t)
+	payload, err := json.Marshal(map[string]string{
+		"email":    fmt.Sprintf("bootstrap-%s@system.test", h.runID),
+		"password": "system-test-" + h.runID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, inst.BaseURL()+"/api/auth/local/login", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("login on replica: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		drainBody(resp.Body)
+		t.Fatalf("login on replica = %d, want 200", resp.StatusCode)
+	}
+	return client
+}
+
+// watchEventsUntil opens the durable session event stream on baseURL and
+// reads frames until the assembled text contains want or the run's terminal
+// events arrive. It returns whether want was seen and the last id: cursor —
+// reconnectable proof for mid-turn observation. A missing cursor just means
+// the slice ended before any durable frame; callers assert it when needed.
+func (h *harness) watchEventsUntil(t *testing.T, ctx context.Context, client *http.Client, baseURL, agentID, sessionID, cursor, want string) (bool, string, string) {
+	t.Helper()
+	watchCtx, watchCancel := context.WithTimeout(ctx, 90*time.Second)
+	defer watchCancel()
+	path := fmt.Sprintf("%s/api/agents/%s/sessions/%s/events", baseURL, agentID, sessionID)
+	req, err := http.NewRequestWithContext(watchCtx, http.MethodGet, path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	if cursor != "" {
+		req.Header.Set("Last-Event-ID", cursor)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("watch events on replica: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNoContent {
+		return false, cursor, ""
+	}
+	if resp.StatusCode != http.StatusOK {
+		drainBody(resp.Body)
+		t.Fatalf("watch events = %d, want 200/204", resp.StatusCode)
+	}
+	var text strings.Builder
+	lastCursor := cursor
+	scanner := newSSEScanner(resp)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if id, ok := strings.CutPrefix(line, "id: "); ok {
+			lastCursor = strings.TrimSpace(id)
+			continue
+		}
+		data, ok := strings.CutPrefix(line, "data: ")
+		if !ok {
+			continue
+		}
+		if data == "[DONE]" {
+			return strings.Contains(text.String(), want), lastCursor, text.String()
+		}
+		var evt turnEvent
+		if err := json.Unmarshal([]byte(data), &evt); err != nil {
+			continue
+		}
+		if evt.Type == "text-delta" {
+			text.WriteString(evt.Delta)
+		}
+		if strings.Contains(text.String(), want) {
+			return true, lastCursor, text.String()
+		}
+	}
+	return strings.Contains(text.String(), want), lastCursor, text.String()
 }

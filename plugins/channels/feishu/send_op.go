@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 // SendOperation implements channel.OperationSender: one durable outbox op maps
@@ -41,6 +43,9 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 	}
 	if op.Kind == "send_reply" {
 		return b.sendReplyOp(ctx, op)
+	}
+	if op.Kind == "draft_update" {
+		return b.SendDraftUpdate(ctx, op)
 	}
 	if op.Kind != "send_text" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: unsupported op kind %q", op.Kind)
@@ -102,6 +107,35 @@ func (b *Bot) OwnsAccount(accountKey string) bool {
 	return b.registeredBotID != "" && b.registeredBotID == accountKey
 }
 
+// SendDraftUpdate implements channel.DraftSender: one card patched in place
+// while the run executes. The reply op finalizes the same card.
+func (b *Bot) SendDraftUpdate(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload channel.DraftUpdatePayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: bad draft payload: %v", err)
+	}
+	chatID := strings.TrimPrefix(op.Address.ChatKey, "feishu:")
+	if chatID == "" {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: empty chat key")
+	}
+	text := payload.Text
+	if strings.TrimSpace(text) == "" {
+		text = "…"
+	}
+	if op.DraftMessageID != "" {
+		if err := b.patchMessageForStatus(ctx, op.DraftMessageID, text, cardStatusRunning); err != nil {
+			return channel.SendResult{}, classifyFeishuSend(err)
+		}
+		return channel.SendResult{PlatformMessageID: op.DraftMessageID}, nil
+	}
+	idem := uuid.NewSHA1(uuid.NameSpaceURL, []byte(op.DeliveryKey+":"+fmt.Sprint(op.OperationIndex))).String()
+	messageID, err := b.deliverCardWithOptions(ctx, chatID, op.Address.ReplyToKey, text, false, cardStatusRunning, idem)
+	if err != nil {
+		return channel.SendResult{}, classifyFeishuSend(err)
+	}
+	return channel.SendResult{PlatformMessageID: messageID}, nil
+}
+
 // sendReplyOp replays a completed turn's recorded events through the card
 // stream machinery: the progress card is created, updated through the
 // recorded events, and finalized — one op identity, one terminal version.
@@ -116,7 +150,34 @@ func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.S
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: empty chat key")
 	}
 	deliveryKey := op.DeliveryKey + ":" + fmt.Sprint(op.OperationIndex)
-	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, payload.ReplayStream().Events, chatID, op.Address.ReplyToKey, op.Address.ThreadKey, deliveryKey)
+	var sentMsgID, response string
+	var images []channel.ImageEvent
+	var files []channel.FileEvent
+	var refs []renderrefs.Reference
+	var elapsed time.Duration
+	var streamErr error
+	if op.DraftMessageID != "" {
+		// The live card is already on the platform — collect the recorded
+		// events directly and finalize that same message below.
+		sentMsgID = op.DraftMessageID
+		var sb strings.Builder
+		for _, evt := range payload.Events {
+			if evt.Err != nil {
+				streamErr = evt.Err
+			}
+			refs = append(refs, evt.References...)
+			if evt.Image != nil {
+				images = append(images, *evt.Image)
+			}
+			if evt.File != nil {
+				files = append(files, *evt.File)
+			}
+			sb.WriteString(evt.Text)
+		}
+		response, refs = sb.String(), dedupeReferences(refs)
+	} else {
+		sentMsgID, response, images, files, refs, elapsed, streamErr = b.streamResponseInThread(ctx, payload.ReplayStream().Events, chatID, op.Address.ReplyToKey, op.Address.ThreadKey, deliveryKey)
+	}
 	if err := ctx.Err(); err != nil {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "feishu: reply dispatch cancelled: %v", err)
 	}

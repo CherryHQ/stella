@@ -15,6 +15,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentrun "github.com/CherryHQ/stella/internal/agent/run"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	chinbox "github.com/CherryHQ/stella/internal/channel/inbox"
 	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
@@ -627,6 +628,95 @@ func (c *Coordinator) dispatchDue(ctx context.Context, channelID string) {
 	if _, err := c.outboxStore().ProcessDue(ctx, channelID, ownerToken, sender); err != nil {
 		slog.WarnContext(ctx, "channel outbox dispatch failed", "channel_id", channelID, "error", err)
 	}
+	c.tailDrafts(ctx, channelID, sender)
+}
+
+// tailDrafts keeps one platform message updated in place while a run still
+// executes: the owner tails the run's committed session events and merges
+// the coalesced snapshot into the run's live outbox delivery. Only
+// draft-capable adapters participate; on handoff the next owner resumes the
+// same draft identity from the ledger receipts.
+func (c *Coordinator) tailDrafts(ctx context.Context, channelID string, sender pkgchannel.OperationSender) {
+	if _, ok := sender.(pkgchannel.DraftSender); !ok {
+		return
+	}
+	runs, err := sqlc.New(c.db).ListRunningRunsByReplyChannel(ctx, channelID)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.WarnContext(ctx, "draft tail scan failed", "channel_id", channelID, "error", err)
+		}
+		return
+	}
+	for _, r := range runs {
+		if err := c.produceDraft(ctx, r); err != nil && ctx.Err() == nil {
+			slog.WarnContext(ctx, "draft produce failed", "run", r.ID, "error", err)
+		}
+	}
+}
+
+// produceDraft renders the run's committed event log into one snapshot and
+// merges it into the live delivery. The snapshot is self-contained text, not
+// a delta, so any sent version can be overwritten by the next.
+func (c *Coordinator) produceDraft(ctx context.Context, r sqlc.AgentRun) error {
+	var addr agentrun.ReplyAddress
+	if err := json.Unmarshal(r.ReplyAddress, &addr); err != nil {
+		return err
+	}
+	if addr.ChannelID == "" {
+		return nil
+	}
+	text, seq, ok := c.draftSnapshot(ctx, r)
+	if !ok {
+		return nil
+	}
+	op, err := choutbox.DraftOp(r.ID, addr.ChannelID, addr.AccountKey, choutbox.Address{
+		V:          choutbox.AddressVersion,
+		ChatKey:    addr.ChatKey,
+		ThreadKey:  addr.ThreadKey,
+		ReplyToKey: addr.ReplyToKey,
+		Scope:      addr.Scope,
+		Token:      addr.Token,
+	}, seq, text, 0, nil)
+	if err != nil {
+		return err
+	}
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := c.outboxStore().UpsertDraft(ctx, tx, op, seq); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// draftSnapshot folds the run's persisted events into the current preview
+// text plus the covered sequence. ok=false means nothing worth showing yet.
+func (c *Coordinator) draftSnapshot(ctx context.Context, r sqlc.AgentRun) (string, int64, bool) {
+	events := sessionevent.New(c.db)
+	var conv []pkgchannel.Event
+	var seq int64
+	for {
+		page, err := events.ReadForRun(ctx, r.SessionID, r.ID, seq, 500)
+		if err != nil {
+			return "", 0, false
+		}
+		for _, row := range page {
+			if evt, err := agentruntime.DecodeEvent(row.Payload); err == nil {
+				conv = append(conv, convertEvent(evt))
+			}
+			seq = row.Seq
+		}
+		if len(page) < 500 {
+			break
+		}
+	}
+	text, _, _ := pkgchannel.CollectReplyEvents(conv)
+	if strings.TrimSpace(text) == "" {
+		return "", 0, false
+	}
+	return text, seq, true
 }
 
 // chatScope names the platform conversation kind for the outbox address: some

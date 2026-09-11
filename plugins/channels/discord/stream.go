@@ -112,15 +112,23 @@ func (d *discordDraft) delete(ctx context.Context) {
 }
 
 func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl) error {
-	return b.deliverReplay(ctx, channelID, replyTo, stream, cancel, true)
+	return b.deliverReplay(ctx, channelID, replyTo, stream, cancel, true, "")
 }
 
 func (b *Bot) deliverGroupReplay(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl) error {
-	return b.deliverReplay(ctx, channelID, replyTo, stream, cancel, false)
+	return b.deliverReplay(ctx, channelID, replyTo, stream, cancel, false, "")
 }
 
-func (b *Bot) deliverReplay(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl, reportFailure bool) error {
-	draft := b.beginDraft(ctx, channelID, replyTo, cancel)
+// deliverReplay replays a recorded turn through the draft/edit path. A
+// non-empty draftID resumes the live draft the channel owner already posted —
+// the message the user watched during the turn becomes the final reply.
+func (b *Bot) deliverReplay(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl, reportFailure bool, draftID string) error {
+	var draft *discordDraft
+	if draftID != "" {
+		draft = &discordDraft{bot: b, channelID: channelID, messageID: draftID}
+	} else {
+		draft = b.beginDraft(ctx, channelID, replyTo, cancel)
+	}
 	text, images, files, streamErr := collectResponse(ctx, stream, func(text string, tools *channel.ToolTracker) {
 		if draft == nil {
 			return

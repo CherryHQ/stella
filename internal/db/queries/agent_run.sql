@@ -30,6 +30,14 @@ SELECT * FROM agent_run
 WHERE session_id = $1 AND state IN ('queued', 'running')
 ORDER BY enqueue_seq;
 
+-- name: ListRunningRunsByReplyChannel :many
+-- Live-draft tailer scan: running runs whose frozen reply address targets
+-- this channel. jsonb extraction, no index — the running set is tiny.
+SELECT * FROM agent_run
+WHERE state = 'running' AND reply_address->>'channel_id' = sqlc.arg(channel_id)::text
+ORDER BY enqueue_seq
+LIMIT 50;
+
 -- name: StartAgentRun :execrows
 -- Claim transitions queued -> running. The caller holds the session execution
 -- token for this session inside the same transaction.

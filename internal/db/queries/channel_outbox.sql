@@ -16,6 +16,9 @@ ORDER BY operation_index;
 -- Owner send loop: due pending ops for channels it currently owns. An op is
 -- not due while any same-delivery dependency it names is unsent — split
 -- replies keep platform order and a blocked head never lets a tail jump past.
+-- A non-draft op is also held while any same-run draft is still pending or
+-- sending: the terminal reply must never be overtaken by an older progress
+-- edit landing late on the same platform message.
 SELECT * FROM channel_outbox
 WHERE channel_outbox.channel_id = $1 AND channel_outbox.state = 'pending'
   AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
@@ -26,6 +29,16 @@ WHERE channel_outbox.channel_id = $1 AND channel_outbox.state = 'pending'
       ON d.delivery_key = channel_outbox.delivery_key
      AND d.operation_index = dep.dep_idx::int
     WHERE d.state != 'sent'
+  )
+  AND (
+    channel_outbox.operation_kind = 'draft_update'
+    OR NOT EXISTS (
+      SELECT 1
+      FROM channel_outbox AS live
+      WHERE live.run_id = channel_outbox.run_id
+        AND live.operation_kind = 'draft_update'
+        AND live.state IN ('pending', 'sending')
+    )
   )
 ORDER BY delivery_key, operation_index
 LIMIT 100
@@ -78,3 +91,32 @@ WHERE run_id = $1 AND state IN ('pending', 'unknown');
 UPDATE channel_outbox
 SET state = 'unknown', updated_at = clock_timestamp()
 WHERE id = $1 AND state = 'sending';
+
+-- name: GetLatestChannelOutboxOp :one
+-- Live-draft coalescing reads the delivery's newest op to decide between an
+-- in-place payload merge and an append.
+SELECT * FROM channel_outbox
+WHERE delivery_key = $1
+ORDER BY operation_index DESC
+LIMIT 1;
+
+-- name: UpdatePendingChannelOutboxPayload :execrows
+-- Coalesce: merge a newer snapshot into a draft op not yet sent, so the
+-- platform never sees intermediate versions that were still queued.
+UPDATE channel_outbox
+SET payload = $2, updated_at = clock_timestamp()
+WHERE id = $1 AND state = 'pending';
+
+-- name: MaxSentDraftSeq :one
+-- Stale-draft fence: the highest event sequence a sent draft_update covered.
+-- A pending op whose snapshot seq is at or below it can never add anything.
+SELECT COALESCE(MAX((payload->>'seq')::bigint), 0)::bigint FROM channel_outbox
+WHERE delivery_key = $1 AND operation_kind = 'draft_update' AND state = 'sent';
+
+-- name: LatestSentDraftMessageID :one
+-- Stable draft identity for one run: the platform message id recorded by the
+-- newest sent draft_update. Edits and the terminal reply reuse it.
+SELECT COALESCE(platform_message_id, '')::text FROM channel_outbox
+WHERE run_id = $1 AND operation_kind = 'draft_update' AND state = 'sent' AND platform_message_id IS NOT NULL
+ORDER BY operation_index DESC
+LIMIT 1;

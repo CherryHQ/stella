@@ -79,6 +79,36 @@ func CommandReplyKey(inboxID string) string { return "reply:" + inboxID }
 // DeliveryKeyForRun names the final-reply delivery of a run.
 func DeliveryKeyForRun(runID string) string { return "run:" + runID }
 
+// LiveDeliveryKey names the in-progress draft delivery of a run: one
+// platform message edited in place while the run executes. Ordered before
+// "run:" keys so every live edit dispatches before the terminal reply.
+func LiveDeliveryKey(runID string) string { return "live:" + runID }
+
+// DraftOp builds one coalesced progress snapshot op. Index is the next free
+// operation_index inside the live delivery; a still-pending predecessor is
+// merged in place by the producer instead of appending here.
+func DraftOp(runID, channelID, accountKey string, addr Address, seq int64, text string, index int, dependsOn []int) (Op, error) {
+	payload, err := json.Marshal(pkgchannel.DraftUpdatePayload{V: PayloadVersion, Seq: seq, Text: text})
+	if err != nil {
+		return Op{}, err
+	}
+	rawAddr, err := json.Marshal(addr)
+	if err != nil {
+		return Op{}, err
+	}
+	return Op{
+		RunID:       runID,
+		DeliveryKey: LiveDeliveryKey(runID),
+		Index:       index,
+		Kind:        OpDraftUpdate,
+		ChannelID:   channelID,
+		AccountKey:  accountKey,
+		Address:     rawAddr,
+		Payload:     payload,
+		DependsOn:   dependsOn,
+	}, nil
+}
+
 // ChatKeyFor derives the physical chat coordinate: platform chat id, falling
 // back to the sender id for DMs on platforms that leave ChatID empty.
 func ChatKeyFor(msg pkgchannel.IncomingMessage) string {

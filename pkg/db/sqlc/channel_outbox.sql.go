@@ -194,6 +194,58 @@ func (q *Queries) GetChannelOutboxByDelivery(ctx context.Context, deliveryKey st
 	return items, nil
 }
 
+const getLatestChannelOutboxOp = `-- name: GetLatestChannelOutboxOp :one
+SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at FROM channel_outbox
+WHERE delivery_key = $1
+ORDER BY operation_index DESC
+LIMIT 1
+`
+
+// Live-draft coalescing reads the delivery's newest op to decide between an
+// in-place payload merge and an append.
+func (q *Queries) GetLatestChannelOutboxOp(ctx context.Context, deliveryKey string) (ChannelOutbox, error) {
+	row := q.db.QueryRow(ctx, getLatestChannelOutboxOp, deliveryKey)
+	var i ChannelOutbox
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.DeliveryKey,
+		&i.OperationIndex,
+		&i.OperationKind,
+		&i.ChannelID,
+		&i.SourceAccountKey,
+		&i.Address,
+		&i.Payload,
+		&i.DependsOn,
+		&i.State,
+		&i.AttemptToken,
+		&i.OwnerToken,
+		&i.AttemptStartedAt,
+		&i.NextAttemptAt,
+		&i.PlatformMessageID,
+		&i.ErrorCode,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const latestSentDraftMessageID = `-- name: LatestSentDraftMessageID :one
+SELECT COALESCE(platform_message_id, '')::text FROM channel_outbox
+WHERE run_id = $1 AND operation_kind = 'draft_update' AND state = 'sent' AND platform_message_id IS NOT NULL
+ORDER BY operation_index DESC
+LIMIT 1
+`
+
+// Stable draft identity for one run: the platform message id recorded by the
+// newest sent draft_update. Edits and the terminal reply reuse it.
+func (q *Queries) LatestSentDraftMessageID(ctx context.Context, runID pgtype.Text) (string, error) {
+	row := q.db.QueryRow(ctx, latestSentDraftMessageID, runID)
+	var column_1 string
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const listExpiredChannelOutboxAttempts = `-- name: ListExpiredChannelOutboxAttempts :many
 SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at FROM channel_outbox
 WHERE state = 'sending' AND attempt_started_at <= clock_timestamp() - interval '5 minutes'
@@ -256,6 +308,16 @@ WHERE channel_outbox.channel_id = $1 AND channel_outbox.state = 'pending'
      AND d.operation_index = dep.dep_idx::int
     WHERE d.state != 'sent'
   )
+  AND (
+    channel_outbox.operation_kind = 'draft_update'
+    OR NOT EXISTS (
+      SELECT 1
+      FROM channel_outbox AS live
+      WHERE live.run_id = channel_outbox.run_id
+        AND live.operation_kind = 'draft_update'
+        AND live.state IN ('pending', 'sending')
+    )
+  )
 ORDER BY delivery_key, operation_index
 LIMIT 100
 FOR UPDATE SKIP LOCKED
@@ -264,6 +326,9 @@ FOR UPDATE SKIP LOCKED
 // Owner send loop: due pending ops for channels it currently owns. An op is
 // not due while any same-delivery dependency it names is unsent — split
 // replies keep platform order and a blocked head never lets a tail jump past.
+// A non-draft op is also held while any same-run draft is still pending or
+// sending: the terminal reply must never be overtaken by an older progress
+// edit landing late on the same platform message.
 func (q *Queries) ListPendingChannelOutbox(ctx context.Context, channelID string) ([]ChannelOutbox, error) {
 	rows, err := q.db.Query(ctx, listPendingChannelOutbox, channelID)
 	if err != nil {
@@ -319,6 +384,20 @@ func (q *Queries) MarkChannelOutboxAttemptUnknown(ctx context.Context, id string
 	return result.RowsAffected(), nil
 }
 
+const maxSentDraftSeq = `-- name: MaxSentDraftSeq :one
+SELECT COALESCE(MAX((payload->>'seq')::bigint), 0)::bigint FROM channel_outbox
+WHERE delivery_key = $1 AND operation_kind = 'draft_update' AND state = 'sent'
+`
+
+// Stale-draft fence: the highest event sequence a sent draft_update covered.
+// A pending op whose snapshot seq is at or below it can never add anything.
+func (q *Queries) MaxSentDraftSeq(ctx context.Context, deliveryKey string) (int64, error) {
+	row := q.db.QueryRow(ctx, maxSentDraftSeq, deliveryKey)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const requeueChannelOutboxAttempt = `-- name: RequeueChannelOutboxAttempt :execrows
 UPDATE channel_outbox
 SET state = 'pending', attempt_token = NULL, next_attempt_at = $1,
@@ -334,6 +413,27 @@ type RequeueChannelOutboxAttemptParams struct {
 // Probe decided the send did not land: back to pending with a new schedule.
 func (q *Queries) RequeueChannelOutboxAttempt(ctx context.Context, arg RequeueChannelOutboxAttemptParams) (int64, error) {
 	result, err := q.db.Exec(ctx, requeueChannelOutboxAttempt, arg.NextAttemptAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updatePendingChannelOutboxPayload = `-- name: UpdatePendingChannelOutboxPayload :execrows
+UPDATE channel_outbox
+SET payload = $2, updated_at = clock_timestamp()
+WHERE id = $1 AND state = 'pending'
+`
+
+type UpdatePendingChannelOutboxPayloadParams struct {
+	ID      string          `json:"id"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+// Coalesce: merge a newer snapshot into a draft op not yet sent, so the
+// platform never sees intermediate versions that were still queued.
+func (q *Queries) UpdatePendingChannelOutboxPayload(ctx context.Context, arg UpdatePendingChannelOutboxPayloadParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updatePendingChannelOutboxPayload, arg.ID, arg.Payload)
 	if err != nil {
 		return 0, err
 	}
