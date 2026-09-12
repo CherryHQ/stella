@@ -102,7 +102,8 @@ type Message struct {
 	PlatformGroupID  string
 	PlatformThreadID string // "" when the group has no sub-thread/topic
 
-	SourceChannelID string // observing bot; audit only, never a dedup/route key
+	SourceChannelID  string // observing bot's channel id; audit only, never a dedup/route key
+	SourceAccountKey string // observing bot's platform account identity; reply outbox ops fence on it
 
 	ActorType        ActorType
 	ActorID          string // platform sender id (human) or agent id (agent)
@@ -224,6 +225,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 		GroupID:           groupID,
 		Seq:               seq,
 		SourceChannelID:   pgnull.TextTrim(msg.SourceChannelID),
+		SourceAccountKey:  pgnull.TextTrim(msg.SourceAccountKey),
 		ActorType:         string(msg.ActorType),
 		ActorID:           msg.ActorID,
 		ActorDisplayName:  pgnull.TextTrim(msg.ActorDisplayName),

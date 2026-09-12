@@ -88,9 +88,13 @@ type Op struct {
 func (s *Store) Append(ctx context.Context, tx pgx.Tx, ops []Op) error {
 	q := sqlc.New(tx)
 	for _, op := range ops {
-		if op.DeliveryKey == "" || op.Kind == "" || op.ChannelID == "" || op.AccountKey == "" {
-			return fmt.Errorf("outbox: delivery key, kind, channel and account are required")
+		if op.DeliveryKey == "" || op.Kind == "" || op.ChannelID == "" {
+			return fmt.Errorf("outbox: delivery key, kind and channel are required")
 		}
+		// AccountKey may be empty for work not triggered through a receiving
+		// account — e.g. a group reply whose trigger is another agent's event.
+		// Empty means unfenced at dispatch: the channel's current account
+		// delivers it, which is correct because no account ever owned it.
 		deps, err := json.Marshal(op.DependsOn)
 		if err != nil {
 			return err

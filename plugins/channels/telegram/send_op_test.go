@@ -3,6 +3,8 @@ package telegram
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -483,4 +485,147 @@ func (f *tokenFlipSender) SendOperation(ctx context.Context, op channel.Outbound
 		}
 	}
 	return res, err
+}
+
+// A send_group_reply enqueued under bot-1 must not go out after the channel
+// answers to bot-2: the account fence fails the op before any API call, and
+// its dependents cancel rather than inherit a dead chain.
+func TestGroupReplyOpRejectsReboundAccount(t *testing.T) {
+	db := dbtest.New(t)
+	createOutboxChannel(t, db, "ch-tg-grp2", "")
+	s := choutbox.New(db)
+	fake := &telegramAPIFake{responses: map[string][]string{}}
+	b := newPublisherTestBot(t, fake)
+	b.bot.Me = &tele.User{ID: 1, Username: "bot-2"} // rebound: this bot is not bot-1
+	ctx := context.Background()
+
+	events := []channel.Event{{Text: strings.Repeat("word ", 900)}, fakeImageEvent()}
+	payload := choutbox.GroupReplyPayload{
+		V: choutbox.PayloadVersion, Platform: "telegram",
+		PlatformGroupID: "-100", DeliveryID: "d-grp2", Events: events,
+	}
+	ops, err := choutbox.GroupReplyChain("group:d-grp2", "ch-tg-grp2", "bot-1", payload, events, tgReplyPlan)
+	if err != nil {
+		t.Fatalf("GroupReplyChain: %v", err)
+	}
+	appendOps(t, db, s, ops)
+
+	for range 6 {
+		if _, err := s.ProcessDue(ctx, "ch-tg-grp2", "", b); err != nil {
+			t.Fatalf("ProcessDue: %v", err)
+		}
+	}
+	if got := opState(t, db, "group:d-grp2", 0); got != "failed" {
+		t.Fatalf("primary op = %s, want failed (account_mismatch)", got)
+	}
+	for i := 1; i < len(ops); i++ {
+		if got := opState(t, db, "group:d-grp2", i); got != "canceled" {
+			t.Fatalf("op %d = %s, want canceled", i, got)
+		}
+	}
+	if len(fake.calls) != 0 {
+		t.Fatalf("platform calls = %d, want 0 under a rebound account", len(fake.calls))
+	}
+}
+
+// Credential rotation keeps the same account identity: a channel row rebound
+// to a fresh token but still answering as bot-1 owns pending ops enqueued
+// under bot-1 — the fence compares identity, not credentials.
+func TestGroupReplyOpDeliversAfterCredentialRotation(t *testing.T) {
+	db := dbtest.New(t)
+	createOutboxChannel(t, db, "ch-tg-rot", "")
+	s := choutbox.New(db)
+	fake := &telegramAPIFake{responses: map[string][]string{}}
+	b := newPublisherTestBot(t, fake)
+	b.bot.Me = &tele.User{ID: 1, Username: "bot-1"}
+	ctx := context.Background()
+
+	payload := choutbox.GroupReplyPayload{
+		V: choutbox.PayloadVersion, Platform: "telegram",
+		PlatformGroupID: "-100", DeliveryID: "d-rot", Events: []channel.Event{{Text: "ok"}},
+	}
+	ops, err := choutbox.GroupReplyChain("group:d-rot", "ch-tg-rot", "bot-1", payload, []channel.Event{{Text: "ok"}}, tgReplyPlan)
+	if err != nil {
+		t.Fatalf("GroupReplyChain: %v", err)
+	}
+	appendOps(t, db, s, ops)
+	if _, err := s.ProcessDue(ctx, "ch-tg-rot", "", b); err != nil {
+		t.Fatalf("ProcessDue: %v", err)
+	}
+	if got := opState(t, db, "group:d-rot", 0); got != "sent" {
+		t.Fatalf("op = %s, want sent", got)
+	}
+	if calls := len(fake.callsFor("sendMessage")); calls != 1 {
+		t.Fatalf("sendMessage calls = %d, want 1", calls)
+	}
+}
+
+// Reactions are platform calls too: once the lease is gone the adapter must
+// not fire the ack reaction, the send, or the terminal reaction. Guard checks
+// bracket each one.
+func TestGroupReplyReactionsRespectOwnership(t *testing.T) {
+	groupOp := func(guard func(context.Context) error) channel.OutboundOp {
+		payload, err := json.Marshal(channel.GroupReplyOpPayload{
+			V: 1, Platform: "telegram", PlatformGroupID: "-100", ReplyTo: "7",
+			DeliveryID: "d-react", Text: "reply", LifecycleFeedback: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return channel.OutboundOp{Kind: "send_group_reply", Payload: payload, Guard: guard}
+	}
+
+	t.Run("lost before send fires nothing", func(t *testing.T) {
+		fake := &telegramAPIFake{responses: map[string][]string{}}
+		b := newPublisherTestBot(t, fake)
+		_, err := b.SendOperation(context.Background(), groupOp(func(context.Context) error {
+			return fmt.Errorf("lease lost")
+		}))
+		if err == nil {
+			t.Fatal("want error when ownership is lost")
+		}
+		var sendErr *channel.SendError
+		if !errors.As(err, &sendErr) || sendErr.Class != channel.SendRetryable {
+			t.Fatalf("err = %v, want retryable SendError", err)
+		}
+		if len(fake.calls) != 0 {
+			t.Fatalf("platform calls = %d, want 0", len(fake.calls))
+		}
+	})
+
+	t.Run("lost after send skips terminal reaction", func(t *testing.T) {
+		fake := &telegramAPIFake{responses: map[string][]string{}}
+		b := newPublisherTestBot(t, fake)
+		var calls int
+		_, err := b.SendOperation(context.Background(), groupOp(func(context.Context) error {
+			calls++
+			if calls >= 3 {
+				return fmt.Errorf("lease lost")
+			}
+			return nil
+		}))
+		if err != nil {
+			t.Fatalf("send succeeded before the lease moved: %v", err)
+		}
+		if got := len(fake.callsFor("sendMessage")); got != 1 {
+			t.Fatalf("sendMessage calls = %d, want 1", got)
+		}
+		if got := len(fake.callsFor("setMessageReaction")); got != 1 {
+			t.Fatalf("setMessageReaction calls = %d, want 1 (ack only, no terminal)", got)
+		}
+	})
+
+	t.Run("owned op reacts and sends", func(t *testing.T) {
+		fake := &telegramAPIFake{responses: map[string][]string{}}
+		b := newPublisherTestBot(t, fake)
+		if _, err := b.SendOperation(context.Background(), groupOp(func(context.Context) error { return nil })); err != nil {
+			t.Fatalf("send: %v", err)
+		}
+		if got := len(fake.callsFor("sendMessage")); got != 1 {
+			t.Fatalf("sendMessage calls = %d, want 1", got)
+		}
+		if got := len(fake.callsFor("setMessageReaction")); got != 2 {
+			t.Fatalf("setMessageReaction calls = %d, want 2 (ack + terminal clear)", got)
+		}
+	})
 }

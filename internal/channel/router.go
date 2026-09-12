@@ -515,8 +515,10 @@ func (c *Coordinator) EnqueueNotify(ctx context.Context, channelID string, n pkg
 		deliveryKey = uuid.Must(uuid.NewV7()).String()
 	}
 	// One op per platform call: long notifications split into a chained
-	// sequence so a mid-chain retry never resends a delivered segment.
-	ops, err := choutbox.NotifyChain("notify:"+deliveryKey, channelID, channelID, n, c.replyPlanFor(channelID).TextLimit)
+	// sequence so a mid-chain retry never resends a delivered segment. No
+	// account key — a notification answers to no receiving account, so the
+	// channel's current identity always owns it and the fence skips it.
+	ops, err := choutbox.NotifyChain("notify:"+deliveryKey, channelID, "", n, c.replyPlanFor(channelID).TextLimit)
 	if err != nil {
 		return err
 	}

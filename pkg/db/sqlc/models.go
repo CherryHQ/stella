@@ -540,6 +540,7 @@ type CtxGroupMessage struct {
 	ContentBlocks     json.RawMessage    `json:"content_blocks"`
 	DeliveryState     string             `json:"delivery_state"`
 	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
+	SourceAccountKey  pgtype.Text        `json:"source_account_key"`
 }
 
 type CtxGroupOutbox struct {

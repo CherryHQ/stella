@@ -116,6 +116,14 @@ executed and finished inside the drain budget before teardown.
   `canceled` link as a terminal failure so a broken chain cannot park
   the dispatch. Notifications decompose the same way via `NotifyChain` —
   one op per segment, one platform call each.
+- Group replies fence on the triggering bot account: ingest persists the
+  receiving account identity on `ctx_group_message.source_account_key`,
+  and every op of the reply chain carries it. A channel re-bound to a
+  different platform account fails those ops `account_mismatch` instead of
+  sending under the new identity; credential rotation under the same
+  identity still owns the work. Ops whose trigger had no receiving account
+  (agent/system-origin messages, notifications) carry an empty key and are
+  deliberately unfenced — the channel's current account is the right sender.
 - Draft updates are sent only by adapters implementing `DraftSender`;
   Weixin/DingTalk show the final reply only.
 - Real-platform credential paths (Telegram/Discord/Feishu/QQ/Weixin/

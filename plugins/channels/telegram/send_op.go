@@ -95,9 +95,23 @@ func (b *Bot) sendGroupReplyOp(ctx context.Context, op channel.OutboundOp) (chan
 	if strings.TrimSpace(text) == "" {
 		text = "(empty response)"
 	}
-	b.react(payload.PlatformGroupID, payload.ReplyTo, reactionReceived)
+	// Reactions are SDK calls and fall under the same ownership admission as
+	// the send: a replica that lost the lease must not keep touching the
+	// platform. They stay best-effort — a lost lease skips them and the send's
+	// own check fails the op as retryable instead of a bare reaction error.
+	// (Telegram reacts on every group reply — unlike Discord it does not gate
+	// on LifecycleFeedback, matching the pre-outbox publisher behavior.)
+	reacted := false
+	if op.CheckOwnership(ctx) == nil {
+		b.react(payload.PlatformGroupID, payload.ReplyTo, reactionReceived)
+		reacted = true
+	}
 	var sendErr error
-	defer func() { b.finishReaction(payload.PlatformGroupID, payload.ReplyTo, sendErr == nil) }()
+	defer func() {
+		if reacted && op.CheckOwnership(context.WithoutCancel(ctx)) == nil {
+			b.finishReaction(payload.PlatformGroupID, payload.ReplyTo, sendErr == nil)
+		}
+	}()
 	var msg *tele.Message
 	msg, sendErr = b.sendTelegramMarkdown(ctx, chat, text, opts, op.CheckOwnership)
 	if sendErr != nil {
