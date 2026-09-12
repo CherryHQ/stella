@@ -1056,8 +1056,10 @@ func TestDurableChannelGracefulDrain(t *testing.T) {
 		t.Logf("B log tail:\n%s", logtail)
 		t.Fatalf("run state=%s after drained worker, want completed", state)
 	}
+	// draft_update rows are coalesced in-flight progress on the same run, not
+	// extra sends — count the terminal reply chain only.
 	var ops int
-	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE run_id=$1", runID).Scan(&ops); err != nil {
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE run_id=$1 AND operation_kind <> 'draft_update'", runID).Scan(&ops); err != nil {
 		t.Fatal(err)
 	}
 	if ops != 1 {
@@ -1377,6 +1379,13 @@ func TestDurableChannelPausedWorkerFencing(t *testing.T) {
 		w = c
 	default:
 		t.Fatalf("run1 worker_id=%q matches neither B (pid %d) nor C (pid %d)", workerID, b.PID(), c.PID())
+	}
+	// The freeze must land while the worker is mid-write — inside the gated
+	// model call — or there is nothing in flight to fence.
+	select {
+	case <-gate.Entered:
+	case <-ctx.Done():
+		t.Fatal("gated model call never parked inside the gate")
 	}
 	if err := w.Pause(); err != nil {
 		t.Fatalf("pause worker: %v", err)
@@ -1761,6 +1770,14 @@ func TestDurableWebCancel(t *testing.T) {
 	waitForCond(t, 90*time.Second, "run claimed by remote worker", func() bool {
 		return db.QueryRow(ctx, "SELECT id FROM agent_run WHERE session_id=$1 AND state='running'", sessionID).Scan(&runID) == nil
 	})
+	// The run being 'running' does not mean the model call left the worker —
+	// wait until it is parked inside the gate or the scripted turn is never
+	// consumed.
+	select {
+	case <-gate.Entered:
+	case <-ctx.Done():
+		t.Fatal("gated model call never parked inside the gate")
+	}
 
 	// Cancel from D — B's worker must abort through the execution lease flag.
 	resp := h.postJSON(t, ctx, fmt.Sprintf("/api/agents/%s/sessions/%s/stop", agentID, sessionID), nil)
