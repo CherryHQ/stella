@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/agent"
+	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
 	"github.com/CherryHQ/stella/internal/eventlog"
-	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -45,32 +45,79 @@ func isAcceptedPublishRecovery(row sqlc.CtxGroupDispatch, err error) bool {
 }
 
 type groupPublishDriver struct {
-	db         *pgxpool.Pool
-	q          *sqlc.Queries
-	publishers *PublisherRegistry
-	coord      *Coordinator
-	events     *GroupEventHub
-	log        *slog.Logger
+	db     *pgxpool.Pool
+	q      *sqlc.Queries
+	events *GroupEventHub
+	log    *slog.Logger
+	// outbox routes the platform send through the durable channel_outbox
+	// ledger: the accept transaction commits the ops and the channel's
+	// lease owner performs the send.
+	outbox *choutbox.Store
 	// wake re-polls the dispatcher after a successor outbox is committed.
 	wake func()
-	// abort stops the turn still running behind a session key, for publishers
-	// that expose a Cancel control. The session queue lives in the chat resolver.
-	abort func(sessionKey string) bool
 }
 
-func newGroupPublishDriver(db *pgxpool.Pool, q *sqlc.Queries, publishers *PublisherRegistry, coord *Coordinator, log *slog.Logger, wake func(), abort func(string) bool) *groupPublishDriver {
-	return &groupPublishDriver{db: db, q: q, publishers: publishers, coord: coord, log: log, wake: wake, abort: abort}
+func newGroupPublishDriver(db *pgxpool.Pool, q *sqlc.Queries, log *slog.Logger, wake func()) *groupPublishDriver {
+	return &groupPublishDriver{db: db, q: q, log: log, wake: wake}
 }
 
-// publishJob is one egress attempt: the accepted reply, the trigger it answers,
-// and the routing state it is delivered through.
+// errPublishEnqueued tells publishAccepted the send became a durable outbox op:
+// the row stays 'running' until pollPublishOutcomes observes the op's state.
+var errPublishEnqueued = errors.New("group publish: enqueued to durable outbox")
+
+// groupReplyPlan maps the reply channel's platform to the group reply
+// decomposition: one durable op per platform call, mirroring replyPlanFor.
+// QQ folds media into text markers — its group API has no binary upload.
+func groupReplyPlan(platform string) choutbox.ReplyPlan {
+	switch platform {
+	case "telegram":
+		return choutbox.ReplyPlan{TextLimit: 4000, PrimaryText: true, Attachments: true}
+	case "discord":
+		return choutbox.ReplyPlan{TextLimit: 2000, PrimaryText: true, Attachments: true}
+	case "qq":
+		return choutbox.ReplyPlan{TextLimit: 3500, PrimaryText: true, MediaAsText: true}
+	case "dingtalk":
+		return choutbox.ReplyPlan{TextLimit: 18000, PrimaryText: true}
+	default:
+		// feishu cards carry the whole response; testchan takes one send.
+		return choutbox.ReplyPlan{PrimaryText: true, Attachments: true}
+	}
+}
+
+// appendPreparedOps binds the pre-built op chain to the reply channel's
+// registered platform account — snapshotted under the accept lock so a
+// re-bound account cannot inherit pending replies — then commits it with the
+// publish-started marker. The trigger's SourceAccountKey is audit-only: a
+// shared trigger can wake members that reply through a different channel and
+// account.
+func (p *groupPublishDriver) appendPreparedOps(ctx context.Context, tx pgx.Tx, q *sqlc.Queries, row sqlc.CtxGroupDispatch, ops []choutbox.Op) error {
+	replyChannel, err := q.GetChannel(ctx, row.ReplyChannelID)
+	if err != nil {
+		return fmt.Errorf("resolve reply channel account: %w", err)
+	}
+	for i := range ops {
+		ops[i].AccountKey = replyChannel.RuntimeAccountKey.String
+	}
+	if err := p.outbox.Append(ctx, tx, ops); err != nil {
+		return fmt.Errorf("enqueue group publish: append: %w", err)
+	}
+	if !row.PublishStartedAt.Valid {
+		affected, err := q.MarkGroupDispatchPublishStarted(ctx, sqlc.MarkGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount})
+		if err != nil {
+			return fmt.Errorf("mark publish started: %w", err)
+		}
+		if affected == 0 {
+			return errors.New("lost dispatch ownership")
+		}
+	}
+	return nil
+}
+
+// publishJob is one egress confirmation: the accepted reply and the routing
+// state it is delivered through.
 type publishJob struct {
-	row       sqlc.CtxGroupDispatch
-	trigger   sqlc.CtxGroupMessage
-	state     sqlc.CtxGroupState
-	publisher pkgchannel.GroupPublisher
-	response  groupResponse
-	envelope  GroupOutboxEnvelope
+	row   sqlc.CtxGroupDispatch
+	state sqlc.CtxGroupState
 	// acceptedMessageID is the canonical row this publish is rendering. It is
 	// empty on the recovery path, where the row already carries the id.
 	acceptedMessageID string
@@ -90,74 +137,28 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 		}
 		return row, nil
 	}
-	if job.publisher == nil {
-		return row, errors.New("publish: publisher unavailable")
+	if p.outbox == nil {
+		return row, errors.New("publish: durable outbox not configured")
 	}
-	// A response carrying acceptedMessageID completed its admission before the
-	// publish call. Let that admitted turn finish under its captured decision;
-	// recovery of an older accepted row is a new admission and must recheck the
-	// exact channel boundary before retrying external egress.
-	if p.coord != nil && job.acceptedMessageID == "" {
-		allowed, err := p.coord.channelListenerAllowed(ctx, job.state.Platform, row.ReplyChannelID)
-		if err != nil {
-			return row, fmt.Errorf("publish channel admission: %w", err)
+	// Web replies carry no platform send — the event log is their egress — so
+	// the accepted reply publishes 'noop' and converges immediately.
+	if job.state.Platform == webGroupPlatform {
+		if err := p.markPublished(ctx, row); err != nil {
+			return row, &acceptedPublishBookkeepingError{err: err}
 		}
-		if !allowed {
-			return row, errChannelPluginDisabled
+		// MarkGroupDispatchPublished is a committed standalone statement. Carry
+		// the durable fact locally so a finalization error cannot fall back
+		// into the ordinary publish-failure path merely because a follow-up
+		// read failed.
+		row.PublishedAt = nullTime(time.Now().UTC())
+		if err := p.finalizeAcceptedPublished(ctx, row); err != nil {
+			return row, &acceptedPublishBookkeepingError{err: err}
 		}
+		return row, nil
 	}
-	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
-	if row.ResultMessageID != "" {
-		if row.PublishStartedAt.Valid {
-			// The previous attempt reached the platform and never reported back,
-			// so this reply may already be visible. Publishers receive row.ID as a
-			// stable delivery key; channels without native idempotency still prefer
-			// a recoverable duplicate over silently dropping the answer.
-			p.log.Warn("republishing an accepted group reply whose delivery outcome is unknown", "dispatch_id", row.ID, "result_message_id", row.ResultMessageID)
-		} else if _, err := p.q.MarkGroupDispatchPublishStarted(ctx, sqlc.MarkGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
-			return row, fmt.Errorf("mark publish started: %w", err)
-		}
-	}
-	err := job.publisher.Publish(ctx, pkgchannel.GroupPublishRequest{
-		Platform:        job.state.Platform,
-		PlatformGroupID: job.state.PlatformGroupID, PlatformThreadID: job.state.PlatformThreadID,
-		ReplyTo: nullStringValue(job.trigger.PlatformMessageID), Stream: replayGroupResponse(job.response),
-		DeliveryID:  row.ID,
-		RequesterID: job.trigger.ActorID, LifecycleFeedback: job.envelope.LifecycleFeedback,
-		Abort: func() bool { return p.abort(sessionKey) },
-	})
-	if err != nil {
-		// A returned publisher error is a known platform outcome and stays on the
-		// ordinary three-attempt policy. A bookkeeping error after success does not.
-		if _, clearErr := p.q.ClearGroupDispatchPublishStarted(ctx, sqlc.ClearGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); clearErr != nil {
-			p.log.Warn("clear publish start marker failed", "dispatch_id", row.ID, "error", clearErr)
-		}
-		return row, fmt.Errorf("publish: %w", err)
-	}
-	if err := p.markPublished(ctx, row); err != nil {
-		return row, &acceptedPublishBookkeepingError{err: err}
-	}
-	// MarkGroupDispatchPublished is a committed standalone statement. Carry the
-	// durable fact locally so a finalization error cannot fall back into the
-	// ordinary publish-failure path merely because a follow-up read failed.
-	row.PublishedAt = nullTime(time.Now().UTC())
-	if err := p.finalizeAcceptedPublished(ctx, row); err != nil {
-		return row, &acceptedPublishBookkeepingError{err: err}
-	}
-	return row, nil
-}
-
-func (p *groupPublishDriver) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch) (pkgchannel.GroupPublisher, error) {
-	if publisher, ok := p.publishers.Get(row.ReplyChannelID); ok {
-		return publisher, nil
-	}
-	if state.Platform == webGroupPlatform {
-		// Web is a platform whose egress is the event log the browser already
-		// reads, so its publisher does nothing. Everything else about the turn
-		// -- publish markers, delivery state, compensation -- stays identical.
-		return NoopGroupPublisher(), nil
-	}
-	return nil, fmt.Errorf("publisher %q not registered", row.ReplyChannelID)
+	// The send ops committed inside the accept transaction; the channel's
+	// lease owner performs the send and pollPublishOutcomes retires the row.
+	return row, errPublishEnqueued
 }
 
 // markPublished is deliberately one statement after the publisher returns.
@@ -277,30 +278,4 @@ func (p *groupPublishDriver) failAcceptedPublishWithExpiryFence(ctx context.Cont
 		p.events.AnnounceTurn(row.GroupID, row.AgentID, "failed", cause.Error())
 	}
 	return cause
-}
-
-func groupResponseFromMessage(message sqlc.CtxGroupMessage) groupResponse {
-	// Ceiling: event envelopes live only in this process. After a restart, an
-	// accepted unpublished reply replays canonical text/reasoning only. Spool the
-	// buffered event sequence to BlobStore when cross-process rich replay matters.
-	events := make([]pkgchannel.Event, 0, 2)
-	if message.Reasoning != "" {
-		events = append(events, pkgchannel.Event{Reasoning: message.Reasoning})
-	}
-	if message.Content != "" {
-		events = append(events, pkgchannel.Event{Text: message.Content})
-	}
-	return groupResponse{
-		text: message.Content, reasoning: message.Reasoning, sessionID: message.AgentSessionID,
-		events: events,
-	}
-}
-
-func replayGroupResponse(response groupResponse) *pkgchannel.ChatStream {
-	events := make(chan pkgchannel.Event, len(response.events))
-	for _, evt := range response.events {
-		events <- evt
-	}
-	close(events)
-	return &pkgchannel.ChatStream{Events: events, SessionID: response.sessionID}
 }

@@ -553,7 +553,9 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	if handled {
 		defer cancel()
 		b.removeReaction(messageID, ackReactionID)
-		replyFn(resp)
+		if resp != "" {
+			replyFn(resp)
+		}
 		return
 	}
 	if stream == nil {
@@ -590,19 +592,19 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	if streamErr != nil {
 		status = cardStatusFailed
 	}
-	if err := b.sendFinalResponseInThreadWithOptions(ctx, chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup, true, status, stream.SessionID); err != nil {
+	if err := b.sendFinalResponseInThreadWithOptions(ctx, chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup, true, status, stream.SessionID, nil); err != nil {
 		logger().Error("Feishu response delivery failed", "chat_id", chatID, "root_id", rootID, "message_id", messageID, "error", err)
 		return
 	}
 
 	for _, img := range images {
-		if err := b.sendImageInThread(chatID, messageID, rootID, img); err != nil {
+		if err := b.sendImageInThread(chatID, messageID, rootID, img, nil); err != nil {
 			logger().Error("send response image failed", "message_id", messageID, "error", err)
 		}
 	}
 
 	for _, file := range files {
-		if err := b.sendFileInThread(chatID, messageID, rootID, file); err != nil {
+		if err := b.sendFileInThread(chatID, messageID, rootID, file, nil); err != nil {
 			logger().Error("send response file failed", "message_id", messageID, "error", err)
 		}
 	}

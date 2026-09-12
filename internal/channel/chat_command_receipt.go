@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -33,39 +32,6 @@ type chatCommandReceipt struct {
 	messageID string
 	command   string
 	binding   string // audit only, never part of the claim's identity
-}
-
-// chatReceiptForMessage derives the receipt's physical coordinates from the
-// inbound message (messageDeliveryCoordinates); one linked Stella user can own
-// several platform accounts whose message ids collide, which is why the chat
-// key is part of the identity.
-func chatReceiptForMessage(q *sqlc.Queries, rc *ResolvedChat, msg pkgchannel.IncomingMessage, command string) chatCommandReceipt {
-	channelID, chatKey := messageDeliveryCoordinates(msg)
-	return chatCommandReceipt{
-		q:         q,
-		channelID: channelID,
-		chatKey:   chatKey,
-		messageID: msg.MessageID,
-		command:   command,
-		binding:   rc.queueKey(),
-	}
-}
-
-// messageDeliveryCoordinates names the physical chat a message arrived in: the
-// configured channel instance (falling back to the platform name) and the
-// platform chat id (falling back to the sender's platform id — DMs on most
-// platforms leave ChatID empty). The command receipt's identity derives from
-// these, so a redelivered message keeps the same coordinates.
-func messageDeliveryCoordinates(msg pkgchannel.IncomingMessage) (channelID, chatKey string) {
-	channelID = msg.ChannelID
-	if channelID == "" {
-		channelID = msg.Platform
-	}
-	chatKey = msg.ChatID
-	if chatKey == "" {
-		chatKey = msg.SenderID
-	}
-	return channelID, chatKey
 }
 
 func (r chatCommandReceipt) inert() bool {

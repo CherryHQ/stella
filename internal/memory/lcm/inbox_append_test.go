@@ -98,7 +98,7 @@ func TestAppendInboxInputClaimsAndAppendsExactlyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConversationBySessionID: %v", err)
 	}
-	messages, err := q.GetMessagesByConversation(t.Context(), conversation.ID)
+	messages, err := q.GetMessagesByConversation(t.Context(), sqlc.GetMessagesByConversationParams{ConversationID: conversation.ID})
 	if err != nil {
 		t.Fatalf("GetMessagesByConversation: %v", err)
 	}

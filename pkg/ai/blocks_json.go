@@ -50,6 +50,31 @@ func MarshalContentBlocks(blocks []ContentBlock) ([]byte, error) {
 	return data, nil
 }
 
+// MarshalTransportBlocks serializes blocks for cross-process run input, where
+// raw images are still legal: the executing replica canonicalizes them through
+// Enrich. Unlike MarshalContentBlocks this keeps ImageContent bytes, so it is
+// never a substitute for the canonical history encoding.
+func MarshalTransportBlocks(blocks []ContentBlock) ([]byte, error) {
+	out := make([]ContentBlockJSON, 0, len(blocks))
+	for _, b := range blocks {
+		switch b := b.(type) {
+		case TextContent:
+			out = append(out, ContentBlockJSON{Kind: "text", Text: b.Text})
+		case ImageContent:
+			out = append(out, ContentBlockJSON{Kind: "image", Data: b.Data, MimeType: b.MimeType})
+		case ImageRefContent:
+			out = append(out, ContentBlockJSON{Kind: "image_ref", MediaID: b.MediaID})
+		default:
+			return nil, fmt.Errorf("%w: %T", ErrUnsupportedCanonicalBlock, b)
+		}
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		return nil, fmt.Errorf("marshal content blocks: %w", err)
+	}
+	return data, nil
+}
+
 // ValidateCanonicalContentBlocks rejects provider-ready bytes and block kinds
 // that cannot be represented by durable message parts.
 func ValidateCanonicalContentBlocks(blocks []ContentBlock) error {

@@ -8,25 +8,25 @@ import (
 
 // operationHandlerSurface is the full capability surface the managed channel
 // handler (the Coordinator) exposes and that channel adapters type-assert for.
-// The two-phase-drain wrapper embeds it so a wrapped handler still satisfies the
-// BotRegistrar, RegisterGroupPublisher, UserRootResolver,
-// AssetSaver, and group-member-provisioner assertions the adapters make at
-// construction and call time. Adding a capability that an adapter asserts
-// requires adding it here.
+// The two-phase-drain wrapper embeds it so a wrapped handler still satisfies
+// every capability assertion the adapters make at construction and call time.
+// Adding a capability that an adapter asserts requires adding it here.
 type operationHandlerSurface interface {
 	pkgchannel.Handler
 	pkgchannel.BotRegistrar
 	pkgchannel.BotNameRegistrar
 	pkgchannel.AssetSaveAdmitter
 	pkgchannel.AssetSaver
-	pkgchannel.GroupPublisherRegistrar
-	pkgchannel.GroupPublisherUnregistrar
 	pkgchannel.BotIdentityUnregistrar
 	pkgchannel.BotNameUnregistrar
 	pkgchannel.GroupMemberProvisioner
 	pkgchannel.ThreadGroupMemberProvisioner
 	pkgchannel.GroupHistoryImporter
 	pkgchannel.GroupMemberRemover
+	// AttachmentOpener is a send-boundary read, not accepted ingress work: it
+	// promotes through the embed so the caller's context — and its lease
+	// guard — reach the store untouched.
+	pkgchannel.AttachmentOpener
 }
 
 // Keep the production wrapper from silently degrading to pass-through if the

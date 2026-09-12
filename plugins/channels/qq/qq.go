@@ -55,8 +55,8 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		handler: handler,
 		cfg:     cfg,
 	}
-	if registrar, ok := handler.(channel.GroupPublisherRegistrar); ok {
-		registrar.RegisterGroupPublisher(b.Name(), b)
+	if registrar, ok := handler.(channel.BotRegistrar); ok {
+		registrar.RegisterBotIdentity(channel.PlatformQQ, cfg.AppID, b.Name())
 	}
 
 	return b, nil
@@ -118,11 +118,7 @@ func (b *Bot) Stop() {
 
 // Finalize removes routing registrations after accepted work has drained.
 func (b *Bot) Finalize() {
-	b.finalizeOnce.Do(func() {
-		if registrar, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
-			registrar.UnregisterGroupPublisher(b.Name())
-		}
-	})
+	b.finalizeOnce.Do(func() {})
 }
 
 // Name returns the channel name. Implements channel.Channel.
@@ -184,7 +180,10 @@ func incomingMsg(authorID, groupID string, content []ai.ContentBlock) channel.In
 
 // incomingMsg builds an IncomingMessage from QQ message context.
 func (b *Bot) incomingMsg(authorID, groupID string, content []ai.ContentBlock) channel.IncomingMessage {
-	return incomingMsgForChannel(b.Name(), authorID, groupID, content)
+	msg := incomingMsgForChannel(b.Name(), authorID, groupID, content)
+	// The app id is the bot's account identity — replies must come from it.
+	msg.BotAccountKey = b.cfg.AppID
+	return msg
 }
 
 func incomingMsgForChannel(channelID, authorID, groupID string, content []ai.ContentBlock) channel.IncomingMessage {

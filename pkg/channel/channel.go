@@ -102,6 +102,15 @@ type IncomingMessage struct {
 	ReplyTo           string    // platform message ID this message replies to, empty if none
 	Mentions          []Mention // @-mentions, normalized; AgentID is resolved later by the dispatcher
 	LifecycleFeedback bool      // platform adapter should show addressed-turn completion feedback
+	// BotAccountKey is the receiving bot's stable platform identity (its own
+	// account id/username). The durable path pins it as the op's
+	// source_account_key so a reply can never be sent by a different bot
+	// after the channel's credentials change.
+	BotAccountKey string
+	// Extras carries platform-specific facts the durable reply path must keep
+	// (e.g. Weixin context_token). Adapters populate only what they need;
+	// it is stored verbatim in the inbox envelope and outbox address.
+	Extras map[string]string
 }
 
 // Mention is a normalized @-mention. Adapters fill Raw and PlatformID; the
@@ -142,10 +151,20 @@ type ImageEvent struct {
 	MimeType string // e.g. "image/jpeg"
 }
 
-// FileEvent carries a local file path to send to the user.
+// FileEvent carries a local file to send to the user. Path is the producer's
+// workspace location, valid only until op preparation reads the bytes into
+// Data and clears it — a persisted or replayed event never re-reads a path.
 type FileEvent struct {
-	Path string // absolute path on disk
-	Name string // display filename (with extension)
+	// Path is the producer's workspace location — prepare-time only. It is
+	// consumed (read into Data, then cleared) before the op commits and never
+	// reaches a persisted payload.
+	Path     string `json:"-"`
+	Name     string
+	MimeType string
+	// Data holds the file bytes between preparation and op append. It is
+	// transient: the durable copy lives in channel_outbox_attachment, so the
+	// payload and replayed events never carry file bodies.
+	Data []byte `json:"-"`
 }
 
 // ToolUseEvent describes a tool invocation in progress or completed.
@@ -168,6 +187,10 @@ type Notification struct {
 	AgentID     string // optional: agent that produced the notification
 	Text        string // markdown content
 	Silent      bool   // send without notification sound
+	// DedupKey, when set, makes the durable outbox enqueue idempotent: a
+	// retried notify with the same key reuses the queued op. Empty means
+	// every call is a distinct send.
+	DedupKey string
 }
 
 // AgentInfo is agent metadata for display in channel UIs.

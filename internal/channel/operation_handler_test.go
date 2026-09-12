@@ -26,12 +26,10 @@ func (h *fullSurfaceHandler) HandleIncoming(ctx context.Context, _ pkgchannel.In
 	return "ok", true, nil, nil
 }
 
-func (h *fullSurfaceHandler) RegisterBotIdentity(string, string, string)               {}
-func (h *fullSurfaceHandler) UnregisterBotIdentity(string, string, string)             {}
-func (h *fullSurfaceHandler) RegisterBotName(string, string, string)                   {}
-func (h *fullSurfaceHandler) UnregisterBotName(string, string, string)                 {}
-func (h *fullSurfaceHandler) RegisterGroupPublisher(string, pkgchannel.GroupPublisher) {}
-func (h *fullSurfaceHandler) UnregisterGroupPublisher(string)                          {}
+func (h *fullSurfaceHandler) RegisterBotIdentity(string, string, string)   {}
+func (h *fullSurfaceHandler) UnregisterBotIdentity(string, string, string) {}
+func (h *fullSurfaceHandler) RegisterBotName(string, string, string)       {}
+func (h *fullSurfaceHandler) UnregisterBotName(string, string, string)     {}
 func (h *fullSurfaceHandler) AdmitAssetSave(context.Context, pkgchannel.IncomingMessage) error {
 	return nil
 }
@@ -55,6 +53,11 @@ func (h *fullSurfaceHandler) ImportGroupHistory(context.Context, []pkgchannel.In
 
 func (h *fullSurfaceHandler) RemovePlatformGroupMember(context.Context, string, string, string) error {
 	return nil
+}
+
+func (h *fullSurfaceHandler) OpenAttachment(ctx context.Context, outboxID string) ([]byte, error) {
+	h.assetCtx, _ = ctx.Value(marker).(string)
+	return []byte("bytes-of-" + outboxID), nil
 }
 
 func TestWrapOperationHandlerUsesOperationLifetimeAndCallValues(t *testing.T) {
@@ -110,10 +113,19 @@ func TestWrapOperationHandlerPreservesOptionalInterfaces(t *testing.T) {
 	if inner.assetCtx != "asset" {
 		t.Fatalf("SaveAsset context value = %q, want call-scoped value", inner.assetCtx)
 	}
-	if _, ok := wrapped.(interface {
-		RegisterGroupPublisher(string, pkgchannel.GroupPublisher)
-	}); !ok {
-		t.Error("wrapper dropped RegisterGroupPublisher")
+	// The send-boundary opener promotes with the caller's context — a lease
+	// guard or send deadline on it must not be swapped for the ingress
+	// operation context.
+	opener, ok := wrapped.(pkgchannel.AttachmentOpener)
+	if !ok {
+		t.Fatal("wrapper dropped AttachmentOpener")
+	}
+	data, err := opener.OpenAttachment(context.WithValue(context.Background(), marker, "send"), "op-1")
+	if err != nil {
+		t.Fatalf("OpenAttachment: %v", err)
+	}
+	if string(data) != "bytes-of-op-1" || inner.assetCtx != "send" {
+		t.Fatalf("OpenAttachment = %q ctx=%q, want bytes and the caller's ctx", data, inner.assetCtx)
 	}
 	if _, ok := wrapped.(interface {
 		EnsurePlatformGroupMember(context.Context, string, string, string) error

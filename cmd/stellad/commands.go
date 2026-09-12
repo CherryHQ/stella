@@ -60,6 +60,7 @@ import (
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/resourceupgrade"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	"github.com/CherryHQ/stella/internal/sessionevent"
 	"github.com/CherryHQ/stella/internal/sessionexecution"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
@@ -737,6 +738,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	executions := sessionexecution.New(db)
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithSessionExecution(executions),
+		eventSinkOption(db),
 		agent.WithSnapshotLoader(snapshotLoader),
 		agent.WithCodeToolSurface(cfg.Agent.CodeToolSurface),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
@@ -1271,4 +1273,8 @@ func (s *setupResult) waitBackgroundTasks() {
 	if s != nil && s.backgroundTasks != nil {
 		s.backgroundTasks.Wait()
 	}
+}
+
+func eventSinkOption(db *pgxpool.Pool) agent.PoolManagerOption {
+	return agent.WithEventSink(sessionevent.New(db))
 }

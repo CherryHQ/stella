@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
+
+	"github.com/google/uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -62,12 +66,20 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 	channelRuntimeServices.Set(ctx, nil, nil, nil)
 	stateStore := pluginhost.NewStateStore(db)
 
-	phost := pluginhost.New(store,
+	phostOpts := []pluginhost.Option{
 		pluginhost.WithAuthService(pluginhost.NewAuthService(oidcStore)),
 		pluginhost.WithNotificationService(dispatcher),
 		pluginhost.WithStateStore(stateStore),
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
-	)
+	}
+	// Replicas compete for channel ownership through the DB lease; only the
+	// holder runs the poller and sends. STELLA_CHANNEL_LEASE=off keeps fencing
+	// but opts the replica out of the ownership race (testbed role pinning,
+	// observer deployments).
+	id := replicaID()
+	slog.Info("replica identity", "replica_id", id)
+	phostOpts = append(phostOpts, pluginhost.WithChannelLeases(db, id, os.Getenv("STELLA_CHANNEL_LEASE") != "off"))
+	phost := pluginhost.New(store, phostOpts...)
 
 	code := pkgplugins.NewCatalog()
 	for _, id := range pkgplugins.Names() {
@@ -119,4 +131,11 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dis
 		nativeRegistry:         nativeIDs,
 		bundled:                bundled,
 	}, nil
+}
+
+// replicaID names this process for cross-replica fencing (channel leases, run
+// worker ids). Per-process unique, stable for the process lifetime.
+func replicaID() string {
+	host, _ := os.Hostname()
+	return fmt.Sprintf("%s-%d-%s", host, os.Getpid(), uuid.Must(uuid.NewV7()).String()[:8])
 }

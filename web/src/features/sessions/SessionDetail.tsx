@@ -51,6 +51,7 @@ import { ChatWidthToggle } from "@/components/chat/ChatWidthToggle";
 import { SessionInfoPopover } from "./SessionInfoPopover";
 import { Transcript } from "./Transcript";
 import { useFileAttachments } from "./useFileAttachments";
+import { ResumeHttpError, useSessionResume } from "./use-session-resume";
 import { useSessionStreamResume } from "./useSessionStreamResume";
 
 const PAGE_SIZE = 50;
@@ -88,6 +89,12 @@ export function SessionDetail({
   const [exporting, setExporting] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [resumeEnabled, setResumeEnabled] = useState(true);
+  // The session whose canonical hydrate has actually been applied to chat
+  // state — an identity, not a boolean, so a stale "ready" can never leak
+  // across a session switch and effect ordering cannot reset it. Query
+  // success alone can precede the apply; an empty history counts (nothing
+  // to apply), including a compacted session whose tail range is empty.
+  const [hydratedSession, setHydratedSession] = useState<string | null>(null);
   const [recoveringDisconnect, setRecoveringDisconnect] = useState(false);
   const { data: agentsList = [] } = useQuery(agentsQueryOptions);
 
@@ -136,27 +143,52 @@ export function SessionDetail({
     [skills],
   );
 
-  const transport = useMemo(
-    () => (session ? createSessionTransport(session.agent_id, session.id) : undefined),
-    [session?.agent_id, session?.id],
-  );
   const historyAuthoritativeRef = useRef(false);
-  const reconcilePersistedHistory = useCallback(() => {
-    historyAuthoritativeRef.current = true;
+  const refreshPersistedHistory = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["session-messages", sessionId] });
     void queryClient.invalidateQueries({ queryKey: ["session-tail-messages", sessionId] });
   }, [queryClient, sessionId]);
+  const reconcilePersistedHistory = useCallback(() => {
+    historyAuthoritativeRef.current = true;
+    refreshPersistedHistory();
+  }, [refreshPersistedHistory]);
   const completeReconnectCheck = useCallback(() => {
     setRecoveringDisconnect(false);
     reconcilePersistedHistory();
   }, [reconcilePersistedHistory]);
+
+  // Load the canonical prefix a resume seeds from — same shape the transcript
+  // normally renders (latest page, or the compacted tail range), capped at
+  // the turn's watermark server-side. A ref because the values it reads are
+  // declared below this hook call site.
+  const loadPrefixRef = useRef<((boundary: number) => Promise<UIMessage[]>) | undefined>(undefined);
+  const resume = useSessionResume({
+    sessionId: session?.id ?? "",
+    loadPrefix: (b: number) => loadPrefixRef.current?.(b) ?? Promise.resolve([]),
+    setMessages: (m: UIMessage[]) => setChatMessages(m),
+    onTerminal: reconcilePersistedHistory,
+    onRefresh: refreshPersistedHistory,
+    // The resume lifecycle reports each observe failure's exact retryable
+    // verdict; the poll treats it exactly like a disconnect recovery.
+    onFailure: setRecoveringDisconnect,
+  });
+  const resumeBoundary = resume.boundary;
+  const transport = useMemo(
+    () =>
+      session
+        ? createSessionTransport(session.agent_id, session.id, resume.transportOptions)
+        : undefined,
+    [session?.agent_id, session?.id, resume.transportOptions],
+  );
+  // Navigation tears down only the local observe connection — including a
+  // bootstrap fetch still awaiting its response. The server turn lives on.
+  useEffect(() => () => transport?.close(), [transport]);
 
   const {
     messages: chatMessages,
     sendMessage: chatSendMessage,
     setMessages: setChatMessages,
     status: chatStatus,
-    stop: chatStop,
     resumeStream: chatResume,
     clearError: chatClearError,
     error: chatError,
@@ -166,9 +198,13 @@ export function SessionDetail({
     // Batch SSE deltas: without this every token re-renders the transcript.
     experimental_throttle: 50,
     onError: (err) => console.error("[session chat]", err),
-    onFinish: ({ isAbort, isDisconnect, isError }) => {
+    onData: resume.handleDataPart,
+    onFinish: ({ message, isDisconnect }) => {
       setRecoveringDisconnect(isDisconnect);
-      if (!isAbort && !isDisconnect && !isError) reconcilePersistedHistory();
+      // The cap lifts only when a verified terminal receipt was recorded in
+      // onData AND this stream's message identity matches it — a bare EOF or
+      // a late finish from a superseded stream proves nothing.
+      resume.handleStreamEnd(message);
     },
   });
 
@@ -214,7 +250,7 @@ export function SessionDetail({
   // elsewhere all converge on the same reconnect path.
   useSessionStreamResume(
     sessionId,
-    resumeEnabled,
+    resumeEnabled && hydratedSession === session?.id,
     chatStatus,
     chatResume,
     recoveringDisconnect,
@@ -223,7 +259,7 @@ export function SessionDetail({
   );
 
   const messagesQuery = useInfiniteQuery({
-    queryKey: ["session-messages", session?.id],
+    queryKey: ["session-messages", session?.id, resumeBoundary],
     // Paged history is only for uncompacted sessions; compacted ones load
     // their tail via the seq-range query below. If the context-items request
     // fails we fall back to plain paging rather than showing nothing.
@@ -234,7 +270,11 @@ export function SessionDetail({
     queryFn: async ({ pageParam }) => {
       const { data } = await getSessionMessages({
         path: { agentId: agentId, sessionId: sessionId },
-        query: { limit: PAGE_SIZE, skip: pageParam },
+        query: {
+          limit: PAGE_SIZE,
+          skip: pageParam,
+          ...(resumeBoundary !== null ? { snapshot_seq: resumeBoundary } : undefined),
+        },
         throwOnError: true,
       });
       return sessionMessagesToMessages(data?.messages);
@@ -259,17 +299,50 @@ export function SessionDetail({
   }, [contextItemsQuery.data]);
 
   const tailQuery = useQuery({
-    queryKey: ["session-tail-messages", session?.id, tailSeqRange?.from, tailSeqRange?.to],
+    queryKey: [
+      "session-tail-messages",
+      session?.id,
+      tailSeqRange?.from,
+      tailSeqRange?.to,
+      resumeBoundary,
+    ],
     enabled: !!session && hasContextSummaries && !!tailSeqRange,
     queryFn: async () => {
       const { data } = await getSessionMessages({
         path: { agentId, sessionId },
-        query: { seq_from: tailSeqRange!.from, seq_to: tailSeqRange!.to },
+        query: {
+          seq_from: tailSeqRange!.from,
+          seq_to: tailSeqRange!.to,
+          ...(resumeBoundary !== null ? { snapshot_seq: resumeBoundary } : undefined),
+        },
         throwOnError: true,
       });
       return sessionMessagesToMessages(data?.messages);
     },
   });
+
+  loadPrefixRef.current = async (boundary: number) => {
+    if (boundary <= 0) return [];
+    const tailCapped = hasContextSummaries && tailSeqRange;
+    const seqTo = tailCapped ? Math.min(tailSeqRange.to, boundary) : undefined;
+    if (tailCapped && (seqTo === undefined || tailSeqRange.from > seqTo)) return [];
+    // No throwOnError: the generated error drops the status, and the resume
+    // lifecycle needs it to tell a retryable 5xx/drop from a 4xx answer.
+    const res = await getSessionMessages({
+      path: { agentId, sessionId },
+      query: tailCapped
+        ? { seq_from: tailSeqRange.from, seq_to: seqTo }
+        : { limit: PAGE_SIZE, skip: 0, snapshot_seq: boundary },
+    });
+    if (res.error !== undefined || res.data === undefined) {
+      throw new ResumeHttpError(res.response?.status);
+    }
+    return mergeToolResults(sessionMessagesToMessages(res.data?.messages)).map(messageToUIMessage);
+  };
+
+  const historyReady = hasContextSummaries
+    ? !tailSeqRange || tailQuery.isSuccess
+    : messagesQuery.isSuccess;
 
   const historyMessages = useMemo(() => {
     if (hasContextSummaries) return tailQuery.data ?? null;
@@ -280,29 +353,35 @@ export function SessionDetail({
   const historicalIDsRef = useRef(new Set<string>());
 
   useEffect(() => {
-    if (!historyMessages) return;
-    const merged = mergeToolResults(historyMessages);
-    if (merged.length === 0) return;
-    const uiMessages = merged.map(messageToUIMessage);
-    // Accumulate every id history has ever produced. Incremental page loads can
-    // momentarily orphan a tool result at a page boundary — its assistant lives
-    // in an older, not-yet-loaded page, so it renders as a standalone assistant
-    // text bubble and is assigned an id here. Once that older page arrives the
-    // result merges into its tool_call block and drops out of the current id
-    // set; filtering liveSlice on the current set alone would keep the stale
-    // text copy forever (duplicated, un-collapsed tool output). Excluding
-    // everything history has ever owned drops it.
-    for (const m of uiMessages) historicalIDsRef.current.add(m.id);
-    const authoritative = historyAuthoritativeRef.current && !isStreamingRef.current;
-    if (authoritative) historyAuthoritativeRef.current = false;
-    setChatMessages((prev) =>
-      reconcileHistoryUIMessages(
-        uiMessages,
-        prev.filter((message) => !historicalIDsRef.current.has(message.id)),
-        { authoritative },
-      ),
-    );
-  }, [historyMessages, setChatMessages]);
+    if (!session || !historyReady) return;
+    if (historyMessages) {
+      const merged = mergeToolResults(historyMessages);
+      if (merged.length === 0) {
+        setHydratedSession(session.id);
+        return;
+      }
+      const uiMessages = merged.map(messageToUIMessage);
+      // Accumulate every id history has ever produced. Incremental page loads can
+      // momentarily orphan a tool result at a page boundary — its assistant lives
+      // in an older, not-yet-loaded page, so it renders as a standalone assistant
+      // text bubble and is assigned an id here. Once that older page arrives the
+      // result merges into its tool_call block and drops out of the current id
+      // set; filtering liveSlice on the current set alone would keep the stale
+      // text copy forever (duplicated, un-collapsed tool output). Excluding
+      // everything history has ever owned drops it.
+      for (const m of uiMessages) historicalIDsRef.current.add(m.id);
+      const authoritative = historyAuthoritativeRef.current && !isStreamingRef.current;
+      if (authoritative) historyAuthoritativeRef.current = false;
+      setChatMessages((prev) =>
+        reconcileHistoryUIMessages(
+          uiMessages,
+          prev.filter((message) => !historicalIDsRef.current.has(message.id)),
+          { authoritative },
+        ),
+      );
+    }
+    setHydratedSession(session.id);
+  }, [session, historyReady, historyMessages, setChatMessages]);
 
   // Convert UIMessage -> Message with a per-object cache so unchanged messages
   // keep their output identity across stream updates — that identity is what
@@ -340,11 +419,8 @@ export function SessionDetail({
     shouldAutoScrollRef.current = true;
     historicalIDsRef.current = new Set();
     autoFillPagesRef.current = 0;
+    resume.clear();
   }, [session?.id]);
-
-  const historyReady = hasContextSummaries
-    ? !tailSeqRange || tailQuery.isSuccess
-    : messagesQuery.isSuccess;
 
   useEffect(() => {
     if (!session || !historyReady || initialScrollSessionRef.current === session.id) return;
@@ -458,18 +534,29 @@ export function SessionDetail({
           transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
       }, 0);
 
+      // A new send supersedes any pinned resume state — its turn's identity
+      // registers via onSendReady once the response headers arrive.
+      resume.clear();
       void chatSendMessage({ parts, metadata: { timestamp: new Date().toISOString() } });
     },
-    [isStreaming, session, attachments, buildMessageParts, clearAttachments, chatSendMessage],
+    [
+      isStreaming,
+      session,
+      attachments,
+      buildMessageParts,
+      clearAttachments,
+      chatSendMessage,
+      resume.clear,
+    ],
   );
 
   const stopActiveTurn = useCallback(() => {
     if (!session) return;
     // Block automatic reconnect until another message is sent. The explicit
-    // action cancels server work; chatStop only detaches this local reader.
+    // action cancels server work; the observe stream stays attached — the
+    // server's cancel lands the durable terminal, which ends it for real.
     setResumeEnabled(false);
     setRecoveringDisconnect(false);
-    void chatStop();
     void stopSession({
       path: { agentId: session.agent_id, sessionId: session.id },
       throwOnError: true,
@@ -477,7 +564,7 @@ export function SessionDetail({
       console.error("[session stop]", err);
       setResumeEnabled(true);
     });
-  }, [session, chatStop]);
+  }, [session]);
 
   // A thread started from the home composer arrives with its first message
   // parked in memory. Claim it once the session is loaded; `takePendingMessage`

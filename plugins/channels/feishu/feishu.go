@@ -141,9 +141,6 @@ func New(cfg Config, handler channel.Handler, enroller channel.AccountEnroller) 
 	b.listChats = func(ctx context.Context, req *larkim.ListChatReq) (*larkim.ListChatResp, error) {
 		return b.client.Im.Chat.List(ctx, req)
 	}
-	if registrar, ok := handler.(channel.GroupPublisherRegistrar); ok {
-		registrar.RegisterGroupPublisher(b.Name(), b)
-	}
 
 	return b, nil
 }
@@ -306,9 +303,6 @@ func (b *Bot) Finalize() {
 			registrar.UnregisterBotName(channel.PlatformFeishu, b.registeredBotName, b.cfg.InstanceID)
 		}
 	}
-	if registrar, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
-		registrar.UnregisterGroupPublisher(b.Name())
-	}
 }
 
 // fetchBotOpenID calls the Feishu bot info API to retrieve and store the bot's open_id.
@@ -364,9 +358,20 @@ func (b *Bot) Platform() string { return channel.PlatformFeishu }
 // When the text contains {{button ...}} directives, sends an interactive card
 // so buttons render as clickable elements; otherwise sends plain text.
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
-	chatID := n.ChatID
+	chatID, receiveIDType, msgType, content, err := b.prepareNotify(ctx, n)
+	if err != nil {
+		return err
+	}
+	return b.createNotifyMessage(ctx, chatID, receiveIDType, msgType, content)
+}
+
+// prepareNotify resolves the target (a read-only Contact lookup for open IDs)
+// and builds the message body — split from the create so the durable op path
+// can re-check lease ownership between the lookup and the mutating call.
+func (b *Bot) prepareNotify(ctx context.Context, n channel.Notification) (chatID, receiveIDType, msgType, content string, err error) {
+	chatID = n.ChatID
 	if chatID == "" {
-		return fmt.Errorf("feishu: no target chat ID")
+		return "", "", "", "", fmt.Errorf("feishu: no target chat ID")
 	}
 
 	// Strip channel prefix if present.
@@ -378,23 +383,26 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 			logger().Debug("notify: promoted open_id to union_id", "open_id", chatID, "union_id", unionID)
 			chatID = unionID
 		} else {
-			return fmt.Errorf("feishu: notify: failed to resolve union_id for open_id %q; pass a union_id (on_...) resolved through the same app's directory because open_id is app-scoped", chatID)
+			return "", "", "", "", fmt.Errorf("feishu: notify: failed to resolve union_id for open_id %q; pass a union_id (on_...) resolved through the same app's directory because open_id is app-scoped", chatID)
 		}
 	}
 
-	receiveIDType := receiveIDTypeForChatID(chatID)
+	receiveIDType = receiveIDTypeForChatID(chatID)
 
-	msgType := larkim.MsgTypeText
-	content := textContent(n.Text)
+	msgType = larkim.MsgTypeText
+	content = textContent(n.Text)
 	if cardButtonDirective.MatchString(n.Text) {
-		if card, err := buildCardContent(n.Text); err == nil {
+		if card, cardErr := buildCardContent(n.Text); cardErr == nil {
 			msgType = larkim.MsgTypeInteractive
 			content = card
 		} else {
 			content = textContent(stripCardDirectives(n.Text))
 		}
 	}
+	return chatID, receiveIDType, msgType, content, nil
+}
 
+func (b *Bot) createNotifyMessage(ctx context.Context, chatID, receiveIDType, msgType, content string) error {
 	logger().Debug("notify sending message",
 		"instance", b.Name(), "chat_id", chatID, "msg_type", msgType)
 
@@ -502,13 +510,14 @@ func (b *Bot) incomingMsg(senderIDs []string, chatID string, chatType string, co
 		senderID = senderIDs[0]
 	}
 	return channel.IncomingMessage{
-		Platform:  channel.PlatformFeishu,
-		ChannelID: b.Name(),
-		SenderID:  senderID,
-		SenderIDs: append([]string(nil), senderIDs...),
-		ChatID:    chatID,
-		IsGroup:   chatType == "group",
-		Content:   content,
+		Platform:      channel.PlatformFeishu,
+		BotAccountKey: b.registeredBotID,
+		ChannelID:     b.Name(),
+		SenderID:      senderID,
+		SenderIDs:     append([]string(nil), senderIDs...),
+		ChatID:        chatID,
+		IsGroup:       chatType == "group",
+		Content:       content,
 	}
 }
 

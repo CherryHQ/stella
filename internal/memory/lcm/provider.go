@@ -365,6 +365,43 @@ func (p *Provider) CommitGroupTurn(ctx context.Context, qtx *sqlc.Queries, turn 
 	})
 }
 
+// AppendSessionTurn appends a direct session's deferred turn rows through
+// qtx, whose transaction the caller owns and commits — the run worker calls it
+// inside the finish transaction so final history shares the run/outbox commit.
+func (p *Provider) AppendSessionTurn(ctx context.Context, qtx *sqlc.Queries, session memory.Session, msgs ...ai.Message) error {
+	if qtx == nil {
+		return errors.New("append session turn: nil transaction queries")
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+	if session.GroupID != "" {
+		return errors.New("append session turn: group turns use CommitGroupTurn")
+	}
+	return p.withSessionLock(session.ID, func() error {
+		session, err := requireMemorySessionScope(ctx, session)
+		if err != nil {
+			return err
+		}
+		// The conversation must already exist — a durable run only exists for
+		// a session the router bound. No insert inside the caller's tx: the
+		// get-or-create race re-read cannot run under an aborted transaction.
+		conv, err := qtx.GetConversationBySessionID(ctx, conversationScopeParams(session))
+		if err != nil {
+			return fmt.Errorf("append session turn: conversation: %w", err)
+		}
+		rows := make([]storageRow, 0, len(msgs))
+		for _, msg := range msgs {
+			encoded, err := encodeDurableRows(session, msg)
+			if err != nil {
+				return err
+			}
+			rows = append(rows, encoded...)
+		}
+		return p.appendRowsWithQueries(ctx, qtx, session, conv.ID, rows, nil)
+	})
+}
+
 // appendRowsWithQueries writes the message rows and their context items through
 // qtx, whose transaction the caller owns and commits. Both the ordinary append
 // path and the dispatcher's deferred group commit go through here, so the

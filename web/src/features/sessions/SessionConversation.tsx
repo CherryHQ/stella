@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
+import type { UIMessage } from "ai";
 import { getSessionMessages, stopSession } from "@/lib/api-client/sdk.gen";
 import {
   createSessionTransport,
@@ -10,6 +11,7 @@ import {
   sessionMessagesToMessages,
   uiMessageToMessage,
 } from "@/lib/chat-transport";
+import { ResumeHttpError, useSessionResume } from "./use-session-resume";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -49,28 +51,53 @@ export function SessionConversation({
   const [userInput, setUserInput] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [resumeEnabled, setResumeEnabled] = useState(true);
+  // The session whose canonical hydrate has actually been applied to chat
+  // state — an identity, not a boolean, so a stale "ready" can never leak
+  // across a session switch. Query success alone can precede the apply; an
+  // empty history still counts (nothing to apply).
+  const [hydratedSession, setHydratedSession] = useState<string | null>(null);
   const [recoveringDisconnect, setRecoveringDisconnect] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
-  const transport = useMemo(() => createSessionTransport(agentId, sessionId), [agentId, sessionId]);
+  const loadPrefixRef = useRef<((boundary: number) => Promise<UIMessage[]>) | undefined>(undefined);
   const historyAuthoritativeRef = useRef(false);
-  const reconcilePersistedHistory = useCallback(() => {
-    historyAuthoritativeRef.current = true;
+  const refreshPersistedHistory = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: ["session-messages", agentId, sessionId],
     });
   }, [queryClient, agentId, sessionId]);
+  const reconcilePersistedHistory = useCallback(() => {
+    historyAuthoritativeRef.current = true;
+    refreshPersistedHistory();
+  }, [refreshPersistedHistory]);
   const completeReconnectCheck = useCallback(() => {
     setRecoveringDisconnect(false);
     reconcilePersistedHistory();
   }, [reconcilePersistedHistory]);
+  const resume = useSessionResume({
+    sessionId,
+    loadPrefix: (b: number) => loadPrefixRef.current?.(b) ?? Promise.resolve([]),
+    setMessages: (m: UIMessage[]) => setChatMessages(m),
+    onTerminal: reconcilePersistedHistory,
+    onRefresh: refreshPersistedHistory,
+    // The resume lifecycle reports each observe failure's exact retryable
+    // verdict; the poll treats it exactly like a disconnect recovery.
+    onFailure: setRecoveringDisconnect,
+  });
+  const resumeBoundary = resume.boundary;
+  const transport = useMemo(
+    () => createSessionTransport(agentId, sessionId, resume.transportOptions),
+    [agentId, sessionId, resume.transportOptions],
+  );
+  // Navigation tears down only the local observe connection — including a
+  // bootstrap fetch still awaiting its response. The server turn lives on.
+  useEffect(() => () => transport.close(), [transport]);
 
   const {
     messages: chatMessages,
     sendMessage: chatSendMessage,
     setMessages: setChatMessages,
     status: chatStatus,
-    stop: chatStop,
     resumeStream: chatResume,
     clearError: chatClearError,
     error: chatError,
@@ -80,9 +107,13 @@ export function SessionConversation({
     // Batch SSE deltas: without this every token re-renders the transcript.
     experimental_throttle: 50,
     onError: (err) => console.error("[session conversation chat]", err),
-    onFinish: ({ isAbort, isDisconnect, isError }) => {
+    onData: resume.handleDataPart,
+    onFinish: ({ message, isDisconnect }) => {
       setRecoveringDisconnect(isDisconnect);
-      if (!isAbort && !isDisconnect && !isError) reconcilePersistedHistory();
+      // The cap lifts only when a verified terminal receipt was recorded in
+      // onData AND this stream's message identity matches it — a bare EOF or
+      // a late finish from a superseded stream proves nothing.
+      resume.handleStreamEnd(message);
     },
   });
 
@@ -91,7 +122,7 @@ export function SessionConversation({
   isStreamingRef.current = isStreaming;
 
   const messagesQuery = useInfiniteQuery({
-    queryKey: ["session-messages", agentId, sessionId, after, before],
+    queryKey: ["session-messages", agentId, sessionId, after, before, resumeBoundary],
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const { data } = await getSessionMessages({
@@ -101,6 +132,7 @@ export function SessionConversation({
           skip: pageParam,
           ...(after ? { after } : undefined),
           ...(before ? { before } : undefined),
+          ...(resumeBoundary !== null ? { snapshot_seq: resumeBoundary } : undefined),
         },
         throwOnError: true,
       });
@@ -112,7 +144,7 @@ export function SessionConversation({
 
   useSessionStreamResume(
     sessionId,
-    resumeEnabled,
+    resumeEnabled && hydratedSession === sessionId,
     chatStatus,
     chatResume,
     recoveringDisconnect,
@@ -120,25 +152,53 @@ export function SessionConversation({
     completeReconnectCheck,
   );
 
+  // Resume prefix: canonical rows capped at the turn's watermark, fetched
+  // through the same paged/filtered shape the live query uses.
+  loadPrefixRef.current = async (boundary: number) => {
+    if (boundary <= 0) return [];
+    // No throwOnError: the generated error drops the status, and the resume
+    // lifecycle needs it to tell a retryable 5xx/drop from a 4xx answer.
+    const res = await getSessionMessages({
+      path: { agentId, sessionId },
+      query: {
+        limit: 20,
+        skip: 0,
+        snapshot_seq: boundary,
+        ...(after ? { after } : undefined),
+        ...(before ? { before } : undefined),
+      },
+    });
+    if (res.error !== undefined || res.data === undefined) {
+      throw new ResumeHttpError(res.response?.status);
+    }
+    return mergeToolResults(sessionMessagesToMessages(res.data?.messages)).map(messageToUIMessage);
+  };
+
   const historicalIDsRef = useRef(new Set<string>());
 
   useEffect(() => {
-    if (!messagesQuery.data) return;
-    const merged = mergeToolResults([...messagesQuery.data.pages].reverse().flat());
-    if (merged.length === 0) return;
-    const uiMessages = merged.map(messageToUIMessage);
-    const newIDs = new Set(uiMessages.map((m) => m.id));
-    historicalIDsRef.current = newIDs;
-    const authoritative = historyAuthoritativeRef.current && !isStreamingRef.current;
-    if (authoritative) historyAuthoritativeRef.current = false;
-    setChatMessages((prev) =>
-      reconcileHistoryUIMessages(
-        uiMessages,
-        prev.filter((message) => !newIDs.has(message.id)),
-        { authoritative },
-      ),
-    );
-  }, [messagesQuery.data, setChatMessages]);
+    if (!messagesQuery.isSuccess) return;
+    if (messagesQuery.data) {
+      const merged = mergeToolResults([...messagesQuery.data.pages].reverse().flat());
+      if (merged.length === 0) {
+        setHydratedSession(sessionId);
+        return;
+      }
+      const uiMessages = merged.map(messageToUIMessage);
+      const newIDs = new Set(uiMessages.map((m) => m.id));
+      historicalIDsRef.current = newIDs;
+      const authoritative = historyAuthoritativeRef.current && !isStreamingRef.current;
+      if (authoritative) historyAuthoritativeRef.current = false;
+      setChatMessages((prev) =>
+        reconcileHistoryUIMessages(
+          uiMessages,
+          prev.filter((message) => !newIDs.has(message.id)),
+          { authoritative },
+        ),
+      );
+    }
+    setHydratedSession(sessionId);
+  }, [messagesQuery.isSuccess, messagesQuery.data, sessionId, setChatMessages]);
 
   const messages = useMemo(() => chatMessages.map(uiMessageToMessage), [chatMessages]);
 
@@ -147,8 +207,9 @@ export function SessionConversation({
     setRecoveringDisconnect(false);
     initialScrollSessionRef.current = null;
     historicalIDsRef.current = new Set();
+    resume.clear();
     setChatMessages([]);
-  }, [sessionId, setChatMessages]);
+  }, [sessionId, setChatMessages, resume.clear]);
 
   useEffect(() => {
     if (!messagesQuery.isSuccess || initialScrollSessionRef.current === sessionId) return;
@@ -184,13 +245,15 @@ export function SessionConversation({
       }
     }, 0);
 
+    // A new send supersedes any pinned resume state — the observed turn's
+    // canonical rows are history once the next turn starts.
+    resume.clear();
     void chatSendMessage({ text: content });
-  }, [userInput, isStreaming, chatSendMessage]);
+  }, [userInput, isStreaming, chatSendMessage, resume.clear]);
 
   const stopActiveTurn = useCallback(() => {
     setResumeEnabled(false);
     setRecoveringDisconnect(false);
-    void chatStop();
     void stopSession({
       path: { agentId, sessionId },
       throwOnError: true,
@@ -198,7 +261,7 @@ export function SessionConversation({
       console.error("[session conversation stop]", err);
       setResumeEnabled(true);
     });
-  }, [agentId, sessionId, chatStop]);
+  }, [agentId, sessionId]);
 
   const renderBody = () => (
     <div className="flex h-full min-h-0 flex-col">

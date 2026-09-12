@@ -1,6 +1,10 @@
 package session
 
-import "fmt"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+)
 
 // Request describes what session to find or create.
 type Request struct {
@@ -125,6 +129,17 @@ func (r ChannelRequest) bindingKey() string {
 		channel = ""
 	}
 	return r.AgentID + "\x00" + r.UserID + "\x00" + r.GroupID + "\x00" + r.GuestID + "\x00" + channel
+}
+
+// BindingLockKey exposes bindingKey for the cross-process advisory lock the
+// durable channel router takes before resolving or rotating a binding. It must
+// be the same predicate the in-process lock uses so a router tx and a local
+// resolve can never disagree about which critical section they share. The raw
+// key contains NUL separators, which PostgreSQL text rejects, so the lock key
+// is its digest.
+func (r ChannelRequest) BindingLockKey() string {
+	sum := sha256.Sum256([]byte(r.bindingKey()))
+	return "channel-binding:" + hex.EncodeToString(sum[:])
 }
 
 // ReviewRequest describes which sessions are candidates for reflect review.

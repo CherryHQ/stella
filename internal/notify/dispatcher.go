@@ -46,6 +46,9 @@ type Dispatcher struct {
 	channels []channelEntry
 	auth     pkgplugins.Auth // optional; set via SetAuthService for per-user notifications
 	store    channelStore    // optional; used to route agent-bound channel instances
+	// durable, when bound, replaces direct channel.Notify with a durable
+	// outbox enqueue keyed by channel id — the lease owner performs the send.
+	durable func(ctx context.Context, channelID string, n pkgchannel.Notification) error
 }
 
 // NewDispatcher creates an empty dispatcher. Register channels before use.
@@ -58,6 +61,20 @@ func (d *Dispatcher) Register(ch pkgchannel.Channel) {
 	d.mu.Lock()
 	d.channels = append(d.channels, channelEntry{channel: ch})
 	d.mu.Unlock()
+}
+
+// Lookup returns the registered channel with the given instance name, or
+// (nil, false) when no such channel is running on this replica. Durable
+// channel senders use it to reach the live adapter for outbox operations.
+func (d *Dispatcher) Lookup(name string) (pkgchannel.Channel, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	for _, e := range d.channels {
+		if channelMatches(e.channel, name) {
+			return e.channel, true
+		}
+	}
+	return nil, false
 }
 
 // Unregister removes all channels with the given name from the dispatcher.
@@ -81,6 +98,23 @@ func (d *Dispatcher) Unregister(name string) {
 //  2. If Notification.Channel is set, route to that specific channel.
 //  3. Otherwise broadcast to all non-dedicated channels.
 func (d *Dispatcher) Notify(ctx context.Context, n pkgchannel.Notification) error {
+	if d.isDurable() {
+		// Durable mode resolves targets from configured channel rows only;
+		// the lease owner performs the send. A local registry entry without a
+		// matching row must not send directly — that bypasses the lease fence.
+		targets := d.durableTargets(n)
+		if len(targets) == 0 {
+			return fmt.Errorf("no configured notification channel for agent %q channel %q", n.AgentID, n.Channel)
+		}
+		var errs []error
+		for _, ch := range targets {
+			if err := d.deliver(ctx, channelEntry{}, ch.ID, n); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
+	}
+
 	table, err := d.routingTable(ctx)
 	if err != nil {
 		return err
@@ -104,7 +138,7 @@ func (d *Dispatcher) Notify(ctx context.Context, n pkgchannel.Notification) erro
 		if entry, ok := table.entryForNotificationChannel(n.Channel); ok {
 			slog.Debug("notify: routing to explicit channel",
 				"channel", n.Channel, "resolved", entry.channel.Name())
-			return entry.channel.Notify(ctx, n)
+			return d.deliver(ctx, entry, "", n)
 		}
 		return fmt.Errorf("unknown notification channel %q", n.Channel)
 	}
@@ -127,6 +161,83 @@ func (d *Dispatcher) SetChannelStore(store channelStore) {
 	d.mu.Unlock()
 }
 
+// SetDurableSend routes notifications through the durable channel outbox: the
+// enqueue is the delivery, and whichever replica owns the channel lease makes
+// the platform call. Nil restores direct in-process sends.
+func (d *Dispatcher) SetDurableSend(send func(ctx context.Context, channelID string, n pkgchannel.Notification) error) {
+	d.mu.Lock()
+	d.durable = send
+	d.mu.Unlock()
+}
+
+// deliver sends through the durable outbox when bound, else the registered
+// channel entry directly.
+func (d *Dispatcher) deliver(ctx context.Context, entry channelEntry, channelID string, n pkgchannel.Notification) error {
+	d.mu.RLock()
+	durable := d.durable
+	d.mu.RUnlock()
+	if durable != nil {
+		if channelID == "" {
+			return fmt.Errorf("notify: durable send requires a channel id")
+		}
+		return durable(ctx, channelID, n)
+	}
+	return entry.channel.Notify(ctx, n)
+}
+
+func (d *Dispatcher) isDurable() bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.durable != nil
+}
+
+// durableTargets resolves notification targets from the channel config store
+// alone — in durable mode the sending replica's registry needn't match the
+// notifying replica's, so routing keys off configured rows, not local entries.
+func (d *Dispatcher) durableTargets(n pkgchannel.Notification) []config.Channel {
+	if d.store == nil {
+		return nil
+	}
+	var out []config.Channel
+	for _, ch := range listConfiguredChannels(context.Background(), d.store) {
+		if !ch.Enabled {
+			continue
+		}
+		switch {
+		case n.AgentID != "" && ch.AgentID == n.AgentID && (n.Channel == "" || n.Channel == ch.ID || n.Channel == ch.Type):
+			out = append(out, ch)
+		case n.Channel != "" && (n.Channel == ch.ID || n.Channel == ch.Type):
+			out = append(out, ch)
+		case n.AgentID == "" && n.Channel == "" && ch.AgentID == "":
+			out = append(out, ch)
+		}
+	}
+	return out
+}
+
+// durableBroadcast delivers to every enabled non-dedicated configured channel
+// through the outbox — the durable-mode equivalent of the local broadcast list.
+func (d *Dispatcher) durableBroadcast(ctx context.Context, n pkgchannel.Notification) error {
+	if d.store == nil {
+		return fmt.Errorf("notify: durable send requires a channel store")
+	}
+	var errs []error
+	sent := 0
+	for _, ch := range listConfiguredChannels(ctx, d.store) {
+		if !ch.Enabled || ch.AgentID != "" {
+			continue
+		}
+		sent++
+		if err := d.deliver(ctx, channelEntry{}, ch.ID, n); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if sent == 0 {
+		return fmt.Errorf("no non-dedicated notification channels configured")
+	}
+	return errors.Join(errs...)
+}
+
 // NotifyUser sends a notification to a specific user via a single channel.
 //
 // Resolution order:
@@ -139,6 +250,7 @@ func (d *Dispatcher) SetChannelStore(store channelStore) {
 // Falls back to broadcast if the user has no linked identities or if no
 // auth store is configured.
 func (d *Dispatcher) NotifyUser(ctx context.Context, userID string, n pkgchannel.Notification) error {
+	durable := d.isDurable()
 	table, authService, err := d.routingTableAndAuth(ctx)
 	if err != nil {
 		return err
@@ -146,20 +258,63 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID string, n pkgchannel
 
 	if authService == nil {
 		slog.Warn("notifyUser: no auth store configured, falling back to broadcast", "user_id", userID)
+		if durable {
+			return d.durableBroadcast(ctx, n)
+		}
 		return notifyEntries(ctx, table.broadcast, n, "no non-dedicated notification channels registered")
 	}
 
 	identities, err := authService.ListUserIdentities(ctx, userID)
 	if err != nil {
 		slog.Warn("notifyUser: failed to list identities, falling back to broadcast", "user_id", userID, "error", err)
+		if durable {
+			return d.durableBroadcast(ctx, n)
+		}
 		return notifyEntries(ctx, table.broadcast, n, "no non-dedicated notification channels registered")
 	}
 	if len(identities) == 0 {
 		slog.Debug("notifyUser: user has no linked identities, falling back to broadcast", "user_id", userID)
+		if durable {
+			return d.durableBroadcast(ctx, n)
+		}
 		return notifyEntries(ctx, table.broadcast, n, "no non-dedicated notification channels registered")
 	}
 
 	target := pickNotifyIdentity(ctx, authService, userID, identities)
+	if d.isDurable() {
+		// Durable mode resolves the target channel from config rows: the
+		// sender is whichever replica owns the lease, so a local registry
+		// entry is not required.
+		channels := listConfiguredChannels(ctx, d.store)
+		channelForType := func(platform string) (config.Channel, bool) {
+			for _, ch := range channels {
+				if ch.Enabled && ch.Type == platform {
+					return ch, true
+				}
+			}
+			return config.Channel{}, false
+		}
+		if dedicated, ok := table.dedicatedByAgent[n.AgentID]; ok {
+			if id, ok := identityForPlatform(identities, resolvedChannelType(dedicated)); ok {
+				nn := n
+				nn.ChatID, nn.RecipientID = id.ExternalID, id.ExternalID
+				return d.deliver(ctx, channelEntry{}, dedicated.cfg.ID, nn)
+			}
+		}
+		if ch, ok := channelForType(target.Platform); ok {
+			nn := n
+			nn.ChatID, nn.RecipientID = target.ExternalID, target.ExternalID
+			return d.deliver(ctx, channelEntry{}, ch.ID, nn)
+		}
+		for _, id := range identities {
+			if ch, ok := channelForType(id.Platform); ok {
+				nn := n
+				nn.ChatID, nn.RecipientID = id.ExternalID, id.ExternalID
+				return d.deliver(ctx, channelEntry{}, ch.ID, nn)
+			}
+		}
+		return d.durableBroadcast(ctx, n)
+	}
 	if dedicated, ok := table.dedicatedByAgent[n.AgentID]; ok {
 		if id, ok := identityForPlatform(identities, resolvedChannelType(dedicated)); ok {
 			return notifyWithChatID(ctx, dedicated.entry, n, id.ExternalID)

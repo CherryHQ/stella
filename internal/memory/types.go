@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -23,6 +25,28 @@ type DeferredGroupTurn struct {
 // TxGroupCommitter commits a deferred turn into the dispatcher's outer tx.
 type TxGroupCommitter interface {
 	CommitGroupTurn(context.Context, *sqlc.Queries, DeferredGroupTurn) error
+}
+
+// TxSessionTurnAppender commits a deferred direct-session transcript into the
+// caller's outer transaction — the durable run worker uses it so the final
+// assistant message lands in the same commit as the run's terminal state and
+// its outbox reply (plan D4: single committer, atomic boundary).
+type TxSessionTurnAppender interface {
+	AppendSessionTurn(context.Context, *sqlc.Queries, Session, ...ai.Message) error
+}
+
+// NewTxSessionTurnAppender adapts a provider's TxSessionTurnAppender
+// capability to the pgx.Tx-scoped closure the durable run worker wires, so
+// callers composing the pipeline never touch the raw query layer. Nil when
+// the provider lacks the capability.
+func NewTxSessionTurnAppender(p Provider) func(context.Context, pgx.Tx, Session, []ai.Message) error {
+	appender, ok := Unwrap(p).(TxSessionTurnAppender)
+	if !ok {
+		return nil
+	}
+	return func(ctx context.Context, tx pgx.Tx, session Session, msgs []ai.Message) error {
+		return appender.AppendSessionTurn(ctx, sqlc.New(tx), session, msgs...)
+	}
 }
 
 // ScopeUserIDFromContext returns the user_id this turn's conversation rows are

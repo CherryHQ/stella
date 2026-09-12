@@ -161,6 +161,14 @@ paths:
           description: >-
             Only return messages with seq less than or equal to this value.
             Must be provided together with seq_from.
+        - name: snapshot_seq
+          in: query
+          schema: { type: integer, minimum: 0 }
+          description: >-
+            Cap the visible transcript at raw rows with seq less than or equal
+            to this value, applied before seq-range, paging, and logical
+            message merging; combines with the other filters as an
+            intersection. A value of 0 returns an empty transcript.
       responses:
         "200":
           description: ok
@@ -177,6 +185,11 @@ paths:
     post:
       tags: [sessions]
       summary: Send a message to a session (SSE streaming)
+      description: >-
+        Durable turns include history-boundary and message-identity response
+        headers. Immediate command replies may omit them. The sending client
+        can retain its optimistic input; history reconstruction is needed
+        when attaching through the read-only events endpoint.
       operationId: sendSessionMessage
       requestBody:
         required: true
@@ -188,6 +201,18 @@ paths:
       responses:
         "200":
           description: SSE stream of session events
+          headers:
+            X-Stella-History-Before:
+              description: >-
+                Inclusive transcript sequence after this turn's input was
+                stored and before its first assistant or tool output. Use
+                snapshot_seq with this value when rebuilding the turn.
+              schema: { type: integer, format: int64, minimum: 0 }
+            X-Stella-Message-Id:
+              description: >-
+                Stable message ID emitted by the stream's start frame. Its
+                msg- prefix is followed by the exact observation scope.
+              schema: { type: string }
           content:
             text/event-stream:
               schema: { type: string }
@@ -199,6 +224,10 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "410":
+          description: >-
+            The turn is terminal without a retained start boundary. Read the
+            canonical transcript instead of creating a live assistant message.
 
   /api/agents/{agentId}/sessions/{sessionId}/usage:
     parameters:
@@ -300,25 +329,63 @@ paths:
     get:
       tags: [sessions]
       summary: Stream a session's live turn events (read-only SSE)
-      description: >
-        Subscribe to the events of an in-flight turn on this session without
-        initiating one. Used by the web UI to resume a turn after navigation,
-        refresh, connection loss, or a turn started elsewhere. The stream emits
-        the same Vercel AI-SDK UI message frames as the message-send endpoint
-        and ends when the turn finishes.
+      description: >-
+        Observe one turn without initiating it, including turns executing on
+        another replica. The stream emits the same AI-SDK UI message frames
+        as the message-send endpoint. Without a cursor, it selects the current
+        execution or an unclaimed queued run. A scoped cursor stays on that
+        exact turn even if a later turn has started.
+
+        A full rebuild first reads the transcript through
+        X-Stella-History-Before, then seeds an empty assistant with
+        X-Stella-Message-Id before consuming the stream from sequence 0. The
+        history boundary and event cursor are different sequence coordinates.
+        Reusing a positive event cursor requires matching applied UI state.
+        A durable terminal frame ends the turn; connection loss alone does not.
       operationId: streamSessionEvents
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema: { type: string }
+          description: >-
+            Observation cursor in scope:seq form. The scope is the run UUID,
+            or x followed by the execution UUID for a turn without a run.
+            The sequence is nonnegative; 0 replays that scope from its start.
       responses:
         "200":
           description: SSE stream of session events
+          headers:
+            X-Stella-History-Before:
+              description: >-
+                Inclusive transcript sequence after this turn's input was
+                stored and before its first assistant or tool output. Use
+                snapshot_seq with this value when rebuilding the turn.
+              schema: { type: integer, format: int64, minimum: 0 }
+            X-Stella-Message-Id:
+              description: >-
+                Stable message ID emitted by the stream's start frame. Its
+                msg- prefix is followed by the exact observation scope.
+              schema: { type: string }
           content:
             text/event-stream:
               schema: { type: string }
-        "204": { description: No turn currently in flight on this session }
+        "204":
+          description: No current turn or no retained turn matching the supplied scope
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+        "409":
+          description: >-
+            The run cursor predates the retained event window. Rebuild from
+            the canonical transcript instead of continuing from that cursor.
+        "410":
+          description: >-
+            The selected turn is terminal without a retained start boundary.
+            Read the canonical transcript without creating a live assistant.
 
   /api/agents/{agentId}/sessions/{sessionId}/context-items:
     parameters:

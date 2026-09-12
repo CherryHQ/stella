@@ -1,0 +1,753 @@
+package channel
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/CherryHQ/stella/internal/agent"
+	agentrun "github.com/CherryHQ/stella/internal/agent/run"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	chinbox "github.com/CherryHQ/stella/internal/channel/inbox"
+	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionevent"
+	"github.com/CherryHQ/stella/pkg/ai"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/db/txlock"
+)
+
+// This file is the durable-ingress router: it drains channel_inbox for one
+// channel and turns each ready event into its durable successor — a queued
+// agent_run for messages, an executed binding mutation plus reply operations
+// for binding commands. It deliberately never touches agent.ServiceManager,
+// the local session queue, or any publisher: a replica with no in-process
+// agent services can still route.
+//
+// Lock order follows the plan: channel advisory lock (serializes routing per
+// channel across replicas) -> binding advisory lock (txlock) -> session
+// advisory lock (enqueue ordering) -> agent_run. Row locks are avoided on
+// purpose: the route transaction calls into session/guest resolution that
+// inserts FK children of the channel/session rows on other connections, and
+// a held FOR UPDATE deadlocks against their FOR KEY SHARE.
+
+// ChannelResolver maps a channel id to its running adapter's send capability
+// on this replica. Absence is not an error — a replica that owns no channels
+// simply does not dispatch outbox ops.
+type ChannelResolver func(channelID string) (pkgchannel.OperationSender, bool)
+
+// OwnerTokenSource returns the fencing token this replica holds for a
+// channel, or "" when unowned — outbox dispatch must not send without it
+// when leases are enabled.
+type OwnerTokenSource func(channelID string) string
+
+// WithChannelResolver binds the live-adapter lookup for outbox dispatch.
+func WithChannelResolver(r ChannelResolver) CoordinatorOption {
+	return func(c *Coordinator) { c.channelResolver = r }
+}
+
+// WithOwnerTokenSource binds the channel-lease token lookup for outbox
+// fencing. nil means the pre-lease mode: dispatch does not stamp an owner
+// token.
+func WithOwnerTokenSource(src OwnerTokenSource) CoordinatorOption {
+	return func(c *Coordinator) { c.ownerTokens = src }
+}
+
+// WithSessionAccess binds the Session PEP the router resolves bindings and
+// rotates sessions through. Without it durable routing is unavailable.
+func WithSessionAccess(svc agent.SessionAccessService) CoordinatorOption {
+	return func(c *Coordinator) { c.sessionAccess = svc }
+}
+
+// WithTurnAppender binds the tx-scoped session transcript writer used by the
+// run worker's finish transaction.
+func WithTurnAppender(fn func(ctx context.Context, tx pgx.Tx, session memory.Session, msgs []ai.Message) error) CoordinatorOption {
+	return func(c *Coordinator) { c.turnAppender = fn }
+}
+
+func (c *Coordinator) inboxStore() *chinbox.Store   { return chinbox.New(c.db) }
+func (c *Coordinator) runStore() *agentrun.Store    { return agentrun.New(c.db) }
+func (c *Coordinator) outboxStore() *choutbox.Store { return choutbox.New(c.db) }
+
+// RoutePending drains pending channel_inbox events for channelID in one
+// transaction: it locks the channel row, walks events in (chat_key,
+// ingress_seq) order, and routes each ready event. A 'received' event blocks
+// its own chat only — other chats keep routing. Returns the routed count.
+func (c *Coordinator) RoutePending(ctx context.Context, channelID string) (int, error) {
+	if c.db == nil || c.sessionAccess == nil {
+		return 0, errors.New("channel: durable routing requires db and session access")
+	}
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	// Serialize routing per channel with an advisory lock, not a row lock:
+	// the route transaction calls into session/guest resolution that inserts
+	// FK children of the channel row on other connections, and a FOR UPDATE
+	// held across those calls deadlocks against their FOR KEY SHARE.
+	q := sqlc.New(tx)
+	if _, err := q.GetChannel(ctx, channelID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, chinbox.ErrChannelGone
+		}
+		return 0, err
+	}
+	if err := txlock.AdvisoryXactLock(ctx, tx, "channel-route:"+channelID); err != nil {
+		return 0, err
+	}
+	events, err := c.inboxStore().ListPending(ctx, tx, channelID)
+	if err != nil {
+		return 0, err
+	}
+	blocked := map[string]bool{}
+	routed := 0
+	for _, ev := range events {
+		if blocked[ev.ChatKey] {
+			continue
+		}
+		if ev.State == chinbox.StateReceived {
+			// Attachments not staged: nothing later in this chat may overtake it.
+			blocked[ev.ChatKey] = true
+			continue
+		}
+		if err := c.routeOne(ctx, tx, ev); err != nil {
+			slog.WarnContext(ctx, "channel route failed", "inbox_id", ev.ID, "error", err)
+			// A routing failure is an observable dead-end for this event, not a
+			// reason to stall the channel.
+			if _, terr := c.inboxStore().Transition(ctx, tx, ev.ID, chinbox.StateFailed, "route_error", nil); terr != nil {
+				return routed, fmt.Errorf("route %s: %w (mark failed: %w)", ev.ID, err, terr)
+			}
+			continue
+		}
+		routed++
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return routed, nil
+}
+
+func (c *Coordinator) routeOne(ctx context.Context, tx pgx.Tx, ev sqlc.ChannelInbox) error {
+	env, err := chinbox.Decode(ev.Payload)
+	if err != nil {
+		_, terr := c.inboxStore().Transition(ctx, tx, ev.ID, chinbox.StateFailed, "bad_envelope", nil)
+		return terr
+	}
+	switch ev.EventKind {
+	case chinbox.KindMessage:
+		if env.IsGroup {
+			// Group events keep their existing event-log machinery.
+			_, err := c.inboxStore().Transition(ctx, tx, ev.ID, chinbox.StateRejected, "group_unsupported", nil)
+			return err
+		}
+		return c.routeMessage(ctx, tx, ev, env)
+	case chinbox.KindCommand:
+		return c.routeCommand(ctx, tx, ev, env)
+	default:
+		_, err := c.inboxStore().Transition(ctx, tx, ev.ID, chinbox.StateRejected, "unsupported_kind", nil)
+		return err
+	}
+}
+
+// routeResolve produces the pure-value ResolvedChat for one envelope: durable
+// identity, agent selection, and authorization coordinates with no
+// agent.Service and no session execution.
+func (c *Coordinator) routeResolve(ctx context.Context, env *chinbox.Envelope, channelID string) (*ResolvedChat, error) {
+	return resolveWithChannel(ctx, nil, c.store, c.auth, c.agentAccess, c.groupResolver, c.guests, c.guestPolicy,
+		env.Platform, channelID, env.SenderID, env.SenderIDs, env.SenderName, env.ChatID, env.ThreadID, env.IsGroup, false)
+}
+
+// routeSession resolves (creating if needed) the session a chat is bound to.
+// The advisory lock makes the binding's resolve-or-create cross-replica atomic
+// where the in-process channelMu cannot reach.
+func (c *Coordinator) routeSession(ctx context.Context, tx pgx.Tx, rc *ResolvedChat) (agentsession.Info, error) {
+	access, err := c.sessionAccess.Begin(ctx, rc.Authority)
+	if err != nil {
+		return agentsession.Info{}, err
+	}
+	if rc.usesMainSession() {
+		if err := txlock.AdvisoryXactLock(ctx, tx, "session-main:"+rc.AgentID+":"+rc.User.ID); err != nil {
+			return agentsession.Info{}, err
+		}
+		return access.ResolveMain(ctx, rc.User.ID, rc.AgentID)
+	}
+	req := agentsession.ChannelRequest{
+		UserID:   rc.sessionUserID(),
+		AgentID:  rc.AgentID,
+		GroupID:  rc.GroupID,
+		GuestID:  rc.GuestID,
+		Channel:  rc.Channel,
+		LegacyID: rc.SessionKey,
+	}
+	if err := txlock.AdvisoryXactLock(ctx, tx, req.BindingLockKey()); err != nil {
+		return agentsession.Info{}, err
+	}
+	return access.ResolveChatChannel(ctx, req)
+}
+
+func (c *Coordinator) routeMessage(ctx context.Context, tx pgx.Tx, ev sqlc.ChannelInbox, env *chinbox.Envelope) error {
+	return c.routeMessageContent(ctx, tx, ev, env, env.Content)
+}
+
+// routeConfigContinuation queues the sanitized follow-up turn for /config: the
+// raw secret text stays out of the model-visible input entirely.
+func (c *Coordinator) routeConfigContinuation(ctx context.Context, tx pgx.Tx, ev sqlc.ChannelInbox, env *chinbox.Envelope, key string) error {
+	content, err := ai.MarshalContentBlocks([]ai.ContentBlock{
+		ai.TextContent{Text: "Credential " + key + " was stored successfully; continue with the user's prior task."},
+	})
+	if err != nil {
+		return err
+	}
+	return c.routeMessageContent(ctx, tx, ev, env, content)
+}
+
+func (c *Coordinator) routeMessageContent(ctx context.Context, tx pgx.Tx, ev sqlc.ChannelInbox, env *chinbox.Envelope, content json.RawMessage) error {
+	rc, err := c.routeResolve(ctx, env, ev.ChannelID)
+	if err != nil {
+		return err
+	}
+	allowed, err := c.channelPluginAllowed(ctx, rc)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		_, err := c.inboxStore().Transition(ctx, tx, ev.ID, chinbox.StateRejected, "plugin_disabled", nil)
+		return err
+	}
+	if rc.GuestID != "" && !c.guestLimiter.allow(rc.GuestID, rc.GuestMessageLimitPerMinute) {
+		_, err := c.inboxStore().Transition(ctx, tx, ev.ID, chinbox.StateRejected, "rate_limited", nil)
+		return err
+	}
+	info, err := c.routeSession(ctx, tx, rc)
+	if err != nil {
+		return err
+	}
+	_, _, err = c.runStore().Enqueue(ctx, tx, agentrun.EnqueueParams{
+		InboxID:    ev.ID,
+		SessionID:  info.ID,
+		AgentID:    rc.AgentID,
+		RequestKey: agentrun.RequestKeyInbox(ev.ID),
+		Actor: agentrun.Actor{
+			V:                agentrun.EnvelopeVersion,
+			Kind:             actorKind(rc),
+			UserID:           rc.User.ID,
+			Role:             rc.User.Role,
+			GuestID:          rc.GuestID,
+			GroupID:          rc.GroupID,
+			ChannelBindingID: rc.DedicatedChannelID,
+			Platform:         env.Platform,
+			PlatformID:       env.SenderID,
+			DisplayName:      env.SenderName,
+		},
+		Input: agentrun.Input{
+			V:       agentrun.EnvelopeVersion,
+			Kind:    "message",
+			Content: content,
+		},
+		ReplyAddress: agentrun.ReplyAddress{
+			V:          agentrun.EnvelopeVersion,
+			ChannelID:  ev.ChannelID,
+			AccountKey: ev.SourceAccountKey,
+			ChatKey:    ev.ChatKey,
+			ThreadKey:  env.ThreadID,
+			ReplyToKey: env.MessageID,
+			Scope:      chatScope(env.IsGroup),
+			Token:      replyCredential(env.Extras),
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if ok, err := c.inboxStore().MarkRouted(ctx, tx, ev.ID); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("channel: inbox %s not routable", ev.ID)
+	}
+	return nil
+}
+
+func actorKind(rc *ResolvedChat) string {
+	switch {
+	case rc.GuestID != "":
+		return "guest"
+	case rc.User.ID != "":
+		return "user"
+	default:
+		return "system"
+	}
+}
+
+// replyText appends a one-shot text reply for a command event.
+func (c *Coordinator) replyText(ctx context.Context, tx pgx.Tx, ev sqlc.ChannelInbox, env *chinbox.Envelope, text string) error {
+	ops, err := choutbox.ReplyOps("", choutbox.CommandReplyKey(ev.ID), ev.ChannelID, ev.SourceAccountKey,
+		choutbox.Address{
+			V:          choutbox.AddressVersion,
+			ChatKey:    ev.ChatKey,
+			ThreadKey:  env.ThreadID,
+			ReplyToKey: env.MessageID,
+			Scope:      chatScope(env.IsGroup),
+			Token:      replyCredential(env.Extras),
+		}, text, c.replyTextLimit(ev.ChannelID))
+	if err != nil {
+		return err
+	}
+	if err := c.outboxStore().Append(ctx, tx, ops); err != nil {
+		return err
+	}
+	_, err = c.inboxStore().MarkRouted(ctx, tx, ev.ID)
+	return err
+}
+
+func (c *Coordinator) routeCommand(ctx context.Context, tx pgx.Tx, ev sqlc.ChannelInbox, env *chinbox.Envelope) error {
+	rc, err := c.routeResolve(ctx, env, ev.ChannelID)
+	if err != nil {
+		return err
+	}
+	if rc.GuestID != "" {
+		switch env.Command {
+		case "/new", "/abort", "/help", "/compact":
+		default:
+			return c.replyText(ctx, tx, ev, env, "This command is not available in guest chat.")
+		}
+	}
+	switch env.Command {
+	case "/new":
+		return c.routeNew(ctx, tx, ev, env, rc)
+	case "/abort":
+		return c.routeAbort(ctx, tx, ev, env, rc)
+	case "/start", "/help":
+		return c.replyText(ctx, tx, ev, env, pkgchannel.WelcomeMessage)
+	case "/whoami":
+		return c.replyText(ctx, tx, ev, env, fmt.Sprintf("Your ID: %s", env.SenderID))
+	case "/compact":
+		if _, err := rc.CompactSession(ctx); err != nil {
+			if errors.Is(err, agent.ErrGroupCompactionUnsupported) {
+				return c.replyText(ctx, tx, ev, env, pkgchannel.GroupCompactUnsupportedMessage)
+			}
+			return c.replyText(ctx, tx, ev, env, fmt.Sprintf("Compaction failed: %v", err))
+		}
+		return c.replyText(ctx, tx, ev, env, "Session compacted.")
+	case "/config":
+		resp, ok := handleConfig(ctx, c.vaultSvc, rc.User.ID, env.Args)
+		if !ok {
+			return c.replyText(ctx, tx, ev, env, resp)
+		}
+		if err := c.invalidator.InvalidateUser(rc.User.ID); err != nil {
+			_ = err
+		}
+		// The secret never reaches the model: queue a sanitized synthetic turn
+		// so the agent can continue the blocked task, same as the legacy path.
+		key := strings.ToUpper(strings.Fields(env.Args)[0])
+		return c.routeConfigContinuation(ctx, tx, ev, env, key)
+	default:
+		_, err := c.inboxStore().Transition(ctx, tx, ev.ID, chinbox.StateRejected, "command_unsupported", nil)
+		return err
+	}
+}
+
+// routeNew performs a `/new` rotation. The command receipt is claimed on the
+// pool before the rotation — identical to the existing semantics — so a
+// platform redelivery answers "already reset" and never rotates twice.
+func (c *Coordinator) routeNew(ctx context.Context, tx pgx.Tx, ev sqlc.ChannelInbox, env *chinbox.Envelope, rc *ResolvedChat) error {
+	receipt := chatCommandReceipt{
+		q:         sqlc.New(c.db),
+		channelID: ev.ChannelID,
+		chatKey:   ev.ChatKey,
+		messageID: env.MessageID,
+		command:   newSessionCommand,
+		binding:   rc.queueKey(),
+	}
+	claimed, err := receipt.claim(ctx)
+	if errors.Is(err, errUnidentifiedCommand) {
+		return c.replyText(ctx, tx, ev, env, pkgchannel.NewSessionUnverifiableMessage)
+	}
+	if err != nil {
+		return err
+	}
+	if !claimed {
+		return c.replyText(ctx, tx, ev, env, pkgchannel.SessionAlreadyResetMessage)
+	}
+	reply := pkgchannel.NewSessionStartedMessage
+	fail := func(text string) error {
+		receipt.release(ctx)
+		return c.replyText(ctx, tx, ev, env, text)
+	}
+	if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+		return fail(fmt.Sprintf("Starting a new session failed: %v", err))
+	}
+	access, err := c.sessionAccess.Begin(ctx, rc.Authority)
+	if err != nil {
+		return fail(fmt.Sprintf("Starting a new session failed: %v", err))
+	}
+	if rc.usesMainSession() {
+		if err := txlock.AdvisoryXactLock(ctx, tx, "session-main:"+rc.AgentID+":"+rc.User.ID); err != nil {
+			return err
+		}
+		current, err := access.ResolveMain(ctx, rc.User.ID, rc.AgentID)
+		if err != nil {
+			return fail(fmt.Sprintf("Starting a new session failed: %v", err))
+		}
+		if _, err := access.RotateMain(ctx, rc.User.ID, rc.AgentID, current.ID); err != nil {
+			if errors.Is(err, agentsession.ErrStaleRotation) {
+				return c.replyText(ctx, tx, ev, env, pkgchannel.SessionAlreadyResetMessage)
+			}
+			return fail(fmt.Sprintf("Starting a new session failed: %v", err))
+		}
+		return c.replyText(ctx, tx, ev, env, reply)
+	}
+	req := agentsession.ChannelRequest{
+		UserID:   rc.sessionUserID(),
+		AgentID:  rc.AgentID,
+		GroupID:  rc.GroupID,
+		GuestID:  rc.GuestID,
+		Channel:  rc.Channel,
+		LegacyID: rc.SessionKey,
+	}
+	if err := txlock.AdvisoryXactLock(ctx, tx, req.BindingLockKey()); err != nil {
+		return err
+	}
+	current, err := access.ResolveChatChannel(ctx, req)
+	if err != nil {
+		return fail(fmt.Sprintf("Starting a new session failed: %v", err))
+	}
+	req.ExpectedSessionID = current.ID
+	if _, err := access.RotateChannel(ctx, req); err != nil {
+		if errors.Is(err, agentsession.ErrStaleRotation) {
+			return c.replyText(ctx, tx, ev, env, pkgchannel.SessionAlreadyResetMessage)
+		}
+		return fail(fmt.Sprintf("Starting a new session failed: %v", err))
+	}
+	return c.replyText(ctx, tx, ev, env, reply)
+}
+
+// routeAbort flags the session's live execution lease for cancellation. The
+// running worker observes cancel_requested; a queued run is untouched — same
+// semantics as the in-process queue abort.
+func (c *Coordinator) routeAbort(ctx context.Context, tx pgx.Tx, ev sqlc.ChannelInbox, env *chinbox.Envelope, rc *ResolvedChat) error {
+	info, err := c.routeSession(ctx, tx, rc)
+	if err != nil {
+		return err
+	}
+	q := sqlc.New(tx)
+	row, err := q.GetSessionExecution(ctx, info.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c.replyText(ctx, tx, ev, env, "No active message to abort.")
+	}
+	if err != nil {
+		return err
+	}
+	n, err := q.CancelSessionExecution(ctx, sqlc.CancelSessionExecutionParams{
+		SessionID: info.ID,
+		Token:     row.Token,
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return c.replyText(ctx, tx, ev, env, "No active message to abort.")
+	}
+	return c.replyText(ctx, tx, ev, env, "Aborted.")
+}
+
+// receiveDurable is the HandleIncoming path: it lands the event in
+// channel_inbox and acknowledges, returning no stream — the reply arrives
+// later through channel_outbox. A platform redelivery attaches silently.
+func (c *Coordinator) receiveDurable(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
+	channelID := msg.ChannelID
+	if channelID == "" {
+		channelID = msg.Platform
+	}
+	env, err := chinbox.MarshalIncoming(msg, command, args)
+	if err != nil {
+		return "", false, nil, err
+	}
+	// Adapters pass the first word as a command candidate even for plain text;
+	// only a real slash command routes as a command. "hello world" must stay a
+	// message (legacy parity), while unknown "/foo" still lands as a command
+	// and fails loudly as unsupported.
+	kind := chinbox.KindMessage
+	if strings.HasPrefix(command, "/") {
+		kind = chinbox.KindCommand
+	}
+	accountKey := msg.BotAccountKey
+	if accountKey == "" {
+		accountKey = channelID
+	}
+	_, _, err = c.inboxStore().Receive(ctx, chinbox.ReceiveParams{
+		ChannelID:        channelID,
+		SourceAccountKey: accountKey,
+		// Platform event ids are only unique inside their real scope —
+		// Telegram's message_id is per-chat. Scope the dedup key by chat (and
+		// thread) so two chats' message #1 don't collapse into one event.
+		EventKey:       eventKeyFor(msg),
+		EventKind:      kind,
+		PayloadVersion: chinbox.EnvelopeVersion,
+		Payload:        env,
+		ChatKey:        choutbox.ChatKeyFor(msg),
+		Ready:          true, // adapters pre-stage media via SaveAsset; unstaged platform handles arrive as envelope attachments later
+	})
+	if err != nil {
+		return "", false, nil, err
+	}
+	return "", true, nil, nil
+}
+
+// EnqueueNotify routes a platform-neutral Notification through the durable
+// outbox: this replica commits the op; whichever replica owns the channel
+// lease performs the send. Bound to notify.Dispatcher in durable mode.
+func (c *Coordinator) EnqueueNotify(ctx context.Context, channelID string, n pkgchannel.Notification) error {
+	if c.db == nil {
+		return errors.New("channel: notify enqueue requires db")
+	}
+	deliveryKey := n.DedupKey
+	if deliveryKey == "" {
+		deliveryKey = uuid.Must(uuid.NewV7()).String()
+	}
+	// One op per platform call: long notifications split into a chained
+	// sequence so a mid-chain retry never resends a delivered segment. No
+	// account key — a notification answers to no receiving account, so the
+	// channel's current identity always owns it and the fence skips it.
+	ops, err := choutbox.NotifyChain("notify:"+deliveryKey, channelID, "", n, c.replyPlanFor(channelID).TextLimit)
+	if err != nil {
+		return err
+	}
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := c.outboxStore().Append(ctx, tx, ops); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RunDurableLoops drives the durable channel pipeline on this replica: a
+// routing sweep over claimable channels plus, when runWorker is set, the run
+// worker (claim, execute, atomic finish) and its reaper. The composition root
+// decides the worker role (STELLA_RUN_WORKER); routing and outbox dispatch
+// always run because they are claim-fenced.
+//
+// ctx is the ingress stop signal: routing, dispatch and new run claims end
+// with it. execCtx parents claimed turns — the composition root passes the
+// work context so a graceful drain stops new claims while an in-flight turn
+// still finishes inside the drain budget, exactly like HTTP-accepted turns.
+// The returned wait joins the worker's Run loop (nil when the worker role is
+// off): Run only exits after an in-flight claim has committed its finish, so
+// a closed loop is the authoritative "no accepted work remains" point — a
+// counter cannot express it, since a claim's commit lands before any counter
+// could be incremented. The drain calls it inside the accepted-work budget,
+// before work contexts are cancelled.
+func (c *Coordinator) RunDurableLoops(ctx, execCtx context.Context, runWorker bool) func(context.Context) error {
+	go c.runBacklogMetrics(ctx, c.db)
+	if c.db == nil || c.sessionAccess == nil {
+		slog.WarnContext(ctx, "durable channel loops unavailable: missing db or session access")
+		return nil
+	}
+	var waitRuns func(context.Context) error
+	if runWorker {
+		host, _ := os.Hostname()
+		workerID := fmt.Sprintf("worker-%s-%d-%s", host, os.Getpid(), uuid.Must(uuid.NewV7()).String()[:8])
+		worker := agentrun.NewWorker(c.db, workerID, c.runExecutor(), c.runFinishHook,
+			agentrun.WithTurnAppender(c.turnAppender), agentrun.WithExecContext(execCtx))
+		go worker.Run(ctx)
+		waitRuns = worker.WaitInFlight
+	}
+	go c.durableSweep(ctx)
+	return waitRuns
+}
+
+// durableSweep is the claim-based routing and dispatch loop: any replica may
+// drain a channel's inbox — the sweep covers every enabled channel, not just
+// locally owned ones. Sending is different: only the lease holder dispatches
+// outbox ops.
+func (c *Coordinator) durableSweep(ctx context.Context) {
+	q := sqlc.New(c.db)
+	events := sessionevent.New(c.db)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	janitor := time.NewTicker(30 * time.Second)
+	defer janitor.Stop()
+	for {
+		channels, err := q.ListChannels(ctx)
+		if err == nil {
+			for _, ch := range channels {
+				if !ch.Enabled {
+					continue
+				}
+				if _, rerr := c.RoutePending(ctx, ch.ID); rerr != nil {
+					slog.WarnContext(ctx, "channel route sweep failed", "channel_id", ch.ID, "error", rerr)
+				}
+				c.dispatchDue(ctx, ch.ID)
+			}
+		} else if ctx.Err() == nil {
+			slog.WarnContext(ctx, "channel sweep failed", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		case <-janitor.C:
+			// Attempts that outlived their deadline can no longer report
+			// cleanly: expire them to 'unknown' for a probe, never resend.
+			if n, err := c.outboxStore().ExpireAttempts(ctx); err != nil {
+				slog.WarnContext(ctx, "outbox attempt expiry failed", "error", err)
+			} else if n > 0 {
+				slog.InfoContext(ctx, "outbox attempts expired to unknown", "count", n)
+			}
+			if _, err := events.Prune(ctx); err != nil {
+				slog.WarnContext(ctx, "session event prune failed", "error", err)
+			}
+		}
+	}
+}
+
+// dispatchDue sends due outbox ops through the running adapter — only when
+// leases are off (legacy mode) or this replica holds the channel lease.
+func (c *Coordinator) dispatchDue(ctx context.Context, channelID string) {
+	if c.channelResolver == nil {
+		return
+	}
+	sender, ok := c.channelResolver(channelID)
+	if !ok {
+		return
+	}
+	ownerToken := ""
+	if c.ownerTokens != nil {
+		if ownerToken = c.ownerTokens(channelID); ownerToken == "" {
+			return // lease mode: not ours
+		}
+	}
+	if _, err := c.outboxStore().ProcessDue(ctx, channelID, ownerToken, sender); err != nil {
+		slog.WarnContext(ctx, "channel outbox dispatch failed", "channel_id", channelID, "error", err)
+	}
+	c.tailDrafts(ctx, channelID, sender)
+}
+
+// tailDrafts keeps one platform message updated in place while a run still
+// executes: the owner tails the run's committed session events and merges
+// the coalesced snapshot into the run's live outbox delivery. Only
+// draft-capable adapters participate; on handoff the next owner resumes the
+// same draft identity from the ledger receipts.
+func (c *Coordinator) tailDrafts(ctx context.Context, channelID string, sender pkgchannel.OperationSender) {
+	if _, ok := sender.(pkgchannel.DraftSender); !ok {
+		return
+	}
+	runs, err := sqlc.New(c.db).ListRunningRunsByReplyChannel(ctx, channelID)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.WarnContext(ctx, "draft tail scan failed", "channel_id", channelID, "error", err)
+		}
+		return
+	}
+	for _, r := range runs {
+		if err := c.produceDraft(ctx, r); err != nil && ctx.Err() == nil {
+			slog.WarnContext(ctx, "draft produce failed", "run", r.ID, "error", err)
+		}
+	}
+}
+
+// produceDraft renders the run's committed event log into one snapshot and
+// merges it into the live delivery. The snapshot is self-contained text, not
+// a delta, so any sent version can be overwritten by the next.
+func (c *Coordinator) produceDraft(ctx context.Context, r sqlc.AgentRun) error {
+	var addr agentrun.ReplyAddress
+	if err := json.Unmarshal(r.ReplyAddress, &addr); err != nil {
+		return err
+	}
+	if addr.ChannelID == "" {
+		return nil
+	}
+	text, seq, ok := c.draftSnapshot(ctx, r)
+	if !ok {
+		return nil
+	}
+	op, err := choutbox.DraftOp(r.ID, addr.ChannelID, addr.AccountKey, choutbox.Address{
+		V:          choutbox.AddressVersion,
+		ChatKey:    addr.ChatKey,
+		ThreadKey:  addr.ThreadKey,
+		ReplyToKey: addr.ReplyToKey,
+		Scope:      addr.Scope,
+		Token:      addr.Token,
+	}, seq, text, 0, nil)
+	if err != nil {
+		return err
+	}
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := c.outboxStore().UpsertDraft(ctx, tx, op, seq); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// draftSnapshot folds the run's persisted events into the current preview
+// text plus the covered sequence. ok=false means nothing worth showing yet.
+func (c *Coordinator) draftSnapshot(ctx context.Context, r sqlc.AgentRun) (string, int64, bool) {
+	events := sessionevent.New(c.db)
+	var conv []pkgchannel.Event
+	var seq int64
+	for {
+		page, err := events.ReadForRun(ctx, r.SessionID, r.ID, seq, 500)
+		if err != nil {
+			return "", 0, false
+		}
+		for _, row := range page {
+			if evt, err := agentruntime.DecodeEvent(row.Payload); err == nil {
+				conv = append(conv, convertEvent(evt))
+			}
+			seq = row.Seq
+		}
+		if len(page) < 500 {
+			break
+		}
+	}
+	text, _, _ := pkgchannel.CollectReplyEvents(conv)
+	if strings.TrimSpace(text) == "" {
+		return "", 0, false
+	}
+	return text, seq, true
+}
+
+// chatScope names the platform conversation kind for the outbox address: some
+// platforms (QQ) select the send endpoint by scope, not by id shape.
+// replyCredential picks the platform reply credential out of the envelope
+// extras — weixin's context_token or dingtalk's session webhook.
+func replyCredential(extras map[string]string) string {
+	if t := extras["context_token"]; t != "" {
+		return t
+	}
+	return extras["session_webhook"]
+}
+
+func chatScope(isGroup bool) string {
+	if isGroup {
+		return "group"
+	}
+	return "c2c"
+}
+
+// eventKeyFor builds the dedup key inside the event's real uniqueness scope:
+// channel + chat + thread + platform id. Platforms whose ids are globally
+// unique (WeChat client ids) are unaffected; the prefix is just redundant.
+func eventKeyFor(msg pkgchannel.IncomingMessage) string {
+	parts := []string{choutbox.ChatKeyFor(msg)}
+	if msg.ThreadID != "" {
+		parts = append(parts, msg.ThreadID)
+	}
+	return strings.Join(append(parts, msg.MessageID), ":")
+}

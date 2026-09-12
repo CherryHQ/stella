@@ -98,9 +98,6 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		))}
 	}
 	b.replyToWebhook = sendWebhookText
-	if registrar, ok := handler.(channel.GroupPublisherRegistrar); ok {
-		registrar.RegisterGroupPublisher(b.Name(), b)
-	}
 	return b, nil
 }
 
@@ -180,9 +177,6 @@ func (b *Bot) Finalize() {
 			registrar.UnregisterBotIdentity(channel.PlatformDingTalk, botID, b.Name())
 		}
 	}
-	if registrar, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
-		registrar.UnregisterGroupPublisher(b.Name())
-	}
 }
 
 func (b *Bot) onMessage(_ context.Context, data *chatbot.BotCallbackDataModel) ([]byte, error) {
@@ -228,6 +222,11 @@ func (b *Bot) onMessage(_ context.Context, data *chatbot.BotCallbackDataModel) (
 		Timestamp:  dingTalkEventTime(data.CreateAt),
 		Content:    channel.TextContent(strings.TrimSpace(data.Text.Content)),
 		Mentions:   dingTalkMentions(data.AtUsers),
+		// The session webhook is the only send credential — the durable reply
+		// path replays it from the outbox address on any replica. It expires,
+		// so a stale token classifies permanent rather than retrying forever.
+		BotAccountKey: data.ChatbotUserId,
+		Extras:        map[string]string{"session_webhook": data.SessionWebhook},
 	}
 	go b.handleIncoming(msg, data.SessionWebhook)
 	return nil, nil
@@ -270,7 +269,9 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, webhook string) {
 		return
 	}
 	if handled {
-		_ = b.reply(ctx, webhook, resp)
+		if resp != "" {
+			_ = b.reply(ctx, webhook, resp)
+		}
 		return
 	}
 	if stream == nil {
@@ -311,28 +312,6 @@ func (b *Bot) ensureGroupMember(ctx context.Context, groupID string) error {
 	b.provisioned[groupID] = struct{}{}
 	b.mu.Unlock()
 	return nil
-}
-
-func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) error {
-	stream, err := channel.ValidateGroupReplay(ctx, req.Stream)
-	if err != nil {
-		return err
-	}
-	if stream == nil {
-		return nil
-	}
-	response, streamErr := collectStream(ctx, stream)
-	if streamErr != nil {
-		return fmt.Errorf("dingtalk: render group replay: %w", streamErr)
-	}
-	if strings.TrimSpace(response) == "" {
-		response = "(empty response)"
-	}
-	session, ok := b.groupSessionFor(req.PlatformGroupID)
-	if !ok {
-		return fmt.Errorf("dingtalk: no active session webhook for group %q", req.PlatformGroupID)
-	}
-	return b.reply(ctx, session.URL, response)
 }
 
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {

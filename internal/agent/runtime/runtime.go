@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -48,6 +49,7 @@ type Runtime struct {
 	active               sync.Map // session ID → *activeTurn, tracks in-flight turns
 	turns                turnTracker
 	hub                  *SessionHub
+	eventSink            EventSink
 	closed               atomic.Bool
 }
 
@@ -159,6 +161,10 @@ type Config struct {
 	SnapshotPrompt       SnapshotPromptFunc
 	SessionImages        SessionImages
 	SkillTurnCapture     SkillTurnCapture
+	// EventSink, when set, durably records every published turn event into
+	// ctx_session_event so watchers on other replicas can replay or tail.
+	// Nil keeps events process-local (the legacy hub-only path).
+	EventSink EventSink
 }
 
 // New creates a Runtime from the given config.
@@ -193,14 +199,27 @@ func New(cfg Config) (*Runtime, error) {
 		sessionImages:        cfg.SessionImages,
 		skillTurnCapture:     cfg.SkillTurnCapture,
 		hub:                  NewSessionHub(),
+		eventSink:            cfg.EventSink,
 	}, nil
 }
 
-// Subscribe registers a read-only listener for a session's live turn events.
-// The channel is closed when the in-flight turn ends; callers must invoke the
-// returned cancel func when they stop reading. See SessionHub.
-func (rt *Runtime) Subscribe(sessionID string) (<-chan Event, func()) {
-	return rt.hub.Subscribe(sessionID)
+// EventSink durably records turn events. Implemented by sessionevent.Store;
+// a non-cancellation failure fails the turn — the log is the only observer
+// source, so an unpersisted stream must not keep publishing. executionID is
+// the claiming lease's token; runID is empty for non-run turns.
+type EventSink interface {
+	Append(ctx context.Context, sessionID, executionID, runID string, payload json.RawMessage) error
+	// TurnStart commits the execution's history boundary after the turn's
+	// input is canonically persisted and before any observation event.
+	TurnStart(ctx context.Context, sessionID, executionID, runID string) error
+}
+
+// Watch registers a wake listener for a session's live turn. The channel
+// only signals "the durable log grew"; readers must load events themselves.
+// It closes when the in-flight turn ends; callers must invoke the returned
+// cancel func when they stop listening. See SessionHub.
+func (rt *Runtime) Watch(sessionID string) (<-chan struct{}, func()) {
+	return rt.hub.Watch(sessionID)
 }
 
 // SessionLive reports whether a turn is currently in flight on the session.

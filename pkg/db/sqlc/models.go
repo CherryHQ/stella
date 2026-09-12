@@ -175,6 +175,26 @@ type AgentProviderCredential struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+type AgentRun struct {
+	ID           string             `json:"id"`
+	InboxID      pgtype.Text        `json:"inbox_id"`
+	SessionID    string             `json:"session_id"`
+	AgentID      string             `json:"agent_id"`
+	RequestKey   string             `json:"request_key"`
+	Actor        json.RawMessage    `json:"actor"`
+	Input        json.RawMessage    `json:"input"`
+	ReplyAddress json.RawMessage    `json:"reply_address"`
+	EnqueueSeq   int64              `json:"enqueue_seq"`
+	State        string             `json:"state"`
+	WorkerID     pgtype.Text        `json:"worker_id"`
+	ErrorCode    pgtype.Text        `json:"error_code"`
+	RetryOfRunID pgtype.Text        `json:"retry_of_run_id"`
+	StartedAt    pgtype.Timestamptz `json:"started_at"`
+	FinishedAt   pgtype.Timestamptz `json:"finished_at"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+}
+
 type AgentWorkflow struct {
 	ID                 string          `json:"id"`
 	OwnerKind          string          `json:"owner_kind"`
@@ -306,14 +326,24 @@ type AuthUserToken struct {
 }
 
 type Channel struct {
-	ID        string      `json:"id"`
-	Name      string      `json:"name"`
-	Type      string      `json:"type"`
-	AgentID   pgtype.Text `json:"agent_id"`
-	Enabled   bool        `json:"enabled"`
-	Config    string      `json:"config"`
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	ID                string             `json:"id"`
+	Name              string             `json:"name"`
+	Type              string             `json:"type"`
+	AgentID           pgtype.Text        `json:"agent_id"`
+	Enabled           bool               `json:"enabled"`
+	Config            string             `json:"config"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+	RuntimeOwnerID    pgtype.Text        `json:"runtime_owner_id"`
+	RuntimeToken      pgtype.Text        `json:"runtime_token"`
+	RuntimeLeaseUntil pgtype.Timestamptz `json:"runtime_lease_until"`
+	ReceiveCheckpoint json.RawMessage    `json:"receive_checkpoint"`
+	ConfigRevision    int64              `json:"config_revision"`
+	AppliedRevision   pgtype.Int8        `json:"applied_revision"`
+	RuntimeState      string             `json:"runtime_state"`
+	RuntimeErrorCode  pgtype.Text        `json:"runtime_error_code"`
+	RuntimeObservedAt pgtype.Timestamptz `json:"runtime_observed_at"`
+	RuntimeAccountKey pgtype.Text        `json:"runtime_account_key"`
 }
 
 type ChannelAgent struct {
@@ -361,6 +391,55 @@ type ChannelIdentity struct {
 	Name       string    `json:"name"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type ChannelInbox struct {
+	ID               string             `json:"id"`
+	ChannelID        string             `json:"channel_id"`
+	SourceAccountKey string             `json:"source_account_key"`
+	EventKey         string             `json:"event_key"`
+	EventKind        string             `json:"event_kind"`
+	PayloadVersion   int32              `json:"payload_version"`
+	Payload          json.RawMessage    `json:"payload"`
+	IngressSeq       int64              `json:"ingress_seq"`
+	ChatKey          string             `json:"chat_key"`
+	State            string             `json:"state"`
+	ErrorCode        pgtype.Text        `json:"error_code"`
+	NextAttemptAt    pgtype.Timestamptz `json:"next_attempt_at"`
+	RoutedAt         pgtype.Timestamptz `json:"routed_at"`
+	ReceivedAt       time.Time          `json:"received_at"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+}
+
+type ChannelOutbox struct {
+	ID                string             `json:"id"`
+	RunID             pgtype.Text        `json:"run_id"`
+	DeliveryKey       string             `json:"delivery_key"`
+	OperationIndex    int32              `json:"operation_index"`
+	OperationKind     string             `json:"operation_kind"`
+	ChannelID         string             `json:"channel_id"`
+	SourceAccountKey  string             `json:"source_account_key"`
+	Address           json.RawMessage    `json:"address"`
+	Payload           json.RawMessage    `json:"payload"`
+	DependsOn         json.RawMessage    `json:"depends_on"`
+	State             string             `json:"state"`
+	AttemptToken      pgtype.Text        `json:"attempt_token"`
+	OwnerToken        pgtype.Text        `json:"owner_token"`
+	AttemptStartedAt  pgtype.Timestamptz `json:"attempt_started_at"`
+	NextAttemptAt     pgtype.Timestamptz `json:"next_attempt_at"`
+	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
+	ErrorCode         pgtype.Text        `json:"error_code"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+	GroupID           pgtype.Text        `json:"group_id"`
+}
+
+type ChannelOutboxAttachment struct {
+	OutboxID  string    `json:"outbox_id"`
+	Data      []byte    `json:"data"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type CtxAgentMemory struct {
@@ -421,6 +500,7 @@ type CtxConversation struct {
 	LastTurnCompletedAt pgtype.Timestamptz `json:"last_turn_completed_at"`
 	LastTurnResult      pgtype.Text        `json:"last_turn_result"`
 	LastViewedAt        pgtype.Timestamptz `json:"last_viewed_at"`
+	EventSeq            int64              `json:"event_seq"`
 }
 
 type CtxGroupDispatch struct {
@@ -469,6 +549,7 @@ type CtxGroupMessage struct {
 	ContentBlocks     json.RawMessage    `json:"content_blocks"`
 	DeliveryState     string             `json:"delivery_state"`
 	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
+	SourceAccountKey  pgtype.Text        `json:"source_account_key"`
 }
 
 type CtxGroupOutbox struct {
@@ -571,13 +652,27 @@ type CtxMessagePart struct {
 	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
+type CtxSessionEvent struct {
+	ID          string          `json:"id"`
+	SessionID   string          `json:"session_id"`
+	RunID       pgtype.Text     `json:"run_id"`
+	Seq         int64           `json:"seq"`
+	Event       json.RawMessage `json:"event"`
+	CreatedAt   time.Time       `json:"created_at"`
+	ExecutionID pgtype.Text     `json:"execution_id"`
+}
+
 type CtxSessionExecution struct {
-	SessionID       string    `json:"session_id"`
-	Token           string    `json:"token"`
-	LeaseUntil      time.Time `json:"lease_until"`
-	CancelRequested bool      `json:"cancel_requested"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	SessionID       string      `json:"session_id"`
+	Token           string      `json:"token"`
+	LeaseUntil      time.Time   `json:"lease_until"`
+	CancelRequested bool        `json:"cancel_requested"`
+	CreatedAt       time.Time   `json:"created_at"`
+	UpdatedAt       time.Time   `json:"updated_at"`
+	RunID           pgtype.Text `json:"run_id"`
+	OwnerID         pgtype.Text `json:"owner_id"`
+	OwnerHost       pgtype.Text `json:"owner_host"`
+	OwnerPid        pgtype.Int4 `json:"owner_pid"`
 }
 
 type CtxSessionInbox struct {

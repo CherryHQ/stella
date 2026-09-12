@@ -4,19 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"path"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
 	tele "gopkg.in/telebot.v4"
-
-	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 type telegramAPICall struct {
@@ -28,16 +24,33 @@ type telegramAPIFake struct {
 	mu        sync.Mutex
 	calls     []telegramAPICall
 	responses map[string][]string
+	// onCall runs after each call is recorded — tests use it to flip external
+	// state (e.g. the channel lease) between two SDK calls of one op.
+	onCall func(method string)
 }
 
 func (f *telegramAPIFake) RoundTrip(req *http.Request) (*http.Response, error) {
 	var params map[string]any
-	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
+	if strings.HasPrefix(req.Header.Get("Content-Type"), "multipart/form-data") {
+		if err := req.ParseMultipartForm(1 << 20); err != nil {
+			return nil, err
+		}
+		params = make(map[string]any, len(req.MultipartForm.Value)+len(req.MultipartForm.File))
+		for k, v := range req.MultipartForm.Value {
+			params[k] = strings.Join(v, ",")
+		}
+		for k := range req.MultipartForm.File {
+			params[k] = "<upload>"
+		}
+	} else if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
 		return nil, err
 	}
 	method := path.Base(req.URL.Path)
 	f.mu.Lock()
 	f.calls = append(f.calls, telegramAPICall{method: method, params: params})
+	if f.onCall != nil {
+		f.onCall(method)
+	}
 	response := `{"ok":true,"result":{"message_id":99,"chat":{"id":-100,"type":"supergroup"}}}`
 	if queued := f.responses[method]; len(queued) > 0 {
 		response = queued[0]
@@ -78,85 +91,6 @@ func newPublisherTestBot(t *testing.T, fake *telegramAPIFake) *Bot {
 		t.Fatal(err)
 	}
 	return &Bot{bot: bot, md: tgmd.TGMD()}
-}
-
-// The dispatcher hands over a complete turn, so the publisher sends exactly one
-// message: no placeholder to edit, and the anchoring options ride on it.
-func TestGroupPublisherSendsOneTopicMessage(t *testing.T) {
-	fake := &telegramAPIFake{}
-	b := newPublisherTestBot(t, fake)
-	events := make(chan channel.Event, 4)
-	stream := &channel.ChatStream{Events: events}
-	go func() {
-		events <- channel.Event{Text: "first"}
-		events <- channel.Event{ToolUse: &channel.ToolUseEvent{Tool: "read", Status: "running", Input: "a.md"}}
-		events <- channel.Event{Text: " second"}
-		close(events)
-	}()
-
-	err := b.Publish(context.Background(), channel.GroupPublishRequest{
-		PlatformGroupID:  "-100",
-		PlatformThreadID: "42",
-		ReplyTo:          "7",
-		Stream:           stream,
-	})
-	if err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
-
-	sends := fake.callsFor("sendMessage")
-	if len(sends) != 1 {
-		t.Fatalf("sendMessage calls = %d, want one response message", len(sends))
-	}
-	if got := sends[0].params["message_thread_id"]; got != "42" {
-		t.Fatalf("thread ID = %#v, want 42", got)
-	}
-	if got := sends[0].params["reply_to_message_id"]; got != "7" {
-		t.Fatalf("reply anchor = %#v, want 7 (params %#v)", got, sends[0].params)
-	}
-	if got := sends[0].params["text"]; got == nil || !strings.Contains(got.(string), "first second") {
-		t.Fatalf("text = %#v, want the complete response", got)
-	}
-	if edits := fake.callsFor("editMessageText"); len(edits) != 0 {
-		t.Fatalf("editMessageText calls = %d, want none", len(edits))
-	}
-}
-
-func TestGroupPublisherRejectsStreamFailureWithoutPlatformSideEffect(t *testing.T) {
-	fake := &telegramAPIFake{}
-	b := newPublisherTestBot(t, fake)
-	events := make(chan channel.Event, 1)
-	events <- channel.Event{Err: errors.New("secret upstream detail")}
-	close(events)
-
-	err := b.Publish(context.Background(), channel.GroupPublishRequest{
-		PlatformGroupID: "-100",
-		Stream:          &channel.ChatStream{Events: events},
-	})
-	if err == nil {
-		t.Fatal("Publish unexpectedly accepted a failed replay")
-	}
-	if calls := fake.callsFor("sendMessage"); len(calls) != 0 {
-		t.Fatalf("sendMessage calls = %d, want no platform failure message", len(calls))
-	}
-}
-
-func TestGroupPublisherReturnsFloodBeyondBound(t *testing.T) {
-	fake := &telegramAPIFake{responses: map[string][]string{
-		"sendMessage": {`{"ok":false,"error_code":429,"description":"Too Many Requests: retry after 6","parameters":{"retry_after":6}}`},
-	}}
-	b := newPublisherTestBot(t, fake)
-	started := time.Now()
-	err := b.Publish(context.Background(), channel.GroupPublishRequest{PlatformGroupID: "-100"})
-	if err == nil {
-		t.Fatal("Publish accepted an exhausted flood error")
-	}
-	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("Publish waited %s for retry beyond bound", elapsed)
-	}
-	if got := len(fake.callsFor("sendMessage")); got != 1 {
-		t.Fatalf("sendMessage calls = %d, want no retry beyond bound", got)
-	}
 }
 
 func TestRetryTelegramTreatsNoopEditAsSuccess(t *testing.T) {

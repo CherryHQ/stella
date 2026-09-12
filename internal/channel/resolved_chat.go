@@ -331,25 +331,6 @@ func resolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 		}
 	}
 
-	result := &ResolvedChat{
-		User:                       resolved.User,
-		AgentID:                    agentID,
-		ChatCtx:                    chatCtx,
-		GroupID:                    groupID,
-		GuestID:                    guestID,
-		GuestMessageLimitPerMinute: guestMessageLimitPerMinute,
-		Authority:                  authority,
-		DedicatedChannelID:         dedicatedChannelID,
-	}
-	if !resolveSession {
-		return result, nil
-	}
-
-	svc := sm.GetService(agentID)
-	if svc == nil {
-		return nil, fmt.Errorf("agent service %q not found", agentID)
-	}
-
 	channelCtx := "private"
 	if isGroup && chatID != "" {
 		channelCtx = "group:" + chatID
@@ -375,8 +356,26 @@ func resolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 		ch = session.Channel(channelCtx)
 	}
 
+	result := &ResolvedChat{
+		User:                       resolved.User,
+		AgentID:                    agentID,
+		SessionKey:                 sessionKey,
+		Channel:                    ch,
+		ChatCtx:                    chatCtx,
+		GroupID:                    groupID,
+		GuestID:                    guestID,
+		GuestMessageLimitPerMinute: guestMessageLimitPerMinute,
+		Authority:                  authority,
+		DedicatedChannelID:         dedicatedChannelID,
+	}
+	if !resolveSession {
+		return result, nil
+	}
+
+	svc := sm.GetService(agentID)
+	if svc == nil {
+		return nil, fmt.Errorf("agent service %q not found", agentID)
+	}
 	result.Service = svc
-	result.SessionKey = sessionKey
-	result.Channel = ch
 	return result, nil
 }

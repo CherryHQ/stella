@@ -533,6 +533,15 @@ func (t *tracedProvider) CommitGroupTurn(ctx context.Context, qtx *sqlc.Queries,
 	return committer.CommitGroupTurn(ctx, qtx, turn)
 }
 
+// AppendSessionTurn preserves the outer-transaction capability through tracing.
+func (t *tracedProvider) AppendSessionTurn(ctx context.Context, qtx *sqlc.Queries, session Session, msgs ...ai.Message) error {
+	appender, ok := t.inner.(TxSessionTurnAppender)
+	if !ok {
+		return errCapabilityNotSupported("TxSessionTurnAppender")
+	}
+	return appender.AppendSessionTurn(ctx, qtx, session, msgs...)
+}
+
 // Session activity is durable session metadata rather than memory content, so
 // the tracing wrapper preserves the optional capability without emitting a
 // memory hook for each turn-state write.

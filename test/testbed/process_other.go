@@ -16,6 +16,8 @@ func currentIdentity() (processIdentity, error)      { return processIdentity{},
 func identityFor(int) (processIdentity, error)       { return processIdentity{}, fs.ErrNotExist }
 func sameIdentity(a, b processIdentity) bool         { return a == b }
 func signalProcess(int) error                        { return errUnsupportedPlatform }
+func pauseProcessGroup(*exec.Cmd) error              { return errUnsupportedPlatform }
+func resumeProcessGroup(*exec.Cmd) error             { return errUnsupportedPlatform }
 func terminateProcess(p *os.Process) error           { return p.Kill() }
 func killProcessGroup(cmd *exec.Cmd)                 { _ = cmd.Process.Kill() }
 func processGroupAlive(*exec.Cmd) bool               { return false }

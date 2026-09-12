@@ -38,7 +38,7 @@ func TestStreamAgentEventsGuardHidesProtectedEventOnRevocation(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	guard := func() error { return sessionaccess.ErrNotFound }
-	streamAgentEvents(context.Background(), rr, rr, "a1", "s1", ch, guard)
+	streamAgentEvents(context.Background(), rr, rr, "a1", "s1", ch, "", 0, guard)
 
 	body := rr.Body.String()
 	if strings.Contains(body, "secret-after-revocation") {
@@ -58,7 +58,7 @@ func TestStreamAgentEventsGuardAllowsProtectedEvent(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	guard := func() error { return nil }
-	streamAgentEvents(context.Background(), rr, rr, "a1", "s1", ch, guard)
+	streamAgentEvents(context.Background(), rr, rr, "a1", "s1", ch, "", 0, guard)
 
 	if body := rr.Body.String(); !strings.Contains(body, "visible") {
 		t.Fatalf("protected event not encoded while allowed: %q", body)
@@ -70,7 +70,7 @@ type stubRuntimeManager struct{ svc *stubRuntimeService }
 func (m stubRuntimeManager) GetService(string) sessionaccess.RuntimeService { return m.svc }
 func (m stubRuntimeManager) Default() sessionaccess.RuntimeService          { return m.svc }
 
-type stubRuntimeService struct{ events chan agent.Event }
+type stubRuntimeService struct{ wake chan struct{} }
 
 func (s *stubRuntimeService) Chat(context.Context, agent.ChatRequest) <-chan agent.Event { return nil }
 func (s *stubRuntimeService) RunManagedSession(context.Context, delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error) {
@@ -81,8 +81,11 @@ func (s *stubRuntimeService) RunConversationSession(context.Context, agentsessio
 	return nil
 }
 func (s *stubRuntimeService) StopSession(context.Context, string) bool { return false }
-func (s *stubRuntimeService) SubscribeSession(string) (<-chan agent.Event, func()) {
-	return s.events, func() {}
+func (s *stubRuntimeService) WatchSession(string) (<-chan struct{}, func()) {
+	if s.wake == nil {
+		s.wake = make(chan struct{})
+	}
+	return s.wake, func() {}
 }
 func (s *stubRuntimeService) SessionLive(string) bool { return true }
 func (s *stubRuntimeService) CompactAuthorizedSession(context.Context, agentsession.Info) (string, error) {
@@ -124,7 +127,7 @@ func TestStreamSessionEventsHidesEventsAfterDurableRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
-	rt := &stubRuntimeService{events: make(chan agent.Event, 1)}
+	rt := &stubRuntimeService{wake: make(chan struct{}, 1)}
 	if err := svc.BindRuntimeManager(stubRuntimeManager{svc: rt}); err != nil {
 		t.Fatalf("BindRuntimeManager: %v", err)
 	}
@@ -146,10 +149,11 @@ func TestStreamSessionEventsHidesEventsAfterDurableRevocation(t *testing.T) {
 		t.Fatalf("DeleteAgent: %v", err)
 	}
 
-	rt.events <- agent.Event{Text: "secret-after-revocation"}
-	close(rt.events)
+	events := make(chan agent.Event, 1)
+	events <- agent.Event{Text: "secret-after-revocation"}
+	close(events)
 	rr := httptest.NewRecorder()
-	streamAgentEvents(ctx, rr, rr, "a1", "s1", attach.Events, func() error {
+	streamAgentEvents(ctx, rr, rr, "a1", "s1", events, "", 0, func() error {
 		return attach.BeforeProtectedEvent(ctx)
 	})
 	if body := rr.Body.String(); strings.Contains(body, "secret-after-revocation") {

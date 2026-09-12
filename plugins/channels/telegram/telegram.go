@@ -89,9 +89,6 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	if registrar, ok := handler.(channel.BotRegistrar); ok && bot.Me.Username != "" {
 		registrar.RegisterBotIdentity(channel.PlatformTelegram, bot.Me.Username, cfg.InstanceID)
 	}
-	if registrar, ok := handler.(channel.GroupPublisherRegistrar); ok {
-		registrar.RegisterGroupPublisher(b.Name(), b)
-	}
 
 	return b, nil
 }
@@ -127,9 +124,6 @@ func (b *Bot) Finalize() {
 	b.finalizeOnce.Do(func() {
 		if registrar, ok := b.handler.(channel.BotIdentityUnregistrar); ok && b.bot.Me.Username != "" {
 			registrar.UnregisterBotIdentity(channel.PlatformTelegram, b.bot.Me.Username, b.cfg.InstanceID)
-		}
-		if registrar, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
-			registrar.UnregisterGroupPublisher(b.Name())
 		}
 	})
 }
@@ -400,13 +394,16 @@ func (b *Bot) incomingMsg(c tele.Context, content []ai.ContentBlock) channel.Inc
 		}
 	}
 	im := channel.IncomingMessage{
-		Platform:   channel.PlatformTelegram,
-		ChannelID:  b.Name(),
-		SenderID:   senderID,
-		SenderName: senderName,
-		ChatID:     fmt.Sprintf("%d", c.Chat().ID),
-		IsGroup:    isGroup(c),
-		Content:    content,
+		Platform:  channel.PlatformTelegram,
+		ChannelID: b.Name(),
+		// The bot's own username is the account identity — set it once here so
+		// commands, photos, and documents all carry it, not just text.
+		BotAccountKey: b.bot.Me.Username,
+		SenderID:      senderID,
+		SenderName:    senderName,
+		ChatID:        fmt.Sprintf("%d", c.Chat().ID),
+		IsGroup:       isGroup(c),
+		Content:       content,
 	}
 	if m := c.Message(); m != nil {
 		im.MessageID = fmt.Sprintf("%d", m.ID)

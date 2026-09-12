@@ -4,6 +4,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -26,9 +27,14 @@ type chatOptions struct {
 	inboxID         string
 	groupWake       memory.GroupWake
 	channel         string
+	runID           string
 	bindingID       string
 	turnAuthority   authz.Authority
 	hasAuthority    bool
+	// finalHistory, when non-nil, receives the turn's terminal history rows
+	// instead of an immediate memory append. Per-call only — a delegate or
+	// synchronous child turn never sees it.
+	finalHistory *[]ai.Message
 }
 
 // WithInputActor attaches runtime-derived provenance to the input message.
@@ -134,4 +140,21 @@ func WithStopWhen(done func() bool) Option {
 // caller cannot accidentally close the next turn's runner after receiving EOF.
 func WithOneShotRunner() Option {
 	return func(o *chatOptions) { o.closeAfterRun = true }
+}
+
+// WithRunID links the turn's durable events to the agent_run row that drove
+// it. Set only by the durable run worker; zero for synchronous turns.
+func WithRunID(id string) Option {
+	return func(o *chatOptions) {
+		o.runID = id
+	}
+}
+
+// WithFinalHistorySink diverts this turn's terminal assistant history to the
+// caller's sink rather than appending it when the stream ends. Only the
+// durable run executor installs it: the worker's finish transaction commits
+// the rows atomically with the run's reply ops. Intermediate tool/assistant
+// rows always persist as they arrive; only the final successful reply waits.
+func WithFinalHistorySink(sink *[]ai.Message) Option {
+	return func(o *chatOptions) { o.finalHistory = sink }
 }

@@ -209,9 +209,6 @@ func (b *Bot) activate(ctx context.Context) error {
 			r.RegisterBotIdentity(channel.PlatformDiscord, b.botID, b.Name())
 		}
 	}
-	if r, ok := b.handler.(channel.GroupPublisherRegistrar); ok {
-		r.RegisterGroupPublisher(b.Name(), b)
-	}
 	if !b.cfg.AllowGroup {
 		logger().Info("discord server-channel messages disabled; enable allow_group to serve the servers this bot joined")
 	}
@@ -235,9 +232,6 @@ func (b *Bot) Finalize() {
 		if r, ok := b.handler.(channel.BotIdentityUnregistrar); ok {
 			r.UnregisterBotIdentity(channel.PlatformDiscord, b.botID, b.Name())
 		}
-	}
-	if r, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
-		r.UnregisterGroupPublisher(b.Name())
 	}
 }
 
@@ -304,7 +298,7 @@ func (b *Bot) incomingMessage(m *discordgo.Message, content []channelContentBloc
 	if chatID == "" {
 		chatID = m.ChannelID
 	}
-	im := channel.IncomingMessage{Platform: channel.PlatformDiscord, ChannelID: b.Name(), SenderID: m.Author.ID, SenderName: name, ChatID: chatID, IsGroup: m.GuildID != "", ThreadID: threadID, MessageID: m.ID, Timestamp: m.Timestamp.UTC(), Content: blocks, LifecycleFeedback: m.GuildID == "" || b.addressed(m)}
+	im := channel.IncomingMessage{Platform: channel.PlatformDiscord, ChannelID: b.Name(), BotAccountKey: b.botID, SenderID: m.Author.ID, SenderName: name, ChatID: chatID, IsGroup: m.GuildID != "", ThreadID: threadID, MessageID: m.ID, Timestamp: m.Timestamp.UTC(), Content: blocks, LifecycleFeedback: m.GuildID == "" || b.addressed(m)}
 	if m.MessageReference != nil {
 		im.ReplyTo = m.MessageReference.MessageID
 	}

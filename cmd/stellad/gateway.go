@@ -23,8 +23,12 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	agentrun "github.com/CherryHQ/stella/internal/agent/run"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
@@ -45,6 +49,7 @@ import (
 	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
+	"github.com/CherryHQ/stella/internal/sessionevent"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/plugins/email"
@@ -373,22 +378,44 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	}
 	slog.Info("oidc: authentication configured")
 
-	intentClassifier := newIntentClassifier(s.snapshotLoader, s.providerRegistry)
-	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
-
 	elStore := eventlog.NewStore(s.db)
 	groupEvents := channel.NewGroupEventHub()
 	elStore.OnCommitted(groupEvents.Announce)
 	botRegistry := channel.NewBotIdentityRegistry()
-	publisherRegistry := channel.NewPublisherRegistry()
 	coordOpts = append(coordOpts, channel.WithDB(s.db))
+	coordOpts = append(coordOpts, channel.WithSessionAccess(sessionaccess.NewAgentSessionAccess(s.sessionAccess)))
+	// Durable channel ingress is opt-in until the run workers and outbox
+	// senders exist; with the flag on, inbound events land in channel_inbox
+	// and replies flow through channel_outbox instead of the live stream.
+	if turnAppender := memory.NewTxSessionTurnAppender(s.mem); turnAppender != nil {
+		coordOpts = append(coordOpts, channel.WithTurnAppender(turnAppender))
+	}
+	// Outbox ops reach the platform through the running adapter instance this
+	// replica owns; a replica hosting no channels resolves to nothing and its
+	// dispatch sweep becomes a no-op.
+	coordOpts = append(coordOpts, channel.WithChannelResolver(func(channelID string) (pkgchannel.OperationSender, bool) {
+		if s.notifier == nil {
+			return nil, false
+		}
+		ch, ok := s.notifier.Lookup(channelID)
+		if !ok {
+			return nil, false
+		}
+		sender, ok := ch.(pkgchannel.OperationSender)
+		return sender, ok
+	}))
+	coordOpts = append(coordOpts, channel.WithOwnerTokenSource(func(channelID string) string {
+		if leases := s.pluginHost.ChannelLeases(); leases != nil {
+			return leases.Token(channelID)
+		}
+		return ""
+	}))
 	coordOpts = append(coordOpts, channel.WithGuestStore(channel.NewGuestStore(s.db)))
 	// Group event ingestion canonicalizes its images through the very pipeline
 	// ordinary sessions use, with the group as the media owner.
 	coordOpts = append(coordOpts, channel.WithSessionImages(s.sessionImages))
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
-	coordOpts = append(coordOpts, channel.WithPublisherRegistry(publisherRegistry))
 
 	// The channel domain builds the coordinator and its durable group dispatcher
 	// together and closes the coordinator<->dispatcher cycle; the HTTP server
@@ -521,6 +548,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		CredentialFrontDoor:  credFrontDoor,
 		OAuthAuthServer:      oauthAuthServer,
 		Group:                groupSvc,
+		SessionEvents:        sessionEventsForGateway(s.db),
+		DurableRuns:          durableRunsForGateway(s.db),
 		Vault:                s.vaultSvc,
 		VaultRecipient:       vaultRecipient,
 		MCP:                  s.mcpSvc,
@@ -725,6 +754,32 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		_ = ln.Close()
 		return fmt.Errorf("start managed channel runtimes: %w", err)
 	}
+	// Durable ingress loops are ingress-adjacent: they must start only
+	// after backends AND after managed channel runtimes exist (the outbox
+	// dispatcher resolves senders through them).
+	// waitDurableRuns, when bound, blocks the accepted-work drain step until a
+	// claimed run's finish transaction has committed — the runtime's own turn
+	// tracking ends when the event stream closes, before the finish lands.
+	var waitDurableRuns func(context.Context) error
+	if coordinator != nil {
+		// STELLA_RUN_WORKER=off pins this replica out of run execution
+		// (testbed role pinning, dedicated ingress/send replicas).
+		// ingressCtx ends claiming/routing at drain start; workCtx parents
+		// claimed turns so they finish inside the drain budget like
+		// HTTP-accepted work. gctx is the wrong parent: errgroup cancels it the
+		// moment g.Wait returns — mid-drain, once Serve and the dispatch loop
+		// have exited — which would kill an adopted turn before the
+		// accepted-work wait below ever lets the budget run out.
+		waitDurableRuns = coordinator.RunDurableLoops(ingressCtx, workCtx, os.Getenv("STELLA_RUN_WORKER") != "off")
+		// Scheduler/goal/notify sends become durable outbox ops; the channel
+		// lease owner performs the platform send.
+		if s.notifier != nil {
+			s.notifier.SetDurableSend(coordinator.EnqueueNotify)
+		}
+		if leases := s.pluginHost.ChannelLeases(); leases != nil {
+			go leases.Run(ingressCtx)
+		}
+	}
 	// HTTP serve — the final ingress source to come up.
 	g.Go(func() error { return normalizeServeErr(httpSrv.Serve(ln)) })
 
@@ -762,6 +817,11 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		waitAccepted: func(ctx context.Context) {
 			if err := s.poolManager.WaitInFlight(ctx); err != nil {
 				slog.Warn("graceful drain: accepted agent turns still in flight when the budget expired", "error.type", fmt.Sprintf("%T", err), "error.class", "drain_wait_failed")
+			}
+			if waitDurableRuns != nil {
+				if err := waitDurableRuns(ctx); err != nil {
+					slog.Warn("graceful drain: claimed channel runs still finishing when the budget expired", "error.type", fmt.Sprintf("%T", err), "error.class", "drain_wait_failed")
+				}
 			}
 		},
 		cancelWork: workCancel,
@@ -1022,20 +1082,16 @@ func hostFromAddr(addr string) string {
 	return host
 }
 
-func newIntentClassifier(snapshots config.SnapshotLoader, registry *providers.Registry) *channel.LLMIntentClassifier {
-	if snapshots == nil || registry == nil {
-		return nil
-	}
-	return channel.NewLLMIntentClassifier(
-		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
-			return snapshots.Snapshot(ctx, agentID)
-		},
-		intentClassifierStreamFuncBuilder(registry),
-	)
-}
-
 func intentClassifierStreamFuncBuilder(registry *providers.Registry) channel.StreamFuncBuilder {
 	return func(_ context.Context, providerType string, creds config.ProviderCreds) (providers.StreamFunc, error) {
 		return registry.BuildStream(providerType, providers.Config{APIKey: creds.APIKey, BaseURL: creds.BaseURL})
 	}
+}
+
+func durableRunsForGateway(db *pgxpool.Pool) *agentrun.Store {
+	return agentrun.New(db)
+}
+
+func sessionEventsForGateway(db *pgxpool.Pool) *sessionevent.Store {
+	return sessionevent.New(db)
 }

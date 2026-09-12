@@ -16,6 +16,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -34,9 +35,9 @@ const (
 	// global pool; per-(group, agent) serialization remains enforced by the
 	// durable claim and session queue. Raise only after measured saturation.
 	defaultGroupDispatchWorkers = 8
-	// groupReplyBufferBytes bounds the complete result retained between model
+	// maxCollectedReplyBytes bounds the complete result retained between model
 	// completion and egress. Raise only after adding BlobStore spooling.
-	defaultGroupReplyBufferBytes = 8 << 20
+	maxCollectedReplyBytes = 8 << 20
 )
 
 type dispatchChatFunc func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error)
@@ -76,8 +77,7 @@ type Coordination struct {
 }
 
 // NewCoordination constructs the coordinator and its group dispatcher together
-// and closes the coordinator<->dispatcher cycle. The dispatcher reuses the
-// coordinator's publisher registry (supplied via WithPublisherRegistry). The
+// and closes the coordinator<->dispatcher cycle. The
 // composition root receives the coordinator (as the channel Handler) and the
 // narrow GroupDispatcher port without wiring the cycle itself.
 func NewCoordination(
@@ -92,15 +92,12 @@ func NewCoordination(
 	opts ...CoordinatorOption,
 ) Coordination {
 	coord := NewCoordinator(pm, store, listFn, switchFn, opts...)
-	gd := NewGroupDispatcher(db, coord, nil)
+	gd := NewGroupDispatcher(db, coord)
 	coord.SetGroupDispatcher(gd)
 	return Coordination{Coordinator: coord, GroupDispatcher: gd}
 }
 
-func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator, publishers *PublisherRegistry) *GroupDispatcher {
-	if publishers == nil && coord != nil {
-		publishers = coord.publisherRegistry
-	}
+func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator) *GroupDispatcher {
 	d := &GroupDispatcher{
 		db:            db,
 		q:             sqlc.New(db),
@@ -112,7 +109,10 @@ func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator, publishers *Publis
 		dispatchC:     make(chan sqlc.CtxGroupDispatch, 25),
 	}
 	d.chats = newGroupChatResolver(d.q, coord)
-	d.publish = newGroupPublishDriver(db, d.q, publishers, coord, d.log, d.Wake, d.chats.abort)
+	d.publish = newGroupPublishDriver(db, d.q, d.log, d.Wake)
+	// Group replies publish through the shared outbox ledger so the
+	// channel's lease owner performs the send on any replica.
+	d.publish.outbox = choutbox.New(db)
 	d.chat = d.chats.chatDispatch
 	return d
 }
@@ -244,16 +244,98 @@ func (d *GroupDispatcher) runWorker(ctx context.Context) {
 	}
 }
 
+// pollPublishOutcomes finishes dispatch rows whose platform send is a durable
+// outbox op: all ops sent -> mark published + finalize + complete; any
+// permanently failed -> the accepted-publish failure path. Pending, claimed,
+// and unknown states simply wait — the owning replica and the unknown-attempt
+// janitor move them.
+func (d *GroupDispatcher) pollPublishOutcomes(ctx context.Context) error {
+	rows, err := d.q.ListGroupDispatchesAwaitingPublish(ctx)
+	if err != nil {
+		return err
+	}
+	for _, id := range rows {
+		row, err := d.q.GetGroupDispatch(ctx, id)
+		if err != nil {
+			continue
+		}
+		ops, err := d.publish.outbox.ListByDelivery(ctx, "group:"+row.ID)
+		if err != nil {
+			return err
+		}
+		if !row.PublishedAt.Valid {
+			if len(ops) == 0 {
+				continue
+			}
+			allSent, anyFailed := true, false
+			var failErr string
+			for _, op := range ops {
+				switch op.State {
+				case choutbox.StateSent:
+				case choutbox.StateFailed, choutbox.StateCanceled:
+					// A canceled sibling means the chain broke upstream —
+					// the delivery can never complete.
+					anyFailed = true
+					failErr = op.ErrorCode.String
+					if failErr == "" {
+						failErr = "canceled"
+					}
+				default:
+					allSent = false
+				}
+			}
+			if anyFailed {
+				cause := fmt.Errorf("group reply send failed: %s", failErr)
+				_ = d.publish.failAcceptedPublishWithExpiryFence(ctx, row, cause, time.Time{})
+				continue
+			}
+			if !allSent {
+				continue
+			}
+			if err := d.publish.markPublished(ctx, row); err != nil {
+				return err
+			}
+			row.PublishedAt = nullTime(time.Now().UTC())
+		}
+		if err := d.publish.finalizeAcceptedPublished(ctx, row); err != nil {
+			return err
+		}
+		if err := d.completeDispatch(ctx, row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // AbortGroupTurn stops the active turn for one group member. It is intentionally
 // idempotent: a completed or unknown turn has nothing left to cancel.
 func (d *GroupDispatcher) AbortGroupTurn(groupID, agentID string) bool {
 	if d == nil || groupID == "" || agentID == "" {
 		return false
 	}
-	return d.chats.abort(agent.BuildGroupSessionKey(agentID, groupID))
+	sessionID := agent.BuildGroupSessionKey(agentID, groupID)
+	aborted := d.chats.abort(sessionID)
+	// The turn may execute on another replica: flag the durable execution
+	// lease so its worker aborts at the next lease check.
+	if d.db != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		q := sqlc.New(d.db)
+		if row, err := q.GetSessionExecution(ctx, sessionID); err == nil {
+			if _, err := q.CancelSessionExecution(ctx, sqlc.CancelSessionExecutionParams{SessionID: sessionID, Token: row.Token}); err != nil {
+				d.log.Warn("group turn durable cancel failed", "session", sessionID, "error", err)
+			} else {
+				aborted = true
+			}
+		}
+	}
+	return aborted
 }
 
 func (d *GroupDispatcher) poll(ctx context.Context) error {
+	if err := d.pollPublishOutcomes(ctx); err != nil {
+		d.log.Warn("group publish outcome poll failed", "error", err)
+	}
 	if err := d.reapExpired(ctx); err != nil {
 		return err
 	}
@@ -563,34 +645,14 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		d.log.Debug("ignoring invalid group outbox publish metadata", "dispatch_id", claimed.ID, "error", err)
 		envelope = GroupOutboxEnvelope{}
 	}
-	// A published marker means egress already succeeded. Its retry only runs
-	// idempotent DB finalization, so a missing publisher must not block it.
-	var publisher pkgchannel.GroupPublisher
-	if claimed.ResultMessageID == "" || !claimed.PublishedAt.Valid {
-		publisher, err = d.publish.publisherFor(state, claimed)
-		if err != nil {
-			return d.failDispatch(ctx, claimed, err)
-		}
-	}
 	// Egress compensation runs before triage on purpose. The reply is already
 	// committed and visible to peers; re-triaging it would count that very post
 	// (hard_cap, agent_lap) and go silent, leaving the message readable by
-	// agents and never delivered to the humans.
+	// agents and never delivered to the humans. Recovery trusts the committed
+	// ledger only: the send ops appended with the acceptance drive the
+	// delivery, never a reconstructed in-process send.
 	if claimed.ResultMessageID != "" {
-		if claimed.PublishedAt.Valid {
-			return d.publishAccepted(ownedCtx, publishJob{
-				row: claimed, trigger: message, state: state,
-			})
-		}
-		accepted, err := d.q.GetGroupMessage(ownedCtx, claimed.ResultMessageID)
-		if err != nil {
-			return d.failDispatch(ctx, claimed, fmt.Errorf("get accepted group result: %w", err))
-		}
-		d.log.Warn("replaying accepted group reply from canonical text after buffer loss", "dispatch_id", claimed.ID, "result_message_id", accepted.ID, "upgrade_trigger", "cross-process rich replay requires BlobStore event spooling")
-		return d.publishAccepted(ownedCtx, publishJob{
-			row: claimed, trigger: message, state: state, publisher: publisher,
-			response: groupResponseFromMessage(accepted),
-		})
+		return d.publishAccepted(ownedCtx, publishJob{row: claimed, state: state})
 	}
 	// Nudges pass the gate too: recovery may hand an agent the floor, but it
 	// must not bypass the hard caps that keep a stalled group from flooding.
@@ -619,7 +681,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 			return nil
 		}
 	}
-	result := &dispatchResult{dispatcher: d, row: claimed}
+	result := &dispatchResult{dispatcher: d, row: claimed, trigger: message, envelope: envelope, state: state}
 	chatCtx := agentruntime.WithGroupResultCommitter(ownedCtx, result)
 	stream, err := d.chat(chatCtx, claimed, message, state)
 	if errors.Is(err, errGroupNudgeMoot) {
@@ -670,14 +732,18 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if !result.committed {
 		return d.failDispatch(ctx, claimed, errors.New("group turn ended without committing its result"))
 	}
-	response, outcome := result.response, result.outcome
+	outcome := result.outcome
 	if outcome.Status != groupTurnAccepted {
 		d.announceTurn(claimed, string(outcome.Status), outcome.Reason)
 		return nil
 	}
+	if outcome.Enqueued {
+		// The outbox chain committed with the acceptance itself: the channel's
+		// lease owner performs the send and pollPublishOutcomes retires the row.
+		return nil
+	}
 	return d.publishAccepted(ownedCtx, publishJob{
-		row: claimed, trigger: message, state: state, publisher: publisher,
-		response: response, envelope: envelope, acceptedMessageID: outcome.Accepted.Message.ID,
+		row: claimed, state: state, acceptedMessageID: outcome.Accepted.Message.ID,
 	})
 }
 
@@ -712,6 +778,11 @@ func (d *GroupDispatcher) markAndAnnounce(ctx context.Context, row sqlc.CtxGroup
 // applies the row's terminal state. Retry policy stays with the row's owner.
 func (d *GroupDispatcher) publishAccepted(ctx context.Context, job publishJob) error {
 	row, err := d.publish.run(ctx, job)
+	if errors.Is(err, errPublishEnqueued) {
+		// The send became a durable outbox op; pollPublishOutcomes owns the row
+		// from here — it stays 'running' until the op reaches a terminal state.
+		return nil
+	}
 	if err != nil {
 		return d.failDispatch(ctx, row, err)
 	}
@@ -896,8 +967,8 @@ func (r *groupResponse) append(evt pkgchannel.Event, used *int) error {
 		return fmt.Errorf("encode group reply event: %w", err)
 	}
 	*used += len(encoded)
-	if *used > defaultGroupReplyBufferBytes {
-		return fmt.Errorf("group reply exceeded %d-byte buffer", defaultGroupReplyBufferBytes)
+	if *used > maxCollectedReplyBytes {
+		return fmt.Errorf("reply exceeded %d-byte buffer", maxCollectedReplyBytes)
 	}
 	r.events = append(r.events, evt)
 	r.text += evt.Text
