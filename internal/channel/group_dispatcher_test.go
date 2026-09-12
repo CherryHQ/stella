@@ -23,30 +23,10 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-type recordingGroupPublisher struct {
-	err         error
-	calls       int
-	texts       []string
-	deliveryIDs []string
-}
-
 type groupTurnCommitterFunc func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error
 
 func (f groupTurnCommitterFunc) CommitGroupTurn(ctx context.Context, q *sqlc.Queries, turn memory.DeferredGroupTurn) error {
 	return f(ctx, q, turn)
-}
-
-func (p *recordingGroupPublisher) Publish(ctx context.Context, req pkgchannel.GroupPublishRequest) error {
-	p.calls++
-	p.deliveryIDs = append(p.deliveryIDs, req.DeliveryID)
-	if req.Stream != nil {
-		for evt := range req.Stream.Events {
-			if evt.Text != "" {
-				p.texts = append(p.texts, evt.Text)
-			}
-		}
-	}
-	return p.err
 }
 
 type dispatcherFixture struct {
@@ -121,7 +101,7 @@ func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFix
 		t.Fatalf("create outbox: %v", err)
 	}
 	coord := &Coordinator{store: cfgstore.NewDBStore(db)}
-	d := NewGroupDispatcher(db, coord, NewPublisherRegistry())
+	d := NewGroupDispatcher(db, coord)
 	d.leaseDuration = 0
 	d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error { return nil }))
 	d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
@@ -396,7 +376,6 @@ func TestClaimNewestWakeKeepsAcceptedUnpublishedOlder(t *testing.T) {
 
 func TestGroupDispatcherWebNoMentionSingleMemberFallbackCreatesOneDispatch(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
 
 	if err := fx.d.processOutbox(context.Background(), fx.outbox); err != nil {
 		t.Fatalf("process outbox: %v", err)
@@ -587,7 +566,7 @@ func TestFreshnessGateHoldsWhenPeerPostedAfterSnapshot(t *testing.T) {
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "new"}); err != nil {
 		t.Fatal(err)
 	}
-	outcome, err := fx.d.acceptGroupResponse(context.Background(), row, groupResponse{text: "reply"}, memory.DeferredGroupTurn{Complete: true})
+	outcome, err := commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "reply"}}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, outcome, err, groupTurnHeld, "freshness")
 }
 
@@ -613,7 +592,7 @@ func TestFreshnessGateSerializesWithHumanIngest(t *testing.T) {
 	}
 	acceptC := make(chan error, 1)
 	go func() {
-		outcome, acceptErr := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "stale"}, memory.DeferredGroupTurn{Complete: true})
+		outcome, acceptErr := commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "stale"}}, memory.DeferredGroupTurn{Complete: true})
 		if acceptErr == nil && outcome.Status != groupTurnHeld {
 			acceptErr = fmt.Errorf("outcome=%s/%s, want held", outcome.Status, outcome.Reason)
 		}
@@ -649,7 +628,7 @@ func TestVerbatimDuplicateSilencedWithoutSpendingHold(t *testing.T) {
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-2", Content: "same"}); err != nil {
 		t.Fatal(err)
 	}
-	outcome, err := fx.d.acceptGroupResponse(context.Background(), row, groupResponse{text: "same"}, memory.DeferredGroupTurn{Complete: true})
+	outcome, err := commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "same"}}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, outcome, err, groupTurnSilent, "duplicate")
 }
 
@@ -674,7 +653,7 @@ func TestVerbatimDuplicateOutsideChainPostsThrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	outcome, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "done"}, memory.DeferredGroupTurn{Complete: true})
+	outcome, err := commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "done"}}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatalf("accept: %v", err)
 	}
@@ -691,7 +670,7 @@ func TestHardCapSilencesAcceptedTurn(t *testing.T) {
 	}
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000107", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
 	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000107")
-	outcome, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "reply"}, memory.DeferredGroupTurn{Complete: true})
+	outcome, err := commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "reply"}}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, outcome, err, groupTurnSilent, "hard_cap")
 	// silent, not held: the cap is terminal, so this row must not come back.
 	stopped, _ := fx.q.GetGroupDispatch(ctx, row.ID)
@@ -718,7 +697,7 @@ func TestAcceptRechecksChainHardCapAfterPeerPost(t *testing.T) {
 		t.Fatalf("current chain = %d/%v, want 1", chain, err)
 	}
 
-	outcome, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "late reply"}, memory.DeferredGroupTurn{Complete: true})
+	outcome, err := commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "late reply"}}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, outcome, err, groupTurnSilent, "hard_cap")
 }
 
@@ -761,7 +740,7 @@ func TestStopGroupTurnRejectsLostDispatchOwnership(t *testing.T) {
 			tc.prepare(t, fx)
 			row.AttemptCount++ // a previous owner retired this attempt after our read
 
-			_, err = fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "reply"}, memory.DeferredGroupTurn{Complete: true})
+			_, err = commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "reply"}}, memory.DeferredGroupTurn{Complete: true})
 			if err == nil || !strings.Contains(err.Error(), "lost dispatch ownership") {
 				t.Fatalf("accept error = %v, want lost dispatch ownership", err)
 			}
@@ -786,7 +765,7 @@ func TestHoldLimitPostsThrough(t *testing.T) {
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "new"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fx.d.acceptGroupResponse(context.Background(), row, groupResponse{text: "reply"}, memory.DeferredGroupTurn{Complete: true}); err != nil {
+	if _, err := commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "reply"}}, memory.DeferredGroupTurn{Complete: true}); err != nil {
 		t.Fatalf("hold limit must post through: %v", err)
 	}
 }
@@ -817,7 +796,7 @@ func TestHoldChainResetsAtNewHumanTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	outcome, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "reply"}, memory.DeferredGroupTurn{Complete: true})
+	outcome, err := commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "reply"}}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, outcome, err, groupTurnHeld, "freshness")
 }
 
@@ -863,7 +842,7 @@ func TestSystemMessageDoesNotTripFreshnessHold(t *testing.T) {
 	}
 	nudge := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000051", 2, eventlog.ActorSystem, "nudge", "agent-1, please continue.")
 	setGroupNextSeq(t, fx.db, fx.groupID, nudge.Seq)
-	outcome, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "the report is done"}, memory.DeferredGroupTurn{Complete: true})
+	outcome, err := commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "the report is done"}}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatalf("accept after nudge: %v", err)
 	}
@@ -909,7 +888,7 @@ func TestHoldNeverRepeatsOnSameSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstOutcome, err := fx.d.acceptGroupResponse(ctx, first, groupResponse{text: "first"}, memory.DeferredGroupTurn{Complete: true})
+	firstOutcome, err := commitGroupReply(t, fx, first, []agentruntime.Event{{Text: "first"}}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, firstOutcome, err, groupTurnHeld, "freshness")
 	held, _ := fx.q.GetGroupDispatch(ctx, first.ID)
 	if !held.HeldUpToSeq.Valid || held.HeldUpToSeq.Int64 != peer.Seq {
@@ -922,7 +901,7 @@ func TestHoldNeverRepeatsOnSameSnapshot(t *testing.T) {
 	if err != nil || !ok || successor.TriggerSeq != held.HeldUpToSeq.Int64 {
 		t.Fatalf("successor=%+v ok=%v err=%v", successor, ok, err)
 	}
-	secondOutcome, err := fx.d.acceptGroupResponse(ctx, successor, groupResponse{text: "second"}, memory.DeferredGroupTurn{Complete: true})
+	secondOutcome, err := commitGroupReply(t, fx, successor, []agentruntime.Event{{Text: "second"}}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil || secondOutcome.Status != groupTurnAccepted {
 		t.Fatalf("same covered snapshot held again: outcome=%s/%s err=%v", secondOutcome.Status, secondOutcome.Reason, err)
 	}
@@ -936,7 +915,6 @@ func TestHoldCommitsDeferredTurnWithoutFinalReply(t *testing.T) {
 		committed = turn
 		return nil
 	}))
-	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000104", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "newer"}); err != nil {
 		t.Fatal(err)
@@ -960,14 +938,14 @@ func TestPendingPostFinalFailureRequeuesHeldPeers(t *testing.T) {
 	addFixtureAgent(t, fx, "agent-2", "ch-2")
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000105", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
 	post, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000105")
-	accepted, err := fx.d.acceptGroupResponse(ctx, post, groupResponse{text: "pending delivery"}, memory.DeferredGroupTurn{Complete: true})
+	accepted, err := commitGroupReply(t, fx, post, []agentruntime.Event{{Text: "pending delivery"}}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	post.ResultMessageID = accepted.Accepted.Message.ID
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000106", "agent-2", fx.groupID, "running", pgtype.Timestamptz{})
 	peer, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000106")
-	peerOutcome, err := fx.d.acceptGroupResponse(ctx, peer, groupResponse{text: "peer reply"}, memory.DeferredGroupTurn{Complete: true})
+	peerOutcome, err := commitGroupReply(t, fx, peer, []agentruntime.Event{{Text: "peer reply"}}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, peerOutcome, err, groupTurnHeld, "freshness")
 	if err := fx.d.publish.failAcceptedPublishWithExpiryFence(ctx, post, errors.New("platform down"), time.Time{}); err == nil {
 		t.Fatal("final publish failure must be reported")
@@ -1021,7 +999,7 @@ func TestWebAgentReplyTraversesTheSameDeliveryLifecycle(t *testing.T) {
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000095", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
 	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000095")
 	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
-	result, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "peer reply"}, memory.DeferredGroupTurn{Complete: true})
+	result, err := commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "peer reply"}}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1032,11 +1010,7 @@ func TestWebAgentReplyTraversesTheSameDeliveryLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	publisher, err := fx.d.publish.publisherFor(state, row)
-	if err != nil {
-		t.Fatalf("web publisher: %v", err)
-	}
-	if err := fx.d.publishAccepted(ctx, publishJob{row: row, trigger: fx.message, state: state, publisher: publisher, response: groupResponse{text: "peer reply"}}); err != nil {
+	if err := fx.d.publishAccepted(ctx, publishJob{row: row, state: state, acceptedMessageID: result.Accepted.Message.ID}); err != nil {
 		t.Fatalf("publish accepted: %v", err)
 	}
 	message, err := fx.q.GetGroupMessage(ctx, result.Accepted.Message.ID)
@@ -1066,7 +1040,7 @@ func TestAgentReplyCreatesOutboxOnPlatformGroup(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", "{}")
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000096", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
 	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000096")
-	result, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "peer reply"}, memory.DeferredGroupTurn{Complete: true})
+	result, err := commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "peer reply"}}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1102,7 +1076,6 @@ func TestGroupDispatcherResolvesEnvelopeMentionAtDispatch(t *testing.T) {
 	reg := NewBotIdentityRegistry()
 	reg.Register("telegram", "bot1", "ch-1")
 	fx.d.coord.botRegistry = reg
-	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
 
 	if err := fx.d.processOutbox(context.Background(), fx.outbox); err != nil {
 		t.Fatalf("process outbox: %v", err)
@@ -1114,8 +1087,6 @@ func TestGroupDispatcherResolvesEnvelopeMentionAtDispatch(t *testing.T) {
 
 func TestGroupDispatcherExistingDispatchSkipsEnvelopeDecode(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{not-json`)
-	publisher := &recordingGroupPublisher{}
-	fx.d.publish.publishers.Register("ch-1", publisher)
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, "11111111-1111-1111-1111-111111111111", "agent-1", "pending", 0, pgtype.Timestamptz{})
 
 	if err := fx.d.processOutbox(context.Background(), fx.outbox); err != nil {
@@ -1254,8 +1225,6 @@ func TestPublishStartMarkerPersistsAcrossSendError(t *testing.T) {
 
 func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	publisher := &recordingGroupPublisher{}
-	fx.d.publish.publishers.Register("ch-1", publisher)
 	chatCalls := 0
 	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		chatCalls++
@@ -1314,8 +1283,6 @@ func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.
 func TestGroupDispatcherSupersededTriggerCompletesWithoutChat(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	fx.d.chat = fx.d.chats.chatDispatch // the cursor guard lives on the real chat path
-	publisher := &recordingGroupPublisher{}
-	fx.d.publish.publishers.Register("ch-1", publisher)
 	if err := fx.q.UpsertIngestCursor(context.Background(), sqlc.UpsertIngestCursorParams{
 		GroupID:  "11111111-1111-1111-1111-111111111111",
 		Pipeline: memory.GroupIngestPipeline("agent-1"),
@@ -1339,15 +1306,15 @@ func TestGroupDispatcherSupersededTriggerCompletesWithoutChat(t *testing.T) {
 	if dispatch.Status != "completed" {
 		t.Fatalf("dispatch status = %q, want completed retirement", dispatch.Status)
 	}
-	if publisher.calls != 0 {
-		t.Fatalf("publisher calls = %d, want the superseded turn never published", publisher.calls)
+	if ops, _ := fx.d.publish.outbox.ListByDelivery(context.Background(), "group:"+dispatch.ID); len(ops) != 0 {
+		t.Fatalf("outbox ops = %d, want the superseded turn never enqueued", len(ops))
 	}
 	if got := countAgentGroupMessages(t, fx.db); got != 0 {
 		t.Fatalf("agent messages = %d, want the superseded turn never ran", got)
 	}
 }
 
-func TestGroupDispatcherAcceptedResultSkipsChatAndReplaysPublish(t *testing.T) {
+func TestGroupDispatcherAcceptedResultSkipsChatAndTrustsCommittedOps(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
 	sender := &scriptedSender{}
 	chatCalls := 0
@@ -1367,6 +1334,10 @@ func TestGroupDispatcherAcceptedResultSkipsChatAndReplaysPublish(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
+	// The send ops committed atomically with the accept — a result row without
+	// them is a legacy/corrupt state and recovery must never reconstruct a
+	// send from canonical text. No chat, no platform call; the row waits for
+	// the outcome poll and the recovery ceiling to retire it.
 	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err != nil {
 		t.Fatalf("execute dispatch: %v", err)
 	}
@@ -1375,20 +1346,21 @@ func TestGroupDispatcherAcceptedResultSkipsChatAndReplaysPublish(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get dispatch after execute: %v", err)
 	}
-	if dispatch.Status != "completed" || chatCalls != 0 || len(sender.calls) != 1 {
-		t.Fatalf("status/chat/send = %q/%d/%d, want completed/0/1", dispatch.Status, chatCalls, len(sender.calls))
+	if dispatch.Status != "running" || chatCalls != 0 || len(sender.calls) != 0 {
+		t.Fatalf("status/chat/send = %q/%d/%d, want running/0/0", dispatch.Status, chatCalls, len(sender.calls))
 	}
 	if got := countAgentGroupMessages(t, fx.db); got != 1 {
 		t.Fatalf("agent messages = %d, want accepted result only", got)
 	}
 }
 
-// After a restart the in-memory event envelope is gone: the re-enqueued op's
-// payload is rebuilt from the committed canonical row — the accepted text and
-// reasoning, not a fresh model turn.
-func TestRepublishAfterRestartUsesCanonicalTextOnly(t *testing.T) {
+// After a restart the in-memory event envelope is gone and nothing rebuilds
+// it: the send ops committed with the accept are the only delivery truth. A
+// dispatch row carrying a result but no committed ops — a legacy or corrupt
+// state — must not be reconstructed into a fresh send.
+func TestRestartRecoveryNeverReconstructsSendOps(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
-	restarted := NewGroupDispatcher(fx.db, fx.d.coord, NewPublisherRegistry())
+	restarted := NewGroupDispatcher(fx.db, fx.d.coord)
 	restarted.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error {
 		t.Fatal("restart replay must not commit another group turn")
 		return nil
@@ -1418,28 +1390,20 @@ func TestRepublishAfterRestartUsesCanonicalTextOnly(t *testing.T) {
 		t.Fatalf("replay after restart: %v", err)
 	}
 	ops, err := restarted.publish.outbox.ListByDelivery(context.Background(), "group:"+"d15a0000-0000-0000-0000-000000000001")
-	if err != nil || len(ops) != 1 {
-		t.Fatalf("ops = %d, err = %v, want one send op", len(ops), err)
+	if err != nil || len(ops) != 0 {
+		t.Fatalf("ops = %d, err = %v, want no reconstructed send ops", len(ops), err)
 	}
-	var payload pkgchannel.GroupReplyOpPayload
-	if err := json.Unmarshal(ops[0].Payload, &payload); err != nil {
-		t.Fatalf("decode op payload: %v", err)
+	row, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(payload.Events) != 2 {
-		t.Fatalf("payload events = %d, want 2 canonical events", len(payload.Events))
-	}
-	if got := payload.Events[0].Reasoning; got != "canonical reasoning" {
-		t.Fatalf("first replay event reasoning = %q", got)
-	}
-	if got := payload.Events[1].Text; got != "canonical text" {
-		t.Fatalf("second replay event text = %q", got)
+	if row.Status != "running" {
+		t.Fatalf("dispatch = %q, want running until the outcome poll or the recovery ceiling retires it", row.Status)
 	}
 }
 
 func TestGroupDispatcherWebWriteErrorStillRecordsResult(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	publisher := &recordingGroupPublisher{}
-	fx.d.publish.publishers.Register("ch-1", publisher)
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, "11111111-1111-1111-1111-111111111111", "agent-1", "pending", 0, pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
@@ -1493,8 +1457,6 @@ func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
 
 func TestIncompleteStreamDiscardsDeferredTurnAndPersistsNothing(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	publisher := &recordingGroupPublisher{}
-	fx.d.publish.publishers.Register("ch-1", publisher)
 	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		return committedTestStream(ctx, "partial", memory.DeferredGroupTurn{Complete: false})
 	}
@@ -1506,8 +1468,8 @@ func TestIncompleteStreamDiscardsDeferredTurnAndPersistsNothing(t *testing.T) {
 	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err == nil {
 		t.Fatal("incomplete stream must fail the dispatch")
 	}
-	if publisher.calls != 0 || countAgentGroupMessages(t, fx.db) != 0 {
-		t.Fatalf("publisher/messages = %d/%d, want 0/0", publisher.calls, countAgentGroupMessages(t, fx.db))
+	if countAgentGroupMessages(t, fx.db) != 0 {
+		t.Fatalf("agent messages = %d, want 0", countAgentGroupMessages(t, fx.db))
 	}
 }
 
@@ -1520,7 +1482,6 @@ func TestAcceptTxRollbackAnnouncesNoMessage(t *testing.T) {
 	}))
 	follow, cancel := hub.Subscribe(fx.groupID)
 	defer cancel()
-	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
@@ -1639,10 +1600,12 @@ func TestGroupDispatcherHeartbeatCancelsBeforeUnconfirmedLeaseExpires(t *testing
 	}
 }
 
-// Ownership loss must stop the send commit: the publish-started marker CASes
-// on the claiming attempt_count, so a row reclaimed by another replica fails
-// the stale owner's enqueue instead of committing its op.
-func TestGroupDispatcherCancelsDispatchAfterOwnershipLoss(t *testing.T) {
+// A stale owner re-executing an already-accepted row adds nothing and marks
+// nothing: the send ops committed with the acceptance are the delivery, and
+// the poll retires the row. Ownership fencing at send time lives in the
+// accept transaction's attempt_count CAS (covered by the stale-stop cases
+// above) and in the delivery key's dedup.
+func TestGroupDispatcherRecoveryAfterOwnershipLossAddsNoOps(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
 	// An already-running, already-accepted row whose publish has not started:
 	// the stale owner's enqueue CASes on its claiming attempt_count.
@@ -1662,8 +1625,8 @@ func TestGroupDispatcherCancelsDispatchAfterOwnershipLoss(t *testing.T) {
 	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET attempt_count = attempt_count + 1 WHERE id = $1`, "d15a0000-0000-0000-0000-000000000001"); err != nil {
 		t.Fatalf("simulate dispatch ownership loss: %v", err)
 	}
-	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err == nil {
-		t.Fatal("execute dispatch succeeded after ownership loss")
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err != nil {
+		t.Fatalf("stale-owner recovery pass: %v", err)
 	}
 	current, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
@@ -1765,7 +1728,7 @@ func TestDispatchResultBuffersOutputWithSizeLimit(t *testing.T) {
 	if err := result.Observe(agentruntime.Event{Err: boom}); !errors.Is(err, boom) {
 		t.Fatalf("error=%v", err)
 	}
-	if err := result.Observe(agentruntime.Event{Text: strings.Repeat("x", defaultGroupReplyBufferBytes)}); err == nil {
+	if err := result.Observe(agentruntime.Event{Text: strings.Repeat("x", maxCollectedReplyBytes)}); err == nil {
 		t.Fatal("oversized reply accepted")
 	}
 	if result.response.text != "complete" || len(result.response.events) != 1 {
@@ -1866,8 +1829,6 @@ func TestTriggerLabelSurvivesImageOnlyMessage(t *testing.T) {
 func TestModelPassRetiresSilentWithoutPost(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	ctx := context.Background()
-	publisher := &recordingGroupPublisher{}
-	fx.d.publish.publishers.Register("ch-1", publisher)
 	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		return committedTestStream(ctx, "PASS", memory.DeferredGroupTurn{Complete: true})
 	}
@@ -1988,12 +1949,12 @@ func TestFinalFailureOnAcceptedRowReleasesHeldPeers(t *testing.T) {
 	addFixtureAgent(t, fx, "agent-2", "ch-2")
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-0000000001a4", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
 	post, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-0000000001a4")
-	if _, err := fx.d.acceptGroupResponse(ctx, post, groupResponse{text: "pending delivery"}, memory.DeferredGroupTurn{Complete: true}); err != nil {
+	if _, err := commitGroupReply(t, fx, post, []agentruntime.Event{{Text: "pending delivery"}}, memory.DeferredGroupTurn{Complete: true}); err != nil {
 		t.Fatal(err)
 	}
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-0000000001a5", "agent-2", fx.groupID, "running", pgtype.Timestamptz{})
 	peer, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-0000000001a5")
-	peerOutcome, err := fx.d.acceptGroupResponse(ctx, peer, groupResponse{text: "peer reply"}, memory.DeferredGroupTurn{Complete: true})
+	peerOutcome, err := commitGroupReply(t, fx, peer, []agentruntime.Event{{Text: "peer reply"}}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, peerOutcome, err, groupTurnHeld, "freshness")
 
 	// The accepted reply's platform send is permanently rejected: the outbox
@@ -2054,7 +2015,6 @@ func TestAcceptedTurnAnnouncesRunningThenDone(t *testing.T) {
 	fx.d.SetGroupEventHub(hub)
 	follow, cancel := hub.Subscribe(fx.groupID)
 	defer cancel()
-	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
@@ -2145,7 +2105,6 @@ func TestCompensationReplayAnnouncesDoneWithoutRunning(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	hub := NewGroupEventHub()
 	fx.d.SetGroupEventHub(hub)
-	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
 	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		t.Fatal("compensation replay must not run chat")
 		return nil, nil
@@ -2256,7 +2215,7 @@ func TestStoppedTurnsCommitHistoryToolTraceAndCursor(t *testing.T) {
 				t.Fatal(err)
 			}
 			tc.prepare(t, fx)
-			outcome, err := fx.d.acceptGroupResponse(ctx, row, groupResponse{text: "stale reply"}, memory.DeferredGroupTurn{
+			outcome, err := commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "stale reply"}}, memory.DeferredGroupTurn{
 				Complete: true, TriggerSeq: fx.message.Seq,
 				OwnRows: []ai.Message{
 					ai.AssistantMessage{Content: []ai.ContentBlock{ai.ToolCall{ID: "call-1", Name: "group_claim"}}},
@@ -2286,7 +2245,7 @@ func TestFailAcceptedPublishRequeuesOnlyCausallyHeldPeers(t *testing.T) {
 	}
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000204", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
 	post, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000204")
-	accepted, err := fx.d.acceptGroupResponse(ctx, post, groupResponse{text: "pending delivery"}, memory.DeferredGroupTurn{Complete: true})
+	accepted, err := commitGroupReply(t, fx, post, []agentruntime.Event{{Text: "pending delivery"}}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2365,7 +2324,7 @@ func TestAcceptedPublishLeaseRecoveryFailsAtTenAndReleasesPeers(t *testing.T) {
 	addFixtureAgent(t, fx, "agent-2", "ch-2")
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000209", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
 	post, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000209")
-	accepted, err := fx.d.acceptGroupResponse(ctx, post, groupResponse{text: "pending delivery"}, memory.DeferredGroupTurn{Complete: true})
+	accepted, err := commitGroupReply(t, fx, post, []agentruntime.Event{{Text: "pending delivery"}}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2399,7 +2358,7 @@ func TestExpiredAcceptedFailureDoesNotOverrideRenewedLease(t *testing.T) {
 	addFixtureAgent(t, fx, "agent-2", "ch-2")
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000213", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
 	post, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000213")
-	accepted, err := fx.d.acceptGroupResponse(ctx, post, groupResponse{text: "pending delivery"}, memory.DeferredGroupTurn{Complete: true})
+	accepted, err := commitGroupReply(t, fx, post, []agentruntime.Event{{Text: "pending delivery"}}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2520,33 +2479,54 @@ func committedTestStream(ctx context.Context, text string, turn memory.DeferredG
 	return textStream(text), nil
 }
 
+// commitGroupReply drives the production accept entry: the reply events go in
+// through Observe and Commit runs file preparation, op-chain construction and
+// the fenced append — the same seam the group runtime uses.
+func commitGroupReply(t *testing.T, fx dispatcherFixture, row sqlc.CtxGroupDispatch, events []agentruntime.Event, turn memory.DeferredGroupTurn) (groupAcceptOutcome, error) {
+	t.Helper()
+	ctx := context.Background()
+	trigger, err := fx.q.GetGroupMessage(ctx, row.GroupMessageID)
+	if err != nil {
+		return groupAcceptOutcome{}, err
+	}
+	state, err := fx.q.GetGroupStateByID(ctx, row.GroupID)
+	if err != nil {
+		return groupAcceptOutcome{}, err
+	}
+	res := &dispatchResult{dispatcher: fx.d, row: row, trigger: trigger, state: state}
+	for _, evt := range events {
+		if err := res.Observe(evt); err != nil {
+			return res.outcome, err
+		}
+	}
+	if turn.Session.ID == "" {
+		turn.Session.ID = "session-1"
+	}
+	err = res.Commit(ctx, turn)
+	return res.outcome, err
+}
+
 // Durable publish: the reply becomes an outbox op; only after the owning
 // replica's send lands does the dispatch complete and the message deliver.
 func TestGroupPublishThroughOutbox(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", `{}`)
-	fx.d.publish.outbox = choutbox.New(fx.db)
 	ctx := context.Background()
 
 	dispatchID := "d15a0000-0000-0000-0000-00000000000a"
 	insertGroupDispatch(t, fx.db, dispatchID, fx.message.ID, fx.groupID, "agent-1", "running", 0, nullTime(time.Now().UTC().Add(time.Minute)))
-	resultMsg := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000099", 2, eventlog.ActorAgent, "agent-1", "group reply")
-	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET result_message_id = $1 WHERE id = $2`, resultMsg.ID, dispatchID); err != nil {
-		t.Fatal(err)
-	}
 	row, err := fx.q.GetGroupDispatch(ctx, dispatchID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Enqueue: op committed, publish_started set, row still running.
-	err = fx.d.publish.enqueueAccepted(ctx, publishJob{
-		row:      row,
-		trigger:  fx.message,
-		state:    sqlc.CtxGroupState{Platform: "telegram", PlatformGroupID: "physical-group-1"},
-		response: groupResponse{text: "group reply", events: []pkgchannel.Event{{Text: "group reply"}}},
-	})
+	// The production accept entry commits the message, the send ops and the
+	// publish-started marker in one transaction.
+	result, err := commitGroupReply(t, fx, row, []agentruntime.Event{{Text: "group reply"}}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
-		t.Fatalf("enqueue: %v", err)
+		t.Fatalf("accept: %v", err)
+	}
+	if !result.Enqueued {
+		t.Fatal("accepted reply did not commit its outbox chain")
 	}
 	ops, err := fx.d.publish.outbox.ListByDelivery(ctx, "group:"+dispatchID)
 	if err != nil || len(ops) != 1 {
@@ -2558,18 +2538,6 @@ func TestGroupPublishThroughOutbox(t *testing.T) {
 	row, _ = fx.q.GetGroupDispatch(ctx, dispatchID)
 	if row.Status != "running" || !row.PublishStartedAt.Valid {
 		t.Fatalf("dispatch = %s started=%v", row.Status, row.PublishStartedAt.Valid)
-	}
-
-	// Re-enqueue dedups on the delivery key (crash between commit and finalize).
-	if err := fx.d.publish.enqueueAccepted(ctx, publishJob{
-		row: row, trigger: fx.message,
-		state:    sqlc.CtxGroupState{Platform: "telegram", PlatformGroupID: "physical-group-1"},
-		response: groupResponse{text: "group reply", events: []pkgchannel.Event{{Text: "group reply"}}},
-	}); err != nil {
-		t.Fatalf("re-enqueue: %v", err)
-	}
-	if ops, _ := fx.d.publish.outbox.ListByDelivery(ctx, "group:"+dispatchID); len(ops) != 1 {
-		t.Fatalf("re-enqueued ops = %d, want 1", len(ops))
 	}
 
 	// The owner sends; the outcome poll completes the dispatch.
@@ -2584,7 +2552,7 @@ func TestGroupPublishThroughOutbox(t *testing.T) {
 	if row.Status != "completed" || !row.PublishedAt.Valid {
 		t.Fatalf("dispatch = %s published=%v", row.Status, row.PublishedAt.Valid)
 	}
-	msg, _ := fx.q.GetGroupMessage(ctx, resultMsg.ID)
+	msg, _ := fx.q.GetGroupMessage(ctx, result.Accepted.Message.ID)
 	if msg.DeliveryState != "delivered" {
 		t.Fatalf("message delivery = %s", msg.DeliveryState)
 	}

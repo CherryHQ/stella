@@ -21,7 +21,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
 	"github.com/CherryHQ/stella/internal/sessionexecution"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/db/txlock"
 )
@@ -115,6 +117,21 @@ type ReplyAddress struct {
 	ReplyToKey string `json:"reply_to_key,omitempty"`
 	Scope      string `json:"scope,omitempty"` // platform conversation kind (e.g. qq "group"/"c2c")
 	Token      string `json:"token,omitempty"` // platform reply credential (e.g. weixin context_token)
+}
+
+// Result is a completed turn's explicit payload, built before the finish
+// transaction so the transaction only ever appends already-frozen work.
+type Result struct {
+	// SessionID binds the result to the run's session; the finish path
+	// refuses a payload minted for a different session.
+	SessionID string
+	// History is the turn's terminal history rows. Only the finish
+	// transaction commits them; intermediate tool/assistant rows already
+	// persisted during the turn.
+	History []ai.Message
+	// Ops is the fully prepared reply outbox chain — the finish hook only
+	// appends it. Empty for web/API runs and turns with nothing deliverable.
+	Ops []choutbox.Op
 }
 
 // RequestKeyInbox namespaces run idempotency to one accepted inbox event: the

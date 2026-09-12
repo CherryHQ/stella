@@ -235,6 +235,7 @@ func decodeOp(row sqlc.ChannelOutbox) (pkgchannel.OutboundOp, error) {
 		return pkgchannel.OutboundOp{}, err
 	}
 	return pkgchannel.OutboundOp{
+		ID:               row.ID,
 		Kind:             row.OperationKind,
 		DeliveryKey:      row.DeliveryKey,
 		OperationIndex:   int(row.OperationIndex),

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -76,22 +77,17 @@ func enqueueGroupReply(t *testing.T, fx dispatcherFixture, coord *Coordinator, m
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
-	response := groupResponse{events: []pkgchannel.Event{{Text: "group reply"}, {Image: &pkgchannel.ImageEvent{Data: "aW1n", MimeType: "image/png"}}}}
-	accepted, err := fx.d.acceptGroupResponse(ctx, row, response, memory.DeferredGroupTurn{Complete: true})
+	// The production accept entry builds and commits the whole op chain: the
+	// account snapshot is bound inside the same transaction as the message.
+	accepted, err := commitGroupReply(t, fx, row, []agentruntime.Event{
+		{Text: "group reply"},
+		{Image: &agentruntime.ImageEvent{Data: "aW1n", MimeType: "image/png"}},
+	}, memory.DeferredGroupTurn{Complete: true})
 	if err != nil {
 		t.Fatalf("accept response: %v", err)
 	}
-	row, err = fx.q.GetGroupDispatch(ctx, row.ID)
-	if err != nil {
-		t.Fatalf("reload dispatch: %v", err)
-	}
-	state, err := fx.q.GetGroupStateByID(ctx, fx.groupID)
-	if err != nil {
-		t.Fatalf("get state: %v", err)
-	}
-	job := publishJob{row: row, trigger: trigger, state: state, response: response, acceptedMessageID: accepted.Accepted.Message.ID}
-	if err := fx.d.publishAccepted(ctx, job); err != nil {
-		t.Fatalf("publish accepted: %v", err)
+	if !accepted.Enqueued {
+		t.Fatal("accepted reply did not commit its outbox chain")
 	}
 	return "group:" + row.ID
 }
@@ -301,7 +297,7 @@ func newTelegramGroupFixture(t *testing.T, db *pgxpool.Pool, coord *Coordinator)
 	}); err != nil {
 		t.Fatalf("add group member: %v", err)
 	}
-	d := NewGroupDispatcher(db, coord, NewPublisherRegistry())
+	d := NewGroupDispatcher(db, coord)
 	d.leaseDuration = 0
 	d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error { return nil }))
 	return dispatcherFixture{db: db, q: q, d: d, groupID: state.ID}

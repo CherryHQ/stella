@@ -242,7 +242,12 @@ func (b *Bot) sendAttachmentOp(ctx context.Context, op channel.OutboundOp) (chan
 		err = b.sendImageInThread(chatID, op.Address.ReplyToKey, op.Address.ThreadKey, channel.ImageEvent{Data: payload.Data, MimeType: payload.MimeType},
 			func() error { return op.CheckOwnership(ctx) })
 	case channel.AttachmentFile:
-		err = b.sendFileInThread(chatID, op.Address.ReplyToKey, op.Address.ThreadKey, channel.FileEvent{Path: payload.Path, Name: payload.Name},
+		data, oerr := channel.OpenAttachmentOp(ctx, b.handler, op)
+		if oerr != nil {
+			err = channel.ClassifyAttachmentErr("feishu", oerr)
+			break
+		}
+		err = b.sendFileDataInThread(chatID, op.Address.ReplyToKey, op.Address.ThreadKey, payload.Name, data,
 			func() error { return op.CheckOwnership(ctx) })
 	default:
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: unknown attachment kind %q", payload.Kind)

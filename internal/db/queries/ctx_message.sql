@@ -33,7 +33,9 @@ WHERE m.id = sqlc.arg('id')
   AND c.archived = false;
 
 -- name: GetMessagesByConversation :many
-SELECT * FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC;
+SELECT * FROM ctx_message WHERE conversation_id = $1
+  AND (sqlc.narg('snapshot_seq')::bigint IS NULL OR seq <= sqlc.narg('snapshot_seq'))
+ORDER BY seq ASC;
 
 -- name: GetConversationTimeBounds :one
 SELECT MIN(created_at) AS earliest_at, MAX(created_at) AS latest_at
@@ -66,6 +68,7 @@ WITH ordered AS (
     WHERE conversation_id = sqlc.arg('conversation_id')
       AND (sqlc.narg('after')::timestamptz IS NULL OR created_at >= sqlc.narg('after'))
       AND (sqlc.narg('before')::timestamptz IS NULL OR created_at <= sqlc.narg('before'))
+      AND (sqlc.narg('snapshot_seq')::bigint IS NULL OR seq <= sqlc.narg('snapshot_seq'))
 ), grouped AS (
     SELECT
         *,

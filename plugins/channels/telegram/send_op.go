@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -338,13 +339,34 @@ func (b *Bot) sendAttachmentOp(ctx context.Context, op channel.OutboundOp) (chan
 	if chat == nil {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: empty chat key")
 	}
+	// The frozen address carries the topic and reply anchor the rest of the
+	// chain used — an attachment that drops them lands in the wrong thread.
 	opts := &tele.SendOptions{}
+	if op.Address.ThreadKey != "" {
+		if id, err := strconv.Atoi(op.Address.ThreadKey); err == nil {
+			opts.ThreadID = id
+		}
+	}
+	if op.Address.ReplyToKey != "" {
+		if id, err := strconv.Atoi(op.Address.ReplyToKey); err == nil {
+			opts.ReplyTo = &tele.Message{ID: id}
+		}
+	}
 	var err error
 	switch payload.Kind {
 	case channel.AttachmentImage:
 		err = b.sendGroupImage(ctx, chat, channel.ImageEvent{Data: payload.Data, MimeType: payload.MimeType}, opts)
 	case channel.AttachmentFile:
-		err = b.sendGroupFile(ctx, chat, channel.FileEvent{Path: payload.Path, Name: payload.Name}, opts)
+		data, oerr := channel.OpenAttachmentOp(ctx, b.handler, op)
+		if oerr != nil {
+			err = channel.ClassifyAttachmentErr("telegram", oerr)
+			break
+		}
+		name := payload.Name
+		if name == "" {
+			name = "file"
+		}
+		err = b.sendGroupDocument(ctx, chat, func() tele.File { return tele.FromReader(bytes.NewReader(data)) }, name, opts)
 	default:
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: unknown attachment kind %q", payload.Kind)
 	}

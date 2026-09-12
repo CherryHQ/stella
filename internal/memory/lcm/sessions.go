@@ -406,7 +406,7 @@ func (p *Provider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Mess
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
 
-	msgs, err := p.q.GetMessagesByConversation(ctx, conv.ID)
+	msgs, err := p.q.GetMessagesByConversation(ctx, sqlc.GetMessagesByConversationParams{ConversationID: conv.ID})
 	if err != nil {
 		return nil, fmt.Errorf("get messages: %w", err)
 	}
@@ -436,7 +436,7 @@ func (p *Provider) LoadReviewHistory(ctx context.Context, sessionID string) ([]m
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
 
-	msgs, err := p.q.GetMessagesByConversation(ctx, conv.ID)
+	msgs, err := p.q.GetMessagesByConversation(ctx, sqlc.GetMessagesByConversationParams{ConversationID: conv.ID})
 	if err != nil {
 		return nil, fmt.Errorf("get messages: %w", err)
 	}

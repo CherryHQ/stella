@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 
@@ -112,9 +111,10 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 			err = b.sendImage(msg, channel.ImageEvent{Data: payload.Data, MimeType: payload.MimeType}, clientID,
 				func() error { return op.CheckOwnership(ctx) })
 		case channel.AttachmentFile:
-			data, rerr := os.ReadFile(payload.Path)
-			if rerr != nil {
-				return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "weixin: read attachment %s: %v", payload.Path, rerr)
+			data, oerr := channel.OpenAttachmentOp(ctx, b.handler, op)
+			if oerr != nil {
+				err = channel.ClassifyAttachmentErr("weixin", oerr)
+				break
 			}
 			err = b.sendFile(msg, payload.Name, data, clientID,
 				func() error { return op.CheckOwnership(ctx) })

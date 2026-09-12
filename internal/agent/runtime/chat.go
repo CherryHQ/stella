@@ -318,7 +318,10 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 				return fmt.Errorf("persist Session inbox input: %w", err)
 			}
 		} else if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
-			if hasCanonicalImage || errors.Is(err, sessionexecution.ErrLost) {
+			// With the durable event log armed the input must be canonical
+			// before the turn_start boundary is written — a lost prompt makes
+			// every later replay rebuild a turn without its message.
+			if hasCanonicalImage || rt.eventSink != nil || errors.Is(err, sessionexecution.ErrLost) {
 				return fmt.Errorf("persist canonical user message: %w", err)
 			}
 			rt.log.Warn("memory append user message failed", "session_id", info.ID, "error", err)
@@ -331,6 +334,17 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		}
 		return nil
 	}
+	// The turn's input is canonically committed and the execution fence is
+	// verified — record the durable turn_start anchor (history boundary B)
+	// before the runner emits anything. Its commit order ahead of every
+	// forwarder append is what lets an observer rebuild this turn from seq 0.
+	if rt.eventSink != nil {
+		if l := sessionexecution.FromContext(ctx); l != nil && l.SessionID() == info.ID {
+			if err := rt.eventSink.TurnStart(ctx, info.ID, l.Token(), co.runID); err != nil {
+				return fmt.Errorf("record turn start: %w", err)
+			}
+		}
+	}
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	stream := selection.runner.Chat(context.WithValue(runCtx, groupResultKey{}, false), history, modelMsg)
@@ -341,7 +355,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 			cancelRun()
 		}
 	}
-	ownRows, chatErr := rt.streamEvents(runCtx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, stopModel, storePrefix...)
+	ownRows, chatErr := rt.streamEvents(runCtx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, stopModel, co.finalHistory, storePrefix...)
 	// An observer or persistence failure may leave the runner producing events.
 	// Cancel and join it before releasing its reservation or reporting completion.
 	cancelRun()
@@ -508,6 +522,7 @@ func (rt *Runtime) streamEvents(
 	hookMeta hooks.HookMeta,
 	chatStart time.Time,
 	stopModel func(),
+	finalSink *[]ai.Message,
 	storePrefix ...ai.Message,
 ) ([]ai.Message, error) {
 	persistCtx := context.WithoutCancel(ctx)
@@ -516,19 +531,11 @@ func (rt *Runtime) streamEvents(
 	var pendingStores []ai.Message
 	var textBuf strings.Builder
 	var reasoningBuf strings.Builder
-	deferred, _ := session.DeferredTurnStoreFrom(ctx)
 	appendWithPrefix := func(msgs ...ai.Message) error {
 		storeMessages := make([]ai.Message, 0, len(storePrefix)+len(msgs))
 		storeMessages = append(storeMessages, storePrefix...)
 		storeMessages = append(storeMessages, msgs...)
 		storePrefix = nil
-		if deferred != nil && !isGroup {
-			// The worker's finish transaction owns this turn's history: every
-			// durable append joins the run/outbox commit (plan D4) instead of
-			// being visible while the run can still fail.
-			deferred.Append(storeMessages...)
-			return nil
-		}
 		return rt.mem.Append(persistCtx, memSess, storeMessages...)
 	}
 	storeCurrent := func(msgs ...ai.Message) error {
@@ -654,6 +661,14 @@ func (rt *Runtime) streamEvents(
 		return nil, nil
 	}
 	if len(pendingStores) > 0 {
+		if finalSink != nil {
+			// The owning finish transaction commits the final reply's history
+			// atomically with the run's reply ops; any still-unconsumed input
+			// prefix rows ride along so the turn's transcript stays whole.
+			*finalSink = append(*finalSink, storePrefix...)
+			*finalSink = append(*finalSink, pendingStores...)
+			return nil, nil
+		}
 		if err := appendWithPrefix(pendingStores...); err != nil {
 			rt.log.Warn("memory append final message failed", "session_id", sessionID, "error", err)
 			return nil, fmt.Errorf("memory append final message: %w", err)

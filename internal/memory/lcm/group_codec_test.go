@@ -52,7 +52,7 @@ func TestGroupDurableWriteUsesCanonicalCodec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, err := q.GetMessagesByConversation(ctx, convID)
+	rows, err := q.GetMessagesByConversation(ctx, sqlc.GetMessagesByConversationParams{ConversationID: convID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestGroupDurableWriteUsesCanonicalCodec(t *testing.T) {
 	if err := p.Append(ctx, session, image); err != nil {
 		t.Fatalf("canonical group media: %v", err)
 	}
-	rows, err = q.GetMessagesByConversation(ctx, convID)
+	rows, err = q.GetMessagesByConversation(ctx, sqlc.GetMessagesByConversationParams{ConversationID: convID})
 	if err != nil {
 		t.Fatal(err)
 	}

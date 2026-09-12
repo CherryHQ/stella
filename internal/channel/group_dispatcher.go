@@ -35,9 +35,9 @@ const (
 	// global pool; per-(group, agent) serialization remains enforced by the
 	// durable claim and session queue. Raise only after measured saturation.
 	defaultGroupDispatchWorkers = 8
-	// groupReplyBufferBytes bounds the complete result retained between model
+	// maxCollectedReplyBytes bounds the complete result retained between model
 	// completion and egress. Raise only after adding BlobStore spooling.
-	defaultGroupReplyBufferBytes = 8 << 20
+	maxCollectedReplyBytes = 8 << 20
 )
 
 type dispatchChatFunc func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error)
@@ -77,8 +77,7 @@ type Coordination struct {
 }
 
 // NewCoordination constructs the coordinator and its group dispatcher together
-// and closes the coordinator<->dispatcher cycle. The dispatcher reuses the
-// coordinator's publisher registry (supplied via WithPublisherRegistry). The
+// and closes the coordinator<->dispatcher cycle. The
 // composition root receives the coordinator (as the channel Handler) and the
 // narrow GroupDispatcher port without wiring the cycle itself.
 func NewCoordination(
@@ -93,15 +92,12 @@ func NewCoordination(
 	opts ...CoordinatorOption,
 ) Coordination {
 	coord := NewCoordinator(pm, store, listFn, switchFn, opts...)
-	gd := NewGroupDispatcher(db, coord, nil)
+	gd := NewGroupDispatcher(db, coord)
 	coord.SetGroupDispatcher(gd)
 	return Coordination{Coordinator: coord, GroupDispatcher: gd}
 }
 
-func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator, publishers *PublisherRegistry) *GroupDispatcher {
-	if publishers == nil && coord != nil {
-		publishers = coord.publisherRegistry
-	}
+func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator) *GroupDispatcher {
 	d := &GroupDispatcher{
 		db:            db,
 		q:             sqlc.New(db),
@@ -113,7 +109,7 @@ func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator, publishers *Publis
 		dispatchC:     make(chan sqlc.CtxGroupDispatch, 25),
 	}
 	d.chats = newGroupChatResolver(d.q, coord)
-	d.publish = newGroupPublishDriver(db, d.q, publishers, coord, d.log, d.Wake, d.chats.abort)
+	d.publish = newGroupPublishDriver(db, d.q, d.log, d.Wake)
 	// Group replies publish through the shared outbox ledger so the
 	// channel's lease owner performs the send on any replica.
 	d.publish.outbox = choutbox.New(db)
@@ -254,9 +250,6 @@ func (d *GroupDispatcher) runWorker(ctx context.Context) {
 // and unknown states simply wait — the owning replica and the unknown-attempt
 // janitor move them.
 func (d *GroupDispatcher) pollPublishOutcomes(ctx context.Context) error {
-	if d.publish.outbox == nil {
-		return nil
-	}
 	rows, err := d.q.ListGroupDispatchesAwaitingPublish(ctx)
 	if err != nil {
 		return err
@@ -652,37 +645,14 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		d.log.Debug("ignoring invalid group outbox publish metadata", "dispatch_id", claimed.ID, "error", err)
 		envelope = GroupOutboxEnvelope{}
 	}
-	// A published marker means egress already succeeded. Its retry only runs
-	// idempotent DB finalization, so a missing publisher must not block it.
-	var publisher pkgchannel.GroupPublisher
-	if d.publish.outbox == nil && (claimed.ResultMessageID == "" || !claimed.PublishedAt.Valid) {
-		// In-process publish only: a missing publisher fails the send here.
-		// With the durable outbox the lease owner's adapter performs the send,
-		// so this replica needs no publisher at all.
-		publisher, err = d.publish.publisherFor(state, claimed)
-		if err != nil {
-			return d.failDispatch(ctx, claimed, err)
-		}
-	}
 	// Egress compensation runs before triage on purpose. The reply is already
 	// committed and visible to peers; re-triaging it would count that very post
 	// (hard_cap, agent_lap) and go silent, leaving the message readable by
-	// agents and never delivered to the humans.
+	// agents and never delivered to the humans. Recovery trusts the committed
+	// ledger only: the send ops appended with the acceptance drive the
+	// delivery, never a reconstructed in-process send.
 	if claimed.ResultMessageID != "" {
-		if claimed.PublishedAt.Valid {
-			return d.publishAccepted(ownedCtx, publishJob{
-				row: claimed, trigger: message, state: state,
-			})
-		}
-		accepted, err := d.q.GetGroupMessage(ownedCtx, claimed.ResultMessageID)
-		if err != nil {
-			return d.failDispatch(ctx, claimed, fmt.Errorf("get accepted group result: %w", err))
-		}
-		d.log.Warn("replaying accepted group reply from canonical text after buffer loss", "dispatch_id", claimed.ID, "result_message_id", accepted.ID, "upgrade_trigger", "cross-process rich replay requires BlobStore event spooling")
-		return d.publishAccepted(ownedCtx, publishJob{
-			row: claimed, trigger: message, state: state, publisher: publisher,
-			response: groupResponseFromMessage(accepted),
-		})
+		return d.publishAccepted(ownedCtx, publishJob{row: claimed, state: state})
 	}
 	// Nudges pass the gate too: recovery may hand an agent the floor, but it
 	// must not bypass the hard caps that keep a stalled group from flooding.
@@ -711,7 +681,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 			return nil
 		}
 	}
-	result := &dispatchResult{dispatcher: d, row: claimed}
+	result := &dispatchResult{dispatcher: d, row: claimed, trigger: message, envelope: envelope, state: state}
 	chatCtx := agentruntime.WithGroupResultCommitter(ownedCtx, result)
 	stream, err := d.chat(chatCtx, claimed, message, state)
 	if errors.Is(err, errGroupNudgeMoot) {
@@ -762,14 +732,18 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if !result.committed {
 		return d.failDispatch(ctx, claimed, errors.New("group turn ended without committing its result"))
 	}
-	response, outcome := result.response, result.outcome
+	outcome := result.outcome
 	if outcome.Status != groupTurnAccepted {
 		d.announceTurn(claimed, string(outcome.Status), outcome.Reason)
 		return nil
 	}
+	if outcome.Enqueued {
+		// The outbox chain committed with the acceptance itself: the channel's
+		// lease owner performs the send and pollPublishOutcomes retires the row.
+		return nil
+	}
 	return d.publishAccepted(ownedCtx, publishJob{
-		row: claimed, trigger: message, state: state, publisher: publisher,
-		response: response, envelope: envelope, acceptedMessageID: outcome.Accepted.Message.ID,
+		row: claimed, state: state, acceptedMessageID: outcome.Accepted.Message.ID,
 	})
 }
 
@@ -993,8 +967,8 @@ func (r *groupResponse) append(evt pkgchannel.Event, used *int) error {
 		return fmt.Errorf("encode group reply event: %w", err)
 	}
 	*used += len(encoded)
-	if *used > defaultGroupReplyBufferBytes {
-		return fmt.Errorf("group reply exceeded %d-byte buffer", defaultGroupReplyBufferBytes)
+	if *used > maxCollectedReplyBytes {
+		return fmt.Errorf("reply exceeded %d-byte buffer", maxCollectedReplyBytes)
 	}
 	r.events = append(r.events, evt)
 	r.text += evt.Text

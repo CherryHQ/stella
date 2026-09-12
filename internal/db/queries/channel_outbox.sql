@@ -2,10 +2,43 @@
 -- Idempotent on (delivery_key, operation_index): a completing run that
 -- crashes before commit retries the whole completion transaction and the
 -- retry must produce the same ledger.
-INSERT INTO channel_outbox (run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, next_attempt_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO channel_outbox (run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, next_attempt_at, group_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (delivery_key, operation_index) DO NOTHING
 RETURNING *;
+
+-- name: ChannelOutboxOpMatches :one
+-- Dedup verification compares JSONB semantically — key order and whitespace
+-- normalize on write — and only the frozen identity columns: never state,
+-- tokens, or scheduling fields a live send mutates.
+SELECT EXISTS (
+    SELECT 1 FROM channel_outbox
+    WHERE delivery_key = sqlc.arg(delivery_key) AND operation_index = sqlc.arg(operation_index)
+      AND operation_kind = sqlc.arg(operation_kind) AND channel_id = sqlc.arg(channel_id)
+      AND source_account_key = sqlc.arg(source_account_key)
+      AND run_id IS NOT DISTINCT FROM sqlc.arg(run_id)
+      AND group_id IS NOT DISTINCT FROM sqlc.arg(group_id)
+      AND address = sqlc.arg(address)::jsonb AND payload = sqlc.arg(payload)::jsonb
+      AND depends_on = sqlc.arg(depends_on)::jsonb
+);
+
+-- name: CreateChannelOutboxAttachment :exec
+-- File body for one send_attachment op, written with the op in the same
+-- transaction. A dedup hit on the op never reaches here — the append path
+-- verifies the existing row instead of overwriting bytes.
+INSERT INTO channel_outbox_attachment (outbox_id, data)
+VALUES ($1, $2);
+
+-- name: GetChannelOutboxAttachment :one
+-- Send-boundary lazy read: the op's own row id addresses its bytes.
+SELECT data FROM channel_outbox_attachment
+WHERE outbox_id = $1;
+
+-- name: GetChannelOutboxAttachmentByKey :one
+-- Dedup verification reads the stored body through the op's natural key.
+SELECT a.data FROM channel_outbox_attachment a
+JOIN channel_outbox o ON o.id = a.outbox_id
+WHERE o.delivery_key = $1 AND o.operation_index = $2;
 
 -- name: GetChannelOutboxByDelivery :many
 SELECT * FROM channel_outbox

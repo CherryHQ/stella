@@ -12,22 +12,111 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getSessionStartEvent = `-- name: GetSessionStartEvent :one
+SELECT id, session_id, run_id, seq, event, created_at, execution_id FROM ctx_session_event
+WHERE session_id = $1 AND execution_id = $2 AND event->>'type' = 'turn_start'
+ORDER BY seq DESC
+LIMIT 1
+`
+
+type GetSessionStartEventParams struct {
+	SessionID   string      `json:"session_id"`
+	ExecutionID pgtype.Text `json:"execution_id"`
+}
+
+// The execution's turn_start marker carries the canonical history boundary
+// (history_before_seq) a cold reload rebuilds from.
+func (q *Queries) GetSessionStartEvent(ctx context.Context, arg GetSessionStartEventParams) (CtxSessionEvent, error) {
+	row := q.db.QueryRow(ctx, getSessionStartEvent, arg.SessionID, arg.ExecutionID)
+	var i CtxSessionEvent
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.RunID,
+		&i.Seq,
+		&i.Event,
+		&i.CreatedAt,
+		&i.ExecutionID,
+	)
+	return i, err
+}
+
+const getSessionStartEventForRun = `-- name: GetSessionStartEventForRun :one
+SELECT id, session_id, run_id, seq, event, created_at, execution_id FROM ctx_session_event
+WHERE session_id = $1 AND run_id = $2 AND event->>'type' = 'turn_start'
+ORDER BY seq DESC
+LIMIT 1
+`
+
+type GetSessionStartEventForRunParams struct {
+	SessionID string      `json:"session_id"`
+	RunID     pgtype.Text `json:"run_id"`
+}
+
+// Same start marker resolved by run id — run watchers hold the run coordinate,
+// not the execution token.
+func (q *Queries) GetSessionStartEventForRun(ctx context.Context, arg GetSessionStartEventForRunParams) (CtxSessionEvent, error) {
+	row := q.db.QueryRow(ctx, getSessionStartEventForRun, arg.SessionID, arg.RunID)
+	var i CtxSessionEvent
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.RunID,
+		&i.Seq,
+		&i.Event,
+		&i.CreatedAt,
+		&i.ExecutionID,
+	)
+	return i, err
+}
+
+const getSessionTerminalEvent = `-- name: GetSessionTerminalEvent :one
+SELECT id, session_id, run_id, seq, event, created_at, execution_id FROM ctx_session_event
+WHERE session_id = $1 AND execution_id = $2 AND event->>'type' = 'turn_terminal'
+ORDER BY seq DESC
+LIMIT 1
+`
+
+type GetSessionTerminalEventParams struct {
+	SessionID   string      `json:"session_id"`
+	ExecutionID pgtype.Text `json:"execution_id"`
+}
+
+// The explicit turn_terminal marker for one execution, written inside the
+// finish/reap transaction. Presence — not lease disappearance — ends a tail.
+func (q *Queries) GetSessionTerminalEvent(ctx context.Context, arg GetSessionTerminalEventParams) (CtxSessionEvent, error) {
+	row := q.db.QueryRow(ctx, getSessionTerminalEvent, arg.SessionID, arg.ExecutionID)
+	var i CtxSessionEvent
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.RunID,
+		&i.Seq,
+		&i.Event,
+		&i.CreatedAt,
+		&i.ExecutionID,
+	)
+	return i, err
+}
+
 const insertSessionEvent = `-- name: InsertSessionEvent :exec
-INSERT INTO ctx_session_event (session_id, run_id, seq, event)
-VALUES ($1, $2, $3, $4)
+INSERT INTO ctx_session_event (session_id, run_id, execution_id, seq, event)
+VALUES ($1, $2, $3, $4, $5)
 `
 
 type InsertSessionEventParams struct {
-	SessionID string          `json:"session_id"`
-	RunID     pgtype.Text     `json:"run_id"`
-	Seq       int64           `json:"seq"`
-	Event     json.RawMessage `json:"event"`
+	SessionID   string          `json:"session_id"`
+	RunID       pgtype.Text     `json:"run_id"`
+	ExecutionID pgtype.Text     `json:"execution_id"`
+	Seq         int64           `json:"seq"`
+	Event       json.RawMessage `json:"event"`
 }
 
 func (q *Queries) InsertSessionEvent(ctx context.Context, arg InsertSessionEventParams) error {
 	_, err := q.db.Exec(ctx, insertSessionEvent,
 		arg.SessionID,
 		arg.RunID,
+		arg.ExecutionID,
 		arg.Seq,
 		arg.Event,
 	)
@@ -81,11 +170,24 @@ func (q *Queries) NextSessionEventSeq(ctx context.Context, sessionID string) (in
 }
 
 const pruneSessionEvents = `-- name: PruneSessionEvents :execrows
-DELETE FROM ctx_session_event
-WHERE created_at < clock_timestamp() - interval '24 hours'
+DELETE FROM ctx_session_event e
+WHERE (e.execution_id IS NULL
+       AND e.created_at < now() - interval '24 hours')
+   OR (e.execution_id IS NOT NULL AND EXISTS (
+       SELECT 1 FROM ctx_session_event t
+       WHERE t.session_id = e.session_id
+         AND t.execution_id = e.execution_id
+         AND t.event->>'type' = 'turn_terminal'
+         AND t.created_at < now() - interval '24 hours'))
 `
 
-// Retention: drop events older than the keep window.
+// Retention: legacy rows without an execution coordinate age out on their
+// own created_at. Execution-scoped rows are prunable only as a whole segment
+// once the execution's turn_terminal marker itself is past the window — the
+// terminal's age, not each event's, is the anchor, so a turn whose start is
+// old but whose terminal just landed keeps its full replay window while a
+// bootstrapping observer rebuilds it. One statement snapshot decides which
+// segments go.
 func (q *Queries) PruneSessionEvents(ctx context.Context) (int64, error) {
 	result, err := q.db.Exec(ctx, pruneSessionEvents)
 	if err != nil {
@@ -94,8 +196,57 @@ func (q *Queries) PruneSessionEvents(ctx context.Context) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const readSessionEventsForExecution = `-- name: ReadSessionEventsForExecution :many
+SELECT id, session_id, run_id, seq, event, created_at, execution_id FROM ctx_session_event
+WHERE session_id = $1 AND execution_id = $2 AND seq > $3
+ORDER BY seq
+LIMIT $4
+`
+
+type ReadSessionEventsForExecutionParams struct {
+	SessionID   string      `json:"session_id"`
+	ExecutionID pgtype.Text `json:"execution_id"`
+	Seq         int64       `json:"seq"`
+	Limit       int32       `json:"limit"`
+}
+
+// Durable replay of one execution's turn (non-run paths): events stamped with
+// the lease token, after cursor.
+func (q *Queries) ReadSessionEventsForExecution(ctx context.Context, arg ReadSessionEventsForExecutionParams) ([]CtxSessionEvent, error) {
+	rows, err := q.db.Query(ctx, readSessionEventsForExecution,
+		arg.SessionID,
+		arg.ExecutionID,
+		arg.Seq,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxSessionEvent{}
+	for rows.Next() {
+		var i CtxSessionEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.RunID,
+			&i.Seq,
+			&i.Event,
+			&i.CreatedAt,
+			&i.ExecutionID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const readSessionEventsForRun = `-- name: ReadSessionEventsForRun :many
-SELECT id, session_id, run_id, seq, event, created_at FROM ctx_session_event
+SELECT id, session_id, run_id, seq, event, created_at, execution_id FROM ctx_session_event
 WHERE session_id = $1 AND run_id = $2 AND seq > $3
 ORDER BY seq
 LIMIT $4
@@ -130,6 +281,7 @@ func (q *Queries) ReadSessionEventsForRun(ctx context.Context, arg ReadSessionEv
 			&i.Seq,
 			&i.Event,
 			&i.CreatedAt,
+			&i.ExecutionID,
 		); err != nil {
 			return nil, err
 		}
@@ -142,7 +294,7 @@ func (q *Queries) ReadSessionEventsForRun(ctx context.Context, arg ReadSessionEv
 }
 
 const readSessionEventsSince = `-- name: ReadSessionEventsSince :many
-SELECT id, session_id, run_id, seq, event, created_at FROM ctx_session_event
+SELECT id, session_id, run_id, seq, event, created_at, execution_id FROM ctx_session_event
 WHERE session_id = $1 AND seq > $2
 ORDER BY seq
 LIMIT $3
@@ -171,6 +323,7 @@ func (q *Queries) ReadSessionEventsSince(ctx context.Context, arg ReadSessionEve
 			&i.Seq,
 			&i.Event,
 			&i.CreatedAt,
+			&i.ExecutionID,
 		); err != nil {
 			return nil, err
 		}

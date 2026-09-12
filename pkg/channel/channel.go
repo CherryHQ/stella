@@ -151,10 +151,20 @@ type ImageEvent struct {
 	MimeType string // e.g. "image/jpeg"
 }
 
-// FileEvent carries a local file path to send to the user.
+// FileEvent carries a local file to send to the user. Path is the producer's
+// workspace location, valid only until op preparation reads the bytes into
+// Data and clears it — a persisted or replayed event never re-reads a path.
 type FileEvent struct {
-	Path string // absolute path on disk
-	Name string // display filename (with extension)
+	// Path is the producer's workspace location — prepare-time only. It is
+	// consumed (read into Data, then cleared) before the op commits and never
+	// reaches a persisted payload.
+	Path     string `json:"-"`
+	Name     string
+	MimeType string
+	// Data holds the file bytes between preparation and op append. It is
+	// transient: the durable copy lives in channel_outbox_attachment, so the
+	// payload and replayed events never carry file bodies.
+	Data []byte `json:"-"`
 }
 
 // ToolUseEvent describes a tool invocation in progress or completed.

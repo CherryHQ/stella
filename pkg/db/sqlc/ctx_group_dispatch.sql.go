@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -489,7 +490,7 @@ func (q *Queries) GetGroupDispatch(ctx context.Context, id string) (CtxGroupDisp
 }
 
 const latestTerminalGroupDispatchStates = `-- name: LatestTerminalGroupDispatchStates :many
-SELECT DISTINCT ON (agent_id) agent_id, status
+SELECT DISTINCT ON (agent_id) agent_id, status, id, attempt_count, updated_at, last_error
 FROM ctx_group_dispatch
 WHERE group_id = $1
   AND agent_id = ANY($2::text[])
@@ -503,12 +504,19 @@ type LatestTerminalGroupDispatchStatesParams struct {
 }
 
 type LatestTerminalGroupDispatchStatesRow struct {
-	AgentID string `json:"agent_id"`
-	Status  string `json:"status"`
+	AgentID      string    `json:"agent_id"`
+	Status       string    `json:"status"`
+	ID           string    `json:"id"`
+	AttemptCount int64     `json:"attempt_count"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	LastError    string    `json:"last_error"`
 }
 
 // The newest terminal dispatch per agent — lets a replica that never ran the
 // turn project the real terminal frame (done/held/silent/failed) onto its SSE.
+// id+attempt_count+updated_at is the generation token a reconcile diffs so two
+// consecutive identical outcomes still emit two frames; last_error carries the
+// persisted reason (held rows record none).
 func (q *Queries) LatestTerminalGroupDispatchStates(ctx context.Context, arg LatestTerminalGroupDispatchStatesParams) ([]LatestTerminalGroupDispatchStatesRow, error) {
 	rows, err := q.db.Query(ctx, latestTerminalGroupDispatchStates, arg.GroupID, arg.Column2)
 	if err != nil {
@@ -518,7 +526,14 @@ func (q *Queries) LatestTerminalGroupDispatchStates(ctx context.Context, arg Lat
 	items := []LatestTerminalGroupDispatchStatesRow{}
 	for rows.Next() {
 		var i LatestTerminalGroupDispatchStatesRow
-		if err := rows.Scan(&i.AgentID, &i.Status); err != nil {
+		if err := rows.Scan(
+			&i.AgentID,
+			&i.Status,
+			&i.ID,
+			&i.AttemptCount,
+			&i.UpdatedAt,
+			&i.LastError,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -930,20 +945,27 @@ SET status = 'held',
     lease_until = NULL,
     next_attempt_at = NULL,
     held_up_to_seq = $1,
+    last_error = $2,
     updated_at = now()
-WHERE id = $2
+WHERE id = $3
   AND status = 'running'
-  AND attempt_count = $3
+  AND attempt_count = $4
 `
 
 type MarkGroupDispatchHeldParams struct {
 	HeldUpToSeq  pgtype.Int8 `json:"held_up_to_seq"`
+	Reason       string      `json:"reason"`
 	ID           string      `json:"id"`
 	AttemptCount int64       `json:"attempt_count"`
 }
 
 func (q *Queries) MarkGroupDispatchHeld(ctx context.Context, arg MarkGroupDispatchHeldParams) (int64, error) {
-	result, err := q.db.Exec(ctx, markGroupDispatchHeld, arg.HeldUpToSeq, arg.ID, arg.AttemptCount)
+	result, err := q.db.Exec(ctx, markGroupDispatchHeld,
+		arg.HeldUpToSeq,
+		arg.Reason,
+		arg.ID,
+		arg.AttemptCount,
+	)
 	if err != nil {
 		return 0, err
 	}

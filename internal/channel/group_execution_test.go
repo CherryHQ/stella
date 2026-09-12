@@ -36,7 +36,7 @@ func TestGroupAcceptRejectsOldSessionExecutionBeforeBusinessWrites(t *testing.T)
 	}
 	defer func() { _ = next.Finish("error") }()
 	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-1"}
-	if _, err := fx.d.acceptGroupResponse(context.WithoutCancel(ctx), row, groupResponse{text: "stale", sessionID: id}, memory.DeferredGroupTurn{Complete: true}); !errors.Is(err, sessionexecution.ErrLost) {
+	if _, err := fx.d.acceptGroupResponse(context.WithoutCancel(ctx), row, groupResponse{text: "stale", sessionID: id}, memory.DeferredGroupTurn{Complete: true}, nil); !errors.Is(err, sessionexecution.ErrLost) {
 		t.Fatalf("stale group accept: %v", err)
 	}
 	var messages int

@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -71,7 +72,16 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		case channel.AttachmentImage:
 			err = b.sendImage(ctx, target, channel.ImageEvent{Data: payload.Data, MimeType: payload.MimeType})
 		case channel.AttachmentFile:
-			err = b.sendFile(ctx, target, channel.FileEvent{Path: payload.Path, Name: payload.Name})
+			data, oerr := channel.OpenAttachmentOp(ctx, b.handler, op)
+			if oerr != nil {
+				err = channel.ClassifyAttachmentErr("discord", oerr)
+				break
+			}
+			name := payload.Name
+			if name == "" {
+				name = "file"
+			}
+			err = b.sendFileData(ctx, target, name, bytes.NewReader(data))
 		default:
 			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: unknown attachment kind %q", payload.Kind)
 		}
@@ -209,7 +219,7 @@ func (b *Bot) sendNotifyOp(ctx context.Context, op channel.OutboundOp) (channel.
 }
 
 // SendDraftUpdate implements channel.DraftSender: one message edited in
-// place while the run executes — the same draft/edit pair deliverReplay
+// place while the run executes — the same draft/edit pair deliverStream
 // uses, minus the Cancel control (the outbox carries no requester binding).
 func (b *Bot) SendDraftUpdate(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
 	if b.rest == nil {

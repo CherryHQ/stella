@@ -15,6 +15,8 @@ import (
 
 	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -23,42 +25,52 @@ import (
 type fakeExecutor struct {
 	reply  string
 	err    error
+	res    *Result       // when set, returned verbatim with err — e.g. a result prepared before a late failure
 	gate   chan struct{} // when non-nil, Execute waits for gate or ctx.Done
 	called atomic.Int32
 	sawRun atomic.Value
 }
 
-func (f *fakeExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (string, error) {
+func (f *fakeExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (*Result, error) {
 	f.called.Add(1)
 	f.sawRun.Store(r)
 	if f.gate != nil {
 		select {
 		case <-f.gate:
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return nil, ctx.Err()
 		}
 	}
-	return f.reply, f.err
+	res := f.res
+	if res == nil {
+		res = &Result{SessionID: r.SessionID}
+	}
+	if f.reply != "" && f.err == nil {
+		var addr ReplyAddress
+		if err := json.Unmarshal(r.ReplyAddress, &addr); err != nil {
+			return nil, err
+		}
+		if addr.ChannelID != "" {
+			ops, err := choutbox.ReplyOps(r.ID, choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey,
+				choutbox.Address{V: choutbox.AddressVersion, ChatKey: addr.ChatKey, ThreadKey: addr.ThreadKey, ReplyToKey: addr.ReplyToKey}, f.reply, 0)
+			if err != nil {
+				return nil, err
+			}
+			res.Ops = ops
+		}
+	}
+	return res, f.err
 }
 
 // replyHook mirrors the production finish hook: a successful turn appends the
-// reply op inside the finish transaction.
+// prepared reply ops inside the finish transaction.
 func replyHook(t *testing.T) FinishHook {
 	t.Helper()
-	return func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result, reply string) error {
-		if result != "success" || reply == "" {
+	return func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result string, res *Result) error {
+		if result != "success" || res == nil || len(res.Ops) == 0 {
 			return nil
 		}
-		var addr ReplyAddress
-		if err := json.Unmarshal(r.ReplyAddress, &addr); err != nil {
-			return err
-		}
-		ops, err := choutbox.ReplyOps(r.ID, choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey,
-			choutbox.Address{V: choutbox.AddressVersion, ChatKey: addr.ChatKey, ThreadKey: addr.ThreadKey, ReplyToKey: addr.ReplyToKey}, reply, 0)
-		if err != nil {
-			return err
-		}
-		return choutbox.New(nil).Append(ctx, tx, ops)
+		return choutbox.New(nil).Append(ctx, tx, res.Ops)
 	}
 }
 
@@ -616,5 +628,59 @@ func TestWorkerDrainJoinsClaimedRunThroughFinish(t *testing.T) {
 	}
 	if r.State != string(StateCompleted) {
 		t.Fatalf("run state = %s, want completed", r.State)
+	}
+}
+
+// A result handed to the finish path alongside an error — the shape of a turn
+// whose stream completed and only the reply preparation failed — must not
+// commit its final history or outbox ops into a non-completed run.
+func TestWorkerFailedResultCommitsNoFinalHistory(t *testing.T) {
+	db := dbtest.New(t)
+	createAgent(t, db, "agent-1")
+	createSession(t, db, "sess-1", "agent-1")
+	ctx := t.Context()
+
+	var runID string
+	if err := lockSession(t, db, "sess-1", func(tx pgx.Tx) error {
+		row, _, err := New(db).Enqueue(ctx, tx, enqueueParams("sess-1", "req-fail"))
+		runID = row.ID
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	appends := 0
+	exec := &fakeExecutor{
+		res: &Result{
+			SessionID: "sess-1",
+			History:   []ai.Message{ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "final"}}}},
+		},
+		err: errors.New("prepare reply: boom"),
+	}
+	w := NewWorker(db, "w1", exec, replyHook(t), WithTurnAppender(
+		func(context.Context, pgx.Tx, memory.Session, []ai.Message) error {
+			appends++
+			return nil
+		}))
+	ok, err := w.ProcessOnce(ctx)
+	if err != nil || !ok {
+		t.Fatalf("ProcessOnce: ok=%v err=%v", ok, err)
+	}
+	r, err := New(db).Get(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.State != string(StateFailed) {
+		t.Fatalf("run state = %s, want failed", r.State)
+	}
+	if appends != 0 {
+		t.Fatalf("final history appended %d times on a failed run", appends)
+	}
+	var ops int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE run_id=$1", runID).Scan(&ops); err != nil {
+		t.Fatal(err)
+	}
+	if ops != 0 {
+		t.Fatalf("outbox ops = %d on a failed run", ops)
 	}
 }

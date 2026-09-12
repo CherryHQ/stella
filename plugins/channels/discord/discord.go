@@ -209,9 +209,6 @@ func (b *Bot) activate(ctx context.Context) error {
 			r.RegisterBotIdentity(channel.PlatformDiscord, b.botID, b.Name())
 		}
 	}
-	if r, ok := b.handler.(channel.GroupPublisherRegistrar); ok {
-		r.RegisterGroupPublisher(b.Name(), b)
-	}
 	if !b.cfg.AllowGroup {
 		logger().Info("discord server-channel messages disabled; enable allow_group to serve the servers this bot joined")
 	}
@@ -235,9 +232,6 @@ func (b *Bot) Finalize() {
 		if r, ok := b.handler.(channel.BotIdentityUnregistrar); ok {
 			r.UnregisterBotIdentity(channel.PlatformDiscord, b.botID, b.Name())
 		}
-	}
-	if r, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
-		r.UnregisterGroupPublisher(b.Name())
 	}
 }
 

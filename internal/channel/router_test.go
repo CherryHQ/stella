@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	chinbox "github.com/CherryHQ/stella/internal/channel/inbox"
+	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
 	agentaccess "github.com/CherryHQ/stella/internal/core/access"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/platform/config"
@@ -412,9 +413,23 @@ type fakeRunExecutor struct {
 	got   atomic.Int32
 }
 
-func (f *fakeRunExecutor) Execute(_ context.Context, r sqlc.AgentRun) (string, error) {
+func (f *fakeRunExecutor) Execute(_ context.Context, r sqlc.AgentRun) (*agentrun.Result, error) {
 	f.got.Add(1)
-	return f.reply, nil
+	res := &agentrun.Result{SessionID: r.SessionID}
+	var addr agentrun.ReplyAddress
+	if err := json.Unmarshal(r.ReplyAddress, &addr); err != nil {
+		return nil, err
+	}
+	if addr.ChannelID != "" && f.reply != "" {
+		ops, err := choutbox.ReplyOps(r.ID, choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey,
+			choutbox.Address{V: choutbox.AddressVersion, ChatKey: addr.ChatKey, ThreadKey: addr.ThreadKey, ReplyToKey: addr.ReplyToKey},
+			f.reply, 0)
+		if err != nil {
+			return nil, err
+		}
+		res.Ops = ops
+	}
+	return res, nil
 }
 
 func TestDurablePathEndToEnd(t *testing.T) {

@@ -386,6 +386,77 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 	return items, nil
 }
 
+const listGroupMessagesBySeqs = `-- name: ListGroupMessagesBySeqs :many
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+       platform_message_id, reply_to, platform_timestamp, idempotency_key,
+       content, reasoning, agent_session_id, created_at, delivery_state
+FROM ctx_group_message
+WHERE group_id = $1
+  AND seq = ANY($2::bigint[])
+ORDER BY seq ASC
+`
+
+type ListGroupMessagesBySeqsParams struct {
+	GroupID string  `json:"group_id"`
+	Seqs    []int64 `json:"seqs"`
+}
+
+type ListGroupMessagesBySeqsRow struct {
+	ID                string             `json:"id"`
+	GroupID           string             `json:"group_id"`
+	Seq               int64              `json:"seq"`
+	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
+	ActorType         string             `json:"actor_type"`
+	ActorID           string             `json:"actor_id"`
+	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
+	ReplyTo           pgtype.Text        `json:"reply_to"`
+	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	Content           string             `json:"content"`
+	Reasoning         string             `json:"reasoning"`
+	AgentSessionID    string             `json:"agent_session_id"`
+	CreatedAt         time.Time          `json:"created_at"`
+	DeliveryState     string             `json:"delivery_state"`
+}
+
+// Same-seq re-read for live-stream reconcile: rows already sent 'pending' can
+// still flip delivery_state in place, which no seq-ordered read can observe.
+func (q *Queries) ListGroupMessagesBySeqs(ctx context.Context, arg ListGroupMessagesBySeqsParams) ([]ListGroupMessagesBySeqsRow, error) {
+	rows, err := q.db.Query(ctx, listGroupMessagesBySeqs, arg.GroupID, arg.Seqs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGroupMessagesBySeqsRow{}
+	for rows.Next() {
+		var i ListGroupMessagesBySeqsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupID,
+			&i.Seq,
+			&i.SourceChannelID,
+			&i.ActorType,
+			&i.ActorID,
+			&i.PlatformMessageID,
+			&i.ReplyTo,
+			&i.PlatformTimestamp,
+			&i.IdempotencyKey,
+			&i.Content,
+			&i.Reasoning,
+			&i.AgentSessionID,
+			&i.CreatedAt,
+			&i.DeliveryState,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGroupsWithPendingIngest = `-- name: ListGroupsWithPendingIngest :many
 SELECT gs.id as group_id,
        COALESCE(c.last_seq, 0) as cursor_seq,

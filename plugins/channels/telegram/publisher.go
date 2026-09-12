@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 	"time"
 
@@ -20,114 +19,6 @@ const (
 	maxTelegramRetryAfter    = 5 * time.Second
 	maxTelegramRetryAttempts = 1
 )
-
-// Publish renders the dispatcher-owned ChatStream as one Telegram message.
-// It deliberately has no session or agent logic: a failed platform request is
-// returned so the existing at-least-once group dispatcher owns the retry.
-func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err error) {
-	stream, err := channel.ValidateGroupReplay(ctx, req.Stream)
-	if err != nil {
-		return err
-	}
-	req.Stream = stream
-	chatID, err := strconv.ParseInt(req.PlatformGroupID, 10, 64)
-	if err != nil {
-		return fmt.Errorf("telegram: invalid group id %q: %w", req.PlatformGroupID, err)
-	}
-	chat := &tele.Chat{ID: chatID}
-	opts, threadID, err := telegramGroupSendOptions(req, chatID)
-	if err != nil {
-		return err
-	}
-
-	typingCtx, stopTyping := context.WithCancel(ctx)
-	defer stopTyping()
-	go keepGroupTyping(typingCtx, b.bot, chat, threadID)
-
-	// A rejected replay never reaches this point. Egress failure clears the
-	// acknowledgement; the dispatcher owns retries and terminal delivery state.
-	b.react(req.PlatformGroupID, req.ReplyTo, reactionReceived)
-	defer func() { b.finishReaction(req.PlatformGroupID, req.ReplyTo, err == nil) }()
-
-	response, images, files := collectGroupReplay(req.Stream)
-	if strings.TrimSpace(response) == "" {
-		response = "(empty response)"
-	}
-
-	for _, chunk := range channel.SplitMessage(response, telegramMaxMessageLen) {
-		if _, err := b.sendTelegramMarkdown(ctx, chat, chunk, opts, nil); err != nil {
-			return fmt.Errorf("telegram: send response: %w", err)
-		}
-	}
-	for _, img := range images {
-		if err := b.sendGroupImage(ctx, chat, img, opts); err != nil {
-			return fmt.Errorf("telegram: send response image: %w", err)
-		}
-	}
-	for _, file := range files {
-		if err := b.sendGroupFile(ctx, chat, file, opts); err != nil {
-			return fmt.Errorf("telegram: send response file: %w", err)
-		}
-	}
-	return nil
-}
-
-func telegramGroupSendOptions(req channel.GroupPublishRequest, chatID int64) (*tele.SendOptions, int, error) {
-	opts := &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}
-	threadID := 0
-	if req.PlatformThreadID != "" {
-		var err error
-		threadID, err = strconv.Atoi(req.PlatformThreadID)
-		if err != nil {
-			return nil, 0, fmt.Errorf("telegram: invalid thread id %q: %w", req.PlatformThreadID, err)
-		}
-		opts.ThreadID = threadID
-	}
-	if req.ReplyTo != "" {
-		replyID, err := strconv.Atoi(req.ReplyTo)
-		if err != nil {
-			return nil, 0, fmt.Errorf("telegram: invalid reply_to %q: %w", req.ReplyTo, err)
-		}
-		// telebot v4 does not yet serialize SendOptions.ReplyParams. ReplyTo
-		// preserves the same-chat reply anchor and AllowWithoutReply retains
-		// the existing best-effort delivery behavior.
-		opts.ReplyTo = &tele.Message{ID: replyID, Chat: &tele.Chat{ID: chatID}}
-		opts.AllowWithoutReply = true
-	}
-	return opts, threadID, nil
-}
-
-// collectGroupReplay folds the validated replay into the one message this
-// publisher sends. The dispatcher buffers the whole turn before egress, so the
-// stream is already closed and complete: there is nothing to stream, and no
-// error left to surface -- ValidateGroupReplay rejected the turn if it failed.
-func collectGroupReplay(stream *channel.ChatStream) (string, []channel.ImageEvent, []channel.FileEvent) {
-	if stream == nil {
-		return "", nil, nil
-	}
-	var text strings.Builder
-	tracker := newToolTracker()
-	var images []channel.ImageEvent
-	var files []channel.FileEvent
-	for event := range stream.Events {
-		switch {
-		case event.Image != nil:
-			images = append(images, *event.Image)
-		case event.File != nil:
-			files = append(files, *event.File)
-		default:
-			if event.ToolUse != nil {
-				tracker.Handle(event.ToolUse)
-			}
-			text.WriteString(event.Text)
-		}
-	}
-	response := text.String()
-	if tracker.HasHistory() {
-		response += tracker.RenderFinal()
-	}
-	return response, images, files
-}
 
 func (b *Bot) sendGroupImage(ctx context.Context, chat tele.Recipient, img channel.ImageEvent, opts *tele.SendOptions) error {
 	data, err := base64.StdEncoding.DecodeString(img.Data)
@@ -143,36 +34,14 @@ func (b *Bot) sendGroupImage(ctx context.Context, chat tele.Recipient, img chann
 	})
 }
 
-func (b *Bot) sendGroupFile(ctx context.Context, chat tele.Recipient, file channel.FileEvent, opts *tele.SendOptions) error {
-	name := file.Name
-	if name == "" {
-		name = "file"
-	}
+// sendGroupDocument sends one document from a per-attempt source factory —
+// FromReader over the bytes the outbox stored with the op. A fresh source per
+// retry keeps a failed upload from resending a drained reader.
+func (b *Bot) sendGroupDocument(ctx context.Context, chat tele.Recipient, newSrc func() tele.File, name string, opts *tele.SendOptions) error {
 	return retryTelegram(ctx, func() error {
-		_, err := b.bot.Send(chat, &tele.Document{File: tele.FromDisk(file.Path), FileName: name}, opts)
+		_, err := b.bot.Send(chat, &tele.Document{File: newSrc(), FileName: name}, opts)
 		return err
 	})
-}
-
-func keepGroupTyping(ctx context.Context, bot *tele.Bot, chat tele.Recipient, threadID int) {
-	notify := func() {
-		if threadID != 0 {
-			_ = bot.Notify(chat, tele.Typing, threadID)
-			return
-		}
-		_ = bot.Notify(chat, tele.Typing)
-	}
-	notify()
-	ticker := time.NewTicker(typingInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			notify()
-		}
-	}
 }
 
 // sendTelegramMarkdown sends one message: markdown first, plain fallback.

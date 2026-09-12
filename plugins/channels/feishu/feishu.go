@@ -141,9 +141,6 @@ func New(cfg Config, handler channel.Handler, enroller channel.AccountEnroller) 
 	b.listChats = func(ctx context.Context, req *larkim.ListChatReq) (*larkim.ListChatResp, error) {
 		return b.client.Im.Chat.List(ctx, req)
 	}
-	if registrar, ok := handler.(channel.GroupPublisherRegistrar); ok {
-		registrar.RegisterGroupPublisher(b.Name(), b)
-	}
 
 	return b, nil
 }
@@ -305,9 +302,6 @@ func (b *Bot) Finalize() {
 		if registrar, ok := b.handler.(channel.BotNameUnregistrar); ok {
 			registrar.UnregisterBotName(channel.PlatformFeishu, b.registeredBotName, b.cfg.InstanceID)
 		}
-	}
-	if registrar, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
-		registrar.UnregisterGroupPublisher(b.Name())
 	}
 }
 

@@ -63,6 +63,14 @@ func ClaimSessionTx(ctx context.Context, tx pgx.Tx, sessionID, token string, own
 		if err := predecessorExited(prev); err != nil {
 			return fmt.Errorf("%w: %w", agenterr.ErrSessionBusy, err)
 		}
+		// Takeover retires the predecessor's execution identity: observers
+		// tailing the old token get its explicit terminal, not a vanished row.
+		if err := lockSessionForTerminal(ctx, q, sessionID); err != nil {
+			return err
+		}
+		if err := recordTerminalLocked(ctx, q, sessionID, prev.Token, prev.RunID.String, "error", "execution superseded"); err != nil {
+			return err
+		}
 	}
 	_, err = q.ClaimSessionExecution(ctx, sqlc.ClaimSessionExecutionParams{
 		SessionID: sessionID,
@@ -128,10 +136,40 @@ func (s *Store) releaseExpiredRetry(sessionID, token string) {
 			continue
 		}
 		ctx, cancel = context.WithTimeout(context.Background(), OperationTimeout)
-		if _, err := sqlc.New(s.db).DeleteExpiredSessionExecution(ctx, sqlc.DeleteExpiredSessionExecutionParams{
-			SessionID: sessionID,
-			Token:     token,
-		}); err != nil {
+		// The attest and the token's terminal marker commit together: a watcher
+		// tailing this execution must see the end it could never write itself.
+		// Re-lock the exact token row inside the transaction — the marker must
+		// be published from the row as it stands, not the earlier probe read.
+		tx, err := s.db.Begin(ctx)
+		if err == nil {
+			q := sqlc.New(tx)
+			locked, lockErr := q.LockSessionExecutionForFinish(ctx, sqlc.LockSessionExecutionForFinishParams{
+				SessionID: sessionID,
+				Token:     token,
+			})
+			switch {
+			case errors.Is(lockErr, pgx.ErrNoRows):
+				// attested already, or re-claimed by a successor
+			case lockErr != nil:
+				err = lockErr
+			default:
+				if err = lockSessionForTerminal(ctx, q, sessionID); err == nil {
+					err = recordTerminalLocked(ctx, q, sessionID, token, locked.RunID.String, "error", "execution lease expired")
+				}
+				if err == nil {
+					_, err = q.DeleteExpiredSessionExecution(ctx, sqlc.DeleteExpiredSessionExecutionParams{
+						SessionID: sessionID,
+						Token:     token,
+					})
+				}
+			}
+			if err == nil {
+				err = tx.Commit(ctx)
+			} else {
+				_ = tx.Rollback(ctx)
+			}
+		}
+		if err != nil {
 			slog.Debug("release expired execution lease failed", "session", sessionID, "error", err)
 		}
 		cancel()

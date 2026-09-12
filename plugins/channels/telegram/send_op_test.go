@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -82,13 +80,29 @@ func fakeImageEvent() channel.Event {
 	}}
 }
 
-func fileEvent(t *testing.T) channel.Event {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "report.txt")
-	if err := os.WriteFile(path, []byte("file-bytes"), 0o600); err != nil {
-		t.Fatalf("write attachment: %v", err)
+func fileEvent() channel.Event {
+	return channel.Event{File: &channel.FileEvent{
+		Name: "report.txt",
+		Data: []byte("file-bytes"),
+	}}
+}
+
+// stubAttachmentOpener reads the real channel_outbox_attachment row like the
+// production surface; onOpen runs inside the read so a test can flip the
+// lease mid-fetch.
+type stubAttachmentOpener struct {
+	fakeChannelHandler
+	db     *pgxpool.Pool
+	onOpen func()
+}
+
+func (h stubAttachmentOpener) OpenAttachment(ctx context.Context, outboxID string) ([]byte, error) {
+	if h.onOpen != nil {
+		h.onOpen()
 	}
-	return channel.Event{File: &channel.FileEvent{Name: "report.txt", Path: path}}
+	var data []byte
+	err := h.db.QueryRow(ctx, `SELECT data FROM channel_outbox_attachment WHERE outbox_id = $1`, outboxID).Scan(&data)
+	return data, err
 }
 
 // When a later reply segment fails retryably, the segment that already
@@ -175,11 +189,15 @@ func TestSendReplyPartialAttachmentFailure(t *testing.T) {
 	fake := &telegramAPIFake{responses: map[string][]string{}}
 	b := newPublisherTestBot(t, fake)
 	b.bot.Me = &tele.User{ID: 1, Username: "bot-1"}
+	b.handler = stubAttachmentOpener{db: db}
 	ctx := context.Background()
 
-	events := []channel.Event{{Text: "done"}, fakeImageEvent(), fileEvent(t)}
+	// A frozen topic/reply anchor must reach the document send too, not only
+	// the text op — an empty SendOptions would drop both coordinates.
+	address := choutbox.Address{V: choutbox.AddressVersion, ChatKey: "-100", ThreadKey: "42", ReplyToKey: "55"}
+	events := []channel.Event{{Text: "done"}, fakeImageEvent(), fileEvent()}
 	ops, err := choutbox.ReplyChain("", "run:att", "ch-tg-att", "bot-1",
-		tgAddress, "sess", events, tgReplyPlan)
+		address, "sess", events, tgReplyPlan)
 	if err != nil {
 		t.Fatalf("ReplyChain: %v", err)
 	}
@@ -216,8 +234,15 @@ func TestSendReplyPartialAttachmentFailure(t *testing.T) {
 	if calls := len(fake.callsFor("sendPhoto")); calls != 1 {
 		t.Fatalf("sendPhoto calls = %d after retry, want 1 (landed image not resent)", calls)
 	}
-	if calls := len(fake.callsFor("sendDocument")); calls != 2 {
-		t.Fatalf("sendDocument calls = %d, want 2", calls)
+	docs := fake.callsFor("sendDocument")
+	if len(docs) != 2 {
+		t.Fatalf("sendDocument calls = %d, want 2", len(docs))
+	}
+	if got := docs[0].params["message_thread_id"]; got != "42" {
+		t.Fatalf("attachment thread = %#v, want the frozen 42", got)
+	}
+	if got := docs[0].params["reply_to_message_id"]; got != "55" {
+		t.Fatalf("attachment reply anchor = %#v, want the frozen 55", got)
 	}
 	if got := opState(t, db, "run:att", 2); got != "sent" {
 		t.Fatalf("file op = %s, want sent", got)
@@ -408,7 +433,7 @@ func TestGroupReplyChainDeliversPerCall(t *testing.T) {
 		PlatformGroupID: "-100", PlatformThreadID: "42", ReplyTo: "7",
 		DeliveryID: "d-grp", Events: events,
 	}
-	ops, err := choutbox.GroupReplyChain("group:d-grp", "ch-tg-grp", "bot-1", payload, events, tgReplyPlan)
+	ops, err := choutbox.GroupReplyChain("group:d-grp", "ch-tg-grp", "bot-1", "", payload, events, tgReplyPlan)
 	if err != nil {
 		t.Fatalf("GroupReplyChain: %v", err)
 	}
@@ -504,7 +529,7 @@ func TestGroupReplyOpRejectsReboundAccount(t *testing.T) {
 		V: choutbox.PayloadVersion, Platform: "telegram",
 		PlatformGroupID: "-100", DeliveryID: "d-grp2", Events: events,
 	}
-	ops, err := choutbox.GroupReplyChain("group:d-grp2", "ch-tg-grp2", "bot-1", payload, events, tgReplyPlan)
+	ops, err := choutbox.GroupReplyChain("group:d-grp2", "ch-tg-grp2", "bot-1", "", payload, events, tgReplyPlan)
 	if err != nil {
 		t.Fatalf("GroupReplyChain: %v", err)
 	}
@@ -544,7 +569,7 @@ func TestGroupReplyOpDeliversAfterCredentialRotation(t *testing.T) {
 		V: choutbox.PayloadVersion, Platform: "telegram",
 		PlatformGroupID: "-100", DeliveryID: "d-rot", Events: []channel.Event{{Text: "ok"}},
 	}
-	ops, err := choutbox.GroupReplyChain("group:d-rot", "ch-tg-rot", "bot-1", payload, []channel.Event{{Text: "ok"}}, tgReplyPlan)
+	ops, err := choutbox.GroupReplyChain("group:d-rot", "ch-tg-rot", "bot-1", "", payload, []channel.Event{{Text: "ok"}}, tgReplyPlan)
 	if err != nil {
 		t.Fatalf("GroupReplyChain: %v", err)
 	}
@@ -628,4 +653,49 @@ func TestGroupReplyReactionsRespectOwnership(t *testing.T) {
 			t.Fatalf("setMessageReaction calls = %d, want 2 (ack + terminal clear)", got)
 		}
 	})
+}
+
+// The artifact read can outlive the replica's lease: if ownership moves while
+// the blob is being fetched, the shared read boundary re-checks the guard and
+// the platform call never happens — the op stays pending for the new owner.
+func TestAttachmentLeaseLossDuringReadSkipsSend(t *testing.T) {
+	db := dbtest.New(t)
+	createOutboxChannel(t, db, "ch-tg-art", "00000000-0000-0000-0000-0000000000aa")
+	s := choutbox.New(db)
+	fake := &telegramAPIFake{responses: map[string][]string{}}
+	b := newPublisherTestBot(t, fake)
+	b.bot.Me = &tele.User{ID: 1, Username: "bot-1"}
+	b.handler = stubAttachmentOpener{
+		db: db,
+		onOpen: func() {
+			// Another replica took the lease mid-read.
+			if _, err := db.Exec(context.Background(),
+				`UPDATE channel SET runtime_token = '00000000-0000-0000-0000-0000000000bb'::uuid WHERE id = 'ch-tg-art'`); err != nil {
+				t.Errorf("steal lease: %v", err)
+			}
+		},
+	}
+	ctx := context.Background()
+
+	ops, err := choutbox.ReplyChain("", "run:art", "ch-tg-art", "bot-1",
+		tgAddress, "sess", []channel.Event{fileEvent()}, tgReplyPlan)
+	if err != nil {
+		t.Fatalf("ReplyChain: %v", err)
+	}
+	appendOps(t, db, s, ops)
+
+	fake.responses["sendMessage"] = []string{`{"ok":true,"result":{"message_id":30}}`}
+	// Reply lands, then the file op claims with the lease intact, loses it
+	// inside the read, and must not issue sendDocument.
+	for i := range 3 {
+		if _, err := s.ProcessDue(ctx, "ch-tg-art", "00000000-0000-0000-0000-0000000000aa", b); err != nil {
+			t.Fatalf("ProcessDue %d: %v", i, err)
+		}
+	}
+	if calls := len(fake.callsFor("sendDocument")); calls != 0 {
+		t.Fatalf("sendDocument calls = %d, want 0 (fenced-out replica)", calls)
+	}
+	if got := opState(t, db, "run:art", 1); got != "pending" {
+		t.Fatalf("file op = %s, want pending for the new owner", got)
+	}
 }

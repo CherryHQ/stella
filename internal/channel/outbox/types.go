@@ -226,7 +226,7 @@ func ReplyChain(runID, deliveryKey, channelID, accountKey string, addr Address, 
 // GroupReplyChain serializes an accepted group reply into the same per-call
 // shape as ReplyChain: send_group_reply at index 0 carries the group metadata
 // plus the primary text segment, siblings carry overflow text and media.
-func GroupReplyChain(deliveryKey, channelID, accountKey string, p GroupReplyPayload, events []pkgchannel.Event, plan ReplyPlan) ([]Op, error) {
+func GroupReplyChain(deliveryKey, channelID, accountKey, groupID string, p GroupReplyPayload, events []pkgchannel.Event, plan ReplyPlan) ([]Op, error) {
 	for _, evt := range events {
 		if evt.Err != nil {
 			return nil, evt.Err
@@ -265,7 +265,14 @@ func GroupReplyChain(deliveryKey, channelID, accountKey string, p GroupReplyPayl
 	if err != nil {
 		return nil, err
 	}
-	return append(ops, siblings...), nil
+	ops = append(ops, siblings...)
+	// The group's own row owns these ops' lifecycle: deleting the group drops
+	// its pending sends and their attachment bodies, while deleting a channel
+	// or dispatch row keeps the delivery ledger intact.
+	for i := range ops {
+		ops[i].GroupID = groupID
+	}
+	return ops, nil
 }
 
 // siblingOps emits one send_text op per chunk and, when attachments is set,
@@ -294,11 +301,18 @@ func siblingOps(runID, deliveryKey, channelID, accountKey string, rawAddr json.R
 			ops = append(ops, op)
 		}
 		for _, f := range files {
+			if f.Data == nil {
+				return nil, fmt.Errorf("attachment %q was never prepared — no durable bytes to send", f.Name)
+			}
 			op, err := attachmentOp(runID, deliveryKey, channelID, accountKey, rawAddr, index+len(ops),
-				pkgchannel.AttachmentOpPayload{V: PayloadVersion, Kind: pkgchannel.AttachmentFile, Name: f.Name, Path: f.Path})
+				pkgchannel.AttachmentOpPayload{V: PayloadVersion, Kind: pkgchannel.AttachmentFile, Name: f.Name, MimeType: f.MimeType})
 			if err != nil {
 				return nil, err
 			}
+			// The frozen bytes travel on the op, not in the payload: Append
+			// writes them to channel_outbox_attachment in the same
+			// transaction and the send boundary reads them back by op id.
+			op.Attachment = f.Data
 			ops = append(ops, op)
 		}
 	}

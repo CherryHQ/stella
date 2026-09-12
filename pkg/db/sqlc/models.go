@@ -432,6 +432,14 @@ type ChannelOutbox struct {
 	ErrorCode         pgtype.Text        `json:"error_code"`
 	CreatedAt         time.Time          `json:"created_at"`
 	UpdatedAt         time.Time          `json:"updated_at"`
+	GroupID           pgtype.Text        `json:"group_id"`
+}
+
+type ChannelOutboxAttachment struct {
+	OutboxID  string    `json:"outbox_id"`
+	Data      []byte    `json:"data"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type CtxAgentMemory struct {
@@ -645,12 +653,13 @@ type CtxMessagePart struct {
 }
 
 type CtxSessionEvent struct {
-	ID        string          `json:"id"`
-	SessionID string          `json:"session_id"`
-	RunID     pgtype.Text     `json:"run_id"`
-	Seq       int64           `json:"seq"`
-	Event     json.RawMessage `json:"event"`
-	CreatedAt time.Time       `json:"created_at"`
+	ID          string          `json:"id"`
+	SessionID   string          `json:"session_id"`
+	RunID       pgtype.Text     `json:"run_id"`
+	Seq         int64           `json:"seq"`
+	Event       json.RawMessage `json:"event"`
+	CreatedAt   time.Time       `json:"created_at"`
+	ExecutionID pgtype.Text     `json:"execution_id"`
 }
 
 type CtxSessionExecution struct {

@@ -268,9 +268,9 @@ func (c *Channel) SendOperation(ctx context.Context, op pkgchannel.OutboundOp) (
 		case pkgchannel.AttachmentImage:
 			files = append(files, sendFile{Name: "image." + imageExt(payload.MimeType), Data: payload.Data})
 		case pkgchannel.AttachmentFile:
-			data, err := os.ReadFile(payload.Path)
+			data, err := pkgchannel.OpenAttachmentOp(ctx, c.handler, op)
 			if err != nil {
-				return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: read attachment %s: %s", payload.Path, err)
+				return pkgchannel.SendResult{}, pkgchannel.ClassifyAttachmentErr("testchan", err)
 			}
 			files = append(files, sendFile{Name: payload.Name, Data: base64.StdEncoding.EncodeToString(data)})
 		default:

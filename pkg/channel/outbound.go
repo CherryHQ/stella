@@ -32,6 +32,9 @@ type OutboundOp struct {
 	OperationIndex int
 	Address        OutboundAddress
 	Payload        json.RawMessage
+	// ID is the op's channel_outbox row id — the send boundary resolves a
+	// file attachment's bytes by it.
+	ID string
 	// SourceAccountKey is the platform account the sending channel was bound
 	// to when the op was accepted; an adapter whose identity differs must not
 	// send it (account_mismatch). For DM replies it is the receiving account;
@@ -152,7 +155,7 @@ type DraftUpdatePayload struct {
 }
 
 // GroupReplyOpPayload is the frozen body of the "send_group_reply" outbox op —
-// everything a GroupPublisher needs to replay an accepted group reply on the
+// everything the sender needs to deliver an accepted group reply on the
 // replica that owns the channel lease. Text is the pre-split primary segment;
 // overflow segments and attachments are sibling send_text / send_attachment
 // ops, so this op is one platform call with one receipt. Events stay for
@@ -193,15 +196,66 @@ type ReplyOpPayload struct {
 
 // AttachmentOpPayload is the frozen body of a "send_attachment" op: exactly
 // one platform upload/send call for one file or image. Image data travels
-// inline as base64; file content is read from Path at send time (shared
-// Home), so a replay on another replica still finds the bytes.
+// inline as base64; file content is read lazily through the op's row id at
+// send time, so a replay on any replica reads the same immutable bytes.
 type AttachmentOpPayload struct {
 	V        int    `json:"v"`
 	Kind     string `json:"kind"` // "image" | "file"
 	Name     string `json:"name,omitempty"`
-	Path     string `json:"path,omitempty"`
 	Data     string `json:"data,omitempty"` // base64, image kind
 	MimeType string `json:"mime_type,omitempty"`
+}
+
+// AttachmentOpener materializes an op's file bytes at the send boundary. The
+// Coordinator implements it over channel_outbox_attachment so a send on any
+// replica reads the same immutable bytes committed with the op.
+type AttachmentOpener interface {
+	OpenAttachment(ctx context.Context, outboxID string) ([]byte, error)
+}
+
+// ErrAttachmentMissing marks a structurally unresolvable attachment op: no
+// row id, or a handler that cannot open one. Senders map it to a
+// permanent failure — retrying can never conjure the reference. A failure
+// inside OpenAttachment itself stays retryable: the store may recover.
+var ErrAttachmentMissing = errors.New("attachment body unavailable")
+
+// OpenAttachmentOp resolves a file-kind send_attachment op to bytes at
+// the send boundary. The handler must implement AttachmentOpener — the
+// production Coordinator does. The store read can outlive the replica's lease,
+// so ownership is re-checked after the read and before the bytes return: a
+// sender that holds the result may still issue its platform call, but a
+// fenced-out replica never reaches that point.
+func OpenAttachmentOp(ctx context.Context, handler Handler, op OutboundOp) ([]byte, error) {
+	if op.ID == "" {
+		return nil, fmt.Errorf("%w: op carries no row id", ErrAttachmentMissing)
+	}
+	opener, ok := handler.(AttachmentOpener)
+	if !ok {
+		return nil, fmt.Errorf("%w: handler cannot open attachments", ErrAttachmentMissing)
+	}
+	data, err := opener.OpenAttachment(ctx, op.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := op.CheckOwnership(ctx); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// ClassifyAttachmentErr maps attachment resolution failures for senders: a
+// structurally missing reference is permanent, a store read failure is
+// retryable, and an already-classified send error (e.g. the post-read lease
+// check) passes through unchanged.
+func ClassifyAttachmentErr(platform string, err error) error {
+	var sendErr *SendError
+	if errors.As(err, &sendErr) {
+		return err
+	}
+	if errors.Is(err, ErrAttachmentMissing) {
+		return SendErrorf(SendPermanent, "%s: %v", platform, err)
+	}
+	return SendErrorf(SendRetryable, "%s: %v", platform, err)
 }
 
 // AttachmentKinds for AttachmentOpPayload.Kind.
@@ -209,17 +263,6 @@ const (
 	AttachmentImage = "image"
 	AttachmentFile  = "file"
 )
-
-// ReplayStream rebuilds a completed turn as a ChatStream. Abort cannot cross
-// a process boundary: the turn has already ended when the op dispatches.
-func (p ReplyOpPayload) ReplayStream() *ChatStream {
-	events := make(chan Event, len(p.Events))
-	for _, evt := range p.Events {
-		events <- evt
-	}
-	close(events)
-	return &ChatStream{Events: events, SessionID: p.SessionID}
-}
 
 // CollectReplyEvents folds a completed turn's events into the deliverable
 // body for adapters without a draft surface: final text (with the tool

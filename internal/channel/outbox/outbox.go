@@ -7,6 +7,7 @@
 package outbox
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -69,7 +70,10 @@ func New(db *pgxpool.Pool) *Store { return &Store{db: db} }
 // body. DependsOn lists operation_index values in the same delivery that must
 // reach 'sent' first.
 type Op struct {
-	RunID       string // "" for non-run operations (group publish, Notify)
+	RunID string // "" for non-run operations (group publish, Notify)
+	// GroupID anchors a group reply's lifecycle to the group row — the op
+	// dies with the group, never with a channel config or dispatch row.
+	GroupID     string
 	DeliveryKey string
 	Index       int
 	Kind        string
@@ -79,6 +83,10 @@ type Op struct {
 	Payload     json.RawMessage
 	DependsOn   []int
 	NotBefore   *time.Time // initial scheduling delay, if any
+	// Attachment is a file op's immutable bytes, staged in memory at prepare
+	// and written to channel_outbox_attachment in the same transaction as the
+	// op. Never serialized into the payload.
+	Attachment []byte
 }
 
 // Append writes a delivery's operations inside the caller's transaction —
@@ -113,7 +121,7 @@ func (s *Store) Append(ctx context.Context, tx pgx.Tx, ops []Op) error {
 		if len(payload) == 0 {
 			payload = json.RawMessage(`{}`)
 		}
-		_, err = q.CreateChannelOutbox(ctx, sqlc.CreateChannelOutboxParams{
+		row, err := q.CreateChannelOutbox(ctx, sqlc.CreateChannelOutboxParams{
 			RunID:            textOrNull(op.RunID),
 			DeliveryKey:      op.DeliveryKey,
 			OperationIndex:   int32(op.Index),
@@ -124,10 +132,79 @@ func (s *Store) Append(ctx context.Context, tx pgx.Tx, ops []Op) error {
 			Payload:          payload,
 			DependsOn:        deps,
 			NextAttemptAt:    notBefore,
+			GroupID:          textOrNull(op.GroupID),
 		})
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		switch {
+		case err == nil:
+			// Attachment presence is nil-vs-non-nil: an empty file is a real
+			// zero-byte attachment, not a missing one.
+			if op.Attachment != nil {
+				if err := q.CreateChannelOutboxAttachment(ctx, sqlc.CreateChannelOutboxAttachmentParams{
+					OutboxID: row.ID, Data: op.Attachment,
+				}); err != nil {
+					return fmt.Errorf("outbox: attachment body for %s/%d: %w", op.DeliveryKey, op.Index, err)
+				}
+			}
+		case errors.Is(err, pgx.ErrNoRows):
+			// Dedup hit: the stored op must match semantically, and so must its
+			// attachment — a same-key different-body retry is corruption, not
+			// a crash-safe re-append.
+			if err := verifyExistingOp(ctx, q, op); err != nil {
+				return err
+			}
+		default:
 			return err
 		}
+	}
+	return nil
+}
+
+// verifyExistingOp confirms a dedup'd op matches what this append would have
+// written: frozen identity columns compare with JSONB semantics inside the
+// query, and the attachment bytes compare exactly — row and body committed
+// together, so equality proves the original write is intact.
+func verifyExistingOp(ctx context.Context, q *sqlc.Queries, op Op) error {
+	deps, err := json.Marshal(op.DependsOn)
+	if err != nil {
+		return err
+	}
+	if string(deps) == "null" {
+		deps = json.RawMessage(`[]`)
+	}
+	address, payload := op.Address, op.Payload
+	if len(address) == 0 {
+		address = json.RawMessage(`{}`)
+	}
+	if len(payload) == 0 {
+		payload = json.RawMessage(`{}`)
+	}
+	match, err := q.ChannelOutboxOpMatches(ctx, sqlc.ChannelOutboxOpMatchesParams{
+		DeliveryKey: op.DeliveryKey, OperationIndex: int32(op.Index),
+		OperationKind: op.Kind, ChannelID: op.ChannelID, SourceAccountKey: op.AccountKey,
+		RunID: textOrNull(op.RunID), GroupID: textOrNull(op.GroupID),
+		Address: address, Payload: payload, DependsOn: deps,
+	})
+	if err != nil {
+		return fmt.Errorf("outbox: dedup check %s/%d: %w", op.DeliveryKey, op.Index, err)
+	}
+	if !match {
+		return fmt.Errorf("outbox: %s/%d already exists with different content", op.DeliveryKey, op.Index)
+	}
+	stored, err := q.GetChannelOutboxAttachmentByKey(ctx, sqlc.GetChannelOutboxAttachmentByKeyParams{
+		DeliveryKey: op.DeliveryKey, OperationIndex: int32(op.Index),
+	})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		if op.Attachment != nil {
+			return fmt.Errorf("outbox: %s/%d stored without its attachment body", op.DeliveryKey, op.Index)
+		}
+		return nil
+	case err != nil:
+		return fmt.Errorf("outbox: attachment dedup check %s/%d: %w", op.DeliveryKey, op.Index, err)
+	case op.Attachment == nil:
+		return fmt.Errorf("outbox: %s/%d carries an attachment the op does not expect", op.DeliveryKey, op.Index)
+	case !bytes.Equal(stored, op.Attachment):
+		return fmt.Errorf("outbox: %s/%d attachment differs from stored bytes", op.DeliveryKey, op.Index)
 	}
 	return nil
 }

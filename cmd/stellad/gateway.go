@@ -382,7 +382,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	groupEvents := channel.NewGroupEventHub()
 	elStore.OnCommitted(groupEvents.Announce)
 	botRegistry := channel.NewBotIdentityRegistry()
-	publisherRegistry := channel.NewPublisherRegistry()
 	coordOpts = append(coordOpts, channel.WithDB(s.db))
 	coordOpts = append(coordOpts, channel.WithSessionAccess(sessionaccess.NewAgentSessionAccess(s.sessionAccess)))
 	// Durable channel ingress is opt-in until the run workers and outbox
@@ -417,7 +416,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	coordOpts = append(coordOpts, channel.WithSessionImages(s.sessionImages))
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
-	coordOpts = append(coordOpts, channel.WithPublisherRegistry(publisherRegistry))
 
 	// The channel domain builds the coordinator and its durable group dispatcher
 	// together and closes the coordinator<->dispatcher cycle; the HTTP server

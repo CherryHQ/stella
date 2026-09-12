@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	choutbox "github.com/CherryHQ/stella/internal/channel/outbox"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -44,6 +45,9 @@ type groupAcceptOutcome struct {
 	Reason string
 	// Accepted holds the appended message; valid only when Status is accepted.
 	Accepted eventlog.AppendResult
+	// Enqueued means the reply's outbox chain committed with the acceptance:
+	// the platform send is already durable, so the publish step only confirms.
+	Enqueued bool
 }
 
 // heldUpTo is set only by the freshness gate: it promises the agent that its
@@ -61,7 +65,7 @@ var groupTurnAccepts = groupBackstop{status: groupTurnAccepted}
 // outcome is a normal result, not an error: the transaction still committed.
 // It takes no caller-side group state on purpose: the only state that may decide
 // anything here is the row this transaction locks itself.
-func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxGroupDispatch, response groupResponse, turn memory.DeferredGroupTurn) (groupAcceptOutcome, error) {
+func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxGroupDispatch, response groupResponse, turn memory.DeferredGroupTurn, ops []choutbox.Op) (groupAcceptOutcome, error) {
 	if d.db == nil {
 		return groupAcceptOutcome{}, errors.New("dispatcher db not configured")
 	}
@@ -118,13 +122,28 @@ func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxG
 	if err := d.committer.CommitGroupTurn(ctx, q, turn); err != nil {
 		return groupAcceptOutcome{}, fmt.Errorf("commit deferred group turn: %w", err)
 	}
+	// The platform send intent commits inside the acceptance transaction too:
+	// a crash afterwards produces an accepted reply with its outbox chain or
+	// neither, never a reply with no durable send to recover. The ops were
+	// prepared before this transaction began — including their file bytes — so
+	// only the account binding and the write itself happen under the lock.
+	// The dispatcher always carries a publish pipeline — there is no
+	// accept-without-outbox construction, so an empty chain is the only
+	// skip.
+	enqueued := false
+	if len(ops) > 0 {
+		if err := d.publish.appendPreparedOps(ctx, tx, q, row, ops); err != nil {
+			return groupAcceptOutcome{}, err
+		}
+		enqueued = true
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return groupAcceptOutcome{}, fmt.Errorf("accept group response: commit: %w", err)
 	}
 	if d.events != nil {
 		d.events.Announce(result)
 	}
-	return groupAcceptOutcome{Status: groupTurnAccepted, Accepted: result}, nil
+	return groupAcceptOutcome{Status: groupTurnAccepted, Accepted: result, Enqueued: enqueued}, nil
 }
 
 // groupBackstopVerdict runs the gates in cost order under the held state lock.
@@ -200,7 +219,7 @@ func (d *GroupDispatcher) stopGroupTurn(ctx context.Context, tx pgx.Tx, q *sqlc.
 	)
 	switch verdict.status {
 	case groupTurnHeld:
-		updated, err = q.MarkGroupDispatchHeld(ctx, sqlc.MarkGroupDispatchHeldParams{ID: row.ID, AttemptCount: row.AttemptCount, HeldUpToSeq: verdict.heldUpTo})
+		updated, err = q.MarkGroupDispatchHeld(ctx, sqlc.MarkGroupDispatchHeldParams{ID: row.ID, AttemptCount: row.AttemptCount, HeldUpToSeq: verdict.heldUpTo, Reason: verdict.reason})
 	case groupTurnSilent:
 		updated, err = q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: row.ID, AttemptCount: row.AttemptCount, Reason: verdict.reason})
 	default:
@@ -227,6 +246,9 @@ func (d *GroupDispatcher) stopGroupTurn(ctx context.Context, tx pgx.Tx, q *sqlc.
 type dispatchResult struct {
 	dispatcher *GroupDispatcher
 	row        sqlc.CtxGroupDispatch
+	trigger    sqlc.CtxGroupMessage
+	envelope   GroupOutboxEnvelope
+	state      sqlc.CtxGroupState
 	response   groupResponse
 	outcome    groupAcceptOutcome
 	used       int
@@ -247,8 +269,46 @@ func (r *dispatchResult) Commit(ctx context.Context, turn memory.DeferredGroupTu
 		err = r.dispatcher.retireModelPass(ctx, r.row, turn)
 		r.outcome = groupAcceptOutcome{Status: groupTurnSilent, Reason: groupSilentModelPass}
 	} else {
-		r.outcome, err = r.dispatcher.acceptGroupResponse(ctx, r.row, r.response, turn)
+		// The full op chain — including immutable file bytes — is built before
+		// the transaction: the accept step only fences and writes.
+		ops, ferr := r.prepareReplyOps()
+		if ferr != nil {
+			return ferr
+		}
+		r.outcome, err = r.dispatcher.acceptGroupResponse(ctx, r.row, r.response, turn, ops)
 	}
 	r.committed = err == nil
 	return err
+}
+
+// prepareReplyOps decomposes the accepted response into its durable outbox
+// chain before the accept transaction opens: file bytes are read off their
+// mutable workspace paths here (and only when the platform plans attachment
+// ops at all — a file-less platform must not lose the text reply to an
+// unreadable path), and the chain is marshaled with the account left open.
+// appendPreparedOps binds the reply channel's registered account under the
+// accept lock. Web produces no ops — its egress is the event log.
+func (r *dispatchResult) prepareReplyOps() ([]choutbox.Op, error) {
+	if r.state.Platform == webGroupPlatform {
+		return nil, nil
+	}
+	plan := groupReplyPlan(r.state.Platform)
+	if plan.Attachments {
+		if err := readReplyFiles(r.response.events); err != nil {
+			return nil, err
+		}
+	}
+	payload := choutbox.GroupReplyPayload{
+		V:                 choutbox.PayloadVersion,
+		Platform:          r.state.Platform,
+		PlatformGroupID:   r.state.PlatformGroupID,
+		PlatformThreadID:  r.state.PlatformThreadID,
+		ReplyTo:           nullStringValue(r.trigger.PlatformMessageID),
+		DeliveryID:        r.row.ID,
+		RequesterID:       r.trigger.ActorID,
+		SessionID:         r.response.sessionID,
+		Events:            r.response.events,
+		LifecycleFeedback: r.envelope.LifecycleFeedback,
+	}
+	return choutbox.GroupReplyChain("group:"+r.row.ID, r.row.ReplyChannelID, "", r.row.GroupID, payload, r.response.events, plan)
 }

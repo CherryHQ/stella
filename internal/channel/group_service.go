@@ -213,11 +213,22 @@ func (a *GroupAccess) RunningTurnAgents(ctx context.Context, groupID string) ([]
 	return agents, nil
 }
 
-// LatestTurnStates resolves the real terminal state for agents that just left
-// the running set — the cross-replica SSE poll fallback needs the dispatcher's
-// persisted outcome, not a guess.
-func (a *GroupAccess) LatestTurnStates(ctx context.Context, groupID string, agentIDs []string) (map[string]string, error) {
-	out := map[string]string{}
+// GroupTurnTerminal is an agent's newest durable terminal dispatch outcome.
+// Generation identifies the turn that produced it, so a reconcile can tell two
+// consecutive identical outcomes apart instead of collapsing them into one.
+// Reason is the persisted cause every terminal write stores in last_error —
+// held included, so observers read why a turn was deferred.
+type GroupTurnTerminal struct {
+	State      string
+	Reason     string
+	Generation string
+}
+
+// LatestTurnStates resolves the newest durable terminal outcome per agent —
+// the stream reconcile needs the dispatcher's persisted state, reason, and
+// turn generation, not a guess.
+func (a *GroupAccess) LatestTurnStates(ctx context.Context, groupID string, agentIDs []string) (map[string]GroupTurnTerminal, error) {
+	out := map[string]GroupTurnTerminal{}
 	if len(agentIDs) == 0 {
 		return out, nil
 	}
@@ -229,11 +240,19 @@ func (a *GroupAccess) LatestTurnStates(ctx context.Context, groupID string, agen
 		return nil, fmt.Errorf("list terminal group turns: %w", err)
 	}
 	for _, row := range rows {
+		var state string
 		switch row.Status {
 		case "completed":
-			out[row.AgentID] = "done"
+			state = "done"
 		case "held", "silent", "failed":
-			out[row.AgentID] = row.Status
+			state = row.Status
+		default:
+			continue
+		}
+		out[row.AgentID] = GroupTurnTerminal{
+			State:      state,
+			Reason:     row.LastError,
+			Generation: fmt.Sprintf("%s#%d@%d", row.ID, row.AttemptCount, row.UpdatedAt.UTC().UnixNano()),
 		}
 	}
 	return out, nil
@@ -252,6 +271,49 @@ func (a *GroupAccess) MessagesAfterSeq(ctx context.Context, groupID string, sinc
 	rows, err := a.q().ListLatestGroupMessagesAfterSeq(ctx, sqlc.ListLatestGroupMessagesAfterSeqParams{GroupID: groupID, MinSeq: sinceSeq, BatchLimit: groupReplayWindow})
 	if err != nil {
 		return nil, fmt.Errorf("replay group messages: %w", err)
+	}
+	out := make([]GroupMessageItem, len(rows))
+	for i, m := range rows {
+		out[i] = GroupMessageItem{ID: m.ID, GroupID: m.GroupID, Seq: int(m.Seq), ActorType: m.ActorType, ActorID: m.ActorID, Content: m.Content, Reasoning: strPtr(m.Reasoning), AgentSessionID: strPtr(m.AgentSessionID), DeliveryState: m.DeliveryState, CreatedAt: m.CreatedAt.UTC()}
+	}
+	return out, nil
+}
+
+// NextMessagesAfterSeq tails the canonical log forward: oldest-first bounded
+// pages from the consumed cursor. Unlike MessagesAfterSeq's newest-window
+// replay contract a live tail must never skip a row, so the caller drains
+// until a short page.
+func (a *GroupAccess) NextMessagesAfterSeq(ctx context.Context, groupID string, sinceSeq int64, limit int) ([]GroupMessageItem, error) {
+	if sinceSeq < 0 || limit <= 0 || limit > groupReplayWindow {
+		return nil, ErrInvalidPage
+	}
+	if _, err := a.requireOwner(ctx, groupID); err != nil {
+		return nil, err
+	}
+	rows, err := a.q().ListGroupMessagesAfterSeq(ctx, sqlc.ListGroupMessagesAfterSeqParams{GroupID: groupID, MinSeq: sinceSeq, BatchLimit: int32(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("tail group messages: %w", err)
+	}
+	out := make([]GroupMessageItem, len(rows))
+	for i, m := range rows {
+		out[i] = GroupMessageItem{ID: m.ID, GroupID: m.GroupID, Seq: int(m.Seq), ActorType: m.ActorType, ActorID: m.ActorID, Content: m.Content, Reasoning: strPtr(m.Reasoning), AgentSessionID: strPtr(m.AgentSessionID), DeliveryState: m.DeliveryState, CreatedAt: m.CreatedAt.UTC()}
+	}
+	return out, nil
+}
+
+// MessagesBySeqs re-reads canonical rows by seq: a live stream refreshes
+// already-sent rows whose delivery_state can still flip in place, a change no
+// seq-ordered read can observe.
+func (a *GroupAccess) MessagesBySeqs(ctx context.Context, groupID string, seqs []int64) ([]GroupMessageItem, error) {
+	if len(seqs) == 0 {
+		return nil, nil
+	}
+	if _, err := a.requireOwner(ctx, groupID); err != nil {
+		return nil, err
+	}
+	rows, err := a.q().ListGroupMessagesBySeqs(ctx, sqlc.ListGroupMessagesBySeqsParams{GroupID: groupID, Seqs: seqs})
+	if err != nil {
+		return nil, fmt.Errorf("refresh group messages: %w", err)
 	}
 	out := make([]GroupMessageItem, len(rows))
 	for i, m := range rows {

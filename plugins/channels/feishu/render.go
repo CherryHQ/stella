@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -257,17 +258,25 @@ func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent, replyI
 	if name == "" {
 		name = filepath.Base(file.Path)
 	}
+	return b.sendFileData(chatID, replyMsgID, name, func() (io.Reader, error) { return os.Open(file.Path) }, replyInThread, check)
+}
 
+// sendFileData uploads and replies with a file whose source opens per retry
+// attempt — a workspace path on the live path, a reopened artifact on the
+// outbox path.
+func (b *Bot) sendFileData(chatID, replyMsgID, name string, open func() (io.Reader, error), replyInThread bool, check func() error) error {
 	uploadCtx, cancelUpload := b.apiContext()
 	defer cancelUpload()
 
 	var fileKey string
 	err := b.retryFeishuSend(uploadCtx, "upload file", func(ctx context.Context) error {
-		f, openErr := os.Open(file.Path)
+		f, openErr := open()
 		if openErr != nil {
-			return fmt.Errorf("open file %q: %w", file.Path, openErr)
+			return fmt.Errorf("open file %q: %w", name, openErr)
 		}
-		defer func() { _ = f.Close() }()
+		if c, ok := f.(io.Closer); ok {
+			defer func() { _ = c.Close() }()
+		}
 		uploadResp, uploadErr := b.client.Im.File.Create(ctx,
 			larkim.NewCreateFileReqBuilder().
 				Body(larkim.NewCreateFileReqBodyBuilder().

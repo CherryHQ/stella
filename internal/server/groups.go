@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,6 +23,11 @@ import (
 const (
 	maxGroupPageSize        = 100
 	maxGroupMessagePageSize = 200
+	// groupStreamTailPage bounds one forward read of the live tail; a single
+	// reconcile drains at most maxStreamTailPages pages before deferring the
+	// rest to the next wake, so a sustained append burst cannot pin the loop.
+	groupStreamTailPage = 200
+	maxStreamTailPages  = 8
 )
 
 func streamEmptyGroupReply(w http.ResponseWriter, flusher http.Flusher) {
@@ -135,14 +141,6 @@ func groupMessageToAPI(m channel.GroupMessageItem) apitypes.GroupMessage {
 	}
 }
 
-func groupTurnToAPI(turn channel.GroupTurnEvent) apitypes.GroupTurnEvent {
-	out := apitypes.GroupTurnEvent{AgentId: turn.AgentID, State: apitypes.GroupTurnEventState(turn.State)}
-	if turn.Reason != "" {
-		out.Reason = &turn.Reason
-	}
-	return out
-}
-
 // StreamGroupEvents replays canonical messages by sequence, then holds a
 // best-effort subscription open. Reconnect is the correctness path: the hub
 // intentionally drops slow consumers rather than blocking group dispatch.
@@ -170,8 +168,8 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 	}
 	// Subscribe before replaying: a message committed between the two would
 	// otherwise be in neither, and the client has no way to notice the gap.
-	// The overlap is harmless because replayed seqs are skipped below and the
-	// client merges by seq anyway.
+	// The channel only ever carries wakes below — overlapping announces just
+	// coalesce into the same DB read.
 	events, cancel, err := acc.SubscribeEvents(r.Context(), groupId)
 	if err != nil {
 		s.groupError(w, err)
@@ -182,6 +180,27 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 	if err != nil {
 		s.groupError(w, err)
 		return
+	}
+	// Terminal generations seed before the running snapshot: a turn retiring in
+	// between is still caught by the first reconcile, while anything already
+	// terminal stays silent — connect shows live badges only.
+	members, err := acc.Members(r.Context(), groupId)
+	if err != nil {
+		s.groupError(w, err)
+		return
+	}
+	memberIDs := make([]string, len(members))
+	for i, m := range members {
+		memberIDs[i] = m.AgentID
+	}
+	knownTerminal := map[string]string{}
+	seed, err := acc.LatestTurnStates(r.Context(), groupId, memberIDs)
+	if err != nil {
+		s.groupError(w, err)
+		return
+	}
+	for agentID, term := range seed {
+		knownTerminal[agentID] = term.Generation
 	}
 	// Presence snapshot, read after subscribing for the same reason as the replay:
 	// a turn that starts between the two appears in the live channel, and one that
@@ -209,11 +228,19 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 		return err == nil
 	}
 	replayedThrough := int64(since)
+	// pendingSeqs are the rows this stream already sent while 'pending'. Their
+	// only remaining change is a same-seq delivery_state flip, which a
+	// seq-ordered read can never re-emit — each reconcile re-reads exactly
+	// those seqs and re-sends the row once the DB shows a terminal state.
+	pendingSeqs := map[int64]struct{}{}
 	for _, row := range rows {
 		if !write("message", groupMessageToAPI(row)) {
 			return
 		}
 		replayedThrough = max(replayedThrough, int64(row.Seq))
+		if row.DeliveryState == "pending" {
+			pendingSeqs[int64(row.Seq)] = struct{}{}
+		}
 	}
 	for _, agentID := range running {
 		if !write("turn", apitypes.GroupTurnEvent{AgentId: agentID, State: apitypes.GroupTurnEventStateRunning}) {
@@ -232,14 +259,53 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 	for _, agentID := range running {
 		knownRunning[agentID] = true
 	}
-	pollOnce := func() bool {
-		rows, err := acc.MessagesAfterSeq(r.Context(), groupId, replayedThrough)
-		if err == nil {
+	reconcile := func() bool {
+		// New canonical rows page forward from the consumed cursor: the live
+		// tail must never skip a seq, so unlike the newest-window connect
+		// replay it reads oldest-first and drains the backlog over bounded
+		// pages, deferring any remainder to the next wake.
+		for range maxStreamTailPages {
+			rows, err := acc.NextMessagesAfterSeq(r.Context(), groupId, replayedThrough, groupStreamTailPage)
+			if err != nil || len(rows) == 0 {
+				break
+			}
 			for _, row := range rows {
 				if !write("message", groupMessageToAPI(row)) {
 					return false
 				}
 				replayedThrough = max(replayedThrough, int64(row.Seq))
+				if row.DeliveryState == "pending" {
+					pendingSeqs[int64(row.Seq)] = struct{}{}
+				}
+			}
+			if len(rows) < groupStreamTailPage {
+				break
+			}
+		}
+		if len(pendingSeqs) > 0 {
+			seqs := make([]int64, 0, len(pendingSeqs))
+			for seq := range pendingSeqs {
+				seqs = append(seqs, seq)
+			}
+			if rows, err := acc.MessagesBySeqs(r.Context(), groupId, seqs); err == nil {
+				for _, row := range rows {
+					if row.DeliveryState == "pending" {
+						continue
+					}
+					if !write("message", groupMessageToAPI(row)) {
+						return false
+					}
+					delete(pendingSeqs, int64(row.Seq))
+				}
+			}
+		}
+		// Members re-read each reconcile: an agent that joins mid-stream can
+		// retire a turn between two polls, and a connect-frozen list would
+		// never see it.
+		if members, err := acc.Members(r.Context(), groupId); err == nil {
+			memberIDs = memberIDs[:0]
+			for _, m := range members {
+				memberIDs = append(memberIDs, m.AgentID)
 			}
 		}
 		current, err := acc.RunningTurnAgents(r.Context(), groupId)
@@ -255,23 +321,41 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 				}
 			}
 		}
-		var ended []string
+		// Terminal frames reconcile off the durable dispatch row: a turn may
+		// retire between two reads (gated, superseded, failed before its slot)
+		// or on another replica whose hub frames can't reach. This is a
+		// latest-per-agent projection, not a transition audit: generation
+		// diffing re-emits the newest outcome whenever it changes — two
+		// consecutive identical states are still two frames — while an ended
+		// row that only requeued reports no new terminal and correctly keeps
+		// its badge for the retry.
+		// knownTerminal advances only on an emitted frame: recording a
+		// generation the stream observed while the agent was still 'running'
+		// would swallow it — the same row is still the newest terminal once
+		// the turn retires, and the badge would hang forever.
+		agents := slices.Clone(memberIDs)
 		for agentID := range knownRunning {
-			if !now[agentID] {
-				ended = append(ended, agentID)
+			if !slices.Contains(memberIDs, agentID) {
+				agents = append(agents, agentID)
 			}
 		}
-		// Resolve the real terminal outcome from the dispatch row: the turn may
-		// have executed on another replica, where the hub frame can't reach.
-		states, _ := acc.LatestTurnStates(r.Context(), groupId, ended)
-		for _, agentID := range ended {
-			state := states[agentID]
-			if state == "" {
-				state = "done"
+		states, _ := acc.LatestTurnStates(r.Context(), groupId, agents)
+		for _, agentID := range agents {
+			if now[agentID] {
+				continue
 			}
-			if !write("turn", apitypes.GroupTurnEvent{AgentId: agentID, State: apitypes.GroupTurnEventState(state)}) {
+			term, ok := states[agentID]
+			if !ok || term.Generation == knownTerminal[agentID] {
+				continue
+			}
+			frame := apitypes.GroupTurnEvent{AgentId: agentID, State: apitypes.GroupTurnEventState(term.State)}
+			if term.Reason != "" {
+				frame.Reason = &term.Reason
+			}
+			if !write("turn", frame) {
 				return false
 			}
+			knownTerminal[agentID] = term.Generation
 		}
 		knownRunning = now
 		return true
@@ -280,26 +364,29 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 		select {
 		case <-r.Context().Done():
 			return
-		case event, alive := <-events:
+		case _, alive := <-events:
 			if !alive {
 				return
 			}
-			if event.Turn != nil {
-				knownRunning[event.Turn.AgentID] = event.Turn.State == "running"
-				if !write("turn", groupTurnToAPI(*event.Turn)) {
-					return
+			// A hub event is a post-commit wake, never a fact: its seq can run
+			// ahead of a remote commit this replica has not polled yet, so the
+			// DB reconcile is the sole writer of message frames and the cursor.
+			// A burst coalesces into one read.
+			for drained := false; !drained; {
+				select {
+				case _, open := <-events:
+					if !open {
+						return
+					}
+				default:
+					drained = true
 				}
-				continue
 			}
-			if event.Seq <= replayedThrough {
-				continue
-			}
-			replayedThrough = event.Seq
-			if !write("message", groupMessageToAPI(channel.GroupMessageItem{ID: event.Message.ID, GroupID: event.GroupID, Seq: int(event.Seq), ActorType: event.Message.ActorType, ActorID: event.Message.ActorID, Content: event.Message.Content, DeliveryState: event.Message.DeliveryState, CreatedAt: event.Message.CreatedAt.UTC()})) {
+			if !reconcile() {
 				return
 			}
 		case <-poll.C:
-			if !pollOnce() {
+			if !reconcile() {
 				return
 			}
 		case <-heartbeat.C:

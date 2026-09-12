@@ -55,9 +55,6 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		handler: handler,
 		cfg:     cfg,
 	}
-	if registrar, ok := handler.(channel.GroupPublisherRegistrar); ok {
-		registrar.RegisterGroupPublisher(b.Name(), b)
-	}
 	if registrar, ok := handler.(channel.BotRegistrar); ok {
 		registrar.RegisterBotIdentity(channel.PlatformQQ, cfg.AppID, b.Name())
 	}
@@ -121,11 +118,7 @@ func (b *Bot) Stop() {
 
 // Finalize removes routing registrations after accepted work has drained.
 func (b *Bot) Finalize() {
-	b.finalizeOnce.Do(func() {
-		if registrar, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
-			registrar.UnregisterGroupPublisher(b.Name())
-		}
-	})
+	b.finalizeOnce.Do(func() {})
 }
 
 // Name returns the channel name. Implements channel.Channel.

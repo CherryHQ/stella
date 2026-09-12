@@ -3,7 +3,6 @@ package discord
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -111,24 +110,10 @@ func (d *discordDraft) delete(ctx context.Context) {
 	d.cancelToken = ""
 }
 
+// deliverStream replays a recorded turn through the draft/edit path: the
+// message the user watched during the turn becomes the final reply.
 func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl) error {
-	return b.deliverReplay(ctx, channelID, replyTo, stream, cancel, true, "")
-}
-
-func (b *Bot) deliverGroupReplay(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl) error {
-	return b.deliverReplay(ctx, channelID, replyTo, stream, cancel, false, "")
-}
-
-// deliverReplay replays a recorded turn through the draft/edit path. A
-// non-empty draftID resumes the live draft the channel owner already posted —
-// the message the user watched during the turn becomes the final reply.
-func (b *Bot) deliverReplay(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl, reportFailure bool, draftID string) error {
-	var draft *discordDraft
-	if draftID != "" {
-		draft = &discordDraft{bot: b, channelID: channelID, messageID: draftID}
-	} else {
-		draft = b.beginDraft(ctx, channelID, replyTo, cancel)
-	}
+	draft := b.beginDraft(ctx, channelID, replyTo, cancel)
 	text, images, files, streamErr := collectResponse(ctx, stream, func(text string, tools *channel.ToolTracker) {
 		if draft == nil {
 			return
@@ -147,10 +132,6 @@ func (b *Bot) deliverReplay(ctx context.Context, channelID, replyTo string, stre
 		return nil
 	}
 	if streamErr != nil {
-		if !reportFailure {
-			draft.delete(context.WithoutCancel(ctx))
-			return fmt.Errorf("discord group replay: %w", streamErr)
-		}
 		logger().Warn("Discord agent stream failed", "channel_id", channelID, "error", streamErr)
 		if text != "" {
 			text += "\n\n"
@@ -166,33 +147,22 @@ func (b *Bot) deliverReplay(ctx context.Context, channelID, replyTo string, stre
 			return nil
 		}
 	}
+	failDelivery := func() { _ = draft.finalize(ctx, "⚠️ Discord delivery failed; Stella will retry.") }
 	if text != "" {
 		if err := b.sendText(ctx, channelID, text, replyTo); err != nil {
-			if reportFailure {
-				_ = draft.finalize(ctx, "⚠️ Discord delivery failed; Stella will retry.")
-			} else {
-				draft.delete(context.WithoutCancel(ctx))
-			}
+			failDelivery()
 			return err
 		}
 	}
 	for _, image := range images {
 		if err := b.sendImage(ctx, channelID, image); err != nil {
-			if reportFailure {
-				_ = draft.finalize(ctx, "⚠️ Discord delivery failed; Stella will retry.")
-			} else {
-				draft.delete(context.WithoutCancel(ctx))
-			}
+			failDelivery()
 			return err
 		}
 	}
 	for _, file := range files {
 		if err := b.sendFile(ctx, channelID, file); err != nil {
-			if reportFailure {
-				_ = draft.finalize(ctx, "⚠️ Discord delivery failed; Stella will retry.")
-			} else {
-				draft.delete(context.WithoutCancel(ctx))
-			}
+			failDelivery()
 			return err
 		}
 	}

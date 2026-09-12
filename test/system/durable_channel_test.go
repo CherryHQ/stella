@@ -5,7 +5,6 @@ package system
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -825,11 +824,13 @@ func TestDurableChannelSameEventHandoff(t *testing.T) {
 	}
 }
 
-// M2 attachment delivery: a File event committed to the run's durable log is
-// carried inside the reply op to the channel owner and delivered as bytes by
-// a replica that neither received the message nor executed the turn. The fake
-// platform asserts the decoded payload, not just a readable path.
-func TestDurableChannelAttachmentDelivery(t *testing.T) {
+// Journal isolation: a File event appended straight to the run's durable
+// event log is NOT reply material — the send boundary only trusts the op
+// chain the executing worker committed. After the lease handoff the new
+// owner still delivers the turn's text, but the injected file must never
+// reach the platform. Positive attachment delivery is proven by the Go-level
+// prepare → append → independent-sender tests (run reply and group accept).
+func TestDurableChannelJournalInjectionNotSent(t *testing.T) {
 	skipUnsupportedHost(t)
 	fp := newFakePlatform(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
@@ -896,22 +897,29 @@ func TestDurableChannelAttachmentDelivery(t *testing.T) {
 		t.Fatal("gated model call never parked inside the gate")
 	}
 
-	// Stage the attachment on the shared filesystem and commit a File event to
-	// the run's durable log — the same record the finish hook reads.
-	attachment := []byte("attachment-bytes-" + h.runID)
-	path := filepath.Join(t.TempDir(), "report-"+h.runID+".bin")
+	// Adversarial journal row: stage a file on the shared filesystem and
+	// append a File event to the run's durable log while B's turn is still
+	// inside the gate. If any send path trusted journal rows instead of the
+	// committed op chain, these bytes would leak onto the wire.
+	attachment := []byte("injected-bytes-" + h.runID)
+	path := filepath.Join(t.TempDir(), "injected-"+h.runID+".bin")
 	if err := os.WriteFile(path, attachment, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	var execToken string
+	if err := db.QueryRow(ctx, "SELECT token::text FROM ctx_session_execution WHERE run_id=$1", runID).Scan(&execToken); err != nil {
+		t.Fatalf("execution token for run: %v", err)
+	}
 	events := sessionevent.New(db)
-	if err := events.Append(ctx, sessionID, runID, agentruntime.EncodeEvent(agentruntime.Event{
+	if err := events.Append(ctx, sessionID, execToken, runID, agentruntime.EncodeEvent(agentruntime.Event{
 		File: &agentruntime.FileEvent{Path: path, Name: filepath.Base(path)},
 	})); err != nil {
 		t.Fatalf("append file event: %v", err)
 	}
 
 	// A dies while B's turn is in flight; C inherits the channel lease and
-	// becomes the sender of record for the run's reply — including the file.
+	// becomes the sender of record for the run's reply — the committed op
+	// chain carries the result text, and the injected journal File must not.
 	// Expire the lease directly, same reason as the reply-handoff case above.
 	if err := a.Kill(); err != nil {
 		t.Fatalf("kill A: %v", err)
@@ -925,43 +933,26 @@ func TestDurableChannelAttachmentDelivery(t *testing.T) {
 	})
 
 	gate.Release()
-	waitForCond(t, 90*time.Second, "C sends the reply with the attachment", func() bool {
+	wantText := "done " + h.runID
+	waitForCond(t, 90*time.Second, "C sends the reply text", func() bool {
 		for _, s := range fp.sendsAll() {
-			if s["tag"] == "C" {
-				if files, ok := s["files"].([]any); ok && len(files) > 0 {
-					return true
-				}
+			if s["tag"] == "C" && strings.Contains(fmt.Sprint(s["text"]), wantText) {
+				return true
 			}
 		}
 		return false
 	})
 
-	// The delivered payload is the file's bytes, base64 on the wire — a path
-	// that merely resolved on the sender would not prove delivery.
-	var delivered []map[string]any
+	// The injected journal file must not ride along: no send — from any
+	// replica — may carry file payloads, and the byte string must not appear
+	// anywhere on the wire.
 	for _, s := range fp.sendsAll() {
-		if s["tag"] != "C" {
-			continue
+		if files, ok := s["files"].([]any); ok && len(files) > 0 {
+			t.Fatalf("replica %s sent files %#v; the journal-injected file must stay undelivered", s["tag"], files)
 		}
-		files, _ := s["files"].([]any)
-		for _, f := range files {
-			if m, ok := f.(map[string]any); ok {
-				delivered = append(delivered, m)
-			}
+		if strings.Contains(fmt.Sprint(s), string(attachment)) {
+			t.Fatalf("replica %s leaked injected bytes onto the wire: %v", s["tag"], s)
 		}
-	}
-	if len(delivered) != 1 {
-		t.Fatalf("attachment files on C's sends = %d, want 1", len(delivered))
-	}
-	if delivered[0]["name"] != filepath.Base(path) {
-		t.Fatalf("attachment name = %v, want %s", delivered[0]["name"], filepath.Base(path))
-	}
-	raw, err := base64.StdEncoding.DecodeString(fmt.Sprint(delivered[0]["data"]))
-	if err != nil {
-		t.Fatalf("attachment data is not base64: %v", err)
-	}
-	if !bytes.Equal(raw, attachment) {
-		t.Fatalf("attachment bytes = %q, want %q", raw, attachment)
 	}
 	var state string
 	if err := db.QueryRow(ctx, "SELECT state FROM agent_run WHERE id=$1", runID).Scan(&state); err != nil {

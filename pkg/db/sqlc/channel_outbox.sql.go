@@ -54,6 +54,53 @@ func (q *Queries) CancelChannelOutboxByRun(ctx context.Context, runID pgtype.Tex
 	return result.RowsAffected(), nil
 }
 
+const channelOutboxOpMatches = `-- name: ChannelOutboxOpMatches :one
+SELECT EXISTS (
+    SELECT 1 FROM channel_outbox
+    WHERE delivery_key = $1 AND operation_index = $2
+      AND operation_kind = $3 AND channel_id = $4
+      AND source_account_key = $5
+      AND run_id IS NOT DISTINCT FROM $6
+      AND group_id IS NOT DISTINCT FROM $7
+      AND address = $8::jsonb AND payload = $9::jsonb
+      AND depends_on = $10::jsonb
+)
+`
+
+type ChannelOutboxOpMatchesParams struct {
+	DeliveryKey      string          `json:"delivery_key"`
+	OperationIndex   int32           `json:"operation_index"`
+	OperationKind    string          `json:"operation_kind"`
+	ChannelID        string          `json:"channel_id"`
+	SourceAccountKey string          `json:"source_account_key"`
+	RunID            pgtype.Text     `json:"run_id"`
+	GroupID          pgtype.Text     `json:"group_id"`
+	Address          json.RawMessage `json:"address"`
+	Payload          json.RawMessage `json:"payload"`
+	DependsOn        json.RawMessage `json:"depends_on"`
+}
+
+// Dedup verification compares JSONB semantically — key order and whitespace
+// normalize on write — and only the frozen identity columns: never state,
+// tokens, or scheduling fields a live send mutates.
+func (q *Queries) ChannelOutboxOpMatches(ctx context.Context, arg ChannelOutboxOpMatchesParams) (bool, error) {
+	row := q.db.QueryRow(ctx, channelOutboxOpMatches,
+		arg.DeliveryKey,
+		arg.OperationIndex,
+		arg.OperationKind,
+		arg.ChannelID,
+		arg.SourceAccountKey,
+		arg.RunID,
+		arg.GroupID,
+		arg.Address,
+		arg.Payload,
+		arg.DependsOn,
+	)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const claimChannelOutboxAttempt = `-- name: ClaimChannelOutboxAttempt :execrows
 UPDATE channel_outbox
 SET state = 'sending', attempt_token = $1,
@@ -115,10 +162,10 @@ func (q *Queries) CompleteChannelOutboxAttempt(ctx context.Context, arg Complete
 }
 
 const createChannelOutbox = `-- name: CreateChannelOutbox :one
-INSERT INTO channel_outbox (run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, next_attempt_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO channel_outbox (run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, next_attempt_at, group_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (delivery_key, operation_index) DO NOTHING
-RETURNING id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at
+RETURNING id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at, group_id
 `
 
 type CreateChannelOutboxParams struct {
@@ -132,6 +179,7 @@ type CreateChannelOutboxParams struct {
 	Payload          json.RawMessage    `json:"payload"`
 	DependsOn        json.RawMessage    `json:"depends_on"`
 	NextAttemptAt    pgtype.Timestamptz `json:"next_attempt_at"`
+	GroupID          pgtype.Text        `json:"group_id"`
 }
 
 // Idempotent on (delivery_key, operation_index): a completing run that
@@ -149,6 +197,7 @@ func (q *Queries) CreateChannelOutbox(ctx context.Context, arg CreateChannelOutb
 		arg.Payload,
 		arg.DependsOn,
 		arg.NextAttemptAt,
+		arg.GroupID,
 	)
 	var i ChannelOutbox
 	err := row.Scan(
@@ -171,12 +220,63 @@ func (q *Queries) CreateChannelOutbox(ctx context.Context, arg CreateChannelOutb
 		&i.ErrorCode,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GroupID,
 	)
 	return i, err
 }
 
+const createChannelOutboxAttachment = `-- name: CreateChannelOutboxAttachment :exec
+INSERT INTO channel_outbox_attachment (outbox_id, data)
+VALUES ($1, $2)
+`
+
+type CreateChannelOutboxAttachmentParams struct {
+	OutboxID string `json:"outbox_id"`
+	Data     []byte `json:"data"`
+}
+
+// File body for one send_attachment op, written with the op in the same
+// transaction. A dedup hit on the op never reaches here — the append path
+// verifies the existing row instead of overwriting bytes.
+func (q *Queries) CreateChannelOutboxAttachment(ctx context.Context, arg CreateChannelOutboxAttachmentParams) error {
+	_, err := q.db.Exec(ctx, createChannelOutboxAttachment, arg.OutboxID, arg.Data)
+	return err
+}
+
+const getChannelOutboxAttachment = `-- name: GetChannelOutboxAttachment :one
+SELECT data FROM channel_outbox_attachment
+WHERE outbox_id = $1
+`
+
+// Send-boundary lazy read: the op's own row id addresses its bytes.
+func (q *Queries) GetChannelOutboxAttachment(ctx context.Context, outboxID string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getChannelOutboxAttachment, outboxID)
+	var data []byte
+	err := row.Scan(&data)
+	return data, err
+}
+
+const getChannelOutboxAttachmentByKey = `-- name: GetChannelOutboxAttachmentByKey :one
+SELECT a.data FROM channel_outbox_attachment a
+JOIN channel_outbox o ON o.id = a.outbox_id
+WHERE o.delivery_key = $1 AND o.operation_index = $2
+`
+
+type GetChannelOutboxAttachmentByKeyParams struct {
+	DeliveryKey    string `json:"delivery_key"`
+	OperationIndex int32  `json:"operation_index"`
+}
+
+// Dedup verification reads the stored body through the op's natural key.
+func (q *Queries) GetChannelOutboxAttachmentByKey(ctx context.Context, arg GetChannelOutboxAttachmentByKeyParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getChannelOutboxAttachmentByKey, arg.DeliveryKey, arg.OperationIndex)
+	var data []byte
+	err := row.Scan(&data)
+	return data, err
+}
+
 const getChannelOutboxByDelivery = `-- name: GetChannelOutboxByDelivery :many
-SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at FROM channel_outbox
+SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at, group_id FROM channel_outbox
 WHERE delivery_key = $1
 ORDER BY operation_index
 `
@@ -210,6 +310,7 @@ func (q *Queries) GetChannelOutboxByDelivery(ctx context.Context, deliveryKey st
 			&i.ErrorCode,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}
@@ -222,7 +323,7 @@ func (q *Queries) GetChannelOutboxByDelivery(ctx context.Context, deliveryKey st
 }
 
 const getLatestChannelOutboxOp = `-- name: GetLatestChannelOutboxOp :one
-SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at FROM channel_outbox
+SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at, group_id FROM channel_outbox
 WHERE delivery_key = $1
 ORDER BY operation_index DESC
 LIMIT 1
@@ -253,6 +354,7 @@ func (q *Queries) GetLatestChannelOutboxOp(ctx context.Context, deliveryKey stri
 		&i.ErrorCode,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GroupID,
 	)
 	return i, err
 }
@@ -299,7 +401,7 @@ func (q *Queries) LatestSentDraftMessageID(ctx context.Context, runID pgtype.Tex
 }
 
 const listExpiredChannelOutboxAttempts = `-- name: ListExpiredChannelOutboxAttempts :many
-SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at FROM channel_outbox
+SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at, group_id FROM channel_outbox
 WHERE state = 'sending' AND attempt_started_at <= clock_timestamp() - interval '5 minutes'
 ORDER BY attempt_started_at
 LIMIT 100
@@ -337,6 +439,7 @@ func (q *Queries) ListExpiredChannelOutboxAttempts(ctx context.Context) ([]Chann
 			&i.ErrorCode,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}
@@ -349,7 +452,7 @@ func (q *Queries) ListExpiredChannelOutboxAttempts(ctx context.Context) ([]Chann
 }
 
 const listPendingChannelOutbox = `-- name: ListPendingChannelOutbox :many
-SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at FROM channel_outbox
+SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at, group_id FROM channel_outbox
 WHERE channel_outbox.channel_id = $1 AND channel_outbox.state = 'pending'
   AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
   AND NOT EXISTS (
@@ -424,6 +527,7 @@ func (q *Queries) ListPendingChannelOutbox(ctx context.Context, channelID string
 			&i.ErrorCode,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}

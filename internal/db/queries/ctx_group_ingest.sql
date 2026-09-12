@@ -37,6 +37,17 @@ SELECT * FROM (
 ) recent
 ORDER BY recent.seq ASC;
 
+-- name: ListGroupMessagesBySeqs :many
+-- Same-seq re-read for live-stream reconcile: rows already sent 'pending' can
+-- still flip delivery_state in place, which no seq-ordered read can observe.
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+       platform_message_id, reply_to, platform_timestamp, idempotency_key,
+       content, reasoning, agent_session_id, created_at, delivery_state
+FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND seq = ANY(sqlc.arg(seqs)::bigint[])
+ORDER BY seq ASC;
+
 -- name: ListDeliveredGroupMessagesBeforeSeq :many
 -- Reverse pagination is mandatory: group context reads only its newest bounded
 -- window, never an interval whose size is controlled by group history.

@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/core/agenterr"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/sessionexecution"
@@ -21,19 +20,21 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// Executor runs one claimed run's turn and returns the final reply text. The
+// Executor runs one claimed run's turn and returns its explicit Result: the
+// terminal history rows and the fully prepared outbox op chain. The
 // production implementation re-derives authority from the run's serialized
 // actor facts and drives agent.Service.Chat under the adopted lease context.
-// Run state, reply ops, and the execution lease all finish elsewhere — in the
-// lease's finish transaction.
+// Run state, history, reply ops, and the execution lease all commit
+// elsewhere — in the lease's finish transaction.
 type Executor interface {
-	Execute(ctx context.Context, run sqlc.AgentRun) (reply string, err error)
+	Execute(ctx context.Context, run sqlc.AgentRun) (*Result, error)
 }
 
 // FinishHook runs inside the execution-finish transaction, after the run's
 // own terminal transition. The channel side uses it to append the reply's
-// outbox operations, so a reply exists before any external send is attempted.
-type FinishHook func(ctx context.Context, tx pgx.Tx, run sqlc.AgentRun, result, reply string) error
+// prepared outbox operations, so a reply exists before any external send is
+// attempted.
+type FinishHook func(ctx context.Context, tx pgx.Tx, run sqlc.AgentRun, result string, res *Result) error
 
 // Worker claims queued runs and executes them under the session execution
 // lease. It is deliberately dumb about routing: the run row already carries
@@ -46,8 +47,8 @@ type Worker struct {
 	executor Executor
 	onFinish FinishHook
 	poll     time.Duration
-	// turnAppender, when bound, writes the run's deferred transcript rows
-	// inside the finish transaction (plan D4 single committer).
+	// turnAppender, when bound, writes the run's final transcript rows inside
+	// the finish transaction (plan D4 single committer).
 	turnAppender func(ctx context.Context, tx pgx.Tx, session memory.Session, msgs []ai.Message) error
 	// execCtx parents the adopted lease context. It outlives the loop ctx so
 	// a graceful drain stops new claims without cancelling a turn the drain
@@ -79,7 +80,7 @@ func NewWorker(db *pgxpool.Pool, workerID string, executor Executor, onFinish Fi
 	return w
 }
 
-// WithTurnAppender commits the run's deferred transcript inside the finish
+// WithTurnAppender commits the run's final transcript rows inside the finish
 // transaction — the app's lcm provider implements it.
 func WithTurnAppender(fn func(ctx context.Context, tx pgx.Tx, session memory.Session, msgs []ai.Message) error) func(*Worker) {
 	return func(w *Worker) { w.turnAppender = fn }
@@ -134,7 +135,7 @@ func (w *Worker) ProcessOnce(ctx context.Context) (bool, error) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		outcome.reply, outcome.err = w.executor.Execute(runCtx, run)
+		outcome.result, outcome.err = w.executor.Execute(runCtx, run)
 	}()
 	select {
 	case <-ctx.Done():
@@ -278,22 +279,19 @@ func (w *Worker) claimCandidate(opCtx, ctx context.Context, cand sqlc.AgentRun, 
 		return sqlc.AgentRun{}, nil, nil, false, fmt.Errorf("claim run %s (outcome unknown): %w", cand.ID, err)
 	}
 	outcome.run = cand
-	outcome.turn = &agentsession.DeferredTurnStore{}
 	execCtx := w.execCtx
 	if execCtx == nil {
 		execCtx = ctx
 	}
 	runCtx, lease := w.exec.Adopt(execCtx, cand.SessionID, token, w.completeExtra(outcome))
-	runCtx = agentsession.WithDeferredTurnStore(runCtx, outcome.turn)
 	return cand, runCtx, lease, true, nil
 }
 
 // runOutcome carries what the executor produced into the finish transaction.
 type runOutcome struct {
-	run   sqlc.AgentRun
-	turn  *agentsession.DeferredTurnStore
-	reply string
-	err   error
+	run    sqlc.AgentRun
+	result *Result
+	err    error
 }
 
 func (w *Worker) completeExtra(o *runOutcome) sessionexecution.FinishExtra {
@@ -328,28 +326,32 @@ func (w *Worker) completeExtra(o *runOutcome) sessionexecution.FinishExtra {
 		if n != 1 {
 			return fmt.Errorf("finish run %s fenced out", o.run.ID)
 		}
-		if o.turn != nil && w.turnAppender != nil {
-			if rows := o.turn.Rows(); len(rows) > 0 {
-				var actor Actor
-				if err := json.Unmarshal(o.run.Actor, &actor); err != nil {
-					return fmt.Errorf("run actor for history: %w", err)
-				}
-				sess := memory.Session{ID: o.run.SessionID, UserID: actor.UserID, AgentID: o.run.AgentID, GroupID: actor.GroupID, GuestID: actor.GuestID}
-				if sess.UserID == "" {
-					// Guest and group turns persist under their compatibility
-					// owner key — mirror ScopeUserIDFromContext precedence.
-					sess.UserID = actor.GuestID
-				}
-				if sess.UserID == "" {
-					sess.UserID = actor.GroupID
-				}
-				if err := w.turnAppender(ctx, tx, sess, rows); err != nil {
-					return fmt.Errorf("append deferred turn history: %w", err)
-				}
+		// Only a successful turn commits final history: a result carried on a
+		// failed/canceled path (e.g. reply preparation failed after the stream
+		// ended) must not write its terminal reply into a non-completed run.
+		if result == "success" && o.result != nil && w.turnAppender != nil && len(o.result.History) > 0 {
+			if o.result.SessionID != "" && o.result.SessionID != o.run.SessionID {
+				return fmt.Errorf("run %s result bound to foreign session %s", o.run.ID, o.result.SessionID)
+			}
+			var actor Actor
+			if err := json.Unmarshal(o.run.Actor, &actor); err != nil {
+				return fmt.Errorf("run actor for history: %w", err)
+			}
+			sess := memory.Session{ID: o.run.SessionID, UserID: actor.UserID, AgentID: o.run.AgentID, GroupID: actor.GroupID, GuestID: actor.GuestID}
+			if sess.UserID == "" {
+				// Guest and group turns persist under their compatibility
+				// owner key — mirror ScopeUserIDFromContext precedence.
+				sess.UserID = actor.GuestID
+			}
+			if sess.UserID == "" {
+				sess.UserID = actor.GroupID
+			}
+			if err := w.turnAppender(ctx, tx, sess, o.result.History); err != nil {
+				return fmt.Errorf("append final turn history: %w", err)
 			}
 		}
 		if w.onFinish != nil {
-			return w.onFinish(ctx, tx, o.run, result, o.reply)
+			return w.onFinish(ctx, tx, o.run, result, o.result)
 		}
 		return nil
 	}

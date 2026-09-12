@@ -89,9 +89,6 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	if registrar, ok := handler.(channel.BotRegistrar); ok && bot.Me.Username != "" {
 		registrar.RegisterBotIdentity(channel.PlatformTelegram, bot.Me.Username, cfg.InstanceID)
 	}
-	if registrar, ok := handler.(channel.GroupPublisherRegistrar); ok {
-		registrar.RegisterGroupPublisher(b.Name(), b)
-	}
 
 	return b, nil
 }
@@ -127,9 +124,6 @@ func (b *Bot) Finalize() {
 	b.finalizeOnce.Do(func() {
 		if registrar, ok := b.handler.(channel.BotIdentityUnregistrar); ok && b.bot.Me.Username != "" {
 			registrar.UnregisterBotIdentity(channel.PlatformTelegram, b.bot.Me.Username, b.cfg.InstanceID)
-		}
-		if registrar, ok := b.handler.(channel.GroupPublisherUnregistrar); ok {
-			registrar.UnregisterGroupPublisher(b.Name())
 		}
 	})
 }

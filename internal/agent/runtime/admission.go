@@ -380,12 +380,46 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner <-chan Event
 	defer admission.turn.cancel()
 	defer rt.active.CompareAndDelete(admission.info.ID, admission.turn)
 	defer rt.hub.end(admission.info.ID)
+	// The durable execution coordinate is this session's own lease token. A
+	// synchronous child turn inherits the parent's context, so the lease must
+	// be pinned to this session before its token may stamp our events.
+	var executionID string
+	if l := sessionexecution.FromContext(admission.ctx); l != nil && l.SessionID() == admission.info.ID {
+		executionID = l.Token()
+	}
+	var sinkErr error
 	deliver := true
 	for event := range inner {
-		rt.hub.publish(admission.info.ID, event)
-		if rt.eventSink != nil {
-			if err := rt.eventSink.Append(admission.ctx, admission.info.ID, admission.co.runID, EncodeEvent(event)); err != nil {
-				rt.log.WarnContext(admission.ctx, "session event append failed", "session", admission.info.ID, "error", err)
+		// Persist before waking: the hub is a wake signal only, and a reader
+		// that fires early must still find this event in the log. A failed
+		// append earns no wake — it was never committed — and the first sink
+		// failure ends durable persistence for this turn: the log is the only
+		// observer source, so a partially persisted stream must surface as a
+		// failed turn rather than a completed one missing bytes.
+		switch {
+		case rt.eventSink == nil:
+			rt.hub.wake(admission.info.ID)
+		case sinkErr != nil:
+			// already failed; keep draining without appending
+		default:
+			err := rt.eventSink.Append(admission.ctx, admission.info.ID, executionID, admission.co.runID, EncodeEvent(event))
+			switch {
+			case err == nil:
+				rt.hub.wake(admission.info.ID)
+			case admission.ctx.Err() != nil:
+				// Cancellation tears the sink down with the turn; it is not a
+				// durability failure.
+				rt.log.DebugContext(admission.ctx, "session event append abandoned on cancel", "session", admission.info.ID, "error", err)
+			default:
+				sinkErr = err
+				rt.log.WarnContext(admission.ctx, "session event append failed; aborting turn", "session", admission.info.ID, "error", err)
+				// The log is the only observer source: a turn that can no
+				// longer persist its stream must not keep producing events no
+				// replica can recover. Cancel it and drain to join — and stop
+				// delivering, since events that never committed must not be
+				// published as if durable.
+				admission.turn.cancel()
+				deliver = false
 			}
 		}
 		if !deliver {
@@ -397,13 +431,24 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner <-chan Event
 			deliver = false
 		}
 	}
-	terminalErr := <-producerResult
+	terminalErr := errors.Join(<-producerResult, sinkErr)
 	result := memory.SessionTurnSuccess
 	switch {
 	case terminalErr != nil:
 		result = memory.SessionTurnError
 	case admission.ctx.Err() != nil:
 		result = memory.SessionTurnCanceled
+	}
+	// The terminal error event lands in the log before Finish: Finish cancels
+	// the lease context and commits the execution's terminal marker, so the
+	// event must be durably ahead of the marker for a tailing reader to see
+	// the error text before the stream ends.
+	if terminalErr != nil && rt.eventSink != nil {
+		if err := rt.eventSink.Append(context.WithoutCancel(admission.ctx), admission.info.ID, executionID, admission.co.runID, EncodeEvent(Event{Err: terminalErr})); err != nil {
+			rt.log.WarnContext(admission.ctx, "session terminal event append failed", "session", admission.info.ID, "error", err)
+		} else {
+			rt.hub.wake(admission.info.ID)
+		}
 	}
 	switch {
 	case admission.adoptedLease:
@@ -427,12 +472,6 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner <-chan Event
 	}
 	if terminalErr != nil {
 		event := Event{Err: terminalErr}
-		rt.hub.publish(admission.info.ID, event)
-		if rt.eventSink != nil {
-			if err := rt.eventSink.Append(admission.ctx, admission.info.ID, admission.co.runID, EncodeEvent(event)); err != nil {
-				rt.log.WarnContext(admission.ctx, "session terminal event append failed", "session", admission.info.ID, "error", err)
-			}
-		}
 		select {
 		case admission.out <- event:
 		case <-admission.ctx.Done():

@@ -244,7 +244,7 @@ func TestGroupReplyChainFoldsMediaAsText(t *testing.T) {
 		V: PayloadVersion, Platform: "qq",
 		PlatformGroupID: "g1", DeliveryID: "d-1",
 	}
-	ops, err := GroupReplyChain("group:d-1", "ch-1", "bot-1", payload, events,
+	ops, err := GroupReplyChain("group:d-1", "ch-1", "bot-1", "", payload, events,
 		ReplyPlan{TextLimit: 3500, PrimaryText: true, MediaAsText: true})
 	if err != nil {
 		t.Fatalf("GroupReplyChain: %v", err)
@@ -258,5 +258,148 @@ func TestGroupReplyChainFoldsMediaAsText(t *testing.T) {
 	}
 	if !strings.Contains(p.Text, "[Image: image/png]") {
 		t.Fatalf("primary text missing media marker: %q", p.Text)
+	}
+}
+
+// A redelivered append carries the same JSON under a different serialization —
+// key order and whitespace — and must dedup on JSONB semantics, not bytes.
+func TestAppendDedupMatchesJSONBSemantically(t *testing.T) {
+	db := dbtest.New(t)
+	createChannel(t, db, "ch-1")
+	s := New(db)
+	ctx := t.Context()
+
+	first := op("d-1", 0)
+	first.Payload = json.RawMessage(`{"v":1,"text":"hi"}`)
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(ctx, tx, []Op{first}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	again := first
+	again.Payload = json.RawMessage(`{ "text":"hi", "v":1 }`)
+	tx, err = db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(ctx, tx, []Op{again}); err != nil {
+		t.Fatalf("reordered payload rejected: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := s.ListByDelivery(ctx, "d-1")
+	if len(rows) != 1 {
+		t.Fatalf("semantic dedup duplicated the op: %d rows", len(rows))
+	}
+}
+
+// Same delivery key and index but a different frozen identity — here the
+// payload body — is a real conflict, never a silent merge.
+func TestAppendDedupRejectsChangedIdentity(t *testing.T) {
+	db := dbtest.New(t)
+	createChannel(t, db, "ch-1")
+	s := New(db)
+	ctx := t.Context()
+
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(ctx, tx, []Op{op("d-1", 0)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := op("d-1", 0)
+	changed.Payload = json.RawMessage(`{"v":1,"text":"different"}`)
+	tx, err = db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(ctx, tx, []Op{changed}); err == nil {
+		t.Fatal("changed payload deduped silently")
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Attachment presence is nil vs non-nil: a zero-byte file is a real body that
+// must commit and dedup; a body where none was requested — or different bytes
+// where one was — is a mismatch.
+func TestAppendAttachmentDedup(t *testing.T) {
+	db := dbtest.New(t)
+	createChannel(t, db, "ch-1")
+	s := New(db)
+	ctx := t.Context()
+
+	empty := op("d-1", 0)
+	empty.Kind = OpSendAttachment
+	empty.Attachment = []byte{} // zero-byte file: non-nil presence
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(ctx, tx, []Op{empty}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := db.QueryRow(ctx,
+		`SELECT count(*) FROM channel_outbox_attachment a
+		 JOIN channel_outbox o ON o.id = a.outbox_id
+		 WHERE o.delivery_key = 'd-1' AND a.data = ''::bytea`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("zero-byte attachment not stored: n=%d err=%v", n, err)
+	}
+
+	// Same empty body re-appends cleanly.
+	tx, err = db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(ctx, tx, []Op{empty}); err != nil {
+		t.Fatalf("zero-byte dedup: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// No attachment where one was stored: mismatch, not a silent skip.
+	bare := empty
+	bare.Attachment = nil
+	tx, err = db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(ctx, tx, []Op{bare}); err == nil {
+		t.Fatal("attachment dropped on redelivery deduped silently")
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Different bytes under the same key: mismatch.
+	other := empty
+	other.Attachment = []byte("not empty")
+	tx, err = db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Append(ctx, tx, []Op{other}); err == nil {
+		t.Fatal("different attachment bytes deduped silently")
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -2,7 +2,9 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -29,14 +31,30 @@ type reviewRuntimeExecutor struct {
 	info session.Info
 }
 
-func (e reviewRuntimeExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (string, error) {
+func (e reviewRuntimeExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (*run.Result, error) {
 	var reply strings.Builder
+	res := &run.Result{SessionID: r.SessionID}
 	var result error
-	for event := range e.rt.Chat(ctx, e.info, "hello", WithRunID(r.ID)) {
+	for event := range e.rt.Chat(ctx, e.info, "hello", WithRunID(r.ID), WithFinalHistorySink(&res.History)) {
 		reply.WriteString(event.Text)
 		result = errors.Join(result, event.Err)
 	}
-	return reply.String(), result
+	if result != nil {
+		return nil, result
+	}
+	var addr run.ReplyAddress
+	if err := json.Unmarshal(r.ReplyAddress, &addr); err != nil {
+		return nil, err
+	}
+	if addr.ChannelID != "" && reply.Len() > 0 {
+		ops, err := outbox.ReplyOps(r.ID, outbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey,
+			outbox.Address{V: 1, ChatKey: addr.ChatKey}, reply.String(), 4000)
+		if err != nil {
+			return nil, err
+		}
+		res.Ops = ops
+	}
+	return res, nil
 }
 
 func TestWorkerRealRuntimeFinalReply(t *testing.T) {
@@ -70,16 +88,18 @@ func TestWorkerRealRuntimeFinalReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	hookReply := "never-called"
-	w := run.NewWorker(db, "review-worker", reviewRuntimeExecutor{rt: rt, info: info}, func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result, reply string) error {
-		hookReply = reply
-		if result != "success" || reply == "" {
+	w := run.NewWorker(db, "review-worker", reviewRuntimeExecutor{rt: rt, info: info}, func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result string, res *run.Result) error {
+		if result != "success" || res == nil || len(res.Ops) == 0 {
 			return nil
 		}
-		ops, err := outbox.ReplyOps(r.ID, outbox.DeliveryKeyForRun(r.ID), "ch-review", "bot", outbox.Address{V: 1, ChatKey: "chat"}, reply, 4000)
-		if err != nil {
+		var p struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(res.Ops[0].Payload, &p); err != nil {
 			return err
 		}
-		return outbox.New(db).Append(ctx, tx, ops)
+		hookReply = p.Text
+		return outbox.New(db).Append(ctx, tx, res.Ops)
 	})
 	claimed, processErr := w.ProcessOnce(ctx)
 	got, err := run.New(db).Get(ctx, r.ID)
@@ -161,15 +181,11 @@ func TestWorkerDeferredHistoryJoinsFinishTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := run.NewWorker(db, "d4-worker", reviewRuntimeExecutor{rt: rt, info: info},
-		func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result, reply string) error {
-			if result != "success" || reply == "" {
+		func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result string, res *run.Result) error {
+			if result != "success" || res == nil || len(res.Ops) == 0 {
 				return nil
 			}
-			ops, err := outbox.ReplyOps(r.ID, outbox.DeliveryKeyForRun(r.ID), "ch-d4", "bot", outbox.Address{V: 1, ChatKey: "chat"}, reply, 4000)
-			if err != nil {
-				return err
-			}
-			return outbox.New(db).Append(ctx, tx, ops)
+			return outbox.New(db).Append(ctx, tx, res.Ops)
 		},
 		run.WithTurnAppender(func(ctx context.Context, tx pgx.Tx, sess memory.Session, msgs []ai.Message) error {
 			return lcmP.AppendSessionTurn(ctx, sqlc.New(tx), sess, msgs...)
@@ -229,7 +245,7 @@ func TestWorkerDeferredHistoryFailureBlocksCompletion(t *testing.T) {
 
 	outboxWrites := 0
 	w := run.NewWorker(db, "d4f-worker", reviewRuntimeExecutor{rt: rt, info: info},
-		func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result, reply string) error {
+		func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result string, res *run.Result) error {
 			outboxWrites++
 			return nil
 		},
@@ -293,19 +309,37 @@ func TestWorkerOutboxFailureRollsBackCommittedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	reachedAttachmentWrite := false
 	w := run.NewWorker(db, "d4r-worker", reviewRuntimeExecutor{rt: rt, info: info},
-		func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result, reply string) error {
-			if result != "success" || reply == "" {
+		func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result string, res *run.Result) error {
+			if result != "success" || res == nil || len(res.Ops) == 0 {
 				return nil
 			}
-			ops, err := outbox.ReplyOps(r.ID, outbox.DeliveryKeyForRun(r.ID), "ch-d4r", "bot", outbox.Address{V: 1, ChatKey: "chat"}, reply, 4000)
+			if err := outbox.New(db).Append(ctx, tx, res.Ops); err != nil {
+				return err
+			}
+			// A real attachment write lands inside the same doomed tx: its
+			// bytea child must roll back with the op and the history.
+			if err := outbox.New(db).Append(ctx, tx, []outbox.Op{{
+				RunID: r.ID, DeliveryKey: "d4r-doomed-attachment", Index: 0,
+				Kind: outbox.OpSendAttachment, ChannelID: "ch-d4r",
+				Address: json.RawMessage(`{}`), Payload: json.RawMessage(`{}`),
+				Attachment: []byte("DOOMED-BYTES"),
+			}}); err != nil {
+				return err
+			}
+			// Prove the bytea row really landed inside this tx before the
+			// injected failure — anything earlier must not pass as a
+			// post-write rollback.
+			body, err := sqlc.New(tx).GetChannelOutboxAttachmentByKey(ctx, sqlc.GetChannelOutboxAttachmentByKeyParams{DeliveryKey: "d4r-doomed-attachment", OperationIndex: 0})
 			if err != nil {
-				return err
+				return fmt.Errorf("attachment row missing inside the finish tx: %w", err)
 			}
-			if err := outbox.New(db).Append(ctx, tx, ops); err != nil {
-				return err
+			if string(body) != "DOOMED-BYTES" {
+				return fmt.Errorf("attachment body = %q, want the bytes this tx wrote", body)
 			}
-			return errors.New("finish failed after real outbox write")
+			reachedAttachmentWrite = true
+			return errors.New("D4_INJECTED_FINISH_FAILURE")
 		},
 		run.WithTurnAppender(func(ctx context.Context, tx pgx.Tx, sess memory.Session, msgs []ai.Message) error {
 			return lcmP.AppendSessionTurn(ctx, sqlc.New(tx), sess, msgs...)
@@ -314,19 +348,28 @@ func TestWorkerOutboxFailureRollsBackCommittedHistory(t *testing.T) {
 	if err == nil {
 		t.Fatal("finish must surface the outbox failure")
 	}
+	if !strings.Contains(err.Error(), "D4_INJECTED_FINISH_FAILURE") {
+		t.Fatalf("finish failed before reaching the attachment write: %v", err)
+	}
+	if !reachedAttachmentWrite {
+		t.Fatal("the injected failure never ran — the attachment write was not reached")
+	}
 	got, err := run.New(db).Get(ctx, r.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var msgs, outboxCount int
+	var msgs, outboxCount, attachmentCount int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM ctx_message m JOIN ctx_conversation c ON c.id=m.conversation_id WHERE c.session_id='d4r-session'`).Scan(&msgs); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE run_id=$1", r.ID).Scan(&outboxCount); err != nil {
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE run_id=$1 OR delivery_key='d4r-doomed-attachment'", r.ID).Scan(&outboxCount); err != nil {
 		t.Fatal(err)
 	}
-	if got.State == "completed" || msgs > 0 || outboxCount > 0 {
-		t.Fatalf("outbox failure must roll back the history it committed: run=%s history=%d outbox=%d", got.State, msgs, outboxCount)
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox_attachment").Scan(&attachmentCount); err != nil {
+		t.Fatal(err)
+	}
+	if got.State == "completed" || msgs > 0 || outboxCount > 0 || attachmentCount > 0 {
+		t.Fatalf("outbox failure must roll back the history it committed: run=%s history=%d outbox=%d attachments=%d", got.State, msgs, outboxCount, attachmentCount)
 	}
 }
 
@@ -337,7 +380,7 @@ type countingExecutor struct {
 	calls int
 }
 
-func (e *countingExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (string, error) {
+func (e *countingExecutor) Execute(ctx context.Context, r sqlc.AgentRun) (*run.Result, error) {
 	e.calls++
 	return e.inner.Execute(ctx, r)
 }
@@ -384,15 +427,11 @@ func TestWorkerCompletedRunIsNotReexecuted(t *testing.T) {
 		t.Fatal(err)
 	}
 	exec := &countingExecutor{inner: reviewRuntimeExecutor{rt: rt, info: info}}
-	finish := func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result, reply string) error {
-		if result != "success" || reply == "" {
+	finish := func(ctx context.Context, tx pgx.Tx, r sqlc.AgentRun, result string, res *run.Result) error {
+		if result != "success" || res == nil || len(res.Ops) == 0 {
 			return nil
 		}
-		ops, err := outbox.ReplyOps(r.ID, outbox.DeliveryKeyForRun(r.ID), "ch-d4u", "bot", outbox.Address{V: 1, ChatKey: "chat"}, reply, 4000)
-		if err != nil {
-			return err
-		}
-		return outbox.New(db).Append(ctx, tx, ops)
+		return outbox.New(db).Append(ctx, tx, res.Ops)
 	}
 	appendHistory := func(ctx context.Context, tx pgx.Tx, sess memory.Session, msgs []ai.Message) error {
 		return lcmP.AppendSessionTurn(ctx, sqlc.New(tx), sess, msgs...)

@@ -1,9 +1,11 @@
 package feishu
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
@@ -180,4 +182,11 @@ func (b *Bot) sendImageInThread(chatID, replyMsgID, rootID string, img channel.I
 // sendFileInThread sends a file in the correct thread context.
 func (b *Bot) sendFileInThread(chatID, replyMsgID, rootID string, file channel.FileEvent, check func() error) error {
 	return b.sendFile(chatID, threadReplyTarget(replyMsgID, rootID), file, rootID != "", check)
+}
+
+// sendFileDataInThread sends already-materialized attachment bytes in the
+// correct thread context — the outbox path's reopened artifact.
+func (b *Bot) sendFileDataInThread(chatID, replyMsgID, rootID, name string, data []byte, check func() error) error {
+	return b.sendFileData(chatID, threadReplyTarget(replyMsgID, rootID), name,
+		func() (io.Reader, error) { return bytes.NewReader(data), nil }, rootID != "", check)
 }

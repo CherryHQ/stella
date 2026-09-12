@@ -2,6 +2,7 @@ package sessionexecution_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"sync"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/core/agenterr"
@@ -539,5 +541,140 @@ func TestReapKeepsTombstoneForLiveWriter(t *testing.T) {
 	}
 	if _, err := sqlc.New(db).GetSessionExecution(t.Context(), id); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("dead writer's tombstone survived reap: %v", err)
+	}
+}
+
+// TestReapWritesTerminalForLiveWriter proves the reaper publishes the expired
+// token's turn_terminal marker in the same transaction that marks the turn
+// interrupted — even when the owner is still alive and the tombstone must be
+// kept. The marker is idempotent: a later finish/reap does not duplicate it.
+func TestReapWritesTerminalForLiveWriter(t *testing.T) {
+	db := dbtest.New(t)
+	store := sessionexecution.New(db)
+	id := seedSession(t, db)
+	_, lease := claim(t, store, id)
+	token := sessionexecution.LeaseTokenForTest(lease)
+	expire(t, db, lease) // owner is this process — alive
+
+	if err := store.Reap(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	row, err := sqlc.New(db).GetSessionTerminalEvent(t.Context(), sqlc.GetSessionTerminalEventParams{
+		SessionID:   id,
+		ExecutionID: pgtype.Text{String: token, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("live-writer reap left no terminal marker: %v", err)
+	}
+	var payload struct {
+		Result string `json:"result"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(row.Event, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Result != "error" || payload.Reason == "" {
+		t.Fatalf("terminal marker = %+v, want error verdict with reason", payload)
+	}
+	// The tombstone stays (writer unproven-dead); the marker is what ends the
+	// turn for observers.
+	if _, err := sqlc.New(db).GetSessionExecution(t.Context(), id); err != nil {
+		t.Fatalf("tombstone deleted while writer alive: %v", err)
+	}
+	// Idempotent: a second reap of the same kept row does not duplicate.
+	if err := store.Reap(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRow(t.Context(),
+		`SELECT COUNT(*) FROM ctx_session_event WHERE session_id=$1 AND execution_id=$2 AND event->>'type'='turn_terminal'`,
+		id, token).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("terminal markers = %d, want exactly one", count)
+	}
+}
+
+// TestFinishWaitsBehindEventAdvisory drives the real production seam: one
+// transaction holds the session advisory the event sink takes before bumping
+// the conversation seq counter, while the actual lease.Finish runs its own
+// lock sequence. Once Finish provably waits on that advisory, the blocker
+// still writes the conversation row and commits — with the regression order
+// (conversation row write before advisory) this pair deadlocks instead.
+func TestFinishWaitsBehindEventAdvisory(t *testing.T) {
+	db := dbtest.New(t)
+	store := sessionexecution.New(db)
+	id := seedSession(t, db)
+	_, lease := claim(t, store, id)
+	token := sessionexecution.LeaseTokenForTest(lease)
+
+	ctx := t.Context()
+	blocker, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = blocker.Rollback(ctx) }()
+	bq := sqlc.New(blocker)
+	if err := bq.LockConversationForWrite(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	var blockerPID int
+	if err := blocker.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&blockerPID); err != nil {
+		t.Fatal(err)
+	}
+
+	finishDone := make(chan error, 1)
+	go func() { finishDone <- lease.Finish("success") }()
+
+	// Wait until Finish is genuinely queued behind the blocker's advisory.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting bool
+		if err := db.QueryRow(ctx,
+			`SELECT EXISTS(
+				SELECT 1 FROM pg_locks l
+				WHERE NOT l.granted AND $1 = ANY(pg_blocking_pids(l.pid)))`,
+			blockerPID).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+		select {
+		case err := <-finishDone:
+			t.Fatalf("Finish completed without waiting on the held advisory: %v", err)
+		case <-time.After(20 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Finish never queued on the session advisory")
+		}
+	}
+
+	// Finish is parked on the advisory holding only its execution row. The
+	// blocker can still take the conversation row — under the regression
+	// order (conversation row first, advisory second) Finish would already
+	// hold it and this write deadlocks the pair.
+	if _, err := bq.NextSessionEventSeq(ctx, id); err != nil {
+		t.Fatalf("conversation row blocked by Finish — regression lock order: %v", err)
+	}
+	if err := blocker.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-finishDone:
+		if err != nil {
+			t.Fatalf("Finish: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Finish did not complete after the advisory was released")
+	}
+
+	// The finish committed the token's terminal marker.
+	if _, err := sqlc.New(db).GetSessionTerminalEvent(ctx, sqlc.GetSessionTerminalEventParams{
+		SessionID:   id,
+		ExecutionID: pgtype.Text{String: token, Valid: true},
+	}); err != nil {
+		t.Fatalf("finish left no terminal marker: %v", err)
 	}
 }

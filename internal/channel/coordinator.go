@@ -58,29 +58,28 @@ type userInvalidator interface {
 type ListenerCap = func(context.Context, string, string) (bool, error)
 
 type Coordinator struct {
-	serviceManager    agent.ServiceManager
-	invalidator       userInvalidator
-	store             config.Store
-	auth              channelAuthStore
-	agentAccess       *agentaccess.Service
-	linkCodes         *auth.LinkCodeStore
-	vaultRecipient    *age.X25519Recipient
-	vaultSvc          *vault.Service
-	listFn            func() []pkgchannel.ModelOption
-	switchFn          func(provider, model string) error
-	queue             *sessionQueue
-	groupResolver     GroupResolver
-	eventLog          *eventlog.Store
-	botRegistry       *BotIdentityRegistry
-	publisherRegistry *PublisherRegistry
-	groupDispatcher   *GroupDispatcher
-	db                *pgxpool.Pool
-	rootOpener        home.RootOpener
-	guests            GuestStore
-	guestPolicy       pkgchannel.GuestPolicyResolver
-	listenerCap       ListenerCap
-	guestLimiter      *guestRateLimiter
-	sessionImages     GroupImagePipeline
+	serviceManager  agent.ServiceManager
+	invalidator     userInvalidator
+	store           config.Store
+	auth            channelAuthStore
+	agentAccess     *agentaccess.Service
+	linkCodes       *auth.LinkCodeStore
+	vaultRecipient  *age.X25519Recipient
+	vaultSvc        *vault.Service
+	listFn          func() []pkgchannel.ModelOption
+	switchFn        func(provider, model string) error
+	queue           *sessionQueue
+	groupResolver   GroupResolver
+	eventLog        *eventlog.Store
+	botRegistry     *BotIdentityRegistry
+	groupDispatcher *GroupDispatcher
+	db              *pgxpool.Pool
+	rootOpener      home.RootOpener
+	guests          GuestStore
+	guestPolicy     pkgchannel.GuestPolicyResolver
+	listenerCap     ListenerCap
+	guestLimiter    *guestRateLimiter
+	sessionImages   GroupImagePipeline
 	// sessionAccess is the Session PEP for the durable router: binding
 	// resolution and rotation without a local agent.Service.
 	sessionAccess agent.SessionAccessService
@@ -110,6 +109,16 @@ type GroupImagePipeline interface {
 // projection instead of becoming canonical references.
 func WithSessionImages(images GroupImagePipeline) CoordinatorOption {
 	return func(c *Coordinator) { c.sessionImages = images }
+}
+
+// OpenAttachment returns the immutable file bytes committed with an outbox
+// op — the send boundary on any replica reads the same row.
+func (c *Coordinator) OpenAttachment(ctx context.Context, outboxID string) ([]byte, error) {
+	data, err := sqlc.New(c.db).GetChannelOutboxAttachment(ctx, outboxID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("%w: no attachment body for op %s", pkgchannel.ErrAttachmentMissing, outboxID)
+	}
+	return data, err
 }
 
 // WithGuestStore enables durable unlinked channel principals.
@@ -200,13 +209,6 @@ func WithEventLog(el *eventlog.Store) CoordinatorOption {
 func WithBotRegistry(reg *BotIdentityRegistry) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.botRegistry = reg
-	}
-}
-
-// WithPublisherRegistry configures cross-channel group response publishers.
-func WithPublisherRegistry(reg *PublisherRegistry) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.publisherRegistry = reg
 	}
 }
 
@@ -384,20 +386,6 @@ func (c *Coordinator) UnregisterBotName(platform, displayName, channelID string)
 		return
 	}
 	c.botRegistry.UnregisterName(platform, displayName, channelID)
-}
-
-func (c *Coordinator) RegisterGroupPublisher(channelID string, publisher pkgchannel.GroupPublisher) {
-	if c.publisherRegistry == nil {
-		return
-	}
-	c.publisherRegistry.Register(channelID, publisher)
-}
-
-func (c *Coordinator) UnregisterGroupPublisher(channelID string) {
-	if c.publisherRegistry == nil {
-		return
-	}
-	c.publisherRegistry.Unregister(channelID)
 }
 
 var errChannelPluginDisabled = errors.New("channel plugin disabled for actor")

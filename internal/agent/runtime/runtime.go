@@ -204,17 +204,22 @@ func New(cfg Config) (*Runtime, error) {
 }
 
 // EventSink durably records turn events. Implemented by sessionevent.Store;
-// errors are logged, never propagated — a durable-log outage must not wedge a
-// live turn.
+// a non-cancellation failure fails the turn — the log is the only observer
+// source, so an unpersisted stream must not keep publishing. executionID is
+// the claiming lease's token; runID is empty for non-run turns.
 type EventSink interface {
-	Append(ctx context.Context, sessionID, runID string, payload json.RawMessage) error
+	Append(ctx context.Context, sessionID, executionID, runID string, payload json.RawMessage) error
+	// TurnStart commits the execution's history boundary after the turn's
+	// input is canonically persisted and before any observation event.
+	TurnStart(ctx context.Context, sessionID, executionID, runID string) error
 }
 
-// Subscribe registers a read-only listener for a session's live turn events.
-// The channel is closed when the in-flight turn ends; callers must invoke the
-// returned cancel func when they stop reading. See SessionHub.
-func (rt *Runtime) Subscribe(sessionID string) (<-chan Event, func()) {
-	return rt.hub.Subscribe(sessionID)
+// Watch registers a wake listener for a session's live turn. The channel
+// only signals "the durable log grew"; readers must load events themselves.
+// It closes when the in-flight turn ends; callers must invoke the returned
+// cancel func when they stop listening. See SessionHub.
+func (rt *Runtime) Watch(sessionID string) (<-chan struct{}, func()) {
+	return rt.hub.Watch(sessionID)
 }
 
 // SessionLive reports whether a turn is currently in flight on the session.
