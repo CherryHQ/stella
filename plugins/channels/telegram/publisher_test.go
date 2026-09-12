@@ -32,7 +32,18 @@ type telegramAPIFake struct {
 
 func (f *telegramAPIFake) RoundTrip(req *http.Request) (*http.Response, error) {
 	var params map[string]any
-	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
+	if strings.HasPrefix(req.Header.Get("Content-Type"), "multipart/form-data") {
+		if err := req.ParseMultipartForm(1 << 20); err != nil {
+			return nil, err
+		}
+		params = make(map[string]any, len(req.MultipartForm.Value)+len(req.MultipartForm.File))
+		for k, v := range req.MultipartForm.Value {
+			params[k] = strings.Join(v, ",")
+		}
+		for k := range req.MultipartForm.File {
+			params[k] = "<upload>"
+		}
+	} else if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
 		return nil, err
 	}
 	method := path.Base(req.URL.Path)

@@ -39,48 +39,63 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		if op.Address.ChatKey == "" || b.client == nil {
 			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "weixin: empty chat key or client down")
 		}
-		text, images, files := channel.CollectReplyEvents(payload.Events)
+		// The op delivers exactly the pre-split primary segment; overflow
+		// chunks and attachments are sibling ops with their own receipts.
+		text := payload.Text
 		if strings.TrimSpace(text) == "" {
 			text = "(empty response)"
 		}
-		var firstID string
-		for i, chunk := range channel.SplitMessage(text, weixinMaxMessageLen) {
-			msg := WeixinMessage{
-				ToUserID:     op.Address.ChatKey,
-				ClientID:     deterministicClientID(op.DeliveryKey, i),
-				MessageType:  MessageTypeBot,
-				MessageState: MessageStateFinish,
-				ContextToken: op.Address.Token,
-				ItemList: []MessageItem{{
-					Type:     ItemTypeText,
-					TextItem: &TextItem{Text: chunk},
-				}},
-			}
-			if err := b.client.SendMessage(msg); err != nil {
-				return channel.SendResult{}, classifyWeixinSend(err)
-			}
-			if i == 0 {
-				firstID = msg.ClientID
-			}
+		msg := WeixinMessage{
+			ToUserID:     op.Address.ChatKey,
+			ClientID:     deterministicClientID(op.DeliveryKey, op.OperationIndex),
+			MessageType:  MessageTypeBot,
+			MessageState: MessageStateFinish,
+			ContextToken: op.Address.Token,
+			ItemList: []MessageItem{{
+				Type:     ItemTypeText,
+				TextItem: &TextItem{Text: text},
+			}},
 		}
-		// Attachments go through the CDN upload helpers; the op address token
-		// re-seeds the reply credential on a replica that never saw inbound.
+		if err := b.client.SendMessage(msg); err != nil {
+			return channel.SendResult{}, classifyWeixinSend(err)
+		}
+		return channel.SendResult{PlatformMessageID: msg.ClientID}, nil
+	}
+	if op.Kind == "send_attachment" {
+		var payload channel.AttachmentOpPayload
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "weixin: bad send_attachment payload: %v", err)
+		}
+		if op.Address.ChatKey == "" || b.client == nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "weixin: empty chat key or client down")
+		}
+		// The op address token re-seeds the reply credential on a replica that
+		// never saw inbound. The deterministic client_id dedupes the platform
+		// message even if the CDN upload had to repeat mid-retry.
 		if op.Address.Token != "" {
 			b.contextTokens.Store(op.Address.ChatKey, op.Address.Token)
 		}
+		clientID := deterministicClientID(op.DeliveryKey, op.OperationIndex)
 		msg := WeixinMessage{FromUserID: op.Address.ChatKey}
-		for _, img := range images {
-			b.sendImage(msg, img)
-		}
-		for _, file := range files {
-			data, err := os.ReadFile(file.Path)
-			if err != nil {
-				logger().Warn("sendReplyOp: attachment unreadable on this replica", "path", file.Path, "error", err)
-				continue
+		var err error
+		switch payload.Kind {
+		case channel.AttachmentImage:
+			err = b.sendImage(msg, channel.ImageEvent{Data: payload.Data, MimeType: payload.MimeType}, clientID,
+				func() error { return op.CheckOwnership(ctx) })
+		case channel.AttachmentFile:
+			data, rerr := os.ReadFile(payload.Path)
+			if rerr != nil {
+				return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "weixin: read attachment %s: %v", payload.Path, rerr)
 			}
-			b.sendFile(msg, file.Name, data)
+			err = b.sendFile(msg, payload.Name, data, clientID,
+				func() error { return op.CheckOwnership(ctx) })
+		default:
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "weixin: unknown attachment kind %q", payload.Kind)
 		}
-		return channel.SendResult{PlatformMessageID: firstID}, nil
+		if err != nil {
+			return channel.SendResult{}, classifyWeixinSend(err)
+		}
+		return channel.SendResult{PlatformMessageID: clientID}, nil
 	}
 	if op.Kind != "send_text" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "weixin: unsupported op kind %q", op.Kind)

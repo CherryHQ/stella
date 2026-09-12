@@ -16,6 +16,15 @@ ORDER BY operation_index;
 -- Owner send loop: due pending ops for channels it currently owns. An op is
 -- not due while any same-delivery dependency it names is unsent — split
 -- replies keep platform order and a blocked head never lets a tail jump past.
+-- Dependency semantics differ by kind: a draft_update snapshot is
+-- self-contained, never a delta, so a resolved predecessor — sent, failed,
+-- canceled, or unknown — satisfies it. The claim-time seq fence
+-- (MaxSentDraftSeq + run liveness) then decides send-vs-cancel, so a failed
+-- or expired predecessor can never deadlock the run's terminal reply behind
+-- an unclaimable draft. 'unknown' is safe to treat as resolved for drafts
+-- only: the attempt deadline (5 min) far outlives any in-flight SDK call, so
+-- no zombie edit can still land after the successor. Non-draft ops keep the
+-- strict 'sent' rule — their chunks are deltas and must not overtake.
 -- A non-draft op is also held while any same-run draft is still pending or
 -- sending: the terminal reply must never be overtaken by an older progress
 -- edit landing late on the same platform message.
@@ -28,7 +37,11 @@ WHERE channel_outbox.channel_id = $1 AND channel_outbox.state = 'pending'
     JOIN channel_outbox AS d
       ON d.delivery_key = channel_outbox.delivery_key
      AND d.operation_index = dep.dep_idx::int
-    WHERE d.state != 'sent'
+    WHERE CASE
+          WHEN channel_outbox.operation_kind = 'draft_update'
+            THEN d.state IN ('pending', 'sending')
+          ELSE d.state != 'sent'
+          END
   )
   AND (
     channel_outbox.operation_kind = 'draft_update'
@@ -79,6 +92,24 @@ UPDATE channel_outbox
 SET state = 'pending', attempt_token = NULL, next_attempt_at = sqlc.arg(next_attempt_at),
     updated_at = clock_timestamp()
 WHERE id = sqlc.arg(id) AND state = 'unknown';
+
+-- name: CancelBlockedChannelOutbox :execrows
+-- Sweep inside the claim transaction: a pending op whose predecessor
+-- permanently failed or was canceled can never complete its delivery — the
+-- chain is already broken — so cancel it instead of parking it forever.
+-- draft_update is excluded: its resolved-dependency rule already releases the
+-- successor, and the claim-time seq fence decides send-vs-cancel there.
+UPDATE channel_outbox AS o
+SET state = 'canceled', error_code = 'dependency_failed', updated_at = clock_timestamp()
+WHERE o.channel_id = $1 AND o.state = 'pending' AND o.operation_kind != 'draft_update'
+  AND EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements_text(o.depends_on) AS dep(dep_idx)
+    JOIN channel_outbox AS d
+      ON d.delivery_key = o.delivery_key
+     AND d.operation_index = dep.dep_idx::int
+    WHERE d.state IN ('failed', 'canceled')
+  );
 
 -- name: CancelChannelOutboxByRun :execrows
 -- Session/run teardown cancels everything still deliverable for the run.

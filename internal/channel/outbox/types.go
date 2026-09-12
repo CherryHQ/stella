@@ -2,6 +2,7 @@ package outbox
 
 import (
 	"encoding/json"
+	"strings"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
@@ -151,28 +152,96 @@ func NotifyOp(deliveryKey, channelID, accountKey string, n pkgchannel.Notificati
 // lives in pkg/channel so adapters decode the same shape.
 type ReplyPayload = pkgchannel.ReplyOpPayload
 
-// ReplyOp serializes a completed turn's recorded events into one durable
-// reply operation: the owning adapter replays the stream through its
-// draft/edit surface or flattens it to text plus attachments. A single op
-// keeps create/edit identity stable — one claim, one send, one final version.
-func ReplyOp(runID, deliveryKey, channelID, accountKey string, addr Address, sessionID string, events []pkgchannel.Event) (Op, error) {
-	payload, err := json.Marshal(ReplyPayload{V: PayloadVersion, SessionID: sessionID, Events: events})
-	if err != nil {
-		return Op{}, err
-	}
+// ReplyPlan describes how a platform's send_reply decomposes into durable
+// single-call ops. Every op maps to one platform call, so a mid-chain retry
+// can never resend a segment that already landed.
+type ReplyPlan struct {
+	// TextLimit > 0 splits the flattened reply text into message-sized chunks.
+	TextLimit int
+	// PrimaryText marks that the send_reply op itself delivers the first text
+	// segment (draft-finalize or first message). False means its primary
+	// artifact is not a text message — QQ's terminal stream chunk — and every
+	// text chunk rides its own send_text op.
+	PrimaryText bool
+	// Attachments emits one send_attachment op per collected image/file.
+	Attachments bool
+}
+
+// ReplyChain serializes a completed turn's recorded events into a chain of
+// durable single-call ops: send_reply at index 0 for the primary artifact,
+// then a send_text op per overflow text chunk, then a send_attachment op per
+// image and file. Ops are chained on their predecessor so a retried segment
+// never lets a later one overtake it, and each op's receipt is its own row.
+func ReplyChain(runID, deliveryKey, channelID, accountKey string, addr Address, sessionID string, events []pkgchannel.Event, plan ReplyPlan) ([]Op, error) {
 	rawAddr, err := json.Marshal(addr)
+	if err != nil {
+		return nil, err
+	}
+	text, images, files := pkgchannel.CollectReplyEvents(events)
+	if len([]rune(strings.TrimSpace(text))) == 0 {
+		text = "(empty response)"
+	}
+	chunks := []string{text}
+	if plan.TextLimit > 0 {
+		chunks = pkgchannel.SplitMessage(text, plan.TextLimit)
+	}
+	primary := ""
+	if plan.PrimaryText && len(chunks) > 0 {
+		primary = chunks[0]
+	}
+	payload, err := json.Marshal(ReplyPayload{V: PayloadVersion, SessionID: sessionID, Events: events, Text: primary})
+	if err != nil {
+		return nil, err
+	}
+	ops := []Op{{
+		RunID: runID, DeliveryKey: deliveryKey, Index: 0, Kind: OpSendReply,
+		ChannelID: channelID, AccountKey: accountKey, Address: rawAddr, Payload: payload,
+	}}
+	start := 0
+	if plan.PrimaryText {
+		start = 1
+	}
+	for i := start; i < len(chunks); i++ {
+		p, err := json.Marshal(TextPayload{V: PayloadVersion, Text: chunks[i]})
+		if err != nil {
+			return nil, err
+		}
+		ops = append(ops, Op{
+			RunID: runID, DeliveryKey: deliveryKey, Index: len(ops), Kind: OpSendText,
+			ChannelID: channelID, AccountKey: accountKey, Address: rawAddr, Payload: p,
+			DependsOn: []int{len(ops) - 1},
+		})
+	}
+	if plan.Attachments {
+		for _, img := range images {
+			op, err := attachmentOp(runID, deliveryKey, channelID, accountKey, rawAddr, len(ops),
+				pkgchannel.AttachmentOpPayload{V: PayloadVersion, Kind: pkgchannel.AttachmentImage, Data: img.Data, MimeType: img.MimeType})
+			if err != nil {
+				return nil, err
+			}
+			ops = append(ops, op)
+		}
+		for _, f := range files {
+			op, err := attachmentOp(runID, deliveryKey, channelID, accountKey, rawAddr, len(ops),
+				pkgchannel.AttachmentOpPayload{V: PayloadVersion, Kind: pkgchannel.AttachmentFile, Name: f.Name, Path: f.Path})
+			if err != nil {
+				return nil, err
+			}
+			ops = append(ops, op)
+		}
+	}
+	return ops, nil
+}
+
+func attachmentOp(runID, deliveryKey, channelID, accountKey string, rawAddr json.RawMessage, index int, p pkgchannel.AttachmentOpPayload) (Op, error) {
+	payload, err := json.Marshal(p)
 	if err != nil {
 		return Op{}, err
 	}
 	return Op{
-		RunID:       runID,
-		DeliveryKey: deliveryKey,
-		Index:       0,
-		Kind:        OpSendReply,
-		ChannelID:   channelID,
-		AccountKey:  accountKey,
-		Address:     rawAddr,
-		Payload:     payload,
+		RunID: runID, DeliveryKey: deliveryKey, Index: index, Kind: OpSendAttachment,
+		ChannelID: channelID, AccountKey: accountKey, Address: rawAddr, Payload: payload,
+		DependsOn: []int{index - 1},
 	}, nil
 }
 

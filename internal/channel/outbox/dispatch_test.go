@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -328,5 +330,228 @@ func TestDispatchNotifySkipsAccountFence(t *testing.T) {
 	rows, _ := s.ListByDelivery(ctx, "notify:1")
 	if rows[0].State != StateSent {
 		t.Fatalf("notify op = %s, want sent", rows[0].State)
+	}
+}
+
+// draftOp builds a pending draft_update op in the run's live delivery.
+func draftOp(runID string, seq int64, index int) Op {
+	payload, _ := json.Marshal(pkgchannel.DraftUpdatePayload{V: PayloadVersion, Seq: seq, Text: "progress"})
+	addr, _ := json.Marshal(Address{V: AddressVersion, ChatKey: "chat-a"})
+	return Op{
+		RunID: runID, DeliveryKey: LiveDeliveryKey(runID), Index: index,
+		Kind: OpDraftUpdate, ChannelID: "ch-1", AccountKey: "bot-1",
+		Address: addr, Payload: payload,
+	}
+}
+
+func replyOp(runID string) Op {
+	payload, _ := json.Marshal(pkgchannel.ReplyOpPayload{V: PayloadVersion, Events: []pkgchannel.Event{{Text: "done"}}})
+	addr, _ := json.Marshal(Address{V: AddressVersion, ChatKey: "chat-a"})
+	return Op{
+		RunID: runID, DeliveryKey: DeliveryKeyForRun(runID), Index: 0,
+		Kind: OpSendReply, ChannelID: "ch-1", AccountKey: "bot-1",
+		Address: addr, Payload: payload,
+	}
+}
+
+func createRunRow(t *testing.T, db *pgxpool.Pool, state string) string {
+	t.Helper()
+	ctx := t.Context()
+	q := sqlc.New(db)
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
+		ID: "agent-1", Name: "agent-1", Workspace: t.TempDir(),
+		Sandbox: json.RawMessage("{}"), Scope: "system", Enabled: true,
+	}); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{
+		ID: uuid.Must(uuid.NewV7()).String(), SessionID: "sess-1", Kind: "chat",
+		LastActive: time.Now().UTC(), AgentID: pgtype.Text{String: "agent-1", Valid: true},
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	run, err := q.CreateAgentRun(ctx, sqlc.CreateAgentRunParams{
+		SessionID: "sess-1", AgentID: "agent-1", RequestKey: "req-1",
+		Actor: json.RawMessage("{}"), Input: json.RawMessage("{}"),
+		ReplyAddress: json.RawMessage("{}"), EnqueueSeq: 1,
+	})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	if _, err := db.Exec(ctx, "UPDATE agent_run SET state=$2, finished_at=clock_timestamp() WHERE id=$1", run.ID, state); err != nil {
+		t.Fatalf("set run state: %v", err)
+	}
+	return run.ID
+}
+
+// A draft successor must converge when its sending predecessor resolves to a
+// non-sent state: failed here. The successor claims, sees the run is terminal
+// (its progress can only be superseded now), cancels itself, and the terminal
+// reply — held back by the same-run live-draft barrier — then dispatches.
+func TestDraftSuccessorConvergesAfterFailedPredecessor(t *testing.T) {
+	db := dbtest.New(t)
+	createChannel(t, db, "ch-1")
+	s := New(db)
+	ctx := t.Context()
+	runID := createRunRow(t, db, "completed")
+
+	appendOps(t, s, db, []Op{draftOp(runID, 1, 0)})
+	d0, err := s.ListByDelivery(ctx, LiveDeliveryKey(runID))
+	if err != nil || len(d0) != 1 {
+		t.Fatalf("draft0 row: %v %d", err, len(d0))
+	}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, ok, err := s.ClaimAttempt(ctx, tx, d0[0].ID, "")
+	if err != nil || !ok {
+		t.Fatalf("claim draft0: %v %v", ok, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Upsert while draft0 is in flight: draft1 appends with DependsOn=[0].
+	tx, err = db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged, err := s.UpsertDraft(ctx, tx, draftOp(runID, 2, 0), 2); err != nil || !merged {
+		t.Fatalf("upsert draft1: %v %v", merged, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// draft0's attempt ends in a permanent platform rejection.
+	tx, err = db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.CompleteAttempt(ctx, tx, d0[0].ID, token, Outcome{State: StateFailed, ErrorCode: ErrCodePermanent}); err != nil || !ok {
+		t.Fatalf("fail draft0: %v %v", ok, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	appendOps(t, s, db, []Op{replyOp(runID)})
+	sender := &fakeSender{results: []sendResult{{receipt: pkgchannel.SendResult{PlatformMessageID: "final-1"}}}}
+
+	// First sweep: draft1 is eligible (failed predecessor resolves the dep),
+	// claims, and is canceled — the run already finished, so its progress can
+	// never be needed. The terminal op still waits behind it this sweep.
+	if n, err := s.ProcessDue(ctx, "ch-1", "", sender); err != nil || n != 1 {
+		t.Fatalf("sweep 1: n=%d err=%v", n, err)
+	}
+	live, _ := s.ListByDelivery(ctx, LiveDeliveryKey(runID))
+	if live[1].State != StateCanceled {
+		t.Fatalf("draft1 = %s, want canceled", live[1].State)
+	}
+
+	// Second sweep: the barrier is clear and the terminal reply sends.
+	if n, err := s.ProcessDue(ctx, "ch-1", "", sender); err != nil || n != 1 {
+		t.Fatalf("sweep 2: n=%d err=%v", n, err)
+	}
+	rows, _ := s.ListByDelivery(ctx, DeliveryKeyForRun(runID))
+	if rows[0].State != StateSent {
+		t.Fatalf("terminal op = %s, want sent", rows[0].State)
+	}
+	if len(sender.calls) != 1 || sender.calls[0].Kind != OpSendReply {
+		t.Fatalf("sender calls = %+v, want exactly the terminal reply", sender.calls)
+	}
+}
+
+// Same convergence when the predecessor expires to 'unknown': the 5-minute
+// attempt deadline far outlives any in-flight SDK call, so no zombie edit can
+// still land after the successor — the dep resolves and the terminal reply
+// is never permanently parked behind an unclaimable draft.
+func TestDraftSuccessorConvergesAfterUnknownPredecessor(t *testing.T) {
+	db := dbtest.New(t)
+	createChannel(t, db, "ch-1")
+	s := New(db)
+	ctx := t.Context()
+	runID := createRunRow(t, db, "completed")
+
+	appendOps(t, s, db, []Op{draftOp(runID, 1, 0)})
+	d0, _ := s.ListByDelivery(ctx, LiveDeliveryKey(runID))
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, ok, err := s.ClaimAttempt(ctx, tx, d0[0].ID, "")
+	if err != nil || !ok {
+		t.Fatalf("claim draft0: %v %v", ok, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	tx, err = db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertDraft(ctx, tx, draftOp(runID, 2, 0), 2); err != nil {
+		t.Fatalf("upsert draft1: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	tx, err = db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.CompleteAttempt(ctx, tx, d0[0].ID, token, Outcome{State: StateUnknown, ErrorCode: ErrCodeUnknown}); err != nil || !ok {
+		t.Fatalf("unknown draft0: %v %v", ok, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	appendOps(t, s, db, []Op{replyOp(runID)})
+	sender := &fakeSender{results: []sendResult{{receipt: pkgchannel.SendResult{PlatformMessageID: "final-1"}}}}
+	for i := range 4 {
+		if _, err := s.ProcessDue(ctx, "ch-1", "", sender); err != nil {
+			t.Fatalf("sweep %d: %v", i, err)
+		}
+	}
+	live, _ := s.ListByDelivery(ctx, LiveDeliveryKey(runID))
+	if live[1].State != StateCanceled {
+		t.Fatalf("draft1 = %s, want canceled", live[1].State)
+	}
+	rows, _ := s.ListByDelivery(ctx, DeliveryKeyForRun(runID))
+	if rows[0].State != StateSent {
+		t.Fatalf("terminal op = %s, want sent", rows[0].State)
+	}
+	if len(sender.calls) != 1 || sender.calls[0].Kind != OpSendReply {
+		t.Fatalf("sender calls = %+v, want exactly the terminal reply", sender.calls)
+	}
+}
+
+// A non-draft op chained behind a permanently failed predecessor must not
+// park forever: the delivery is already broken, so the claim sweep cancels it.
+func TestBlockedSuccessorCanceledAfterFailedDependency(t *testing.T) {
+	db := dbtest.New(t)
+	createChannel(t, db, "ch-1")
+	s := New(db)
+	ctx := t.Context()
+
+	o0, o1 := op("d-1", 0), op("d-1", 1)
+	o1.DependsOn = []int{0}
+	appendOps(t, s, db, []Op{o0, o1})
+
+	sender := &fakeSender{results: []sendResult{
+		{err: pkgchannel.SendErrorf(pkgchannel.SendPermanent, "chat deleted")},
+	}}
+	if n, err := s.ProcessDue(ctx, "ch-1", "", sender); err != nil || n != 1 {
+		t.Fatalf("sweep 1: n=%d err=%v", n, err)
+	}
+	// The failed head cancels the queued tail in the next claim pass.
+	if _, err := s.ProcessDue(ctx, "ch-1", "", sender); err != nil {
+		t.Fatalf("sweep 2: %v", err)
+	}
+	states := outboxStates(t, db)
+	if states[0] != StateFailed || states[1] != StateCanceled {
+		t.Fatalf("states = %v, want failed/canceled", states)
 	}
 }

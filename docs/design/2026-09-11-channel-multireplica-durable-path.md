@@ -27,9 +27,14 @@ adapter -> channel_inbox --route--> agent_run --worker--> channel_outbox --dispa
   first; claim links the run to a `ctx_session_execution` lease atomically,
   and the finish transaction commits result, history, and reply ops together.
 - `channel_outbox`: one row per platform operation (`send_text`,
-  `draft_update`, …) with a stable `delivery_key`, ordered dependencies, and
-  classified outcomes — `sent` / `failed` / `unknown`. A transport failure
-  after a possibly-landed request is never blind-retried.
+  `draft_update`, `send_attachment`, …) with a stable `delivery_key`,
+  ordered dependencies, and classified outcomes — `sent` / `failed` /
+  `unknown`. A transport failure after a possibly-landed request is never
+  blind-retried. A completed turn decomposes into one row per external
+  call — `send_reply` carries only the primary segment (or the draft
+  finalize), overflow text rides `send_text` siblings, and every image or
+  file is its own `send_attachment` — so a mid-chain retry never replays
+  a segment that already landed.
 - `channel` runtime lease: only the lease holder starts the adapter and
   dispatches its outbox; tokens fence every state mutation.
 - `ctx_session_event`: every published turn event with a session-scoped
@@ -49,16 +54,26 @@ place. `LatestSentDraftMessageID` lets a new owner recover the platform
 message id after handoff, and a seq fence cancels drafts that can no
 longer add anything. `ListPendingChannelOutbox` holds a run's terminal
 ops behind any in-flight draft for the same run, so a stale edit can
-never overwrite the final reply.
+never overwrite the final reply. Draft dependencies resolve on any
+terminal predecessor state — a draft snapshot is self-contained, so
+`failed`/`canceled`/`unknown` no longer block the successor (the 5-minute
+attempt deadline guarantees no zombie edit is still in flight), and the
+claim-time run-liveness + seq fences cancel the released draft instead of
+letting it park the terminal barrier forever. Non-draft ops keep the
+strict `sent` dependency rule, and a chain broken by a `failed` or
+`canceled` link is canceled by `CancelBlockedChannelOutbox` rather than
+parked.
 
 ## Platform notes
 
 - Draft-capable adapters implement `channel.DraftSender`: Telegram edits
   via `Bot.Edit` (treating "message is not modified" as success), Discord
   reuses its stream/edit machinery and clears components on finalize,
-  Feishu patches the reply card, and testchan posts `message_id` edits to
-  the fake platform. Adapters without it drop drafts and send only the
-  terminal reply.
+  Feishu patches the reply card, QQ posts Stream API chunks with a durable
+  `streamID:index` cursor (the terminal `send_reply` closes the stream
+  with `state=10`), and testchan posts `message_id` edits to the fake
+  platform. Adapters without it (Weixin, DingTalk) drop drafts and send
+  only the terminal reply.
 - Telegram/Discord: `send_text` returns a platform message id.
 - Feishu: durable ops send the card form; the op's idempotency key is passed
   as Feishu's create `uuid`, so a replayed attempt cannot duplicate.
@@ -80,9 +95,12 @@ executed and finished inside the drain budget before teardown.
 ## Known limits
 
 - Group chat still publishes through the group dispatcher rather than
-  per-run drafts.
+  per-run drafts. `send_group_reply` remains one multi-call op: adapters
+  classify any publish failure as `unknown`, so it never blind-resends —
+  the group dispatcher's own published-fencing prefers a recoverable
+  duplicate handled at that layer over a silent drop.
 - Draft updates are sent only by adapters implementing `DraftSender`;
-  QQ/Weixin/DingTalk show the final reply only.
+  Weixin/DingTalk show the final reply only.
 - Real-platform credential paths (Telegram/Discord/Feishu/QQ/Weixin/
   DingTalk) are exercised only by their adapters' unit surfaces plus
   testchan end-to-end; no live-platform soak yet.

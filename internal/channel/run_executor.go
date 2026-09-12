@@ -141,17 +141,35 @@ func (e runExecutor) actorAuthority(ctx context.Context, actor agentrun.Actor) (
 // reply ops are produced already split. Unknown platforms get no split — the
 // adapter reports a permanent failure instead of silently truncating.
 func (c *Coordinator) replyTextLimit(channelID string) int {
+	return c.replyPlanFor(channelID).TextLimit
+}
+
+// replyPlanFor maps the channel's platform to its reply decomposition: how
+// the send_reply op and its sibling send_text / send_attachment ops split the
+// turn's deliverable output into one durable op per platform call.
+func (c *Coordinator) replyPlanFor(channelID string) choutbox.ReplyPlan {
 	ch, err := c.store.GetChannel(context.Background(), channelID)
 	if err != nil {
-		return 0
+		return choutbox.ReplyPlan{PrimaryText: true}
 	}
 	switch ch.Type {
 	case "telegram":
-		return 4000
-	case "discord", "qq", "feishu", "dingtalk", "weixin":
-		return 2000
+		return choutbox.ReplyPlan{TextLimit: 4000, PrimaryText: true, Attachments: true}
+	case "discord":
+		return choutbox.ReplyPlan{TextLimit: 2000, PrimaryText: true, Attachments: true}
+	case "weixin":
+		return choutbox.ReplyPlan{TextLimit: 2000, PrimaryText: true, Attachments: true}
+	case "dingtalk":
+		// Session webhooks take text only — no attachment path exists.
+		return choutbox.ReplyPlan{TextLimit: 2000, PrimaryText: true}
+	case "qq":
+		// The primary op is the terminal stream chunk; all message text rides
+		// the send_text chain. Rich media needs a public URL the events do not
+		// carry, so attachments stay unsupported.
+		return choutbox.ReplyPlan{TextLimit: 2000}
 	default:
-		return 0
+		// testchan and card-style platforms carry the full text in one call.
+		return choutbox.ReplyPlan{PrimaryText: true, Attachments: true}
 	}
 }
 
@@ -178,17 +196,17 @@ func (c *Coordinator) runFinishHook(ctx context.Context, tx pgx.Tx, r sqlc.Agent
 		Scope:      addr.Scope,
 		Token:      addr.Token,
 	}
-	// The reply op carries the recorded turn events so the owning adapter can
-	// replay them through its draft/edit surface and deliver attachments —
-	// the same replay-at-send contract group replies already use. An
-	// attachment-only turn (no final text) still delivers through this path;
-	// a turn with nothing deliverable keeps the old send-nothing behavior.
+	// The reply decomposes into one durable op per external call: the primary
+	// segment (or draft finalize), then one op per overflow chunk and one per
+	// attachment, dependency-chained so a mid-chain retry never resends a
+	// landed segment. An attachment-only turn still delivers through this
+	// path; a turn with nothing deliverable keeps the send-nothing behavior.
 	if events, ok := c.replyEvents(ctx, tx, r); ok && deliverable(events, reply) {
-		op, err := choutbox.ReplyOp(r.ID, choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey, outAddr, r.SessionID, events)
+		ops, err := choutbox.ReplyChain(r.ID, choutbox.DeliveryKeyForRun(r.ID), addr.ChannelID, addr.AccountKey, outAddr, r.SessionID, events, c.replyPlanFor(addr.ChannelID))
 		if err != nil {
 			return err
 		}
-		return c.outboxStore().Append(ctx, tx, []choutbox.Op{op})
+		return c.outboxStore().Append(ctx, tx, ops)
 	}
 	if reply == "" {
 		return nil

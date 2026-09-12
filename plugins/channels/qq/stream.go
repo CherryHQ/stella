@@ -1,6 +1,7 @@
 package qq
 
 import (
+	"context"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -66,7 +67,7 @@ func (b *Bot) streamResponse(events <-chan channel.Event, authorID, groupID, msg
 
 		display := buildStreamDisplay(current, currentTool)
 
-		newMsgID, err := b.sendStreamChunk(targetID, msgID, display, streamMsgID, seq, false, scope)
+		newMsgID, err := b.sendStreamChunk(b.ctx, targetID, msgID, display, streamMsgID, seq, false, scope)
 		if err != nil {
 			logger().Warn("stream chunk failed", "error", err, "seq", seq)
 		} else {
@@ -85,7 +86,7 @@ func (b *Bot) streamResponse(events <-chan channel.Event, authorID, groupID, msg
 		if strings.TrimSpace(final) == "" {
 			final = "(empty response)"
 		}
-		if _, err := b.sendStreamChunk(targetID, msgID, final, streamMsgID, seq, true, scope); err != nil {
+		if _, err := b.sendStreamChunk(b.ctx, targetID, msgID, final, streamMsgID, seq, true, scope); err != nil {
 			logger().Warn("stream done chunk failed", "error", err)
 		}
 	}
@@ -95,7 +96,7 @@ func (b *Bot) streamResponse(events <-chan channel.Event, authorID, groupID, msg
 
 // sendStreamChunk sends a streaming message chunk using QQ's Stream API.
 // Returns the message ID from the first chunk (used as stream ID for subsequent chunks).
-func (b *Bot) sendStreamChunk(targetID, replyMsgID, text, streamID string, seq uint32, done bool, scope messageScope) (string, error) {
+func (b *Bot) sendStreamChunk(ctx context.Context, targetID, replyMsgID, text, streamID string, seq uint32, done bool, scope messageScope) (string, error) {
 	state := int32(1) // generating
 	if done {
 		state = 10 // body done
@@ -119,9 +120,9 @@ func (b *Bot) sendStreamChunk(targetID, replyMsgID, text, streamID string, seq u
 	)
 	switch scope {
 	case scopeC2C:
-		result, err = b.api.PostC2CMessage(b.ctx, targetID, msg)
+		result, err = b.api.PostC2CMessage(ctx, targetID, msg)
 	case scopeGroup:
-		result, err = b.api.PostGroupMessage(b.ctx, targetID, msg)
+		result, err = b.api.PostGroupMessage(ctx, targetID, msg)
 	}
 
 	if err != nil {

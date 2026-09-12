@@ -35,8 +35,11 @@ var boundaries = []boundary{
 	{root: "plugins", allowed: []string{"pkg/", "plugins/"}, testOnly: []string{"internal/agent/prompt"}, skipDirs: []string{"channels", "system"}},
 	{root: "plugins/system", allowed: []string{"internal/platform/toolinstall", "resources/binaries"}, testOnly: []string{"resources"}},
 	// Channel tests use the host and notifier fixtures to exercise registration;
-	// production channel adapters remain under the same pkg-only guard.
-	{root: "plugins/channels", allowed: []string{"pkg/", "plugins/"}, testOnly: []string{"internal/notify", "internal/platform/config", "internal/plugin/host"}},
+	// production channel adapters remain under the same pkg-only guard. The
+	// outbox/dbtest pair lets adapter tests drive the real durable ledger with
+	// a fake platform transport — proving per-op receipts and lease fencing at
+	// the SDK boundary.
+	{root: "plugins/channels", allowed: []string{"pkg/", "plugins/"}, testOnly: []string{"internal/notify", "internal/platform/config", "internal/plugin/host", "internal/channel/outbox", "internal/db/dbtest"}},
 	{root: "internal/core", allowed: []string{"pkg/", "internal/core/", "internal/authz", "internal/platform/config"}},
 	{root: "internal/platform", allowed: []string{"pkg/", "internal/platform/"}, testOnly: []string{"internal/db/dbtest"}},
 }

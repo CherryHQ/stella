@@ -3,6 +3,7 @@ package outbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -149,6 +150,11 @@ func (s *Store) claimDue(ctx context.Context, channelID, ownerToken string) ([]c
 	} else if !ok {
 		return nil, nil
 	}
+	// Cancel pending ops chained behind a permanently failed or canceled
+	// dependency before listing — a broken chain must converge, not park.
+	if _, err := sqlc.New(tx).CancelBlockedChannelOutbox(ctx, channelID); err != nil {
+		return nil, err
+	}
 	rows, err := s.ListDue(ctx, tx, channelID)
 	if err != nil {
 		return nil, err
@@ -176,6 +182,24 @@ func (s *Store) claimDue(ctx context.Context, channelID, ownerToken string) ([]c
 		if row.RunID.Valid && (op.Kind == OpDraftUpdate || op.Kind == OpSendReply) {
 			if msgID, derr := sqlc.New(tx).LatestSentDraftMessageID(ctx, row.RunID); derr == nil {
 				op.DraftMessageID = msgID
+			}
+		}
+		// Multi-call ops re-check lease ownership before every platform call
+		// after the claim-admitted first: a fenced-out owner must stop making
+		// SDK calls the moment the lease moves.
+		if ownerToken != "" {
+			op.Guard = func(callCtx context.Context) error {
+				ok, gerr := sqlc.New(s.db).ChannelSendAdmission(callCtx, sqlc.ChannelSendAdmissionParams{
+					ID:           channelID,
+					RuntimeToken: pgtype.Text{String: ownerToken, Valid: true},
+				})
+				if gerr != nil {
+					return gerr
+				}
+				if !ok {
+					return errors.New("channel lease lost")
+				}
+				return nil
 			}
 		}
 		claimed = append(claimed, claimedOp{row: row, attemptToken: token, op: op})

@@ -41,6 +41,25 @@ type OutboundOp struct {
 	// all land on one platform message — create identity stays stable across
 	// retries and owner handoffs.
 	DraftMessageID string
+	// Guard re-validates that this replica still owns the channel lease. It is
+	// populated at claim time and never serialized; senders whose op performs
+	// more than one platform call must invoke it before each call after the
+	// first. A single-call op needs no check — claim admission already fenced it.
+	Guard func(ctx context.Context) error `json:"-"`
+}
+
+// CheckOwnership runs the lease guard before an additional external call.
+// Returns nil when no guard is installed; a lease loss is classified
+// retryable so the op returns to pending for the new owner instead of being
+// sent by a fenced-out replica.
+func (o OutboundOp) CheckOwnership(ctx context.Context) error {
+	if o.Guard == nil {
+		return nil
+	}
+	if err := o.Guard(ctx); err != nil {
+		return SendErrorf(SendRetryable, "channel ownership lost mid-operation: %v", err)
+	}
+	return nil
 }
 
 // SendResult is the confirmed platform receipt of one operation.
@@ -141,13 +160,39 @@ type GroupReplyOpPayload struct {
 
 // ReplyOpPayload is the frozen body of the "send_reply" outbox op — the whole
 // recorded turn event list, so the owning adapter can replay it through its
-// draft/edit machinery (or flatten it to text plus attachments) on whichever
-// replica holds the channel lease.
+// draft/edit machinery (or flatten it to text) on whichever replica holds the
+// channel lease.
 type ReplyOpPayload struct {
 	V         int     `json:"v"`
 	SessionID string  `json:"session_id,omitempty"`
 	Events    []Event `json:"events"`
+	// Text is the pre-split message segment this op must deliver as its
+	// primary platform message. Overflow segments are sibling send_text ops
+	// and every attachment is its own send_attachment op, so a mid-delivery
+	// retry never resends a segment that already landed. Empty means the
+	// adapter's primary artifact carries no message text of its own (e.g.
+	// QQ's terminal stream chunk).
+	Text string `json:"text,omitempty"`
 }
+
+// AttachmentOpPayload is the frozen body of a "send_attachment" op: exactly
+// one platform upload/send call for one file or image. Image data travels
+// inline as base64; file content is read from Path at send time (shared
+// Home), so a replay on another replica still finds the bytes.
+type AttachmentOpPayload struct {
+	V        int    `json:"v"`
+	Kind     string `json:"kind"` // "image" | "file"
+	Name     string `json:"name,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Data     string `json:"data,omitempty"` // base64, image kind
+	MimeType string `json:"mime_type,omitempty"`
+}
+
+// AttachmentKinds for AttachmentOpPayload.Kind.
+const (
+	AttachmentImage = "image"
+	AttachmentFile  = "file"
+)
 
 // ReplayStream rebuilds a completed turn as a ChatStream. Abort cannot cross
 // a process boundary: the turn has already ended when the op dispatches.

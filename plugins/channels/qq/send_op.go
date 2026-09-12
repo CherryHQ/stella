@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/tencent-connect/botgo/dto"
@@ -113,48 +114,86 @@ func (b *Bot) OwnsAccount(accountKey string) bool {
 	return b.cfg.AppID != "" && b.cfg.AppID == accountKey
 }
 
-// sendReplyOp replays a completed turn's recorded events through the QQ
-// Stream API, then posts the terminal text as ordinary messages — the same
-// two-phase delivery the live path used. Images stay skipped: QQ rich media
-// needs a public URL the events do not carry.
-func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
-	var payload channel.ReplyOpPayload
+// A QQ draft's durable receipt encodes the stream id and its last posted
+// chunk index — "streamID:index" — so a successor op (or the terminal
+// finalize) resumes the same stream on whichever replica owns the lease.
+func encodeStreamCursor(streamID string, index uint32) string {
+	return streamID + ":" + strconv.FormatUint(uint64(index), 10)
+}
+
+func decodeStreamCursor(s string) (streamID string, index uint32, ok bool) {
+	id, raw, found := strings.Cut(s, ":")
+	if !found || id == "" {
+		return "", 0, false
+	}
+	n, err := strconv.ParseUint(raw, 10, 32)
+	if err != nil {
+		return "", 0, false
+	}
+	return id, uint32(n), true
+}
+
+// SendDraftUpdate implements channel.DraftSender: each draft op is one QQ
+// stream chunk — first call creates the stream, later calls continue it.
+func (b *Bot) SendDraftUpdate(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload channel.DraftUpdatePayload
 	if err := json.Unmarshal(op.Payload, &payload); err != nil {
-		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "qq: bad send_reply payload: %v", err)
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "qq: bad draft payload: %v", err)
 	}
 	targetID := op.Address.ChatKey
 	if targetID == "" || b.api == nil {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "qq: empty chat key or api down")
 	}
 	scope := scopeC2C
-	authorID, groupID := targetID, ""
 	if op.Address.Scope == "group" {
-		scope, authorID, groupID = scopeGroup, "", targetID
+		scope = scopeGroup
 	}
-	response, _, streamErr := b.streamResponse(payload.ReplayStream().Events, authorID, groupID, op.Address.ReplyToKey, scope)
-	if streamErr != nil {
-		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "qq: recorded turn error: %v", streamErr)
+	streamID, index, _ := decodeStreamCursor(op.DraftMessageID)
+	newMsgID, err := b.sendStreamChunk(ctx, targetID, op.Address.ReplyToKey, buildStreamDisplay(payload.Text, ""), streamID, index+1, false, scope)
+	if err != nil {
+		return channel.SendResult{}, classifyQQSend(err)
 	}
+	if streamID == "" {
+		streamID = newMsgID
+	}
+	if streamID == "" {
+		// The platform gave no stream id back — the stream cannot continue,
+		// so this attempt must not report a cursor that would chain nothing.
+		return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "qq: stream chunk returned no message id")
+	}
+	return channel.SendResult{PlatformMessageID: encodeStreamCursor(streamID, index+1)}, nil
+}
+
+// sendReplyOp posts the terminal stream chunk — State=10 ends the "generating"
+// state on the same stream the draft ops opened. The full reply text rides
+// the sibling send_text chain, so this op is exactly one platform call. A run
+// that never produced a draft has no stream to close; the op is a no-op.
+func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload channel.ReplyOpPayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "qq: bad send_reply payload: %v", err)
+	}
+	streamID, index, ok := decodeStreamCursor(op.DraftMessageID)
+	if !ok {
+		return channel.SendResult{PlatformMessageID: op.DraftMessageID}, nil
+	}
+	targetID := op.Address.ChatKey
+	if targetID == "" || b.api == nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "qq: empty chat key or api down")
+	}
+	scope := scopeC2C
+	if op.Address.Scope == "group" {
+		scope = scopeGroup
+	}
+	response, _, _ := channel.CollectReplyEvents(payload.Events)
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
 	}
-	var firstID string
-	for i, chunk := range channel.SplitMessage(response, qqMaxMessageLen) {
-		msg := dto.MessageToCreate{Content: chunk, MsgType: dto.TextMsg, MsgID: op.Address.ReplyToKey, MsgSeq: uint32(100 + i)}
-		var sent *dto.Message
-		var err error
-		switch scope {
-		case scopeC2C:
-			sent, err = b.api.PostC2CMessage(ctx, targetID, msg)
-		case scopeGroup:
-			sent, err = b.api.PostGroupMessage(ctx, targetID, msg)
-		}
-		if err != nil {
-			return channel.SendResult{}, classifyQQSend(err)
-		}
-		if i == 0 && sent != nil {
-			firstID = sent.ID
-		}
+	if err := op.CheckOwnership(ctx); err != nil {
+		return channel.SendResult{}, err
 	}
-	return channel.SendResult{PlatformMessageID: firstID}, nil
+	if _, err := b.sendStreamChunk(ctx, targetID, op.Address.ReplyToKey, buildStreamDisplay(response, ""), streamID, index+1, true, scope); err != nil {
+		return channel.SendResult{}, classifyQQSend(err)
+	}
+	return channel.SendResult{PlatformMessageID: op.DraftMessageID}, nil
 }

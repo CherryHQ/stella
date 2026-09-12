@@ -761,17 +761,21 @@ func TestDurableChannelSameEventHandoff(t *testing.T) {
 		return db.QueryRow(ctx, "SELECT COALESCE(runtime_owner_id,'') FROM channel WHERE id=$1", channelID).Scan(&owner) == nil && owner == cID
 	})
 
-	// Release B's model: the original run completes, C sends its reply.
+	// Release B's model: the original run completes, C sends its reply. A
+	// mid-turn draft may have already landed — the terminal reply is the send
+	// carrying the full gated text.
 	gate.Release()
-	waitForCond(t, 90*time.Second, "C sends the reply", func() bool {
-		s := fp.lastSend()
-		return s != nil && s["tag"] == "C"
+	wantReply := "partial-HANDOFF " + h.runID
+	waitForCond(t, 90*time.Second, "C sends the terminal reply", func() bool {
+		for _, s := range fp.sendsAll() {
+			if s["tag"] == "C" && s["text"] == wantReply {
+				return true
+			}
+		}
+		return false
 	})
-	sent := fp.lastSend()
-	if sent["text"] != "partial-HANDOFF "+h.runID {
-		t.Fatalf("sent text = %v, want the gated reply", sent["text"])
-	}
-	// Same inbox, same run, one model call, one outbox send — nothing replayed.
+	// Same inbox, same run, one model call, one terminal send — nothing
+	// replayed. Live drafts may add earlier sends of their own.
 	var state string
 	if err := db.QueryRow(ctx, "SELECT state FROM agent_run WHERE id=$1", runID).Scan(&state); err != nil {
 		t.Fatal(err)
@@ -790,15 +794,17 @@ func TestDurableChannelSameEventHandoff(t *testing.T) {
 		if s["tag"] == "A" {
 			t.Fatal("dead owner A sent a post-handoff operation")
 		}
+		if s["text"] == wantReply {
+			sends++
+		}
 	}
-	sends = fp.sendCount()
 	if runs != 1 || sends != 1 {
-		t.Fatalf("runs=%d sends=%d for the inbox event, want 1/1", runs, sends)
+		t.Fatalf("runs=%d terminal sends=%d for the inbox event, want 1/1", runs, sends)
 	}
-	// The original run carries exactly one sent receipt, and the turn's
-	// history landed once — a replayed finish would double both.
+	// The original run carries exactly one sent terminal receipt, and the
+	// turn's history landed once — a replayed finish would double both.
 	var sentOps, userMsgs, replyMsgs int
-	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE run_id=$1 AND state='sent'", runID).Scan(&sentOps); err != nil {
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM channel_outbox WHERE run_id=$1 AND state='sent' AND operation_kind != 'draft_update'", runID).Scan(&sentOps); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM ctx_message m JOIN ctx_conversation c ON c.id=m.conversation_id

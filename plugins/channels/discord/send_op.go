@@ -45,11 +45,51 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		if op.Address.ChatKey == "" {
 			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: empty chat key")
 		}
-		// Replay the recorded turn through the draft/edit path: the draft is
-		// created, ticked through the recorded progress, and finalized — one
-		// op identity, one terminal version. No cancel control: the run has
-		// already finished when the op dispatches.
-		if err := b.deliverReplay(ctx, op.Address.ChatKey, op.Address.ReplyToKey, payload.ReplayStream(), nil, true, op.DraftMessageID); err != nil {
+		if b.rest == nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendRetryable, "discord: REST client unavailable")
+		}
+		// One platform call per op: edit the live draft to its final content,
+		// or post the primary segment as a new message. Overflow text and
+		// attachments are sibling ops with their own receipts.
+		text := payload.Text
+		if text == "" {
+			text = "(empty response)"
+		}
+		if op.DraftMessageID != "" {
+			edit := discordgo.NewMessageEdit(op.Address.ChatKey, op.DraftMessageID).SetContent(text)
+			edit.AllowedMentions = noMentions()
+			if _, err := b.rest.ChannelMessageEditComplex(edit, discordgo.WithContext(ctx)); err != nil {
+				return channel.SendResult{}, classifyDiscordSend(err)
+			}
+			return channel.SendResult{PlatformMessageID: op.DraftMessageID}, nil
+		}
+		msg := &discordgo.MessageSend{Content: text, AllowedMentions: noMentions()}
+		msg.Reference = softReference(op.Address.ChatKey, op.Address.ReplyToKey)
+		sent, err := b.rest.ChannelMessageSendComplex(op.Address.ChatKey, msg, discordgo.WithContext(ctx))
+		if err != nil {
+			return channel.SendResult{}, classifyDiscordSend(err)
+		}
+		id := ""
+		if sent != nil {
+			id = sent.ID
+		}
+		return channel.SendResult{PlatformMessageID: id}, nil
+	}
+	if op.Kind == "send_attachment" {
+		var payload channel.AttachmentOpPayload
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: bad send_attachment payload: %v", err)
+		}
+		var err error
+		switch payload.Kind {
+		case channel.AttachmentImage:
+			err = b.sendImage(ctx, op.Address.ChatKey, channel.ImageEvent{Data: payload.Data, MimeType: payload.MimeType})
+		case channel.AttachmentFile:
+			err = b.sendFile(ctx, op.Address.ChatKey, channel.FileEvent{Path: payload.Path, Name: payload.Name})
+		default:
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: unknown attachment kind %q", payload.Kind)
+		}
+		if err != nil {
 			return channel.SendResult{}, classifyDiscordSend(err)
 		}
 		return channel.SendResult{}, nil

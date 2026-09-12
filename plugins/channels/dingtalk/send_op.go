@@ -44,16 +44,14 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		if op.Address.Token == "" {
 			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "dingtalk: no session webhook for op")
 		}
-		// Session webhooks take text only — attachments have no webhook path,
-		// same as the group publish surface.
-		text, _, _ := channel.CollectReplyEvents(payload.Events)
+		// One webhook call per op: payload.Text is the pre-split primary
+		// segment; overflow chunks are sibling send_text ops.
+		text := payload.Text
 		if strings.TrimSpace(text) == "" {
 			text = "(empty response)"
 		}
-		for _, chunk := range channel.SplitMessage(text, dingTalkMaxMessageLen) {
-			if err := sendWebhookText(ctx, op.Address.Token, chunk); err != nil {
-				return channel.SendResult{}, classifyDingTalkSend(err)
-			}
+		if err := sendWebhookText(ctx, op.Address.Token, text); err != nil {
+			return channel.SendResult{}, classifyDingTalkSend(err)
 		}
 		return channel.SendResult{}, nil
 	}

@@ -245,18 +245,26 @@ func (c *Channel) SendOperation(ctx context.Context, op pkgchannel.OutboundOp) (
 		if err := json.Unmarshal(op.Payload, &payload); err != nil {
 			return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: decode send_reply payload: %s", err)
 		}
-		var images []pkgchannel.ImageEvent
-		var fileEvents []pkgchannel.FileEvent
-		text, images, fileEvents = pkgchannel.CollectReplyEvents(payload.Events)
-		for _, img := range images {
-			files = append(files, sendFile{Name: "image." + imageExt(img.MimeType), Data: img.Data})
+		text = payload.Text
+		if text == "" {
+			text, _, _ = pkgchannel.CollectReplyEvents(payload.Events)
 		}
-		for _, f := range fileEvents {
-			data, err := os.ReadFile(f.Path)
+	case "send_attachment":
+		var payload pkgchannel.AttachmentOpPayload
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: decode send_attachment payload: %s", err)
+		}
+		switch payload.Kind {
+		case pkgchannel.AttachmentImage:
+			files = append(files, sendFile{Name: "image." + imageExt(payload.MimeType), Data: payload.Data})
+		case pkgchannel.AttachmentFile:
+			data, err := os.ReadFile(payload.Path)
 			if err != nil {
-				return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: read attachment %s: %s", f.Path, err)
+				return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: read attachment %s: %s", payload.Path, err)
 			}
-			files = append(files, sendFile{Name: f.Name, Data: base64.StdEncoding.EncodeToString(data)})
+			files = append(files, sendFile{Name: payload.Name, Data: base64.StdEncoding.EncodeToString(data)})
+		default:
+			return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: unknown attachment kind %q", payload.Kind)
 		}
 	default:
 		return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: unsupported op kind %q", op.Kind)

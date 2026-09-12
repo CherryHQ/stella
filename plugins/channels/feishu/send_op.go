@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -43,6 +42,9 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 	}
 	if op.Kind == "send_reply" {
 		return b.sendReplyOp(ctx, op)
+	}
+	if op.Kind == "send_attachment" {
+		return b.sendAttachmentOp(ctx, op)
 	}
 	if op.Kind == "draft_update" {
 		return b.SendDraftUpdate(ctx, op)
@@ -136,10 +138,10 @@ func (b *Bot) SendDraftUpdate(ctx context.Context, op channel.OutboundOp) (chann
 	return channel.SendResult{PlatformMessageID: messageID}, nil
 }
 
-// sendReplyOp replays a completed turn's recorded events through the card
-// stream machinery: the progress card is created, updated through the
-// recorded events, and finalized — one op identity, one terminal version.
-// isGroup stays false; the reply anchor and thread come from the op address.
+// sendReplyOp makes exactly one platform call: finalize the live draft card
+// when a run produced one, else create the terminal card directly. The
+// create carries the delivery-key uuid, so a retried op converges to the
+// same message instead of duplicating. Attachments are sibling ops.
 func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
 	var payload channel.ReplyOpPayload
 	if err := json.Unmarshal(op.Payload, &payload); err != nil {
@@ -149,57 +151,57 @@ func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.S
 	if chatID == "" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: empty chat key")
 	}
-	deliveryKey := op.DeliveryKey + ":" + fmt.Sprint(op.OperationIndex)
-	var sentMsgID, response string
-	var images []channel.ImageEvent
-	var files []channel.FileEvent
+	var sb strings.Builder
 	var refs []renderrefs.Reference
-	var elapsed time.Duration
-	var streamErr error
-	if op.DraftMessageID != "" {
-		// The live card is already on the platform — collect the recorded
-		// events directly and finalize that same message below.
-		sentMsgID = op.DraftMessageID
-		var sb strings.Builder
-		for _, evt := range payload.Events {
-			if evt.Err != nil {
-				streamErr = evt.Err
-			}
-			refs = append(refs, evt.References...)
-			if evt.Image != nil {
-				images = append(images, *evt.Image)
-			}
-			if evt.File != nil {
-				files = append(files, *evt.File)
-			}
-			sb.WriteString(evt.Text)
-		}
-		response, refs = sb.String(), dedupeReferences(refs)
-	} else {
-		sentMsgID, response, images, files, refs, elapsed, streamErr = b.streamResponseInThread(ctx, payload.ReplayStream().Events, chatID, op.Address.ReplyToKey, op.Address.ThreadKey, deliveryKey)
+	for _, evt := range payload.Events {
+		refs = append(refs, evt.References...)
+		sb.WriteString(evt.Text)
 	}
-	if err := ctx.Err(); err != nil {
-		return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "feishu: reply dispatch cancelled: %v", err)
-	}
-	if streamErr != nil {
-		return channel.SendResult{}, classifyFeishuSend(streamErr)
-	}
+	response := sb.String()
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
 	}
-	finalResponse := response + elapsedFooter(elapsed)
-	if err := b.sendFinalResponseInThreadWithOptions(ctx, chatID, op.Address.ReplyToKey, op.Address.ThreadKey, sentMsgID, finalResponse, refs, false, false, cardStatusCompleted, deliveryKey); err != nil {
+	deliveryKey := op.DeliveryKey + ":" + fmt.Sprint(op.OperationIndex)
+	// The finalize helper may issue more than one call (patch + overflow
+	// chunks); re-validate ownership before the external calls it makes.
+	if err := op.CheckOwnership(ctx); err != nil {
+		return channel.SendResult{}, err
+	}
+	if op.DraftMessageID != "" {
+		if err := b.sendFinalResponseInThreadWithOptions(ctx, chatID, op.Address.ReplyToKey, op.Address.ThreadKey, op.DraftMessageID, response, dedupeReferences(refs), false, false, cardStatusCompleted, deliveryKey); err != nil {
+			return channel.SendResult{}, classifyFeishuSend(err)
+		}
+		return channel.SendResult{PlatformMessageID: op.DraftMessageID}, nil
+	}
+	messageID, err := b.deliverCardWithOptions(ctx, chatID, op.Address.ReplyToKey, response, false, cardStatusCompleted, uuid.NewSHA1(uuid.NameSpaceURL, []byte(deliveryKey)).String())
+	if err != nil {
 		return channel.SendResult{}, classifyFeishuSend(err)
 	}
-	for _, img := range images {
-		if err := b.sendImageInThread(chatID, op.Address.ReplyToKey, op.Address.ThreadKey, img); err != nil {
-			return channel.SendResult{}, classifyFeishuSend(err)
-		}
+	return channel.SendResult{PlatformMessageID: messageID}, nil
+}
+
+// sendAttachmentOp delivers one image or file into the reply thread — one
+// durable op, one platform call, one receipt row.
+func (b *Bot) sendAttachmentOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload channel.AttachmentOpPayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: bad send_attachment payload: %v", err)
 	}
-	for _, file := range files {
-		if err := b.sendFileInThread(chatID, op.Address.ReplyToKey, op.Address.ThreadKey, file); err != nil {
-			return channel.SendResult{}, classifyFeishuSend(err)
-		}
+	chatID := strings.TrimPrefix(op.Address.ChatKey, "feishu:")
+	if chatID == "" {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: empty chat key")
 	}
-	return channel.SendResult{PlatformMessageID: sentMsgID}, nil
+	var err error
+	switch payload.Kind {
+	case channel.AttachmentImage:
+		err = b.sendImageInThread(chatID, op.Address.ReplyToKey, op.Address.ThreadKey, channel.ImageEvent{Data: payload.Data, MimeType: payload.MimeType})
+	case channel.AttachmentFile:
+		err = b.sendFileInThread(chatID, op.Address.ReplyToKey, op.Address.ThreadKey, channel.FileEvent{Path: payload.Path, Name: payload.Name})
+	default:
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: unknown attachment kind %q", payload.Kind)
+	}
+	if err != nil {
+		return channel.SendResult{}, classifyFeishuSend(err)
+	}
+	return channel.SendResult{}, nil
 }

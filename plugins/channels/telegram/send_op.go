@@ -44,6 +44,9 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 	if op.Kind == "send_reply" {
 		return b.sendReplyOp(ctx, op)
 	}
+	if op.Kind == "send_attachment" {
+		return b.sendAttachmentOp(ctx, op)
+	}
 	if op.Kind == "draft_update" {
 		return b.SendDraftUpdate(ctx, op)
 	}
@@ -209,10 +212,11 @@ func tailRunes(text string, max int) string {
 	return string(runes[len(runes)-max:])
 }
 
-// sendReplyOp delivers a completed turn's recorded events: flattened text in
-// message-sized chunks, then attachments — the same contract group publish
-// uses. Telegram's live DM draft surface needs the inbound tele.Context; a
-// cross-replica replay has none, so the op sends the terminal content only.
+// sendReplyOp delivers the reply's primary segment — payload.Text, already
+// split to the platform budget at enqueue time. Overflow chunks and
+// attachments are sibling ops with their own receipts, so this handler makes
+// exactly one platform call: edit the live draft to its final content, or
+// send the first segment as a new message.
 func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
 	var payload channel.ReplyOpPayload
 	if err := json.Unmarshal(op.Payload, &payload); err != nil {
@@ -221,6 +225,24 @@ func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.S
 	chat := teleChatForKey(op.Address.ChatKey)
 	if chat == nil {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: empty chat key")
+	}
+	text := payload.Text
+	if strings.TrimSpace(text) == "" {
+		text = "(empty response)"
+	}
+	if op.DraftMessageID != "" {
+		// The live draft becomes the reply's first segment — the message the
+		// user watched during the turn is the final reply, not a sibling.
+		editable := tele.StoredMessage{MessageID: op.DraftMessageID, ChatID: mustChatID(chat)}
+		_, err := b.bot.Edit(editable, renderMarkdown(b.md, text), tele.ModeMarkdownV2)
+		var apiErr *tele.Error
+		if errors.As(err, &apiErr) && apiErr.Code >= 400 && apiErr.Code < 500 {
+			_, err = b.bot.Edit(editable, text)
+		}
+		if err != nil && !isNotModified(err) {
+			return channel.SendResult{}, classifySend(err)
+		}
+		return channel.SendResult{PlatformMessageID: op.DraftMessageID}, nil
 	}
 	opts := &tele.SendOptions{}
 	if op.Address.ThreadKey != "" {
@@ -233,53 +255,42 @@ func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.S
 			opts.ReplyTo = &tele.Message{ID: id, Chat: &tele.Chat{ID: mustChatID(chat)}}
 		}
 	}
+	msg, err := b.sendTelegramMarkdown(ctx, chat, text, opts)
+	if err != nil {
+		return channel.SendResult{}, classifySend(err)
+	}
+	id := ""
+	if msg != nil {
+		id = strconv.Itoa(msg.ID)
+	}
+	return channel.SendResult{PlatformMessageID: id}, nil
+}
 
-	text, images, files := channel.CollectReplyEvents(payload.Events)
-	if strings.TrimSpace(text) == "" {
-		text = "(empty response)"
+// sendAttachmentOp delivers one image or file — one durable op, one platform
+// call, one receipt row.
+func (b *Bot) sendAttachmentOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload channel.AttachmentOpPayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: bad send_attachment payload: %v", err)
 	}
-	var firstID string
-	chunks := channel.SplitMessage(text, telegramMaxMessageLen)
-	if op.DraftMessageID != "" && len(chunks) > 0 {
-		// The live draft becomes the reply's first chunk — the message the
-		// user watched during the turn is the final reply, not a sibling.
-		editable := tele.StoredMessage{MessageID: op.DraftMessageID, ChatID: mustChatID(chat)}
-		_, err := b.bot.Edit(editable, renderMarkdown(b.md, chunks[0]), tele.ModeMarkdownV2)
-		var apiErr *tele.Error
-		if errors.As(err, &apiErr) && apiErr.Code >= 400 && apiErr.Code < 500 {
-			_, err = b.bot.Edit(editable, chunks[0])
-		}
-		if err != nil && !isNotModified(err) {
-			return channel.SendResult{}, classifySend(err)
-		}
-		firstID = op.DraftMessageID
-		chunks = chunks[1:]
-		opts = &tele.SendOptions{}
+	chat := teleChatForKey(op.Address.ChatKey)
+	if chat == nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: empty chat key")
 	}
-	for i, chunk := range chunks {
-		if err := ctx.Err(); err != nil {
-			return channel.SendResult{}, classifySend(err)
-		}
-		msg, err := b.sendTelegramMarkdown(ctx, chat, chunk, opts)
-		if err != nil {
-			return channel.SendResult{}, classifySend(err)
-		}
-		if i == 0 && firstID == "" && msg != nil {
-			firstID = strconv.Itoa(msg.ID)
-		}
-		opts = &tele.SendOptions{} // only the first chunk replies to the prompt
+	opts := &tele.SendOptions{}
+	var err error
+	switch payload.Kind {
+	case channel.AttachmentImage:
+		err = b.sendGroupImage(ctx, chat, channel.ImageEvent{Data: payload.Data, MimeType: payload.MimeType}, opts)
+	case channel.AttachmentFile:
+		err = b.sendGroupFile(ctx, chat, channel.FileEvent{Path: payload.Path, Name: payload.Name}, opts)
+	default:
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: unknown attachment kind %q", payload.Kind)
 	}
-	for _, img := range images {
-		if err := b.sendGroupImage(ctx, chat, img, opts); err != nil {
-			return channel.SendResult{}, classifySend(err)
-		}
+	if err != nil {
+		return channel.SendResult{}, classifySend(err)
 	}
-	for _, file := range files {
-		if err := b.sendGroupFile(ctx, chat, file, opts); err != nil {
-			return channel.SendResult{}, classifySend(err)
-		}
-	}
-	return channel.SendResult{PlatformMessageID: firstID}, nil
+	return channel.SendResult{}, nil
 }
 
 func mustChatID(chat tele.Recipient) int64 {
