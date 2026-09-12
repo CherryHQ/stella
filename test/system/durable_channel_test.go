@@ -752,9 +752,14 @@ func TestDurableChannelSameEventHandoff(t *testing.T) {
 		t.Fatal("gated model call never parked inside the gate")
 	}
 
-	// A dies while B's turn is in flight; C inherits the channel.
+	// A dies while B's turn is in flight; C inherits the channel. Expire the
+	// lease row directly — waiting out A's 30s TTL inside a parked model gate
+	// races the fake's release backstop; the claim path under test is identical.
 	if err := a.Kill(); err != nil {
 		t.Fatalf("kill A: %v", err)
+	}
+	if _, err := db.Exec(ctx, "UPDATE channel SET runtime_lease_until = clock_timestamp() - interval '1 second' WHERE id=$1", channelID); err != nil {
+		t.Fatal(err)
 	}
 	waitForCond(t, 90*time.Second, "C owns the lease after A died", func() bool {
 		var owner string
@@ -907,8 +912,12 @@ func TestDurableChannelAttachmentDelivery(t *testing.T) {
 
 	// A dies while B's turn is in flight; C inherits the channel lease and
 	// becomes the sender of record for the run's reply — including the file.
+	// Expire the lease directly, same reason as the reply-handoff case above.
 	if err := a.Kill(); err != nil {
 		t.Fatalf("kill A: %v", err)
+	}
+	if _, err := db.Exec(ctx, "UPDATE channel SET runtime_lease_until = clock_timestamp() - interval '1 second' WHERE id=$1", channelID); err != nil {
+		t.Fatal(err)
 	}
 	waitForCond(t, 90*time.Second, "C owns the lease after A died", func() bool {
 		var owner string
