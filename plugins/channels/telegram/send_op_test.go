@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -309,6 +310,159 @@ func TestOwnershipLossBlocksWholeBatch(t *testing.T) {
 	}
 	if got := opState(t, db, "run:gone", 0); got != "pending" {
 		t.Fatalf("op = %s, want pending", got)
+	}
+}
+
+// A markdown rejection triggers the plain-text fallback — a second SDK call
+// inside the same op. When the lease moves between the two, the guard must
+// refuse the fallback; while owned, the fallback proceeds.
+func TestMarkdownFallbackBlockedByOwnershipLoss(t *testing.T) {
+	db := dbtest.New(t)
+	createOutboxChannel(t, db, "ch-tg-fb", "00000000-0000-0000-0000-0000000000dd")
+	s := choutbox.New(db)
+	fake := &telegramAPIFake{responses: map[string][]string{}}
+	b := newPublisherTestBot(t, fake)
+	b.bot.Me = &tele.User{ID: 1, Username: "bot-1"}
+	ctx := context.Background()
+
+	ops, err := choutbox.ReplyOps("", "d-fb", "ch-tg-fb", "bot-1", tgAddress, "hello", 0)
+	if err != nil {
+		t.Fatalf("ReplyOps: %v", err)
+	}
+	appendOps(t, db, s, ops)
+
+	// Markdown send is rejected with a platform 400; the lease rotates before
+	// the op can issue the plain-text retry.
+	fake.responses["sendMessage"] = []string{
+		`{"ok":false,"error_code":400,"description":"can't parse entities"}`,
+	}
+	var once sync.Once
+	fake.onCall = func(method string) {
+		once.Do(func() {
+			if _, err := db.Exec(ctx,
+				`UPDATE channel SET runtime_token = '00000000-0000-0000-0000-0000000000ee'::uuid WHERE id = 'ch-tg-fb'`); err != nil {
+				t.Errorf("flip token: %v", err)
+			}
+		})
+	}
+	if _, err := s.ProcessDue(ctx, "ch-tg-fb", "00000000-0000-0000-0000-0000000000dd", b); err != nil {
+		t.Fatalf("ProcessDue: %v", err)
+	}
+	if calls := len(fake.callsFor("sendMessage")); calls != 1 {
+		t.Fatalf("sendMessage calls = %d, want 1 — fenced-out plain fallback must not fire", calls)
+	}
+	if got := opState(t, db, "d-fb", 0); got != "pending" {
+		t.Fatalf("op = %s, want pending (ownership loss is retryable)", got)
+	}
+}
+
+// Control: while the lease holds, a markdown 400 falls back to a plain send
+// and the op completes with a receipt.
+func TestMarkdownFallbackSendsWhileOwned(t *testing.T) {
+	db := dbtest.New(t)
+	createOutboxChannel(t, db, "ch-tg-ok", "00000000-0000-0000-0000-0000000000dd")
+	s := choutbox.New(db)
+	fake := &telegramAPIFake{responses: map[string][]string{}}
+	b := newPublisherTestBot(t, fake)
+	b.bot.Me = &tele.User{ID: 1, Username: "bot-1"}
+	ctx := context.Background()
+
+	ops, err := choutbox.ReplyOps("", "d-ok", "ch-tg-ok", "bot-1", tgAddress, "hello", 0)
+	if err != nil {
+		t.Fatalf("ReplyOps: %v", err)
+	}
+	appendOps(t, db, s, ops)
+	fake.responses["sendMessage"] = []string{
+		`{"ok":false,"error_code":400,"description":"can't parse entities"}`,
+		`{"ok":true,"result":{"message_id":7}}`,
+	}
+	if _, err := s.ProcessDue(ctx, "ch-tg-ok", "00000000-0000-0000-0000-0000000000dd", b); err != nil {
+		t.Fatalf("ProcessDue: %v", err)
+	}
+	if calls := len(fake.callsFor("sendMessage")); calls != 2 {
+		t.Fatalf("sendMessage calls = %d, want markdown+plain", calls)
+	}
+	if got := opState(t, db, "d-ok", 0); got != "sent" {
+		t.Fatalf("op = %s, want sent", got)
+	}
+}
+
+// An accepted group reply decomposes into one durable op per platform call:
+// primary segment, overflow text, each attachment — each with its own
+// receipt, and a mid-chain failure resends only the failed op.
+func TestGroupReplyChainDeliversPerCall(t *testing.T) {
+	db := dbtest.New(t)
+	createOutboxChannel(t, db, "ch-tg-grp", "")
+	s := choutbox.New(db)
+	fake := &telegramAPIFake{responses: map[string][]string{}}
+	b := newPublisherTestBot(t, fake)
+	b.bot.Me = &tele.User{ID: 1, Username: "bot-1"}
+	ctx := context.Background()
+
+	longText := strings.Repeat("word ", 900) // two 4000-limit segments
+	events := []channel.Event{{Text: longText}, fakeImageEvent()}
+	payload := choutbox.GroupReplyPayload{
+		V: choutbox.PayloadVersion, Platform: "telegram",
+		PlatformGroupID: "-100", PlatformThreadID: "42", ReplyTo: "7",
+		DeliveryID: "d-grp", Events: events,
+	}
+	ops, err := choutbox.GroupReplyChain("group:d-grp", "ch-tg-grp", "bot-1", payload, events, tgReplyPlan)
+	if err != nil {
+		t.Fatalf("GroupReplyChain: %v", err)
+	}
+	if len(ops) != 3 {
+		t.Fatalf("expected reply+text+image ops, got %d", len(ops))
+	}
+	if ops[0].Kind != "send_group_reply" || ops[1].Kind != "send_text" || ops[2].Kind != "send_attachment" {
+		t.Fatalf("kinds = %s,%s,%s", ops[0].Kind, ops[1].Kind, ops[2].Kind)
+	}
+	appendOps(t, db, s, ops)
+
+	// Sweep 1: primary group send lands, anchored to topic 42 replying to 7.
+	fake.responses["sendMessage"] = []string{
+		`{"ok":true,"result":{"message_id":20}}`,
+		`{"ok":false,"error_code":429,"description":"flood","parameters":{"retry_after":0}}`,
+		`{"ok":true,"result":{"message_id":21}}`,
+	}
+	fake.responses["sendPhoto"] = []string{
+		`{"ok":true,"result":{"message_id":22,"photo":[{"file_id":"p1","file_unique_id":"u1","width":1,"height":1}]}}`,
+	}
+	if _, err := s.ProcessDue(ctx, "ch-tg-grp", "", b); err != nil {
+		t.Fatalf("sweep 1: %v", err)
+	}
+	if got := opState(t, db, "group:d-grp", 0); got != "sent" {
+		t.Fatalf("primary op = %s, want sent", got)
+	}
+	sends := fake.callsFor("sendMessage")
+	if sends[0].params["message_thread_id"] != "42" {
+		t.Fatalf("group send thread = %#v, want 42", sends[0].params["message_thread_id"])
+	}
+	// Sweep 2: overflow send_text hits 429 — only it stays pending.
+	if _, err := s.ProcessDue(ctx, "ch-tg-grp", "", b); err != nil {
+		t.Fatalf("sweep 2: %v", err)
+	}
+	if got := opState(t, db, "group:d-grp", 1); got != "pending" {
+		t.Fatalf("overflow op = %s, want pending after 429", got)
+	}
+	forceDue(t, db)
+	if _, err := s.ProcessDue(ctx, "ch-tg-grp", "", b); err != nil {
+		t.Fatalf("sweep 3: %v", err)
+	}
+	if _, err := s.ProcessDue(ctx, "ch-tg-grp", "", b); err != nil {
+		t.Fatalf("sweep 4: %v", err)
+	}
+	// The landed primary is never resent; the attachment delivered once.
+	sends = fake.callsFor("sendMessage")
+	if len(sends) != 3 {
+		t.Fatalf("sendMessage calls = %d, want 3 (primary + failed + retry)", len(sends))
+	}
+	if calls := len(fake.callsFor("sendPhoto")); calls != 1 {
+		t.Fatalf("sendPhoto calls = %d, want 1", calls)
+	}
+	for i := range 3 {
+		if got := opState(t, db, "group:d-grp", i); got != "sent" {
+			t.Fatalf("op %d = %s, want sent", i, got)
+		}
 	}
 }
 

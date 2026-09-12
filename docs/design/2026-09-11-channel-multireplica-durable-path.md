@@ -36,7 +36,11 @@ adapter -> channel_inbox --route--> agent_run --worker--> channel_outbox --dispa
   file is its own `send_attachment` — so a mid-chain retry never replays
   a segment that already landed.
 - `channel` runtime lease: only the lease holder starts the adapter and
-  dispatches its outbox; tokens fence every state mutation.
+  dispatches its outbox; tokens fence every state mutation. The lease is
+  re-admitted before every claimed op, and multi-call ops carry a claim-
+  time `Guard` the adapter invokes before each SDK call after the first —
+  a fenced-out owner stops mid-operation rather than finishing a
+  fallback, overflow chunk, or upload+send pair.
 - `ctx_session_event`: every published turn event with a session-scoped
   contiguous seq. SSE attach replays/tails this log when the turn runs on
   another replica, honoring `Last-Event-ID` as the resume cursor; a cursor
@@ -56,13 +60,22 @@ longer add anything. `ListPendingChannelOutbox` holds a run's terminal
 ops behind any in-flight draft for the same run, so a stale edit can
 never overwrite the final reply. Draft dependencies resolve on any
 terminal predecessor state — a draft snapshot is self-contained, so
-`failed`/`canceled`/`unknown` no longer block the successor (the 5-minute
-attempt deadline guarantees no zombie edit is still in flight), and the
+`failed`/`canceled`/`unknown` no longer block the successor, and the
 claim-time run-liveness + seq fences cancel the released draft instead of
 letting it park the terminal barrier forever. Non-draft ops keep the
 strict `sent` dependency rule, and a chain broken by a `failed` or
 `canceled` link is canceled by `CancelBlockedChannelOutbox` rather than
 parked.
+
+`unknown` is _not_ treated as proof the attempt died — a delayed platform
+apply or an owner paused between its lease check and the SDK call can
+still land the edit after the row went unknown. Instead, a draft that may
+have edited a live message _pollutes_ that message identity:
+`LatestSentDraftMessageID` returns empty once an `unknown` draft sits on
+top of a sent identity, so every later draft and the terminal reply take
+a fresh message instead of editing the contaminated one. The abandoned
+preview may linger in the chat or receive the late edit; the final reply
+is a separate message that the zombie can never overwrite.
 
 ## Platform notes
 
@@ -95,10 +108,14 @@ executed and finished inside the drain budget before teardown.
 ## Known limits
 
 - Group chat still publishes through the group dispatcher rather than
-  per-run drafts. `send_group_reply` remains one multi-call op: adapters
-  classify any publish failure as `unknown`, so it never blind-resends —
-  the group dispatcher's own published-fencing prefers a recoverable
-  duplicate handled at that layer over a silent drop.
+  per-run drafts, but `send_group_reply` decomposes like `send_reply`:
+  the primary op carries the group metadata and first text segment,
+  overflow rides `send_text` siblings, and every attachment is its own
+  `send_attachment` (QQ folds media into text markers — no binary group
+  upload). `pollPublishOutcomes` waits for the whole chain and treats a
+  `canceled` link as a terminal failure so a broken chain cannot park
+  the dispatch. Notifications decompose the same way via `NotifyChain` —
+  one op per segment, one platform call each.
 - Draft updates are sent only by adapters implementing `DraftSender`;
   Weixin/DingTalk show the final reply only.
 - Real-platform credential paths (Telegram/Discord/Feishu/QQ/Weixin/

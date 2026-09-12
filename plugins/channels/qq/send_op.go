@@ -23,10 +23,30 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		if err := json.Unmarshal(op.Payload, &payload); err != nil {
 			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "qq: bad send_group_reply payload: %v", err)
 		}
-		if err := b.Publish(ctx, payload.PublishRequest()); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "qq: group reply publish: %v", err)
+		if b.api == nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "qq: api client not initialized")
 		}
-		return channel.SendResult{}, nil
+		// One platform call: the primary segment. Overflow chunks are sibling
+		// send_text ops continuing the MsgID/MsgSeq chain; media folded to
+		// markers by the producer — QQ group has no binary upload.
+		text := payload.Text
+		if strings.TrimSpace(text) == "" {
+			text = "(empty response)"
+		}
+		if err := op.CheckOwnership(ctx); err != nil {
+			return channel.SendResult{}, err
+		}
+		sent, err := b.api.PostGroupMessage(ctx, payload.PlatformGroupID, dto.MessageToCreate{
+			Content: text, MsgType: dto.TextMsg, MsgID: payload.ReplyTo, MsgSeq: 1,
+		})
+		if err != nil {
+			return channel.SendResult{}, classifyQQSend(err)
+		}
+		id := ""
+		if sent != nil {
+			id = sent.ID
+		}
+		return channel.SendResult{PlatformMessageID: id}, nil
 	}
 	if op.Kind == "notify" {
 		var payload struct {
@@ -35,8 +55,11 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		if err := json.Unmarshal(op.Payload, &payload); err != nil {
 			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "qq: bad notify payload: %v", err)
 		}
+		if err := op.CheckOwnership(ctx); err != nil {
+			return channel.SendResult{}, err
+		}
 		if err := b.Notify(ctx, payload.Notification); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "qq: notify send: %v", err)
+			return channel.SendResult{}, classifyQQSend(err)
 		}
 		return channel.SendResult{}, nil
 	}
@@ -63,6 +86,11 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		MsgType: dto.TextMsg,
 		MsgID:   op.Address.ReplyToKey,
 	}
+	if op.Address.Scope == "group" && op.Address.ReplyToKey != "" {
+		// QQ orders same-MsgID replies by MsgSeq; the op's chain index is the
+		// position (primary op is index 0 → seq 1).
+		msg.MsgSeq = uint32(op.OperationIndex + 1)
+	}
 	var sent *dto.Message
 	var err error
 	if op.Address.Scope == "group" {
@@ -85,6 +113,10 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 // have landed are unknown/retryable; the rest of a real API response is
 // permanent.
 func classifyQQSend(err error) error {
+	var se *channel.SendError
+	if errors.As(err, &se) {
+		return se
+	}
 	var sdkErr *errs.Err
 	if errors.As(err, &sdkErr) {
 		code := sdkErr.Code()

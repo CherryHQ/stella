@@ -28,6 +28,9 @@ type telegramAPIFake struct {
 	mu        sync.Mutex
 	calls     []telegramAPICall
 	responses map[string][]string
+	// onCall runs after each call is recorded — tests use it to flip external
+	// state (e.g. the channel lease) between two SDK calls of one op.
+	onCall func(method string)
 }
 
 func (f *telegramAPIFake) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -49,6 +52,9 @@ func (f *telegramAPIFake) RoundTrip(req *http.Request) (*http.Response, error) {
 	method := path.Base(req.URL.Path)
 	f.mu.Lock()
 	f.calls = append(f.calls, telegramAPICall{method: method, params: params})
+	if f.onCall != nil {
+		f.onCall(method)
+	}
 	response := `{"ok":true,"result":{"message_id":99,"chat":{"id":-100,"type":"supergroup"}}}`
 	if queued := f.responses[method]; len(queued) > 0 {
 		response = queued[0]

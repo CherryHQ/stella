@@ -3,6 +3,8 @@ package outbox
 import (
 	"context"
 	"encoding/json"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -525,6 +527,156 @@ func TestDraftSuccessorConvergesAfterUnknownPredecessor(t *testing.T) {
 	}
 	if len(sender.calls) != 1 || sender.calls[0].Kind != OpSendReply {
 		t.Fatalf("sender calls = %+v, want exactly the terminal reply", sender.calls)
+	}
+}
+
+// gatedDraftSender models a platform whose apply can lag the SDK call: when
+// gate is set, a draft edit returns SendUnknown to the dispatcher but the
+// platform-side mutation lands only after the gate closes — the zombie edit
+// of a SIGSTOP'd owner or a delayed platform apply.
+type gatedDraftSender struct {
+	fakeSender
+	mu       sync.Mutex
+	messages map[string]string
+	nextID   int
+	gate     chan struct{}
+}
+
+func (g *gatedDraftSender) create(text string) string {
+	g.nextID++
+	id := "msg-" + strconv.Itoa(g.nextID)
+	g.messages[id] = text
+	return id
+}
+
+func (g *gatedDraftSender) SendDraftUpdate(_ context.Context, op pkgchannel.OutboundOp) (pkgchannel.SendResult, error) {
+	var payload pkgchannel.DraftUpdatePayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return pkgchannel.SendResult{}, err
+	}
+	g.mu.Lock()
+	g.calls = append(g.calls, op)
+	id := op.DraftMessageID
+	gate := g.gate
+	if id == "" {
+		id = g.create(payload.Text)
+		g.mu.Unlock()
+		return pkgchannel.SendResult{PlatformMessageID: id}, nil
+	}
+	g.mu.Unlock()
+	if gate != nil {
+		// The edit reached the platform but its response/apply is stuck past
+		// the attempt deadline: unverified, not dead.
+		go func() {
+			<-gate
+			g.mu.Lock()
+			g.messages[id] = payload.Text
+			g.mu.Unlock()
+		}()
+		return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendUnknown, "response lost after request sent")
+	}
+	g.mu.Lock()
+	g.messages[id] = payload.Text
+	g.mu.Unlock()
+	return pkgchannel.SendResult{PlatformMessageID: id}, nil
+}
+
+func (g *gatedDraftSender) SendOperation(_ context.Context, op pkgchannel.OutboundOp) (pkgchannel.SendResult, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.calls = append(g.calls, op)
+	var payload pkgchannel.ReplyOpPayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return pkgchannel.SendResult{}, err
+	}
+	text := payload.Text
+	if text == "" {
+		text, _, _ = pkgchannel.CollectReplyEvents(payload.Events)
+	}
+	if op.DraftMessageID != "" {
+		g.messages[op.DraftMessageID] = text
+		return pkgchannel.SendResult{PlatformMessageID: op.DraftMessageID}, nil
+	}
+	return pkgchannel.SendResult{PlatformMessageID: g.create(text)}, nil
+}
+
+// A draft edit whose outcome is unknown may still be in flight — nothing can
+// retract a request that already passed the ownership check. When such an op
+// sits behind the run's draft identity, the terminal reply must abandon that
+// message and land on a fresh one, so the zombie's late arrival can only
+// stain the abandoned preview, never revert the final answer.
+func TestTerminalReplyAbandonsPollutedDraftMessage(t *testing.T) {
+	db := dbtest.New(t)
+	createChannel(t, db, "ch-1")
+	s := New(db)
+	ctx := t.Context()
+	runID := createRunRow(t, db, "running")
+
+	sender := &gatedDraftSender{messages: map[string]string{}}
+
+	// draft0 sends cleanly and creates the preview message.
+	appendOps(t, s, db, []Op{draftOp(runID, 1, 0)})
+	if n, err := s.ProcessDue(ctx, "ch-1", "", sender); err != nil || n != 1 {
+		t.Fatalf("draft0 sweep: n=%d err=%v", n, err)
+	}
+	live, _ := s.ListByDelivery(ctx, LiveDeliveryKey(runID))
+	previewID := live[0].PlatformMessageID.String
+	if previewID == "" {
+		t.Fatal("draft0 recorded no platform message id")
+	}
+
+	// draft1 claims the same identity and its edit goes unknown mid-flight:
+	// the platform apply is parked behind the gate.
+	gate := make(chan struct{})
+	sender.gate = gate
+	d1 := draftOp(runID, 2, 1)
+	d1.DependsOn = []int{0}
+	appendOps(t, s, db, []Op{d1})
+	if n, err := s.ProcessDue(ctx, "ch-1", "", sender); err != nil || n != 1 {
+		t.Fatalf("draft1 sweep: n=%d err=%v", n, err)
+	}
+	live, _ = s.ListByDelivery(ctx, LiveDeliveryKey(runID))
+	if live[1].State != StateUnknown {
+		t.Fatalf("draft1 = %s, want unknown", live[1].State)
+	}
+
+	// The run completes; the terminal reply must NOT reuse the polluted
+	// message id — a zombie edit can still land on it.
+	if _, err := db.Exec(ctx, "UPDATE agent_run SET state='completed', finished_at=clock_timestamp() WHERE id=$1", runID); err != nil {
+		t.Fatal(err)
+	}
+	appendOps(t, s, db, []Op{replyOp(runID)})
+	if n, err := s.ProcessDue(ctx, "ch-1", "", sender); err != nil || n != 1 {
+		t.Fatalf("terminal sweep: n=%d err=%v", n, err)
+	}
+	replyCall := sender.calls[len(sender.calls)-1]
+	if replyCall.Kind != OpSendReply {
+		t.Fatalf("last call kind = %s", replyCall.Kind)
+	}
+	if replyCall.DraftMessageID != "" {
+		t.Fatalf("terminal reused polluted draft id %q", replyCall.DraftMessageID)
+	}
+	rows, _ := s.ListByDelivery(ctx, DeliveryKeyForRun(runID))
+	finalID := rows[0].PlatformMessageID.String
+	if rows[0].State != StateSent || finalID == "" || finalID == previewID {
+		t.Fatalf("terminal = %s msg %q, want sent on a fresh message", rows[0].State, finalID)
+	}
+
+	// The zombie edit now lands — on the abandoned preview only.
+	close(gate)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		sender.mu.Lock()
+		stale := sender.messages[previewID]
+		final := sender.messages[finalID]
+		sender.mu.Unlock()
+		if stale == "progress" && final == "done" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("zombie edit: preview=%q final=%q, want stale preview + intact final", stale, final)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

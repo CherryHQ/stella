@@ -33,7 +33,7 @@ func (b *Bot) Publish(ctx context.Context, req pkgchannel.GroupPublishRequest) e
 		response = "(empty response)"
 	}
 	finalResponse := response + elapsedFooter(elapsed)
-	if err := b.sendFinalResponseInThreadWithOptions(ctx, chatID, req.ReplyTo, rootID, sentMsgID, finalResponse, refs, true, false, cardStatusCompleted, req.DeliveryID); err != nil {
+	if err := b.sendFinalResponseInThreadWithOptions(ctx, chatID, req.ReplyTo, rootID, sentMsgID, finalResponse, refs, true, false, cardStatusCompleted, req.DeliveryID, nil); err != nil {
 		logger().Error("Feishu group response delivery failed", "chat_id", chatID, "root_id", rootID, "message_id", req.ReplyTo, "error", err)
 		return err
 	}
@@ -41,12 +41,12 @@ func (b *Bot) Publish(ctx context.Context, req pkgchannel.GroupPublishRequest) e
 		return err
 	}
 	for _, img := range images {
-		if err := b.sendImageInThread(chatID, req.ReplyTo, rootID, img); err != nil {
+		if err := b.sendImageInThread(chatID, req.ReplyTo, rootID, img, nil); err != nil {
 			return fmt.Errorf("feishu: send response image: %w", err)
 		}
 	}
 	for _, file := range files {
-		if err := b.sendFileInThread(chatID, req.ReplyTo, rootID, file); err != nil {
+		if err := b.sendFileInThread(chatID, req.ReplyTo, rootID, file, nil); err != nil {
 			return fmt.Errorf("feishu: send response file: %w", err)
 		}
 	}

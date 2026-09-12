@@ -514,7 +514,9 @@ func (c *Coordinator) EnqueueNotify(ctx context.Context, channelID string, n pkg
 	if deliveryKey == "" {
 		deliveryKey = uuid.Must(uuid.NewV7()).String()
 	}
-	op, err := choutbox.NotifyOp("notify:"+deliveryKey, channelID, channelID, n)
+	// One op per platform call: long notifications split into a chained
+	// sequence so a mid-chain retry never resends a delivered segment.
+	ops, err := choutbox.NotifyChain("notify:"+deliveryKey, channelID, channelID, n, c.replyPlanFor(channelID).TextLimit)
 	if err != nil {
 		return err
 	}
@@ -523,7 +525,7 @@ func (c *Coordinator) EnqueueNotify(ctx context.Context, channelID string, n pkg
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := c.outboxStore().Append(ctx, tx, []choutbox.Op{op}); err != nil {
+	if err := c.outboxStore().Append(ctx, tx, ops); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

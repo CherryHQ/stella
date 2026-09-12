@@ -3,12 +3,14 @@ package outbox
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -196,5 +198,65 @@ func TestCancelByRunLeavesHistory(t *testing.T) {
 	rows, _ := s.ListByDelivery(ctx, "d-1")
 	if rows[0].State != StateSent || rows[1].State != StatePending {
 		t.Fatalf("states %q/%q", rows[0].State, rows[1].State)
+	}
+}
+
+// A long notification decomposes into one op per segment, chained so a
+// retried segment is never overtaken; each segment is one platform call.
+func TestNotifyChainSplitsAndChains(t *testing.T) {
+	n := pkgchannel.Notification{ChatID: "chat-9", Text: strings.Repeat("x", 25), Silent: true}
+	ops, err := NotifyChain("notify:d-1", "ch-1", "bot-1", n, 10)
+	if err != nil {
+		t.Fatalf("NotifyChain: %v", err)
+	}
+	if len(ops) != 3 {
+		t.Fatalf("ops = %d, want 3 segments", len(ops))
+	}
+	for i, o := range ops {
+		if o.Kind != OpNotify {
+			t.Fatalf("op %d kind = %s", i, o.Kind)
+		}
+		var p NotifyPayload
+		if err := json.Unmarshal(o.Payload, &p); err != nil {
+			t.Fatalf("op %d payload: %v", i, err)
+		}
+		if len(p.Notification.Text) > 10 || !p.Notification.Silent {
+			t.Fatalf("op %d segment = %q silent=%v", i, p.Notification.Text, p.Notification.Silent)
+		}
+		wantDeps := 0
+		if i > 0 {
+			wantDeps = 1
+		}
+		if len(o.DependsOn) != wantDeps {
+			t.Fatalf("op %d deps = %v", i, o.DependsOn)
+		}
+	}
+}
+
+// A platform without binary upload folds media into text markers instead of
+// attachment ops, so every group op stays one platform call.
+func TestGroupReplyChainFoldsMediaAsText(t *testing.T) {
+	events := []pkgchannel.Event{
+		{Text: "answer"},
+		{Image: &pkgchannel.ImageEvent{Data: "AA==", MimeType: "image/png"}},
+	}
+	payload := GroupReplyPayload{
+		V: PayloadVersion, Platform: "qq",
+		PlatformGroupID: "g1", DeliveryID: "d-1",
+	}
+	ops, err := GroupReplyChain("group:d-1", "ch-1", "bot-1", payload, events,
+		ReplyPlan{TextLimit: 3500, PrimaryText: true, MediaAsText: true})
+	if err != nil {
+		t.Fatalf("GroupReplyChain: %v", err)
+	}
+	if len(ops) != 1 || ops[0].Kind != OpSendGroupReply {
+		t.Fatalf("ops = %v, want one send_group_reply", ops)
+	}
+	var p pkgchannel.GroupReplyOpPayload
+	if err := json.Unmarshal(ops[0].Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(p.Text, "[Image: image/png]") {
+		t.Fatalf("primary text missing media marker: %q", p.Text)
 	}
 }

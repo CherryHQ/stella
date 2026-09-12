@@ -279,9 +279,14 @@ func (d *GroupDispatcher) pollPublishOutcomes(ctx context.Context) error {
 			for _, op := range ops {
 				switch op.State {
 				case choutbox.StateSent:
-				case choutbox.StateFailed:
+				case choutbox.StateFailed, choutbox.StateCanceled:
+					// A canceled sibling means the chain broke upstream —
+					// the delivery can never complete.
 					anyFailed = true
 					failErr = op.ErrorCode.String
+					if failErr == "" {
+						failErr = "canceled"
+					}
 				default:
 					allSent = false
 				}

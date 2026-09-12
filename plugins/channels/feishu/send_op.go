@@ -19,14 +19,7 @@ import (
 // lost response cannot produce a second message.
 func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
 	if op.Kind == "send_group_reply" {
-		var payload channel.GroupReplyOpPayload
-		if err := json.Unmarshal(op.Payload, &payload); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: bad send_group_reply payload: %v", err)
-		}
-		if err := b.Publish(ctx, payload.PublishRequest()); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "feishu: group reply publish: %v", err)
-		}
-		return channel.SendResult{}, nil
+		return b.sendGroupReplyOp(ctx, op)
 	}
 	if op.Kind == "notify" {
 		var payload struct {
@@ -35,8 +28,17 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		if err := json.Unmarshal(op.Payload, &payload); err != nil {
 			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: bad notify payload: %v", err)
 		}
-		if err := b.Notify(ctx, payload.Notification); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "feishu: notify send: %v", err)
+		// Resolve the target and build the body (read-only Contact lookup),
+		// re-check the lease, then fire the single message create.
+		chatID, receiveIDType, msgType, content, err := b.prepareNotify(ctx, payload.Notification)
+		if err != nil {
+			return channel.SendResult{}, classifyFeishuSend(err)
+		}
+		if err := op.CheckOwnership(ctx); err != nil {
+			return channel.SendResult{}, err
+		}
+		if err := b.createNotifyMessage(ctx, chatID, receiveIDType, msgType, content); err != nil {
+			return channel.SendResult{}, classifyFeishuSend(err)
 		}
 		return channel.SendResult{}, nil
 	}
@@ -75,7 +77,7 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 	case buildErr != nil:
 		err = b.sendTextToChat(ctx, op.Address.ChatKey, payload.Text)
 	case op.Address.ReplyToKey != "":
-		messageID, err = b.sendBuiltCardReply(ctx, op.Address.ReplyToKey, content, false, idem)
+		messageID, err = b.sendBuiltCardReply(ctx, op.Address.ReplyToKey, content, op.Address.ThreadKey != "", idem)
 	default:
 		messageID, err = b.sendBuiltCardToChat(ctx, op.Address.ChatKey, content, idem)
 	}
@@ -89,6 +91,10 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 // ledger classes: not_sent is safe to retry, unknown holds for a probe, and
 // API rejections that are not transient are permanent.
 func classifyFeishuSend(err error) error {
+	var se *channel.SendError
+	if errors.As(err, &se) {
+		return se
+	}
 	var delivery *feishuDeliveryError
 	if errors.As(err, &delivery) {
 		if delivery.outcome == deliveryUnknown {
@@ -168,12 +174,51 @@ func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.S
 		return channel.SendResult{}, err
 	}
 	if op.DraftMessageID != "" {
-		if err := b.sendFinalResponseInThreadWithOptions(ctx, chatID, op.Address.ReplyToKey, op.Address.ThreadKey, op.DraftMessageID, response, dedupeReferences(refs), false, false, cardStatusCompleted, deliveryKey); err != nil {
+		if err := b.sendFinalResponseInThreadWithOptions(ctx, chatID, op.Address.ReplyToKey, op.Address.ThreadKey, op.DraftMessageID, response, dedupeReferences(refs), false, false, cardStatusCompleted, deliveryKey, op.CheckOwnership); err != nil {
 			return channel.SendResult{}, classifyFeishuSend(err)
 		}
 		return channel.SendResult{PlatformMessageID: op.DraftMessageID}, nil
 	}
 	messageID, err := b.deliverCardWithOptions(ctx, chatID, op.Address.ReplyToKey, response, false, cardStatusCompleted, uuid.NewSHA1(uuid.NameSpaceURL, []byte(deliveryKey)).String())
+	if err != nil {
+		return channel.SendResult{}, classifyFeishuSend(err)
+	}
+	return channel.SendResult{PlatformMessageID: messageID}, nil
+}
+
+// sendGroupReplyOp delivers the primary segment of an accepted group reply:
+// one terminal card create in the group thread, uuid-keyed by the delivery so
+// a retried op converges instead of duplicating. Overflow text and media are
+// sibling ops with their own receipts.
+func (b *Bot) sendGroupReplyOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload channel.GroupReplyOpPayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: bad send_group_reply payload: %v", err)
+	}
+	chatID := strings.TrimPrefix(payload.PlatformGroupID, "feishu:")
+	if chatID == "" {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: empty group id")
+	}
+	var sb strings.Builder
+	var refs []renderrefs.Reference
+	for _, evt := range payload.Events {
+		refs = append(refs, evt.References...)
+		sb.WriteString(evt.Text)
+	}
+	response := sb.String()
+	if strings.TrimSpace(response) == "" {
+		response = payload.Text
+	}
+	if strings.TrimSpace(response) == "" {
+		response = "(empty response)"
+	}
+	response = appendReferenceSection(response, dedupeReferences(refs), true)
+	replyTo := threadReplyTarget(payload.ReplyTo, payload.PlatformThreadID)
+	deliveryKey := op.DeliveryKey + ":" + fmt.Sprint(op.OperationIndex)
+	if err := op.CheckOwnership(ctx); err != nil {
+		return channel.SendResult{}, err
+	}
+	messageID, err := b.deliverCardWithOptions(ctx, chatID, replyTo, response, payload.PlatformThreadID != "", cardStatusCompleted, uuid.NewSHA1(uuid.NameSpaceURL, []byte(deliveryKey)).String())
 	if err != nil {
 		return channel.SendResult{}, classifyFeishuSend(err)
 	}
@@ -194,9 +239,11 @@ func (b *Bot) sendAttachmentOp(ctx context.Context, op channel.OutboundOp) (chan
 	var err error
 	switch payload.Kind {
 	case channel.AttachmentImage:
-		err = b.sendImageInThread(chatID, op.Address.ReplyToKey, op.Address.ThreadKey, channel.ImageEvent{Data: payload.Data, MimeType: payload.MimeType})
+		err = b.sendImageInThread(chatID, op.Address.ReplyToKey, op.Address.ThreadKey, channel.ImageEvent{Data: payload.Data, MimeType: payload.MimeType},
+			func() error { return op.CheckOwnership(ctx) })
 	case channel.AttachmentFile:
-		err = b.sendFileInThread(chatID, op.Address.ReplyToKey, op.Address.ThreadKey, channel.FileEvent{Path: payload.Path, Name: payload.Name})
+		err = b.sendFileInThread(chatID, op.Address.ReplyToKey, op.Address.ThreadKey, channel.FileEvent{Path: payload.Path, Name: payload.Name},
+			func() error { return op.CheckOwnership(ctx) })
 	default:
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "feishu: unknown attachment kind %q", payload.Kind)
 	}

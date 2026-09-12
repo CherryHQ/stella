@@ -26,10 +26,39 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		if err := json.Unmarshal(op.Payload, &payload); err != nil {
 			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "weixin: bad notify payload: %v", err)
 		}
-		if err := b.Notify(ctx, payload.Notification); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "weixin: notify send: %v", err)
+		n := payload.Notification
+		target := n.ChatID
+		if target == "" {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "weixin: no target user ID for notification")
 		}
-		return channel.SendResult{}, nil
+		if b.client == nil {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "weixin: client not initialized")
+		}
+		tokenVal, ok := b.contextTokens.Load(target)
+		if !ok {
+			// The reply credential is repopulated when the user messages
+			// again — retryable, a later sweep can deliver.
+			return channel.SendResult{}, channel.SendErrorf(channel.SendRetryable, "weixin: no context_token for user %s", target)
+		}
+		contextToken, _ := tokenVal.(string)
+		if err := op.CheckOwnership(ctx); err != nil {
+			return channel.SendResult{}, err
+		}
+		msg := WeixinMessage{
+			ToUserID:     target,
+			ClientID:     deterministicClientID(op.DeliveryKey, op.OperationIndex),
+			MessageType:  MessageTypeBot,
+			MessageState: MessageStateFinish,
+			ContextToken: contextToken,
+			ItemList: []MessageItem{{
+				Type:     ItemTypeText,
+				TextItem: &TextItem{Text: n.Text},
+			}},
+		}
+		if err := b.client.SendMessage(msg); err != nil {
+			return channel.SendResult{}, classifyWeixinSend(err)
+		}
+		return channel.SendResult{PlatformMessageID: msg.ClientID}, nil
 	}
 	if op.Kind == "send_reply" {
 		var payload channel.ReplyOpPayload
@@ -138,6 +167,10 @@ func deterministicClientID(deliveryKey string, index int) string {
 // classifyWeixinSend maps iLink failures: session expiry is permanent until
 // re-auth; transport failures are unknown.
 func classifyWeixinSend(err error) error {
+	var se *channel.SendError
+	if errors.As(err, &se) {
+		return se
+	}
 	if errors.Is(err, ErrSessionExpired) {
 		return &channel.SendError{Class: channel.SendPermanent, Err: err}
 	}

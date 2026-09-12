@@ -258,14 +258,39 @@ func (q *Queries) GetLatestChannelOutboxOp(ctx context.Context, deliveryKey stri
 }
 
 const latestSentDraftMessageID = `-- name: LatestSentDraftMessageID :one
-SELECT COALESCE(platform_message_id, '')::text FROM channel_outbox
-WHERE run_id = $1 AND operation_kind = 'draft_update' AND state = 'sent' AND platform_message_id IS NOT NULL
-ORDER BY operation_index DESC
-LIMIT 1
+SELECT CASE WHEN EXISTS (
+  SELECT 1
+  FROM channel_outbox AS u
+  JOIN channel_outbox AS m
+    ON m.run_id = u.run_id AND m.operation_kind = 'draft_update'
+   AND m.state = 'sent' AND m.platform_message_id IS NOT NULL
+   AND m.operation_index < u.operation_index
+  WHERE u.run_id = $1 AND u.operation_kind = 'draft_update' AND u.state = 'unknown'
+    AND NOT EXISTS (
+      SELECT 1 FROM channel_outbox AS n
+      WHERE n.run_id = u.run_id AND n.operation_kind = 'draft_update'
+        AND n.state = 'sent' AND n.platform_message_id IS NOT NULL
+        AND n.operation_index > u.operation_index
+    )
+) THEN ''::text ELSE COALESCE((
+  SELECT platform_message_id FROM channel_outbox
+  WHERE run_id = $1 AND operation_kind = 'draft_update' AND state = 'sent'
+    AND platform_message_id IS NOT NULL
+  ORDER BY operation_index DESC
+  LIMIT 1
+), '')::text
+END
 `
 
 // Stable draft identity for one run: the platform message id recorded by the
-// newest sent draft_update. Edits and the terminal reply reuse it.
+// newest sent draft_update. Edits and the terminal reply reuse it — but only
+// while that message's tail of the chain is clean. An 'unknown' draft op
+// claimed after the message was sent may still have an edit in flight
+// (SIGSTOP'd owner, delayed platform apply): its outcome is unverified, not
+// proven dead. Reusing the polluted identity would let the zombie overwrite
+// the terminal reply, so the query returns ” and every later op moves to a
+// fresh message. The abandoned preview may linger or land late; the final
+// reply lives on a different identity and can never be reverted by it.
 func (q *Queries) LatestSentDraftMessageID(ctx context.Context, runID pgtype.Text) (string, error) {
 	row := q.db.QueryRow(ctx, latestSentDraftMessageID, runID)
 	var column_1 string
@@ -362,10 +387,11 @@ FOR UPDATE SKIP LOCKED
 // canceled, or unknown — satisfies it. The claim-time seq fence
 // (MaxSentDraftSeq + run liveness) then decides send-vs-cancel, so a failed
 // or expired predecessor can never deadlock the run's terminal reply behind
-// an unclaimable draft. 'unknown' is safe to treat as resolved for drafts
-// only: the attempt deadline (5 min) far outlives any in-flight SDK call, so
-// no zombie edit can still land after the successor. Non-draft ops keep the
-// strict 'sent' rule — their chunks are deltas and must not overtake.
+// an unclaimable draft. 'unknown' releases the successor for liveness only;
+// it does NOT prove the attempt is dead — a zombie edit may still land on
+// the old message, so LatestSentDraftMessageID abandons that identity.
+// Non-draft ops keep the strict 'sent' rule — their chunks are deltas and
+// must not overtake.
 // A non-draft op is also held while any same-run draft is still pending or
 // sending: the terminal reply must never be overtaken by an older progress
 // edit landing late on the same platform message.

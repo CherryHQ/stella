@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 
 	"github.com/bwmarrin/discordgo"
@@ -16,26 +17,10 @@ import (
 // ReplyToKey the platform message id to soft-reference.
 func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
 	if op.Kind == "send_group_reply" {
-		var payload channel.GroupReplyOpPayload
-		if err := json.Unmarshal(op.Payload, &payload); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: bad send_group_reply payload: %v", err)
-		}
-		if err := b.Publish(ctx, payload.PublishRequest()); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "discord: group reply publish: %v", err)
-		}
-		return channel.SendResult{}, nil
+		return b.sendGroupReplyOp(ctx, op)
 	}
 	if op.Kind == "notify" {
-		var payload struct {
-			Notification channel.Notification `json:"notification"`
-		}
-		if err := json.Unmarshal(op.Payload, &payload); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: bad notify payload: %v", err)
-		}
-		if err := b.Notify(ctx, payload.Notification); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "discord: notify send: %v", err)
-		}
-		return channel.SendResult{}, nil
+		return b.sendNotifyOp(ctx, op)
 	}
 	if op.Kind == "send_reply" {
 		var payload channel.ReplyOpPayload
@@ -81,11 +66,12 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: bad send_attachment payload: %v", err)
 		}
 		var err error
+		target := opTargetChannel(op)
 		switch payload.Kind {
 		case channel.AttachmentImage:
-			err = b.sendImage(ctx, op.Address.ChatKey, channel.ImageEvent{Data: payload.Data, MimeType: payload.MimeType})
+			err = b.sendImage(ctx, target, channel.ImageEvent{Data: payload.Data, MimeType: payload.MimeType})
 		case channel.AttachmentFile:
-			err = b.sendFile(ctx, op.Address.ChatKey, channel.FileEvent{Path: payload.Path, Name: payload.Name})
+			err = b.sendFile(ctx, target, channel.FileEvent{Path: payload.Path, Name: payload.Name})
 		default:
 			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: unknown attachment kind %q", payload.Kind)
 		}
@@ -106,15 +92,112 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 	if err := json.Unmarshal(op.Payload, &payload); err != nil {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: bad send_text payload: %v", err)
 	}
-	if op.Address.ChatKey == "" {
+	target := opTargetChannel(op)
+	if target == "" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: empty chat key")
 	}
 	if b.rest == nil {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "discord: REST client unavailable")
 	}
 	msg := &discordgo.MessageSend{Content: payload.Text, AllowedMentions: noMentions()}
-	msg.Reference = softReference(op.Address.ChatKey, op.Address.ReplyToKey)
-	sent, err := b.rest.ChannelMessageSendComplex(op.Address.ChatKey, msg, discordgo.WithContext(ctx))
+	msg.Reference = softReference(target, op.Address.ReplyToKey)
+	sent, err := b.rest.ChannelMessageSendComplex(target, msg, discordgo.WithContext(ctx))
+	if err != nil {
+		return channel.SendResult{}, classifyDiscordSend(err)
+	}
+	id := ""
+	if sent != nil {
+		id = sent.ID
+	}
+	return channel.SendResult{PlatformMessageID: id}, nil
+}
+
+// opTargetChannel picks the Discord channel an op posts to: a group op's
+// thread id when set (threads are channels in Discord), else the chat key.
+func opTargetChannel(op channel.OutboundOp) string {
+	if op.Address.Scope == "group" && op.Address.ThreadKey != "" {
+		return op.Address.ThreadKey
+	}
+	return op.Address.ChatKey
+}
+
+// sendGroupReplyOp delivers the primary segment of an accepted group reply —
+// exactly one REST call — with the lifecycle reaction pair around it when the
+// turn opted into feedback. Overflow and attachments are sibling ops.
+func (b *Bot) sendGroupReplyOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload channel.GroupReplyOpPayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: bad send_group_reply payload: %v", err)
+	}
+	target := payload.PlatformThreadID
+	if target == "" {
+		target = payload.PlatformGroupID
+	}
+	if target == "" {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: empty group target")
+	}
+	if b.rest == nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "discord: REST client unavailable")
+	}
+	text := payload.Text
+	if text == "" {
+		text = "(empty response)"
+	}
+	msg := &discordgo.MessageSend{Content: text, AllowedMentions: noMentions()}
+	msg.Reference = softReference(target, payload.ReplyTo)
+	sent, err := b.rest.ChannelMessageSendComplex(target, msg, discordgo.WithContext(ctx))
+	if payload.LifecycleFeedback {
+		if err == nil {
+			b.finishReaction(context.WithoutCancel(ctx), target, payload.ReplyTo, true)
+		} else {
+			b.clearReactionLifecycle(context.WithoutCancel(ctx), target, payload.ReplyTo)
+		}
+	}
+	if err != nil {
+		return channel.SendResult{}, classifyDiscordSend(err)
+	}
+	id := ""
+	if sent != nil {
+		id = sent.ID
+	}
+	return channel.SendResult{PlatformMessageID: id}, nil
+}
+
+// sendNotifyOp delivers one notification segment — one REST call, one
+// receipt. RecipientID opens the DM channel first; the lease guard runs
+// before the send so a fenced-out owner stops at the boundary.
+func (b *Bot) sendNotifyOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload struct {
+		Notification channel.Notification `json:"notification"`
+	}
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: bad notify payload: %v", err)
+	}
+	n := payload.Notification
+	if n.RecipientID != "" {
+		dm, err := b.session.UserChannelCreate(n.RecipientID)
+		if err != nil {
+			return channel.SendResult{}, classifyDiscordSend(fmt.Errorf("discord: create recipient DM: %w", err))
+		}
+		if dm == nil || dm.ID == "" {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: recipient DM has no channel ID")
+		}
+		n.ChatID = dm.ID
+	}
+	if n.ChatID == "" {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "discord: no target chat ID")
+	}
+	if b.rest == nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "discord: REST client unavailable")
+	}
+	if err := op.CheckOwnership(ctx); err != nil {
+		return channel.SendResult{}, err
+	}
+	msg := &discordgo.MessageSend{Content: n.Text, AllowedMentions: noMentions()}
+	if n.Silent {
+		msg.Flags = discordgo.MessageFlagsSuppressNotifications
+	}
+	sent, err := b.rest.ChannelMessageSendComplex(n.ChatID, msg, discordgo.WithContext(ctx))
 	if err != nil {
 		return channel.SendResult{}, classifyDiscordSend(err)
 	}
@@ -166,6 +249,10 @@ func (b *Bot) SendDraftUpdate(ctx context.Context, op channel.OutboundOp) (chann
 // classifyDiscordSend maps a discordgo failure to a ledger class. A real API
 // response decides; transport failures after the request are unknown.
 func classifyDiscordSend(err error) error {
+	var se *channel.SendError
+	if errors.As(err, &se) {
+		return se
+	}
 	var restErr *discordgo.RESTError
 	if errors.As(err, &restErr) && restErr.Response != nil {
 		switch code := restErr.Response.StatusCode; {

@@ -20,26 +20,10 @@ import (
 // provably rejected it, unknown when the response never arrived.
 func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
 	if op.Kind == "send_group_reply" {
-		var payload channel.GroupReplyOpPayload
-		if err := json.Unmarshal(op.Payload, &payload); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: bad send_group_reply payload: %v", err)
-		}
-		if err := b.Publish(ctx, payload.PublishRequest()); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "telegram: group reply publish: %v", err)
-		}
-		return channel.SendResult{}, nil
+		return b.sendGroupReplyOp(ctx, op)
 	}
 	if op.Kind == "notify" {
-		var payload struct {
-			Notification channel.Notification `json:"notification"`
-		}
-		if err := json.Unmarshal(op.Payload, &payload); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: bad notify payload: %v", err)
-		}
-		if err := b.Notify(ctx, payload.Notification); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "telegram: notify send: %v", err)
-		}
-		return channel.SendResult{}, nil
+		return b.sendNotifyOp(ctx, op)
 	}
 	if op.Kind == "send_reply" {
 		return b.sendReplyOp(ctx, op)
@@ -75,23 +59,75 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		}
 	}
 
-	rendered := renderMarkdown(b.md, payload.Text)
-	msg, err := b.bot.Send(chat, rendered, opts)
+	msg, err := b.sendTelegramMarkdown(ctx, chat, payload.Text, opts, op.CheckOwnership)
 	if err != nil {
-		// Mirrors the live path: a markdown send rejection falls back to plain
-		// text once. A classified platform error (4xx) is also tried as plain
-		// text because the rejection may be markdown-specific; a plain-text
-		// 4xx then classifies permanently on its own merits.
-		var apiErr *tele.Error
-		if errors.As(err, &apiErr) && apiErr.Code >= 500 {
-			return channel.SendResult{}, classifySend(err)
-		}
-		if errors.As(err, &apiErr) {
-			msg, err = b.bot.Send(chat, payload.Text, &tele.SendOptions{ThreadID: opts.ThreadID, ReplyTo: opts.ReplyTo})
-		} else {
-			return channel.SendResult{}, classifySend(err)
+		return channel.SendResult{}, classifySend(err)
+	}
+	return channel.SendResult{PlatformMessageID: strconv.Itoa(msg.ID)}, nil
+}
+
+// sendGroupReplyOp delivers the primary segment of an accepted group reply —
+// exactly one platform call with the ack/terminal reaction pair around it.
+// Overflow chunks and attachments are sibling ops with their own receipts.
+func (b *Bot) sendGroupReplyOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload channel.GroupReplyOpPayload
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: bad send_group_reply payload: %v", err)
+	}
+	chatID, err := strconv.ParseInt(payload.PlatformGroupID, 10, 64)
+	if err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: invalid group id %q: %v", payload.PlatformGroupID, err)
+	}
+	chat := &tele.Chat{ID: chatID}
+	opts := &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}
+	if payload.PlatformThreadID != "" {
+		if id, err := strconv.Atoi(payload.PlatformThreadID); err == nil {
+			opts.ThreadID = id
 		}
 	}
+	if payload.ReplyTo != "" {
+		if replyID, err := strconv.Atoi(payload.ReplyTo); err == nil {
+			opts.ReplyTo = &tele.Message{ID: replyID, Chat: chat}
+			opts.AllowWithoutReply = true
+		}
+	}
+	text := payload.Text
+	if strings.TrimSpace(text) == "" {
+		text = "(empty response)"
+	}
+	b.react(payload.PlatformGroupID, payload.ReplyTo, reactionReceived)
+	var sendErr error
+	defer func() { b.finishReaction(payload.PlatformGroupID, payload.ReplyTo, sendErr == nil) }()
+	var msg *tele.Message
+	msg, sendErr = b.sendTelegramMarkdown(ctx, chat, text, opts, op.CheckOwnership)
+	if sendErr != nil {
+		return channel.SendResult{}, classifySend(sendErr)
+	}
+	return channel.SendResult{PlatformMessageID: strconv.Itoa(msg.ID)}, nil
+}
+
+// sendNotifyOp delivers one notification segment — one platform call, one
+// receipt. Long notifications arrive pre-split as a chained op sequence.
+func (b *Bot) sendNotifyOp(ctx context.Context, op channel.OutboundOp) (channel.SendResult, error) {
+	var payload struct {
+		Notification channel.Notification `json:"notification"`
+	}
+	if err := json.Unmarshal(op.Payload, &payload); err != nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: bad notify payload: %v", err)
+	}
+	chatID := payload.Notification.ChatID
+	if chatID == "" {
+		chatID = b.cfg.ChannelID
+	}
+	if chatID == "" {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: no target chat ID")
+	}
+	chat := teleChatForKey(chatID)
+	if chat == nil {
+		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "telegram: empty chat key")
+	}
+	opts := &tele.SendOptions{ParseMode: tele.ModeMarkdownV2, DisableNotification: payload.Notification.Silent}
+	msg, err := b.sendTelegramMarkdown(ctx, chat, payload.Notification.Text, opts, op.CheckOwnership)
 	if err != nil {
 		return channel.SendResult{}, classifySend(err)
 	}
@@ -110,7 +146,13 @@ func teleChatForKey(key string) tele.Recipient {
 
 // classifySend maps a telebot failure to a ledger class. A real API response
 // is decisive; a transport failure after the request may have still landed.
+// An already-classified SendError (e.g. the ownership guard's retryable
+// refusal) passes through unchanged.
 func classifySend(err error) error {
+	var se *channel.SendError
+	if errors.As(err, &se) {
+		return se
+	}
 	var flood tele.FloodError
 	if errors.As(err, &flood) {
 		return &channel.SendError{Class: channel.SendRetryable, Err: err}
@@ -235,8 +277,13 @@ func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.S
 		// user watched during the turn is the final reply, not a sibling.
 		editable := tele.StoredMessage{MessageID: op.DraftMessageID, ChatID: mustChatID(chat)}
 		_, err := b.bot.Edit(editable, renderMarkdown(b.md, text), tele.ModeMarkdownV2)
-		var apiErr *tele.Error
-		if errors.As(err, &apiErr) && apiErr.Code >= 400 && apiErr.Code < 500 {
+		if err != nil && !isNotModified(err) && !isTelegramTransport(err) && !isTelegramFlood(err) {
+			// The platform answered, so the markdown edit provably did not
+			// land — fall back to a plain-text edit once. Second call in the
+			// same op: a fenced-out owner must not edit.
+			if gerr := op.CheckOwnership(ctx); gerr != nil {
+				return channel.SendResult{}, gerr
+			}
 			_, err = b.bot.Edit(editable, text)
 		}
 		if err != nil && !isNotModified(err) {
@@ -255,7 +302,7 @@ func (b *Bot) sendReplyOp(ctx context.Context, op channel.OutboundOp) (channel.S
 			opts.ReplyTo = &tele.Message{ID: id, Chat: &tele.Chat{ID: mustChatID(chat)}}
 		}
 	}
-	msg, err := b.sendTelegramMarkdown(ctx, chat, text, opts)
+	msg, err := b.sendTelegramMarkdown(ctx, chat, text, opts, op.CheckOwnership)
 	if err != nil {
 		return channel.SendResult{}, classifySend(err)
 	}

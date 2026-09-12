@@ -39,7 +39,11 @@ type OutboundOp struct {
 	// recorded by the newest sent draft_update. The dispatcher populates it on
 	// draft_update and send_reply ops so progress edits and the final version
 	// all land on one platform message — create identity stays stable across
-	// retries and owner handoffs.
+	// retries and owner handoffs. It is empty when the chain is polluted: a
+	// draft op whose outcome is 'unknown' may still have its edit in flight
+	// (stalled owner, delayed platform apply), so every later op must create
+	// a fresh message instead of letting a zombie overwrite it. The abandoned
+	// preview may linger or land late; the final reply can never be reverted.
 	DraftMessageID string
 	// Guard re-validates that this replica still owns the channel lease. It is
 	// populated at claim time and never serialized; senders whose op performs
@@ -145,7 +149,11 @@ type DraftUpdatePayload struct {
 
 // GroupReplyOpPayload is the frozen body of the "send_group_reply" outbox op —
 // everything a GroupPublisher needs to replay an accepted group reply on the
-// replica that owns the channel lease.
+// replica that owns the channel lease. Text is the pre-split primary segment;
+// overflow segments and attachments are sibling send_text / send_attachment
+// ops, so this op is one platform call with one receipt. Events stay for
+// platforms whose primary artifact renders richer than a text segment
+// (Feishu cards carry reference sections).
 type GroupReplyOpPayload struct {
 	V                int     `json:"v"`
 	Platform         string  `json:"platform"`
@@ -156,6 +164,10 @@ type GroupReplyOpPayload struct {
 	RequesterID      string  `json:"requester_id,omitempty"`
 	SessionID        string  `json:"session_id,omitempty"`
 	Events           []Event `json:"events"`
+	// LifecycleFeedback gates the ack/terminal reaction pair on platforms
+	// that support it; ambient turns must not receive unsolicited reactions.
+	LifecycleFeedback bool   `json:"lifecycle_feedback,omitempty"`
+	Text              string `json:"text"`
 }
 
 // ReplyOpPayload is the frozen body of the "send_reply" outbox op — the whole
@@ -231,25 +243,4 @@ func CollectReplyEvents(events []Event) (string, []ImageEvent, []FileEvent) {
 		response += tracker.RenderFinal()
 	}
 	return response, images, files
-}
-
-// ReplayChatStream rebuilds a GroupPublishRequest stream from a persisted op.
-// Abort cannot cross a process boundary, so the reconstructed affordance is a
-// no-op — publish happens after the turn ends regardless.
-func (p GroupReplyOpPayload) PublishRequest() GroupPublishRequest {
-	events := make(chan Event, len(p.Events))
-	for _, evt := range p.Events {
-		events <- evt
-	}
-	close(events)
-	return GroupPublishRequest{
-		Platform:         p.Platform,
-		PlatformGroupID:  p.PlatformGroupID,
-		PlatformThreadID: p.PlatformThreadID,
-		ReplyTo:          p.ReplyTo,
-		Stream:           &ChatStream{Events: events, SessionID: p.SessionID},
-		DeliveryID:       p.DeliveryID,
-		RequesterID:      p.RequesterID,
-		Abort:            func() bool { return false },
-	}
 }

@@ -249,6 +249,12 @@ func (c *Channel) SendOperation(ctx context.Context, op pkgchannel.OutboundOp) (
 		if text == "" {
 			text, _, _ = pkgchannel.CollectReplyEvents(payload.Events)
 		}
+	case "send_group_reply":
+		var payload pkgchannel.GroupReplyOpPayload
+		if err := json.Unmarshal(op.Payload, &payload); err != nil {
+			return pkgchannel.SendResult{}, pkgchannel.SendErrorf(pkgchannel.SendPermanent, "testchan: decode send_group_reply payload: %s", err)
+		}
+		text = payload.Text
 	case "send_attachment":
 		var payload pkgchannel.AttachmentOpPayload
 		if err := json.Unmarshal(op.Payload, &payload); err != nil {

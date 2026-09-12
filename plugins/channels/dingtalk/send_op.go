@@ -19,8 +19,18 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		if err := json.Unmarshal(op.Payload, &payload); err != nil {
 			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "dingtalk: bad send_group_reply payload: %v", err)
 		}
-		if err := b.Publish(ctx, payload.PublishRequest()); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "dingtalk: group reply publish: %v", err)
+		// One webhook call. The session webhook is adapter-local state created
+		// by the group's last inbound callback — a replica that never saw it
+		// cannot deliver, which is a permanent gap, not a transient error.
+		session, ok := b.groupSessionFor(payload.PlatformGroupID)
+		if !ok {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "dingtalk: no active session webhook for group %q", payload.PlatformGroupID)
+		}
+		if err := op.CheckOwnership(ctx); err != nil {
+			return channel.SendResult{}, err
+		}
+		if err := b.replyToWebhook(ctx, session.URL, payload.Text); err != nil {
+			return channel.SendResult{}, classifyDingTalkSend(err)
 		}
 		return channel.SendResult{}, nil
 	}
@@ -31,8 +41,19 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 		if err := json.Unmarshal(op.Payload, &payload); err != nil {
 			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "dingtalk: bad notify payload: %v", err)
 		}
-		if err := b.Notify(ctx, payload.Notification); err != nil {
-			return channel.SendResult{}, channel.SendErrorf(channel.SendUnknown, "dingtalk: notify send: %v", err)
+		target := strings.TrimPrefix(payload.Notification.ChatID, "dingtalk:")
+		if target == "" {
+			target = strings.TrimPrefix(payload.Notification.RecipientID, "dingtalk:")
+		}
+		session, ok := b.dmSessionFor(target)
+		if !ok {
+			return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "dingtalk: no active session webhook for %q", target)
+		}
+		if err := op.CheckOwnership(ctx); err != nil {
+			return channel.SendResult{}, err
+		}
+		if err := b.replyToWebhook(ctx, session.URL, payload.Notification.Text); err != nil {
+			return channel.SendResult{}, classifyDingTalkSend(err)
 		}
 		return channel.SendResult{}, nil
 	}
@@ -64,10 +85,18 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 	if err := json.Unmarshal(op.Payload, &payload); err != nil {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "dingtalk: bad send_text payload: %v", err)
 	}
-	if op.Address.Token == "" {
+	webhook := op.Address.Token
+	if webhook == "" && op.Address.Scope == "group" {
+		// Group siblings resolve the session webhook the same way the
+		// primary op does — it is adapter-local state, not addressable data.
+		if session, ok := b.groupSessionFor(strings.TrimPrefix(op.Address.ChatKey, "dingtalk:")); ok {
+			webhook = session.URL
+		}
+	}
+	if webhook == "" {
 		return channel.SendResult{}, channel.SendErrorf(channel.SendPermanent, "dingtalk: no session webhook for op")
 	}
-	if err := sendWebhookText(ctx, op.Address.Token, payload.Text); err != nil {
+	if err := sendWebhookText(ctx, webhook, payload.Text); err != nil {
 		return channel.SendResult{}, classifyDingTalkSend(err)
 	}
 	// Session webhooks return no message id.
@@ -77,6 +106,10 @@ func (b *Bot) SendOperation(ctx context.Context, op channel.OutboundOp) (channel
 // classifyDingTalkSend maps webhook outcomes: HTTP errors and errcode
 // rejections are real platform answers; transport failures are unknown.
 func classifyDingTalkSend(err error) error {
+	var se *channel.SendError
+	if errors.As(err, &se) {
+		return se
+	}
 	msg := err.Error()
 	if strings.Contains(msg, "webhook returned") || strings.Contains(msg, "webhook rejected") {
 		// A real webhook response: 5xx may retry, the rest is permanent —

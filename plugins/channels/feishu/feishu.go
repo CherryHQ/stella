@@ -364,9 +364,20 @@ func (b *Bot) Platform() string { return channel.PlatformFeishu }
 // When the text contains {{button ...}} directives, sends an interactive card
 // so buttons render as clickable elements; otherwise sends plain text.
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
-	chatID := n.ChatID
+	chatID, receiveIDType, msgType, content, err := b.prepareNotify(ctx, n)
+	if err != nil {
+		return err
+	}
+	return b.createNotifyMessage(ctx, chatID, receiveIDType, msgType, content)
+}
+
+// prepareNotify resolves the target (a read-only Contact lookup for open IDs)
+// and builds the message body — split from the create so the durable op path
+// can re-check lease ownership between the lookup and the mutating call.
+func (b *Bot) prepareNotify(ctx context.Context, n channel.Notification) (chatID, receiveIDType, msgType, content string, err error) {
+	chatID = n.ChatID
 	if chatID == "" {
-		return fmt.Errorf("feishu: no target chat ID")
+		return "", "", "", "", fmt.Errorf("feishu: no target chat ID")
 	}
 
 	// Strip channel prefix if present.
@@ -378,23 +389,26 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 			logger().Debug("notify: promoted open_id to union_id", "open_id", chatID, "union_id", unionID)
 			chatID = unionID
 		} else {
-			return fmt.Errorf("feishu: notify: failed to resolve union_id for open_id %q; pass a union_id (on_...) resolved through the same app's directory because open_id is app-scoped", chatID)
+			return "", "", "", "", fmt.Errorf("feishu: notify: failed to resolve union_id for open_id %q; pass a union_id (on_...) resolved through the same app's directory because open_id is app-scoped", chatID)
 		}
 	}
 
-	receiveIDType := receiveIDTypeForChatID(chatID)
+	receiveIDType = receiveIDTypeForChatID(chatID)
 
-	msgType := larkim.MsgTypeText
-	content := textContent(n.Text)
+	msgType = larkim.MsgTypeText
+	content = textContent(n.Text)
 	if cardButtonDirective.MatchString(n.Text) {
-		if card, err := buildCardContent(n.Text); err == nil {
+		if card, cardErr := buildCardContent(n.Text); cardErr == nil {
 			msgType = larkim.MsgTypeInteractive
 			content = card
 		} else {
 			content = textContent(stripCardDirectives(n.Text))
 		}
 	}
+	return chatID, receiveIDType, msgType, content, nil
+}
 
+func (b *Bot) createNotifyMessage(ctx context.Context, chatID, receiveIDType, msgType, content string) error {
 	logger().Debug("notify sending message",
 		"instance", b.Name(), "chat_id", chatID, "msg_type", msgType)
 

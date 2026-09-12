@@ -71,23 +71,45 @@ func newGroupPublishDriver(db *pgxpool.Pool, q *sqlc.Queries, publishers *Publis
 // the row stays 'running' until pollPublishOutcomes observes the op's state.
 var errPublishEnqueued = errors.New("group publish: enqueued to durable outbox")
 
-// enqueueAccepted commits the reply's send op and the publish-started marker in
-// one transaction — a crash between them can only ever produce both or neither.
-// Re-enqueue after a crash dedups on the dispatch-scoped delivery key.
+// groupReplyPlan maps the reply channel's platform to the group reply
+// decomposition: one durable op per platform call, mirroring replyPlanFor.
+// QQ folds media into text markers — its group API has no binary upload.
+func groupReplyPlan(platform string) choutbox.ReplyPlan {
+	switch platform {
+	case "telegram":
+		return choutbox.ReplyPlan{TextLimit: 4000, PrimaryText: true, Attachments: true}
+	case "discord":
+		return choutbox.ReplyPlan{TextLimit: 2000, PrimaryText: true, Attachments: true}
+	case "qq":
+		return choutbox.ReplyPlan{TextLimit: 3500, PrimaryText: true, MediaAsText: true}
+	case "dingtalk":
+		return choutbox.ReplyPlan{TextLimit: 18000, PrimaryText: true}
+	default:
+		// feishu cards carry the whole response; testchan takes one send.
+		return choutbox.ReplyPlan{PrimaryText: true, Attachments: true}
+	}
+}
+
+// enqueueAccepted commits the reply's send ops and the publish-started marker
+// in one transaction — a crash between them can only ever produce both or
+// neither. Re-enqueue after a crash dedups on the dispatch-scoped delivery
+// key. The reply decomposes into one op per platform call so a mid-chain
+// retry never resends a segment that already landed.
 func (p *groupPublishDriver) enqueueAccepted(ctx context.Context, job publishJob) error {
 	row := job.row
 	payload := choutbox.GroupReplyPayload{
-		V:                choutbox.PayloadVersion,
-		Platform:         job.state.Platform,
-		PlatformGroupID:  job.state.PlatformGroupID,
-		PlatformThreadID: job.state.PlatformThreadID,
-		ReplyTo:          nullStringValue(job.trigger.PlatformMessageID),
-		DeliveryID:       row.ID,
-		RequesterID:      job.trigger.ActorID,
-		SessionID:        job.response.sessionID,
-		Events:           job.response.events,
+		V:                 choutbox.PayloadVersion,
+		Platform:          job.state.Platform,
+		PlatformGroupID:   job.state.PlatformGroupID,
+		PlatformThreadID:  job.state.PlatformThreadID,
+		ReplyTo:           nullStringValue(job.trigger.PlatformMessageID),
+		DeliveryID:        row.ID,
+		RequesterID:       job.trigger.ActorID,
+		SessionID:         job.response.sessionID,
+		Events:            job.response.events,
+		LifecycleFeedback: job.envelope.LifecycleFeedback,
 	}
-	op, err := choutbox.GroupReplyOp("group:"+row.ID, row.ReplyChannelID, row.ReplyChannelID, payload)
+	ops, err := choutbox.GroupReplyChain("group:"+row.ID, row.ReplyChannelID, row.ReplyChannelID, payload, job.response.events, groupReplyPlan(job.state.Platform))
 	if err != nil {
 		return err
 	}
@@ -96,7 +118,7 @@ func (p *groupPublishDriver) enqueueAccepted(ctx context.Context, job publishJob
 		return fmt.Errorf("enqueue group publish: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := p.outbox.Append(ctx, tx, []choutbox.Op{op}); err != nil {
+	if err := p.outbox.Append(ctx, tx, ops); err != nil {
 		return fmt.Errorf("enqueue group publish: append: %w", err)
 	}
 	if !row.PublishStartedAt.Valid {

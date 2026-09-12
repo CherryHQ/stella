@@ -2,6 +2,7 @@ package outbox
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -120,32 +121,42 @@ func ChatKeyFor(msg pkgchannel.IncomingMessage) string {
 }
 
 // NotifyPayload is the frozen body of a notify op — the platform-neutral
-// Notification an adapter's Notify already renders.
+// Notification an adapter's Notify already renders. Text is the pre-split
+// segment this op delivers; a long notification is a chain of ops, one
+// platform call each.
 type NotifyPayload struct {
 	V            int                     `json:"v"`
 	Notification pkgchannel.Notification `json:"notification"`
 }
 
-// NotifyOps builds a notification delivery for one channel instance. The
-// delivery key is caller-chosen so a retried notification never double-sends.
-func NotifyOp(deliveryKey, channelID, accountKey string, n pkgchannel.Notification) (Op, error) {
-	payload, err := json.Marshal(NotifyPayload{V: PayloadVersion, Notification: n})
-	if err != nil {
-		return Op{}, err
-	}
+// NotifyChain builds a notification delivery for one channel instance: one
+// op per text segment, dependency-chained so a retried segment can never be
+// overtaken. The delivery key is caller-chosen so a retried notification
+// never double-sends.
+func NotifyChain(deliveryKey, channelID, accountKey string, n pkgchannel.Notification, maxLen int) ([]Op, error) {
 	addr, err := json.Marshal(Address{V: AddressVersion, ChatKey: n.ChatID})
 	if err != nil {
-		return Op{}, err
+		return nil, err
 	}
-	return Op{
-		DeliveryKey: deliveryKey,
-		Index:       0,
-		Kind:        "notify",
-		ChannelID:   channelID,
-		AccountKey:  accountKey,
-		Address:     addr,
-		Payload:     payload,
-	}, nil
+	chunks := splitReplyText(n.Text, maxLen)
+	ops := make([]Op, 0, len(chunks))
+	for i, chunk := range chunks {
+		seg := n
+		seg.Text = chunk
+		payload, err := json.Marshal(NotifyPayload{V: PayloadVersion, Notification: seg})
+		if err != nil {
+			return nil, err
+		}
+		op := Op{
+			DeliveryKey: deliveryKey, Index: i, Kind: OpNotify,
+			ChannelID: channelID, AccountKey: accountKey, Address: addr, Payload: payload,
+		}
+		if i > 0 {
+			op.DependsOn = []int{i - 1}
+		}
+		ops = append(ops, op)
+	}
+	return ops, nil
 }
 
 // ReplyPayload is the frozen body of a send_reply op; the shared definition
@@ -165,6 +176,9 @@ type ReplyPlan struct {
 	PrimaryText bool
 	// Attachments emits one send_attachment op per collected image/file.
 	Attachments bool
+	// MediaAsText folds collected images/files into explicit text markers
+	// instead of attachment ops — for platforms with no binary upload path.
+	MediaAsText bool
 }
 
 // ReplyChain serializes a completed turn's recorded events into a chain of
@@ -178,13 +192,14 @@ func ReplyChain(runID, deliveryKey, channelID, accountKey string, addr Address, 
 		return nil, err
 	}
 	text, images, files := pkgchannel.CollectReplyEvents(events)
+	if plan.MediaAsText {
+		text = foldMediaMarkers(text, images, files)
+		images, files = nil, nil
+	}
 	if len([]rune(strings.TrimSpace(text))) == 0 {
 		text = "(empty response)"
 	}
-	chunks := []string{text}
-	if plan.TextLimit > 0 {
-		chunks = pkgchannel.SplitMessage(text, plan.TextLimit)
-	}
+	chunks := splitReplyText(text, plan.TextLimit)
 	primary := ""
 	if plan.PrimaryText && len(chunks) > 0 {
 		primary = chunks[0]
@@ -201,20 +216,77 @@ func ReplyChain(runID, deliveryKey, channelID, accountKey string, addr Address, 
 	if plan.PrimaryText {
 		start = 1
 	}
-	for i := start; i < len(chunks); i++ {
-		p, err := json.Marshal(TextPayload{V: PayloadVersion, Text: chunks[i]})
+	siblings, err := siblingOps(runID, deliveryKey, channelID, accountKey, rawAddr, len(ops), chunks[start:], images, files, plan.Attachments)
+	if err != nil {
+		return nil, err
+	}
+	return append(ops, siblings...), nil
+}
+
+// GroupReplyChain serializes an accepted group reply into the same per-call
+// shape as ReplyChain: send_group_reply at index 0 carries the group metadata
+// plus the primary text segment, siblings carry overflow text and media.
+func GroupReplyChain(deliveryKey, channelID, accountKey string, p GroupReplyPayload, events []pkgchannel.Event, plan ReplyPlan) ([]Op, error) {
+	for _, evt := range events {
+		if evt.Err != nil {
+			return nil, evt.Err
+		}
+	}
+	rawAddr, err := json.Marshal(Address{V: AddressVersion, ChatKey: p.PlatformGroupID, ThreadKey: p.PlatformThreadID, ReplyToKey: p.ReplyTo, Scope: "group"})
+	if err != nil {
+		return nil, err
+	}
+	text, images, files := pkgchannel.CollectReplyEvents(events)
+	if plan.MediaAsText {
+		text = foldMediaMarkers(text, images, files)
+		images, files = nil, nil
+	}
+	if len([]rune(strings.TrimSpace(text))) == 0 {
+		text = "(empty response)"
+	}
+	chunks := splitReplyText(text, plan.TextLimit)
+	p.Text = ""
+	if plan.PrimaryText && len(chunks) > 0 {
+		p.Text = chunks[0]
+	}
+	payload, err := json.Marshal(p)
+	if err != nil {
+		return nil, err
+	}
+	ops := []Op{{
+		DeliveryKey: deliveryKey, Index: 0, Kind: OpSendGroupReply,
+		ChannelID: channelID, AccountKey: accountKey, Address: rawAddr, Payload: payload,
+	}}
+	start := 0
+	if plan.PrimaryText {
+		start = 1
+	}
+	siblings, err := siblingOps("", deliveryKey, channelID, accountKey, rawAddr, len(ops), chunks[start:], images, files, plan.Attachments)
+	if err != nil {
+		return nil, err
+	}
+	return append(ops, siblings...), nil
+}
+
+// siblingOps emits one send_text op per chunk and, when attachments is set,
+// one send_attachment op per media item — each chained on its predecessor so
+// a retried op never lets a later one overtake it.
+func siblingOps(runID, deliveryKey, channelID, accountKey string, rawAddr json.RawMessage, index int, chunks []string, images []pkgchannel.ImageEvent, files []pkgchannel.FileEvent, attachments bool) ([]Op, error) {
+	ops := make([]Op, 0, len(chunks)+len(images)+len(files))
+	for _, chunk := range chunks {
+		p, err := json.Marshal(TextPayload{V: PayloadVersion, Text: chunk})
 		if err != nil {
 			return nil, err
 		}
 		ops = append(ops, Op{
-			RunID: runID, DeliveryKey: deliveryKey, Index: len(ops), Kind: OpSendText,
+			RunID: runID, DeliveryKey: deliveryKey, Index: index + len(ops), Kind: OpSendText,
 			ChannelID: channelID, AccountKey: accountKey, Address: rawAddr, Payload: p,
-			DependsOn: []int{len(ops) - 1},
+			DependsOn: []int{index + len(ops) - 1},
 		})
 	}
-	if plan.Attachments {
+	if attachments {
 		for _, img := range images {
-			op, err := attachmentOp(runID, deliveryKey, channelID, accountKey, rawAddr, len(ops),
+			op, err := attachmentOp(runID, deliveryKey, channelID, accountKey, rawAddr, index+len(ops),
 				pkgchannel.AttachmentOpPayload{V: PayloadVersion, Kind: pkgchannel.AttachmentImage, Data: img.Data, MimeType: img.MimeType})
 			if err != nil {
 				return nil, err
@@ -222,7 +294,7 @@ func ReplyChain(runID, deliveryKey, channelID, accountKey string, addr Address, 
 			ops = append(ops, op)
 		}
 		for _, f := range files {
-			op, err := attachmentOp(runID, deliveryKey, channelID, accountKey, rawAddr, len(ops),
+			op, err := attachmentOp(runID, deliveryKey, channelID, accountKey, rawAddr, index+len(ops),
 				pkgchannel.AttachmentOpPayload{V: PayloadVersion, Kind: pkgchannel.AttachmentFile, Name: f.Name, Path: f.Path})
 			if err != nil {
 				return nil, err
@@ -231,6 +303,31 @@ func ReplyChain(runID, deliveryKey, channelID, accountKey string, addr Address, 
 		}
 	}
 	return ops, nil
+}
+
+// foldMediaMarkers appends an explicit textual marker per media item so a
+// platform without a binary upload path still tells the user a file existed.
+func foldMediaMarkers(text string, images []pkgchannel.ImageEvent, files []pkgchannel.FileEvent) string {
+	var sb strings.Builder
+	sb.WriteString(text)
+	for _, img := range images {
+		fmt.Fprintf(&sb, "\n\n[Image: %s]", img.MimeType)
+	}
+	for _, f := range files {
+		name := f.Name
+		if name == "" {
+			name = f.Path
+		}
+		fmt.Fprintf(&sb, "\n\n[File: %s]", name)
+	}
+	return sb.String()
+}
+
+func splitReplyText(text string, maxLen int) []string {
+	if maxLen > 0 {
+		return pkgchannel.SplitMessage(text, maxLen)
+	}
+	return []string{text}
 }
 
 func attachmentOp(runID, deliveryKey, channelID, accountKey string, rawAddr json.RawMessage, index int, p pkgchannel.AttachmentOpPayload) (Op, error) {
@@ -248,25 +345,3 @@ func attachmentOp(runID, deliveryKey, channelID, accountKey string, rawAddr json
 // GroupReplyPayload is the frozen body of a send_group_reply op; the shared
 // definition lives in pkg/channel so adapters decode the same shape.
 type GroupReplyPayload = pkgchannel.GroupReplyOpPayload
-
-// GroupReplyOp serializes one accepted group reply for cross-replica send.
-// deliveryKey is the dispatch row id so a retried enqueue is a no-op.
-func GroupReplyOp(deliveryKey, channelID, accountKey string, p GroupReplyPayload) (Op, error) {
-	payload, err := json.Marshal(p)
-	if err != nil {
-		return Op{}, err
-	}
-	addr, err := json.Marshal(Address{V: AddressVersion, ChatKey: p.PlatformGroupID, ThreadKey: p.PlatformThreadID, ReplyToKey: p.ReplyTo, Scope: "group"})
-	if err != nil {
-		return Op{}, err
-	}
-	return Op{
-		DeliveryKey: deliveryKey,
-		Index:       0,
-		Kind:        OpSendGroupReply,
-		ChannelID:   channelID,
-		AccountKey:  accountKey,
-		Address:     addr,
-		Payload:     payload,
-	}, nil
-}

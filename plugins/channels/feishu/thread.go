@@ -58,19 +58,31 @@ func (b *Bot) deliverPlainText(ctx context.Context, chatID, replyTo, rootID, tex
 // attempt reports a terminal failure; earlier attempts remain invisible while
 // the outbox retries them.
 func (b *Bot) sendFinalResponseInThread(ctx context.Context, chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup, reportFailure bool) error {
-	return b.sendFinalResponseInThreadWithOptions(ctx, chatID, replyMsgID, rootID, sentMsgID, response, refs, isGroup, reportFailure, cardStatusCompleted, "")
+	return b.sendFinalResponseInThreadWithOptions(ctx, chatID, replyMsgID, rootID, sentMsgID, response, refs, isGroup, reportFailure, cardStatusCompleted, "", nil)
 }
 
-func (b *Bot) sendFinalResponseInThreadWithOptions(ctx context.Context, chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup, reportFailure bool, status cardStatus, deliveryKey string) error {
+// check — when non-nil — re-validates channel ownership before every platform
+// call inside this multi-call helper: the durable op path passes the op's
+// lease guard so a fenced-out owner stops before the next SDK call.
+func (b *Bot) sendFinalResponseInThreadWithOptions(ctx context.Context, chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup, reportFailure bool, status cardStatus, deliveryKey string, check func(context.Context) error) error {
 	replyTo := threadReplyTarget(replyMsgID, rootID)
 	response = appendReferenceSection(response, refs, isGroup)
 	chunks := splitCardText(response, status)
 	streamUUID := stableDeliveryUUID(b.Name(), chatID, replyTo, deliveryKey, "stream-card")
+	guard := func() error {
+		if check != nil {
+			return check(ctx)
+		}
+		return nil
+	}
 
 	if sentMsgID != "" {
 		if err := b.patchMessageForStatus(ctx, sentMsgID, chunks[0], status); err != nil {
 			if errors.Is(err, errCardContentBuild) {
 				logger().Error("final card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
+				if gerr := guard(); gerr != nil {
+					return gerr
+				}
 				return b.deliverPlainText(ctx, chatID, replyTo, rootID, response)
 			}
 			if reportFailure {
@@ -80,9 +92,15 @@ func (b *Bot) sendFinalResponseInThreadWithOptions(ctx context.Context, chatID, 
 		}
 		for i, chunk := range chunks[1:] {
 			chunkUUID := stableDeliveryUUID(streamUUID, fmt.Sprintf("overflow-%d", i+1))
+			if err := guard(); err != nil {
+				return err
+			}
 			if _, err := b.deliverCardWithOptions(ctx, chatID, replyTo, chunk, rootID != "", status, chunkUUID); err != nil {
 				if errors.Is(err, errCardContentBuild) {
 					logger().Error("overflow card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
+					if gerr := guard(); gerr != nil {
+						return gerr
+					}
 					if fallbackErr := b.deliverPlainText(ctx, chatID, replyTo, rootID, chunk); fallbackErr != nil {
 						return fmt.Errorf("send overflow plain-text fallback: %w", fallbackErr)
 					}
@@ -104,10 +122,16 @@ func (b *Bot) sendFinalResponseInThreadWithOptions(ctx context.Context, chatID, 
 		if i == 0 {
 			chunkUUID = streamUUID
 		}
+		if err := guard(); err != nil {
+			return err
+		}
 		messageID, err := b.deliverCardWithOptions(ctx, chatID, replyTo, chunk, rootID != "", status, chunkUUID)
 		if err != nil {
 			if errors.Is(err, errCardContentBuild) {
 				logger().Error("final card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
+				if gerr := guard(); gerr != nil {
+					return gerr
+				}
 				if fallbackErr := b.deliverPlainText(ctx, chatID, replyTo, rootID, chunk); fallbackErr != nil {
 					return fmt.Errorf("send final plain-text fallback: %w", fallbackErr)
 				}
@@ -121,6 +145,9 @@ func (b *Bot) sendFinalResponseInThreadWithOptions(ctx context.Context, chatID, 
 		if i == 0 && messageID != "" && deliveryKey != "" {
 			// A retry may have recovered the ID of an earlier Thinking card with
 			// the same UUID. Patch once so its content is terminal either way.
+			if err := guard(); err != nil {
+				return err
+			}
 			if err := b.patchMessageForStatus(ctx, messageID, chunk, status); err != nil {
 				return fmt.Errorf("finalize recovered response: %w", err)
 			}
@@ -143,12 +170,14 @@ func (b *Bot) reportDeliveryFailure(ctx context.Context, chatID, rootID, replyTo
 	logger().Error("Feishu response delivery failed", "chat_id", chatID, "root_id", rootID, "reply_to", replyTo, "error", deliveryErr)
 }
 
-// sendImageInThread sends an image in the correct thread context.
-func (b *Bot) sendImageInThread(chatID, replyMsgID, rootID string, img channel.ImageEvent) error {
-	return b.sendImage(chatID, threadReplyTarget(replyMsgID, rootID), img, rootID != "")
+// sendImageInThread sends an image in the correct thread context. check —
+// when non-nil — re-validates channel ownership between the upload and the
+// message create so a fenced-out owner stops mid-operation.
+func (b *Bot) sendImageInThread(chatID, replyMsgID, rootID string, img channel.ImageEvent, check func() error) error {
+	return b.sendImage(chatID, threadReplyTarget(replyMsgID, rootID), img, rootID != "", check)
 }
 
 // sendFileInThread sends a file in the correct thread context.
-func (b *Bot) sendFileInThread(chatID, replyMsgID, rootID string, file channel.FileEvent) error {
-	return b.sendFile(chatID, threadReplyTarget(replyMsgID, rootID), file, rootID != "")
+func (b *Bot) sendFileInThread(chatID, replyMsgID, rootID string, file channel.FileEvent, check func() error) error {
+	return b.sendFile(chatID, threadReplyTarget(replyMsgID, rootID), file, rootID != "", check)
 }

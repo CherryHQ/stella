@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -54,7 +55,7 @@ func (b *Bot) Publish(ctx context.Context, req channel.GroupPublishRequest) (err
 	}
 
 	for _, chunk := range channel.SplitMessage(response, telegramMaxMessageLen) {
-		if _, err := b.sendTelegramMarkdown(ctx, chat, chunk, opts); err != nil {
+		if _, err := b.sendTelegramMarkdown(ctx, chat, chunk, opts, nil); err != nil {
 			return fmt.Errorf("telegram: send response: %w", err)
 		}
 	}
@@ -174,20 +175,53 @@ func keepGroupTyping(ctx context.Context, bot *tele.Bot, chat tele.Recipient, th
 	}
 }
 
-func (b *Bot) sendTelegramMarkdown(ctx context.Context, chat tele.Recipient, text string, opts *tele.SendOptions) (*tele.Message, error) {
+// sendTelegramMarkdown sends one message: markdown first, plain fallback.
+// check — when non-nil — re-validates channel ownership before every SDK
+// call: the durable op path passes the op's lease guard so a fenced-out
+// owner cannot fire the plain fallback after losing the channel. A flood or
+// transport failure returns without falling back — the platform did not
+// answer, so the markdown send may still land and a plain retry could
+// duplicate it.
+func (b *Bot) sendTelegramMarkdown(ctx context.Context, chat tele.Recipient, text string, opts *tele.SendOptions, check func(context.Context) error) (*tele.Message, error) {
 	rendered := renderMarkdown(b.md, text)
-	msg, err := b.sendTelegramText(ctx, chat, rendered, opts)
-	if err == nil || telegramRetryAfter(err) > 0 {
+	msg, err := b.sendTelegramText(ctx, chat, rendered, opts, check)
+	if err == nil || isTelegramFlood(err) || isTelegramTransport(err) {
 		return msg, err
+	}
+	if check != nil {
+		if err := check(ctx); err != nil {
+			return nil, err
+		}
 	}
 	plain := *opts
 	plain.ParseMode = ""
-	return b.sendTelegramText(ctx, chat, text, &plain)
+	return b.sendTelegramText(ctx, chat, text, &plain, check)
 }
 
-func (b *Bot) sendTelegramText(ctx context.Context, chat tele.Recipient, text string, opts *tele.SendOptions) (*tele.Message, error) {
+// isTelegramFlood reports a Telegram rate-limit answer: the platform provably
+// recorded nothing, so the op retries later as markdown rather than firing an
+// immediate plain fallback into the same throttle.
+func isTelegramFlood(err error) bool {
+	var flood tele.FloodError
+	return errors.As(err, &flood)
+}
+
+// isTelegramTransport reports whether err means the platform never answered —
+// network failure or context cancellation. Only a real API response proves
+// the send did not land, so transport failures must not trigger fallbacks.
+func isTelegramTransport(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func (b *Bot) sendTelegramText(ctx context.Context, chat tele.Recipient, text string, opts *tele.SendOptions, check func(context.Context) error) (*tele.Message, error) {
 	var result *tele.Message
 	err := retryTelegram(ctx, func() error {
+		if check != nil {
+			if err := check(ctx); err != nil {
+				return err
+			}
+		}
 		msg, err := b.bot.Send(chat, text, opts)
 		result = msg
 		return err
