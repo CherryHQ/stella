@@ -58,6 +58,9 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	if registrar, ok := handler.(channel.GroupPublisherRegistrar); ok {
 		registrar.RegisterGroupPublisher(b.Name(), b)
 	}
+	if registrar, ok := handler.(channel.BotRegistrar); ok {
+		registrar.RegisterBotIdentity(channel.PlatformQQ, cfg.AppID, b.Name())
+	}
 
 	return b, nil
 }

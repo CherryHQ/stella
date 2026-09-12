@@ -343,6 +343,7 @@ type Channel struct {
 	RuntimeState      string             `json:"runtime_state"`
 	RuntimeErrorCode  pgtype.Text        `json:"runtime_error_code"`
 	RuntimeObservedAt pgtype.Timestamptz `json:"runtime_observed_at"`
+	RuntimeAccountKey pgtype.Text        `json:"runtime_account_key"`
 }
 
 type ChannelAgent struct {

@@ -50,6 +50,9 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		handler: handler,
 		cfg:     cfg,
 	}
+	if registrar, ok := handler.(channel.BotRegistrar); ok {
+		registrar.RegisterBotIdentity(channel.PlatformWeixin, cfg.BotID, b.Name())
+	}
 
 	return b, nil
 }

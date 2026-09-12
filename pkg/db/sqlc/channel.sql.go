@@ -44,7 +44,7 @@ SET runtime_owner_id = $1,
 WHERE id = $3
   AND (runtime_lease_until IS NULL OR runtime_lease_until <= clock_timestamp()
        OR runtime_token = $2)
-RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at
+RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at, runtime_account_key
 `
 
 type ClaimChannelRuntimeParams struct {
@@ -75,6 +75,7 @@ func (q *Queries) ClaimChannelRuntime(ctx context.Context, arg ClaimChannelRunti
 		&i.RuntimeState,
 		&i.RuntimeErrorCode,
 		&i.RuntimeObservedAt,
+		&i.RuntimeAccountKey,
 	)
 	return i, err
 }
@@ -82,7 +83,7 @@ func (q *Queries) ClaimChannelRuntime(ctx context.Context, arg ClaimChannelRunti
 const createChannel = `-- name: CreateChannel :one
 INSERT INTO channel (id, name, type, agent_id, enabled, config)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at
+RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at, runtime_account_key
 `
 
 type CreateChannelParams struct {
@@ -122,6 +123,7 @@ func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (C
 		&i.RuntimeState,
 		&i.RuntimeErrorCode,
 		&i.RuntimeObservedAt,
+		&i.RuntimeAccountKey,
 	)
 	return i, err
 }
@@ -152,7 +154,7 @@ func (q *Queries) DeleteChannel(ctx context.Context, id string) error {
 }
 
 const getChannel = `-- name: GetChannel :one
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at FROM channel WHERE id = $1
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at, runtime_account_key FROM channel WHERE id = $1
 `
 
 func (q *Queries) GetChannel(ctx context.Context, id string) (Channel, error) {
@@ -176,12 +178,13 @@ func (q *Queries) GetChannel(ctx context.Context, id string) (Channel, error) {
 		&i.RuntimeState,
 		&i.RuntimeErrorCode,
 		&i.RuntimeObservedAt,
+		&i.RuntimeAccountKey,
 	)
 	return i, err
 }
 
 const getChannelForUpdate = `-- name: GetChannelForUpdate :one
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at FROM channel WHERE id = $1 FOR UPDATE
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at, runtime_account_key FROM channel WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetChannelForUpdate(ctx context.Context, id string) (Channel, error) {
@@ -205,12 +208,13 @@ func (q *Queries) GetChannelForUpdate(ctx context.Context, id string) (Channel, 
 		&i.RuntimeState,
 		&i.RuntimeErrorCode,
 		&i.RuntimeObservedAt,
+		&i.RuntimeAccountKey,
 	)
 	return i, err
 }
 
 const listChannels = `-- name: ListChannels :many
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at FROM channel ORDER BY type, id
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at, runtime_account_key FROM channel ORDER BY type, id
 `
 
 func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
@@ -240,6 +244,7 @@ func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
 			&i.RuntimeState,
 			&i.RuntimeErrorCode,
 			&i.RuntimeObservedAt,
+			&i.RuntimeAccountKey,
 		); err != nil {
 			return nil, err
 		}
@@ -252,7 +257,7 @@ func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
 }
 
 const listChannelsByType = `-- name: ListChannelsByType :many
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at FROM channel WHERE type = $1 ORDER BY id
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at, runtime_account_key FROM channel WHERE type = $1 ORDER BY id
 `
 
 func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Channel, error) {
@@ -282,6 +287,7 @@ func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Chann
 			&i.RuntimeState,
 			&i.RuntimeErrorCode,
 			&i.RuntimeObservedAt,
+			&i.RuntimeAccountKey,
 		); err != nil {
 			return nil, err
 		}
@@ -294,7 +300,7 @@ func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Chann
 }
 
 const listClaimableChannels = `-- name: ListClaimableChannels :many
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at FROM channel
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at, runtime_account_key FROM channel
 WHERE enabled
   AND (runtime_lease_until IS NULL OR runtime_lease_until <= clock_timestamp())
 ORDER BY id
@@ -330,6 +336,7 @@ func (q *Queries) ListClaimableChannels(ctx context.Context) ([]Channel, error) 
 			&i.RuntimeState,
 			&i.RuntimeErrorCode,
 			&i.RuntimeObservedAt,
+			&i.RuntimeAccountKey,
 		); err != nil {
 			return nil, err
 		}
@@ -339,6 +346,39 @@ func (q *Queries) ListClaimableChannels(ctx context.Context) ([]Channel, error) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const registerChannelRuntimeAccount = `-- name: RegisterChannelRuntimeAccount :execrows
+UPDATE channel
+SET runtime_account_key = $1
+WHERE id = $2
+  AND type = $3
+  AND runtime_token = $4::uuid
+  AND runtime_lease_until > clock_timestamp()
+`
+
+type RegisterChannelRuntimeAccountParams struct {
+	AccountKey   pgtype.Text `json:"account_key"`
+	ID           string      `json:"id"`
+	ChannelType  string      `json:"channel_type"`
+	RuntimeToken string      `json:"runtime_token"`
+}
+
+// The lease owner's adapter reports the platform account identity this channel
+// speaks as. Fenced by the replica-held runtime token so a fenced-out adapter
+// cannot overwrite the live binding; never cleared on release — a stale
+// last-known key safely rejects ops enqueued before a rebind.
+func (q *Queries) RegisterChannelRuntimeAccount(ctx context.Context, arg RegisterChannelRuntimeAccountParams) (int64, error) {
+	result, err := q.db.Exec(ctx, registerChannelRuntimeAccount,
+		arg.AccountKey,
+		arg.ID,
+		arg.ChannelType,
+		arg.RuntimeToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const releaseChannelRuntime = `-- name: ReleaseChannelRuntime :execrows
@@ -368,7 +408,7 @@ SET runtime_lease_until = clock_timestamp() + interval '30 seconds',
     runtime_observed_at = clock_timestamp(), updated_at = clock_timestamp()
 WHERE id = $1 AND runtime_token = $2
   AND runtime_lease_until > clock_timestamp()
-RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at
+RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at, runtime_account_key
 `
 
 type RenewChannelRuntimeParams struct {
@@ -399,6 +439,7 @@ func (q *Queries) RenewChannelRuntime(ctx context.Context, arg RenewChannelRunti
 		&i.RuntimeState,
 		&i.RuntimeErrorCode,
 		&i.RuntimeObservedAt,
+		&i.RuntimeAccountKey,
 	)
 	return i, err
 }
@@ -413,7 +454,7 @@ SET name = $2,
     config_revision = config_revision + 1,
     updated_at = now()
 WHERE id = $1
-RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at
+RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at, runtime_owner_id, runtime_token, runtime_lease_until, receive_checkpoint, config_revision, applied_revision, runtime_state, runtime_error_code, runtime_observed_at, runtime_account_key
 `
 
 type UpdateChannelParams struct {
@@ -456,6 +497,7 @@ func (q *Queries) UpdateChannel(ctx context.Context, arg UpdateChannelParams) (C
 		&i.RuntimeState,
 		&i.RuntimeErrorCode,
 		&i.RuntimeObservedAt,
+		&i.RuntimeAccountKey,
 	)
 	return i, err
 }

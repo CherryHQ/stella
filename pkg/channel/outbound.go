@@ -32,8 +32,12 @@ type OutboundOp struct {
 	OperationIndex int
 	Address        OutboundAddress
 	Payload        json.RawMessage
-	// SourceAccountKey is the bot account that received the triggering event;
-	// an adapter whose credentials changed must not send it (account_mismatch).
+	// SourceAccountKey is the platform account the sending channel was bound
+	// to when the op was accepted; an adapter whose identity differs must not
+	// send it (account_mismatch). For DM replies it is the receiving account;
+	// for group replies it is the reply channel's registered account snapshot
+	// (channel.runtime_account_key), which may differ from the trigger's
+	// observing account. Empty means unfenced (no account was bound).
 	SourceAccountKey string
 	// DraftMessageID is the platform message id of the run's live draft,
 	// recorded by the newest sent draft_update. The dispatcher populates it on

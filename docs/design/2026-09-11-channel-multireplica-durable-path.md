@@ -116,12 +116,18 @@ executed and finished inside the drain budget before teardown.
   `canceled` link as a terminal failure so a broken chain cannot park
   the dispatch. Notifications decompose the same way via `NotifyChain` —
   one op per segment, one platform call each.
-- Group replies fence on the triggering bot account: ingest persists the
-  receiving account identity on `ctx_group_message.source_account_key`,
-  and every op of the reply chain carries it. A channel re-bound to a
-  different platform account fails those ops `account_mismatch` instead of
-  sending under the new identity; credential rotation under the same
-  identity still owns the work. Ops whose trigger had no receiving account
+- Group replies fence on the responding channel's platform account, not the
+  observing one: a shared trigger can wake members that reply through other
+  channels. Each channel's lease owner registers its adapter's account
+  identity on `channel.runtime_account_key` (fenced by the lease token,
+  never cleared — a stale last-known key is the safe direction). At
+  dispatch-accept `enqueueAccepted` snapshots the reply channel's
+  `runtime_account_key` into every op of the chain; send-time account checks
+  then compare against that frozen value, so re-binding the channel to a
+  different account fails old ops `account_mismatch` while credential
+  rotation under the same identity still owns them. The observing account is
+  kept on `ctx_group_message.source_account_key` as audit data only — like
+  `source_channel_id`. Ops whose reply channel has no registered account
   (agent/system-origin messages, notifications) carry an empty key and are
   deliberately unfenced — the channel's current account is the right sender.
 - Draft updates are sent only by adapters implementing `DraftSender`;

@@ -114,7 +114,11 @@ func newChannel(cfg Config, handler pkgchannel.Handler) (pkgchannel.Channel, err
 	if msg := validateConfig(cfg); msg != "" {
 		return nil, fmt.Errorf("testchan: %s", msg)
 	}
-	return &Channel{cfg: cfg, handler: handler, client: &http.Client{Timeout: 30 * time.Second}}, nil
+	c := &Channel{cfg: cfg, handler: handler, client: &http.Client{Timeout: 30 * time.Second}}
+	if registrar, ok := handler.(pkgchannel.BotRegistrar); ok {
+		registrar.RegisterBotIdentity(Platform, cfg.BotName, cfg.InstanceID)
+	}
+	return c, nil
 }
 
 func (c *Channel) Name() string { return c.cfg.InstanceID }

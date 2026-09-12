@@ -109,11 +109,16 @@ func (p *groupPublishDriver) enqueueAccepted(ctx context.Context, job publishJob
 		Events:            job.response.events,
 		LifecycleFeedback: job.envelope.LifecycleFeedback,
 	}
-	// The op chain fences on the account that received the trigger, persisted
-	// with the message at ingest. Passing the channel id here is wrong (it is
-	// not a platform account), and looking up the channel's *current* account
-	// at send time would let a re-bound account inherit another bot's replies.
-	ops, err := choutbox.GroupReplyChain("group:"+row.ID, row.ReplyChannelID, nullStringValue(job.trigger.SourceAccountKey), payload, job.response.events, groupReplyPlan(job.state.Platform))
+	// The op chain fences on the responding channel's registered platform
+	// account, snapshotted here at dispatch-accept — not at send time, so a
+	// re-bound account cannot inherit pending replies. The trigger's
+	// SourceAccountKey is audit-only: a shared trigger can wake members that
+	// reply through a different channel and account.
+	replyChannel, err := p.q.GetChannel(ctx, row.ReplyChannelID)
+	if err != nil {
+		return fmt.Errorf("resolve reply channel account: %w", err)
+	}
+	ops, err := choutbox.GroupReplyChain("group:"+row.ID, row.ReplyChannelID, replyChannel.RuntimeAccountKey.String, payload, job.response.events, groupReplyPlan(job.state.Platform))
 	if err != nil {
 		return err
 	}

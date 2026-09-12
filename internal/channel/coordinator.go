@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/google/uuid"
@@ -328,13 +329,38 @@ func (c *Coordinator) RemovePlatformGroupMember(ctx context.Context, platform, p
 	return nil
 }
 
-// RegisterBotIdentity records a bot's platform identity for mention resolution.
-// Implements pkgchannel.BotRegistrar.
+// RegisterBotIdentity records a bot's platform identity for mention resolution
+// and binds it durably to the channel row so group-reply ops can fence on the
+// responding channel's account. Implements pkgchannel.BotRegistrar.
 func (c *Coordinator) RegisterBotIdentity(platform, platformBotID, channelID string) {
-	if c.botRegistry == nil {
+	if c.botRegistry != nil {
+		c.botRegistry.Register(platform, platformBotID, channelID)
+	}
+	c.registerChannelAccount(platform, platformBotID, channelID)
+}
+
+// registerChannelAccount persists the platform account this channel's adapter
+// speaks as. The write is fenced by the lease token this replica holds, so
+// only the owning replica's adapter can bind the account — a fenced-out
+// adapter's registration is a no-op. The key is never cleared on unregister:
+// ops snapshotted against the last-known account must keep rejecting sends
+// after the channel is re-bound to a different account.
+func (c *Coordinator) registerChannelAccount(platform, platformBotID, channelID string) {
+	if c.db == nil || c.ownerTokens == nil || platformBotID == "" {
 		return
 	}
-	c.botRegistry.Register(platform, platformBotID, channelID)
+	token := c.ownerTokens(channelID)
+	if token == "" {
+		return
+	}
+	if _, err := sqlc.New(c.db).RegisterChannelRuntimeAccount(context.Background(), sqlc.RegisterChannelRuntimeAccountParams{
+		ID:           channelID,
+		ChannelType:  platform,
+		AccountKey:   pgtype.Text{String: platformBotID, Valid: true},
+		RuntimeToken: token,
+	}); err != nil {
+		slog.Warn("persist channel account identity", "channel", channelID, "platform", platform, "error", err)
+	}
 }
 
 func (c *Coordinator) UnregisterBotIdentity(platform, platformBotID, channelID string) {

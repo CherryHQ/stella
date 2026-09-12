@@ -101,3 +101,15 @@ SELECT EXISTS(
   WHERE id = $1 AND runtime_token = $2
     AND runtime_lease_until > clock_timestamp() AND enabled
 ) AS ok;
+
+-- name: RegisterChannelRuntimeAccount :execrows
+-- The lease owner's adapter reports the platform account identity this channel
+-- speaks as. Fenced by the replica-held runtime token so a fenced-out adapter
+-- cannot overwrite the live binding; never cleared on release — a stale
+-- last-known key safely rejects ops enqueued before a rebind.
+UPDATE channel
+SET runtime_account_key = sqlc.arg(account_key)
+WHERE id = sqlc.arg(id)
+  AND type = sqlc.arg(channel_type)
+  AND runtime_token = sqlc.arg(runtime_token)::uuid
+  AND runtime_lease_until > clock_timestamp();
