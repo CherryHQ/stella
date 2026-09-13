@@ -469,3 +469,7 @@ func TestQueuedNudgeRechecksMootAfterSessionSlotWithoutRunning(t *testing.T) {
 		t.Fatalf("turn states = %v, want [silent]", states)
 	}
 }
+
+var stubStreamFunc providers.StreamFunc = func(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
+	return nil, nil
+}

@@ -189,6 +189,10 @@ func (r *botManagedRuntime[T]) Apply(ctx context.Context, desired PluginState) e
 
 	go func() {
 		err := ch.Start(pollCtx)
+		// Capture before our own opCancel: cancelling opCtx makes
+		// pollCtx.Err() non-nil, which would mask a real Start failure as a
+		// clean stop.
+		unexpected := err != nil && pollCtx.Err() == nil
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		if generation != r.generation {
@@ -210,7 +214,7 @@ func (r *botManagedRuntime[T]) Apply(ctx context.Context, desired PluginState) e
 		r.channel = nil
 		message := r.deps.Platform + " stopped"
 		state := RuntimeStateStopped
-		if err != nil && pollCtx.Err() == nil {
+		if unexpected {
 			message = err.Error()
 			state = RuntimeStateError
 			r.deps.Log.Error(r.deps.Platform+": stopped unexpectedly", "error", err)

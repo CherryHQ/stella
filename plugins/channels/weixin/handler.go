@@ -90,13 +90,19 @@ func (b *Bot) dispatchMessage(msg WeixinMessage) {
 // incomingMsg builds a channel.IncomingMessage from a weixin message context.
 func (b *Bot) incomingMsg(msg WeixinMessage, content []ai.ContentBlock) channel.IncomingMessage {
 	im := channel.IncomingMessage{
-		Platform:   channel.PlatformWeixin,
-		ChannelID:  b.Name(),
-		SenderID:   msg.FromUserID,
-		SenderName: "", // no display name available from iLink
-		ChatID:     msg.FromUserID,
-		IsGroup:    false, // DM only for v1
-		Content:    content,
+		Platform:      channel.PlatformWeixin,
+		BotAccountKey: b.cfg.BotID,
+		ChannelID:     b.Name(),
+		SenderID:      msg.FromUserID,
+		SenderName:    "", // no display name available from iLink
+		ChatID:        msg.FromUserID,
+		IsGroup:       false, // DM only for v1
+		Content:       content,
+	}
+	// The context token authorizes replies to this conversation — the durable
+	// reply path replays it from the outbox address on any replica.
+	if msg.ContextToken != "" {
+		im.Extras = map[string]string{"context_token": msg.ContextToken}
 	}
 	if msg.MessageID != 0 {
 		im.MessageID = strconv.FormatInt(msg.MessageID, 10)
@@ -379,7 +385,9 @@ func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage
 		return
 	}
 	if handled {
-		b.sendReply(msg, resp)
+		if resp != "" {
+			b.sendReply(msg, resp)
+		}
 		return
 	}
 

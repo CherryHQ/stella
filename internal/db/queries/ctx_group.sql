@@ -242,12 +242,16 @@ ORDER BY seq DESC
 LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
 -- name: CreateGroupMessage :one
+-- source_account_key is the bot account identity that observed the message
+-- (empty for internally appended rows). Reply outbox ops fence on it so a
+-- channel re-bound to another platform account cannot inherit pending sends.
 INSERT INTO ctx_group_message (
-  id, group_id, seq, source_channel_id, actor_type, actor_id,
+  id, group_id, seq, source_channel_id, source_account_key, actor_type, actor_id,
   platform_message_id, reply_to, platform_timestamp, idempotency_key, actor_display_name, content, content_blocks, reasoning, agent_session_id, delivery_state
 )
 VALUES (
   sqlc.arg(id), sqlc.arg(group_id), sqlc.arg(seq), sqlc.arg(source_channel_id),
+  sqlc.narg('source_account_key'),
   sqlc.arg(actor_type), sqlc.arg(actor_id), sqlc.arg(platform_message_id),
   sqlc.arg(reply_to), sqlc.arg(platform_timestamp), sqlc.arg(idempotency_key), sqlc.narg('actor_display_name'),
   sqlc.arg(content), COALESCE(sqlc.arg(content_blocks)::jsonb, '[]'::jsonb),

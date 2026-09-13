@@ -18,6 +18,7 @@ import (
 // Stop it on shutdown.
 type embeddedServer interface {
 	Stop() error
+	Start() error
 }
 
 type Embedded struct {
@@ -124,6 +125,19 @@ func startEmbeddedOnce(dataDir string, port uint32) (*Embedded, error) {
 // DSN returns the libpq connection string for the server's default "stella"
 // database.
 func (e *Embedded) DSN() string { return e.DSNFor("stella") }
+
+// StopKeepData halts the PostgreSQL process but leaves the data dir and the
+// ephemeral owner lock in place, so Start can bring the same cluster back —
+// the testbed's DB-outage seam.
+func (e *Embedded) StopKeepData() error { return e.pg.Stop() }
+
+// Start restarts a server stopped by StopKeepData. The cluster keeps its data
+// dir and port, so every existing DSN stays valid.
+func (e *Embedded) Start() error { return e.pg.Start() }
+
+// Port returns the TCP port the server listens on, so an owner can restart a
+// stopped cluster on the same address (stable-dataDir mode keeps the data).
+func (e *Embedded) Port() uint32 { return e.port }
 
 // DSNFor returns the connection string for a named database on the server. Tests
 // use it to reach the maintenance "postgres" database (to create and drop

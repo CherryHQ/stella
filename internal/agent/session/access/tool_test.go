@@ -490,7 +490,7 @@ func TestSessionRecallBatchesAuthorizationAndResourceVerification(t *testing.T) 
 		if err := m.db.QueryRow(t.Context(), `SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
 			t.Fatal(err)
 		}
-		conversationRows, err := sqlc.New(m.db).GetMessagesByConversation(t.Context(), conversationID)
+		conversationRows, err := sqlc.New(m.db).GetMessagesByConversation(t.Context(), sqlc.GetMessagesByConversationParams{ConversationID: conversationID})
 		if err != nil {
 			t.Fatal(err)
 		}

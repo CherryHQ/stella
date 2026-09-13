@@ -266,7 +266,21 @@ Stella 使用三个不同的地址，务必区分：
 
 Docker 镜像设置了 `STELLA_REQUIRE_EXTERNAL_DB=1`：当 `STELLA_DATABASE_URL` 未设置时，启动会以可操作的错误快速失败，而不是在容器的临时文件系统上静默启动内嵌 PostgreSQL 集群——多副本时每个 pod 甚至会各建一套数据库。请将 `STELLA_DATABASE_URL` 指向带 `pgvector` 与 `pg_search` 的外部 PostgreSQL。若要有意在挂载持久卷的单容器中运行内嵌 PostgreSQL，设置 `STELLA_REQUIRE_EXTERNAL_DB=0`。
 
-上传的用户资产需要位于 `STELLA_HOME` 下的持久 POSIX 存储；S3 配置不会镜像或恢复这棵可变树。Stella 当前只支持一个服务副本；未来副本需要同一个共享、强一致 POSIX 命名空间。`STELLA_BLOB_S3_*` 是可选配置，仅服务于内容寻址 session media 等独立的 immutable BlobStore 数据。
+上传的用户资产需要位于 `STELLA_HOME` 下的持久 POSIX 存储；S3 配置不会镜像或恢复这棵可变树。`STELLA_BLOB_S3_*` 是可选配置，仅服务于内容寻址 session media 等独立的 immutable BlobStore 数据。
+
+#### 多副本部署
+
+频道流量运行在 durable 管线上：入站事件、Agent run、出站发送都先落 PostgreSQL 再产生副作用，因此副本间可以分工——一个副本收消息、另一个执行 Agent turn、持有频道租约的副本发出回复。Web 发送是幂等的"入队-观察"：带相同 `Idempotency-Key` 重试 `POST .../messages` 会重新附着到同一 turn，而不是再跑一遍。
+
+多于 1 个副本时的要求与注意点：
+
+- `STELLA_DATABASE_URL` 必填（外部 PostgreSQL）。
+- `STELLA_HOME` 必须是跨副本共享、强一致的 POSIX 命名空间，入站附件和沙箱工作区都在其中。冻结出站附件不会隔离并发写入工作区的进程，也不能证明旧沙箱已经退出。
+- 回复被接受投递时，出站文件内容会复制到 PostgreSQL。接管发送的副本读取这份副本，即使原文件已修改或删除。规划数据库容量与备份时须计入这些字节；大文件还会增加预写日志量和完成事务的耗时。这项改动没有新增文件大小限制，也不改变入站资产与工作区的存储方式。
+- 平台结果未确认时保留为 `unknown`，不会自动重发。决定重试前先核对平台上的实际结果；发送方没有收到回执时，平台仍可能已经受理。PostgreSQL 的提交原子性不保证平台上恰好产生一条消息。
+- 没有任何副本持有可用适配器时到达的频道事件会留在 durable 队列里重试，不会丢失。
+- 队列深度以 OTel gauge 导出：`stella.channel.inbox.pending`、`stella.agent.run.open`、`stella.channel.outbox.pending`、`stella.channel.outbox.unknown`（最后一项表示平台结果未确认，需要人工关注，不会自动重发）。
+- 集群内所有副本必须运行同一版本。早于 durable 流水线的旧二进制没有租约与隔离语义，会重复消费入站事件，绝不能加入集群。回滚意味着整套副本一起回到旧版本——没有可重新打开的旧入口开关，新流水线已写入的运行记录与发件操作原样保留，不做降级迁移。
 
 loopback base URL 永远不是启动错误——通过 `localhost` 或 `kubectl port-forward` 访问 Stella 时它是合法的——但当配置了 OAuth/OIDC 登录时 Stella 会发出响亮警告，因为登录跳转会指回 pod 自身。部署 chart 应将 `STELLA_BASE_URL` 作为必填值：那一层才知道自己位于 ingress 之后。
 

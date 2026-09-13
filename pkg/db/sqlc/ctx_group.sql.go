@@ -201,17 +201,18 @@ func (q *Queries) CountPeerMessagesAfterSeq(ctx context.Context, arg CountPeerMe
 
 const createGroupMessage = `-- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
-  id, group_id, seq, source_channel_id, actor_type, actor_id,
+  id, group_id, seq, source_channel_id, source_account_key, actor_type, actor_id,
   platform_message_id, reply_to, platform_timestamp, idempotency_key, actor_display_name, content, content_blocks, reasoning, agent_session_id, delivery_state
 )
 VALUES (
   $1, $2, $3, $4,
-  $5, $6, $7,
-  $8, $9, $10, $11,
-  $12, COALESCE($13::jsonb, '[]'::jsonb),
-  $14, $15, $16
+  $5,
+  $6, $7, $8,
+  $9, $10, $11, $12,
+  $13, COALESCE($14::jsonb, '[]'::jsonb),
+  $15, $16, $17
 )
-RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name
+RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name, source_account_key
 `
 
 type CreateGroupMessageParams struct {
@@ -219,6 +220,7 @@ type CreateGroupMessageParams struct {
 	GroupID           string             `json:"group_id"`
 	Seq               int64              `json:"seq"`
 	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
+	SourceAccountKey  pgtype.Text        `json:"source_account_key"`
 	ActorType         string             `json:"actor_type"`
 	ActorID           string             `json:"actor_id"`
 	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
@@ -233,12 +235,16 @@ type CreateGroupMessageParams struct {
 	DeliveryState     string             `json:"delivery_state"`
 }
 
+// source_account_key is the bot account identity that observed the message
+// (empty for internally appended rows). Reply outbox ops fence on it so a
+// channel re-bound to another platform account cannot inherit pending sends.
 func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessageParams) (CtxGroupMessage, error) {
 	row := q.db.QueryRow(ctx, createGroupMessage,
 		arg.ID,
 		arg.GroupID,
 		arg.Seq,
 		arg.SourceChannelID,
+		arg.SourceAccountKey,
 		arg.ActorType,
 		arg.ActorID,
 		arg.PlatformMessageID,
@@ -271,6 +277,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 		&i.ContentBlocks,
 		&i.DeliveryState,
 		&i.ActorDisplayName,
+		&i.SourceAccountKey,
 	)
 	return i, err
 }
@@ -346,7 +353,7 @@ func (q *Queries) GetGroupLastActive(ctx context.Context, id string) (time.Time,
 }
 
 const getGroupMessage = `-- name: GetGroupMessage :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name FROM ctx_group_message WHERE id = $1
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name, source_account_key FROM ctx_group_message WHERE id = $1
 `
 
 func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessage, error) {
@@ -370,12 +377,13 @@ func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessa
 		&i.ContentBlocks,
 		&i.DeliveryState,
 		&i.ActorDisplayName,
+		&i.SourceAccountKey,
 	)
 	return i, err
 }
 
 const getGroupMessageByIdempotencyKey = `-- name: GetGroupMessageByIdempotencyKey :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name, source_account_key FROM ctx_group_message
 WHERE idempotency_key = $1
 `
 
@@ -400,12 +408,13 @@ func (q *Queries) GetGroupMessageByIdempotencyKey(ctx context.Context, idempoten
 		&i.ContentBlocks,
 		&i.DeliveryState,
 		&i.ActorDisplayName,
+		&i.SourceAccountKey,
 	)
 	return i, err
 }
 
 const getGroupMessageByPlatformID = `-- name: GetGroupMessageByPlatformID :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name, source_account_key FROM ctx_group_message
 WHERE group_id = $1
   AND platform_message_id = $2
 `
@@ -436,6 +445,7 @@ func (q *Queries) GetGroupMessageByPlatformID(ctx context.Context, arg GetGroupM
 		&i.ContentBlocks,
 		&i.DeliveryState,
 		&i.ActorDisplayName,
+		&i.SourceAccountKey,
 	)
 	return i, err
 }
@@ -549,7 +559,7 @@ func (q *Queries) GetLatestGroupMessageID(ctx context.Context, groupID string) (
 }
 
 const getLatestPeerGroupMessageWithContent = `-- name: GetLatestPeerGroupMessageWithContent :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name, source_account_key
 FROM ctx_group_message
 WHERE group_id = $1
   AND NOT (actor_type = 'agent' AND actor_id = $2)
@@ -596,6 +606,7 @@ func (q *Queries) GetLatestPeerGroupMessageWithContent(ctx context.Context, arg 
 		&i.ContentBlocks,
 		&i.DeliveryState,
 		&i.ActorDisplayName,
+		&i.SourceAccountKey,
 	)
 	return i, err
 }
@@ -1087,7 +1098,7 @@ const setGroupMessageDeliveryState = `-- name: SetGroupMessageDeliveryState :one
 UPDATE ctx_group_message
 SET delivery_state = $1
 WHERE id = $2
-RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name
+RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name, source_account_key
 `
 
 type SetGroupMessageDeliveryStateParams struct {
@@ -1116,6 +1127,7 @@ func (q *Queries) SetGroupMessageDeliveryState(ctx context.Context, arg SetGroup
 		&i.ContentBlocks,
 		&i.DeliveryState,
 		&i.ActorDisplayName,
+		&i.SourceAccountKey,
 	)
 	return i, err
 }

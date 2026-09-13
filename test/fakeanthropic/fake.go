@@ -77,6 +77,10 @@ type errorScript struct {
 // It exists so graceful_drain can pin one turn mid-stream across SIGTERM.
 type TurnGate struct {
 	ReleaseChan chan struct{}
+	// Entered closes once the fake has recorded the request, flushed the
+	// first half, and parked on the gate — the pinned fault point a test
+	// wants before killing a replica mid-turn.
+	Entered chan struct{}
 }
 
 // Release opens the gate so the fake finishes the pending turn. Safe to call
@@ -357,6 +361,14 @@ func (f *Fake) SetTrailingTextForModel(model, text string) {
 	f.modelTrailing[model] = response{text: text}
 }
 
+// DiscardScripts drops pending FIFO scripted responses the test deliberately
+// left unconsumed — e.g. an idempotency tripwire that must never run.
+func (f *Fake) DiscardScripts() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.scripts = nil
+}
+
 // DiscardModelScripts closes the mutually-exclusive branch of a concurrent
 // journey after its observable outcome has selected the winning agent.
 func (f *Fake) DiscardModelScripts() {
@@ -442,7 +454,7 @@ func (f *Fake) EnqueueError(status int, errType, message string) {
 // released, then flushes second. The caller releases the gate to let the pinned
 // turn finish. Used by graceful_drain to hold a turn in flight across SIGTERM.
 func (f *Fake) EnqueueGatedText(first, second string) *TurnGate {
-	gate := &TurnGate{ReleaseChan: make(chan struct{})}
+	gate := &TurnGate{ReleaseChan: make(chan struct{}), Entered: make(chan struct{})}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.scripts = append(f.scripts, response{text: first, text2: second, gate: gate})
@@ -538,6 +550,7 @@ func (f *Fake) handle(w http.ResponseWriter, r *http.Request) {
 		if !f.writeFrames(w, flusher, before) {
 			return
 		}
+		close(resp.gate.Entered)
 		select {
 		case <-resp.gate.ReleaseChan:
 		case <-time.After(gateBackstop):

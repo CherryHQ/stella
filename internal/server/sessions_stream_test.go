@@ -37,7 +37,7 @@ func TestStreamAgentEventsIdleDoesNotCallDeliveryGuard(t *testing.T) {
 	var begins atomic.Int64
 	done := make(chan struct{})
 	go func() {
-		streamAgentEvents(ctx, rr, rr, "a1", "s1", ch, func() error {
+		streamAgentEvents(ctx, rr, rr, "a1", "s1", ch, "", 0, func() error {
 			begins.Add(1)
 			return nil
 		})
@@ -67,7 +67,7 @@ func TestStreamAgentEventsDenialDoesNotEncodeProtectedSourceEvent(t *testing.T) 
 
 	rr := httptest.NewRecorder()
 	guardCalls := 0
-	streamAgentEvents(context.Background(), rr, rr, "a1", "s1", ch, func() error {
+	streamAgentEvents(context.Background(), rr, rr, "a1", "s1", ch, "", 0, func() error {
 		guardCalls++
 		return errors.New("revoked")
 	})

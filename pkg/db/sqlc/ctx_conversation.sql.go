@@ -76,7 +76,7 @@ func (q *Queries) ArchiveConversationBySessionID(ctx context.Context, arg Archiv
 const createConversation = `-- name: CreateConversation :one
 INSERT INTO ctx_conversation (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id, group_id, guest_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at
+RETURNING id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at, event_seq
 `
 
 type CreateConversationParams struct {
@@ -130,12 +130,13 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		&i.LastTurnCompletedAt,
 		&i.LastTurnResult,
 		&i.LastViewedAt,
+		&i.EventSeq,
 	)
 	return i, err
 }
 
 const getConversation = `-- name: GetConversation :one
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at, event_seq FROM ctx_conversation
 WHERE id = $1
   AND user_id = $2
   AND agent_id IS NOT DISTINCT FROM $3
@@ -170,6 +171,7 @@ func (q *Queries) GetConversation(ctx context.Context, arg GetConversationParams
 		&i.LastTurnCompletedAt,
 		&i.LastTurnResult,
 		&i.LastViewedAt,
+		&i.EventSeq,
 	)
 	return i, err
 }
@@ -193,7 +195,7 @@ func (q *Queries) GetConversationAgentBySessionID(ctx context.Context, arg GetCo
 }
 
 const getConversationBySessionID = `-- name: GetConversationBySessionID :one
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at, event_seq FROM ctx_conversation
 WHERE session_id = $1
   AND user_id = $2
   AND agent_id IS NOT DISTINCT FROM $3
@@ -228,12 +230,13 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, arg GetConvers
 		&i.LastTurnCompletedAt,
 		&i.LastTurnResult,
 		&i.LastViewedAt,
+		&i.EventSeq,
 	)
 	return i, err
 }
 
 const getConversationForSessionAccess = `-- name: GetConversationForSessionAccess :one
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at, event_seq FROM ctx_conversation
 WHERE session_id = $1
 `
 
@@ -262,12 +265,13 @@ func (q *Queries) GetConversationForSessionAccess(ctx context.Context, sessionID
 		&i.LastTurnCompletedAt,
 		&i.LastTurnResult,
 		&i.LastViewedAt,
+		&i.EventSeq,
 	)
 	return i, err
 }
 
 const getMainConversationByProject = `-- name: GetMainConversationByProject :one
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at, event_seq FROM ctx_conversation
 WHERE project_id = $1
   AND user_id = $2
   AND agent_id IS NOT DISTINCT FROM $3
@@ -303,6 +307,7 @@ func (q *Queries) GetMainConversationByProject(ctx context.Context, arg GetMainC
 		&i.LastTurnCompletedAt,
 		&i.LastTurnResult,
 		&i.LastViewedAt,
+		&i.EventSeq,
 	)
 	return i, err
 }
@@ -424,7 +429,7 @@ func (q *Queries) ListConversationSummarySourceBySessionIDs(ctx context.Context,
 }
 
 const listConversations = `-- name: ListConversations :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at, event_seq FROM ctx_conversation
 WHERE user_id = $1
   AND ($2::text IS NULL OR agent_id = $2)
   AND archived = false
@@ -465,6 +470,7 @@ func (q *Queries) ListConversations(ctx context.Context, arg ListConversationsPa
 			&i.LastTurnCompletedAt,
 			&i.LastTurnResult,
 			&i.LastViewedAt,
+			&i.EventSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -477,7 +483,7 @@ func (q *Queries) ListConversations(ctx context.Context, arg ListConversationsPa
 }
 
 const listConversationsAll = `-- name: ListConversationsAll :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at, event_seq FROM ctx_conversation
 WHERE user_id = $1
   AND ($2::text IS NULL OR agent_id = $2)
 ORDER BY last_active DESC, session_id DESC
@@ -517,6 +523,7 @@ func (q *Queries) ListConversationsAll(ctx context.Context, arg ListConversation
 			&i.LastTurnCompletedAt,
 			&i.LastTurnResult,
 			&i.LastViewedAt,
+			&i.EventSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -529,7 +536,7 @@ func (q *Queries) ListConversationsAll(ctx context.Context, arg ListConversation
 }
 
 const listConversationsByKind = `-- name: ListConversationsByKind :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation WHERE agent_id = $1 AND user_id = $2 AND kind = $3 AND archived = false ORDER BY last_active DESC, session_id DESC
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at, event_seq FROM ctx_conversation WHERE agent_id = $1 AND user_id = $2 AND kind = $3 AND archived = false ORDER BY last_active DESC, session_id DESC
 `
 
 type ListConversationsByKindParams struct {
@@ -567,6 +574,7 @@ func (q *Queries) ListConversationsByKind(ctx context.Context, arg ListConversat
 			&i.LastTurnCompletedAt,
 			&i.LastTurnResult,
 			&i.LastViewedAt,
+			&i.EventSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -579,7 +587,7 @@ func (q *Queries) ListConversationsByKind(ctx context.Context, arg ListConversat
 }
 
 const listConversationsFiltered = `-- name: ListConversationsFiltered :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at, event_seq FROM ctx_conversation
 WHERE user_id = $1
   AND agent_id IS NOT DISTINCT FROM $2
   AND guest_id IS NOT DISTINCT FROM $3
@@ -651,6 +659,7 @@ func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConvers
 			&i.LastTurnCompletedAt,
 			&i.LastTurnResult,
 			&i.LastViewedAt,
+			&i.EventSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -663,7 +672,7 @@ func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConvers
 }
 
 const listConversationsForAdminFiltered = `-- name: ListConversationsForAdminFiltered :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at, event_seq FROM ctx_conversation
 WHERE agent_id IS NOT DISTINCT FROM $1
   AND (guest_id IS NOT NULL OR user_id = $2)
   AND ($3 != 0 OR archived = false)
@@ -728,6 +737,7 @@ func (q *Queries) ListConversationsForAdminFiltered(ctx context.Context, arg Lis
 			&i.LastTurnCompletedAt,
 			&i.LastTurnResult,
 			&i.LastViewedAt,
+			&i.EventSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -740,7 +750,7 @@ func (q *Queries) ListConversationsForAdminFiltered(ctx context.Context, arg Lis
 }
 
 const listConversationsForRecallAccess = `-- name: ListConversationsForRecallAccess :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at, event_seq FROM ctx_conversation
 WHERE session_id = ANY($1::text[])
   AND archived = false
 ORDER BY session_id
@@ -778,6 +788,7 @@ func (q *Queries) ListConversationsForRecallAccess(ctx context.Context, sessionI
 			&i.LastTurnCompletedAt,
 			&i.LastTurnResult,
 			&i.LastViewedAt,
+			&i.EventSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -790,7 +801,7 @@ func (q *Queries) ListConversationsForRecallAccess(ctx context.Context, sessionI
 }
 
 const listConversationsForReviewByAgent = `-- name: ListConversationsForReviewByAgent :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at, event_seq FROM ctx_conversation
 WHERE agent_id = $1
   AND archived = false
   AND user_id IS NOT NULL AND user_id <> ''
@@ -829,6 +840,7 @@ func (q *Queries) ListConversationsForReviewByAgent(ctx context.Context, agentID
 			&i.LastTurnCompletedAt,
 			&i.LastTurnResult,
 			&i.LastViewedAt,
+			&i.EventSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -842,7 +854,7 @@ func (q *Queries) ListConversationsForReviewByAgent(ctx context.Context, agentID
 
 const listConversationsForReviewFiltered = `-- name: ListConversationsForReviewFiltered :many
 SELECT
-  c.id, c.session_id, c.title, c.channel, c.kind, c.project_id, c.archived, c.last_active, c.bootstrapped_at, c.agent_id, c.user_id, c.created_at, c.updated_at, c.group_id, c.guest_id, c.last_turn_started_at, c.last_turn_completed_at, c.last_turn_result, c.last_viewed_at,
+  c.id, c.session_id, c.title, c.channel, c.kind, c.project_id, c.archived, c.last_active, c.bootstrapped_at, c.agent_id, c.user_id, c.created_at, c.updated_at, c.group_id, c.guest_id, c.last_turn_started_at, c.last_turn_completed_at, c.last_turn_result, c.last_viewed_at, c.event_seq,
   COALESCE((
     SELECT MAX(m.seq)
     FROM ctx_message m
@@ -918,6 +930,7 @@ func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg Li
 			&i.CtxConversation.LastTurnCompletedAt,
 			&i.CtxConversation.LastTurnResult,
 			&i.CtxConversation.LastViewedAt,
+			&i.CtxConversation.EventSeq,
 			&i.LatestSeq,
 		); err != nil {
 			return nil, err
@@ -1018,6 +1031,22 @@ func (q *Queries) MarkConversationViewed(ctx context.Context, arg MarkConversati
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const sessionTargetExecutable = `-- name: SessionTargetExecutable :one
+SELECT EXISTS(
+  SELECT 1 FROM ctx_conversation
+  WHERE session_id = $1 AND archived = false
+) AS ok
+`
+
+// A queued run's target must exist and be unarchived; checked before the
+// worker takes any lease so a dead target fails without side effects.
+func (q *Queries) SessionTargetExecutable(ctx context.Context, sessionID string) (bool, error) {
+	row := q.db.QueryRow(ctx, sessionTargetExecutable, sessionID)
+	var ok bool
+	err := row.Scan(&ok)
+	return ok, err
 }
 
 const updateConversationBootstrapped = `-- name: UpdateConversationBootstrapped :exec

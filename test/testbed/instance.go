@@ -33,6 +33,17 @@ type Options struct {
 	// VaultKey is test-only injection for startup-failure coverage. Empty uses a generated identity.
 	VaultKey     string
 	OmitVaultKey bool
+	// DatabaseURL runs stellad against an existing PostgreSQL instead of a
+	// per-instance embedded cluster — the multi-replica seam: a ReplicaSet
+	// shares one DSN (and one VaultKey) across sibling instances.
+	DatabaseURL string
+	// ExtraEnv adds process env vars (e.g. feature flags).
+	ExtraEnv map[string]string
+	// Home overrides the instance's STELLA_HOME. Replicas that share one Home
+	// approximate the shared, strongly consistent POSIX namespace multi-replica
+	// deployments require — same-host coverage of the asset/workspace path,
+	// not a network-filesystem check.
+	Home string
 }
 
 // Instance owns the stellad process, its embedded database, temporary home,
@@ -59,6 +70,7 @@ type Instance struct {
 	managed         bool
 	stateFile       string
 	state           supervisorState
+	extraEnv        map[string]string
 }
 
 // Start boots an isolated testbed and waits until stellad is ready and fixture
@@ -84,7 +96,7 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create temporary test root: %w", err)
 	}
-	instance := &Instance{repoRoot: opts.RepoRoot, port: opts.Port, root: root, done: make(chan struct{}), managed: opts.Managed}
+	instance := &Instance{repoRoot: opts.RepoRoot, port: opts.Port, root: root, done: make(chan struct{}), managed: opts.Managed, extraEnv: opts.ExtraEnv}
 	if opts.FakeModel {
 		instance.fake = fakeanthropic.New()
 		instance.modelServer = httptest.NewServer(fakeanthropic.MessageHandlerWithOptions(fakeanthropic.MessageHandlerOptions{StreamChunks: opts.FakeStreamChunks, StreamIntervalMS: opts.FakeStreamIntervalMS}))
@@ -126,17 +138,24 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 			return nil, err
 		}
 	}
-	instance.home = filepath.Join(root, "home")
+	instance.home = opts.Home
+	if instance.home == "" {
+		instance.home = filepath.Join(root, "home")
+	}
 	if err := os.MkdirAll(instance.home, 0o700); err != nil {
 		cleanup()
 		return nil, err
 	}
-	instance.db, err = appdb.StartEmbedded("", 0)
-	if err != nil {
-		cleanup()
-		return nil, fmt.Errorf("start embedded postgres: %w", err)
+	if opts.DatabaseURL != "" {
+		instance.dsn = opts.DatabaseURL
+	} else {
+		instance.db, err = appdb.StartEmbedded("", 0)
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("start embedded postgres: %w", err)
+		}
+		instance.dsn = instance.db.DSN()
 	}
-	instance.dsn = instance.db.DSN()
 	instance.vaultKey = opts.VaultKey
 	if instance.vaultKey == "" {
 		instance.vaultKey, err = vault.GenerateMasterIdentity()
@@ -159,6 +178,9 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 	instance.cmd = exec.Command(binaryPath(opts.RepoRoot), "server")
 	instance.cmd.Dir, instance.cmd.Stdout, instance.cmd.Stderr = opts.RepoRoot, logFile, logFile
 	instance.cmd.Env = serverEnvironment(instance.home, instance.dsn, instance.vaultKey, opts.Port)
+	for k, v := range opts.ExtraEnv {
+		instance.cmd.Env = append(instance.cmd.Env, k+"="+v)
+	}
 	if opts.OmitVaultKey {
 		filtered := instance.cmd.Env[:0]
 		for _, value := range instance.cmd.Env {
@@ -183,7 +205,7 @@ func Start(ctx context.Context, opts Options) (*Instance, error) {
 		return nil, fmt.Errorf("%w\nserver log: %s\n%s", err, instance.logPath, instance.LogTail(40))
 	}
 	if opts.Bootstrap {
-		if _, _, err := bootstrap(ctx, bootstrapConfig{BaseURL: instance.baseURL, Home: instance.home, DatabaseURL: instance.dsn}); err != nil {
+		if _, _, err := bootstrap(ctx, bootstrapConfig{BaseURL: instance.baseURL, Home: instance.home, DatabaseURL: instance.dsn, VaultKey: instance.vaultKey}); err != nil {
 			cleanup()
 			return nil, fmt.Errorf("bootstrap test identities: %w", err)
 		}
@@ -232,6 +254,11 @@ func freePort() int {
 }
 func (i *Instance) BaseURL() string     { return i.baseURL }
 func (i *Instance) DatabaseURL() string { return i.dsn }
+
+// VaultKey returns the generated vault key sibling replicas must share to
+// decrypt the same secrets.
+func (i *Instance) VaultKey() string { return i.vaultKey }
+
 func (i *Instance) Credentials() (Credentials, error) {
 	return loadCredentialsPublic(i.credentialsPath)
 }
@@ -249,7 +276,35 @@ func (i *Instance) LogTail(n int) string {
 	return "server log tail:\n" + strings.Join(lines, "\n")
 }
 func (i *Instance) Done() <-chan struct{} { return i.done }
-func (i *Instance) WaitErr() error        { return i.waitErr }
+
+// StopDatabase halts this instance's embedded PostgreSQL while leaving stellad
+// (and every other replica sharing the DSN) running — a real DB outage seam.
+// Only instances that own their cluster support it.
+func (i *Instance) StopDatabase() error {
+	if i.db == nil {
+		return errors.New("instance does not own a database")
+	}
+	return i.db.StopKeepData()
+}
+
+// StartDatabase restarts a cluster stopped by StopDatabase on the same data
+// dir and port, so the shared DSN stays valid for all replicas.
+func (i *Instance) StartDatabase() error {
+	if i.db == nil {
+		return errors.New("instance does not own a database")
+	}
+	return i.db.Start()
+}
+
+// PID exposes the stellad process id so multi-replica tests can match
+// worker/owner identities recorded in the database back to a real process.
+func (i *Instance) PID() int {
+	if i.cmd == nil || i.cmd.Process == nil {
+		return 0
+	}
+	return i.cmd.Process.Pid
+}
+func (i *Instance) WaitErr() error { return i.waitErr }
 func (i *Instance) Terminate() error {
 	if i.cmd == nil || i.cmd.Process == nil {
 		return errors.New("stellad is not running")
@@ -282,6 +337,12 @@ func (i *Instance) Stop() error {
 	return os.RemoveAll(i.root)
 }
 
+// Pause freezes the process group (SIGSTOP): the replica keeps its in-memory
+// state and lease tokens but cannot renew — the pause-then-resume seam for
+// stale-owner fencing tests. Resume (SIGCONT) thaws it.
+func (i *Instance) Pause() error  { return pauseProcessGroup(i.cmd) }
+func (i *Instance) Resume() error { return resumeProcessGroup(i.cmd) }
+
 func (i *Instance) Kill() error {
 	if i.cmd == nil || i.cmd.Process == nil {
 		return nil
@@ -307,6 +368,9 @@ func (i *Instance) Restart(ctx context.Context) error {
 	}
 	i.cmd.Stdout, i.cmd.Stderr = logFile, logFile
 	i.cmd.Env = serverEnvironment(i.home, i.dsn, i.vaultKey, i.port)
+	for k, v := range i.extraEnv {
+		i.cmd.Env = append(i.cmd.Env, k+"="+v)
+	}
 	setProcessGroup(i.cmd)
 	i.done = make(chan struct{})
 	if err := i.cmd.Start(); err != nil {

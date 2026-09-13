@@ -62,8 +62,8 @@ func (r *recordingRuntime) StopSession(context.Context, string) bool {
 	return true
 }
 
-func (r *recordingRuntime) SubscribeSession(string) (<-chan agent.Event, func()) {
-	ch := make(chan agent.Event)
+func (r *recordingRuntime) WatchSession(string) (<-chan struct{}, func()) {
+	ch := make(chan struct{})
 	close(ch)
 	return ch, func() {}
 }

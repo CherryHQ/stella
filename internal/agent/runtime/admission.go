@@ -21,12 +21,15 @@ import (
 // lifecycle locks, and Publish starts the asynchronous turn after a short
 // publication recheck.
 type ChatAdmission struct {
-	rt                    *Runtime
-	ctx                   context.Context
-	info                  session.Info
-	msg                   MessageContent
-	co                    chatOptions
-	lease                 *sessionexecution.Lease
+	rt    *Runtime
+	ctx   context.Context
+	info  session.Info
+	msg   MessageContent
+	co    chatOptions
+	lease *sessionexecution.Lease
+	// adoptedLease marks a worker-owned lease: the worker is the single
+	// completer (D4), so the forwarder must not Finish it.
+	adoptedLease          bool
 	activity              memory.Session
 	turn                  *activeTurn
 	out                   chan Event
@@ -46,6 +49,7 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 	}
 	var turn *activeTurn
 	var lease *sessionexecution.Lease
+	var admissionAdopted bool
 	defer func() {
 		if recover() == nil {
 			return
@@ -92,13 +96,23 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 	turnCtx = memory.WithSessionID(turnCtx, info.ID)
 	turnCtx = agentctx.WithTurnID(turnCtx, uuid.Must(uuid.NewV7()).String())
 	if rt.execution != nil {
-		var claimErr error
-		turnCtx, lease, claimErr = rt.execution.Claim(turnCtx, info.ID)
-		if claimErr != nil {
-			turn.cancel()
-			rt.active.CompareAndDelete(info.ID, turn)
-			close(turn.done)
-			return nil, claimErr
+		if existing := sessionexecution.FromContext(turnCtx); existing != nil && existing.SessionID() == info.ID {
+			// A run worker claimed this session's execution lease inside its
+			// run-claim transaction; the turn runs under that same fence and
+			// Finish stays atomic with the run's durable completion. A lease
+			// for a different session is a parent's — adopting it would finish
+			// the wrong execution, so the turn claims its own instead.
+			lease = existing
+			admissionAdopted = true
+		} else {
+			var claimErr error
+			turnCtx, lease, claimErr = rt.execution.Claim(turnCtx, info.ID)
+			if claimErr != nil {
+				turn.cancel()
+				rt.active.CompareAndDelete(info.ID, turn)
+				close(turn.done)
+				return nil, claimErr
+			}
 		}
 	} else {
 		rt.markSessionTurnStarted(turnCtx, activity)
@@ -112,15 +126,16 @@ func (rt *Runtime) BeginChatAdmission(ctx context.Context, info session.Info, ms
 	turnCtx = authz.ClearAuthority(turnCtx)
 	rt.turns.begin()
 	return &ChatAdmission{
-		rt:       rt,
-		lease:    lease,
-		ctx:      turnCtx,
-		info:     info,
-		msg:      msg,
-		co:       co,
-		activity: activity,
-		turn:     turn,
-		out:      make(chan Event, 100),
+		rt:           rt,
+		lease:        lease,
+		adoptedLease: admissionAdopted,
+		ctx:          turnCtx,
+		info:         info,
+		msg:          msg,
+		co:           co,
+		activity:     activity,
+		turn:         turn,
+		out:          make(chan Event, 100),
 	}, nil
 }
 
@@ -365,9 +380,48 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner <-chan Event
 	defer admission.turn.cancel()
 	defer rt.active.CompareAndDelete(admission.info.ID, admission.turn)
 	defer rt.hub.end(admission.info.ID)
+	// The durable execution coordinate is this session's own lease token. A
+	// synchronous child turn inherits the parent's context, so the lease must
+	// be pinned to this session before its token may stamp our events.
+	var executionID string
+	if l := sessionexecution.FromContext(admission.ctx); l != nil && l.SessionID() == admission.info.ID {
+		executionID = l.Token()
+	}
+	var sinkErr error
 	deliver := true
 	for event := range inner {
-		rt.hub.publish(admission.info.ID, event)
+		// Persist before waking: the hub is a wake signal only, and a reader
+		// that fires early must still find this event in the log. A failed
+		// append earns no wake — it was never committed — and the first sink
+		// failure ends durable persistence for this turn: the log is the only
+		// observer source, so a partially persisted stream must surface as a
+		// failed turn rather than a completed one missing bytes.
+		switch {
+		case rt.eventSink == nil:
+			rt.hub.wake(admission.info.ID)
+		case sinkErr != nil:
+			// already failed; keep draining without appending
+		default:
+			err := rt.eventSink.Append(admission.ctx, admission.info.ID, executionID, admission.co.runID, EncodeEvent(event))
+			switch {
+			case err == nil:
+				rt.hub.wake(admission.info.ID)
+			case admission.ctx.Err() != nil:
+				// Cancellation tears the sink down with the turn; it is not a
+				// durability failure.
+				rt.log.DebugContext(admission.ctx, "session event append abandoned on cancel", "session", admission.info.ID, "error", err)
+			default:
+				sinkErr = err
+				rt.log.WarnContext(admission.ctx, "session event append failed; aborting turn", "session", admission.info.ID, "error", err)
+				// The log is the only observer source: a turn that can no
+				// longer persist its stream must not keep producing events no
+				// replica can recover. Cancel it and drain to join — and stop
+				// delivering, since events that never committed must not be
+				// published as if durable.
+				admission.turn.cancel()
+				deliver = false
+			}
+		}
 		if !deliver {
 			continue
 		}
@@ -377,7 +431,7 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner <-chan Event
 			deliver = false
 		}
 	}
-	terminalErr := <-producerResult
+	terminalErr := errors.Join(<-producerResult, sinkErr)
 	result := memory.SessionTurnSuccess
 	switch {
 	case terminalErr != nil:
@@ -385,19 +439,39 @@ func (rt *Runtime) runChatForwarder(admission *ChatAdmission, inner <-chan Event
 	case admission.ctx.Err() != nil:
 		result = memory.SessionTurnCanceled
 	}
-	if admission.lease != nil {
+	// The terminal error event lands in the log before Finish: Finish cancels
+	// the lease context and commits the execution's terminal marker, so the
+	// event must be durably ahead of the marker for a tailing reader to see
+	// the error text before the stream ends.
+	if terminalErr != nil && rt.eventSink != nil {
+		if err := rt.eventSink.Append(context.WithoutCancel(admission.ctx), admission.info.ID, executionID, admission.co.runID, EncodeEvent(Event{Err: terminalErr})); err != nil {
+			rt.log.WarnContext(admission.ctx, "session terminal event append failed", "session", admission.info.ID, "error", err)
+		} else {
+			rt.hub.wake(admission.info.ID)
+		}
+	}
+	switch {
+	case admission.adoptedLease:
+		// The run worker is the single completer for adopted leases (plan D4):
+		// it calls Finish once the executor has drained the stream, folding run
+		// terminal state and reply ops into the same transaction. Finishing
+		// here would commit an empty reply and a misread result value, then the
+		// worker's Finish would fail ErrLost. Session bookkeeping is also the
+		// worker's — FinishSessionExecutionActivity writes last_turn_result
+		// inside that same transaction; marking success early would leave a
+		// stale 'success' if the run is later interrupted.
+	case admission.lease != nil:
 		cause := context.Cause(admission.ctx)
 		finishErr := admission.lease.Finish(string(result))
 		if errors.Is(cause, sessionexecution.ErrLost) {
 			finishErr = errors.Join(cause, finishErr)
 		}
 		terminalErr = errors.Join(terminalErr, finishErr)
-	} else {
+	default:
 		rt.markSessionTurnCompleted(admission.ctx, admission.activity, result)
 	}
 	if terminalErr != nil {
 		event := Event{Err: terminalErr}
-		rt.hub.publish(admission.info.ID, event)
 		select {
 		case admission.out <- event:
 		case <-admission.ctx.Done():

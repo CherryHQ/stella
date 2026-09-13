@@ -32,14 +32,18 @@ type bootstrapConfig struct {
 	// e2e scripts can assert on rows directly. Empty when not started by the
 	// supervisor.
 	DatabaseURL string
-	Client      *http.Client
-	Now         func() time.Time
+	// VaultKey is the testbed's master vault identity, recorded so e2e scripts
+	// can spawn sibling replicas that decrypt the same secrets.
+	VaultKey string
+	Client   *http.Client
+	Now      func() time.Time
 }
 
 type credentials struct {
 	Version     int    `json:"version"`
 	BaseURL     string `json:"base_url"`
 	DatabaseURL string `json:"database_url,omitempty"`
+	VaultKey    string `json:"vault_key,omitempty"`
 	Admin       struct {
 		ID       string `json:"id"`
 		Email    string `json:"email"`
@@ -196,7 +200,7 @@ func bootstrap(ctx context.Context, cfg bootstrapConfig) (path string, reused bo
 		return "", false, errors.New("passwordless PAT did not resolve to the expected user")
 	}
 
-	creds := credentials{Version: 1, BaseURL: baseURL, DatabaseURL: cfg.DatabaseURL}
+	creds := credentials{Version: 1, BaseURL: baseURL, DatabaseURL: cfg.DatabaseURL, VaultKey: cfg.VaultKey}
 	creds.Admin.ID, creds.Admin.Email, creds.Admin.Role = adminIdentity.ID, adminEmail, adminIdentity.Role
 	creds.Admin.Password, creds.Admin.Token = password, adminPAT.Token
 	creds.User.ID, creds.User.Email, creds.User.Role, creds.User.Token = userIdentity.ID, userEmail, userIdentity.Role, provisioned.Token

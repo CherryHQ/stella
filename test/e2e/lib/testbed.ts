@@ -7,6 +7,7 @@ export interface TestbedCredentials {
   version: number;
   base_url: string;
   database_url?: string;
+  vault_key?: string;
   admin: { id: string; email: string; role: string; password: string; token: string; };
   user: { id: string; email: string; role: string; token: string; };
   fake_model?: { provider_id: string; base_url: string; };

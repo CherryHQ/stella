@@ -2,18 +2,6 @@ package channel
 
 import "context"
 
-// GroupPublisherRegistrar is the optional routing registration surface used
-// when a channel adapter becomes ready to publish accepted group replies.
-type GroupPublisherRegistrar interface {
-	RegisterGroupPublisher(channelID string, publisher GroupPublisher)
-}
-
-// GroupPublisherUnregistrar removes a channel adapter from the internal
-// publisher routing table during finalization.
-type GroupPublisherUnregistrar interface {
-	UnregisterGroupPublisher(channelID string)
-}
-
 // BotIdentityUnregistrar removes a bot identity during channel finalization.
 type BotIdentityUnregistrar interface {
 	UnregisterBotIdentity(platform, platformBotID, channelID string)

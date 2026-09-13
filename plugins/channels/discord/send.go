@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"mime"
 	"os"
 	"path/filepath"
@@ -79,9 +80,15 @@ func (b *Bot) sendFile(ctx context.Context, channelID string, file channel.FileE
 	if name == "" {
 		name = filepath.Base(file.Path)
 	}
+	return b.sendFileData(ctx, channelID, name, f)
+}
+
+// sendFileData uploads one already-materialized file stream: the live path
+// passes the workspace file, the outbox path passes the reopened artifact.
+func (b *Bot) sendFileData(ctx context.Context, channelID, name string, r io.Reader) error {
 	if b.rest == nil {
 		return fmt.Errorf("send discord file: REST client unavailable")
 	}
-	_, err = b.rest.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{AllowedMentions: noMentions(), Files: []*discordgo.File{{Name: name, Reader: f}}}, discordgo.WithContext(ctx))
+	_, err := b.rest.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{AllowedMentions: noMentions(), Files: []*discordgo.File{{Name: name, Reader: r}}}, discordgo.WithContext(ctx))
 	return err
 }

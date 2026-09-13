@@ -77,7 +77,7 @@ type RuntimeService interface {
 	RunManagedSession(context.Context, delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error)
 	RunConversationSession(context.Context, agentsession.Info, agent.MessageContent) <-chan agent.Event
 	StopSession(context.Context, string) bool
-	SubscribeSession(sessionID string) (<-chan agent.Event, func())
+	WatchSession(sessionID string) (<-chan struct{}, func())
 	SessionLive(sessionID string) bool
 	CompactAuthorizedSession(context.Context, agentsession.Info) (string, error)
 }
@@ -247,6 +247,39 @@ type StopInput struct {
 	SessionID string
 }
 
+// DurableSendResult is PrepareDurableSend's answer: either a synchronous
+// command reply the caller streams directly, or the validated session facts to
+// enqueue a durable run against.
+type DurableSendResult struct {
+	Info       agentsession.Info
+	PlainReply string
+}
+
+// PrepareDurableSend authorizes the web send the same way Send does — exact
+// session access check, command interception, archived rejection — but returns
+// the session for the caller to enqueue instead of starting a local turn.
+func (s *Service) PrepareDurableSend(ctx context.Context, in SendInput) (DurableSendResult, error) {
+	access, err := s.Begin(ctx, in.Authority)
+	if err != nil {
+		return DurableSendResult{}, err
+	}
+	info, err := access.Use(ctx, in.AgentID, in.SessionID)
+	if err != nil {
+		return DurableSendResult{}, err
+	}
+	if text, ok := in.Message.(string); ok {
+		if runtime, rerr := s.runtimeFor(info.AgentID); rerr == nil {
+			if reply, handled := handleCommand(ctx, runtime, info, text); handled {
+				return DurableSendResult{PlainReply: reply}, nil
+			}
+		}
+	}
+	if info.Archived {
+		return DurableSendResult{}, fmt.Errorf("%w: %s", agentsession.ErrArchived, in.SessionID)
+	}
+	return DurableSendResult{Info: info}, nil
+}
+
 // Stop authorizes use of a session and explicitly cancels its active turn. It
 // is idempotent: stopping an idle session succeeds without inventing state.
 func (s *Service) Stop(ctx context.Context, in StopInput) error {
@@ -273,16 +306,20 @@ type AttachInput struct {
 }
 
 type AttachResult struct {
-	Events               <-chan agent.Event
+	// Wake coalesces "the durable log grew" signals from a turn executing on
+	// this replica; nil when the runtime port is unavailable. Readers must
+	// load events themselves — the channel carries no data.
+	Wake                 <-chan struct{}
 	Cancel               func()
-	Live                 bool
 	BeforeProtectedEvent func(context.Context) error
 }
 
-// Attach authorizes read access and subscribes to an existing live turn. It
-// never starts a turn. The returned guard starts a fresh Access and Read
-// immediately before each non-store event is encoded, so revocation cannot leak
-// the protected source event that triggered the check.
+// Attach authorizes read access to an existing session and returns a wake
+// channel for the durable turn tail. It never starts a turn and never carries
+// event data: ctx_session_event is the only source an observer may consume.
+// The returned guard starts a fresh Access and Read immediately before each
+// non-store event is encoded, so revocation cannot leak the protected source
+// event that triggered the check.
 func (s *Service) Attach(ctx context.Context, in AttachInput) (AttachResult, error) {
 	access, err := s.Begin(ctx, in.Authority)
 	if err != nil {
@@ -292,15 +329,17 @@ func (s *Service) Attach(ctx context.Context, in AttachInput) (AttachResult, err
 	if err != nil {
 		return AttachResult{}, err
 	}
-	runtime, err := s.runtimeFor(info.AgentID)
-	if err != nil {
-		return AttachResult{}, err
+	// The runtime port only supplies a local wake fast path; observation reads
+	// the durable log, so a replica without the runtime (or with the agent's
+	// runtime unavailable) still attaches with Wake nil.
+	var wake <-chan struct{}
+	cancel := func() {}
+	if runtime, rerr := s.runtimeFor(info.AgentID); rerr == nil {
+		wake, cancel = runtime.WatchSession(in.SessionID)
 	}
-	ch, cancel := runtime.SubscribeSession(in.SessionID)
 	return AttachResult{
-		Events: ch,
+		Wake:   wake,
 		Cancel: cancel,
-		Live:   runtime.SessionLive(in.SessionID),
 		BeforeProtectedEvent: func(eventCtx context.Context) error {
 			fresh, err := s.Begin(eventCtx, in.Authority)
 			if err != nil {

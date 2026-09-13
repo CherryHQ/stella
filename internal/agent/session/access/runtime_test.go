@@ -111,18 +111,18 @@ func (m fakeRuntimeManager) GetService(string) RuntimeService { return m.svc }
 func (m fakeRuntimeManager) Default() RuntimeService          { return m.svc }
 
 type fakeRuntimeService struct {
-	chatCalls      int
-	stopCalls      int
-	subscribeCalls int
-	live           bool
-	events         chan agent.Event
-	chatCtx        context.Context
-	chatRequests   []agent.ChatRequest
-	managedCalls   []delegatetool.ManagedSessionRequest
-	managedResult  delegatetool.ManagedSessionResult
-	managedErr     error
-	chatEvents     []agent.Event
-	chatDone       chan struct{}
+	chatCalls     int
+	stopCalls     int
+	watchCalls    int
+	live          bool
+	wake          chan struct{}
+	chatCtx       context.Context
+	chatRequests  []agent.ChatRequest
+	managedCalls  []delegatetool.ManagedSessionRequest
+	managedResult delegatetool.ManagedSessionResult
+	managedErr    error
+	chatEvents    []agent.Event
+	chatDone      chan struct{}
 }
 
 func (s *fakeRuntimeService) Chat(ctx context.Context, req agent.ChatRequest) <-chan agent.Event {
@@ -173,12 +173,12 @@ func (s *fakeRuntimeService) StopSession(context.Context, string) bool {
 	return s.live
 }
 
-func (s *fakeRuntimeService) SubscribeSession(string) (<-chan agent.Event, func()) {
-	s.subscribeCalls++
-	if s.events == nil {
-		s.events = make(chan agent.Event)
+func (s *fakeRuntimeService) WatchSession(string) (<-chan struct{}, func()) {
+	s.watchCalls++
+	if s.wake == nil {
+		s.wake = make(chan struct{})
 	}
-	return s.events, func() {}
+	return s.wake, func() {}
 }
 func (s *fakeRuntimeService) SessionLive(string) bool { return s.live }
 func (s *fakeRuntimeService) CompactAuthorizedSession(context.Context, agentsession.Info) (string, error) {
@@ -195,8 +195,8 @@ func TestSendStartsOneTurnAndChunksDoNotReevaluate(t *testing.T) {
 	}
 	for range result.Events {
 	}
-	if rt.chatCalls != 1 || rt.subscribeCalls != 0 {
-		t.Fatalf("chat=%d subscribe=%d, want one chat and no subscribe", rt.chatCalls, rt.subscribeCalls)
+	if rt.chatCalls != 1 || rt.watchCalls != 0 {
+		t.Fatalf("chat=%d watch=%d, want one chat and no watch", rt.chatCalls, rt.watchCalls)
 	}
 	if len(rt.chatRequests) != 1 || rt.chatRequests[0].TelemetryChannel != "web" || rt.chatRequests[0].BindingID == "" {
 		t.Fatalf("telemetry routing = %#v, want web plus durable binding", rt.chatRequests)
@@ -336,11 +336,11 @@ func TestAttachOnlySubscribesAndGuardReChecksAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Attach: %v", err)
 	}
-	if !attach.Live {
-		t.Fatal("Attach Live=false, want true")
+	if attach.Wake == nil {
+		t.Fatal("Attach Wake=nil, want a wake channel")
 	}
-	if rt.chatCalls != 0 || rt.subscribeCalls != 1 {
-		t.Fatalf("chat=%d subscribe=%d, want no chat and one subscribe", rt.chatCalls, rt.subscribeCalls)
+	if rt.chatCalls != 0 || rt.watchCalls != 1 {
+		t.Fatalf("chat=%d watch=%d, want no chat and one watch", rt.chatCalls, rt.watchCalls)
 	}
 	// Each protected event re-checks durable access; while nothing has changed the
 	// guard keeps passing.
@@ -353,13 +353,13 @@ func TestAttachOnlySubscribesAndGuardReChecksAccess(t *testing.T) {
 }
 
 func TestAttachIdleSubscribes(t *testing.T) {
-	svc, rt, _, authority := newRuntimeTestService(t)
+	svc, _, _, authority := newRuntimeTestService(t)
 	attach, err := svc.Attach(context.Background(), AttachInput{Authority: authority, AgentID: "a1", SessionID: "s1"})
 	if err != nil {
 		t.Fatalf("Attach: %v", err)
 	}
-	if attach.Cancel == nil || rt.events == nil {
-		t.Fatal("Attach did not subscribe")
+	if attach.Cancel == nil || attach.Wake == nil {
+		t.Fatal("Attach did not register a wake listener")
 	}
 }
 
@@ -447,4 +447,55 @@ func newRuntimeTestService(t *testing.T) (*Service, *fakeRuntimeService, config.
 		t.Fatalf("Authority: %v", err)
 	}
 	return svc, rt, store, authority
+}
+
+// TestAttachWithoutRuntimeManagerStillObserves proves a watcher needs only
+// authorized DB access: with no runtime bound, Attach still succeeds — Wake
+// is simply nil (no local fast path) and the durable log supplies events.
+func TestAttachWithoutRuntimeManagerStillObserves(t *testing.T) {
+	ctx := context.Background()
+	owner := uuid.NewString()
+	mem := memorytest.New()
+	now := time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)
+	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: "s1", UserID: owner, AgentID: "a1", Kind: string(agentsession.KindChat), Channel: string(agentsession.ChannelWeb), CreatedAt: now, LastActive: now}); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+	db := dbtest.New(t)
+	store := cfgstore.NewDBStore(db)
+	if err := store.CreateAgent(ctx, config.Agent{ID: "a1", Scope: config.AgentScopeSystem, Enabled: true}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	if _, err := sqlc.New(db).CreateConversation(ctx, sqlc.CreateConversationParams{
+		ID: uuid.NewString(), SessionID: "s1", UserID: pgtype.Text{String: owner, Valid: true}, AgentID: pgtype.Text{String: "a1", Valid: true}, Channel: string(agentsession.ChannelWeb), Kind: string(agentsession.KindChat), LastActive: now,
+	}); err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	blobStore, err := blobtest.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("blobtest.NewFSStore: %v", err)
+	}
+	assets, err := asset.NewStore(t.TempDir(), blobStore, nil)
+	if err != nil {
+		t.Fatalf("asset.NewStore: %v", err)
+	}
+	svc, err := NewService(mem, db, store, assets, agentaccess.NewService(store, appdb.NewAuthStore(db)))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	// No BindRuntimeManager: the durable tail path must not depend on it.
+	authority, err := (auth.Subject{UserID: owner, Roles: []string{auth.RoleUser}}).Authority()
+	if err != nil {
+		t.Fatalf("Authority: %v", err)
+	}
+	attach, err := svc.Attach(ctx, AttachInput{Authority: authority, AgentID: "a1", SessionID: "s1"})
+	if err != nil {
+		t.Fatalf("Attach without runtime: %v", err)
+	}
+	if attach.Wake != nil {
+		t.Fatal("wake channel without a runtime should be nil — poll is the path")
+	}
+	if attach.Cancel == nil {
+		t.Fatal("Attach must still return a cancel func")
+	}
+	attach.Cancel()
 }

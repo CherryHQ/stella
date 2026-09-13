@@ -266,7 +266,9 @@ func (b *Bot) handleIncoming(authorID, groupID, msgID string, incoming channel.I
 		return
 	}
 	if handled {
-		b.sendReply(replyTarget, msgID, resp, scope)
+		if resp != "" {
+			b.sendReply(replyTarget, msgID, resp, scope)
+		}
 		return
 	}
 	if stream == nil {

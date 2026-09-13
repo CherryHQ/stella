@@ -517,11 +517,11 @@ func (s *Service) StopSession(ctx context.Context, sessionID string) bool {
 	return s.Runtime.StopSession(ctx, sessionID)
 }
 
-// SubscribeSession registers a read-only listener for a session's live turn
-// events, regardless of who initiated the turn. Used by the SSE endpoint to let
-// the web UI watch scheduler/task/delegate turns in real time.
-func (s *Service) SubscribeSession(sessionID string) (<-chan Event, func()) {
-	return s.Runtime.Subscribe(sessionID)
+// WatchSession registers a wake listener for a session's live turn,
+// regardless of who initiated the turn. The channel only signals committed
+// durable-log growth — never event payloads. See agentruntime.Runtime.Watch.
+func (s *Service) WatchSession(sessionID string) (<-chan struct{}, func()) {
+	return s.Runtime.Watch(sessionID)
 }
 
 // SessionLive reports whether a turn is currently in flight on the session.

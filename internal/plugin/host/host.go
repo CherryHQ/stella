@@ -59,6 +59,10 @@ type Host struct {
 	statusRegs       map[string]pkgplugins.AdminSpec
 	promptRegs       map[string]pkgplugins.PromptInventorySpec
 	systemPromptRegs map[string]pkgplugins.SystemPromptSpec
+
+	// channelLeases, when bound via WithChannelLeases, gates durable channel
+	// start on the cross-replica runtime lease.
+	channelLeases *ChannelLeases
 }
 
 func New(store config.Store, opts ...Option) *Host {
@@ -85,6 +89,14 @@ func New(store config.Store, opts ...Option) *Host {
 		opt(h)
 	}
 	return h
+}
+
+// ChannelLeases returns the bound lease tracker, or nil when the legacy
+// unconditional-start mode is in effect.
+func (h *Host) ChannelLeases() *ChannelLeases {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.channelLeases
 }
 
 func (h *Host) Logger(pluginID string) *slog.Logger { return h.log.With("plugin", pluginID) }

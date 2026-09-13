@@ -128,7 +128,7 @@ func start(ctx context.Context, cfg config) (err error) {
 	if err != nil {
 		return err
 	}
-	if _, _, err := bootstrap(ctx, bootstrapConfig{BaseURL: baseURL, Home: home, DatabaseURL: db.DSN()}); err != nil {
+	if _, _, err := bootstrap(ctx, bootstrapConfig{BaseURL: baseURL, Home: home, DatabaseURL: db.DSN(), VaultKey: vaultKey}); err != nil {
 		return fmt.Errorf("bootstrap test identities: %w", err)
 	}
 

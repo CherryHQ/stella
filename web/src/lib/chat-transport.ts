@@ -11,10 +11,166 @@ import type {
   ToolResult,
 } from "./types";
 
-export function createSessionTransport(agentId: string, sessionId: string) {
+// Resume metadata the server attaches to a session stream once the observed
+// turn's start marker is committed: the canonical-history watermark the turn
+// began from, plus the stable message identity the stream will emit. The
+// transport awaits onResumeReady before the response reaches the SDK — the
+// SDK snapshots the current last assistant only after reconnect resolves, so
+// the seed (history prefix + empty stream container) must be in place first.
+export interface SessionResumeMeta {
+  historyBefore: number;
+  messageId: string;
+}
+
+// Thrown by onResumeReady when the request was explicitly superseded — a
+// newer send/observe, a session switch, or navigation retired it. The
+// transport answers the SDK "nothing to resume" for these so a stale
+// bootstrap cannot stamp error over a live send's status.
+export class ResumeSupersededError extends Error {}
+
+export interface SessionTransportOptions {
+  // Called (and awaited) when a stream response carries bootstrap metadata.
+  // Rejecting prevents the stream from reaching the SDK — use it to refuse a
+  // stale or wrong-session response. signal aborts when the observe
+  // connection is torn down.
+  onResumeReady?: (meta: SessionResumeMeta, signal: AbortSignal) => Promise<void>;
+  // Called only on an explicit "nothing resolvable" answer for this
+  // request's pinned scope: 204 (no such turn in this session) or 410 (the
+  // turn ended before its start marker — nothing replayable). Read failures
+  // (5xx/403) never reach it — the pin survives transient errors. The
+  // argument is the scope THIS request carried, so a superseded request
+  // cannot release a newer pin.
+  onResumeGone?: (scope: string | undefined) => void;
+  // The events GET failed before any bootstrap: network error (status 0) or a
+  // non-2xx that is not a gone answer. Called with the scope this request
+  // carried so a superseded request's failure cannot mark the current turn.
+  onResumeFailed?: (scope: string | undefined, status: number) => void;
+  // Called once when a send (POST /messages) response carries the turn's
+  // bootstrap metadata: registers the new turn's identity only — the history
+  // watermark is deliberately NOT applied here (the SDK already owns the
+  // just-sent user message, and a boundary bump would trigger a history
+  // query that merges the canonical user row over it). The boundary belongs
+  // to the GET resume path.
+  onSendReady?: (meta: SessionResumeMeta) => void;
+  // Returns the pinned turn scope ("runID" or "x<token>"), sent as
+  // Last-Event-ID "<scope>:0" — an explicit re-observe request that resolves
+  // that exact turn even after it finished and its execution row is gone.
+  observeScope?: () => string | undefined;
+}
+
+export interface SessionTransport extends DefaultChatTransport<UIMessage> {
+  // Aborts the in-flight observe connection (including a bootstrap fetch that
+  // has not received its response yet). Navigation teardown only — it never
+  // touches the server-side turn.
+  close(): void;
+}
+
+export function createSessionTransport(
+  agentId: string,
+  sessionId: string,
+  options?: SessionTransportOptions,
+): SessionTransport {
   const base = `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}`;
-  return new DefaultChatTransport({
+  const eventsURL = `${base}/events`;
+  const messagesURL = `${base}/messages`;
+  let activeObserve: AbortController | undefined;
+  const observeFetch: typeof fetch = async (input, init) => {
+    const url = input instanceof Request ? input.url : String(input);
+    const isEvents = url.startsWith(eventsURL);
+    const isSend = url.startsWith(messagesURL);
+    let ctl: AbortController | undefined;
+    if (isEvents || isSend) {
+      // One observe connection at a time: a send supersedes a detached
+      // resume stream, a newer observe supersedes an in-flight send.
+      ctl = new AbortController();
+      activeObserve?.abort();
+      activeObserve = ctl;
+    }
+    // The scope this observe request carries — its Last-Event-ID pin.
+    let requestScope: string | undefined;
+    if (isEvents && init?.headers) {
+      const pin = new Headers(init.headers).get("Last-Event-ID");
+      if (pin?.endsWith(":0")) requestScope = pin.slice(0, -2);
+    }
+    let res: Response;
+    try {
+      res = await fetch(
+        input,
+        ctl
+          ? {
+              ...init,
+              signal: init?.signal ? AbortSignal.any([init.signal, ctl.signal]) : ctl.signal,
+            }
+          : init,
+      );
+    } catch (err) {
+      if (isEvents && ctl?.signal.aborted) {
+        // A newer send/observe (or navigation close) explicitly retired this
+        // request mid-flight: resolve the SDK reconnect as "nothing to
+        // resume" instead of letting the AbortError stamp error over the
+        // newer request's status.
+        return new Response(null, { status: 204 });
+      }
+      if (isEvents) options?.onResumeFailed?.(requestScope, 0);
+      throw err;
+    }
+    if (isEvents && ctl?.signal.aborted) {
+      // The response raced in after a newer request retired this one —
+      // fetch does not have to reject for that. Its answer belongs to a
+      // dead request: no seeding, and its status must not reach Gone/Failed
+      // where it could disturb the live request's pin.
+      void res.body?.cancel();
+      return new Response(null, { status: 204 });
+    }
+    const boundary = res.headers.get("x-stella-history-before");
+    const messageId = res.headers.get("x-stella-message-id");
+    if (res.ok && boundary !== null && messageId) {
+      const meta: SessionResumeMeta = { historyBefore: Number(boundary), messageId };
+      if (isEvents && options?.onResumeReady) {
+        try {
+          await options.onResumeReady(meta, ctl!.signal);
+        } catch (err) {
+          // A refused bootstrap must not hand the SDK an unseeded stream —
+          // tear the observe connection down first.
+          const superseded = ctl!.signal.aborted || err instanceof ResumeSupersededError;
+          ctl!.abort();
+          void res.body?.cancel();
+          if (superseded) {
+            // Explicitly retired by a newer request or navigation: resolve
+            // the SDK's reconnect as "nothing to resume" so it cannot stamp
+            // error over a live send's status. The pin survives untouched.
+            return new Response(null, { status: 204 });
+          }
+          throw err;
+        }
+      } else if (isSend && !ctl?.signal.aborted) {
+        // Identity registration only — no reseed, no boundary; the send's
+        // user message is already in the chat state. A retired send (a newer
+        // request aborted it) registers nothing.
+        options?.onSendReady?.(meta);
+      }
+    } else if (
+      isEvents &&
+      // Explicit "nothing to observe" answers release the pin; a 5xx/403 is
+      // a read failure, not evidence the turn is gone.
+      (res.status === 204 || res.status === 410) &&
+      requestScope !== undefined
+    ) {
+      options?.onResumeGone?.(requestScope);
+    } else if (isEvents && !res.ok) {
+      // Non-gone failure (5xx, 403): surface it to the resume lifecycle so a
+      // transient error can be retried for the same scope. Superseded
+      // requests never reach here — their controller was aborted first, and
+      // even if the response raced in, their scope no longer matches.
+      options?.onResumeFailed?.(requestScope, res.status);
+    }
+    return res;
+  };
+  // SAFETY: close() is assigned immediately after construction, before the
+  // transport is handed out.
+  const transport = new DefaultChatTransport({
     api: `${base}/messages`,
+    fetch: observeFetch,
     prepareSendMessagesRequest: ({ messages }) => {
       const last = messages[messages.length - 1];
       const parts = last.parts
@@ -32,9 +188,19 @@ export function createSessionTransport(agentId: string, sessionId: string) {
     // Read-only resume: watch a turn started elsewhere (server-driven
     // scheduler/task/delegate turns, or another tab) via the events SSE
     // endpoint. It answers 204 when no turn is in flight, which the SDK treats
-    // as "nothing to resume".
-    prepareReconnectToStreamRequest: () => ({ api: `${base}/events` }),
-  });
+    // as "nothing to resume". A pinned scope rides Last-Event-ID as
+    // "<scope>:0" — a re-observe request naming the exact turn, replayed from
+    // its start; the onResumeReady reseed supplies the hydrated baseline.
+    prepareReconnectToStreamRequest: () => {
+      const scope = options?.observeScope?.();
+      return {
+        api: eventsURL,
+        headers: scope ? { "Last-Event-ID": `${scope}:0` } : undefined,
+      };
+    },
+  }) as SessionTransport;
+  transport.close = () => activeObserve?.abort();
+  return transport;
 }
 
 export function createGroupTransport(groupId: string) {

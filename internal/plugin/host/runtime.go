@@ -46,6 +46,10 @@ type RuntimeHost struct {
 	// follow-up for the same row.
 	channelLocksMu sync.Mutex
 	channelLocks   map[string]*sync.Mutex
+
+	// channelLeases, when bound, makes durable channel start conditional on
+	// holding the DB lease; nil keeps the legacy unconditional start.
+	channelLeases *ChannelLeases
 }
 
 func NewRuntimeHost(host *Host) *RuntimeHost {
@@ -202,24 +206,80 @@ func (h *RuntimeHost) applyChannel(ctx context.Context, channel config.Channel) 
 	if !allowed {
 		channel.Enabled = false
 	}
+	var leasedRevision int64
+	leased := false
+	if leases := h.channelLeases; leases != nil {
+		if channel.Enabled {
+			if l, ok := leases.Ensure(ctx, channel.ID); ok {
+				leased, leasedRevision = true, l.ConfigRevision
+			} else {
+				// Another replica owns it, or the DB is unreachable — either
+				// way this replica must not run the poller.
+				channel.Enabled = false
+			}
+		} else {
+			// Disabled or deleted intent releases any lease we still hold.
+			leases.Release(ctx, channel.ID)
+		}
+	}
 	regs := h.registrations(pluginID)
 	desired := pkgplugins.PluginState{
 		ID:      channel.ID,
 		Enabled: channel.Enabled,
 		Config:  configMapFromJSON(channel.Config),
 	}
+	var applyErr error
 	for _, reg := range regs {
 		if err := h.applyOneWithKey(ctx, reg, channel.ID, desired); err != nil {
-			return err
+			applyErr = err
+			break
 		}
 	}
-	return nil
+	if h.channelLeases != nil && leased {
+		if applyErr != nil {
+			// Mark failure and release so the sweep can re-home the channel
+			// instead of a dead owner renewing forever.
+			h.channelLeases.MarkApplied(ctx, channel.ID, "error", "apply_failed", 0)
+			h.channelLeases.Release(ctx, channel.ID)
+		} else {
+			// Only a successful apply earns the running stamp — a failed start
+			// must not look applied.
+			h.channelLeases.MarkApplied(ctx, channel.ID, "running", "", leasedRevision)
+		}
+	}
+	return applyErr
+}
+
+// ChannelRuntimeErrored reports whether any managed runtime of the channel
+// currently sits in an error snapshot — the lease tracker uses it to turn an
+// asynchronously failed Start into a reconcile instead of a zombie owner.
+func (h *RuntimeHost) ChannelRuntimeErrored(channelID string) bool {
+	h.mu.RLock()
+	entries := make([]*runtimeEntry, 0)
+	for key, entry := range h.rt {
+		if key.RuntimeID == channelID && entry.managed != nil {
+			entries = append(entries, entry)
+		}
+	}
+	h.mu.RUnlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, entry := range entries {
+		snap, err := entry.managed.Snapshot(ctx)
+		if err == nil && snap.State == pkgplugins.RuntimeStateError {
+			return true
+		}
+	}
+	return false
 }
 
 // stopChannel evicts and stops every runtime belonging to one durable channel
 // ID. Runtime apply code may observe the eviction and perform its own cleanup;
 // Stop is therefore deliberately idempotent at this boundary.
 func (h *RuntimeHost) stopChannel(ctx context.Context, channelID string) error {
+	if h.channelLeases != nil {
+		h.channelLeases.Release(ctx, channelID)
+	}
 	h.applyMu.Lock()
 	h.mu.Lock()
 	entries := make([]*runtimeEntry, 0)
@@ -335,6 +395,12 @@ func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.Runtim
 	}
 	if err := managed.Apply(ctx, desired.Clone()); err != nil {
 		return fmt.Errorf("apply runtime %s/%s: %w", runtimeID, reg.Name, err)
+	}
+	// Apply reports nil for config-validation and empty-name failures — the
+	// snapshot carries the real state. An error snapshot must surface as an
+	// apply failure or the owner stamps 'running' on a dead channel.
+	if snap, err := managed.Snapshot(ctx); err == nil && snap.State == pkgplugins.RuntimeStateError {
+		return fmt.Errorf("runtime %s/%s failed to start: %s", runtimeID, reg.Name, snap.Message)
 	}
 
 	// Stop may replace the runtime table while Apply performs platform I/O.

@@ -57,6 +57,25 @@ type Event struct {
 	Step       *StepEvent
 	Store      ai.Message // non-nil → append to session history
 	Err        error
+	// Seq is the durable ctx_session_event sequence and DurableID its
+	// run-scoped cursor ("runID:seq"), set only for events replayed from the
+	// durable log — the SSE transport emits DurableID as the `id:` line so a
+	// reconnect cursor unambiguously names which run it belongs to.
+	Seq       int64
+	DurableID string
+	// Terminal carries a turn's durable terminal verdict on the observe wire.
+	// It is transport-only — never produced by a runner, never encoded into
+	// the log; the durable turn_terminal marker row is written by the
+	// execution owner and the tail translates it into this event.
+	Terminal *TurnTerminalEvent
+}
+
+// TurnTerminalEvent reports a turn's committed terminal verdict to an
+// observer. Result uses the session-turn vocabulary ("success", "error",
+// "canceled", "interrupted"); Reason is the optional detail.
+type TurnTerminalEvent struct {
+	Result string
+	Reason string
 }
 
 // MessageContent is a user message: string (text) or []ai.ContentBlock (multimodal).

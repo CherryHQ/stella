@@ -68,6 +68,12 @@ func WithLocalExecution() PoolManagerOption {
 	return func(pm *PoolManager) { pm.localExecution = true }
 }
 
+// WithEventSink binds the durable session event log used by runtimes when the
+// durable channel path is enabled.
+func WithEventSink(sink agentruntime.EventSink) PoolManagerOption {
+	return func(pm *PoolManager) { pm.eventSink = sink }
+}
+
 // WithCodeToolSurface selects the Code Mode provider-visible treatment. The
 // production default remains the established hot-tool surface.
 func WithCodeToolSurface(surface coreagent.CodeToolSurface) PoolManagerOption {
@@ -247,9 +253,12 @@ type PoolManager struct {
 	// started is set true when StartAll runs. The one-shot pre-start binds
 	// (Bind* below) refuse to run once started, while the dynamic reconfigure
 	// surface (ReloadPlugin*/SyncAgent/Invalidate*) stays available afterward.
-	started               bool
-	idleTimeout           time.Duration
-	compaction            CompactionConfig
+	started     bool
+	idleTimeout time.Duration
+	compaction  CompactionConfig
+	// eventSink, when bound, makes runtimes append turn events to
+	// ctx_session_event for cross-replica watchers.
+	eventSink             agentruntime.EventSink
 	builtinTools          []BuiltinTool
 	toolMetaRegistry      *toolmeta.Registry
 	nativePolicy          *plugin.NativePolicy
@@ -536,6 +545,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 		BeforeRun:            pm.runtimeBeforeRunFunc(snap),
 		SnapshotPrompt:       pm.buildSnapshotPromptFunc(snap),
 		SessionImages:        pm.sessionImages,
+		EventSink:            pm.eventSink,
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,

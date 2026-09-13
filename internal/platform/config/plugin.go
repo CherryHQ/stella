@@ -1,6 +1,9 @@
 package config
 
-import "sync"
+import (
+	"os"
+	"sync"
+)
 
 // Plugin kind constants.
 const (
@@ -50,6 +53,11 @@ func BuiltinPlugins() []BuiltinPlugin {
 	}
 	for _, n := range BuiltinChannelNames {
 		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindChannel, n), Kind: PluginKindChannel, Name: n, DefaultEnabled: false})
+	}
+	if os.Getenv("STELLA_TEST_CHANNELS") != "" {
+		// Test-only adapter for process-boundary multi-replica verification;
+		// never registered in normal builds.
+		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindChannel, "testchan"), Kind: PluginKindChannel, Name: "testchan", DefaultEnabled: true})
 	}
 	return out
 }

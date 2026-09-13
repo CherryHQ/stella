@@ -173,14 +173,15 @@ func (b *Bot) runCommandInteraction(ctx context.Context, ix *discordgo.Interacti
 		text += " " + args
 	}
 	msg := channel.IncomingMessage{
-		Platform:   channel.PlatformDiscord,
-		ChannelID:  b.Name(),
-		SenderID:   userID,
-		SenderName: userName,
-		ChatID:     route.chatID,
-		IsGroup:    ix.GuildID != "",
-		ThreadID:   route.threadID,
-		Content:    []ai.ContentBlock{ai.TextContent{Text: text}},
+		Platform:      channel.PlatformDiscord,
+		BotAccountKey: b.botID,
+		ChannelID:     b.Name(),
+		SenderID:      userID,
+		SenderName:    userName,
+		ChatID:        route.chatID,
+		IsGroup:       ix.GuildID != "",
+		ThreadID:      route.threadID,
+		Content:       []ai.ContentBlock{ai.TextContent{Text: text}},
 	}
 	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
 	if err != nil {

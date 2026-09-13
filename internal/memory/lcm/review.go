@@ -51,7 +51,7 @@ func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Sessio
 		}
 		appendReviewMessagesWithParts(&b, msgs, partsByMessage, remainingBudget)
 	} else {
-		msgs, err := p.q.GetMessagesByConversation(ctx, conv.ID)
+		msgs, err := p.q.GetMessagesByConversation(ctx, sqlc.GetMessagesByConversationParams{ConversationID: conv.ID})
 		if err != nil {
 			return "", fmt.Errorf("get messages: %w", err)
 		}

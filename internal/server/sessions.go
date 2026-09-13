@@ -7,23 +7,29 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"mime"
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
+	agentrun "github.com/CherryHQ/stella/internal/agent/run"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/platform/home"
+	"github.com/CherryHQ/stella/internal/sessionevent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -157,6 +163,10 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 	if body.ExcludedTools != nil {
 		excludedTools = *body.ExcludedTools
 	}
+	if s.durableRuns != nil && s.sessionEvents != nil {
+		s.sendSessionMessageDurable(w, r, flusher, authority, agentID, sessionID, message, excludedTools)
+		return
+	}
 	result, err := s.sessionAccess.Send(r.Context(), s.turnContext(r.Context()), sessionaccess.SendInput{
 		Authority:     authority,
 		AgentID:       agentID,
@@ -184,7 +194,7 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 	// HTTP drain ends this observer only; accepted-work drain owns the turn.
 	sctx, cancel := s.readiness.streamContext(r.Context())
 	defer cancel()
-	streamAgentEvents(sctx, w, flusher, agentID, sessionID, result.Events, nil)
+	streamAgentEvents(sctx, w, flusher, agentID, sessionID, result.Events, "", 0, nil)
 }
 
 // StopSession explicitly cancels an in-flight turn. Transport disconnects never
@@ -206,7 +216,22 @@ func (s *Server) StopSession(w http.ResponseWriter, r *http.Request, agentID str
 		s.writeSessionAccessError(w, err)
 		return
 	}
+	if s.durableRuns != nil {
+		// The turn may execute on another replica: flag the durable execution
+		// lease and drop still-queued runs so a remote worker aborts/never
+		// starts. Local StopSession above covers the single-process case.
+		if err := s.cancelDurableTurn(r.Context(), sessionID); err != nil {
+			slog.WarnContext(r.Context(), "durable turn cancel failed", "session", sessionID, "error", err)
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// cancelDurableTurn flags the session's live execution lease (a running
+// worker aborts at its next lease check) and cancels queued runs so a worker
+// elsewhere never starts them.
+func (s *Server) cancelDurableTurn(ctx context.Context, sessionID string) error {
+	return s.durableRuns.CancelSessionTurn(ctx, sessionID)
 }
 
 func (s *Server) MarkSessionViewed(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
@@ -229,12 +254,60 @@ func (s *Server) MarkSessionViewed(w http.ResponseWriter, r *http.Request, agent
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// streamAgentEvents encodes a live turn's events to w as a Vercel AI-SDK UI
-// message stream (SSE). Shared by SendSessionMessage (the turn it initiated) and
-// StreamSessionEvents (a read-only subscription to a turn started elsewhere), so
-// both emit the exact wire format the web chat parser expects. The stream ends
-// when ch closes (turn finished) or ctx is cancelled (client disconnected).
-func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, ch <-chan agent.Event, beforeProtectedEvent func() error) {
+// turnStreamState is the single state machine a turn's SSE encoding runs on:
+// which text/reasoning part is open (and under which id) and whether a step
+// frame is open. Resume replays the turn's durable events through advance
+// with output suppressed, so a reconnecting client re-attaches under the same
+// part ids — derived from each part's first durable seq — instead of a second
+// part opening mid-turn.
+type turnStreamState struct {
+	inText      bool
+	textID      string
+	inReasoning bool
+	reasoningID string
+	stepOpen    bool
+	partID      func(kind string, seq int64) string
+}
+
+// advance applies one event to the stream state — the same transitions the
+// emit path uses, so priming a cursor and live encoding can never disagree
+// about which part is open.
+func (s *turnStreamState) advance(evt agent.Event) {
+	switch {
+	case evt.Err != nil:
+		s.inText, s.inReasoning, s.stepOpen = false, false, false
+	case evt.Step != nil:
+		s.inText, s.inReasoning = false, false
+		s.stepOpen = evt.Step.Kind == "start"
+	case evt.Reasoning != "":
+		s.inText = false
+		if !s.inReasoning {
+			s.inReasoning = true
+			s.reasoningID = s.partID("r", evt.Seq)
+		}
+	case evt.Text != "":
+		s.inReasoning = false
+		if !s.inText {
+			s.inText = true
+			s.textID = s.partID("t", evt.Seq)
+		}
+	case evt.ToolUse != nil || evt.Image != nil || evt.File != nil || len(evt.References) > 0:
+		s.inText, s.inReasoning = false, false
+	}
+}
+
+// streamAgentEvents encodes a turn's events to w as a Vercel AI-SDK UI
+// message stream (SSE). Shared by SendSessionMessage (the turn it initiated)
+// and StreamSessionEvents (a read-only tail of a turn started elsewhere), so
+// both emit the exact wire format the web chat parser expects. The stream
+// ends when ch closes (turn finished) or ctx is cancelled (client
+// disconnected). scope, when non-empty, pins message identity to the durable
+// turn being tailed and derives part ids from each part's first durable seq;
+// scope is empty for non-durable paths, which keep random per-stream ids.
+// resumeSeq > 0 suppresses output for events at or before it — their state
+// transitions still run, so a resume continues mid-part without re-sending
+// consumed text.
+func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, ch <-chan agent.Event, scope string, resumeSeq int64, beforeProtectedEvent func() error) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -242,10 +315,21 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
+	// pendingCursor is emitted as an `id:` line only after the durable event's
+	// frames are fully flushed — a disconnect mid-event must not advance the
+	// cursor past data the client never received.
+	var pendingCursor string
 	writeData := func(v any) {
 		data, _ := json.Marshal(v)
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
+	}
+	emitCursor := func() {
+		if pendingCursor != "" {
+			_, _ = fmt.Fprintf(w, "id: %s\n\n", pendingCursor)
+			flusher.Flush()
+			pendingCursor = ""
+		}
 	}
 	writeDone := func() {
 		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
@@ -253,57 +337,95 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 	}
 
 	messageID := uuid.Must(uuid.NewV7()).String()
+	if scope != "" {
+		messageID = "msg-" + scope
+	}
 	writeData(map[string]string{"type": "start", "messageId": messageID})
 
-	var (
-		inText      bool
-		textID      string
-		inReasoning bool
-		reasoningID string
-		stepOpen    bool
-	)
+	st := turnStreamState{
+		partID: func(kind string, seq int64) string {
+			if scope != "" && seq > 0 {
+				return scope + ":" + kind + ":" + strconv.FormatInt(seq, 10)
+			}
+			return uuid.Must(uuid.NewV7()).String()
+		},
+	}
 
-	closeText := func() {
-		if inText {
-			writeData(map[string]string{"type": "text-end", "id": textID})
-			inText = false
+	// resumed tracks whether this connection has emitted its part/step open
+	// frames. With resumeSeq > 0 the primed state can hold an open part whose
+	// start frame the client already consumed — the first unsuppressed event
+	// re-opens those frames under the same ids so deltas always follow a start
+	// on this connection. Consumed text itself is never re-sent.
+	resumed := resumeSeq <= 0
+	emitOpen := func() {
+		if resumed {
+			return
+		}
+		resumed = true
+		if st.stepOpen {
+			writeData(map[string]string{"type": "start-step"})
+		}
+		if st.inReasoning {
+			writeData(map[string]string{"type": "reasoning-start", "id": st.reasoningID})
+		}
+		if st.inText {
+			writeData(map[string]string{"type": "text-start", "id": st.textID})
 		}
 	}
-	closeReasoning := func() {
-		if inReasoning {
-			writeData(map[string]string{"type": "reasoning-end", "id": reasoningID})
-			inReasoning = false
+
+	// emitTransition writes the part/step boundary frames between before and
+	// st — ends first (reasoning before text, matching the historical order),
+	// then step frames, then opens.
+	emitTransition := func(before turnStreamState) {
+		if before.inReasoning && !st.inReasoning {
+			writeData(map[string]string{"type": "reasoning-end", "id": before.reasoningID})
 		}
+		if before.inText && !st.inText {
+			writeData(map[string]string{"type": "text-end", "id": before.textID})
+		}
+		if before.stepOpen && !st.stepOpen {
+			writeData(map[string]string{"type": "finish-step"})
+		}
+		if st.stepOpen && !before.stepOpen {
+			writeData(map[string]string{"type": "start-step"})
+		}
+		if st.inReasoning && !before.inReasoning {
+			writeData(map[string]string{"type": "reasoning-start", "id": st.reasoningID})
+		}
+		if st.inText && !before.inText {
+			writeData(map[string]string{"type": "text-start", "id": st.textID})
+		}
+	}
+	finish := func() {
+		// Only close what this connection opened — a resume that consumed
+		// every event never emitted a start, so it must not write bare ends.
+		if resumed {
+			before := st
+			st.inText, st.inReasoning, st.stepOpen = false, false, false
+			emitTransition(before)
+		}
+		writeData(map[string]string{"type": "finish"})
+		writeDone()
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			closeText()
-			closeReasoning()
-			if stepOpen {
-				writeData(map[string]string{"type": "finish-step"})
-			}
-			writeData(map[string]string{"type": "finish"})
-			writeDone()
+			finish()
 			return
 		case evt, open := <-ch:
 			if !open {
-				closeText()
-				closeReasoning()
-				if stepOpen {
-					writeData(map[string]string{"type": "finish-step"})
-				}
-				writeData(map[string]string{"type": "finish"})
-				writeDone()
+				finish()
 				return
 			}
-
-			// A combined Store+ToolUse is one atomic loop event. Pure persistence is
-			// transport-internal, but its paired tool progress must reach SSE.
-			if evt.Store != nil && evt.ToolUse == nil {
+			// Resume fast-forward: events at or before the cursor advance the
+			// state machine only — the client already consumed their frames.
+			if resumeSeq > 0 && evt.Seq > 0 && evt.Seq <= resumeSeq {
+				st.advance(evt)
 				continue
 			}
+			pendingCursor = evt.DurableID
+
 			// Attach subscriptions must re-authorize at delivery time. A denial
 			// terminates the connection before the source event is encoded; Send
 			// passes nil because its one initial use-case evaluation covers chunks.
@@ -312,65 +434,60 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 					return
 				}
 			}
+			// The durable terminal receipt travels as a transient data part —
+			// the SDK delivers it to onData without adding it to message parts.
+			// It carries the observed session+scope so a late frame from an old
+			// observe cannot release a newer turn's pin.
+			if evt.Terminal != nil {
+				writeData(map[string]any{
+					"type":      "data-turn-terminal",
+					"transient": true,
+					"data": map[string]string{
+						"session_id": sessionID,
+						"scope":      scope,
+						"result":     evt.Terminal.Result,
+						"reason":     evt.Terminal.Reason,
+					},
+				})
+				emitCursor()
+				continue
+			}
+			// A combined Store+ToolUse is one atomic loop event. Pure persistence is
+			// transport-internal, but its paired tool progress must reach SSE.
+			if evt.Store != nil && evt.ToolUse == nil {
+				emitCursor()
+				continue
+			}
 
-			if evt.Err != nil {
-				closeText()
-				closeReasoning()
+			emitOpen()
+			before := st
+			st.advance(evt)
+
+			switch {
+			case evt.Err != nil:
+				emitTransition(before)
 				writeData(map[string]string{"type": "error", "errorText": evt.Err.Error()})
-				if stepOpen {
-					writeData(map[string]string{"type": "finish-step"})
-				}
 				writeData(map[string]string{"type": "finish"})
 				writeDone()
+				emitCursor()
 				return
-			}
 
-			if evt.Step != nil {
-				switch evt.Step.Kind {
-				case "start":
-					closeText()
-					closeReasoning()
-					if stepOpen {
-						writeData(map[string]string{"type": "finish-step"})
-					}
-					writeData(map[string]string{"type": "start-step"})
-					stepOpen = true
-				case "finish":
-					closeText()
-					closeReasoning()
-					if stepOpen {
-						writeData(map[string]string{"type": "finish-step"})
-						stepOpen = false
-					}
-				}
-				continue
-			}
+			case evt.Step != nil:
+				emitTransition(before)
+				emitCursor()
 
-			if evt.Reasoning != "" {
-				closeText()
-				if !inReasoning {
-					reasoningID = uuid.Must(uuid.NewV7()).String()
-					writeData(map[string]string{"type": "reasoning-start", "id": reasoningID})
-					inReasoning = true
-				}
-				writeData(map[string]any{"type": "reasoning-delta", "id": reasoningID, "delta": evt.Reasoning})
-				continue
-			}
+			case evt.Reasoning != "":
+				emitTransition(before)
+				writeData(map[string]any{"type": "reasoning-delta", "id": st.reasoningID, "delta": evt.Reasoning})
+				emitCursor()
 
-			if evt.Text != "" {
-				closeReasoning()
-				if !inText {
-					textID = uuid.Must(uuid.NewV7()).String()
-					writeData(map[string]string{"type": "text-start", "id": textID})
-					inText = true
-				}
-				writeData(map[string]any{"type": "text-delta", "id": textID, "delta": evt.Text})
-				continue
-			}
+			case evt.Text != "":
+				emitTransition(before)
+				writeData(map[string]any{"type": "text-delta", "id": st.textID, "delta": evt.Text})
+				emitCursor()
 
-			if evt.ToolUse != nil {
-				closeText()
-				closeReasoning()
+			case evt.ToolUse != nil:
+				emitTransition(before)
 				tu := evt.ToolUse
 				switch tu.Status {
 				case "running":
@@ -411,24 +528,20 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 						"errorText":  tu.Content,
 					})
 				}
-				continue
-			}
+				emitCursor()
 
-			if evt.Image != nil {
-				closeText()
-				closeReasoning()
+			case evt.Image != nil:
+				emitTransition(before)
 				dataURI := "data:" + evt.Image.MimeType + ";base64," + evt.Image.Data
 				writeData(map[string]string{
 					"type":      "file",
 					"url":       dataURI,
 					"mediaType": evt.Image.MimeType,
 				})
-				continue
-			}
+				emitCursor()
 
-			if evt.File != nil {
-				closeText()
-				closeReasoning()
+			case evt.File != nil:
+				emitTransition(before)
 				fileURL := fmt.Sprintf("/api/agents/%s/sessions/%s/workspace/file-content?path=%s&raw=true",
 					agentID, sessionID, evt.File.Path)
 				mediaType := detectMIME(evt.File.Name)
@@ -437,7 +550,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 					"url":       fileURL,
 					"mediaType": mediaType,
 				})
-				continue
+				emitCursor()
 			}
 		}
 	}
@@ -447,7 +560,7 @@ func streamAgentEvents(ctx context.Context, w http.ResponseWriter, flusher http.
 // events read-only, regardless of who initiated the turn. This lets the web UI
 // watch server-driven turns (scheduler/task/delegate) or a turn started in
 // another tab in real time, since those turns carry no HTTP request of their own.
-func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.StreamSessionEventsParams) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return
@@ -469,19 +582,33 @@ func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, age
 	}
 	defer attach.Cancel()
 
-	// No turn in flight: 204 tells the AI-SDK resume client there is nothing to
-	// reconnect to, so it stays on the static transcript instead of holding the
-	// connection open.
-	if !attach.Live {
+	// The durable event log is the only source an observer may tail — a turn
+	// may execute on any replica, and the local hub carries wakes, never data.
+	// 204 tells the AI-SDK resume client there is nothing to reconnect to, so
+	// it stays on the static transcript instead of holding the connection open.
+	if s.sessionEvents == nil {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-
-	sctx, cancel := s.readiness.streamContext(r.Context())
-	defer cancel()
-	streamAgentEvents(sctx, w, flusher, agentID, sessionID, attach.Events, func() error {
-		return attach.BeforeProtectedEvent(r.Context())
-	})
+	// A reconnecting watcher supplies Last-Event-ID — the durable cursor is
+	// "scope:seq" (run id or "x"+execution token); anything else parses as
+	// seq-less and is honored positionally only.
+	var cursor string
+	if params.LastEventID != nil {
+		cursor = *params.LastEventID
+	}
+	switch ok, truncated := s.streamDurableTurn(r.Context(), w, flusher, agentID, sessionID, attach, cursor); {
+	case ok:
+		return
+	case truncated:
+		// The cursor fell behind the log's retained window: 409 makes the
+		// client rebuild from the transcript instead of silently skipping.
+		writeError(w, http.StatusConflict, "event cursor expired; reload session")
+		return
+	default:
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 }
 
 // workspaceRawReader reads an uploaded file's bytes by the path the composer
@@ -840,9 +967,15 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 	if params.Skip != nil && *params.Skip >= 0 {
 		skip = *params.Skip
 	}
+	var snapshotSeq *int64
+	if params.SnapshotSeq != nil {
+		v := int64(*params.SnapshotSeq)
+		snapshotSeq = &v
+	}
 	messages, err := access.ListMessages(r.Context(), sessionaccess.MessageListInput{
 		AgentID: agentID, SessionID: sessionID, Limit: limit, Skip: skip,
 		After: params.After, Before: params.Before, SeqFrom: params.SeqFrom, SeqTo: params.SeqTo,
+		SnapshotSeq: snapshotSeq,
 	})
 	if err != nil {
 		if errors.Is(err, sessionaccess.ErrInvalid) {
@@ -1616,4 +1749,440 @@ func streamPlainReply(w http.ResponseWriter, flusher http.Flusher, text string) 
 	write(map[string]string{"type": "finish"})
 	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
+}
+
+// durablePollInterval paces the durable turn tail; the event log is read
+// cross-process so a hot poll would only burn queries.
+const durablePollInterval = 250 * time.Millisecond
+
+// turnTerminal is the decoded control marker that ends an execution's tail.
+type turnTerminal struct {
+	Result string `json:"result"`
+	Reason string `json:"reason"`
+}
+
+// parseTurnTerminal decodes a stored row that is a turn_terminal control
+// marker, or nil for ordinary turn events. The same marker governs both the
+// run tail (run-linked executions stamp run_id too) and the token tail.
+func parseTurnTerminal(payload json.RawMessage) *turnTerminal {
+	var probe struct {
+		Type   string `json:"type"`
+		Result string `json:"result"`
+		Reason string `json:"reason"`
+	}
+	if json.Unmarshal(payload, &probe) != nil || probe.Type != "turn_terminal" {
+		return nil
+	}
+	return &turnTerminal{Result: probe.Result, Reason: probe.Reason}
+}
+
+// waitTurnBootstrap polls until the pinned turn's start marker commits —
+// yielding the canonical-history boundary a resume must reseed against — or
+// the turn ends without one. Terminal is read before the boundary each round:
+// start commits ahead of terminal, so a start visible at terminal time can
+// never be missed by reading boundary first and done second. A turn that ends
+// with no start marker (died in the claim→start gap) reports dead — its
+// events are not safe to replay into an unreseeded client. The wait covers
+// the claim→start gap so an early observer does not 204 on an empty log while
+// an execution is legitimately running.
+func (s *Server) waitTurnBootstrap(ctx context.Context, sessionID string,
+	boundaryOf func(context.Context) (int64, bool, error),
+	doneOf func(context.Context) (bool, error),
+) (boundary int64, started, dead bool) {
+	for {
+		done, derr := doneOf(ctx)
+		b, ok, berr := boundaryOf(ctx)
+		if berr == nil && ok {
+			return b, true, false
+		}
+		// Dead only on facts: a successful read proving terminal, plus a
+		// successful read proving no start exists. A failed boundary read is
+		// not evidence of absence.
+		if berr == nil && derr == nil && done {
+			return 0, false, true
+		}
+		select {
+		case <-ctx.Done():
+			return 0, false, false
+		case <-time.After(durablePollInterval):
+		}
+	}
+}
+
+// streamDurableTurn tails ctx_session_event for the session's open turn —
+// an open agent run when one exists, else the claimed execution lease that
+// scheduler/delegate/session.send turns write under. Returns false (caller
+// answers 204) only when neither exists.
+func (s *Server) streamDurableTurn(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, attach sessionaccess.AttachResult, lastEventID string) (ok, truncated bool) {
+	if s.sessionEvents == nil {
+		return false, false
+	}
+	// A pinned scope ("<scope>:0") re-observes one exact turn — sent by a
+	// client still holding that turn's resume state when the turn may already
+	// be terminal and its execution row gone. The pin never falls through to
+	// the session's current open turn: the client must see THIS turn's
+	// terminal before it may adopt another. An unknown scope means the turn's
+	// durable record is fully gone (pruned or never existed here) → 204 lets
+	// the client release the pin and reconcile from canonical history.
+	if scope, seqStr, found := strings.Cut(lastEventID, ":"); found && scope != "" {
+		// Any non-negative seq pins the named turn — ":0" is just offset 0,
+		// not a different identity. A malformed seq is no pin at all.
+		if seq, perr := strconv.ParseInt(seqStr, 10, 64); perr == nil && seq >= 0 {
+			if strings.HasPrefix(scope, "x") {
+				token := scope[1:]
+				_, started, berr := s.sessionEvents.TurnStartBoundary(ctx, sessionID, token)
+				_, _, done, derr := s.sessionEvents.ExecutionTerminal(ctx, sessionID, token)
+				// Absence is a 204 (release the pin); a read failure is not
+				// absence — answer 500 so the pin survives a transient error.
+				if berr != nil || derr != nil {
+					writeError(w, http.StatusInternalServerError, "turn lookup failed")
+					return true, false
+				}
+				if !started && !done {
+					return false, false
+				}
+				return s.streamDurableExecution(ctx, w, flusher, agentID, sessionID, attach, token, lastEventID)
+			}
+			if _, _, err := s.sessionEvents.RunState(ctx, sessionID, scope); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return false, false
+				}
+				writeError(w, http.StatusInternalServerError, "turn lookup failed")
+				return true, false
+			}
+			return s.streamDurableRun(ctx, w, flusher, agentID, sessionID, attach, scope, lastEventID)
+		}
+	}
+	// A claimed execution is the live turn. When it carries a run id the turn
+	// keeps the run's observation identity (cursor runID:seq), so a POST that
+	// opened the stream and a sibling GET reconnect share one coordinate.
+	// Non-run executions tail by token; only the queued-gap case — a run
+	// enqueued but not yet claimed — resolves by run id alone.
+	token, runID, err := s.sessionEvents.OpenExecution(ctx, sessionID)
+	if err == nil && token != "" {
+		if runID != "" {
+			return s.streamDurableRun(ctx, w, flusher, agentID, sessionID, attach, runID, lastEventID)
+		}
+		return s.streamDurableExecution(ctx, w, flusher, agentID, sessionID, attach, token, lastEventID)
+	}
+	if runID, rerr := s.sessionEvents.OpenRunID(ctx, sessionID); rerr == nil && runID != "" {
+		return s.streamDurableRun(ctx, w, flusher, agentID, sessionID, attach, runID, lastEventID)
+	}
+	return false, false
+}
+
+// streamDurableRun tails the event log of one known run. Split from
+// streamDurableTurn so a web send can observe the run it just enqueued even
+// when a fast worker already marked it terminal.
+func (s *Server) streamDurableRun(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, attach sessionaccess.AttachResult, runID, lastEventID string) (bool, bool) {
+	// The cursor is run-scoped ("runID:seq"). A cursor from a previous run
+	// names a different sequence space: replay this run from its start — the
+	// seq gap between runs is not truncation.
+	var cursor int64
+	if run, seqStr, found := strings.Cut(lastEventID, ":"); found {
+		if run == runID {
+			cursor, _ = strconv.ParseInt(seqStr, 10, 64)
+		}
+	} else {
+		cursor, _ = strconv.ParseInt(lastEventID, 10, 64)
+	}
+	resumeSeq := cursor
+	if cursor > 0 {
+		// Truncation check: the client's cursor must reach the oldest event
+		// still held for this run, otherwise events were pruned underneath it.
+		minSeq, err := s.sessionEvents.MinSeqForRun(ctx, sessionID, runID)
+		if err == nil && minSeq > cursor+1 {
+			return false, true
+		}
+	}
+	sctx, cancel := s.readiness.streamContext(ctx)
+	defer cancel()
+	// Resume metadata: the history watermark this turn started from, and the
+	// message identity the stream will emit. The client reseeds its message
+	// list against these before handing the stream to the SDK.
+	boundary, started, dead := s.waitTurnBootstrap(sctx, sessionID,
+		func(ctx context.Context) (int64, bool, error) {
+			return s.sessionEvents.TurnStartBoundaryForRun(ctx, sessionID, runID)
+		},
+		func(ctx context.Context) (bool, error) { return s.sessionEvents.RunDone(ctx, sessionID, runID) })
+	switch {
+	case sctx.Err() != nil:
+		return false, false
+	case started:
+		w.Header().Set("X-Stella-History-Before", strconv.FormatInt(boundary, 10))
+		w.Header().Set("X-Stella-Message-Id", "msg-"+runID)
+	case dead:
+		// Terminal without a start marker: replaying without the boundary
+		// would duplicate already-rendered canonical content, and even a
+		// verdict-only stream makes the SDK clone the last assistant on its
+		// start frame. Answer Gone — an explicit end that releases the
+		// client's pin; canonical history keeps the truth.
+		writeError(w, http.StatusGone, "turn ended before it could start")
+		return true, false
+	}
+
+	// Replay always walks from the turn's first event: resume suppresses
+	// output at or below resumeSeq but still runs the part/step transitions,
+	// so a mid-part reconnect continues under the same part id.
+	s.streamDurableTail(sctx, w, flusher, agentID, sessionID, attach, durableTailSpec{
+		scope:     runID,
+		resumeSeq: resumeSeq,
+		readPage: func(ctx context.Context, afterSeq int64) ([]sessionevent.Event, error) {
+			return s.sessionEvents.ReadForRun(ctx, sessionID, runID, afterSeq, 256)
+		},
+		done: func(ctx context.Context) (bool, error) {
+			return s.sessionEvents.RunDone(ctx, sessionID, runID)
+		},
+		verdict: func(ctx context.Context) (string, string, error) {
+			return s.sessionEvents.RunState(ctx, sessionID, runID)
+		},
+	})
+	return true, false
+}
+
+// streamDurableExecution tails a turn that carries no agent run — scheduler,
+// delegate, session.send — by the execution lease token its events are
+// stamped with. The turn ends at the token's explicit turn_terminal marker,
+// never at lease disappearance: finish/reap/takeover all write it in the
+// same transaction that retires the row.
+func (s *Server) streamDurableExecution(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, attach sessionaccess.AttachResult, token, lastEventID string) (bool, bool) {
+	scope := "x" + token
+	var cursor int64
+	if run, seqStr, found := strings.Cut(lastEventID, ":"); found && run == scope {
+		cursor, _ = strconv.ParseInt(seqStr, 10, 64)
+	}
+	resumeSeq := cursor
+	sctx, cancel := s.readiness.streamContext(ctx)
+	defer cancel()
+	boundary, started, dead := s.waitTurnBootstrap(sctx, sessionID,
+		func(ctx context.Context) (int64, bool, error) {
+			return s.sessionEvents.TurnStartBoundary(ctx, sessionID, token)
+		},
+		func(ctx context.Context) (bool, error) {
+			_, _, done, err := s.sessionEvents.ExecutionTerminal(ctx, sessionID, token)
+			return done, err
+		})
+	switch {
+	case sctx.Err() != nil:
+		return false, false
+	case started:
+		w.Header().Set("X-Stella-History-Before", strconv.FormatInt(boundary, 10))
+		w.Header().Set("X-Stella-Message-Id", "msg-"+scope)
+	case dead:
+		writeError(w, http.StatusGone, "turn ended before it could start")
+		return true, false
+	}
+
+	s.streamDurableTail(sctx, w, flusher, agentID, sessionID, attach, durableTailSpec{
+		scope:     scope,
+		resumeSeq: resumeSeq,
+		readPage: func(ctx context.Context, afterSeq int64) ([]sessionevent.Event, error) {
+			return s.sessionEvents.ReadForExecution(ctx, sessionID, token, afterSeq, 256)
+		},
+		done: func(ctx context.Context) (bool, error) {
+			_, _, done, err := s.sessionEvents.ExecutionTerminal(ctx, sessionID, token)
+			return done, err
+		},
+		verdict: func(ctx context.Context) (string, string, error) {
+			result, reason, _, err := s.sessionEvents.ExecutionTerminal(ctx, sessionID, token)
+			return result, reason, err
+		},
+	})
+	return true, false
+}
+
+// durableTailSpec names one turn's event-log coordinate and how to read its
+// terminal facts. scope is both the wire bootstrap identity and each event's
+// DurableID prefix, so the run tail and the token tail share one replay loop.
+type durableTailSpec struct {
+	scope     string
+	resumeSeq int64
+	readPage  func(ctx context.Context, afterSeq int64) ([]sessionevent.Event, error)
+	// done reports the persisted terminal fact ahead of each page read;
+	// verdict resolves the result/reason only when the log ended without an
+	// explicit marker. A verdict error is never a clean finish.
+	done    func(ctx context.Context) (bool, error)
+	verdict func(ctx context.Context) (result, reason string, err error)
+}
+
+// streamDurableTail replays one turn's log in order and ends on its explicit
+// turn_terminal marker — or, for a turn that died before writing one, on the
+// persisted terminal fact confirmed before an empty page. Read failures are
+// retried, never treated as drained, so a verdict the store cannot return
+// cannot surface as a successful end.
+func (s *Server) streamDurableTail(sctx context.Context, w http.ResponseWriter, flusher http.Flusher, agentID, sessionID string, attach sessionaccess.AttachResult, tail durableTailSpec) {
+	var cursor int64
+	events := make(chan agent.Event, 64)
+	go func() {
+		defer close(events)
+		for {
+			// Terminal first, page second: every turn's events commit before
+			// its terminal marker/state, so a page read after observing the
+			// terminal cannot miss a committed tail. The reverse order would
+			// see an empty page, then a commit, then done — dropping the tail.
+			done, derr := tail.done(sctx)
+			page, err := tail.readPage(sctx, cursor)
+			if err != nil {
+				if sctx.Err() != nil {
+					return
+				}
+				slog.WarnContext(sctx, "durable turn tail read failed", "session", sessionID, "error", err)
+				select {
+				case <-sctx.Done():
+					return
+				case <-time.After(durablePollInterval):
+				}
+				continue // a failed read is never "drained"
+			}
+			var marker *turnTerminal
+			for _, row := range page {
+				cursor = row.Seq
+				if m := parseTurnTerminal(row.Payload); m != nil {
+					marker = m
+					continue
+				}
+				ev, decErr := agentruntime.DecodeEvent(row.Payload)
+				if decErr != nil || ev.Err != nil {
+					// A recorded mid-turn error is not the turn's end — the
+					// persisted terminal below emits the final verdict.
+					continue
+				}
+				ev.Seq = row.Seq
+				ev.DurableID = tail.scope + ":" + strconv.FormatInt(row.Seq, 10)
+				select {
+				case events <- ev:
+				case <-sctx.Done():
+					return
+				}
+			}
+			// The tail ends in order at the marker row, or at an empty page
+			// read after the terminal already committed. A non-success
+			// verdict surfaces as an error so the client does not see a clean
+			// finish for a turn that failed.
+			if marker != nil || (derr == nil && done && len(page) == 0) {
+				var result, reason string
+				if marker != nil {
+					result, reason = marker.Result, marker.Reason
+				} else {
+					var verr error
+					if result, reason, verr = tail.verdict(sctx); verr != nil {
+						// The turn ended but its verdict is unreadable — a
+						// blank terminal would look like a clean finish.
+						slog.WarnContext(sctx, "durable turn verdict read failed", "session", sessionID, "error", verr)
+						select {
+						case <-sctx.Done():
+							return
+						case <-time.After(durablePollInterval):
+						}
+						continue
+					}
+				}
+				// The durable terminal fact goes on the wire ahead of the
+				// verdict error: it is the receipt that lets an observer lift
+				// its history cap — stream close alone proves nothing.
+				select {
+				case events <- agent.Event{Terminal: &agentruntime.TurnTerminalEvent{Result: result, Reason: reason}}:
+				case <-sctx.Done():
+					return
+				}
+				if result != "" && result != "success" && result != "completed" {
+					msg := result
+					if reason != "" {
+						msg += ": " + reason
+					}
+					select {
+					case events <- agent.Event{Err: errors.New("turn " + msg)}:
+					case <-sctx.Done():
+					}
+				}
+				return
+			}
+			select {
+			case <-sctx.Done():
+				return
+			case <-attach.Wake:
+			case <-time.After(durablePollInterval):
+			}
+		}
+	}()
+	streamAgentEvents(sctx, w, flusher, agentID, sessionID, events, tail.scope, tail.resumeSeq, func() error {
+		return attach.BeforeProtectedEvent(sctx)
+	})
+}
+
+// sendSessionMessageDurable turns a web send into a durable run enqueue plus
+// an observe-only SSE attach: any replica may execute the turn, and this
+// replica streams the persisted events. The session record itself is the
+// dedup point — a client-supplied Idempotency-Key maps onto request_key.
+func (s *Server) sendSessionMessageDurable(w http.ResponseWriter, r *http.Request, flusher http.Flusher, authority authz.Authority, agentID, sessionID string, message agent.MessageContent, excludedTools []string) {
+	prepared, err := s.sessionAccess.PrepareDurableSend(r.Context(), sessionaccess.SendInput{
+		Authority:     authority,
+		AgentID:       agentID,
+		SessionID:     sessionID,
+		Message:       message,
+		ExcludedTools: excludedTools,
+	})
+	if err != nil {
+		if errors.Is(err, session.ErrArchived) {
+			writeError(w, http.StatusConflict, "session is archived; start a new session")
+			return
+		}
+		s.writeSessionAccessError(w, err)
+		return
+	}
+	if prepared.PlainReply != "" {
+		streamPlainReply(w, flusher, prepared.PlainReply)
+		return
+	}
+	info := prepared.Info
+	requestKey := r.Header.Get("Idempotency-Key")
+	if requestKey == "" {
+		requestKey = uuid.Must(uuid.NewV7()).String()
+	}
+	input := agentrun.Input{V: agentrun.EnvelopeVersion, Kind: "message", ExcludedTools: excludedTools}
+	switch m := message.(type) {
+	case string:
+		input.Text = m
+	case []ai.ContentBlock:
+		// The kind-tagged transport encoding keeps raw image bytes for the
+		// executing replica; a plain json.Marshal drops every block silently.
+		raw, merr := ai.MarshalTransportBlocks(m)
+		if merr != nil {
+			writeError(w, http.StatusInternalServerError, "encode message content")
+			return
+		}
+		input.Content = raw
+	default:
+		writeError(w, http.StatusBadRequest, "unsupported message content")
+		return
+	}
+	run, _, err := s.durableRuns.EnqueueDirect(r.Context(), agentrun.EnqueueParams{
+		SessionID:  info.ID,
+		AgentID:    info.AgentID,
+		RequestKey: agentrun.RequestKeyRequest(requestKey),
+		Actor: agentrun.Actor{
+			V:        agentrun.EnvelopeVersion,
+			Kind:     "user",
+			UserID:   info.UserID,
+			GroupID:  info.GroupID,
+			GuestID:  info.GuestID,
+			Platform: "web",
+		},
+		Input: input,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "enqueue failed")
+		return
+	}
+	// Observe: attach returns non-live (the run executes wherever a worker
+	// claims it) and the durable tail streams the persisted run events.
+	attach, err := s.sessionAccess.Attach(r.Context(), sessionaccess.AttachInput{Authority: authority, AgentID: agentID, SessionID: sessionID})
+	if err != nil {
+		s.writeSessionAccessError(w, err)
+		return
+	}
+	defer attach.Cancel()
+	if ok, _ := s.streamDurableRun(r.Context(), w, flusher, agentID, sessionID, attach, run.ID, ""); !ok {
+		w.WriteHeader(http.StatusNoContent)
+	}
 }

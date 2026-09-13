@@ -4,6 +4,7 @@ package sessionexecution
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/core/agenterr"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -43,6 +43,7 @@ type Lease struct {
 	store     *Store
 	sessionID string
 	token     string
+	extra     FinishExtra
 	ctx       context.Context
 	cancel    context.CancelCauseFunc
 	stop      chan struct{}
@@ -64,7 +65,45 @@ func FromContext(ctx context.Context) *Lease {
 	return lease
 }
 
+// SessionID is the session this lease fences. An adoption check must compare
+// it to the admission target — a lease inherited from a parent turn's context
+// belongs to the parent session and must never substitute for the child's own
+// claim.
+func (l *Lease) SessionID() string { return l.sessionID }
+
+// Token is the execution identity stamped onto this turn's durable events.
+// Observers tail ctx_session_event by it and stop only at its terminal
+// marker — never at this row disappearing.
+func (l *Lease) Token() string { return l.token }
+
+// FinishExtra runs inside the lease-finish transaction after the token
+// validates and before commit. It is where a run worker folds its own durable
+// completion (run state, reply ops) into the same atomic unit as the lease's
+// activity finish and execution-row delete.
+type FinishExtra func(ctx context.Context, tx pgx.Tx, result string) error
+
+// ClaimWith is Claim plus a finish-transaction callback.
+func (s *Store) ClaimWith(ctx context.Context, sessionID string, extra FinishExtra) (context.Context, *Lease, error) {
+	return s.claim(ctx, sessionID, extra)
+}
+
 func (s *Store) Claim(ctx context.Context, sessionID string) (context.Context, *Lease, error) {
+	return s.claim(ctx, sessionID, nil)
+}
+
+// Adopt wraps a token the caller already claimed inside its own transaction —
+// the run worker claims run and session execution in one commit, then adopts
+// the lease here so renewal, cancellation and Finish behave exactly like a
+// locally claimed lease.
+func (s *Store) Adopt(ctx context.Context, sessionID, token string, extra FinishExtra) (context.Context, *Lease) {
+	runCtx, cancelRun := context.WithCancelCause(Require(ctx))
+	lease := &Lease{store: s, sessionID: sessionID, token: token, extra: extra, ctx: runCtx, cancel: cancelRun, stop: make(chan struct{}), done: make(chan struct{})}
+	runCtx = context.WithValue(runCtx, executionKey{}, lease)
+	go lease.maintain()
+	return runCtx, lease
+}
+
+func (s *Store) claim(ctx context.Context, sessionID string, extra FinishExtra) (context.Context, *Lease, error) {
 	opCtx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
 	tx, err := s.db.Begin(opCtx)
@@ -74,11 +113,9 @@ func (s *Store) Claim(ctx context.Context, sessionID string) (context.Context, *
 	defer rollback(tx)
 	q := sqlc.New(tx)
 	token := uuid.Must(uuid.NewV7()).String()
-	_, err = q.ClaimSessionExecution(opCtx, sqlc.ClaimSessionExecutionParams{SessionID: sessionID, Token: token})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil, agenterr.ErrSessionBusy
-	}
-	if err != nil {
+	// The admission claimant's writer identity is this process: a takeover
+	// must first prove the previous writer exited (plan D9).
+	if err := ClaimSessionTx(opCtx, tx, sessionID, token, ProcessOwner("admission")); err != nil {
 		return nil, nil, err
 	}
 	rows, err := q.StartSessionExecutionActivity(opCtx, sessionID)
@@ -92,7 +129,7 @@ func (s *Store) Claim(ctx context.Context, sessionID string) (context.Context, *
 		return nil, nil, fmt.Errorf("claim session execution (outcome unknown): %w", err)
 	}
 	runCtx, cancelRun := context.WithCancelCause(Require(ctx))
-	lease := &Lease{store: s, sessionID: sessionID, token: token, ctx: runCtx, cancel: cancelRun, stop: make(chan struct{}), done: make(chan struct{})}
+	lease := &Lease{store: s, sessionID: sessionID, token: token, extra: extra, ctx: runCtx, cancel: cancelRun, stop: make(chan struct{}), done: make(chan struct{})}
 	runCtx = context.WithValue(runCtx, executionKey{}, lease)
 	go lease.maintain()
 	return runCtx, lease, nil
@@ -206,6 +243,17 @@ func (l *Lease) fail(err error) error {
 // Finish is the only canceled-execution write: activity and token deletion are
 // atomic. A lost commit response never retries the run or its result commits.
 func (l *Lease) Finish(result string) error {
+	if err := l.finish(result); err != nil {
+		// The turn is over but the attest may not have landed (DB outage,
+		// lost commit). Retry briefly in the background so an unwound writer
+		// does not leave a tombstone that denies takeover forever.
+		go l.store.releaseExpiredRetry(l.sessionID, l.token)
+		return err
+	}
+	return nil
+}
+
+func (l *Lease) finish(result string) error {
 	l.once.Do(func() { close(l.stop) })
 	<-l.done
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(l.ctx), OperationTimeout)
@@ -223,11 +271,29 @@ func (l *Lease) Finish(result string) error {
 	if err != nil {
 		return err
 	}
+	if err := lockSessionForTerminal(ctx, q, l.sessionID); err != nil {
+		return err
+	}
 	valid, err := q.SessionExecutionValid(ctx, sqlc.SessionExecutionValidParams{SessionID: l.sessionID, Token: l.token, AllowCancel: true})
 	if err != nil {
 		return err
 	}
 	if !valid.Valid || !valid.Bool {
+		// The turn already unwound (Finish runs after the executor returned),
+		// so this process is no longer a writer. Drop our own expired row so
+		// the next claimant sees a confirmed exit instead of an unverifiable
+		// tombstone — a re-claimed row has a different token and is never
+		// matched. The linked run stays for the reaper: it owns the
+		// run→exec lock order and also repairs orphans after this row is gone.
+		// The terminal marker still lands for our token: watchers must never
+		// infer an end from the row disappearing. Marker and release stay
+		// atomic — a failed marker rolls the release back for the retry loop.
+		if err := recordTerminalLocked(ctx, q, l.sessionID, l.token, row.RunID.String, "error", "execution lease expired"); err != nil {
+			return err
+		}
+		if _, err := q.DeleteExpiredSessionExecution(ctx, sqlc.DeleteExpiredSessionExecutionParams{SessionID: l.sessionID, Token: l.token}); err == nil {
+			_ = l.store.commit(ctx, tx)
+		}
 		return ErrLost
 	}
 	switch {
@@ -240,6 +306,14 @@ func (l *Lease) Finish(result string) error {
 	}
 	if err := q.FinishSessionExecutionActivity(ctx, sqlc.FinishSessionExecutionActivityParams{SessionID: l.sessionID, Result: pgtype.Text{String: result, Valid: true}}); err != nil {
 		return err
+	}
+	if l.extra != nil {
+		if err := l.extra(ctx, tx, result); err != nil {
+			return err
+		}
+	}
+	if err := recordTerminalLocked(ctx, q, l.sessionID, l.token, row.RunID.String, result, ""); err != nil {
+		return fmt.Errorf("record execution terminal: %w", err)
 	}
 	if _, err := q.DeleteSessionExecution(ctx, sqlc.DeleteSessionExecutionParams{SessionID: l.sessionID, Token: l.token}); err != nil {
 		return err
@@ -303,8 +377,37 @@ func (s *Store) Reap(ctx context.Context) error {
 		if row.CancelRequested {
 			result = "canceled"
 		}
+		if err := lockSessionForTerminal(ctx, q, row.SessionID); err != nil {
+			return err
+		}
+		// The token's terminal is a fact about the turn, not about whether the
+		// tombstone may be deleted: a still-alive writer's row stays fenced,
+		// but its observers must not wait on a lease that can never write
+		// again. The marker is idempotent, so the writer's own finish cannot
+		// produce a second verdict.
+		if err := recordTerminalLocked(ctx, q, row.SessionID, row.Token, row.RunID.String, result, "execution reaped"); err != nil {
+			return err
+		}
 		if err := q.FinishSessionExecutionActivity(ctx, sqlc.FinishSessionExecutionActivityParams{SessionID: row.SessionID, Result: pgtype.Text{String: result, Valid: true}}); err != nil {
 			return err
+		}
+		// A linked durable run shares this execution's fate: terminating it in
+		// the same transaction keeps run state from orphaning as 'running'
+		// after the execution row is gone.
+		if row.RunID.Valid {
+			if _, err := q.MarkAgentRunInterrupted(ctx, row.RunID.String); err != nil {
+				return err
+			}
+		}
+		// The row is the previous writer's tombstone: delete it only when the
+		// owner is confirmed dead. A live or unverifiable owner keeps the row
+		// so takeover claims stay fenced; the fenced-out writer clears it
+		// itself via Finish once its turn unwinds (plan D9). The marker above
+		// already ended the token's observation regardless of the tombstone.
+		if !WriterExited(row.OwnerHost, row.OwnerPid) {
+			slog.WarnContext(ctx, "execution lease kept: previous writer not proven dead",
+				"session", row.SessionID, "owner", row.OwnerID.String)
+			continue
 		}
 		if _, err := q.DeleteSessionExecution(ctx, sqlc.DeleteSessionExecutionParams{SessionID: row.SessionID, Token: row.Token}); err != nil {
 			return err
@@ -326,4 +429,47 @@ func (s *Store) RunReaper(ctx context.Context) {
 		case <-ticker.C:
 		}
 	}
+}
+
+// Lock order for every transaction that writes an execution terminal:
+// execution row lock → ctxconv advisory → ctx_conversation row write.
+// EventSink.AppendBatch already holds the advisory while it bumps the
+// conversation's event_seq row — a caller holding the conversation row before
+// taking the advisory would deadlock the two against each other.
+func lockSessionForTerminal(ctx context.Context, q *sqlc.Queries, sessionID string) error {
+	// The event domain's advisory is keyed by session id — the same lock
+	// EventSink.AppendBatch holds while bumping the session's event_seq.
+	return q.LockConversationForWrite(ctx, sessionID)
+}
+
+// recordTerminalLocked appends the execution's turn_terminal marker inside the
+// caller's transaction, which must already hold the conversation write lock.
+// The marker is the only durable end-of-turn signal for observers tailing
+// ctx_session_event by token: the lease row is deleted on the same commit, so
+// nothing may infer an end from the row going away. It is idempotent per
+// token — a token retired by reap then self-released keeps its first verdict.
+func recordTerminalLocked(ctx context.Context, q *sqlc.Queries, sessionID, token, runID, result, reason string) error {
+	if sessionID == "" || token == "" {
+		return nil
+	}
+	if _, err := q.GetSessionTerminalEvent(ctx, sqlc.GetSessionTerminalEventParams{
+		SessionID:   sessionID,
+		ExecutionID: pgtype.Text{String: token, Valid: true},
+	}); err == nil {
+		return nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	seq, err := q.NextSessionEventSeq(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(map[string]string{"type": "turn_terminal", "result": result, "reason": reason})
+	return q.InsertSessionEvent(ctx, sqlc.InsertSessionEventParams{
+		SessionID:   sessionID,
+		RunID:       pgtype.Text{String: runID, Valid: runID != ""},
+		ExecutionID: pgtype.Text{String: token, Valid: true},
+		Seq:         seq,
+		Event:       payload,
+	})
 }

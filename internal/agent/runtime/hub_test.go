@@ -2,17 +2,34 @@ package runtime
 
 import (
 	"testing"
-
-	"github.com/CherryHQ/stella/pkg/ai"
+	"time"
 )
 
-func TestSessionHubFanOutAndClose(t *testing.T) {
+func wakeWithin(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("no wake for %s", what)
+	}
+}
+
+func noWake(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+		t.Fatalf("unexpected wake for %s", what)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestSessionHubWakeOnly(t *testing.T) {
 	h := NewSessionHub()
 	if h.IsLive("s1") {
 		t.Fatal("session should not be live before a turn begins")
 	}
 
-	ch, cancel := h.Subscribe("s1")
+	ch, cancel := h.Watch("s1")
 	defer cancel()
 
 	h.begin("s1")
@@ -20,155 +37,51 @@ func TestSessionHubFanOutAndClose(t *testing.T) {
 		t.Fatal("session should be live after begin")
 	}
 
-	h.publish("s1", Event{Text: "hello"})
-	if ev := <-ch; ev.Text != "hello" {
-		t.Fatalf("got %q, want %q", ev.Text, "hello")
-	}
+	// A committed batch wakes the watcher; the channel carries no payload.
+	h.wake("s1")
+	wakeWithin(t, ch, "committed batch")
+
+	// Wakes coalesce to the cap-1 slot: two wakes leave exactly one pending.
+	h.wake("s1")
+	h.wake("s1")
+	wakeWithin(t, ch, "coalesced wake")
+	noWake(t, ch, "second coalesced wake")
 
 	h.end("s1")
 	if h.IsLive("s1") {
 		t.Fatal("session should not be live after end")
 	}
-	if _, open := <-ch; open {
-		t.Fatal("subscriber channel should be closed when the turn ends")
-	}
-}
-
-func TestSessionHubReplaysActiveTurnBeforeLiveEvents(t *testing.T) {
-	h := NewSessionHub()
-	h.begin("s1")
-	h.publish("s1", Event{Text: "before"})
-
-	ch, cancel := h.Subscribe("s1")
-	defer cancel()
-	h.publish("s1", Event{Text: "after"})
-
-	if event := <-ch; event.Text != "before" {
-		t.Fatalf("first event = %q, want replayed event", event.Text)
-	}
-	if event := <-ch; event.Text != "after" {
-		t.Fatalf("second event = %q, want live event", event.Text)
-	}
-	h.end("s1")
-}
-
-func TestSessionHubReplaysAtomicToolCompletionWithoutStore(t *testing.T) {
-	h := NewSessionHub()
-	h.begin("s1")
-	h.publish("s1", Event{
-		ToolUse: &ToolUseEvent{ID: "call-1", Tool: "task", Status: "done"},
-		Store:   ai.ToolResultMessage{ToolCallID: "call-1"},
-	})
-
-	ch, cancel := h.Subscribe("s1")
-	defer cancel()
-	event := <-ch
-	if event.ToolUse == nil || event.ToolUse.ID != "call-1" {
-		t.Fatalf("replayed event = %#v, want tool completion", event)
-	}
-	if event.Store != nil {
-		t.Fatalf("replayed event retained durable store: %#v", event.Store)
-	}
-	h.end("s1")
-}
-
-func TestSessionHubReplayCeilingFailsClosed(t *testing.T) {
-	h := NewSessionHub()
-	h.begin("s1")
-	h.publish("s1", Event{Text: string(make([]byte, replayMaxBytes+1))})
-
-	ch, cancel := h.Subscribe("s1")
-	defer cancel()
-	select {
-	case event := <-ch:
-		t.Fatalf("oversized replay unexpectedly delivered: %d bytes", len(event.Text))
-	default:
-	}
-	h.end("s1")
-}
-
-func TestSessionHubCoalescesTextBeforeEventCeiling(t *testing.T) {
-	h := NewSessionHub()
-	h.begin("s1")
-	for range replayMaxEvents + 1 {
-		h.publish("s1", Event{Text: "x"})
-	}
-
-	h.mu.Lock()
-	events := append([]Event(nil), h.replay["s1"].events...)
-	h.mu.Unlock()
-	if len(events) != 3 {
-		t.Fatalf("coalesced replay events = %d, want 3 bounded chunks", len(events))
-	}
-	length := 0
-	for _, event := range events {
-		length += len(event.Text)
-	}
-	if length != replayMaxEvents+1 {
-		t.Fatalf("coalesced replay length = %d, want %d", length, replayMaxEvents+1)
-	}
-	h.end("s1")
-}
-
-func TestSessionHubCoalescedByteAccountingChargesOneEntry(t *testing.T) {
-	h := NewSessionHub()
-	h.begin("s1")
-	for range 100 {
-		h.publish("s1", Event{Text: "x"})
-	}
-
-	h.mu.Lock()
-	state := h.replay["s1"]
-	got := state.bytes
-	h.mu.Unlock()
-	if want := 64 + 100; got != want {
-		t.Fatalf("coalesced replay bytes = %d, want %d", got, want)
-	}
-	h.end("s1")
-}
-
-func TestSessionHubEventCeilingFailsClosed(t *testing.T) {
-	h := NewSessionHub()
-	h.begin("s1")
-	for range replayMaxEvents + 1 {
-		h.publish("s1", Event{Step: &StepEvent{Kind: "start"}})
-	}
-
-	ch, cancel := h.Subscribe("s1")
-	defer cancel()
-	select {
-	case event := <-ch:
-		t.Fatalf("event-count overflow unexpectedly replayed: %#v", event)
-	default:
-	}
-	h.end("s1")
+	// The last turn's end wakes once more so a reader notices the terminal
+	// marker without waiting out its poll.
+	wakeWithin(t, ch, "turn end")
 }
 
 func TestSessionHubCancelUnsubscribes(t *testing.T) {
 	h := NewSessionHub()
-	ch, cancel := h.Subscribe("s1")
+	ch, cancel := h.Watch("s1")
 
 	cancel()
 	if _, open := <-ch; open {
 		t.Fatal("cancel should close the channel")
 	}
 
-	// Publishing after cancel must not panic or deliver.
+	// Waking after cancel must not panic or deliver.
 	h.begin("s1")
-	h.publish("s1", Event{Text: "dropped"})
+	h.wake("s1")
 	h.end("s1")
 
 	// Double cancel is a no-op.
 	cancel()
 }
 
-func TestSessionHubPublishNeverBlocks(t *testing.T) {
+func TestSessionHubWakeNeverBlocks(t *testing.T) {
 	h := NewSessionHub()
-	_, cancel := h.Subscribe("s1") // never drained
+	_, cancel := h.Watch("s1") // never drained
 	defer cancel()
 
-	// More events than the buffer; excess is dropped rather than blocking.
-	for range subBuffer + 10 {
-		h.publish("s1", Event{Text: "x"})
+	h.begin("s1")
+	for range 10 {
+		h.wake("s1")
 	}
+	h.end("s1")
 }

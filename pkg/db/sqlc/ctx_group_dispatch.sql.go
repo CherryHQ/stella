@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -488,6 +489,61 @@ func (q *Queries) GetGroupDispatch(ctx context.Context, id string) (CtxGroupDisp
 	return i, err
 }
 
+const latestTerminalGroupDispatchStates = `-- name: LatestTerminalGroupDispatchStates :many
+SELECT DISTINCT ON (agent_id) agent_id, status, id, attempt_count, updated_at, last_error
+FROM ctx_group_dispatch
+WHERE group_id = $1
+  AND agent_id = ANY($2::text[])
+  AND status IN ('held', 'silent', 'failed', 'completed')
+ORDER BY agent_id, updated_at DESC
+`
+
+type LatestTerminalGroupDispatchStatesParams struct {
+	GroupID string   `json:"group_id"`
+	Column2 []string `json:"column_2"`
+}
+
+type LatestTerminalGroupDispatchStatesRow struct {
+	AgentID      string    `json:"agent_id"`
+	Status       string    `json:"status"`
+	ID           string    `json:"id"`
+	AttemptCount int64     `json:"attempt_count"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	LastError    string    `json:"last_error"`
+}
+
+// The newest terminal dispatch per agent — lets a replica that never ran the
+// turn project the real terminal frame (done/held/silent/failed) onto its SSE.
+// id+attempt_count+updated_at is the generation token a reconcile diffs so two
+// consecutive identical outcomes still emit two frames; last_error carries the
+// persisted reason (held rows record none).
+func (q *Queries) LatestTerminalGroupDispatchStates(ctx context.Context, arg LatestTerminalGroupDispatchStatesParams) ([]LatestTerminalGroupDispatchStatesRow, error) {
+	rows, err := q.db.Query(ctx, latestTerminalGroupDispatchStates, arg.GroupID, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LatestTerminalGroupDispatchStatesRow{}
+	for rows.Next() {
+		var i LatestTerminalGroupDispatchStatesRow
+		if err := rows.Scan(
+			&i.AgentID,
+			&i.Status,
+			&i.ID,
+			&i.AttemptCount,
+			&i.UpdatedAt,
+			&i.LastError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listExpiredRunningGroupDispatch = `-- name: ListExpiredRunningGroupDispatch :many
 SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, publish_started_at, published_at FROM ctx_group_dispatch
 WHERE status = 'running'
@@ -534,6 +590,38 @@ func (q *Queries) ListExpiredRunningGroupDispatch(ctx context.Context, arg ListE
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGroupDispatchesAwaitingPublish = `-- name: ListGroupDispatchesAwaitingPublish :many
+SELECT id
+FROM ctx_group_dispatch
+WHERE status = 'running'
+  AND publish_started_at IS NOT NULL
+  AND result_message_id <> ''
+LIMIT 64
+`
+
+// Accepted replies whose send is a pending durable outbox op, or whose send
+// already landed but finalization has not completed (running + published but
+// not yet completed). The outcome poller drives their terminal state.
+func (q *Queries) ListGroupDispatchesAwaitingPublish(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listGroupDispatchesAwaitingPublish)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -857,20 +945,27 @@ SET status = 'held',
     lease_until = NULL,
     next_attempt_at = NULL,
     held_up_to_seq = $1,
+    last_error = $2,
     updated_at = now()
-WHERE id = $2
+WHERE id = $3
   AND status = 'running'
-  AND attempt_count = $3
+  AND attempt_count = $4
 `
 
 type MarkGroupDispatchHeldParams struct {
 	HeldUpToSeq  pgtype.Int8 `json:"held_up_to_seq"`
+	Reason       string      `json:"reason"`
 	ID           string      `json:"id"`
 	AttemptCount int64       `json:"attempt_count"`
 }
 
 func (q *Queries) MarkGroupDispatchHeld(ctx context.Context, arg MarkGroupDispatchHeldParams) (int64, error) {
-	result, err := q.db.Exec(ctx, markGroupDispatchHeld, arg.HeldUpToSeq, arg.ID, arg.AttemptCount)
+	result, err := q.db.Exec(ctx, markGroupDispatchHeld,
+		arg.HeldUpToSeq,
+		arg.Reason,
+		arg.ID,
+		arg.AttemptCount,
+	)
 	if err != nil {
 		return 0, err
 	}

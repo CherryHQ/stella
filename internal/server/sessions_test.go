@@ -308,7 +308,7 @@ func TestListMessagesByLogicalPageMatchesSerializedWindow(t *testing.T) {
 		}
 	}
 
-	allRows, err := q.GetMessagesByConversation(ctx, conv.ID)
+	allRows, err := q.GetMessagesByConversation(ctx, sqlc.GetMessagesByConversationParams{ConversationID: conv.ID})
 	if err != nil {
 		t.Fatalf("GetMessagesByConversation: %v", err)
 	}

@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -657,8 +658,8 @@ func TestActivationPrecedesIngressAndFinalizeUnregistersOnce(t *testing.T) {
 	if err := b.activate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if h.registerBotCalls != 1 || h.registerPublisherCalls != 1 {
-		t.Fatalf("routing registrations = bot %d, publisher %d", h.registerBotCalls, h.registerPublisherCalls)
+	if h.registerBotCalls != 1 {
+		t.Fatalf("routing bot registrations = %d", h.registerBotCalls)
 	}
 	b.onMessageCreate(nil, m)
 	if h.handleCalls != 1 {
@@ -669,8 +670,8 @@ func TestActivationPrecedesIngressAndFinalizeUnregistersOnce(t *testing.T) {
 	if err := b.activate(context.Background()); err == nil {
 		t.Fatal("activation succeeded after finalization")
 	}
-	if h.registerBotCalls != 1 || h.registerPublisherCalls != 1 {
-		t.Fatalf("routing re-registered after finalization: bot %d, publisher %d", h.registerBotCalls, h.registerPublisherCalls)
+	if h.registerBotCalls != 1 {
+		t.Fatalf("routing bot registrations = %d", h.registerBotCalls)
 	}
 	b.onMessageCreate(nil, m)
 	if h.handleCalls != 1 {
@@ -678,9 +679,6 @@ func TestActivationPrecedesIngressAndFinalizeUnregistersOnce(t *testing.T) {
 	}
 	if h.botCalls != 1 || h.platform != channel.PlatformDiscord || h.botID != "bot" || h.channelID != "discord-main" {
 		t.Fatalf("bot unregister = calls %d, platform %q, bot %q, channel %q", h.botCalls, h.platform, h.botID, h.channelID)
-	}
-	if h.publisherCalls != 1 || h.publisherChannelID != "discord-main" {
-		t.Fatalf("publisher unregister = calls %d, channel %q", h.publisherCalls, h.publisherChannelID)
 	}
 }
 
@@ -767,15 +765,12 @@ func (h *provisioningHandler) ImportGroupHistory(_ context.Context, messages []c
 
 type unregisteringHandler struct {
 	fakeHandler
-	handleCalls            int
-	registerBotCalls       int
-	registerPublisherCalls int
-	botCalls               int
-	publisherCalls         int
-	platform               string
-	botID                  string
-	channelID              string
-	publisherChannelID     string
+	handleCalls      int
+	registerBotCalls int
+	botCalls         int
+	platform         string
+	botID            string
+	channelID        string
 }
 
 type rejectingAttachmentHandler struct {
@@ -798,20 +793,11 @@ func (h *unregisteringHandler) RegisterBotIdentity(string, string, string) {
 	h.registerBotCalls++
 }
 
-func (h *unregisteringHandler) RegisterGroupPublisher(string, channel.GroupPublisher) {
-	h.registerPublisherCalls++
-}
-
 func (h *unregisteringHandler) UnregisterBotIdentity(platform, botID, channelID string) {
 	h.botCalls++
 	h.platform = platform
 	h.botID = botID
 	h.channelID = channelID
-}
-
-func (h *unregisteringHandler) UnregisterGroupPublisher(channelID string) {
-	h.publisherCalls++
-	h.publisherChannelID = channelID
 }
 
 type fakeDiscordREST struct {
@@ -1254,23 +1240,23 @@ func TestReactionLifecycleDeniedForAmbientMessageWithRequireMentionFalse(t *test
 	}
 }
 
-func TestPublishFinishesReactionOnTriggeringMessageAcrossReplyTo(t *testing.T) {
+func TestGroupReplyOpFinishesReactionOnTriggeringMessageAcrossReplyTo(t *testing.T) {
 	b, err := New(Config{Token: "token"}, fakeHandler{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	rest := newFakeDiscordREST()
 	b.rest = rest
-	events := make(chan channel.Event, 1)
-	events <- channel.Event{Text: "group reply"}
-	close(events)
-	req := channel.GroupPublishRequest{
+	payload, _ := json.Marshal(channel.GroupReplyOpPayload{
 		PlatformGroupID:   "group-channel",
 		ReplyTo:           "trigger-message",
+		Text:              "group reply",
 		LifecycleFeedback: true,
-		Stream:            &channel.ChatStream{Events: events},
-	}
-	if err := b.Publish(context.Background(), req); err != nil {
+	})
+	if _, err := b.SendOperation(context.Background(), channel.OutboundOp{
+		Kind:    "send_group_reply",
+		Payload: payload,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	rest.mu.Lock()
@@ -1283,27 +1269,28 @@ func TestPublishFinishesReactionOnTriggeringMessageAcrossReplyTo(t *testing.T) {
 	}
 }
 
-func TestPublishDoesNotReactToAmbientTrigger(t *testing.T) {
+func TestGroupReplyOpDoesNotReactToAmbientTrigger(t *testing.T) {
 	b, err := New(Config{Token: "token"}, fakeHandler{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	rest := newFakeDiscordREST()
 	b.rest = rest
-	events := make(chan channel.Event, 1)
-	events <- channel.Event{Text: "ambient reply"}
-	close(events)
-	if err := b.Publish(context.Background(), channel.GroupPublishRequest{
+	payload, _ := json.Marshal(channel.GroupReplyOpPayload{
 		PlatformGroupID: "group-channel",
 		ReplyTo:         "ambient-message",
-		Stream:          &channel.ChatStream{Events: events},
+		Text:            "ambient reply",
+	})
+	if _, err := b.SendOperation(context.Background(), channel.OutboundOp{
+		Kind:    "send_group_reply",
+		Payload: payload,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	rest.mu.Lock()
 	defer rest.mu.Unlock()
 	if len(rest.reactionsAdded) != 0 || len(rest.reactionsRemoved) != 0 {
-		t.Fatalf("ambient publish reactions added=%#v removed=%#v", rest.reactionsAdded, rest.reactionsRemoved)
+		t.Fatalf("ambient reply reactions added=%#v removed=%#v", rest.reactionsAdded, rest.reactionsRemoved)
 	}
 }
 

@@ -1069,7 +1069,7 @@ func (rt *Runtime) streamEventsClosing(
 	storePrefix ...ai.Message,
 ) error {
 	defer close(out)
-	_, err := rt.streamEvents(ctx, sessionID, memSess, stream, out, hs, hookMeta, chatStart, nil, storePrefix...)
+	_, err := rt.streamEvents(ctx, sessionID, memSess, stream, out, hs, hookMeta, chatStart, nil, nil, storePrefix...)
 	return err
 }
 

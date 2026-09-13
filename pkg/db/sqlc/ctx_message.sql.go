@@ -420,11 +420,18 @@ func (q *Queries) GetMessageScoped(ctx context.Context, arg GetMessageScopedPara
 }
 
 const getMessagesByConversation = `-- name: GetMessagesByConversation :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id, execution_metadata FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id, execution_metadata FROM ctx_message WHERE conversation_id = $1
+  AND ($2::bigint IS NULL OR seq <= $2)
+ORDER BY seq ASC
 `
 
-func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID string) ([]CtxMessage, error) {
-	rows, err := q.db.Query(ctx, getMessagesByConversation, conversationID)
+type GetMessagesByConversationParams struct {
+	ConversationID string      `json:"conversation_id"`
+	SnapshotSeq    pgtype.Int8 `json:"snapshot_seq"`
+}
+
+func (q *Queries) GetMessagesByConversation(ctx context.Context, arg GetMessagesByConversationParams) ([]CtxMessage, error) {
+	rows, err := q.db.Query(ctx, getMessagesByConversation, arg.ConversationID, arg.SnapshotSeq)
 	if err != nil {
 		return nil, err
 	}
@@ -698,6 +705,7 @@ WITH ordered AS (
     WHERE conversation_id = $1
       AND ($2::timestamptz IS NULL OR created_at >= $2)
       AND ($3::timestamptz IS NULL OR created_at <= $3)
+      AND ($4::bigint IS NULL OR seq <= $4)
 ), grouped AS (
     SELECT
         id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id, execution_metadata, prev_role,
@@ -709,7 +717,7 @@ WITH ordered AS (
     FROM grouped
     GROUP BY logical_idx
     ORDER BY logical_idx DESC
-    LIMIT $5 OFFSET $4
+    LIMIT $6 OFFSET $5
 )
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at,
        actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id,
@@ -723,6 +731,7 @@ type ListMessagesByLogicalPageParams struct {
 	ConversationID string             `json:"conversation_id"`
 	After          pgtype.Timestamptz `json:"after"`
 	Before         pgtype.Timestamptz `json:"before"`
+	SnapshotSeq    pgtype.Int8        `json:"snapshot_seq"`
 	Offset         int32              `json:"offset"`
 	Limit          int32              `json:"limit"`
 }
@@ -752,6 +761,7 @@ func (q *Queries) ListMessagesByLogicalPage(ctx context.Context, arg ListMessage
 		arg.ConversationID,
 		arg.After,
 		arg.Before,
+		arg.SnapshotSeq,
 		arg.Offset,
 		arg.Limit,
 	)

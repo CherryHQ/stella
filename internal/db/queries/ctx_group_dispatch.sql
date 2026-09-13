@@ -132,6 +132,7 @@ SET status = 'held',
     lease_until = NULL,
     next_attempt_at = NULL,
     held_up_to_seq = sqlc.arg(held_up_to_seq),
+    last_error = sqlc.arg(reason),
     updated_at = now()
 WHERE id = sqlc.arg(id)
   AND status = 'running'
@@ -456,3 +457,27 @@ SELECT DISTINCT agent_id FROM ctx_group_dispatch
 WHERE group_id = sqlc.arg(group_id)
   AND status = 'running'
 ORDER BY agent_id;
+
+-- name: LatestTerminalGroupDispatchStates :many
+-- The newest terminal dispatch per agent — lets a replica that never ran the
+-- turn project the real terminal frame (done/held/silent/failed) onto its SSE.
+-- id+attempt_count+updated_at is the generation token a reconcile diffs so two
+-- consecutive identical outcomes still emit two frames; last_error carries the
+-- persisted reason (held rows record none).
+SELECT DISTINCT ON (agent_id) agent_id, status, id, attempt_count, updated_at, last_error
+FROM ctx_group_dispatch
+WHERE group_id = $1
+  AND agent_id = ANY($2::text[])
+  AND status IN ('held', 'silent', 'failed', 'completed')
+ORDER BY agent_id, updated_at DESC;
+
+-- name: ListGroupDispatchesAwaitingPublish :many
+-- Accepted replies whose send is a pending durable outbox op, or whose send
+-- already landed but finalization has not completed (running + published but
+-- not yet completed). The outcome poller drives their terminal state.
+SELECT id
+FROM ctx_group_dispatch
+WHERE status = 'running'
+  AND publish_started_at IS NOT NULL
+  AND result_message_id <> ''
+LIMIT 64;

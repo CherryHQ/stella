@@ -41,7 +41,10 @@ func TestExecutionFencesTranscriptMemorySnapshotAndActivity(t *testing.T) {
 	if err := p.Append(ctx, sess, ai.UserMessage{Content: "accepted"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(t.Context(), "UPDATE ctx_session_execution SET lease_until=clock_timestamp()-interval '1 second' WHERE session_id=$1", sess.ID); err != nil {
+	// Expire the lease AND mark the recorded owner dead: takeover after expiry
+	// must first prove the previous writer exited (plan D9), and this process
+	// — the live test binary — is the owner the row would otherwise name.
+	if _, err := db.Exec(t.Context(), "UPDATE ctx_session_execution SET lease_until=clock_timestamp()-interval '1 second', owner_pid=1073741824 WHERE session_id=$1", sess.ID); err != nil {
 		t.Fatal(err)
 	}
 	_, next, err := store.Claim(t.Context(), sess.ID)

@@ -137,6 +137,10 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultEr
 	}
 	if handled {
 		terminal = true
+		if resp == "" {
+			// Durable-ingress ack: accepted, nothing to send.
+			return nil
+		}
 		sendErr := b.sendText(deliveryCtx, m.ChannelID, resp, m.ID)
 		success = sendErr == nil
 		return sendErr

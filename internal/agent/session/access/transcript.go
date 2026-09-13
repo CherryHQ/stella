@@ -29,6 +29,10 @@ type MessageListInput struct {
 	Before    *string
 	SeqFrom   *int
 	SeqTo     *int
+	// SnapshotSeq caps raw rows to seq <= this value before seq-range, paging,
+	// and logical merging. Nil keeps a live view; a non-nil zero is an exact
+	// empty transcript — distinct from the "no cap" case.
+	SnapshotSeq *int64
 }
 
 type TranscriptPageInput struct {
@@ -182,19 +186,30 @@ func (a *Access) ListMessages(ctx context.Context, in MessageListInput) ([]Messa
 		limit = in.Limit
 	}
 	skip := max(in.Skip, 0)
+	var snapshot pgtype.Int8
+	if in.SnapshotSeq != nil {
+		snapshot = pgtype.Int8{Int64: *in.SnapshotSeq, Valid: true}
+	}
 	var rows []sqlc.CtxMessage
 	switch {
 	case in.SeqFrom != nil || in.SeqTo != nil:
 		if in.SeqFrom == nil || in.SeqTo == nil || *in.SeqFrom <= 0 || *in.SeqTo < *in.SeqFrom {
 			return nil, ErrInvalid
 		}
-		rows, err = a.svc.q.GetMessagesByConversationRange(ctx, sqlc.GetMessagesByConversationRangeParams{ConversationID: conv.ID, Seq: int64(*in.SeqFrom), Seq_2: int64(*in.SeqTo)})
+		seqTo := int64(*in.SeqTo)
+		if in.SnapshotSeq != nil && *in.SnapshotSeq < seqTo {
+			seqTo = *in.SnapshotSeq
+		}
+		if seqTo < int64(*in.SeqFrom) {
+			return []Message{}, nil
+		}
+		rows, err = a.svc.q.GetMessagesByConversationRange(ctx, sqlc.GetMessagesByConversationRangeParams{ConversationID: conv.ID, Seq: int64(*in.SeqFrom), Seq_2: seqTo})
 	case limit > 0:
 		var pageRows []sqlc.ListMessagesByLogicalPageRow
-		pageRows, err = a.svc.q.ListMessagesByLogicalPage(ctx, sqlc.ListMessagesByLogicalPageParams{ConversationID: conv.ID, After: nullTimeFromStringPtr(in.After), Before: nullTimeFromStringPtr(in.Before), Limit: int32(limit), Offset: int32(skip)})
+		pageRows, err = a.svc.q.ListMessagesByLogicalPage(ctx, sqlc.ListMessagesByLogicalPageParams{ConversationID: conv.ID, After: nullTimeFromStringPtr(in.After), Before: nullTimeFromStringPtr(in.Before), SnapshotSeq: snapshot, Limit: int32(limit), Offset: int32(skip)})
 		rows = logicalPageRowsToMessages(pageRows)
 	default:
-		rows, err = a.svc.q.GetMessagesByConversation(ctx, conv.ID)
+		rows, err = a.svc.q.GetMessagesByConversation(ctx, sqlc.GetMessagesByConversationParams{ConversationID: conv.ID, SnapshotSeq: snapshot})
 		rows = filterMessageRowsByTime(rows, in.After, in.Before)
 	}
 	if err != nil {
@@ -326,7 +341,7 @@ func (a *Access) ListContextItems(ctx context.Context, in ContextItemListInput) 
 			return ContextItemPage{}, fmt.Errorf("%w: count context items: %w", ErrUnavailable, err)
 		}
 		if count == 0 {
-			messages, err := a.svc.q.GetMessagesByConversation(ctx, conv.ID)
+			messages, err := a.svc.q.GetMessagesByConversation(ctx, sqlc.GetMessagesByConversationParams{ConversationID: conv.ID})
 			if err != nil {
 				return ContextItemPage{}, fmt.Errorf("%w: list fallback context messages: %w", ErrUnavailable, err)
 			}

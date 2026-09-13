@@ -26,8 +26,13 @@ var invocationInventory = map[string]map[string]int{
 	// the group authority for the Web group turn.
 	"internal/channel/group_chat_resolver.go": {"Chat": 1, "GetService": 1},
 	"internal/channel/resolved_chat.go":       {"GetService": 1, "Chat": 1},
-	"internal/goal/session.go":                {"GetService": 1}, // session creation; execution is guarded in workerExecutor
-	"internal/reflect/loop.go":                {"GetService": 1}, // session listing only; no turn
+	// Durable run worker's turn entry: the run row's persisted actor facts are
+	// re-checked via access.Use against the exact session, then the rebuilt
+	// authority drives svc.Chat — this is the access-authorized adapter for
+	// durable runs, not a bypass.
+	"internal/channel/run_executor.go": {"GetService": 1, "Chat": 1},
+	"internal/goal/session.go":         {"GetService": 1}, // session creation; execution is guarded in workerExecutor
+	"internal/reflect/loop.go":         {"GetService": 1}, // session listing only; no turn
 	// Webhook admission completes user→Agent PEP checks before the transport
 	// resolves the runtime; ChatAdmitted preserves that trusted authority.
 	"internal/server/webhook_runtime.go": {"GetService": 1},

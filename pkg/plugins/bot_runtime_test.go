@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -209,4 +210,47 @@ func TestBotRuntimeQuiesceTwoPhase(t *testing.T) {
 		t.Fatal("final Stop did not unregister the notifier")
 	}
 	waitClosed(t, ch.finalized, "channel finalization")
+}
+
+// A Start failure that is not caused by our own cancellation must land in an
+// error snapshot — the lease tracker only retries RuntimeStateError.
+func TestAsyncStartFailureIsErrorSnapshot(t *testing.T) {
+	b := &startFailChannel{fakeBotChannel: newFakeBotChannel("self"), fail: make(chan struct{})}
+	r := NewBotManagedRuntime(BotRuntimeDeps[struct{}]{
+		Handler:      fakeBotHandler{},
+		Platform:     "self",
+		DecodeConfig: func(map[string]any) (struct{}, error) { return struct{}{}, nil },
+		NewChannel:   func(struct{}, pkgchannel.Handler) (pkgchannel.Channel, error) { return b, nil },
+		Snapshot:     botTestSnapshot,
+	})
+	if err := r.Apply(t.Context(), PluginState{ID: "self", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Stop(context.Background()) })
+	close(b.fail)
+	deadline := time.After(2 * time.Second)
+	for {
+		snap, _ := r.Snapshot(t.Context())
+		if snap.State != RuntimeStateRunning {
+			if snap.State != RuntimeStateError {
+				t.Fatalf("async start failure recorded as %q — never retried", snap.State)
+			}
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("start did not return")
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
+type startFailChannel struct {
+	*fakeBotChannel
+	fail chan struct{}
+}
+
+func (c *startFailChannel) Start(context.Context) error {
+	<-c.fail
+	return errors.New("platform handshake failed")
 }
