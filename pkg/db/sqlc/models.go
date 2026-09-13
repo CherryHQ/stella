@@ -415,6 +415,7 @@ type ChannelInbox struct {
 type ChannelOutbox struct {
 	ID                string             `json:"id"`
 	RunID             pgtype.Text        `json:"run_id"`
+	GroupID           pgtype.Text        `json:"group_id"`
 	DeliveryKey       string             `json:"delivery_key"`
 	OperationIndex    int32              `json:"operation_index"`
 	OperationKind     string             `json:"operation_kind"`
@@ -432,7 +433,6 @@ type ChannelOutbox struct {
 	ErrorCode         pgtype.Text        `json:"error_code"`
 	CreatedAt         time.Time          `json:"created_at"`
 	UpdatedAt         time.Time          `json:"updated_at"`
-	GroupID           pgtype.Text        `json:"group_id"`
 }
 
 type ChannelOutboxAttachment struct {
@@ -657,9 +657,9 @@ type CtxSessionEvent struct {
 	SessionID   string          `json:"session_id"`
 	RunID       pgtype.Text     `json:"run_id"`
 	Seq         int64           `json:"seq"`
+	ExecutionID pgtype.Text     `json:"execution_id"`
 	Event       json.RawMessage `json:"event"`
 	CreatedAt   time.Time       `json:"created_at"`
-	ExecutionID pgtype.Text     `json:"execution_id"`
 }
 
 type CtxSessionExecution struct {

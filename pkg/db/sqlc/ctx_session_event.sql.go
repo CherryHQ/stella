@@ -13,7 +13,7 @@ import (
 )
 
 const getSessionStartEvent = `-- name: GetSessionStartEvent :one
-SELECT id, session_id, run_id, seq, event, created_at, execution_id FROM ctx_session_event
+SELECT id, session_id, run_id, seq, execution_id, event, created_at FROM ctx_session_event
 WHERE session_id = $1 AND execution_id = $2 AND event->>'type' = 'turn_start'
 ORDER BY seq DESC
 LIMIT 1
@@ -34,15 +34,15 @@ func (q *Queries) GetSessionStartEvent(ctx context.Context, arg GetSessionStartE
 		&i.SessionID,
 		&i.RunID,
 		&i.Seq,
+		&i.ExecutionID,
 		&i.Event,
 		&i.CreatedAt,
-		&i.ExecutionID,
 	)
 	return i, err
 }
 
 const getSessionStartEventForRun = `-- name: GetSessionStartEventForRun :one
-SELECT id, session_id, run_id, seq, event, created_at, execution_id FROM ctx_session_event
+SELECT id, session_id, run_id, seq, execution_id, event, created_at FROM ctx_session_event
 WHERE session_id = $1 AND run_id = $2 AND event->>'type' = 'turn_start'
 ORDER BY seq DESC
 LIMIT 1
@@ -63,15 +63,15 @@ func (q *Queries) GetSessionStartEventForRun(ctx context.Context, arg GetSession
 		&i.SessionID,
 		&i.RunID,
 		&i.Seq,
+		&i.ExecutionID,
 		&i.Event,
 		&i.CreatedAt,
-		&i.ExecutionID,
 	)
 	return i, err
 }
 
 const getSessionTerminalEvent = `-- name: GetSessionTerminalEvent :one
-SELECT id, session_id, run_id, seq, event, created_at, execution_id FROM ctx_session_event
+SELECT id, session_id, run_id, seq, execution_id, event, created_at FROM ctx_session_event
 WHERE session_id = $1 AND execution_id = $2 AND event->>'type' = 'turn_terminal'
 ORDER BY seq DESC
 LIMIT 1
@@ -92,9 +92,9 @@ func (q *Queries) GetSessionTerminalEvent(ctx context.Context, arg GetSessionTer
 		&i.SessionID,
 		&i.RunID,
 		&i.Seq,
+		&i.ExecutionID,
 		&i.Event,
 		&i.CreatedAt,
-		&i.ExecutionID,
 	)
 	return i, err
 }
@@ -197,7 +197,7 @@ func (q *Queries) PruneSessionEvents(ctx context.Context) (int64, error) {
 }
 
 const readSessionEventsForExecution = `-- name: ReadSessionEventsForExecution :many
-SELECT id, session_id, run_id, seq, event, created_at, execution_id FROM ctx_session_event
+SELECT id, session_id, run_id, seq, execution_id, event, created_at FROM ctx_session_event
 WHERE session_id = $1 AND execution_id = $2 AND seq > $3
 ORDER BY seq
 LIMIT $4
@@ -231,9 +231,9 @@ func (q *Queries) ReadSessionEventsForExecution(ctx context.Context, arg ReadSes
 			&i.SessionID,
 			&i.RunID,
 			&i.Seq,
+			&i.ExecutionID,
 			&i.Event,
 			&i.CreatedAt,
-			&i.ExecutionID,
 		); err != nil {
 			return nil, err
 		}
@@ -246,7 +246,7 @@ func (q *Queries) ReadSessionEventsForExecution(ctx context.Context, arg ReadSes
 }
 
 const readSessionEventsForRun = `-- name: ReadSessionEventsForRun :many
-SELECT id, session_id, run_id, seq, event, created_at, execution_id FROM ctx_session_event
+SELECT id, session_id, run_id, seq, execution_id, event, created_at FROM ctx_session_event
 WHERE session_id = $1 AND run_id = $2 AND seq > $3
 ORDER BY seq
 LIMIT $4
@@ -279,9 +279,9 @@ func (q *Queries) ReadSessionEventsForRun(ctx context.Context, arg ReadSessionEv
 			&i.SessionID,
 			&i.RunID,
 			&i.Seq,
+			&i.ExecutionID,
 			&i.Event,
 			&i.CreatedAt,
-			&i.ExecutionID,
 		); err != nil {
 			return nil, err
 		}
@@ -294,7 +294,7 @@ func (q *Queries) ReadSessionEventsForRun(ctx context.Context, arg ReadSessionEv
 }
 
 const readSessionEventsSince = `-- name: ReadSessionEventsSince :many
-SELECT id, session_id, run_id, seq, event, created_at, execution_id FROM ctx_session_event
+SELECT id, session_id, run_id, seq, execution_id, event, created_at FROM ctx_session_event
 WHERE session_id = $1 AND seq > $2
 ORDER BY seq
 LIMIT $3
@@ -321,9 +321,9 @@ func (q *Queries) ReadSessionEventsSince(ctx context.Context, arg ReadSessionEve
 			&i.SessionID,
 			&i.RunID,
 			&i.Seq,
+			&i.ExecutionID,
 			&i.Event,
 			&i.CreatedAt,
-			&i.ExecutionID,
 		); err != nil {
 			return nil, err
 		}

@@ -165,7 +165,7 @@ const createChannelOutbox = `-- name: CreateChannelOutbox :one
 INSERT INTO channel_outbox (run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, next_attempt_at, group_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (delivery_key, operation_index) DO NOTHING
-RETURNING id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at, group_id
+RETURNING id, run_id, group_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at
 `
 
 type CreateChannelOutboxParams struct {
@@ -203,6 +203,7 @@ func (q *Queries) CreateChannelOutbox(ctx context.Context, arg CreateChannelOutb
 	err := row.Scan(
 		&i.ID,
 		&i.RunID,
+		&i.GroupID,
 		&i.DeliveryKey,
 		&i.OperationIndex,
 		&i.OperationKind,
@@ -220,7 +221,6 @@ func (q *Queries) CreateChannelOutbox(ctx context.Context, arg CreateChannelOutb
 		&i.ErrorCode,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.GroupID,
 	)
 	return i, err
 }
@@ -276,7 +276,7 @@ func (q *Queries) GetChannelOutboxAttachmentByKey(ctx context.Context, arg GetCh
 }
 
 const getChannelOutboxByDelivery = `-- name: GetChannelOutboxByDelivery :many
-SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at, group_id FROM channel_outbox
+SELECT id, run_id, group_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at FROM channel_outbox
 WHERE delivery_key = $1
 ORDER BY operation_index
 `
@@ -293,6 +293,7 @@ func (q *Queries) GetChannelOutboxByDelivery(ctx context.Context, deliveryKey st
 		if err := rows.Scan(
 			&i.ID,
 			&i.RunID,
+			&i.GroupID,
 			&i.DeliveryKey,
 			&i.OperationIndex,
 			&i.OperationKind,
@@ -310,7 +311,6 @@ func (q *Queries) GetChannelOutboxByDelivery(ctx context.Context, deliveryKey st
 			&i.ErrorCode,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}
@@ -323,7 +323,7 @@ func (q *Queries) GetChannelOutboxByDelivery(ctx context.Context, deliveryKey st
 }
 
 const getLatestChannelOutboxOp = `-- name: GetLatestChannelOutboxOp :one
-SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at, group_id FROM channel_outbox
+SELECT id, run_id, group_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at FROM channel_outbox
 WHERE delivery_key = $1
 ORDER BY operation_index DESC
 LIMIT 1
@@ -337,6 +337,7 @@ func (q *Queries) GetLatestChannelOutboxOp(ctx context.Context, deliveryKey stri
 	err := row.Scan(
 		&i.ID,
 		&i.RunID,
+		&i.GroupID,
 		&i.DeliveryKey,
 		&i.OperationIndex,
 		&i.OperationKind,
@@ -354,7 +355,6 @@ func (q *Queries) GetLatestChannelOutboxOp(ctx context.Context, deliveryKey stri
 		&i.ErrorCode,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.GroupID,
 	)
 	return i, err
 }
@@ -401,7 +401,7 @@ func (q *Queries) LatestSentDraftMessageID(ctx context.Context, runID pgtype.Tex
 }
 
 const listExpiredChannelOutboxAttempts = `-- name: ListExpiredChannelOutboxAttempts :many
-SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at, group_id FROM channel_outbox
+SELECT id, run_id, group_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at FROM channel_outbox
 WHERE state = 'sending' AND attempt_started_at <= clock_timestamp() - interval '5 minutes'
 ORDER BY attempt_started_at
 LIMIT 100
@@ -422,6 +422,7 @@ func (q *Queries) ListExpiredChannelOutboxAttempts(ctx context.Context) ([]Chann
 		if err := rows.Scan(
 			&i.ID,
 			&i.RunID,
+			&i.GroupID,
 			&i.DeliveryKey,
 			&i.OperationIndex,
 			&i.OperationKind,
@@ -439,7 +440,6 @@ func (q *Queries) ListExpiredChannelOutboxAttempts(ctx context.Context) ([]Chann
 			&i.ErrorCode,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}
@@ -452,7 +452,7 @@ func (q *Queries) ListExpiredChannelOutboxAttempts(ctx context.Context) ([]Chann
 }
 
 const listPendingChannelOutbox = `-- name: ListPendingChannelOutbox :many
-SELECT id, run_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at, group_id FROM channel_outbox
+SELECT id, run_id, group_id, delivery_key, operation_index, operation_kind, channel_id, source_account_key, address, payload, depends_on, state, attempt_token, owner_token, attempt_started_at, next_attempt_at, platform_message_id, error_code, created_at, updated_at FROM channel_outbox
 WHERE channel_outbox.channel_id = $1 AND channel_outbox.state = 'pending'
   AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
   AND NOT EXISTS (
@@ -510,6 +510,7 @@ func (q *Queries) ListPendingChannelOutbox(ctx context.Context, channelID string
 		if err := rows.Scan(
 			&i.ID,
 			&i.RunID,
+			&i.GroupID,
 			&i.DeliveryKey,
 			&i.OperationIndex,
 			&i.OperationKind,
@@ -527,7 +528,6 @@ func (q *Queries) ListPendingChannelOutbox(ctx context.Context, channelID string
 			&i.ErrorCode,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}
